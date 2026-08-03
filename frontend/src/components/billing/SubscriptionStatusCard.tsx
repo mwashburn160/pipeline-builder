@@ -3,6 +3,7 @@
 
 import { AlertCircle, AlertTriangle, CreditCard } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
 import type { Subscription } from '@/types';
 import { formatDate } from './helpers';
 
@@ -41,7 +42,7 @@ export function SubscriptionStatusCard({
   // Dunning: a failed payment (past_due) or exhausted retries (unpaid) put the
   // subscription at risk. Reserve the alarm styling for these states.
   const needsPayment = subscription.status === 'past_due' || subscription.status === 'unpaid';
-  return (    <div className="card">
+  return (    <Card>
       {/* Dunning banner — a clear path back to good standing before access lapses. */}
       {needsPayment && (
         <div className="mb-4 rounded-lg border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 p-4">
@@ -115,6 +116,6 @@ export function SubscriptionStatusCard({
           ): null}
         </div>
       )}
-    </div>
+    </Card>
   );
 }

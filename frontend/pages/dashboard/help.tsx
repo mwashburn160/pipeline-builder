@@ -7,6 +7,7 @@ import { Search, Sparkles } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Card } from '@/components/ui/Card';
 import { HelpAccordionTopic } from '@/components/help/HelpAccordionTopic';
 import { HELP_TOPICS, HELP_GROUPS } from '@/lib/help';
 import type { HelpTopic, ContentBlock } from '@/lib/help/types';
@@ -87,7 +88,7 @@ export default function HelpPage() {
     <DashboardLayout title="Help" subtitle="Guides, references, and what's new">
       <div className="max-w-4xl grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
         {/* Search */}
-        <div className="lg:col-span-2 card">
+        <Card className="lg:col-span-2">
           <label htmlFor="help-search" className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2">
             <Search className="w-4 h-4 text-gray-400" />
             Search the docs
@@ -111,10 +112,10 @@ export default function HelpPage() {
                 : <>Showing {visibleTopics.length} of {HELP_TOPICS.length} topics.</>}
             </p>
           )}
-        </div>
+        </Card>
 
         {/* What's new */}
-        <div className="card">
+        <Card>
           <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
             <Sparkles className="w-4 h-4 text-amber-500" />
             What&apos;s new
@@ -137,7 +138,7 @@ export default function HelpPage() {
               </li>
             ))}
           </ul>
-        </div>
+        </Card>
       </div>
 
       <div className="space-y-6 max-w-4xl">
@@ -152,9 +153,9 @@ export default function HelpPage() {
           </section>
         ))}
         {visibleGroups.length === 0 && (
-          <div className="card text-center py-10 text-sm text-gray-500 dark:text-gray-400">
+          <Card className="text-center py-10 text-sm text-gray-500 dark:text-gray-400">
             No topics match <code>&quot;{query}&quot;</code>. Clear the search or try a different term.
-          </div>
+          </Card>
         )}
       </div>
     </DashboardLayout>

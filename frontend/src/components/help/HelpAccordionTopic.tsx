@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { HelpTopic } from '@/lib/help/types';
+import { Card } from '@/components/ui/Card';
 import { HelpSectionCard } from './HelpSection';
 import { PluginCatalog } from './PluginCatalog';
 
@@ -16,7 +17,7 @@ export function HelpAccordionTopic({ topic, defaultOpen = false }: HelpAccordion
   const Icon = topic.icon;
 
   return (
-    <div className="card overflow-hidden">
+    <Card className="overflow-hidden">
       {/* Clickable header */}
       <button
         onClick={() => setIsOpen((prev) => !prev)}
@@ -66,6 +67,6 @@ export function HelpAccordionTopic({ topic, defaultOpen = false }: HelpAccordion
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </Card>
   );
 }

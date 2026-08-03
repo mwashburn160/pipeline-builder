@@ -290,7 +290,7 @@ export default function BillingAdminPage() {
       <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
 
       {notEnabled ? (
-        <div className="card flex flex-col items-center text-center py-14">
+        <Card className="flex flex-col items-center text-center py-14">
           <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-700/50 flex items-center justify-center">
             <ShieldAlert className="w-9 h-9 text-gray-400 dark:text-gray-500" />
           </div>
@@ -298,7 +298,7 @@ export default function BillingAdminPage() {
           <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400 max-w-sm">
             The billing service is disabled in this deployment, so there is nothing to administer here.
           </p>
-        </div>
+        </Card>
       ) : (
         <div className="space-y-8">
           {/* ── Platform finance summary ──────────────────── */}

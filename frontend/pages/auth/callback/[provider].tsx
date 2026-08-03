@@ -9,6 +9,7 @@ import { motion } from 'framer-motion';
 import { XCircle, ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { Card } from '@/components/ui/Card';
 import api from '@/lib/api';
 
 /**
@@ -146,7 +147,7 @@ export default function OAuthCallbackPage() {
         </div>
 
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="max-w-sm mx-auto">
-          <div className="card p-8 text-center" role="status" aria-live="polite">
+          <Card className="p-8 text-center" role="status" aria-live="polite">
             {!error ? (
               <>
                 <LoadingSpinner size="md" className="mx-auto mb-3" />
@@ -163,7 +164,7 @@ export default function OAuthCallbackPage() {
                 </Link>
               </>
             )}
-          </div>
+          </Card>
         </motion.div>
       </div>
     </>

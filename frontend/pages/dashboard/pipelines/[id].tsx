@@ -21,6 +21,7 @@ import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -231,7 +232,7 @@ export default function PipelineDetailPage() {
       {pipeline && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Identity card */}
-          <div className="card">
+          <Card>
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-2">
                 <GitBranch className="w-5 h-5 text-gray-500" />
@@ -285,11 +286,11 @@ export default function PipelineDetailPage() {
                 <dd><RelativeTime value={pipeline.updatedAt} /> by <code className="text-xs">{pipeline.updatedBy}</code></dd>
               </div>
             </dl>
-          </div>
+          </Card>
 
           {/* Recent runs card — derived from org-wide execution-count
               aggregate. Absent if the pipeline has no recorded runs. */}
-          <div className="card">
+          <Card>
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Recent runs</h3>
             {execStats ? (
               <dl className="text-sm space-y-1.5">
@@ -324,14 +325,14 @@ export default function PipelineDetailPage() {
             ) : (
               <p className="text-sm text-gray-500 dark:text-gray-400">No recorded runs yet.</p>
             )}
-          </div>
+          </Card>
 
           {/* Executions card — per-pipeline run history from the reporting
               service, plus the AWS CodePipeline trigger / cancel write path.
               "Run pipeline" calls StartPipelineExecution; per-row "Cancel"
               (in-progress only) calls StopPipelineExecution. Both refetch the
               list after a short delay so the change surfaces. */}
-          <div className="card lg:col-span-2">
+          <Card className="lg:col-span-2">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Executions</h3>
               <button
@@ -405,10 +406,10 @@ export default function PipelineDetailPage() {
                 </table>
               </div>
             )}
-          </div>
+          </Card>
 
           {/* Operations card */}
-          <div className="card lg:col-span-2">
+          <Card className="lg:col-span-2">
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Operations</h3>
             <div className="flex flex-wrap items-center gap-2">
               <button
@@ -429,7 +430,7 @@ export default function PipelineDetailPage() {
                 <Trash2 className="w-4 h-4" /> Delete pipeline
               </button>
             </div>
-          </div>
+          </Card>
         </div>
       )}
 

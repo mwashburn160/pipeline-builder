@@ -7,6 +7,7 @@ import { UserPlus, CheckCircle, Check, ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useFeatures } from '@/hooks/useFeatures';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { Card } from '@/components/ui/Card';
 import type { Plan } from '@/types';
 import api from '@/lib/api';
 import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/lib/site-url';
@@ -110,7 +111,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
             Have an account? <Link href="/" className="text-[var(--pb-brand)] hover:underline">Sign in</Link>
           </p>
 
-          <div className="card p-5">
+          <Card className="p-5">
             <form onSubmit={handleSubmit} className="space-y-3">
               {error && <div className="alert-error text-sm">{error}</div>}
 
@@ -163,7 +164,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
                 }
               </button>
             </form>
-          </div>
+          </Card>
         </motion.div>
       </div>
     </>

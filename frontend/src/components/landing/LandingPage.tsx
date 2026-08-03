@@ -11,6 +11,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { Card } from '@/components/ui/Card';
 import api from '@/lib/api';
 
 // sessionStorage key carrying the OAuth "intent" across the provider redirect.
@@ -181,7 +182,7 @@ function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1 }}
         >
-          <div className="card p-5">
+          <Card className="p-5">
             <h2 className="font-bold mb-4">Sign in</h2>
 
             {sessionExpired && !error && (
@@ -271,7 +272,7 @@ function Hero() {
                 Create account
               </Link>
             </p>
-          </div>
+          </Card>
         </motion.div>
       </div>
     </section>

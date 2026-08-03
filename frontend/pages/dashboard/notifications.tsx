@@ -20,6 +20,7 @@ import { Bell } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Card } from '@/components/ui/Card';
 
 /** localStorage keys for in-app preferences. Bumped if the shape changes. */
 const PREF_KEY = 'pb-notification-prefs:v1';
@@ -81,7 +82,7 @@ export default function NotificationsPage() {
       {/* In-app preferences. Stored in localStorage; survives reloads but
           doesn't sync across devices. Mute is a UI-level filter — the
           underlying alerts still fire on the platform side. */}
-      <div className="card mb-4">
+      <Card className="mb-4">
         <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">In-app preferences</h2>
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
           Mute toggles hide banners in your browser. They don&apos;t stop org-level Slack / webhook delivery.
@@ -108,11 +109,11 @@ export default function NotificationsPage() {
             </li>
           ))}
         </ul>
-      </div>
+      </Card>
 
       {/* Where alerts go is org-level config — link out instead of duplicating
           the destinations list (it lives only on the Alert destinations page). */}
-      <div className="card">
+      <Card>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <Bell className="h-5 w-5 text-gray-400 shrink-0" />
@@ -127,7 +128,7 @@ export default function NotificationsPage() {
             Alert destinations →
           </Link>
         </div>
-      </div>
+      </Card>
     </DashboardLayout>
   );
 }

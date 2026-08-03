@@ -19,6 +19,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
+import { Card } from '@/components/ui/Card';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { OrgKmsConfigModal } from '@/components/admin/OrgKmsConfigModal';
 import { OrgIdpConfigModal } from '@/components/admin/OrgIdpConfigModal';
@@ -293,7 +294,7 @@ export default function OrgDetailPage() {
       {org && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Identity card */}
-          <div className="card">
+          <Card>
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Building2 className="w-5 h-5 text-gray-500" />
@@ -348,10 +349,10 @@ export default function OrgDetailPage() {
                 </dd>
               </div>
             </dl>
-          </div>
+          </Card>
 
           {/* KMS card */}
-          <div className="card">
+          <Card>
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-2">
                 <KeyRound className="w-5 h-5 text-gray-500" />
@@ -374,10 +375,10 @@ export default function OrgDetailPage() {
                 Configure to wrap this org&apos;s secrets under its own CMK.
               </p>
             )}
-          </div>
+          </Card>
 
           {/* IdP card */}
-          <div className="card">
+          <Card>
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-gray-500" />
@@ -415,11 +416,11 @@ export default function OrgDetailPage() {
                 No SSO configured. Members sign in via password / OAuth defaults.
               </p>
             )}
-          </div>
+          </Card>
 
           {/* Seats card — pooled account seat usage + a sysadmin control to set
               the seat limit. Usage is account-scoped (resolves to the root). */}
-          <div className="card">
+          <Card>
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Armchair className="w-5 h-5 text-gray-500" />
@@ -446,11 +447,11 @@ export default function OrgDetailPage() {
                 or the seat service didn&apos;t respond.
               </p>
             )}
-          </div>
+          </Card>
 
           {/* Feature entitlements card — read-only. The account's (root) pooled
               feature flags purchased via tier + add-on bundles. */}
-          <div className="card">
+          <Card>
             <div className="flex items-center gap-2 mb-3">
               <Sparkles className="w-5 h-5 text-gray-500" />
               <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Feature entitlements</h3>
@@ -466,11 +467,11 @@ export default function OrgDetailPage() {
                 No add-on feature entitlements. The org has only its tier&apos;s baseline features.
               </p>
             )}
-          </div>
+          </Card>
 
           {/* Quotas card */}
           {org.quotas && (
-            <div className="card">
+            <Card>
               <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Quotas</h3>
               <dl className="text-sm space-y-1.5">
                 {Object.entries(org.quotas).map(([type, summary]) => (
@@ -482,11 +483,11 @@ export default function OrgDetailPage() {
                   </div>
                 ))}
               </dl>
-            </div>
+            </Card>
           )}
 
           {/* Operations card — destructive + scaffolding actions */}
-          <div className="card lg:col-span-2">
+          <Card className="lg:col-span-2">
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Operations</h3>
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={downloadNamespaceYaml} className="btn btn-secondary inline-flex items-center gap-2 text-sm">
@@ -503,7 +504,7 @@ export default function OrgDetailPage() {
                 <Trash2 className="w-4 h-4" /> Delete organization
               </button>
             </div>
-          </div>
+          </Card>
         </div>
       )}
 

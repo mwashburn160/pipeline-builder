@@ -13,6 +13,7 @@ import { useMemberTeams } from '@/hooks/useMemberTeams';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Card } from '@/components/ui/Card';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable } from '@/components/ui/DataTable';
@@ -420,7 +421,7 @@ export default function MembersPage() {
           members directly; or add an existing member to teams via the
           per-member "Manage teams" action below. */}
       {activeOrgIsRoot && teams.length > 0 && (
-        <div className="card mb-4">
+        <Card className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2">
               <Building2 className="w-4 h-4 text-gray-400" /> Teams <span className="text-gray-400 font-normal">({teams.length})</span>
@@ -447,7 +448,7 @@ export default function MembersPage() {
             <strong>Open</strong> a team to manage its members directly, or add an existing member to teams with the
             <Network className="w-3 h-3 inline mx-0.5 -mt-0.5" /> action on each member row.
           </p>
-        </div>
+        </Card>
       )}
 
       {(teamsLoadWarning || seatLoadWarning) && (

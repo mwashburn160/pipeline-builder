@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { useToast } from '@/components/ui/Toast';
+import { Card } from '@/components/ui/Card';
 import { formatError } from '@/lib/constants';
 import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType, User } from '@/types';
 import { QuotaCard } from './QuotaCard';
@@ -287,12 +288,12 @@ export function QuotasAdmin({
               {loading ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   {[0, 1, 2, 3].map((i) => (
-                    <div key={i} className="card">
+                    <Card key={i}>
                       <div className="h-4 skeleton w-1/2 mb-4" />
                       <div className="h-8 skeleton w-1/3 mb-3" />
                       <div className="h-1.5 skeleton rounded-full mb-3" />
                       <div className="h-3 skeleton w-2/3" />
-                    </div>
+                    </Card>
                   ))}
                 </div>
               ) : orgData ? (

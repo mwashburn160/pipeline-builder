@@ -7,6 +7,7 @@ import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -408,7 +409,7 @@ export default function OrganizationsPage() {
       )}
 
       {/* Warning */}
-      <div className="card mt-6 border-yellow-200/60 dark:border-yellow-800/60 bg-yellow-50/80 dark:bg-yellow-900/20">
+      <Card className="mt-6 border-yellow-200/60 dark:border-yellow-800/60 bg-yellow-50/80 dark:bg-yellow-900/20">
         <div className="flex">
           <AlertTriangle className="h-5 w-5 text-yellow-400 dark:text-yellow-500 flex-shrink-0" />
           <div className="ml-3">
@@ -419,7 +420,7 @@ export default function OrganizationsPage() {
             </p>
           </div>
         </div>
-      </div>
+      </Card>
 
       {createOpen && (
         <Modal

@@ -3,6 +3,7 @@ import { Plus, MessageCircle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useMessages } from '@/hooks/useMessages';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Card } from '@/components/ui/Card';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { Button } from '@/components/ui/Button';
 import { MessageList } from '@/components/message/MessageList';
@@ -126,7 +127,7 @@ export default function MessagesPage() {
       titleExtra={unreadCount > 0 ? <MessageBadge count={unreadCount} /> : undefined}
     >
       <div className="page-section">
-        <div className="card flex overflow-hidden" style={{ height: 'calc(100vh - 140px)', minHeight: '500px' }}>
+        <Card className="flex overflow-hidden" style={{ height: 'calc(100vh - 140px)', minHeight: '500px' }}>
 
           {/* Left panel: conversation list */}
           <div className={`${selectedMessage ? 'hidden lg:flex' : 'flex'} w-full lg:w-80 flex-shrink-0 lg:border-r border-gray-200 dark:border-gray-700 flex-col`}>
@@ -225,7 +226,7 @@ export default function MessagesPage() {
               <EmptyChat />
             )}
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Compose modal */}

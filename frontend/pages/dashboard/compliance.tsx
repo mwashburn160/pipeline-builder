@@ -4,6 +4,7 @@ import { History } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Card } from '@/components/ui/Card';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -32,7 +33,7 @@ function RecentChangesStrip() {
   const entries: ComplianceAuditEntry[] = data ?? [];
 
   return (
-    <div className="card mb-4">
+    <Card className="mb-4">
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
           <History className="w-4 h-4 text-gray-400" />
@@ -76,7 +77,7 @@ function RecentChangesStrip() {
           ))}
         </ul>
       )}
-    </div>
+    </Card>
   );
 }
 

@@ -68,7 +68,7 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
   const ttl = decoded ? expiresIn(decoded.payload) : null;
 
   return (
-    <div className="card">
+    <Card>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-3">
           <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">{title}</h2>
@@ -113,7 +113,7 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
 
           <div>
             <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Payload</p>
-            <div className="card p-0 divide-y divide-gray-100 dark:divide-gray-800 overflow-hidden">
+            <Card className="p-0 divide-y divide-gray-100 dark:divide-gray-800 overflow-hidden">
               {Object.entries(decoded.payload).map(([key, value]) => {
                 const label = FIELD_LABELS[key] || key;
                 const isTime = KNOWN_TIME_FIELDS.has(key);
@@ -142,13 +142,13 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
                   </div>
                 );
               })}
-            </div>
+            </Card>
           </div>
         </div>
       ) : (
         <p className="text-sm text-red-600 dark:text-red-400">Failed to decode token</p>
       )}
-    </div>
+    </Card>
   );
 }
 

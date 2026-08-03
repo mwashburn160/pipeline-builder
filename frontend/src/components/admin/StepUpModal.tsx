@@ -4,6 +4,7 @@
 import { useCallback, useState } from 'react';
 import { X, ShieldAlert } from 'lucide-react';
 import api from '@/lib/api';
+import { Card } from '@/components/ui/Card';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { ModalPortal } from '@/components/ui/ModalPortal';
 
@@ -58,7 +59,7 @@ export function StepUpModal({ action, onConfirmed, onClose }: Props) {
   return (
     <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="card w-full max-w-md">
+      <Card className="w-full max-w-md">
         <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
           <div className="flex items-center gap-2">
             <ShieldAlert className="h-5 w-5 text-amber-500" />
@@ -114,7 +115,7 @@ export function StepUpModal({ action, onConfirmed, onClose }: Props) {
             </button>
           </div>
         </form>
-      </div>
+      </Card>
     </div>
     </ModalPortal>
   );

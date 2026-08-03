@@ -6,6 +6,7 @@ import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
+import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
@@ -223,7 +224,7 @@ export default function RolesPage() {
       {isLoading ? (
         <p className="text-sm text-gray-500 dark:text-gray-400">Loading roles…</p>
       ) : roles.length === 0 ? (
-        <div className="card text-center py-10">
+        <Card className="text-center py-10">
           <Users className="w-8 h-8 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
           <p className="text-sm text-gray-500 dark:text-gray-400">No roles in this organization yet.</p>
           {canManageRoles && (
@@ -233,14 +234,14 @@ export default function RolesPage() {
               </Button>
             </div>
           )}
-        </div>
+        </Card>
       ) : (
         <div className="space-y-4">
           {roles.map((r) => {
             const editable = canEditRole(r);
             const isSuperRole = r.grantsRole === 'superadmin';
             return (
-              <div key={r.id} className="card">
+              <Card key={r.id}>
                 <div className="flex items-start justify-between gap-2 mb-3">
                   <div className="min-w-0">
                     <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2 flex-wrap">
@@ -317,7 +318,7 @@ export default function RolesPage() {
                     })}
                   </ul>
                 )}
-              </div>
+              </Card>
             );
           })}
         </div>

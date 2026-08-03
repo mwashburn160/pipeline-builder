@@ -3,6 +3,7 @@
 
 import Link from 'next/link';
 import { CheckCircle2, Circle, Sparkles, X, ArrowRight } from 'lucide-react';
+import { Card } from '@/components/ui/Card';
 import {
   buildSteps,
   completedCount,
@@ -24,7 +25,7 @@ export function NewOrgWelcome({ signals, onDismiss }: NewOrgWelcomeProps) {
   const done = completedCount(steps);
 
   return (
-    <div className="card mb-4 border-indigo-200 dark:border-indigo-900 bg-gradient-to-br from-indigo-50/50 to-purple-50/50 dark:from-indigo-950/20 dark:to-purple-950/20">
+    <Card className="mb-4 border-indigo-200 dark:border-indigo-900 bg-gradient-to-br from-indigo-50/50 to-purple-50/50 dark:from-indigo-950/20 dark:to-purple-950/20">
       <div className="flex items-start gap-3 mb-4">
         <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-indigo-600 flex items-center justify-center">
           <Sparkles className="w-5 h-5 text-white" />
@@ -80,6 +81,6 @@ export function NewOrgWelcome({ signals, onDismiss }: NewOrgWelcomeProps) {
           );
         })}
       </ol>
-    </div>
+    </Card>
   );
 }

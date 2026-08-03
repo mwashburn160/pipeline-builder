@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import api from '@/lib/api';
+import { Card } from '@/components/ui/Card';
 import { StatCard } from '@/components/reports/StatCard';
 import { formatCents as money } from '@/lib/format';
 import type { BillingSummary, BillingInvoiceRow, BillingAllocation } from '@/lib/api/domains/billing';
@@ -94,9 +95,9 @@ export function BillingDashboard() {
     return (
       <div className="space-y-4">
         {rangeToolbar}
-        <div className="card text-sm text-gray-500 dark:text-gray-400">
+        <Card className="text-sm text-gray-500 dark:text-gray-400">
           {loading ? 'Loading…' : isFiltered ? 'No billing activity in the selected range.' : 'No billing activity yet.'}
-        </div>
+        </Card>
       </div>
     );
   }
@@ -117,7 +118,7 @@ export function BillingDashboard() {
       </div>
 
       {summary.timeline.length > 0 && (
-        <div className="card">
+        <Card>
           <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Billed by period</h3>
           <div className="space-y-1.5">
             {summary.timeline.map((p) => {
@@ -139,10 +140,10 @@ export function BillingDashboard() {
               <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-400" /> Discounts + credits</span>
             </div>
           </div>
-        </div>
+        </Card>
       )}
 
-      <div className="card overflow-x-auto">
+      <Card className="overflow-x-auto">
         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Invoices</h3>
         <table className="w-full text-sm">
           <thead>
@@ -170,10 +171,10 @@ export function BillingDashboard() {
             ))}
           </tbody>
         </table>
-      </div>
+      </Card>
 
       {allocation && allocation.rows.length > 1 && (
-        <div className="card overflow-x-auto">
+        <Card className="overflow-x-auto">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Cost by team</h3>
             <span className="text-xs text-gray-400 dark:text-gray-500">Estimated allocation · by {allocation.driver}</span>
@@ -200,7 +201,7 @@ export function BillingDashboard() {
               ))}
             </tbody>
           </table>
-        </div>
+        </Card>
       )}
     </div>
   );

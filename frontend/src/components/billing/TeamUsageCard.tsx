@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '@/lib/api';
+import { Card } from '@/components/ui/Card';
 import { useFeatures } from '@/hooks/useFeatures';
 import { fmtNum, formatBytes } from '@/lib/format';
 import { FEATURE_METADATA } from '@/lib/feature-flags';
@@ -42,10 +43,10 @@ export function TeamUsageCard() {
   if (!enabled) {
     const meta = FEATURE_METADATA.team_usage_analytics;
     return (
-      <div className="card">
+      <Card>
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{meta.label}</h3>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{meta.description}. Included with Enterprise, or add it for $30/mo.</p>
-      </div>
+      </Card>
     );
   }
 
@@ -54,15 +55,15 @@ export function TeamUsageCard() {
   // Entitled but a single-org account (no teams) — nothing to break down yet.
   if (teams.length <= 1) {
     return (
-      <div className="card">
+      <Card>
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Team usage</h3>
         <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Create teams under your organization to see per-team usage.</p>
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div className="card overflow-x-auto">
+    <Card className="overflow-x-auto">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Team usage</h3>
         <span className="text-xs text-gray-400 dark:text-gray-500">Current period · usage only (limits are account-wide)</span>
@@ -85,6 +86,6 @@ export function TeamUsageCard() {
           ))}
         </tbody>
       </table>
-    </div>
+    </Card>
   );
 }

@@ -9,6 +9,7 @@ import { motion } from 'framer-motion';
 import { Mail, CheckCircle, XCircle, ArrowLeft, UserPlus, LogIn } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { Card } from '@/components/ui/Card';
 import api from '@/lib/api';
 import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/lib/site-url';
 
@@ -177,7 +178,7 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
           </div>
           <h1 className="text-xl font-bold text-center mb-1">You&apos;re invited</h1>
 
-          <div className="card p-5 mt-4">
+          <Card className="p-5 mt-4">
             {(loading || !isInitialized) && (
               <div className="py-6 text-center" role="status" aria-live="polite">
                 <LoadingSpinner size="md" className="mx-auto mb-2" />
@@ -318,7 +319,7 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
                 )}
               </>
             )}
-          </div>
+          </Card>
         </motion.div>
       </div>
     </>

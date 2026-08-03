@@ -24,6 +24,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
+import { Card } from '@/components/ui/Card';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 
@@ -134,7 +135,7 @@ export default function PlatformSettingsPage() {
         </div>
       )}
 
-      <div className="card mb-4 border-amber-200/60 dark:border-amber-800/60 bg-amber-50/80 dark:bg-amber-900/20">
+      <Card className="mb-4 border-amber-200/60 dark:border-amber-800/60 bg-amber-50/80 dark:bg-amber-900/20">
         <div className="flex items-start gap-2">
           <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-amber-800 dark:text-amber-200">
@@ -143,7 +144,7 @@ export default function PlatformSettingsPage() {
             these at process start.
           </div>
         </div>
-      </div>
+      </Card>
 
       {loading && !summary && <LoadingSpinner />}
 
@@ -153,29 +154,29 @@ export default function PlatformSettingsPage() {
               same admin-summary endpoint the admin home uses, just
               re-presented in the platform-settings context. */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            <div className="card text-center">
+            <Card className="text-center">
               <div className="text-xs text-gray-500 dark:text-gray-400">Orgs</div>
               <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{summary.orgs.total}</div>
-            </div>
-            <div className="card text-center">
+            </Card>
+            <Card className="text-center">
               <div className="text-xs text-gray-500 dark:text-gray-400">Users</div>
               <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{summary.users.total}</div>
               <div className="text-xs text-gray-500 dark:text-gray-400">{summary.users.sysadmins} sysadmin{summary.users.sysadmins === 1 ? '' : 's'}</div>
-            </div>
-            <div className="card text-center">
+            </Card>
+            <Card className="text-center">
               <div className="text-xs text-gray-500 dark:text-gray-400">Per-org KMS</div>
               <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{summary.orgs.perOrgKms}</div>
               <div className="text-xs text-gray-500 dark:text-gray-400">of {summary.orgs.total}</div>
-            </div>
-            <div className="card text-center">
+            </Card>
+            <Card className="text-center">
               <div className="text-xs text-gray-500 dark:text-gray-400">SSO enabled</div>
               <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{summary.orgs.ssoEnabled}</div>
               <div className="text-xs text-gray-500 dark:text-gray-400">of {summary.orgs.total}</div>
-            </div>
+            </Card>
           </div>
 
           {/* Settings table — env var, value, and a short hint each. */}
-          <div className="card overflow-hidden">
+          <Card className="overflow-hidden">
             <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Configuration</h2>
             <ul className="divide-y divide-gray-200 dark:divide-gray-700">
               {rows.map((row) => {
@@ -199,7 +200,7 @@ export default function PlatformSettingsPage() {
                 );
               })}
             </ul>
-          </div>
+          </Card>
 
           <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
             See <code>docs/environment-variables.md</code> for the full list of platform env vars

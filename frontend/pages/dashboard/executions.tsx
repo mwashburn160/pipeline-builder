@@ -21,6 +21,7 @@ import { useFetch } from '@/hooks/useFetch';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
+import { Card } from '@/components/ui/Card';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { FilterBar } from '@/components/ui/FilterBar';
@@ -201,23 +202,23 @@ export default function ExecutionsPage() {
 
       {/* Stat strip — at-a-glance health */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-        <div className="card text-center">
+        <Card className="text-center">
           <div className="text-xs text-gray-500 dark:text-gray-400">Total runs</div>
           <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{summary.totalRuns}</div>
-        </div>
-        <div className="card text-center">
+        </Card>
+        <Card className="text-center">
           <div className="text-xs text-gray-500 dark:text-gray-400">Failed runs</div>
           <div className={`text-2xl font-semibold ${summary.totalFailed > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-gray-100'}`}>
             {summary.totalFailed}
           </div>
-        </div>
-        <div className="card text-center">
+        </Card>
+        <Card className="text-center">
           <div className="text-xs text-gray-500 dark:text-gray-400">Pipelines with failures</div>
           <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2">
             {summary.pipelinesWithFailures}
             {summary.pipelinesWithFailures > 0 ? <XCircle className="w-5 h-5 text-red-500" /> : <CheckCircle2 className="w-5 h-5 text-green-500" />}
           </div>
-        </div>
+        </Card>
       </div>
 
       <FilterBar

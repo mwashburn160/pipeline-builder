@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Badge } from '@/components/ui/Badge';
+import { Card } from '@/components/ui/Card';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { Button } from '@/components/ui/Button';
 
@@ -28,7 +29,7 @@ export function BillingHistory({
         {!showEvents && (                <Button variant="secondary" size="sm" onClick={onViewEvents}>View events</Button>
         )}
       </div>
-      {showEvents && billingEvents.length > 0 && (              <div className="card overflow-hidden">
+      {showEvents && billingEvents.length > 0 && (              <Card className="overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 dark:bg-gray-800/50">
@@ -50,12 +51,12 @@ export function BillingHistory({
               ))}
             </tbody>
           </table>
-        </div>
+        </Card>
       )}
       {showEvents && billingEvents.length === 0 && (
-        <div className="card py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+        <Card className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
           No billing events recorded for this organization.
-        </div>
+        </Card>
       )}
     </div>
   );

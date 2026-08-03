@@ -389,7 +389,7 @@ export default function BillingPage() {
           <div className="space-y-8">
             {/* Billing interval toggle */}
             <div className="flex justify-center">
-              <div className="card inline-flex items-center p-1">
+              <Card className="inline-flex items-center p-1">
                 <button
                   onClick={() => setBillingInterval('monthly')}
                   className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
@@ -411,7 +411,7 @@ export default function BillingPage() {
                   Annual
                   <span className="ml-1 text-xs text-green-500">Save ~17%</span>
                 </button>
-              </div>
+              </Card>
             </div>
 
             {/* Plan cards (tier pricing) */}

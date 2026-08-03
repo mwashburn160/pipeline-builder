@@ -8,6 +8,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { BuildsTabs } from '@/components/ui/BuildsTabs';
 import { LoadingPage } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
+import { Card } from '@/components/ui/Card';
 import { Pagination } from '@/components/ui/Pagination';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { Button } from '@/components/ui/Button';
@@ -198,10 +199,10 @@ function FailedJobsTable({ jobs, title, showCategory, onAction, actionPendingIds
 
   if (jobs.length === 0) {
     return (
-      <div className="card p-8 text-center">
+      <Card className="p-8 text-center">
         <Inbox className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
         <p className="text-sm text-gray-500 dark:text-gray-400">No {title.toLowerCase()} found.</p>
-      </div>
+      </Card>
     );
   }
 
@@ -256,7 +257,7 @@ function FailedJobsTable({ jobs, title, showCategory, onAction, actionPendingIds
           </div>
         )}
       </div>
-      <div className="card overflow-hidden">
+      <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -324,7 +325,7 @@ function FailedJobsTable({ jobs, title, showCategory, onAction, actionPendingIds
             </tbody>
           </table>
         </div>
-      </div>
+      </Card>
       {filtered.length > DEFAULT_PAGE_SIZE && (
         <div className="mt-3">
           <Pagination
@@ -532,7 +533,7 @@ export default function BuildQueuePage() {
           queue so backlog can show up in one tier while the others are
           quiet; the aggregate counts above hide that. */}
       {status?.tiers && Object.keys(status.tiers).length > 0 && (
-        <div className="card mt-6">
+        <Card className="mt-6">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Per-tier breakdown</h3>
             <span className="text-xs text-gray-500 dark:text-gray-400">One BullMQ queue per pricing tier</span>
@@ -563,7 +564,7 @@ export default function BuildQueuePage() {
               </tbody>
             </table>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Failed jobs */}

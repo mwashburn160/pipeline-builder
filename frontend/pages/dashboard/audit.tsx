@@ -24,6 +24,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
+import { Card } from '@/components/ui/Card';
 import { SideDrawer } from '@/components/ui/SideDrawer';
 import { Pagination } from '@/components/ui/Pagination';
 import { CopyableId } from '@/components/ui/CopyableId';
@@ -322,7 +323,7 @@ export default function AuditPage() {
       </div>
 
       {loading && (
-        <div className="card mt-2 overflow-hidden">
+        <Card className="mt-2 overflow-hidden">
           <div className="divide-y divide-gray-200 dark:divide-gray-700">
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="px-4 py-3">
@@ -334,7 +335,7 @@ export default function AuditPage() {
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Export bar — only on the current page worth of events. The richer
@@ -388,7 +389,7 @@ export default function AuditPage() {
       )}
 
       {/* Results */}
-      <div className="card mt-2 overflow-hidden">
+      <Card className="mt-2 overflow-hidden">
         {events.length === 0 && !loading ? (
           <div className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
             <Activity className="w-8 h-8 mx-auto mb-2 opacity-50" />
@@ -454,7 +455,7 @@ export default function AuditPage() {
             ))}
           </div>
         )}
-      </div>
+      </Card>
 
       {total > limit && (
         <div className="mt-3">

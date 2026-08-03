@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Input } from '@/components/ui/Input';
+import { Card } from '@/components/ui/Card';
 import { pct, fmtNum, daysUntil, statusInfo, statusStyles, barStyles } from '@/lib/quota-helpers';
 import type { OrgQuotaResponse, DisplayedQuotaType } from '@/types';
 import { QUOTA_META } from './constants';
@@ -48,7 +49,7 @@ export function QuotaCard({
   const isUnlimited = editVal === -1;
 
   return (
-    <div className="card">
+    <Card>
       <div className="flex items-start justify-between mb-4">
         <div>
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{meta.label}</h3>
@@ -108,7 +109,7 @@ export function QuotaCard({
           </button>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 

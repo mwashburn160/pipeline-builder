@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Card } from '@/components/ui/Card';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -355,7 +356,7 @@ export default function DashboardPage() {
           {stats.map((s) => {
             const Icon = s.icon;
             return (
-              <div key={s.label} className="card py-3 px-4 flex items-center gap-3">
+              <Card key={s.label} className="py-3 px-4 flex items-center gap-3">
                 <div className={`flex-shrink-0 ${s.color}`}>
                   <Icon className="w-5 h-5" />
                 </div>
@@ -363,7 +364,7 @@ export default function DashboardPage() {
                   <p className="text-xl font-bold text-gray-900 dark:text-gray-100 tabular-nums leading-tight">{s.value}</p>
                   <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{s.label}</p>
                 </div>
-              </div>
+              </Card>
             );
           })}
         </motion.div>
@@ -560,7 +561,7 @@ function MyRecentActivity({
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-      <div className="card md:col-span-2">
+      <Card className="md:col-span-2">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
             <Activity className="w-4 h-4 text-gray-400" />
@@ -595,9 +596,9 @@ function MyRecentActivity({
             })}
           </ul>
         )}
-      </div>
+      </Card>
 
-      <div className="card">
+      <Card>
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
             <Inbox className="w-4 h-4 text-gray-400" />
@@ -613,7 +614,7 @@ function MyRecentActivity({
             <div className="text-xs text-gray-500 dark:text-gray-400">unread message{unreadCount === 1 ? '' : 's'}</div>
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

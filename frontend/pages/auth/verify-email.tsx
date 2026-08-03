@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { CheckCircle, XCircle, ArrowLeft } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { Card } from '@/components/ui/Card';
 import api from '@/lib/api';
 
 /**
@@ -62,7 +63,7 @@ export default function VerifyEmailPage() {
         </div>
 
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="max-w-sm mx-auto">
-          <div className="card p-8 text-center" role="status" aria-live="polite">
+          <Card className="p-8 text-center" role="status" aria-live="polite">
             {status === 'pending' && (
               <>
                 <LoadingSpinner size="md" className="mx-auto mb-3" />
@@ -89,7 +90,7 @@ export default function VerifyEmailPage() {
                 </Link>
               </>
             )}
-          </div>
+          </Card>
         </motion.div>
       </div>
     </>

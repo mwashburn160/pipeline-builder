@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
+import { Card } from '@/components/ui/Card';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useFeatures } from '@/hooks/useFeatures';
 import api from '@/lib/api';
@@ -120,7 +121,7 @@ export function OrgAdminHome({ organizationId }: Props) {
   return (
     <>
       {/* Quota health row — the most important admin-facing signal. */}
-      <div className="card mb-4">
+      <Card className="mb-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
             <BarChart3 className="w-4 h-4 text-gray-400" />
@@ -159,12 +160,12 @@ export function OrgAdminHome({ organizationId }: Props) {
             })}
           </div>
         )}
-      </div>
+      </Card>
 
       {/* Team + compliance side-by-side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
         {/* Team / invitations */}
-        <div className="card">
+        <Card>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
               <Mail className="w-4 h-4 text-gray-400" />
@@ -191,10 +192,10 @@ export function OrgAdminHome({ organizationId }: Props) {
               </div>
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Compliance pulse */}
-        <div className="card">
+        <Card>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
               <Shield className="w-4 h-4 text-gray-400" />
@@ -225,12 +226,12 @@ export function OrgAdminHome({ organizationId }: Props) {
               ))}
             </ul>
           )}
-        </div>
+        </Card>
       </div>
 
       {/* Billing snapshot */}
       {subscription && (
-        <div className="card mb-4">
+        <Card className="mb-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
               <CreditCard className="w-4 h-4 text-gray-400" />
@@ -259,11 +260,11 @@ export function OrgAdminHome({ organizationId }: Props) {
               </div>
             </div>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Quick-links — common org-admin tasks */}
-      <div className="card mb-4">
+      <Card className="mb-4">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 inline-flex items-center gap-1.5">
           <Activity className="w-4 h-4 text-gray-400" />
           Common tasks
@@ -280,7 +281,7 @@ export function OrgAdminHome({ organizationId }: Props) {
           <Link href="/dashboard/executions" className="action-link">Executions</Link>
           <Link href="/dashboard/audit" className="action-link">Audit log</Link>
         </div>
-      </div>
+      </Card>
     </>
   );
 }

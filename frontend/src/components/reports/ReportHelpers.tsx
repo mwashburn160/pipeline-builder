@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { RefreshCw, Download, Timer, Lock } from 'lucide-react';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { Card } from '@/components/ui/Card';
 import { FEATURE_METADATA } from '@/lib/feature-flags';
 import type { DoraLevel, DoraTrendPoint } from '@/lib/api/domains/reporting';
 import { StatCard } from './StatCard';
@@ -190,7 +191,7 @@ export function DoraTrendSparkline({ points }: { points: DoraTrendPoint[] }) {
     `average change-failure rate ${avgCfr}%` +
     (hotCount > 0 ? `, ${hotCount} period${hotCount === 1 ? '' : 's'} with elevated change-failure (${CFR_ELEVATED_PCT}%+).` : '.');
   return (
-    <div className="card">
+    <Card>
       <SectionHeading>Deployment Trend</SectionHeading>
       <div className="flex items-end gap-1 h-16" role="img" aria-label={summary}>
         {points.map((p) => {
@@ -234,7 +235,7 @@ export function DoraTrendSparkline({ points }: { points: DoraTrendPoint[] }) {
         <span>Deploys / period &middot; red = elevated change-failure</span>
         <span>{fmtDate(points[points.length - 1].period)}</span>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -409,10 +410,10 @@ export function StatCardSkeleton({ count = 4 }: { count?: number }) {
   return (
     <div className={`grid grid-cols-2 ${gridColsClass[count] ?? 'sm:grid-cols-4'} gap-4`}>
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="card py-4 text-center">
+        <Card key={i} className="py-4 text-center">
           <Skeleton className="h-8 w-16 mx-auto mb-2" />
           <Skeleton className="h-3 w-20 mx-auto" />
-        </div>
+        </Card>
       ))}
     </div>
   );
@@ -421,7 +422,7 @@ export function StatCardSkeleton({ count = 4 }: { count?: number }) {
 /** Skeleton matching a card with a section heading and content. */
 export function SectionCardSkeleton({ lines = 4 }: { lines?: number }) {
   return (
-    <div className="card">
+    <Card>
       <Skeleton className="h-4 w-32 mb-4" />
       <div className="space-y-3">
         {Array.from({ length: lines }).map((_, i) => (
@@ -432,7 +433,7 @@ export function SectionCardSkeleton({ lines = 4 }: { lines?: number }) {
           </div>
         ))}
       </div>
-    </div>
+    </Card>
   );
 }
 

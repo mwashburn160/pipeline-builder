@@ -1,6 +1,7 @@
 import { GitBranch } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Card } from '@/components/ui/Card';
 import type { ExecutionCountRow } from '@/types';
 import type { DoraMetrics, DoraTrendPoint } from '@/lib/api/domains/reporting';
 import {
@@ -132,7 +133,7 @@ export function PipelineOverview({
           )}
         </div>
       )}
-      <div className="card">
+      <Card>
         <SectionHeading>Execution Timeline</SectionHeading>
         {timeline.length > 0 ? (
           <div className="space-y-1.5">
@@ -148,9 +149,9 @@ export function PipelineOverview({
             <div className="flex items-center gap-2 mt-2"><Badge color="green">Pass</Badge><Badge color="red">Fail</Badge><Badge color="yellow">Canceled</Badge></div>
           </div>
         ) : <ReportEmpty text="No execution data for this period" />}
-      </div>
+      </Card>
       {timeline.length > 0 && (
-        <div className="card">
+        <Card>
           <SectionHeading>Success Rate Trend</SectionHeading>
           <div className="space-y-1.5">
             {timeline.map((entry) => {
@@ -165,7 +166,7 @@ export function PipelineOverview({
               );
             })}
           </div>
-        </div>
+        </Card>
       )}
     </>
   );

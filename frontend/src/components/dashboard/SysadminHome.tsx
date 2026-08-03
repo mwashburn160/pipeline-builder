@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
+import { Card } from '@/components/ui/Card';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { formatError } from '@/lib/constants';
@@ -43,14 +44,14 @@ function StatCard({
   href?: string;
 }) {
   const inner = (
-    <div className="card hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors h-full">
+    <Card className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors h-full">
       <div className="flex items-center gap-2 mb-2">
         <Icon className="w-4 h-4 text-gray-500" />
         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{label}</span>
       </div>
       <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{value}</div>
       {sub && <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{sub}</div>}
-    </div>
+    </Card>
   );
   return href ? <Link href={href}>{inner}</Link> : inner;
 }
@@ -141,7 +142,7 @@ export function SysadminHome() {
 
           {/* Posture + recent activity side-by-side */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-            <div className="card lg:col-span-1">
+            <Card className="lg:col-span-1">
               <div className="flex items-center gap-2 mb-3">
                 <Activity className="w-4 h-4 text-gray-500" />
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Multi-tenant posture</h3>
@@ -180,9 +181,9 @@ export function SysadminHome() {
               <Link href="/dashboard/admin/platform-settings" className="action-link text-xs mt-3 inline-flex">
                 Platform settings →
               </Link>
-            </div>
+            </Card>
 
-            <div className="card lg:col-span-2">
+            <Card className="lg:col-span-2">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
                   <History className="w-4 h-4 text-gray-400" />
@@ -216,11 +217,11 @@ export function SysadminHome() {
                   ))}
                 </ul>
               )}
-            </div>
+            </Card>
           </div>
 
           {/* Quick-links */}
-          <div className="card">
+          <Card>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Platform surfaces</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
               <Link href="/dashboard/organizations" className="action-link">Organizations</Link>
@@ -232,7 +233,7 @@ export function SysadminHome() {
               <Link href="/dashboard/observability/alert-destinations?all=1" className="action-link">Alert destinations</Link>
               <Link href="/dashboard/admin/platform-settings" className="action-link">Platform settings</Link>
             </div>
-          </div>
+          </Card>
         </>
       )}
     </>

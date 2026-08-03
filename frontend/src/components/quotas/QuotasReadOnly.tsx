@@ -4,6 +4,7 @@
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Card } from '@/components/ui/Card';
 import type { OrgQuotaResponse, DisplayedQuotaType } from '@/types';
 import { fmtNum } from '@/lib/format';
 import { QuotaCard } from './QuotaCard';
@@ -89,12 +90,12 @@ export function QuotasReadOnly({
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="card">
+              <Card key={i}>
                 <div className="h-4 skeleton w-1/2 mb-4" />
                 <div className="h-8 skeleton w-1/3 mb-3" />
                 <div className="h-1.5 skeleton rounded-full mb-3" />
                 <div className="h-3 skeleton w-2/3" />
-              </div>
+              </Card>
             ))}
           </div>
         ) : orgData ? (

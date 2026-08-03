@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { X, KeyRound, AlertTriangle } from 'lucide-react';
 import api from '@/lib/api';
+import { Card } from '@/components/ui/Card';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { ModalPortal } from '@/components/ui/ModalPortal';
 import { StepUpModal } from '@/components/admin/StepUpModal';
@@ -140,7 +141,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
   return (
     <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="card w-full max-w-2xl">
+      <Card className="w-full max-w-2xl">
         <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-5 py-3">
           <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
             <KeyRound className="w-5 h-5" /> KMS Config — {org.name}
@@ -247,7 +248,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
             </button>
           </div>
         </div>
-      </div>
+      </Card>
 
       {pendingOp && (
         <StepUpModal

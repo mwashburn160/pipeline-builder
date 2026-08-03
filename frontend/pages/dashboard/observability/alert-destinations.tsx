@@ -12,6 +12,7 @@ import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Modal } from '@/components/ui/Modal';
+import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { api, getErrorMessage } from '@/lib/api';
@@ -175,15 +176,15 @@ export default function AlertDestinationsPage() {
             </select>
           </div>
           {loading ? (
-            <div className="card py-10 text-center text-sm text-gray-500 dark:text-gray-400">Loading…</div>
+            <Card className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">Loading…</Card>
           ) : grouped.length === 0 ? (
-            <div className="card py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+            <Card className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
               <Bell className="w-8 h-8 mx-auto mb-2 opacity-50" /> No destinations match the current filters.
-            </div>
+            </Card>
           ) : (
             <div className="space-y-3">
               {grouped.map(([orgId, items]) => (
-                <div key={orgId} className="card">
+                <Card key={orgId}>
                   <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-200 dark:border-gray-700">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Org:</span>
@@ -202,7 +203,7 @@ export default function AlertDestinationsPage() {
                       </li>
                     ))}
                   </ul>
-                </div>
+                </Card>
               ))}
             </div>
           )}
