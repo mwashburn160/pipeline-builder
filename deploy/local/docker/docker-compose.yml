@@ -97,7 +97,7 @@ services:
     # Unprivileged (UID 101) nginx, matching the k8s gateways. The njs module is
     # bundled in the official 1.30 image; nginx.conf sets `pid /tmp/nginx.pid` so
     # the non-root master can write its PID file.
-    image: 'nginxinc/nginx-unprivileged:1.30'
+    image: 'nginxinc/nginx-unprivileged:1.31'
     container_name: nginx
     restart: always
     stop_grace_period: 5s
@@ -145,7 +145,7 @@ services:
   # Databases
   # ---------------------------------------------------------------------------
   mongodb:
-    image: 'mongo:8.3.4'
+    image: 'mongo:8.3.7'
     container_name: mongodb
     restart: always
     stop_grace_period: 15s
@@ -480,7 +480,7 @@ services:
   buildkitd:
     # v0.30.0 (was v0.16.0): newer runc reaper avoids the hot
     # "container not running" retry loop on killed build containers.
-    image: 'moby/buildkit:v0.31.1-rootless'
+    image: 'moby/buildkit:v0.32.1-rootless'
     container_name: buildkitd
     restart: always
     stop_grace_period: 5s
@@ -1018,7 +1018,7 @@ services:
   # the native /dashboard/observability page.
   # ---------------------------------------------------------------------------
   prometheus:
-    image: 'prom/prometheus:v3.13.0'
+    image: 'prom/prometheus:v3.13.2'
     container_name: prometheus
     restart: always
     command: ['--config.file=/etc/prometheus/prometheus.yml', '--storage.tsdb.retention.time=7d']

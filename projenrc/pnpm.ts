@@ -49,6 +49,20 @@ export class PnpmWorkspace extends Component {
             root.outdir, project.outdir
           )
         ),
+        // pnpm 11 blocks dependency build/postinstall scripts unless each is
+        // explicitly approved here (else `ERR_PNPM_IGNORED_BUILDS` fails install).
+        // These have legitimate native/codegen build steps the toolchain relies on.
+        allowBuilds: {
+          '@scarf/scarf': true,
+          '@swc/core': true,
+          esbuild: true,
+          'mongodb-memory-server': true,
+          'msgpackr-extract': true,
+          nx: true,
+          protobufjs: true,
+          sharp: true,
+          'unrs-resolver': true,
+        },
       },
     });
   }

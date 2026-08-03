@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@jest/globals",
-      "version": "30.2.0",
+      "version": "30.4.1",
       "type": "build"
     },
     {
@@ -27,7 +27,7 @@
     },
     {
       "name": "@types/node",
-      "version": "26.1.1",
+      "version": "26.1.2",
       "type": "build"
     },
     {
@@ -38,6 +38,11 @@
     {
       "name": "@typescript-eslint/parser",
       "version": "^8",
+      "type": "build"
+    },
+    {
+      "name": "@typescript/native",
+      "version": "npm:typescript@^7.0.2",
       "type": "build"
     },
     {
@@ -65,12 +70,12 @@
     },
     {
       "name": "ts-jest",
-      "version": "^29",
+      "version": "29.4.12",
       "type": "build"
     },
     {
       "name": "typescript",
-      "version": "6.0.3",
+      "version": "npm:@typescript/typescript6@^6.0.2",
       "type": "build"
     },
     {
@@ -90,7 +95,7 @@
     },
     {
       "name": "axios",
-      "version": "1.18.1",
+      "version": "1.19.0",
       "type": "runtime"
     },
     {
@@ -100,7 +105,7 @@
     },
     {
       "name": "express-rate-limit",
-      "version": "8.6.0",
+      "version": "8.6.1",
       "type": "runtime"
     },
     {

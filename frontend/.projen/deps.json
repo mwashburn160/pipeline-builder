@@ -7,7 +7,7 @@
     },
     {
       "name": "@testing-library/jest-dom",
-      "version": "6.9.1",
+      "version": "7.0.0",
       "type": "build"
     },
     {
@@ -22,17 +22,22 @@
     },
     {
       "name": "@types/node",
-      "version": "26.1.1",
+      "version": "26.1.2",
       "type": "build"
     },
     {
       "name": "@types/react-dom",
-      "version": "19.2.3",
+      "version": "19.2.4",
       "type": "build"
     },
     {
       "name": "@types/react",
-      "version": "19.2.17",
+      "version": "19.2.18",
+      "type": "build"
+    },
+    {
+      "name": "@typescript/native",
+      "version": "npm:typescript@^7.0.2",
       "type": "build"
     },
     {
@@ -57,17 +62,17 @@
     },
     {
       "name": "postcss",
-      "version": "8.5.19",
+      "version": "8.5.25",
       "type": "build"
     },
     {
       "name": "ts-jest",
-      "version": "^29.4.11",
+      "version": "^29.4.12",
       "type": "build"
     },
     {
       "name": "typescript",
-      "version": "6.0.3",
+      "version": "npm:@typescript/typescript6@^6.0.2",
       "type": "build"
     },
     {
@@ -87,12 +92,12 @@
     },
     {
       "name": "framer-motion",
-      "version": "12.42.2",
+      "version": "12.43.0",
       "type": "runtime"
     },
     {
       "name": "lucide-react",
-      "version": "1.25.0",
+      "version": "1.28.0",
       "type": "runtime"
     },
     {
@@ -109,7 +114,7 @@
     },
     {
       "name": "react-grid-layout",
-      "version": "2.2.3",
+      "version": "2.2.4",
       "type": "runtime"
     },
     {

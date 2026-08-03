@@ -144,7 +144,9 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: 'All Organizations', href: '/dashboard/organizations', icon: Building2, systemAdminOnly: true },
       { title: 'All Users', href: '/dashboard/users', icon: Users, systemAdminOnly: true },
       { title: 'Registry', href: '/dashboard/registry', icon: Boxes, systemAdminOnly: true },
-      { title: 'Discounts', href: '/dashboard/discounts', icon: Ticket, systemAdminOnly: true },
+      // Discounts live in the billing service (BILLING_DISCOUNTS_ENABLED) — hide the
+      // link when billing is disabled in this deployment, like Billing/Billing Admin.
+      { title: 'Discounts', href: '/dashboard/discounts', icon: Ticket, systemAdminOnly: true, requiresBillingEnabled: true },
       // Fleet-wide billing admin (all-orgs subscriptions, platform finance, backfill).
       // Also gated on the billing service being enabled in this deployment.
       { title: 'Billing Admin', href: '/dashboard/admin/billing', icon: Landmark, systemAdminOnly: true, requiresBillingEnabled: true },

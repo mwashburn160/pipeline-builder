@@ -137,7 +137,7 @@ spec:
           # 8080/8443 by default (no <1024 bind), and uses /tmp for the PID
           # file. Lets us drop ALL caps and enable readOnlyRootFilesystem
           # without the CHOWN / SETUID / SETGID dance the upstream image needs.
-          image: nginxinc/nginx-unprivileged:1.30
+          image: nginxinc/nginx-unprivileged:1.31
           securityContext:
             runAsNonRoot: true
             runAsUser: 101

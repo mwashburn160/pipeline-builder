@@ -49,7 +49,7 @@ export class Nx extends Component {
         super(root);
 
         // Add Nx dependencies to the root project
-        root.addDevDeps('nx@^22', '@nx/devkit@^22', '@nx/workspace@^22', '@nx/js@^22');
+        root.addDevDeps('nx@^23', '@nx/devkit@^23', '@nx/workspace@^23', '@nx/js@^23');
 
         // Generate nx.json with build orchestration configuration
         new JsonFile(root, 'nx.json', {

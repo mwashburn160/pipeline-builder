@@ -2,17 +2,17 @@
   "dependencies": [
     {
       "name": "@nx/devkit",
-      "version": "^22",
+      "version": "^23",
       "type": "build"
     },
     {
       "name": "@nx/js",
-      "version": "^22",
+      "version": "^23",
       "type": "build"
     },
     {
       "name": "@nx/workspace",
-      "version": "^22",
+      "version": "^23",
       "type": "build"
     },
     {
@@ -22,7 +22,7 @@
     },
     {
       "name": "@swc-node/register",
-      "version": "1.12.0",
+      "version": "1.12.1",
       "type": "build"
     },
     {
@@ -42,7 +42,7 @@
     },
     {
       "name": "nx",
-      "version": "^22",
+      "version": "^23",
       "type": "build"
     },
     {
@@ -56,7 +56,7 @@
     },
     {
       "name": "typescript",
-      "version": "6.0.3",
+      "version": "npm:@typescript/typescript6@^6.0.2",
       "type": "build"
     }
   ],

@@ -18,3 +18,13 @@ packages:
   - api/reporting
   - api/compliance
   - api/image-registry
+allowBuilds:
+  "@scarf/scarf": true
+  "@swc/core": true
+  esbuild: true
+  mongodb-memory-server: true
+  msgpackr-extract: true
+  nx: true
+  protobufjs: true
+  sharp: true
+  unrs-resolver: true

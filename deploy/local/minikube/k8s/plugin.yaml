@@ -82,7 +82,7 @@ spec:
           # v0.30.0 (was v0.16.0): newer runc reaper avoids the hot
           # "container not running" retry loop that zombified the pod when a
           # build container was killed mid-flight.
-          image: moby/buildkit:v0.31.1-rootless
+          image: moby/buildkit:v0.32.1-rootless
           restartPolicy: Always
           args:
             - --addr

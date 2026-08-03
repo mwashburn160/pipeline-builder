@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@jest/globals",
-      "version": "30.2.0",
+      "version": "30.4.1",
       "type": "build"
     },
     {
@@ -36,6 +36,11 @@
       "type": "build"
     },
     {
+      "name": "@typescript/native",
+      "version": "npm:typescript@^7.0.2",
+      "type": "build"
+    },
+    {
       "name": "copyfiles",
       "version": "2.4.1",
       "type": "build"
@@ -65,32 +70,32 @@
     },
     {
       "name": "ts-jest",
-      "version": "^29",
+      "version": "29.4.12",
       "type": "build"
     },
     {
       "name": "typescript",
-      "version": "6.0.3",
+      "version": "npm:@typescript/typescript6@^6.0.2",
       "type": "build"
     },
     {
       "name": "@aws-sdk/client-cloudformation",
-      "version": "3.1089.0",
+      "version": "3.1101.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-lambda",
-      "version": "3.1089.0",
+      "version": "3.1101.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-secrets-manager",
-      "version": "3.1089.0",
+      "version": "3.1101.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-sts",
-      "version": "3.1089.0",
+      "version": "3.1101.0",
       "type": "runtime"
     },
     {
@@ -105,12 +110,12 @@
     },
     {
       "name": "aws-cdk-lib",
-      "version": "2.261.0",
+      "version": "2.263.0",
       "type": "runtime"
     },
     {
       "name": "axios",
-      "version": "1.18.1",
+      "version": "1.19.0",
       "type": "runtime"
     },
     {
@@ -120,7 +125,7 @@
     },
     {
       "name": "figlet",
-      "version": "1.11.2",
+      "version": "1.11.4",
       "type": "runtime"
     },
     {
@@ -145,7 +150,7 @@
     },
     {
       "name": "typescript",
-      "version": "6.0.3",
+      "version": "npm:@typescript/typescript6@^6.0.2",
       "type": "runtime"
     },
     {

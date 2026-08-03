@@ -116,7 +116,12 @@ export function configureEsmJest(project: JestConfigurable): void {
     // links it into the package (jest injects it at runtime, but eslint's
     // import/no-unresolved resolves statically against node_modules and would
     // otherwise fail on every test file).
-    project.addDevDeps('@jest/globals@30.2.0');
+    project.addDevDeps('@jest/globals@30.4.1');
+    // TS7 dual-package: `typescript` is aliased to the 6.x-compatible package (so
+    // ts-jest's ConfigSet keeps the classic API and doesn't crash), while the real
+    // TS7 native compiler is installed as `@typescript/native`. ts-jest pinned to
+    // the latest 29.4.x alongside.
+    project.addDevDeps('@typescript/native@npm:typescript@^7.0.2', 'ts-jest@29.4.12');
     if (project.jest) {
         project.jest.config.extensionsToTreatAsEsm = ['.ts', '.tsx'];
         project.jest.config.transform = tsJestTransform();

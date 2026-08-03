@@ -23,30 +23,31 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.3",
-    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/jest-dom": "7.0.0",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.1",
-    "@types/node": "26.1.1",
-    "@types/react": "19.2.17",
-    "@types/react-dom": "19.2.3",
+    "@types/node": "26.1.2",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "autoprefixer": "10.5.4",
     "jest": "30.4.2",
     "jest-environment-jsdom": "30.4.1",
     "jest-junit": "^17",
-    "postcss": "8.5.19",
-    "ts-jest": "^29.4.11",
-    "typescript": "6.0.3"
+    "postcss": "8.5.25",
+    "ts-jest": "^29.4.12",
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
-    "framer-motion": "12.42.2",
-    "lucide-react": "1.25.0",
+    "framer-motion": "12.43.0",
+    "lucide-react": "1.28.0",
     "next": "^16.1.6",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-grid-layout": "2.2.3",
+    "react-grid-layout": "2.2.4",
     "react-resizable": "4.0.2",
     "tailwindcss": "4.3.3"
   },
@@ -65,7 +66,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.4.157",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",

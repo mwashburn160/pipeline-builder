@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@jest/globals",
-      "version": "30.2.0",
+      "version": "30.4.1",
       "type": "build"
     },
     {
@@ -12,7 +12,7 @@
     },
     {
       "name": "@types/node",
-      "version": "26.1.1",
+      "version": "26.1.2",
       "type": "build"
     },
     {
@@ -23,6 +23,11 @@
     {
       "name": "@typescript-eslint/parser",
       "version": "^8",
+      "type": "build"
+    },
+    {
+      "name": "@typescript/native",
+      "version": "npm:typescript@^7.0.2",
       "type": "build"
     },
     {
@@ -50,42 +55,42 @@
     },
     {
       "name": "ts-jest",
-      "version": "^29",
+      "version": "29.4.12",
       "type": "build"
     },
     {
       "name": "typescript",
-      "version": "6.0.3",
+      "version": "npm:@typescript/typescript6@^6.0.2",
       "type": "build"
     },
     {
       "name": "@ai-sdk/amazon-bedrock",
-      "version": "5.0.24",
+      "version": "5.0.40",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/anthropic",
-      "version": "4.0.16",
+      "version": "4.0.27",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/google",
-      "version": "4.0.18",
+      "version": "4.0.31",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/openai-compatible",
-      "version": "3.0.12",
+      "version": "3.0.20",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/openai",
-      "version": "4.0.16",
+      "version": "4.0.27",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/xai",
-      "version": "4.0.16",
+      "version": "4.0.25",
       "type": "runtime"
     },
     {
@@ -95,7 +100,7 @@
     },
     {
       "name": "ai",
-      "version": "7.0.31",
+      "version": "7.0.48",
       "type": "runtime"
     }
   ],
