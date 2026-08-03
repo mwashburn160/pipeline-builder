@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { ArrowLeft, Building2, KeyRound, ShieldCheck, FileDown, Users, Trash2 } from 'lucide-react';
+import { ArrowLeft, Building2, KeyRound, ShieldCheck, FileDown, Users, Trash2, Armchair, Sparkles, Download } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -46,8 +46,13 @@ export default function OrgDetailPage() {
   const [org, setOrg] = useState<Organization | null>(null);
   const [kms, setKms] = useState<KmsStatus | null>(null);
   const [idp, setIdp] = useState<OrgIdpConfigDto | null>(null);
+  // Pooled seat usage + account feature entitlements. Both fail-soft: a 403
+  // (non-account org) or an empty account just renders an empty/muted state.
+  const [seatUsage, setSeatUsage] = useState<{ limit: number; used: number } | null>(null);
+  const [features, setFeatures] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [showKms, setShowKms] = useState(false);
   const [showIdp, setShowIdp] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
@@ -65,23 +70,37 @@ export default function OrgDetailPage() {
   const [editSlug, setEditSlug] = useState('');
   const editForm = useFormState();
 
+  // Seat-limit editor. `seats` is platform-owned (not a quota type); -1 = unlimited.
+  // The PUT is sysadmin/service only + no step-up, so no StepUpModal here.
+  const [showSeatLimit, setShowSeatLimit] = useState(false);
+  const [seatLimitInput, setSeatLimitInput] = useState('');
+  const [seatUnlimited, setSeatUnlimited] = useState(false);
+  const seatForm = useFormState();
+
   const reload = useCallback(async () => {
     if (!orgId) return;
     setLoading(true);
     setError(null);
     try {
-      // Parallel fetch — the three calls are independent, and the page
-      // renders fully only after all three land.
-      const [orgRes, kmsRes, idpRes] = await Promise.all([
+      // Parallel fetch — the calls are independent, and the page renders fully
+      // only after they land. Seat usage + feature entitlements are fail-soft
+      // (`.catch`) so a 403/404 on either never blocks the core org detail.
+      const [orgRes, kmsRes, idpRes, seatRes, featRes] = await Promise.all([
         api.getOrganization(orgId),
         api.getOrgKmsConfig(orgId),
         api.getOrgIdpConfig(orgId).catch(() => null),
+        api.getOrganizationSeatUsage(orgId).catch(() => null),
+        api.getOrganizationFeatureEntitlements(orgId).catch(() => null),
       ]);
       if (orgRes.success && orgRes.data) setOrg(orgRes.data);
       else throw new Error(orgRes.message || 'Failed to load organization');
       if (kmsRes.success && kmsRes.data) setKms(kmsRes.data);
       if (idpRes?.success && idpRes.data?.config) setIdp(idpRes.data.config);
       else setIdp(null);
+      if (seatRes?.success && seatRes.data) setSeatUsage(seatRes.data);
+      else setSeatUsage(null);
+      if (featRes?.success && featRes.data) setFeatures(featRes.data.featureEntitlements ?? []);
+      else setFeatures([]);
     } catch (e) {
       setError(formatError(e, 'Failed to load org details'));
     } finally {
@@ -118,6 +137,64 @@ export default function OrgDetailPage() {
       editForm.setError(result.message || 'Failed to update organization');
     }
   }, [org, editName, editSlug, editForm, reload]);
+
+  const openSeatLimit = useCallback(() => {
+    const current = seatUsage?.limit ?? 0;
+    if (current === -1) {
+      setSeatUnlimited(true);
+      setSeatLimitInput('');
+    } else {
+      setSeatUnlimited(false);
+      setSeatLimitInput(String(current));
+    }
+    seatForm.reset();
+    setShowSeatLimit(true);
+  }, [seatUsage, seatForm]);
+
+  const handleSaveSeatLimit = useCallback(async () => {
+    if (!org) return;
+    let seats: number;
+    if (seatUnlimited) {
+      seats = -1;
+    } else {
+      const n = Number(seatLimitInput);
+      if (!Number.isInteger(n) || n < 0) {
+        seatForm.setError('Enter a whole number of seats (0 or more), or check Unlimited.');
+        return;
+      }
+      seats = n;
+    }
+    const result = await seatForm.run(() => api.setOrganizationSeatLimit(org.id, seats));
+    if (result !== null && result.success) {
+      setShowSeatLimit(false);
+      await reload();
+    } else if (result !== null) {
+      seatForm.setError(result.message || 'Failed to set seat limit');
+    }
+  }, [org, seatUnlimited, seatLimitInput, seatForm, reload]);
+
+  // GDPR portability dump. The endpoint streams raw JSON (not an ApiResponse
+  // envelope); the client method returns the body text, saved here as a file.
+  const handleExport = useCallback(async () => {
+    if (!org) return;
+    setExporting(true);
+    try {
+      const json = await api.exportOrganization(org.id);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `org-${org.slug ?? org.id}-export.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(formatError(e, 'Failed to export organization data'));
+    } finally {
+      setExporting(false);
+    }
+  }, [org]);
 
   const executeDownloadNamespaceYaml = useCallback(async (stepUpToken: string) => {
     if (!org) return;
@@ -340,6 +417,57 @@ export default function OrgDetailPage() {
             )}
           </div>
 
+          {/* Seats card — pooled account seat usage + a sysadmin control to set
+              the seat limit. Usage is account-scoped (resolves to the root). */}
+          <div className="card">
+            <div className="flex items-start justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Armchair className="w-5 h-5 text-gray-500" />
+                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Seats</h3>
+              </div>
+              <button onClick={openSeatLimit} className="action-link text-sm">Set limit</button>
+            </div>
+            {seatUsage ? (
+              <dl className="text-sm space-y-1.5">
+                <div className="flex justify-between">
+                  <dt className="text-gray-500 dark:text-gray-400">Used</dt>
+                  <dd className="font-mono text-xs">
+                    {seatUsage.used} / {seatUsage.limit === -1 ? '∞' : seatUsage.limit}
+                  </dd>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 pt-1">
+                  Pooled across the whole account (active members + pending invites).
+                  {seatUsage.limit === -1 ? ' Seats are unlimited.' : ''}
+                </p>
+              </dl>
+            ) : (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Seat usage unavailable for this org. It may not be an account root,
+                or the seat service didn&apos;t respond.
+              </p>
+            )}
+          </div>
+
+          {/* Feature entitlements card — read-only. The account's (root) pooled
+              feature flags purchased via tier + add-on bundles. */}
+          <div className="card">
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="w-5 h-5 text-gray-500" />
+              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Feature entitlements</h3>
+            </div>
+            {features.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {features.map((f) => (
+                  <Badge key={f} color="blue">{f}</Badge>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                No add-on feature entitlements. The org has only its tier&apos;s baseline features.
+              </p>
+            )}
+          </div>
+
           {/* Quotas card */}
           {org.quotas && (
             <div className="card">
@@ -363,6 +491,9 @@ export default function OrgDetailPage() {
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={downloadNamespaceYaml} className="btn btn-secondary inline-flex items-center gap-2 text-sm">
                 <FileDown className="w-4 h-4" /> Download k8s namespace YAML
+              </button>
+              <button onClick={handleExport} disabled={exporting} className="btn btn-secondary inline-flex items-center gap-2 text-sm disabled:opacity-60">
+                <Download className="w-4 h-4" /> {exporting ? 'Exporting…' : 'Export data'}
               </button>
               <Link href={`/dashboard/audit?affectedOrgId=${org.id}`} className="btn btn-secondary text-sm">
                 View audit log
@@ -412,6 +543,53 @@ export default function OrgDetailPage() {
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Description isn&apos;t editable here — the update endpoint only accepts name and slug.
             </p>
+          </div>
+        </Modal>
+      )}
+
+      {showSeatLimit && org && (
+        <Modal
+          title="Set seat limit"
+          onClose={() => setShowSeatLimit(false)}
+          maxWidth="max-w-md"
+          footer={
+            <ModalFooter
+              onCancel={() => setShowSeatLimit(false)}
+              onConfirm={handleSaveSeatLimit}
+              confirmLabel="Save"
+              loading={seatForm.loading}
+            />
+          }
+        >
+          <div className="space-y-4">
+            <ErrorAlert message={seatForm.error} />
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Sets the pooled seat cap for the whole account (applied to the root org).
+              Seats count active members plus pending invites across every team.
+            </p>
+            <div>
+              <label htmlFor="seat-limit" className="label">Seats</label>
+              <Input
+                id="seat-limit"
+                type="number"
+                min={0}
+                step={1}
+                value={seatLimitInput}
+                onChange={(e) => setSeatLimitInput(e.target.value)}
+                disabled={seatForm.loading || seatUnlimited}
+                placeholder="e.g. 25"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                type="checkbox"
+                checked={seatUnlimited}
+                onChange={(e) => setSeatUnlimited(e.target.checked)}
+                disabled={seatForm.loading}
+                className="rounded border-gray-300"
+              />
+              Unlimited seats
+            </label>
           </div>
         </Modal>
       )}

@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
-import { Trash2 } from 'lucide-react';
+import { Trash2, HardDrive } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -27,6 +27,8 @@ import { useImageTags, invalidateImageTags } from '@/hooks/useImageTags';
 import { useImageDetail } from '@/hooks/useImageDetail';
 import { useTagsWithMetadata } from '@/hooks/useTagsWithMetadata';
 import { api, ApiError } from '@/lib/api';
+import type { RegistryStorageUsage } from '@/lib/api/domains/registry';
+import { formatBytes, fmtNum } from '@/lib/format';
 
 type HealthState = 'checking' | 'ok' | 'error';
 
@@ -140,6 +142,37 @@ export default function RegistryPage() {
       setGcRunning(false);
     }
   }, [gcPrefix, gcDryRun, toast, refresh]);
+
+  // Storage-usage inspector (sysadmin ops). Rolls up per-namespace byte
+  // consumption to inform GC decisions — which prefix is heavy enough to be
+  // worth pruning. Read-only; fail-soft when the endpoint isn't deployed (404).
+  const [storageOpen, setStorageOpen] = useState(false);
+  const [storagePrefix, setStoragePrefix] = useState('');
+  const [storageLoading, setStorageLoading] = useState(false);
+  const [storageResult, setStorageResult] = useState<RegistryStorageUsage | null>(null);
+  const [storageError, setStorageError] = useState<string | null>(null);
+
+  const handleStorageUsage = useCallback(async (opts?: { force?: boolean }) => {
+    const prefix = storagePrefix.trim();
+    if (!prefix) return;
+    setStorageLoading(true);
+    setStorageError(null);
+    try {
+      const res = await api.getRegistryStorageUsage(prefix, opts);
+      setStorageResult(res.data ?? null);
+    } catch (err) {
+      setStorageResult(null);
+      // Fail-soft: a 404 means the rollup endpoint isn't available in this
+      // deployment — surface that plainly rather than as a hard error.
+      if (err instanceof ApiError && err.statusCode === 404) {
+        setStorageError('Storage rollup is not available in this deployment.');
+      } else {
+        setStorageError(err instanceof ApiError ? err.message : 'Failed to compute storage usage');
+      }
+    } finally {
+      setStorageLoading(false);
+    }
+  }, [storagePrefix]);
 
   /** Push a new entry to the recent-actions ring buffer (most-recent first, capped). */
   const recordAction = useCallback((a: RecentAction) => {
@@ -374,6 +407,9 @@ export default function RegistryPage() {
       subtitle="Docker image repository browser"
       actions={
         <div className="flex items-center gap-3">
+          <Button variant="secondary" size="sm" onClick={() => setStorageOpen(true)} title="Inspect per-namespace storage consumption">
+            <HardDrive className="w-3.5 h-3.5 mr-1" /> Storage usage
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => setGcOpen(true)} title="Run manual registry garbage collection">
             <Trash2 className="w-3.5 h-3.5 mr-1" /> Run GC
           </Button>
@@ -548,6 +584,90 @@ export default function RegistryPage() {
                 </span>
               </span>
             </label>
+          </div>
+        </Modal>
+      )}
+
+      {storageOpen && (
+        <Modal
+          title="Namespace storage usage"
+          onClose={() => setStorageOpen(false)}
+          footer={
+            <ModalFooter
+              onCancel={() => setStorageOpen(false)}
+              onConfirm={() => handleStorageUsage()}
+              confirmLabel="Compute"
+              confirmVariant="primary"
+              loading={storageLoading}
+              confirmDisabled={!storagePrefix.trim()}
+            />
+          }
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Rolls up total unique blob bytes under a single repo namespace prefix
+              (e.g. <code className="font-mono">org-acme/</code>) so you can see which
+              namespaces are heavy before running GC. The trailing slash is added
+              automatically. Results are cached ~60s server-side.
+            </p>
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Namespace prefix</label>
+              <Input
+                type="text"
+                placeholder="org-acme/"
+                value={storagePrefix}
+                onChange={(e) => setStoragePrefix(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && storagePrefix.trim() && !storageLoading) void handleStorageUsage(); }}
+                className="text-sm"
+                autoFocus
+                disabled={storageLoading}
+              />
+            </div>
+
+            {storageError && (
+              <div className="rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+                {storageError}
+              </div>
+            )}
+
+            {storageResult && !storageError && (
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3">
+                <div className="flex items-baseline justify-between mb-3">
+                  <code className="font-mono text-sm text-gray-800 dark:text-gray-200">{storageResult.prefix}</code>
+                  <button
+                    type="button"
+                    onClick={() => void handleStorageUsage({ force: true })}
+                    disabled={storageLoading}
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
+                    title="Bypass the server cache and recompute"
+                  >
+                    Recompute
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <div className="text-lg font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{formatBytes(storageResult.bytes)}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">total</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{fmtNum(storageResult.repos)}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">repos</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{fmtNum(storageResult.blobs)}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">unique blobs</div>
+                  </div>
+                </div>
+                {storageResult.incomplete && (
+                  <div className="mt-3 rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-2 py-1.5 text-xs text-amber-800 dark:text-amber-200">
+                    Scan was incomplete — a repo, manifest, or blob could not be read, so this total UNDER-counts actual usage.
+                  </div>
+                )}
+                <div className="mt-3 text-xs text-gray-400 dark:text-gray-500">
+                  Computed {new Date(storageResult.computedAt).toLocaleString()}
+                </div>
+              </div>
+            )}
           </div>
         </Modal>
       )}

@@ -10,6 +10,7 @@ import ReportTabs from '@/components/reports/ReportTabs';
 import { LoadingPage } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
 import type { Plan, Subscription, Bundle, ComboDiscount, AddonResult, BillingInterval, UsageRollup } from '@/types';
+import type { MarketplaceEntitlements } from '@/lib/api/domains/billing';
 import api, { ApiError } from '@/lib/api';
 import { SubscriptionStatusCard } from '@/components/billing/SubscriptionStatusCard';
 import { UsageCard } from '@/components/billing/UsageCard';
@@ -377,6 +378,10 @@ export default function BillingPage() {
 
             {/* Per-team usage breakdown (feature-gated: team_usage_analytics). */}
             <TeamUsageCard />
+
+            {/* AWS Marketplace entitlements — read-only, self-fetching. Hides itself
+                when the provider isn't marketplace (400) or the org has none (404). */}
+            <MarketplaceEntitlementsPanel />
           </div>
         )}
 
@@ -509,5 +514,66 @@ export default function BillingPage() {
       </div>
 
     </DashboardLayout>
+  );
+}
+
+/**
+ * Read-only panel listing the org's current AWS Marketplace entitlements. Only
+ * meaningful for Marketplace-billed accounts — self-fetches and fails soft: a
+ * 400 (provider isn't marketplace) or 404 (no marketplace subscription) simply
+ * renders nothing, so non-Marketplace deployments never see it.
+ */
+function MarketplaceEntitlementsPanel() {
+  const [data, setData] = useState<MarketplaceEntitlements | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getMarketplaceEntitlements()
+      .then((res) => { if (!cancelled && res.success && res.data) setData(res.data); })
+      .catch(() => { /* fail-soft: not a marketplace account, or none found */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!data || data.entitlements.length === 0) return null;
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">AWS Marketplace Entitlements</h3>
+        <span className="text-xs text-gray-400 dark:text-gray-500">Managed in AWS</span>
+      </div>
+      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+        Current plan <code className="font-mono">{data.currentPlanId}</code> · customer{' '}
+        <code className="font-mono break-all">{data.customerIdentifier}</code>
+      </p>
+      <div className="mt-4 overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+              <th className="py-2 pr-4">Plan</th>
+              <th className="py-2 pr-4">Dimension</th>
+              <th className="py-2 pr-4">Status</th>
+              <th className="py-2 pr-4">Expires</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.entitlements.map((e, i) => (
+              <tr key={`${e.planId}-${e.dimension}-${i}`} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
+                <td className="py-2 pr-4 font-mono text-gray-800 dark:text-gray-200">{e.planId}</td>
+                <td className="py-2 pr-4 text-gray-600 dark:text-gray-400">{e.dimension}</td>
+                <td className="py-2 pr-4">
+                  {e.isEntitled
+                    ? <span className="text-green-600 dark:text-green-400 font-medium">Entitled</span>
+                    : <span className="text-gray-400 dark:text-gray-500">Not entitled</span>}
+                </td>
+                <td className="py-2 pr-4 text-gray-600 dark:text-gray-400">
+                  {e.expirationDate ? new Date(e.expirationDate).toLocaleDateString() : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }

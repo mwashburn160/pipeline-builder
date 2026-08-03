@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { useOpenOnCreateQuery } from '@/hooks/useOpenOnCreateQuery';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
-import { Plus, GitBranch, Search, Trash2, X } from 'lucide-react';
+import { Plus, GitBranch, Search, Trash2, X, Upload } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
 import { FilterBar } from '@/components/ui/FilterBar';
@@ -22,6 +23,7 @@ import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import { DeployedPipelinesPanel } from '@/components/pipeline/DeployedPipelinesPanel';
 import api from '@/lib/api';
+import type { BulkPipelineSpec, BulkCreateResult } from '@/lib/api/domains/pipelines';
 import { mapCommonParams, canWritePipeline } from '@/lib/resource-helpers';
 import type { Pipeline, BuilderProps } from '@/types';
 
@@ -180,6 +182,63 @@ export default function PipelinesPage() {
     }
   };
 
+  // ── Bulk Create (import) ──
+
+  const [showBulkCreate, setShowBulkCreate] = useState(false);
+  const [bulkText, setBulkText] = useState('');
+  const [bulkCreating, setBulkCreating] = useState(false);
+  const [bulkCreateError, setBulkCreateError] = useState<string | null>(null);
+  const [bulkCreateResult, setBulkCreateResult] = useState<BulkCreateResult | null>(null);
+
+  const openBulkCreate = () => {
+    setBulkText('');
+    setBulkCreateError(null);
+    setBulkCreateResult(null);
+    setShowBulkCreate(true);
+  };
+
+  const handleBulkCreate = async () => {
+    setBulkCreateError(null);
+    setBulkCreateResult(null);
+
+    let specs: BulkPipelineSpec[];
+    try {
+      const parsed = JSON.parse(bulkText);
+      // Accept either a bare array or a { pipelines: [...] } envelope so users
+      // can paste whichever shape they exported.
+      const arr = Array.isArray(parsed) ? parsed : (parsed?.pipelines ?? null);
+      if (!Array.isArray(arr) || arr.length === 0) {
+        setBulkCreateError('Provide a non-empty JSON array of pipeline specs (or a { "pipelines": [...] } object).');
+        return;
+      }
+      specs = arr as BulkPipelineSpec[];
+    } catch {
+      setBulkCreateError('Invalid JSON. Paste a valid JSON array of pipeline specs.');
+      return;
+    }
+
+    setBulkCreating(true);
+    try {
+      const res = await api.bulkCreatePipelines(specs);
+      if (res.success && res.data) {
+        setBulkCreateResult(res.data);
+        list.refresh();
+        const { created, updated, failed } = res.data;
+        if (failed === 0) {
+          toast.success(`${created} created${updated > 0 ? `, ${updated} updated` : ''}`);
+        } else {
+          toast.error(`${created} created, ${failed} failed`);
+        }
+      } else {
+        setBulkCreateError(formatError(res, 'Bulk create failed'));
+      }
+    } catch (err) {
+      setBulkCreateError(formatError(err, 'Bulk create failed'));
+    } finally {
+      setBulkCreating(false);
+    }
+  };
+
   // ── Filters ──
 
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -325,10 +384,16 @@ export default function PipelinesPage() {
       subtitle="Create, edit, and monitor pipeline configurations"
       actions={
         canWrite ? (
-          <Button onClick={() => { setShowCreateModal(true); createForm.reset(); setCreateSuccess(null); }}>
-            <Plus className="w-4 h-4 mr-2" />
-            Create Pipeline
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={openBulkCreate}>
+              <Upload className="w-4 h-4 mr-2" />
+              Bulk import
+            </Button>
+            <Button onClick={() => { setShowCreateModal(true); createForm.reset(); setCreateSuccess(null); }}>
+              <Plus className="w-4 h-4 mr-2" />
+              Create Pipeline
+            </Button>
+          </div>
         ) : undefined
       }
     >
@@ -435,6 +500,62 @@ export default function PipelinesPage() {
         createSuccess={createSuccess}
         canCreatePublic={isSuperAdmin}
       />
+
+      {showBulkCreate && (
+        <Modal
+          title="Bulk import pipelines"
+          onClose={() => bulkCreating ? undefined : setShowBulkCreate(false)}
+          maxWidth="max-w-2xl"
+          footer={
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="secondary" onClick={() => setShowBulkCreate(false)} disabled={bulkCreating}>
+                Close
+              </Button>
+              <Button onClick={handleBulkCreate} disabled={bulkCreating || !bulkText.trim()}>
+                {bulkCreating ? 'Importing…' : 'Import'}
+              </Button>
+            </div>
+          }
+        >
+          <div className="space-y-3 text-sm">
+            <p className="text-gray-600 dark:text-gray-400">
+              Paste a JSON array of pipeline specs (each with <code className="font-mono">project</code>, <code className="font-mono">organization</code>, and <code className="font-mono">props</code>; optional <code className="font-mono">pipelineName</code>, <code className="font-mono">description</code>, <code className="font-mono">keywords</code>, <code className="font-mono">accessModifier</code>). A <code className="font-mono">{'{ "pipelines": [...] }'}</code> wrapper is also accepted.
+            </p>
+            <textarea
+              value={bulkText}
+              onChange={(e) => { setBulkText(e.target.value); setBulkCreateError(null); }}
+              placeholder={'[\n  { "project": "web", "organization": "acme", "props": { /* BuilderProps */ } }\n]'}
+              rows={12}
+              className="input font-mono text-xs w-full"
+              disabled={bulkCreating}
+              spellCheck={false}
+            />
+            {bulkCreateError && (
+              <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
+                <p className="text-red-800 dark:text-red-300">{bulkCreateError}</p>
+              </div>
+            )}
+            {bulkCreateResult && (
+              <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 p-3 space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  <Badge color="green">{bulkCreateResult.created} created</Badge>
+                  {bulkCreateResult.updated > 0 && <Badge color="blue">{bulkCreateResult.updated} updated</Badge>}
+                  {bulkCreateResult.failed > 0 && <Badge color="red">{bulkCreateResult.failed} failed</Badge>}
+                </div>
+                {bulkCreateResult.errors.length > 0 && (
+                  <ul className="text-xs text-red-700 dark:text-red-300 space-y-1 max-h-40 overflow-y-auto">
+                    {bulkCreateResult.errors.map((e) => (
+                      <li key={e.index}>
+                        <span className="font-mono">#{e.index}</span>: {e.error}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
 
       {del.target && (
         <DeleteConfirmModal title="Delete Pipeline" itemName={del.target.pipelineName || 'Unnamed Pipeline'} loading={del.loading} onConfirm={del.confirm} onCancel={del.close} />

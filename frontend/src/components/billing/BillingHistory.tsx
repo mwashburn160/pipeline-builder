@@ -12,9 +12,9 @@ interface BillingHistoryProps {
   onViewEvents: () => void;
 }
 
-/** Billing history. Sysadmins see fleet-wide via /admin/events;
- *  org-admins see their own org's events via the same endpoint
- *  (the backend gates by `orgId` query param when not sysadmin).
+/** Billing history. Sysadmins see the fleet-wide feed via `/admin/events`;
+ *  everyone else sees their OWN account via `/events` (a separate endpoint —
+ *  see `fetchEvents` in billing.tsx, which picks the route by `isSuperAdmin`).
  *  Quietly degrades to an empty section if the backend rejects. */
 export function BillingHistory({
   isSuperAdmin,

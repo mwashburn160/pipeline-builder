@@ -92,7 +92,10 @@ export default function QuotasPage() {
   const fetchAllOrgs = useCallback(async () => {
     if (!isSuperAdmin) return;
     try {
-      const res = await api.listOrganizations();
+      // Explicit high limit — the server default page size is ~10, and this admin
+      // picker has no pagination, so without it a sysadmin could only reach the
+      // first page of orgs. Matches the create/idp org-picker pattern.
+      const res = await api.listOrganizations({ limit: 200 });
       const raw = res.data?.organizations || [];
       const orgs = raw.map((o) => ({ id: o.id, name: o.name, slug: o.slug }));
       setPlatformOrgs(orgs);
@@ -219,6 +222,19 @@ export default function QuotasPage() {
     }
   }
 
+  // Sysadmin operational action: zero the selected org's usage counters
+  // mid-period (limits untouched). The confirm + busy state live in QuotasAdmin;
+  // this owns the API call, in-place refresh, and at-risk re-fetch. Rejections
+  // propagate so the modal can surface them and stay open.
+  async function handleResetUsage() {
+    if (!orgData) return;
+    const res = await api.resetOrgQuota(orgData.orgId);
+    const updated = (res.data?.quota || res.data) as OrgQuotaResponse;
+    applyOrgData(updated, { orgId: orgData.orgId, sidebarName: orgData.name, sidebarSlug: orgData.slug });
+    toast.success('Usage counters reset');
+    fetchAtRisk();
+  }
+
   const filteredOrgs = platformOrgs.filter((o) => {
     if (!searchFilter) return true;
     const q = searchFilter.toLowerCase();
@@ -265,6 +281,7 @@ export default function QuotasPage() {
       handleTierChange={handleTierChange}
       fetchOrg={fetchOrg}
       fetchAtRisk={fetchAtRisk}
+      onResetUsage={handleResetUsage}
     />
   );
 }

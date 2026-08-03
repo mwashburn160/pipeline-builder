@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
-import { Ticket, Plus, KeyRound, Building2, ShieldAlert } from 'lucide-react';
+import { Ticket, Plus, KeyRound, Building2, ShieldAlert, Pencil } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
@@ -21,13 +21,42 @@ import { Pagination } from '@/components/ui/Pagination';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { ApiError } from '@/lib/api/errors';
 import api from '@/lib/api';
+import { formatCents } from '@/lib/format';
+import type { DiscountPriceBreakdown } from '@/lib/api/domains/billing';
 import type { Discount } from '@/types';
 
-/** Human-readable discount amount+kind, e.g. "50% one-time", "$25 recurring", "$100 credit". */
+/** Known pricing tiers offered as `appliesToTiers` checkboxes in the edit modal. */
+const TIER_OPTIONS = ['developer', 'pro', 'team', 'enterprise'] as const;
+
+/** Human-readable discount amount+kind, e.g. "50% one-time", "$25.00 recurring",
+ *  "$100.00 credit". `value` is percent-points for `percent`, else whole CENTS —
+ *  so dollar/credit amounts must go through `formatCents`, not raw `$${value}`
+ *  (which rendered a $25 discount as "$2500"). */
 function formatDiscount(d: Discount): string {
-  const amount = d.unit === 'percent' ? `${d.value}%` : `$${d.value}`;
+  const amount = d.unit === 'percent' ? `${d.value}%` : formatCents(d.value);
   const kindLabel = d.kind === 'onetime' ? 'one-time' : d.kind;
   return `${amount} ${kindLabel}`;
+}
+
+/** Render a provider-dependent price-breakdown object as generic key/value rows.
+ *  The shape varies by provider, so this stays deliberately schema-agnostic. */
+function PriceBreakdown({ breakdown }: { breakdown: DiscountPriceBreakdown }) {
+  const entries = Object.entries(breakdown ?? {});
+  if (entries.length === 0) return null;
+  return (
+    <dl className="mt-2 space-y-1">
+      {entries.map(([key, value]) => (
+        <div key={key} className="flex items-center justify-between gap-3 text-xs">
+          <dt className="text-gray-500 dark:text-gray-400">{key}</dt>
+          <dd className="font-mono text-gray-700 dark:text-gray-300 text-right break-all">
+            {typeof value === 'number'
+              ? /cents/i.test(key) ? formatCents(value) : value.toLocaleString()
+              : typeof value === 'object' ? JSON.stringify(value) : String(value)}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 /**
@@ -100,8 +129,10 @@ export default function DiscountsPage() {
     const trimmedCode = code.trim();
     if (!trimmedCode) return;
     const maxR = maxRedemptions.trim() ? Number(maxRedemptions.trim()) : undefined;
-    if (maxR !== undefined && (!Number.isFinite(maxR) || maxR < 0)) {
-      createForm.setError('Max redemptions must be a non-negative number.');
+    // Schema floor is 1 (blank = unlimited) — match the edit path so a `0` fails
+    // up front instead of as a generic server 400.
+    if (maxR !== undefined && (!Number.isFinite(maxR) || maxR < 1)) {
+      createForm.setError('Max redemptions must be 1 or more (leave blank for unlimited).');
       return;
     }
     const result = await createForm.run(() => api.createDiscount({
@@ -143,8 +174,33 @@ export default function DiscountsPage() {
 
   const openApply = (d: Discount) => {
     setApplyOrgId(d.targetOrgId ?? '');
+    setApplyPreview(null);
     applyForm.reset();
     setApplyDiscount(d);
+  };
+
+  // Dry-run the direct grant so the operator sees the effect before it counts as
+  // a redemption. Held alongside the apply modal; cleared when the org id changes.
+  const [applyPreview, setApplyPreview] = useState<{ applied: string; priceBreakdown: DiscountPriceBreakdown } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  const handlePreviewApply = async () => {
+    if (!applyDiscount) return;
+    const org = applyOrgId.trim();
+    if (!org) {
+      applyForm.setError('Enter a target organization id.');
+      return;
+    }
+    setPreviewLoading(true);
+    applyForm.setError(null);
+    try {
+      const res = await api.previewDiscountForOrg(applyDiscount.id, org);
+      if (res.success && res.data) setApplyPreview(res.data);
+    } catch (err) {
+      applyForm.setError(formatError(err, 'Failed to preview discount'));
+    } finally {
+      setPreviewLoading(false);
+    }
   };
 
   const handleApply = async () => {
@@ -157,8 +213,54 @@ export default function DiscountsPage() {
     const result = await applyForm.run(() => api.applyDiscountToOrg(applyDiscount.id, org));
     if (result !== null) {
       setApplyDiscount(null);
+      setApplyPreview(null);
       list.refresh();
       toast.success(`Discount applied to ${org}`);
+    }
+  };
+
+  // ── Edit (isActive / maxRedemptions / redeemBy / appliesToTiers) ──────
+  const [editDiscount, setEditDiscount] = useState<Discount | null>(null);
+  const [editMaxRedemptions, setEditMaxRedemptions] = useState('');
+  const [editRedeemBy, setEditRedeemBy] = useState('');
+  const [editTiers, setEditTiers] = useState<string[]>([]);
+  const [editActive, setEditActive] = useState(true);
+  const editForm = useFormState();
+
+  const openEdit = (d: Discount) => {
+    setEditDiscount(d);
+    setEditMaxRedemptions(d.maxRedemptions != null ? String(d.maxRedemptions) : '');
+    // <input type="date"> wants YYYY-MM-DD; the record carries a full ISO instant.
+    setEditRedeemBy(d.redeemBy ? d.redeemBy.slice(0, 10) : '');
+    setEditTiers(d.appliesToTiers ?? []);
+    setEditActive(d.isActive);
+    editForm.reset();
+  };
+
+  const toggleEditTier = (tier: string) => {
+    setEditTiers((prev) => prev.includes(tier) ? prev.filter((t) => t !== tier) : [...prev, tier]);
+  };
+
+  const handleEdit = async () => {
+    if (!editDiscount) return;
+    const maxR = editMaxRedemptions.trim() ? Number(editMaxRedemptions.trim()) : undefined;
+    // The API only accepts a positive cap (schema min 1); a blank field leaves the
+    // existing value untouched rather than clearing it.
+    if (maxR !== undefined && (!Number.isFinite(maxR) || maxR < 1)) {
+      editForm.setError('Max redemptions must be a positive number (leave blank to keep unchanged).');
+      return;
+    }
+    const body: { isActive?: boolean; maxRedemptions?: number; redeemBy?: string; appliesToTiers?: string[] } = {
+      isActive: editActive,
+      appliesToTiers: editTiers,
+    };
+    if (maxR !== undefined) body.maxRedemptions = maxR;
+    if (editRedeemBy.trim()) body.redeemBy = new Date(editRedeemBy.trim()).toISOString();
+    const result = await editForm.run(() => api.updateDiscount(editDiscount.id, body));
+    if (result !== null) {
+      setEditDiscount(null);
+      list.refresh();
+      toast.success('Discount updated');
     }
   };
 
@@ -264,6 +366,13 @@ export default function DiscountsPage() {
             title="Apply this discount directly to an organization"
           >
             <Building2 className="w-3.5 h-3.5" /> Apply to org
+          </button>
+          <button
+            onClick={() => openEdit(d)}
+            className="action-link inline-flex items-center gap-1"
+            title="Edit redemption cap, expiry, tiers, or active state"
+          >
+            <Pencil className="w-3.5 h-3.5" /> Edit
           </button>
           {d.isActive && (
             <button onClick={() => del.open(d)} className="action-link-danger">Revoke</button>
@@ -409,7 +518,7 @@ export default function DiscountsPage() {
                 <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Max redemptions <span className="text-gray-400">(optional)</span></label>
                 <Input
                   type="number"
-                  min={0}
+                  min={1}
                   placeholder="Unlimited"
                   value={maxRedemptions}
                   onChange={(e) => setMaxRedemptions(e.target.value)}
@@ -463,18 +572,29 @@ export default function DiscountsPage() {
           title="Apply Discount to Organization"
           onClose={() => setApplyDiscount(null)}
           footer={
-            <ModalFooter
-              onCancel={() => setApplyDiscount(null)}
-              onConfirm={handleApply}
-              confirmLabel="Apply"
-              loading={applyForm.loading}
-              confirmDisabled={!applyOrgId.trim()}
-            />
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="secondary" onClick={() => setApplyDiscount(null)} disabled={applyForm.loading}>Cancel</Button>
+              <Button
+                variant="secondary"
+                onClick={handlePreviewApply}
+                loading={previewLoading}
+                disabled={!applyOrgId.trim() || applyForm.loading}
+              >
+                Preview
+              </Button>
+              <Button
+                onClick={handleApply}
+                loading={applyForm.loading}
+                disabled={!applyOrgId.trim() || previewLoading}
+              >
+                Apply
+              </Button>
+            </div>
           }
         >
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
             Grant <strong className="text-gray-700 dark:text-gray-300">{formatDiscount(applyDiscount)}</strong> directly to an
-            organization. This counts as a redemption.
+            organization. Preview the effect first — applying counts as a redemption.
           </p>
           <div className="space-y-1">
             <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Target org id</label>
@@ -482,14 +602,98 @@ export default function DiscountsPage() {
               type="text"
               placeholder="e.g. org_abc123"
               value={applyOrgId}
-              onChange={(e) => setApplyOrgId(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleApply()}
+              onChange={(e) => { setApplyOrgId(e.target.value); setApplyPreview(null); }}
+              onKeyDown={(e) => e.key === 'Enter' && handlePreviewApply()}
               className="text-sm font-mono"
               autoFocus
               disabled={applyForm.loading}
             />
           </div>
+          {applyPreview && (
+            <div className="mt-4 rounded-md border border-blue-200/70 dark:border-blue-800/60 bg-blue-50/70 dark:bg-blue-900/20 p-3">
+              <div className="text-xs font-semibold text-blue-800 dark:text-blue-300">Preview (not applied)</div>
+              <div className="mt-1 text-sm text-gray-700 dark:text-gray-300">{applyPreview.applied}</div>
+              <PriceBreakdown breakdown={applyPreview.priceBreakdown} />
+            </div>
+          )}
           {applyForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{applyForm.error}</p>}
+        </Modal>
+      )}
+
+      {/* Edit */}
+      {editDiscount && (
+        <Modal
+          title="Edit Discount"
+          onClose={() => setEditDiscount(null)}
+          footer={
+            <ModalFooter
+              onCancel={() => setEditDiscount(null)}
+              onConfirm={handleEdit}
+              confirmLabel="Save Changes"
+              loading={editForm.loading}
+            />
+          }
+        >
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            Editing <strong className="text-gray-700 dark:text-gray-300">{editDiscount.alias || formatDiscount(editDiscount)}</strong>.
+            The discount amount and kind are fixed at mint time and can’t be changed here.
+          </p>
+          <div className="space-y-3">
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                type="checkbox"
+                checked={editActive}
+                onChange={(e) => setEditActive(e.target.checked)}
+                disabled={editForm.loading}
+                className="rounded border-gray-300"
+              />
+              <span><strong>Active</strong> — uncheck to deactivate (existing grants persist).</span>
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Max redemptions</label>
+                <Input
+                  type="number"
+                  min={1}
+                  placeholder="Keep unchanged"
+                  value={editMaxRedemptions}
+                  onChange={(e) => setEditMaxRedemptions(e.target.value)}
+                  className="text-sm"
+                  disabled={editForm.loading}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Redeem by</label>
+                <Input
+                  type="date"
+                  value={editRedeemBy}
+                  onChange={(e) => setEditRedeemBy(e.target.value)}
+                  className="text-sm"
+                  disabled={editForm.loading}
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Applies to tiers <span className="text-gray-400">(none = all tiers)</span></label>
+              <div className="flex flex-wrap gap-2">
+                {TIER_OPTIONS.map((tier) => (
+                  <button
+                    key={tier}
+                    type="button"
+                    onClick={() => toggleEditTier(tier)}
+                    aria-pressed={editTiers.includes(tier)}
+                    disabled={editForm.loading}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border capitalize transition-colors ${editTiers.includes(tier)
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                  >
+                    {tier}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          {editForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{editForm.error}</p>}
         </Modal>
       )}
 

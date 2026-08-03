@@ -11,6 +11,14 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import api from '@/lib/api';
+
+// sessionStorage key carrying the OAuth "intent" across the provider redirect.
+// Must match the callback page (pages/auth/callback/[provider].tsx).
+const OAUTH_INTENT_KEY = 'pb_oauth_intent';
+
+const PROVIDER_LABELS: Record<string, string> = { google: 'Google', github: 'GitHub' };
+const providerLabel = (p: string) => PROVIDER_LABELS[p] ?? (p.charAt(0).toUpperCase() + p.slice(1));
 
 // ---------------------------------------------------------------------------
 // Animation
@@ -84,7 +92,19 @@ function Hero() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Enabled SSO/OAuth providers. Fail-soft: an empty list (none configured, or
+  // the endpoint 404s) renders no extra UI — password login is unchanged.
+  const [providers, setProviders] = useState<string[]>([]);
+  const [oauthBusy, setOauthBusy] = useState<string | null>(null);
   const sessionExpired = router.query.expired === '1';
+
+  useEffect(() => {
+    let cancelled = false;
+    api.listOAuthProviders()
+      .then((res) => { if (!cancelled) setProviders(res.data?.providers ?? []); })
+      .catch(() => { if (!cancelled) setProviders([]); });
+    return () => { cancelled = true; };
+  }, []);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,6 +112,27 @@ function Hero() {
     if (!identifier || !password) { setError('Enter your email and password'); return; }
     try { await login(identifier, password); }
     catch (err) { setError(err instanceof Error ? err.message : 'Sign in failed'); }
+  };
+
+  // Start the OAuth dance: fetch the provider authorize URL (backend mints the
+  // CSRF state), stash a "login" intent under that state so the callback page
+  // can complete it, then hand the browser to the provider.
+  const startOAuth = async (provider: string) => {
+    setError(null);
+    setOauthBusy(provider);
+    try {
+      const res = await api.getOAuthUrl(provider);
+      const url = res.data?.url;
+      const state = res.data?.state;
+      if (!url || !state) throw new Error('Could not start sign-in with this provider');
+      try {
+        sessionStorage.setItem(OAUTH_INTENT_KEY, JSON.stringify({ state, kind: 'login', returnUrl: '/dashboard' }));
+      } catch { /* storage unavailable — backend still validates state */ }
+      window.location.href = url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Could not sign in with ${providerLabel(provider)}`);
+      setOauthBusy(null);
+    }
   };
 
   return (
@@ -198,6 +239,31 @@ function Hero() {
                 }
               </button>
             </form>
+
+            {providers.length > 0 && (
+              <div className="mt-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="flex-1 h-px bg-[var(--pb-border)]" />
+                  <span className="text-[11px] uppercase tracking-wide text-[var(--pb-text-muted)]">or</span>
+                  <span className="flex-1 h-px bg-[var(--pb-border)]" />
+                </div>
+                <div className="space-y-2">
+                  {providers.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => startOAuth(p)}
+                      disabled={isLoading || oauthBusy !== null}
+                      className="btn btn-secondary btn-full text-sm"
+                    >
+                      {oauthBusy === p
+                        ? <><LoadingSpinner size="sm" className="mr-2" /> Redirecting…</>
+                        : <><LogIn className="w-4 h-4 mr-1.5" /> Sign in with {providerLabel(p)}</>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <p className="text-xs text-[var(--pb-text-muted)] mt-4 text-center">
               New here?{' '}

@@ -156,6 +156,48 @@ export function authApi(core: ApiCore) {
     },
 
     // ============================================
+    // OAuth / SSO login
+    //
+    // Session establishment is IDENTICAL to password login: the callback
+    // endpoint returns the same `{ accessToken, refreshToken }` pair issued by
+    // `issueTokens`, so `completeOAuthCallback` funnels it through the same
+    // `core.applyTokens(...)` used by `login`. There is no parallel auth path.
+    //
+    // CSRF `state` is minted + stored server-side by `getOAuthUrl`; the provider
+    // echoes it back on the redirect and the callback simply forwards it. There
+    // is no PKCE and the `/url` endpoint accepts no query params (the redirect_uri
+    // is fixed server-side to `{frontend}/auth/callback/:provider`).
+    // ============================================
+
+    /** GET /auth/oauth/providers — list enabled OAuth providers (public). Returns
+     *  `{ providers: [] }` (or 404) when none are configured; callers render nothing. */
+    listOAuthProviders: async () => {
+      return core.request<ApiResponse<{ providers: string[] }>>('/api/auth/oauth/providers');
+    },
+
+    /** GET /auth/oauth/:provider/url — get the provider authorize URL to redirect the
+     *  browser to. The backend mints + stores the CSRF `state` and returns it alongside
+     *  the URL. `opts` is reserved: the endpoint takes no query params today (redirect_uri
+     *  is fixed server-side), so nothing is forwarded. */
+    getOAuthUrl: async (provider: string, _opts?: Record<string, string>) => {
+      return core.request<ApiResponse<{ url: string; state: string }>>(
+        `/api/auth/oauth/${encodeURIComponent(provider)}/url`,
+      );
+    },
+
+    /** POST /auth/oauth/:provider/callback — exchange the provider's `code`/`state`
+     *  for a session. Returns the SAME token shape as password login; tokens are
+     *  applied via `core.applyTokens` exactly like `login`. */
+    completeOAuthCallback: async (provider: string, params: { code: string; state: string }) => {
+      const response = await core.request<ApiResponse<{ accessToken: string; refreshToken: string; expiresIn?: number }>>(
+        `/api/auth/oauth/${encodeURIComponent(provider)}/callback`,
+        { method: 'POST', body: JSON.stringify({ code: params.code, state: params.state }) },
+      );
+      core.applyTokens(response);
+      return response;
+    },
+
+    // ============================================
     // Step-up auth — re-verify password before destructive admin actions.
     // Returns a 60s-TTL token bound to the user's sub. Callers forward it
     // via `X-Step-Up-Token` on the next destructive request; backend

@@ -6,7 +6,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Mail, CheckCircle, XCircle, ArrowLeft, UserPlus } from 'lucide-react';
+import { Mail, CheckCircle, XCircle, ArrowLeft, UserPlus, LogIn } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import api from '@/lib/api';
@@ -94,6 +94,29 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to accept invitation');
     } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Logged-out OAuth-only invite: carry the invite token through the OAuth dance.
+  // We stash an "invite" intent (keyed by the backend-minted CSRF state) so the
+  // shared callback page (pages/auth/callback/[provider].tsx) completes the accept
+  // via POST /invitation/accept-oauth, then establishes the session. Only Google is
+  // supported for OAuth invite-accept on the backend today.
+  const handleOAuthAccept = async (provider: string) => {
+    setActionError(null);
+    setSubmitting(true);
+    try {
+      const res = await api.getOAuthUrl(provider);
+      const url = res.data?.url;
+      const state = res.data?.state;
+      if (!url || !state) throw new Error('Could not start sign-in with this provider');
+      try {
+        sessionStorage.setItem('pb_oauth_intent', JSON.stringify({ state, kind: 'invite', inviteToken: token, provider }));
+      } catch { /* storage unavailable — backend still validates state */ }
+      window.location.href = url;
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Could not start sign-in');
       setSubmitting(false);
     }
   };
@@ -265,13 +288,30 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
                         : <><UserPlus className="w-4 h-4 mr-1.5" /> Create account &amp; accept</>}
                     </button>
                   </form>
+                ) : invite.canAcceptViaGoogle ? (
+                  // OAuth-only invite, logged out — accept by signing in with the
+                  // approved provider. The invite token rides through OAuth and the
+                  // callback completes it via POST /invitation/accept-oauth.
+                  <div className="text-center py-2">
+                    <p className="text-xs text-[var(--pb-text-muted)] mb-3">
+                      This invitation is accepted by signing in with Google.
+                    </p>
+                    <button
+                      onClick={() => handleOAuthAccept('google')}
+                      disabled={submitting}
+                      className="btn btn-primary btn-full text-sm"
+                    >
+                      {submitting
+                        ? <><LoadingSpinner size="sm" className="mr-2" /> Redirecting…</>
+                        : <><LogIn className="w-4 h-4 mr-1.5" /> Continue with Google</>}
+                    </button>
+                  </div>
                 ) : (
-                  // OAuth-only invite, logged out.
+                  // OAuth-only invite with no supported provider we can drive here.
                   <div className="text-center py-2">
                     <p className="text-sm text-[var(--pb-text-muted)]">
-                      This invitation must be accepted by signing in with
-                      {invite.canAcceptViaGoogle ? ' Google' : ' an approved sign-in provider'}.
-                      Sign in first, then reopen this link.
+                      This invitation must be accepted by signing in with an approved
+                      sign-in provider. Sign in first, then reopen this link.
                     </p>
                     <Link href="/" className="btn btn-secondary btn-full text-sm mt-3">Go to sign in</Link>
                   </div>

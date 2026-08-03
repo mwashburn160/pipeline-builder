@@ -7,6 +7,7 @@ import api from '@/lib/api';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import GitUrlTab, { GitUrlTabRef } from './GitUrlTab';
+import PromptGenerateTab, { PromptGenerateTabRef } from './PromptGenerateTab';
 import UploadConfigTab, { UploadConfigTabRef } from './UploadConfigTab';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import { WIZARD_STEPS } from '@/lib/wizard-validation';
@@ -43,7 +44,7 @@ export default function CreatePipelineModal({
   isOpen, onClose, onSubmit,
   createLoading, createError, createSuccess, canCreatePublic, initialGitUrl,
 }: CreatePipelineModalProps) {
-  const [activeTab, setActiveTab] = useState<'upload' | 'form' | 'ai'>('ai');
+  const [activeTab, setActiveTab] = useState<'upload' | 'form' | 'ai' | 'prompt'>('ai');
   const [createAccess, setCreateAccess] = useState<'public' | 'private'>('private');
   const [showPreview, setShowPreview] = useState(false);
   const [previewJson, setPreviewJson] = useState<string | null>(null);
@@ -55,6 +56,7 @@ export default function CreatePipelineModal({
   const uploadRef = useRef<UploadConfigTabRef>(null);
   const formRef = useRef<FormBuilderTabRef>(null);
   const aiRef = useRef<GitUrlTabRef>(null);
+  const promptRef = useRef<PromptGenerateTabRef>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Scroll to top when step changes
@@ -71,6 +73,9 @@ export default function CreatePipelineModal({
     if (activeTab === 'ai') {
       return await aiRef.current?.getProps() ?? null;
     }
+    if (activeTab === 'prompt') {
+      return await promptRef.current?.getProps() ?? null;
+    }
     return formRef.current?.getProps() ?? null;
   };
 
@@ -86,6 +91,9 @@ export default function CreatePipelineModal({
         break;
       case 'ai':
         props = await aiRef.current?.getProps() ?? null;
+        break;
+      case 'prompt':
+        props = await promptRef.current?.getProps() ?? null;
         break;
     }
     if (props) {
@@ -110,6 +118,10 @@ export default function CreatePipelineModal({
       case 'ai':
         desc = aiRef.current?.getDescription() ?? '';
         kw = aiRef.current?.getKeywords() ?? '';
+        break;
+      case 'prompt':
+        desc = promptRef.current?.getDescription() ?? '';
+        kw = promptRef.current?.getKeywords() ?? '';
         break;
     }
     const keywordsArray = kw.split(',').map(k => k.trim()).filter(k => k);
@@ -200,6 +212,16 @@ export default function CreatePipelineModal({
           }`}
         >
           Git URL
+        </button>
+        <button
+          onClick={() => setActiveTab('prompt')}
+          className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+            activeTab === 'prompt'
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+          }`}
+        >
+          From prompt
         </button>
         <button
           onClick={() => setActiveTab('upload')}
@@ -332,6 +354,8 @@ export default function CreatePipelineModal({
         <UploadConfigTab ref={uploadRef} disabled={createLoading} />
       ) : activeTab === 'ai' ? (
         <GitUrlTab ref={aiRef} disabled={createLoading} initialUrl={initialGitUrl} autoGenerate={!!initialGitUrl} />
+      ) : activeTab === 'prompt' ? (
+        <PromptGenerateTab ref={promptRef} disabled={createLoading} />
       ) : (
         <FormBuilderTab
           ref={formRef}

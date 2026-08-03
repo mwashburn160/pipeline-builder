@@ -191,11 +191,6 @@ export function billingApi(core: ApiCore) {
       });
     },
 
-    /** Inspect one discount. */
-    getDiscount: async (id: string) => {
-      return core.request<ApiResponse<{ discount: Discount }>>(`/api/billing/admin/discounts/${id}`);
-    },
-
     /** Issue (mint/re-issue) an opaque redeemable token for a discount. */
     issueDiscountToken: async (id: string) => {
       return core.request<ApiResponse<{ token: string }>>(`/api/billing/admin/discounts/${id}/token`, { method: 'POST' });
@@ -229,7 +224,86 @@ export function billingApi(core: ApiCore) {
     deleteDiscount: async (id: string) => {
       return core.request<ApiResponse<{ discount: Discount }>>(`/api/billing/admin/discounts/${id}`, { method: 'DELETE' });
     },
+
+    // ============================================
+    // Admin — subscriptions & platform finance (system-admin only)
+    // ============================================
+
+    /** List every org's subscription (paginated). Optional `status` filter. */
+    listAdminSubscriptions: async (params?: { status?: string; limit?: number; offset?: number }) => {
+      return core.request<ApiResponse<{ subscriptions: Subscription[]; total: number; limit: number; offset: number }>>(`/api/billing/admin/subscriptions${buildQuery(params)}`);
+    },
+
+    /** Admin override on one subscription — plan / status / interval / cancel flag. */
+    updateAdminSubscription: async (id: string, body: AdminSubscriptionUpdate) => {
+      return core.request<ApiResponse<{ subscription: Subscription }>>(`/api/billing/admin/subscriptions/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+    },
+
+    /** Cross-account finance aggregate (totals + per-org impact). `orgId` narrows to one account. */
+    getAdminBillingSummary: async (params?: { from?: string; to?: string; orgId?: string }) => {
+      return core.request<ApiResponse<AdminBillingSummary>>(`/api/billing/admin/summary${buildQuery(params)}`);
+    },
+
+    /** One-off: seed the ledger from the provider's historical invoices (idempotent). */
+    runBillingBackfill: async () => {
+      return core.request<ApiResponse<LedgerBackfillResult>>('/api/billing/admin/backfill', { method: 'POST' });
+    },
+
+    /** Purge every subscription + billing event for an org (cascade hook; destructive). */
+    deleteSubscriptionByOrg: async (orgId: string) => {
+      return core.request<ApiResponse<{ deleted: number; events: number }>>(`/api/billing/subscriptions/by-org/${orgId}`, { method: 'DELETE' });
+    },
+
+    // ============================================
+    // AWS Marketplace entitlements (billing:read)
+    // ============================================
+
+    /** Current AWS Marketplace entitlements for the active org. 400 when the active
+     *  provider isn't aws-marketplace; 404 when the org has no marketplace sub. */
+    getMarketplaceEntitlements: async () => {
+      return core.request<ApiResponse<MarketplaceEntitlements>>('/api/billing/marketplace/entitlements');
+    },
   };
+}
+
+/** Admin override body for PUT /billing/admin/subscriptions/:id (AdminSubscriptionUpdateSchema). */
+export interface AdminSubscriptionUpdate {
+  planId?: string;
+  status?: 'active' | 'canceled' | 'past_due' | 'trialing' | 'incomplete';
+  interval?: BillingInterval;
+  cancelAtPeriodEnd?: boolean;
+}
+
+/** Cross-account finance aggregate (GET /billing/admin/summary). */
+export interface AdminBillingSummary {
+  totals: { grossBilledCents: number; discountsCents: number; creditsCents: number; taxCents: number; netBilledCents: number; amountPaidCents: number };
+  byOrg: Array<{ orgId: string; grossBilledCents: number; creditsCents: number; discountsCents: number; netBilledCents: number; invoiceCount: number }>;
+  invoiceCount: number;
+}
+
+/** Counts returned by POST /billing/admin/backfill. */
+export interface LedgerBackfillResult {
+  accounts: number;
+  ingested: number;
+  errors: number;
+}
+
+/** One AWS Marketplace entitlement dimension. `expirationDate` is an ISO string over the wire. */
+export interface MarketplaceEntitlement {
+  planId: string;
+  dimension: string;
+  isEntitled: boolean;
+  expirationDate?: string;
+}
+
+/** GET /billing/marketplace/entitlements response. */
+export interface MarketplaceEntitlements {
+  customerIdentifier: string;
+  entitlements: MarketplaceEntitlement[];
+  currentPlanId: string;
 }
 
 export interface TeamUsageRow {

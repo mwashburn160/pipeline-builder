@@ -6,6 +6,28 @@ import { buildQuery } from '../util';
 import { ApiError, toRegistryError } from '../errors';
 import type { ApiResponse, RegistryRepository, RegistryTagList, RegistryManifest, RegistryCopyResult } from '@/types';
 
+/**
+ * Per-namespace storage rollup returned by `GET /api/admin/storage/:prefix`.
+ * `bytes` is the sum of unique blob bytes across every repo under `prefix`
+ * (deduplicated by digest, matching bytes-on-disk). `incomplete` is true when
+ * the scan hit a non-404 error and the total may UNDER-count — surface it so
+ * the operator doesn't read a partial rollup as authoritative before GC.
+ */
+export interface RegistryStorageUsage {
+  /** Namespace prefix the rollup covers, always trailing-slash normalized (e.g. `org-acme/`). */
+  prefix: string;
+  /** Total unique blob bytes across all repos under the prefix. */
+  bytes: number;
+  /** Count of repos scanned. */
+  repos: number;
+  /** Count of unique blob digests. */
+  blobs: number;
+  /** Epoch ms when the rollup was computed (server caches for ~60s). */
+  computedAt: number;
+  /** True when the scan under-counts (a repo/manifest/blob read failed). */
+  incomplete: boolean;
+}
+
 export function registryApi(core: ApiCore) {
   return {
     // ==========================================================================
@@ -121,6 +143,20 @@ export function registryApi(core: ApiCore) {
         method: 'POST',
         body: JSON.stringify(body),
       });
+    },
+
+    /**
+     * Storage rollup for one repo namespace `prefix` (system-admin only; 403
+     * otherwise, 404 when the endpoint is not deployed). Informs GC decisions
+     * by showing how many bytes / blobs / repos a namespace consumes. The
+     * trailing slash is added server-side. Pass `force: true` to bypass the
+     * ~60s server cache and recompute. Maps to GET /api/admin/storage/:prefix.
+     */
+    getRegistryStorageUsage: async (prefix: string, opts?: { force?: boolean }) => {
+      const qs = opts?.force ? `${buildQuery({ force: true })}` : '';
+      return core.request<ApiResponse<RegistryStorageUsage>>(
+        `/api/admin/storage/${encodeURIComponent(prefix)}${qs}`,
+      );
     },
   };
 }

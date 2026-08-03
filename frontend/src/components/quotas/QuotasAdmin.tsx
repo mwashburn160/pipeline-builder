@@ -1,10 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { useState } from 'react';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
+import { ModalFooter } from '@/components/ui/ModalFooter';
+import { useToast } from '@/components/ui/Toast';
+import { formatError } from '@/lib/constants';
 import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType, User } from '@/types';
 import { QuotaCard } from './QuotaCard';
 import { OrgListItem } from './OrgListItem';
@@ -39,6 +44,7 @@ export function QuotasAdmin({
   handleTierChange,
   fetchOrg,
   fetchAtRisk,
+  onResetUsage,
 }: {
   isSuperAdmin: boolean;
   loading: boolean;
@@ -70,7 +76,25 @@ export function QuotasAdmin({
   handleTierChange: (tier: QuotaTier) => void;
   fetchOrg: (orgId: string) => void;
   fetchAtRisk: () => void;
+  /** Zero the selected org's usage counters mid-period. Rejects on failure so
+   *  the confirm modal can surface the error and stay open. */
+  onResetUsage: () => Promise<void>;
 }) {
+  const toast = useToast();
+  // Usage-reset confirm modal (sysadmin operational action).
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const doReset = async () => {
+    setResetting(true);
+    try {
+      await onResetUsage();
+      setResetOpen(false);
+    } catch (err) {
+      toast.error(formatError(err, 'Failed to reset usage'));
+    } finally {
+      setResetting(false);
+    }
+  };
   const titleExtra = !loading && orgData ? (
     <div className="hidden sm:flex items-center gap-2">
       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300 font-mono">
@@ -85,6 +109,15 @@ export function QuotasAdmin({
 
   const headerActions = isSuperAdmin && !loading ? (
     <div className="flex items-center gap-2">
+      <Button
+        variant="secondary"
+        size="xs"
+        onClick={() => setResetOpen(true)}
+        disabled={!orgData}
+        title="Zero this org's usage counters mid-period (limits are unchanged)"
+      >
+        Reset usage
+      </Button>
       <Button variant="secondary" size="xs" onClick={handleReset} disabled={!dirty}>
         Discard
       </Button>
@@ -286,6 +319,36 @@ export function QuotasAdmin({
           </div>
         </div>
       </div>
+
+      {resetOpen && orgData && (
+        <Modal
+          title="Reset usage counters"
+          onClose={() => !resetting && setResetOpen(false)}
+          footer={
+            <ModalFooter
+              onCancel={() => setResetOpen(false)}
+              onConfirm={doReset}
+              confirmLabel="Reset usage"
+              confirmVariant="danger"
+              loading={resetting}
+            />
+          }
+        >
+          <div className="space-y-3 text-sm text-gray-600 dark:text-gray-300">
+            <p>
+              This zeroes every usage counter for{' '}
+              <span className="font-medium text-gray-900 dark:text-gray-100">{orgData.name}</span>{' '}
+              (<span className="font-mono text-xs">{orgData.orgId}</span>) immediately,
+              before the natural period reset. Quota <strong>limits</strong> and tier are
+              left unchanged.
+            </p>
+            <p className="rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+              This is an operational reset that affects what the org can consume this
+              period. It is audit-logged and cannot be undone.
+            </p>
+          </div>
+        </Modal>
+      )}
 
     </DashboardLayout>
   );

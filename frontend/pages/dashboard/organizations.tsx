@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
-import { Building2, AlertTriangle, Search, KeyRound, FileDown, ShieldCheck, ExternalLink, Plus, Layers } from 'lucide-react';
+import { Building2, AlertTriangle, Search, KeyRound, FileDown, ShieldCheck, ExternalLink, Plus, Layers, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
@@ -25,15 +25,19 @@ import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import api from '@/lib/api';
 import { Organization } from '@/types';
+import type { OrganizationListItem } from '@/lib/api/domains/organizations';
 
 /** Organization management page (system admin only). Lists all organizations with delete capability. */
 export default function OrganizationsPage() {
   const { user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
 
-  const list = useListPage<Organization>({
+  const list = useListPage<OrganizationListItem>({
     fields: [
       { key: 'search', type: 'text', defaultValue: '', primary: true },
       { key: 'tier', type: 'select', defaultValue: 'all' },
+      // Soft-deleted orgs are returned inline by the list endpoint (flagged
+      // `pendingDeletion`); this facet (client-side) hides them by default.
+      { key: 'deleted', type: 'select', defaultValue: 'hide' },
       // KMS / IdP facets are stored as filter state but applied client-side
       // (see `filteredOrgs` below). Server-side filtering would require an
       // extra index per facet and these are sysadmin-only views with bounded
@@ -69,7 +73,10 @@ export default function OrganizationsPage() {
     const kmsFacet = String(list.filters.kms || 'all');
     const idpFacet = String(list.filters.idp || 'all');
     const scopeFacet = String(list.filters.scope || 'all');
+    const deletedFacet = String(list.filters.deleted || 'hide');
     return list.data.filter((org) => {
+      if (deletedFacet === 'hide' && org.pendingDeletion) return false;
+      if (deletedFacet === 'only' && !org.pendingDeletion) return false;
       if (kmsFacet === 'yes' && !org.kmsConfigured) return false;
       if (kmsFacet === 'no' && org.kmsConfigured) return false;
       if (idpFacet === 'yes' && !org.idpConfigured) return false;
@@ -78,12 +85,15 @@ export default function OrganizationsPage() {
       if (scopeFacet === 'top' && org.parentOrgId) return false;
       return true;
     });
-  }, [list.data, list.filters.kms, list.filters.idp, list.filters.scope]);
+  }, [list.data, list.filters.kms, list.filters.idp, list.filters.scope, list.filters.deleted]);
 
   // Two-phase delete: the existing DeleteConfirmModal collects intent, then
   // a StepUpModal collects password reverify. Backend requires the step-up
   // token; clicking delete without re-prompt would 401.
   const [pendingDeleteOrg, setPendingDeleteOrg] = useState<Organization | null>(null);
+  // Restore a soft-deleted org. Step-up gated like delete, so it routes through
+  // a StepUpModal before POST /organization/:id/restore fires.
+  const [pendingRestoreOrg, setPendingRestoreOrg] = useState<OrganizationListItem | null>(null);
   const del = useDelete<Organization>(
     async (org) => {
       // Defer the actual delete to the step-up step.
@@ -188,7 +198,7 @@ export default function OrganizationsPage() {
     }
   }, [list]);
 
-  const orgColumns: Column<Organization>[] = useMemo(() => [
+  const orgColumns: Column<OrganizationListItem>[] = useMemo(() => [
     {
       id: 'name',
       header: 'Organization',
@@ -206,6 +216,7 @@ export default function OrganizationsPage() {
             {org.tier && <Badge color={org.tier === 'enterprise' ? 'red' : org.tier === 'team' ? 'green' : org.tier === 'pro' ? 'purple' : 'gray'}>{org.tier}</Badge>}
             {org.kmsConfigured && <Badge color="blue">KMS</Badge>}
             {org.idpConfigured && <Badge color="green">SSO</Badge>}
+            {org.pendingDeletion && <Badge color="red">Pending deletion</Badge>}
           </div>
           {org.description && (
             <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{org.description}</div>
@@ -233,7 +244,28 @@ export default function OrganizationsPage() {
       headerClassName: 'text-right',
       cellClassName: 'text-right text-sm font-medium',
       render: (org) => (
-        org.id !== 'system' ? (
+        org.id === 'system' ? (
+          <span className="text-gray-400 dark:text-gray-500 text-xs">Protected</span>
+        ) : org.pendingDeletion ? (
+          // Soft-deleted: only Details + Restore make sense (the destructive
+          // actions are moot on a tombstoned org).
+          <div className="flex justify-end gap-3">
+            <Link
+              href={`/dashboard/admin/orgs/${org.id}`}
+              className="action-link inline-flex items-center gap-1"
+              title="Open org details"
+            >
+              <ExternalLink className="w-3.5 h-3.5" /> Details
+            </Link>
+            <button
+              onClick={() => setPendingRestoreOrg(org)}
+              className="action-link inline-flex items-center gap-1"
+              title="Restore this soft-deleted organization"
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> Restore
+            </button>
+          </div>
+        ) : (
           <div className="flex justify-end gap-3">
             <Link
               href={`/dashboard/admin/orgs/${org.id}`}
@@ -272,8 +304,6 @@ export default function OrganizationsPage() {
             </button>
             <button onClick={() => del.open(org)} className="action-link-danger">Delete</button>
           </div>
-        ) : (
-          <span className="text-gray-400 dark:text-gray-500 text-xs">Protected</span>
         )
       ),
     },
@@ -336,6 +366,16 @@ export default function OrganizationsPage() {
           <option value="all">SSO: any</option>
           <option value="yes">SSO: configured</option>
           <option value="no">SSO: not configured</option>
+        </select>
+        <select
+          value={list.filters.deleted}
+          onChange={(e) => list.updateFilter('deleted', e.target.value)}
+          className="filter-select"
+          aria-label="Filter by deletion state"
+        >
+          <option value="hide">Deleted: hidden</option>
+          <option value="show">Deleted: shown</option>
+          <option value="only">Deleted: only</option>
         </select>
         <div className="inline-flex items-center gap-1" role="group" aria-label="Filter by org scope">
           {([['all', 'All'], ['top', 'Top-level'], ['team', 'Teams']] as const).map(([value, label]) => (
@@ -431,7 +471,7 @@ export default function OrganizationsPage() {
               </Select>
             </div>
 
-            {/* Team toggle — defaults on. When on, pick the parent. */}
+            {/* Team toggle — defaults OFF (top-level org). When on, pick the parent. */}
             <label className="flex items-start gap-2 text-xs text-gray-700 dark:text-gray-300 pt-1">
               <input
                 type="checkbox"
@@ -511,6 +551,23 @@ export default function OrganizationsPage() {
           action={`Download k8s namespace YAML for ${pendingYamlOrg.name}`}
           onConfirmed={(stepUpToken) => downloadNamespaceYaml(pendingYamlOrg, stepUpToken)}
           onClose={() => setPendingYamlOrg(null)}
+        />
+      )}
+
+      {pendingRestoreOrg && (
+        <StepUpModal
+          action={`Restore organization ${pendingRestoreOrg.name}`}
+          onConfirmed={async (stepUpToken) => {
+            try {
+              const res = await api.restoreOrganization(pendingRestoreOrg.id, stepUpToken);
+              if (!res.success) throw new Error(res.message || 'Restore failed');
+              list.refresh();
+              toast.success(`${pendingRestoreOrg.name} restored`);
+            } catch (err) {
+              list.setError(formatError(err, 'Failed to restore organization'));
+            }
+          }}
+          onClose={() => setPendingRestoreOrg(null)}
         />
       )}
 

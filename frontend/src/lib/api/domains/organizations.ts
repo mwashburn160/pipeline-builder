@@ -2,8 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ApiCore } from '../core';
-import { buildQuery } from '../util';
-import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation } from '@/types';
+import { buildQuery, API_URL } from '../util';
+import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, OrgIdpConfigDto } from '@/types';
+
+/** An org row from the sysadmin list, extended with soft-delete state. The list
+ *  endpoint returns soft-deleted orgs inline (NOT filtered out), flagged with
+ *  `pendingDeletion` + `deletedAt` so a sysadmin can see and restore them within
+ *  the retention window. Absent on rows from other endpoints. */
+export interface OrganizationListItem extends Organization {
+  pendingDeletion?: boolean;
+  deletedAt?: string;
+}
 
 export function organizationsApi(core: ApiCore) {
   return {
@@ -11,7 +20,7 @@ export function organizationsApi(core: ApiCore) {
     // Organization endpoints
     // ============================================
     listOrganizations: async (params?: { search?: string; tier?: 'developer' | 'pro' | 'team' | 'enterprise'; offset?: number; limit?: number }) => {
-      return core.request<ApiResponse<{ organizations: Organization[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/organizations${buildQuery(params)}`);
+      return core.request<ApiResponse<{ organizations: OrganizationListItem[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/organizations${buildQuery(params)}`);
     },
 
     deleteOrganization: async (id: string, stepUpToken?: string) => {
@@ -19,6 +28,34 @@ export function organizationsApi(core: ApiCore) {
         method: 'DELETE',
         headers: core.stepUpHeader(stepUpToken),
       });
+    },
+
+    /** POST /organization/:id/restore — restore a soft-deleted org within its
+     *  retention window (reverses the soft-delete). Step-up gated exactly like
+     *  DELETE, so the caller forwards a `stepUpToken`. Sysadmin or an admin/owner
+     *  of the org / a managing parent (controller `canAdministerOrg`). 404 if the
+     *  org was already purged or was never deleted. */
+    restoreOrganization: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ organization: Organization }>>(`/api/organization/${id}/restore`, {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
+    /** GET /organization/:id/export — GDPR portability dump. Unlike the other
+     *  endpoints this streams a RAW JSON body (application/json + a
+     *  Content-Disposition attachment header), NOT the usual `ApiResponse`
+     *  envelope, so it bypasses `core.request` and returns the body text for the
+     *  caller to save as a file. Sysadmin or an org admin/owner (org:settings +
+     *  `canAdministerOrg`). */
+    exportOrganization: async (id: string): Promise<string> => {
+      await core.ensureFreshToken();
+      const res = await fetch(`${API_URL}/api/organization/${id}/export`, {
+        headers: core.authHeaders() as Record<string, string>,
+        credentials: 'same-origin',
+      });
+      if (!res.ok) throw new Error(`Failed to export organization: ${res.status} ${res.statusText}`);
+      return res.text();
     },
 
     /** Change an org's pricing tier (sysadmin only). Reseeds quota limits
@@ -113,6 +150,26 @@ export function organizationsApi(core: ApiCore) {
      *  service principal only. `limit === -1` means unlimited seats. */
     getOrganizationSeatUsage: async (orgId: string) => {
       return core.request<ApiResponse<{ limit: number; used: number }>>(`/api/organization/${orgId}/seat-usage`);
+    },
+
+    /** PUT /organization/:id/seat-limit — set the account (root) seat limit.
+     *  Body is `{ seats }` (integer >= -1; -1 = unlimited); applied to the
+     *  resolved ROOT org. NO step-up. Gated to a service principal or a SYSTEM
+     *  ADMIN (not a plain org-admin) — this is normally billing's entitlement
+     *  sync, exposed here for sysadmin override. Returns the resolved root id. */
+    setOrganizationSeatLimit: async (id: string, seats: number) => {
+      return core.request<ApiResponse<{ rootOrgId: string }>>(`/api/organization/${id}/seat-limit`, {
+        method: 'PUT',
+        body: JSON.stringify({ seats }),
+      });
+    },
+
+    /** GET /organization/:id/feature-entitlements — the account's (root) pooled
+     *  feature entitlements (e.g. `sso`, `audit_log`) as a flag list. Service
+     *  principal or an admin reading their OWN account. Feature FLAGS, not
+     *  secrets. Fail-soft: an org with none yields an empty array. */
+    getOrganizationFeatureEntitlements: async (id: string) => {
+      return core.request<ApiResponse<{ featureEntitlements: string[] }>>(`/api/organization/${id}/feature-entitlements`);
     },
 
     /** Descendant teams of `orgId` annotated with whether `memberId` belongs to
@@ -288,6 +345,17 @@ export function organizationsApi(core: ApiCore) {
       return core.request<ApiResponse<{ invitation: Invitation }>>(`/api/invitation/${invitationId}/resend`, {
         method: 'POST',
       });
+    },
+
+    // ============================================
+    // IdP / SSO roster (sysadmin only)
+    // ============================================
+
+    /** GET /admin/org-idp — every org's IdP config in one shot (sysadmin only).
+     *  Powers the IdP roster page. Per-org CRUD lives on the org-detail page's
+     *  IdP editor; this is the read-only fleet view of who has SSO configured. */
+    listOrgIdpConfigs: async () => {
+      return core.request<ApiResponse<{ configs: OrgIdpConfigDto[] }>>('/api/admin/org-idp');
     },
   };
 }

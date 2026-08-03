@@ -5,6 +5,40 @@ import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
 import type { ApiResponse, CreatePipelineData, BuilderProps, Pipeline } from '@/types';
 
+/** A single pipeline spec accepted by the bulk-create endpoint. Mirrors the
+ *  single-create body (PipelineCreateSchema on the server). */
+export interface BulkPipelineSpec {
+  project: string;
+  organization: string;
+  pipelineName?: string;
+  description?: string;
+  keywords?: string[];
+  props: BuilderProps;
+  accessModifier?: 'public' | 'private';
+}
+
+/** Per-item result envelope returned by POST /pipelines/bulk/create. */
+export interface BulkCreateResult {
+  created: number;
+  updated: number;
+  failed: number;
+  items: Array<{ index: number; accessModifier?: string; id?: string }>;
+  errors: Array<{ index: number; error: string }>;
+}
+
+/** A deployed-pipeline registry row (ARN→pipelineId mapping written at deploy
+ *  time). No AWS account id / ARN is ever returned by the server. */
+export interface PipelineDeployment {
+  id: string;
+  pipelineId: string;
+  pipelineName: string;
+  region?: string;
+  project?: string;
+  organization?: string;
+  stackName?: string;
+  lastDeployed: string;
+}
+
 export function pipelinesApi(core: ApiCore) {
   return {
     // ============================================
@@ -61,6 +95,62 @@ export function pipelinesApi(core: ApiCore) {
     },
 
     /**
+     * Create multiple pipelines in one request. Each item is validated per the
+     * single-create schema server-side; the response reports per-item outcomes
+     * so a partial success (some created, some failed) is surfaced, not masked.
+     * Requires `pipelines:write` + the `bulk_operations` feature.
+     */
+    bulkCreatePipelines: async (pipelines: BulkPipelineSpec[]) => {
+      return core.request<ApiResponse<BulkCreateResult>>('/api/pipelines/bulk/create', {
+        method: 'POST',
+        body: JSON.stringify({ pipelines }),
+      });
+    },
+
+    /**
+     * List the deployed-pipeline registry rows for the caller's org (each is an
+     * ARN→pipelineId mapping written by CDK at deploy time). Powers the
+     * deployments page. Distinct from `listPipelines`, which lists config.
+     */
+    listPipelineDeployments: async (params?: { limit?: number; offset?: number }) => {
+      return core.request<ApiResponse<{
+        registry: PipelineDeployment[];
+        pagination: { total: number; limit: number; offset: number; hasMore: boolean };
+      }>>(`/api/pipelines/registry${buildQuery(params as Record<string, unknown> | undefined)}`);
+    },
+
+    /**
+     * Register (upsert) a deployed pipeline in the registry by its stable
+     * pipelineId. The server rejects a pipelineId the caller's org does not own
+     * (404) or one already claimed by another org (409). Requires
+     * `pipelines:write`.
+     */
+    registerPipelineDeployment: async (body: {
+      pipelineId: string;
+      pipelineName: string;
+      region?: string;
+      project?: string;
+      organization?: string;
+      stackName?: string;
+    }) => {
+      return core.request<ApiResponse<{ registry: PipelineDeployment }>>('/api/pipelines/registry', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+
+    /**
+     * Deregister a deployed pipeline by its registry row UUID (org-scoped on the
+     * server). Used to reconcile drift after a stack is removed out-of-band.
+     * Requires `pipelines:write`.
+     */
+    deregisterPipelineDeployment: async (id: string) => {
+      return core.request<ApiResponse<{ id: string }>>(`/api/pipelines/registry/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+    },
+
+    /**
      * Trigger a new AWS CodePipeline execution for a deployed pipeline.
      * Resolves the pipeline's registered CodePipeline name/region server-side
      * and calls StartPipelineExecution. Returns the new execution id (202).
@@ -95,6 +185,18 @@ export function pipelinesApi(core: ApiCore) {
         gitUrl, provider, model,
         ...(apiKey ? { apiKey } : {}),
         ...(repoToken ? { repoToken } : {}),
+      });
+    },
+
+    /**
+     * Stream AI pipeline generation from a free-text prompt.
+     * Yields partial → done events (no repo-analysis / auto-plugin phases —
+     * those are exclusive to the from-URL flow).
+     */
+    streamPipelineFromPrompt: async function*(prompt: string, provider: string, model: string, apiKey?: string) {
+      yield* core.streamRequest('/api/pipeline/generate/stream', {
+        prompt, provider, model,
+        ...(apiKey ? { apiKey } : {}),
       });
     },
   };

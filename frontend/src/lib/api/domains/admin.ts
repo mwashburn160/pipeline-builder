@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery, API_URL } from '../util';
-import type { ApiResponse, OrgQuotaResponse, OrgIdpConfigDto, OrgIdpConfigCreate, User, QuotaTier } from '@/types';
+import type { ApiResponse, OrgQuotaResponse, OrgIdpConfigDto, OrgIdpConfigCreate, User, QuotaTier, QuotaType } from '@/types';
 import type { AuditLogEvent, AuditChainVerification } from '@/types/audit';
 
 export function adminApi(core: ApiCore) {
@@ -254,6 +254,20 @@ export function adminApi(core: ApiCore) {
     },
 
     /**
+     * Reset an org's usage counters mid-period (system admin only). Zeroes the
+     * consumed side of the quota without touching limits — used when a support
+     * action or migration should give an org a clean slate before the natural
+     * period reset. Omit `quotaType` to reset every counter; pass one to reset
+     * a single dimension. Returns the org's quotas with the reset applied.
+     */
+    resetOrgQuota: async (orgId: string, quotaType?: QuotaType) => {
+      return core.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${orgId}/reset`, {
+        method: 'POST',
+        body: JSON.stringify(quotaType ? { quotaType } : {}),
+      });
+    },
+
+    /**
      * List the pipeline registry rows for the caller's org. Each row is an
      * ARN→pipelineId mapping written by CDK at deploy time. Powers the
      * dashboard "deployed pipelines" panel; the `pipeline-manager
@@ -265,9 +279,10 @@ export function adminApi(core: ApiCore) {
           id: string;
           pipelineId: string;
           orgId: string;
-          pipelineArn: string;
           pipelineName: string;
-          accountId?: string;
+          // NOTE: the server never returns an AWS account id or pipeline ARN
+          // (scrubbed by design — see the no-account-id invariant). Do not
+          // re-add `pipelineArn`/`accountId` here.
           region?: string;
           project?: string;
           organization?: string;

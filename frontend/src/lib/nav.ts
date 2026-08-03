@@ -26,6 +26,9 @@ import {
   SlidersHorizontal,
   Bell,
   Ticket,
+  Rocket,
+  Landmark,
+  Fingerprint,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -95,6 +98,8 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { title: 'Pipelines', href: '/dashboard/pipelines', icon: GitBranch },
       { title: 'Plugins', href: '/dashboard/plugins', icon: Puzzle },
+      // Deployed-pipelines registry (view/register/deregister + drift vs config).
+      { title: 'Deployments', href: '/dashboard/deployments', icon: Rocket, requiredPermission: 'pipelines:read' },
     ],
   },
   {
@@ -140,6 +145,11 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: 'All Users', href: '/dashboard/users', icon: Users, systemAdminOnly: true },
       { title: 'Registry', href: '/dashboard/registry', icon: Boxes, systemAdminOnly: true },
       { title: 'Discounts', href: '/dashboard/discounts', icon: Ticket, systemAdminOnly: true },
+      // Fleet-wide billing admin (all-orgs subscriptions, platform finance, backfill).
+      // Also gated on the billing service being enabled in this deployment.
+      { title: 'Billing Admin', href: '/dashboard/admin/billing', icon: Landmark, systemAdminOnly: true, requiresBillingEnabled: true },
+      // Sysadmin roster of which orgs have SSO/IdP configured.
+      { title: 'IdP / SSO', href: '/dashboard/admin/idp', icon: Fingerprint, systemAdminOnly: true },
       { title: 'Builds', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true, extraActivePaths: ['/dashboard/triage'] },
       { title: 'Platform Settings', href: '/dashboard/admin/platform-settings', icon: SlidersHorizontal, systemAdminOnly: true },
     ],
