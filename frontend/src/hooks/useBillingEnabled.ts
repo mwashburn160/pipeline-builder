@@ -20,38 +20,70 @@ let inflight: Promise<boolean> | null = null;
 
 // Resolves to the probe's `enabled` flag. THROWS on an unreachable/errored probe
 // so the caller can distinguish a *definitive* answer (cache it) from a transient
-// failure (don't cache — retry on the next mount). Caching a transient failure
-// would hide Billing for the whole page-session even after the service recovers
-// (e.g. the tab loaded while billing was mid-restart).
+// failure (don't cache — retry). Caching a transient failure would hide Billing
+// for the whole page-session even after the service recovers (e.g. the tab loaded
+// while billing was mid-restart / mid-boot).
 async function fetchBillingEnabled(): Promise<boolean> {
   const res = await api.getBillingConfig();
   return res.data?.enabled === true;
 }
 
-export function useBillingEnabled(): boolean {
-  const [enabled, setEnabled] = useState<boolean>(cached ?? false);
+/**
+ * Kick off the deployment-config probe and drive `onState` through its lifecycle:
+ * `undefined` (unknown — in flight or transiently failed) → `true|false` (the
+ * definitive, memoised answer). On a transient failure (billing unreachable/errored
+ * — e.g. a 502 while the service is still booting) it RETRIES with bounded
+ * exponential backoff instead of giving up.
+ *
+ * This retry is load-bearing: the Sidebar lives in the persistent app-router
+ * layout, so its `useBillingEnabled` effect mounts ONCE and never re-runs on SPA
+ * navigation. Without a retry, a single probe that lands in billing's boot window
+ * (nginx 502 — and `core.request` throws on 502, it only auto-retries 503) would
+ * hide the Billing + Discounts nav for the entire session until a hard reload.
+ * That was the observed "billing sidebar not showing in local/docker" bug, where
+ * every service boots together and billing has a ~60–90s cold-start window.
+ *
+ * Returns a cancel fn for the caller's effect cleanup.
+ */
+function subscribeBillingEnabled(onState: (v: boolean | undefined) => void): () => void {
+  if (cached !== undefined) {
+    onState(cached);
+    return () => {};
+  }
 
-  useEffect(() => {
-    if (cached !== undefined) {
-      setEnabled(cached);
-      return;
-    }
-    let active = true;
+  let active = true;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let attempt = 0;
+
+  const run = () => {
     inflight = inflight ?? fetchBillingEnabled();
     void inflight
       .then((v) => {
-        cached = v; // only a successful probe is memoised for the session
-        if (active) setEnabled(v);
+        cached = v; // only a definitive answer is memoised for the session
+        if (active) onState(v);
       })
       .catch(() => {
-        // Transient failure: leave `cached` undefined so a later mount/navigation
-        // retries; stay hidden for now rather than flash a link that may 502/503.
-        if (active) setEnabled(false);
+        if (!active) return;
+        // Transient/unknown — don't cache, surface as "not yet known", and retry
+        // with capped backoff (1s, 2s, 4s … max 30s) until billing answers.
+        onState(undefined);
+        const delay = Math.min(30_000, 1_000 * 2 ** attempt);
+        attempt += 1;
+        timer = setTimeout(run, delay);
       })
       .finally(() => { inflight = null; });
-    return () => { active = false; };
-  }, []);
+  };
+  run();
 
+  return () => { active = false; if (timer) clearTimeout(timer); };
+}
+
+export function useBillingEnabled(): boolean {
+  const [enabled, setEnabled] = useState<boolean>(cached ?? false);
+  // Collapse unknown→false: right for hide/show (don't flash a link before the
+  // probe resolves), while the retry inside `subscribeBillingEnabled` guarantees
+  // a mid-boot failure eventually flips it true rather than sticking at false.
+  useEffect(() => subscribeBillingEnabled((v) => setEnabled(v === true)), []);
   return enabled;
 }
 
@@ -66,27 +98,9 @@ export function useBillingEnabled(): boolean {
  */
 export function useBillingEnabledState(): boolean | undefined {
   const [state, setState] = useState<boolean | undefined>(cached);
-
-  useEffect(() => {
-    if (cached !== undefined) {
-      setState(cached);
-      return;
-    }
-    let active = true;
-    inflight = inflight ?? fetchBillingEnabled();
-    void inflight
-      .then((v) => {
-        cached = v;
-        if (active) setState(v);
-      })
-      .catch(() => {
-        // Unknown (not disabled) — leave `cached` undefined so a later mount retries
-        // and callers keep waiting rather than treating a blip as "disabled".
-        if (active) setState(undefined);
-      })
-      .finally(() => { inflight = null; });
-    return () => { active = false; };
-  }, []);
-
+  // Same retrying probe; the tri-state caller keeps `undefined` (unknown) during
+  // retries and acts only on a definitive `false`, so a mid-boot blip never
+  // bounces the Billing page before billing has actually answered.
+  useEffect(() => subscribeBillingEnabled(setState), []);
   return state;
 }
