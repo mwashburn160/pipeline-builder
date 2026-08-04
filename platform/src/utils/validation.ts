@@ -152,7 +152,7 @@ export const sendInvitationSchema = z.object({
 export const createOrganizationSchema = z.object({
   name: z.string().min(2).max(100),
   description: z.string().max(500).optional(),
-  tier: z.enum(['developer', 'pro', 'team', 'enterprise']).optional().default(DEFAULT_TIER),
+  tier: z.enum(['developer', 'pro', 'team', 'enterprise', 'unlimited']).optional().default(DEFAULT_TIER),
   // Org → team hierarchy: when set, create this org as a team nested under
   // `parentOrgId`. The caller must be an admin/owner of the parent (or an
   // ancestor); the parent must itself be a root org (one level of nesting).

@@ -18,7 +18,7 @@ import { PackageProject } from './projenrc/package';
 // =============================================================================
 
 const branch = 'main';
-const pnpmVersion = '11.20.0';
+const pnpmVersion = '10.33.0';
 const constructsVersion = '10.7.0';
 // TypeScript 7 (native Go compiler) transition via the dual-package pattern:
 // the `typescript` package is aliased to the 6.x-compatible `@typescript/typescript6`
@@ -218,9 +218,26 @@ function dockerScripts(name: string) {
   // --legacy flag deep-copies workspace internal deps; --prod skips devDeps.
   // Nx caches the no-op case so unchanged builds stay fast.
   const stage = [
+    // GUARD: `pnpm deploy` under the wrong pnpm major silently symlinks the
+    // @pipeline-builder/* workspace deps to the SOURCE checkout instead of
+    // materializing real copies in the bundle. Those absolute symlinks dangle
+    // inside the container → every service CrashLoops with
+    // `ERR_MODULE_NOT_FOUND: Cannot find package '@pipeline-builder/api-server'`.
+    // (pnpm 11 broke this; the pin is 10.33.0.) Assert the active pnpm matches
+    // this package's `packageManager` pin before staging so a mismatched host
+    // fails loudly here instead of shipping a broken image. Reads the local
+    // package.json (docker:build runs from the service dir).
+    'PB_EXPECTED_PNPM=$(jq -r .packageManager package.json | sed "s/^pnpm@//")',
+    'PB_ACTUAL_PNPM=$(pnpm --version)',
+    '[ "$PB_EXPECTED_PNPM" = "$PB_ACTUAL_PNPM" ] || { echo "ERROR: pnpm $PB_ACTUAL_PNPM is active but package.json pins pnpm@$PB_EXPECTED_PNPM. Run: corepack prepare pnpm@$PB_EXPECTED_PNPM --activate" >&2; exit 1; }',
     `pnpm nx run-many -t build --projects=${name} --with-deps`,
     'rm -rf .docker-build',
     `pnpm deploy --filter ${name} --prod --legacy .docker-build`,
+    // VALIDATE: every @pipeline-builder/* dep in the staged bundle must be a
+    // REAL materialized package, not a dangling workspace symlink. `-e .../package.json`
+    // follows the symlink, so an escaped/dangling link fails the build here
+    // rather than at container startup. Belt-and-suspenders behind the guard.
+    'for d in .docker-build/node_modules/@pipeline-builder/*; do test -e "$d/package.json" || { echo "ERROR: staged bundle dep $d is a dangling workspace symlink (wrong pnpm version staged the bundle). See the docker:build pnpm guard." >&2; exit 1; }; done',
   ];
   // Common buildx flags; each task appends the ` .` build-context path. The
   // `status=$?; rm -rf .docker-build; exit $status` tail keeps the cleanup

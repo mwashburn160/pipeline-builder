@@ -61,6 +61,10 @@ const DEFAULT_TEAM_FEATURES = defaultFeatures('team', ['RBAC & team roles']);
 const DEFAULT_ENTERPRISE_FEATURES = defaultFeatures('enterprise', [
   'RBAC & team roles', 'Reporting dashboard',
 ]);
+// Unlimited includes every feature (TIER_FEATURES.unlimited = all).
+const DEFAULT_UNLIMITED_FEATURES = defaultFeatures('unlimited', [
+  'Unlimited everything', 'RBAC & team roles', 'Reporting dashboard',
+]);
 
 /**
  * Parse a price (in cents) from an env var, falling back to the default when
@@ -167,6 +171,28 @@ export function loadBillingConfig(): BillingConfig {
       isActive: true,
       isDefault: false,
       sortOrder: 3,
+    },
+    // The billing-DISABLED default plan: everything uncapped, all features, free.
+    // Seeded so the tier→plan mapping resolves, but never offered for sale — the
+    // read-plans route filters it out (see createReadPlanRoutes), so it's hidden
+    // whenever billing is enabled (the only time /plans is served).
+    unlimited: {
+      id: 'unlimited',
+      name: process.env.BILLING_PLAN_UNLIMITED_NAME || 'Unlimited',
+      description: process.env.BILLING_PLAN_UNLIMITED_DESCRIPTION
+        || 'Everything uncapped — the default when billing is disabled',
+      tier: 'unlimited',
+      prices: {
+        monthly: envCents(process.env.BILLING_PLAN_UNLIMITED_MONTHLY, 0),
+        annual: envCents(process.env.BILLING_PLAN_UNLIMITED_ANNUAL, 0),
+      },
+      features: parseFeatures(
+        process.env.BILLING_PLAN_UNLIMITED_FEATURES,
+        DEFAULT_UNLIMITED_FEATURES,
+      ),
+      isActive: true,
+      isDefault: false,
+      sortOrder: 4,
     },
   };
 

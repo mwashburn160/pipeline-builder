@@ -7,7 +7,7 @@
  * dashboard/quotas.tsx, dashboard/billing.tsx, and admin/orgs/[orgId].tsx.
  * Adding a new tier here updates every UI surface in one place.
  */
-export type TierKey = 'developer' | 'pro' | 'team' | 'enterprise';
+export type TierKey = 'developer' | 'pro' | 'team' | 'enterprise' | 'unlimited';
 
 export interface TierMeta {
   /** Lowercase enum key as stored by the quota service. */
@@ -51,8 +51,20 @@ export const TIER_META: Record<TierKey, TierMeta> = {
     dotClass: 'bg-amber-500',
     sort: 3,
   },
+  // Billing-DISABLED default tier: everything uncapped. Meta exists so an org on
+  // this tier renders correctly, but it's intentionally NOT in TIER_KEYS — never
+  // offered as a selectable/purchasable tier when billing is enabled.
+  unlimited: {
+    key: 'unlimited',
+    label: 'Unlimited',
+    pillClass: 'bg-slate-200 text-slate-800',
+    dotClass: 'bg-slate-500',
+    sort: 4,
+  },
 };
 
+// The selectable/displayed tiers — excludes `unlimited` (billing-off-only, never
+// shown as a choice when billing is enabled).
 export const TIER_KEYS: readonly TierKey[] = ['developer', 'pro', 'team', 'enterprise'];
 
 export function getTierMeta(tier: string | undefined | null): TierMeta {

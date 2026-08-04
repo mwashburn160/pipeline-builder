@@ -50,7 +50,11 @@ export function createReadPlanRoutes(): Router {
   router.get('/plans', async (_req: Request, res: Response) => {
     try {
       const result = await planCache.getOrSet('active', async () => {
-        const plans = await Plan.find({ isActive: true })
+        // Exclude the `unlimited` tier: it's the billing-DISABLED default and is
+        // never purchasable/shown. This route only serves when billing is enabled
+        // (disabled → the catch-all 503), so filtering it here means it's never
+        // displayed when billing is on — per the tier's contract.
+        const plans = await Plan.find({ isActive: true, tier: { $ne: 'unlimited' } })
           .sort({ sortOrder: 1 })
           .lean<PlanDocument[]>();
 

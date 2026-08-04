@@ -155,8 +155,9 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // load. A suite can override QUOTA_TIERS via `overrides` for shape-specific
     // assertions; DEFAULT_TIER stays 'developer' unless a suite overrides it.
     DEFAULT_TIER: 'developer',
-    VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
-    isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise'].includes(t),
+    VALID_TIERS: ['developer', 'pro', 'team', 'enterprise', 'unlimited'],
+    STANDARD_TIERS: ['developer', 'pro', 'team', 'enterprise'],
+    isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise', 'unlimited'].includes(t),
     // Minimal default so any suite importing the real quota/service chain resolves
     // the `QUOTA_TIERS` binding at module load; a suite override wins for
     // shape-specific assertions. All non-seat dims are -1 (unlimited) — enough to
@@ -179,6 +180,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
         pro: { label: 'Pro', limits: limits(3) },
         team: { label: 'Team', limits: limits(10) },
         enterprise: { label: 'Enterprise', limits: limits(-1) },
+        unlimited: { label: 'Unlimited', limits: limits(-1) },
       };
     })(),
     // Tier → default feature set (mirrors api-core TIER_FEATURES). user-admin's
@@ -189,6 +191,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       pro: ['priority_support', 'ai_generation', 'bulk_operations'],
       team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso'],
       enterprise: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso'],
+      unlimited: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso'],
     },
     // Canonical feature-flag registry (mirrors api-core ALL_FEATURE_FLAGS /
     // isValidFeatureFlag). The seat-limit controller whitelists the caller's

@@ -56,6 +56,8 @@ export const TIER_FEATURES: Record<QuotaTier, readonly FeatureFlag[]> = {
   // tier (see billing-config `advanced_reporting`). Enterprise unlocks all.
   team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso'],
   enterprise: [...ALL_FEATURE_FLAGS],
+  // Unlimited includes every feature / add-on bundle (billing-disabled default).
+  unlimited: [...ALL_FEATURE_FLAGS],
 };
 
 // Feature metadata (for display)

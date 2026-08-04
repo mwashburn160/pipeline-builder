@@ -547,7 +547,7 @@ export class Workflow extends Component {
             },
             {
                 name: 'Setup pnpm',
-                uses: 'pnpm/setup@v1',
+                uses: 'pnpm/action-setup@v6',
                 with: {
                     version: this.pnpmVersion,
                 },

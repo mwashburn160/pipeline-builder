@@ -73,6 +73,8 @@ const TIER_QUEUE_NAMES: Record<QuotaTier, string> = {
   pro: `${QUEUE_NAME}-pro`,
   team: `${QUEUE_NAME}-team`,
   enterprise: `${QUEUE_NAME}-enterprise`,
+  // Billing-disabled default tier: its own queue (all orgs land here when billing is off).
+  unlimited: `${QUEUE_NAME}-unlimited`,
 };
 
 /**
@@ -505,6 +507,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     pro: intFromEnv('PLUGIN_BUILD_CONCURRENCY_PRO', concurrency),
     team: intFromEnv('PLUGIN_BUILD_CONCURRENCY_TEAM', concurrency),
     enterprise: intFromEnv('PLUGIN_BUILD_CONCURRENCY_ENTERPRISE', concurrency),
+    unlimited: intFromEnv('PLUGIN_BUILD_CONCURRENCY_UNLIMITED', concurrency),
   };
 
   const processor = async (job: Job<PluginBuildJobData>, token?: string) => {

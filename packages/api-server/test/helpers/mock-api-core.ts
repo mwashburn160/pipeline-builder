@@ -39,6 +39,7 @@ const TIER_LIMITS: Record<string, Record<string, number>> = {
   pro: { seats: 3, plugins: 500, pipelines: 50, apiCalls: 500000, aiCalls: 2500 },
   team: { seats: 10, plugins: 2000, pipelines: 200, apiCalls: -1, aiCalls: 10000 },
   enterprise: { seats: -1, plugins: 5000, pipelines: 500, apiCalls: -1, aiCalls: 25000 },
+  unlimited: { seats: -1, plugins: -1, pipelines: -1, apiCalls: -1, aiCalls: -1 },
 };
 
 /** Mirrors api-core's NotFoundError (statusCode 404 / code NOT_FOUND). */
@@ -78,11 +79,13 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       pro: { label: 'Pro', limits: TIER_LIMITS.pro },
       team: { label: 'Team', limits: TIER_LIMITS.team },
       enterprise: { label: 'Enterprise', limits: TIER_LIMITS.enterprise },
+      unlimited: { label: 'Unlimited', limits: TIER_LIMITS.unlimited },
     },
     // Mirrors api-core: returns a tier's limits, defaulting unknown tiers to developer.
     getTierLimits: (tier: string) => TIER_LIMITS[tier] ?? TIER_LIMITS.developer,
     DEFAULT_TIER: 'developer',
-    VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
+    VALID_TIERS: ['developer', 'pro', 'team', 'enterprise', 'unlimited'],
+    STANDARD_TIERS: ['developer', 'pro', 'team', 'enterprise'],
     // billing-config also derives marketed feature copy from the enforced entitlement
     // set + labels, so the transitively-loaded graph needs these too (ESM linking).
     TIER_FEATURES: {
@@ -90,6 +93,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       pro: ['priority_support', 'ai_generation', 'bulk_operations'],
       team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso'],
       enterprise: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso', 'custom_integrations'],
+      unlimited: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso', 'custom_integrations'],
     },
     FEATURE_METADATA: {
       priority_support: { label: 'Priority Support', description: '' },
@@ -99,7 +103,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       sso: { label: 'SSO', description: '' },
       custom_integrations: { label: 'Custom Integrations', description: '' },
     },
-    isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise'].includes(t),
+    isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise', 'unlimited'].includes(t),
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },

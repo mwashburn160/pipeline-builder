@@ -50,12 +50,14 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     SYSTEM_ORG_ID: '000000000000000000000001',
     // Quota tier presets — billing-config.ts reads these at import time
     // (defaultFeatures derives marketing copy from each tier's limits), so the
-    // mock must expose the four tiers with a numeric `limits` shape.
+    // mock must expose every tier with a numeric `limits` shape — incl.
+    // `unlimited` (all dims -1), the billing-disabled default.
     QUOTA_TIERS: {
       developer: { label: 'Developer', limits: { seats: 1, plugins: 25, pipelines: 5, apiCalls: 25000, aiCalls: 50 } },
       pro: { label: 'Pro', limits: { seats: 1, plugins: 50, pipelines: 10, apiCalls: 500000, aiCalls: 2500 } },
       team: { label: 'Team', limits: { seats: 10, plugins: 100, pipelines: 200, apiCalls: -1, aiCalls: 10000 } },
       enterprise: { label: 'Enterprise', limits: { seats: 25, plugins: 250, pipelines: 200, apiCalls: -1, aiCalls: 25000 } },
+      unlimited: { label: 'Unlimited', limits: { seats: -1, plugins: -1, pipelines: -1, apiCalls: -1, aiCalls: -1 } },
     },
     // billing-config.ts also derives marketed "included feature" perks from the
     // enforced entitlement set at import time, so the mock must expose both the
@@ -65,6 +67,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       pro: ['priority_support', 'ai_generation', 'bulk_operations'],
       team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log'],
       enterprise: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso'],
+      unlimited: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso'],
     },
     FEATURE_METADATA: {
       priority_support: { label: 'Priority Support', description: '' },
@@ -76,9 +79,10 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     },
     // billing-config.ts derives its `plans` array from VALID_TIERS (in order) so
     // the plan set stays compile-bound to QuotaTier; the mock must expose it.
-    VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
+    VALID_TIERS: ['developer', 'pro', 'team', 'enterprise', 'unlimited'],
+    STANDARD_TIERS: ['developer', 'pro', 'team', 'enterprise'],
     // billing-config.ts validates BILLING_BUNDLE_<ID>_TIERS entries with this.
-    isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise'].includes(t),
+    isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise', 'unlimited'].includes(t),
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },

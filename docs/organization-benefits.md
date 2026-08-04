@@ -159,7 +159,7 @@ Every resource in Pipeline Builder lives inside an **organization**, organizatio
 
 **Details.**
 
-- **Tiers** — Developer, Pro, Team, and Enterprise. Higher tiers raise every cap and unlock gated features:
+- **Tiers** — Developer, Pro, Team, and Enterprise. Higher tiers raise every cap and unlock gated features. (A fifth **Unlimited** tier — every cap uncapped, all features on — is the default when billing is disabled and is never shown or selectable when billing is enabled; see the note below the table.)
 
   | | Developer | Pro | Team | Enterprise |
   |---|:---:|:---:|:---:|:---:|
@@ -182,6 +182,8 @@ Every resource in Pipeline Builder lives inside an **organization**, organizatio
   | Priority support | — | ✅ | ✅ | ✅ |
 
   AI quotas are sized smaller than API quotas because AI calls carry an external per-call dollar cost. `-1` in the code means unlimited. System-org users always have every feature. Every limit and price is env-overridable (`QUOTA_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`).
+
+  **Unlimited tier.** Beyond the four subscription tiers there is an **Unlimited** tier where every quota above is `-1` (uncapped) and every gated feature is on. It exists for **billing-disabled** deployments: when `BILLING_ENABLED=false` there is nothing to meter or sell, so newly created orgs default to Unlimited and run everything uncapped. When billing is **enabled**, Unlimited is a valid stored tier but is never displayed, selectable, or purchasable — it is excluded from the plans list and every tier picker, so only Developer/Pro/Team/Enterprise are ever offered.
 
 - **Add-on bundles** — stackable packs that adjust one dimension: Seat Pack (+5 seats), Pipeline Pack (+10), Plugin Pack (+100), API Pack (+1M calls), AI Pack (+5,000 calls), Storage Pack (+50 GB), plus the Audit Log and SSO feature bundles. **Effective limit = tier base + Σ(bundle grant × quantity)**, and the result pools across the account's teams. This lets an account that needs a little more headroom buy the pack instead of jumping a whole tier. See [Billing Add-on Bundles](billing-bundles.md) for the full catalog, prices, and pooling rules.
 - **Enforcement.** Billing computes the effective entitlement and syncs it to the enforcing services — quota limits to the quota service, seats and purchased features to the platform service — always against the account root. Removing a bundle can't drop a cap below current pooled usage.

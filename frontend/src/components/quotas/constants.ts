@@ -28,6 +28,8 @@ const TIER_DESCRIPTIONS: Record<QuotaTier, string> = {
   pro: 'Production use',
   team: 'Team collaboration',
   enterprise: 'Highest limits',
+  // Billing-off default — never shown as a preset (excluded from TIER_KEYS).
+  unlimited: 'Everything uncapped',
 };
 
 const TIER_LIMITS: Record<QuotaTier, Record<DisplayedQuotaType, number>> = {
@@ -35,6 +37,7 @@ const TIER_LIMITS: Record<QuotaTier, Record<DisplayedQuotaType, number>> = {
   pro: { pipelines: 10, plugins: 50, apiCalls: 500000, aiCalls: 2500 },
   team: { pipelines: 200, plugins: 100, apiCalls: -1, aiCalls: 10000 },
   enterprise: { pipelines: 200, plugins: 250, apiCalls: -1, aiCalls: 25000 },
+  unlimited: { pipelines: -1, plugins: -1, apiCalls: -1, aiCalls: -1 },
 };
 
 /**
@@ -58,4 +61,5 @@ export const TIER_PRESETS: Record<QuotaTier, { label: string; description: strin
   pro:        { label: TIER_META.pro.label,        description: TIER_DESCRIPTIONS.pro,        color: TIER_META.pro.dotClass,        limits: TIER_LIMITS.pro },
   team:       { label: TIER_META.team.label,       description: TIER_DESCRIPTIONS.team,       color: TIER_META.team.dotClass,       limits: TIER_LIMITS.team },
   enterprise: { label: TIER_META.enterprise.label, description: TIER_DESCRIPTIONS.enterprise, color: TIER_META.enterprise.dotClass, limits: TIER_LIMITS.enterprise },
+  unlimited:  { label: TIER_META.unlimited.label,  description: TIER_DESCRIPTIONS.unlimited,  color: TIER_META.unlimited.dotClass,  limits: TIER_LIMITS.unlimited },
 };

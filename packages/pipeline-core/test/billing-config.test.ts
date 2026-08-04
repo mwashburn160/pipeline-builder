@@ -32,11 +32,13 @@ describe('loadBillingConfig', () => {
     process.env = originalEnv;
   });
 
-  it('returns four plans with correct defaults', () => {
+  it('returns all plans with correct defaults', () => {
     const config = loadBillingConfig();
-    expect(config.plans).toHaveLength(4);
+    // Four selectable tiers + `unlimited` (billing-disabled default; seeded but
+    // filtered out of the purchasable list by the billing read-plans route).
+    expect(config.plans).toHaveLength(5);
 
-    const [developer, pro, team, enterprise] = config.plans;
+    const [developer, pro, team, enterprise, unlimited] = config.plans;
 
     expect(developer).toMatchObject({
       id: 'developer',
@@ -72,6 +74,15 @@ describe('loadBillingConfig', () => {
       prices: { monthly: 39900, annual: 399000 },
       isDefault: false,
       sortOrder: 3,
+    });
+
+    expect(unlimited).toMatchObject({
+      id: 'unlimited',
+      name: 'Unlimited',
+      tier: 'unlimited',
+      prices: { monthly: 0, annual: 0 },
+      isDefault: false,
+      sortOrder: 4,
     });
   });
 

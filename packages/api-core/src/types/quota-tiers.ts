@@ -1,8 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-/** Available quota tier identifiers. */
-export type QuotaTier = 'developer' | 'pro' | 'team' | 'enterprise';
+/** Available quota tier identifiers.
+ *
+ * `unlimited` is a special tier: every quota is `-1` (uncapped) and it includes
+ * every feature/add-on bundle. It is the DEFAULT when billing is disabled (no
+ * metering/enforcement surface exists, so nothing is capped), and it is NEVER
+ * shown or selectable when billing is enabled — see `STANDARD_TIERS`. */
+export type QuotaTier = 'developer' | 'pro' | 'team' | 'enterprise' | 'unlimited';
 
 /** Limit values for each quota type within a tier. */
 export interface QuotaTierLimits {
@@ -116,6 +121,20 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     idpConfigs: -1,
     seats: 25,
   },
+  // Unlimited: EVERY quota uncapped (-1). The default when billing is disabled
+  // (no enforcement surface) — never shown/selectable when billing is enabled.
+  unlimited: {
+    plugins: -1,
+    pipelines: -1,
+    apiCalls: -1,
+    aiCalls: -1,
+    storageBytes: -1,
+    dashboards: -1,
+    alertRules: -1,
+    alertDestinations: -1,
+    idpConfigs: -1,
+    seats: -1,
+  },
 };
 
 /** Read an integer env var, falling back to the code default. `-1` = unlimited. */
@@ -161,20 +180,35 @@ export const QUOTA_TIERS: Record<QuotaTier, QuotaTierPreset> = {
   pro: { label: envStr('QUOTA_TIER_PRO_LABEL', 'Pro'), limits: tierLimits('pro') },
   team: { label: envStr('QUOTA_TIER_TEAM_LABEL', 'Team'), limits: tierLimits('team') },
   enterprise: { label: envStr('QUOTA_TIER_ENTERPRISE_LABEL', 'Enterprise'), limits: tierLimits('enterprise') },
+  unlimited: { label: envStr('QUOTA_TIER_UNLIMITED_LABEL', 'Unlimited'), limits: tierLimits('unlimited') },
 };
 
-/** All valid tier names. */
+/** All valid tier names (incl. `unlimited`). Used for validation of a *stored*
+ *  tier — `unlimited` is a valid value even though it's never offered for sale. */
 export const VALID_TIERS: readonly QuotaTier[] = Object.keys(QUOTA_TIERS) as QuotaTier[];
 
+/** The standard, billing-selectable tiers — the ones offered as purchasable plans
+ *  and shown in tier pickers. Excludes `unlimited`, which is the billing-DISABLED
+ *  default and is never displayed/selectable when billing is enabled. */
+export const STANDARD_TIERS: readonly QuotaTier[] = ['developer', 'pro', 'team', 'enterprise'];
+
+/** Whether the billing service is enabled in this deployment (`BILLING_ENABLED`,
+ *  opt-out default-on — mirrors the billing/platform configs). With billing OFF
+ *  there's no metering/enforcement surface, so the default tier is `unlimited`. */
+export function isBillingEnabled(): boolean {
+  return (process.env.BILLING_ENABLED || 'true').toLowerCase() !== 'false';
+}
+
 /**
- * Default tier assigned to new organizations. Overridable via the
- * `DEFAULT_QUOTA_TIER` env var (one of developer|pro|team|enterprise);
- * an invalid/unset value falls back to 'developer'.
+ * Default tier assigned to new organizations.
+ * - Billing DISABLED → `unlimited` (nothing is metered, so everything is uncapped).
+ * - Billing ENABLED  → `DEFAULT_QUOTA_TIER` if it's a valid standard tier, else `developer`.
  */
-export const DEFAULT_TIER: QuotaTier =
-  isValidTier(process.env.DEFAULT_QUOTA_TIER ?? '')
+export const DEFAULT_TIER: QuotaTier = !isBillingEnabled()
+  ? 'unlimited'
+  : (isValidTier(process.env.DEFAULT_QUOTA_TIER ?? '') && process.env.DEFAULT_QUOTA_TIER !== 'unlimited'
     ? (process.env.DEFAULT_QUOTA_TIER as QuotaTier)
-    : 'developer';
+    : 'developer');
 
 /** Check whether a string is a valid QuotaTier. */
 export function isValidTier(value: string): value is QuotaTier {

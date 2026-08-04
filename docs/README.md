@@ -301,6 +301,8 @@ A user can belong to several organizations and teams at once and acts within one
 | Seats (members) | 1 | 1 | 10 | 25 |
 | Price / month | $0 | $49 | $149 | $399 |
 
+**Unlimited** — a fifth tier with every quota uncapped and all features on. It is the **default tier when billing is disabled** (`BILLING_ENABLED=false`), so a self-hosted install with no billing runs everything uncapped out of the box. When billing is **enabled** it is never shown, selectable, or purchasable — it is filtered out of the plans list and tier pickers.
+
 System org users always have access to all features. Base limits are raised by [add-on bundles](billing-bundles.md) and are env-overridable (`QUOTA_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`).
 
 **Add-on bundles** — an account can stack purchasable add-ons on top of its tier to raise pooled caps (extra seats, pipelines, plugins, API/AI calls, storage) or unlock features (audit log, SSO). Effective limits = tier base + add-ons, shared across the account's teams. See [Billing Add-on Bundles](billing-bundles.md).
@@ -310,7 +312,7 @@ System org users always have access to all features. Base limits are raised by [
 - **Plugins** — upload private plugins or use shared public ones; control which versions are available
 - **Compliance rules** — enforce security standards, naming conventions, resource limits
 - **Quotas** — per-org limits on pipelines, plugins, API/AI calls, storage, and more (nine tracked resource types), plus member **seats**; a parent's caps can be pooled across its teams
-- **Billing** — per-account subscription tier (Developer / Pro / Team / Enterprise) plus stackable [add-on bundles](billing-bundles.md) that raise pooled caps
+- **Billing** — per-account subscription tier (Developer / Pro / Team / Enterprise; plus a hidden **Unlimited** tier used as the default when billing is disabled) plus stackable [add-on bundles](billing-bundles.md) that raise pooled caps
 - **Secrets** — stored in AWS Secrets Manager, injected at build time
 
 ---

@@ -98,7 +98,10 @@ describe('VALID_TIERS', () => {
     expect(VALID_TIERS).toContain('pro');
     expect(VALID_TIERS).toContain('team');
     expect(VALID_TIERS).toContain('enterprise');
-    expect(VALID_TIERS).toHaveLength(4);
+    // `unlimited` is a valid stored tier (billing-off default) but not a
+    // standard/selectable one — see STANDARD_TIERS.
+    expect(VALID_TIERS).toContain('unlimited');
+    expect(VALID_TIERS).toHaveLength(5);
   });
 });
 

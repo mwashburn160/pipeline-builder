@@ -137,6 +137,7 @@ export const config = {
       pro: parseFloat(process.env.LIMITER_MULT_PRO || '10'),
       team: parseFloat(process.env.LIMITER_MULT_TEAM || '25'),
       enterprise: parseFloat(process.env.LIMITER_MULT_ENTERPRISE || '50'),
+      unlimited: parseFloat(process.env.LIMITER_MULT_UNLIMITED || '100'),
     } as Record<QuotaTier, number>,
     auth: {
       max: parseInt(process.env.AUTH_LIMITER_MAX || '20', 10),
@@ -357,6 +358,13 @@ export const config = {
       enterprise: {
         ...QUOTA_TIERS.enterprise.limits,
         resetPeriod: tierResetPeriod('enterprise', '30days'),
+      },
+      // Billing-disabled default tier — everything uncapped. Reset period is moot
+      // (all limits -1), but the key must exist so `config.quota.tier[tier]` stays
+      // indexable by every QuotaTier.
+      unlimited: {
+        ...QUOTA_TIERS.unlimited.limits,
+        resetPeriod: tierResetPeriod('unlimited', '30days'),
       },
     },
   },

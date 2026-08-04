@@ -71,6 +71,7 @@ This reference documents every environment variable across the Pipeline Builder 
 | `JWT_EXPIRES_IN_PRO` | (inherits `JWT_EXPIRES_IN`) | Pro-tier override — commonly shorter for compliance |
 | `JWT_EXPIRES_IN_TEAM` | (inherits `JWT_EXPIRES_IN`) | Team-tier override |
 | `JWT_EXPIRES_IN_ENTERPRISE` | (inherits `JWT_EXPIRES_IN`) | Enterprise-tier override (e.g. `1800` = 30 min) |
+| `JWT_EXPIRES_IN_UNLIMITED` | (inherits `JWT_EXPIRES_IN`) | Unlimited-tier override (billing-disabled default tier) |
 | `JWT_ALGORITHM` | `HS256` | `HS256`, `HS384`, `HS512`, `RS256` |
 | `BCRYPT_SALT_ROUNDS` | `12` | bcrypt cost factor for password hashing (10-12 recommended). |
 | `REFRESH_TOKEN_EXPIRES_IN` | `2592000` | Refresh token TTL (30d) |
@@ -211,7 +212,7 @@ builder, one path, no per-builder target suffixes.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PLUGIN_BUILD_CONCURRENCY` | `1` | Max concurrent builds per container |
+| `PLUGIN_BUILD_CONCURRENCY` | `1` | Max concurrent builds per container (per-tier overrides: `PLUGIN_BUILD_CONCURRENCY_<DEVELOPER\|PRO\|TEAM\|ENTERPRISE\|UNLIMITED>`) |
 | `PLUGIN_BUILD_QUEUE_NAME` | `plugin-build` | BullMQ queue name |
 | `PLUGIN_BUILD_MAX_ATTEMPTS` | `2` | Max build attempts before moving to DLQ |
 | `PLUGIN_BUILD_BACKOFF_DELAY_MS` | `5000` | Backoff delay between retries (ms) |
@@ -246,6 +247,7 @@ builder, one path, no per-builder target suffixes.
 | `LIMITER_MULT_PRO` | `10` | Pro-tier rate-limit multiplier |
 | `LIMITER_MULT_TEAM` | `25` | Team-tier rate-limit multiplier |
 | `LIMITER_MULT_ENTERPRISE` | `50` | Enterprise-tier rate-limit multiplier |
+| `LIMITER_MULT_UNLIMITED` | `100` | Unlimited-tier rate-limit multiplier (billing-disabled default tier) |
 
 Tier presets ship in `@pipeline-builder/api-core` (`QUOTA_TIERS` in `quota-tiers.ts`):
 
@@ -255,10 +257,13 @@ Tier presets ship in `@pipeline-builder/api-core` (`QUOTA_TIERS` in `quota-tiers
 | pro | 50 | 10 | 500,000 | 1,000 | 1 |
 | team | 100 | 200 | 2,000,000 | 5,000 | 10 |
 | enterprise | 250 | 200 | 10,000,000 | 15,000 | 25 |
+| unlimited | -1 | -1 | -1 | -1 | -1 |
 
-Any preset can be overridden per-environment via `QUOTA_TIER_<DEVELOPER|PRO|TEAM|ENTERPRISE>_<LIMIT>` (e.g. `QUOTA_TIER_TEAM_SEATS=20`), and `DEFAULT_QUOTA_TIER` sets the tier assigned to newly created orgs (`developer` by default). `seats` is a tier limit, not a tracked counter — it is enforced live at invite time against active org membership.
+Any preset can be overridden per-environment via `QUOTA_TIER_<DEVELOPER|PRO|TEAM|ENTERPRISE|UNLIMITED>_<LIMIT>` (e.g. `QUOTA_TIER_TEAM_SEATS=20`), and `DEFAULT_QUOTA_TIER` sets the tier assigned to newly created orgs (`developer` by default). `seats` is a tier limit, not a tracked counter — it is enforced live at invite time against active org membership.
 
-Each tier's quota **reset period** is overridable via `QUOTA_TIER_<TIER>_RESET_PERIOD` (a single duration applied to every quota type). Defaults: `3days` for developer/pro, `30days` for team/enterprise.
+**`unlimited` tier.** Every limit is `-1` (uncapped) and every gated feature is on. It is the automatic default when **billing is disabled** (`BILLING_ENABLED=false`) — `DEFAULT_QUOTA_TIER` is ignored in that case and new orgs get `unlimited`. When billing is **enabled** it is never displayed, selectable, or purchasable (excluded from the plans list and tier pickers), and `DEFAULT_QUOTA_TIER=unlimited` is rejected in favour of `developer`. Its label is overridable via `QUOTA_TIER_UNLIMITED_LABEL` (default `Unlimited`).
+
+Each tier's quota **reset period** is overridable via `QUOTA_TIER_<TIER>_RESET_PERIOD` (a single duration applied to every quota type). Defaults: `3days` for developer/pro, `30days` for team/enterprise. (The reset period is moot for `unlimited`, whose limits are all `-1` and never reset.)
 
 Per-call increments to `/quotas/:orgId/increment` cap `amount` at 1000 — bounds the per-request blast radius from a buggy or malicious caller.
 
@@ -321,7 +326,7 @@ For AWS SES: set `EMAIL_PROVIDER=ses` with `SES_REGION`, `SES_ACCESS_KEY_ID`, `S
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BILLING_ENABLED` | `false` | Enable billing |
+| `BILLING_ENABLED` | `true` | Enable billing (opt-out — on unless set to `false`). When `false`, new orgs default to the uncapped `unlimited` tier and no plans/tiers are offered; when `true`, `unlimited` is hidden and orgs get `DEFAULT_QUOTA_TIER` (default `developer`). |
 | `BILLING_PROVIDER` | `stub` | `stub`, `aws-marketplace`, or `stripe` |
 | `BILLING_SERVICE_HOST` | `billing` | Service hostname |
 | `BILLING_SERVICE_PORT` | `3000` | Service port |
@@ -331,6 +336,8 @@ For AWS SES: set `EMAIL_PROVIDER=ses` with `SES_REGION`, `SES_ACCESS_KEY_ID`, `S
 | `BILLING_BUNDLES_ENABLED` | `false` | Master switch for purchasable [add-on bundles](billing-bundles.md) — hidden unless set |
 
 Plan pricing (`BILLING_PLAN_{TIER}_MONTHLY` / `BILLING_PLAN_{TIER}_ANNUAL`, where `{TIER}` is `DEVELOPER`, `PRO`, `TEAM`, or `ENTERPRISE`) is in cents. Defaults: Developer free, Pro $49/mo ($490/yr), Team $149/mo ($1,490/yr), Enterprise $399/mo ($3,990/yr). Per-plan `_NAME` (display name), `_DESCRIPTION` (string), and `_FEATURES` (JSON array) can also be overridden.
+
+An `UNLIMITED` plan (free, `BILLING_PLAN_UNLIMITED_NAME` default `Unlimited`) is also seeded so the billing store has a row for orgs on the billing-disabled default tier, but it is filtered out of the customer-facing plans list — it is never sold or shown when billing is enabled.
 
 Add-on bundles are env-tunable (see [Billing Add-on Bundles → Overrides](billing-bundles.md#configuration--overrides)): `BILLING_BUNDLE_<ID>_MONTHLY` / `_ANNUAL` (price, cents), `BILLING_BUNDLE_<ID>_GRANT` (single-dimension grant amount), and `BILLING_BUNDLE_<ID>_TIERS` (JSON array of purchasable tiers), where `<ID>` is the bundle id upper-cased (`SEAT_PACK`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `AUDIT_LOG`, `SSO`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`). Combo prices are `BILLING_COMBO_<COMBO>_MONTHLY` / `_ANNUAL` where `<COMBO>` is `ANALYTICS_SUITE` or `TEAM_GROWTH`.
 
