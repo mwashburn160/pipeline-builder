@@ -2,8 +2,12 @@ title: Self-Service CI/CD for AWS
 description: Self-service AWS CodePipeline platform — developers ship compliant CI/CD pipelines in minutes via dashboard, CLI, CDK, or AI prompt, while platform teams enforce policy-as-code guardrails, governance, and per-team isolation.
 tagline: Self-service CI/CD for AWS
 
-url: "https://mwashburn160.github.io"
-baseurl: "/pipeline-builder"
+# Custom domain (see CNAME): the site is served at the domain ROOT, so baseurl
+# must be empty. A non-empty baseurl (e.g. the old project-pages "/pipeline-builder")
+# makes every `relative_url`/`{{ site.baseurl }}` link resolve to a non-existent
+# "/pipeline-builder/..." path → "must provide index.html" 404 on every page.
+url: "https://www.pipeline-builder.com"
+baseurl: ""
 
 author:
   name: Mark Washburn
