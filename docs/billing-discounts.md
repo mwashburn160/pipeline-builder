@@ -109,6 +109,39 @@ Because a token only seals the discount id, **one discount can back many tokens*
 
 ---
 
+## Promotions
+
+A **promotion** is the marketing counterpart to a discount: where a discount is *redeemed* (a code someone enters) or *manually granted*, a promotion **auto-grants a usage credit when an org hits a trigger**, bounded by a campaign budget. It's a grant *source* — it reuses the same usage-credit machinery (`creditBalanceCents` / `creditLedger`, drawn down on the invoice or by Marketplace metered withholding), so there's no new realization path.
+
+Gated by **`BILLING_PROMOTIONS_ENABLED`** (same opt-out default as discounts — on unless set to `false`), which additionally requires **`BILLING_DISCOUNTS_ENABLED`** (discounts off ⇒ promotions off).
+
+**Triggers.** A promotion fires on a lifecycle event evaluated against the org's subscription:
+- `subscription_created` — signup / first-subscription campaigns (with `firstSubscriptionOnly`).
+- `plan_change` — upgrade / conversion campaigns.
+- `manual` — admin-only; granted via `POST /admin/promotions/:id/grant`.
+- `referral` — two-sided (see **Referrals** below).
+
+**Eligibility** (`trigger.conditions`, all-must-match): `tiers`, `intervals`, `firstSubscriptionOnly`. Plus an active window (`startsAt`/`endsAt`).
+
+**Budget & safety.** Each grant **atomically reserves** from `budgetCents` (a guarded `$inc`), then applies the credit **idempotently** per `(promotion, org)` via a `creditLedger.dedupeKey`; any failure after reservation **compensates** (`$inc -cents`) — so concurrent triggers can never overspend and the bias is always under-spend. `spentCents`/`grantsCount` are a reconciled **advisory cache**; the ledger (Σ `promo:<id>` entries) is the source of truth (see `GET /admin/promotions/:id/spend`, which returns both and their drift). A promotion **never grants when the provider can't realize a usage credit** (`usageCreditSupport === 'none'`) — it warns instead of banking an unrealizable credit. `perOrgCapCents` clamps a single grant; `maxGrants` caps total grants.
+
+**Value.** `unit: 'dollar'` (cents) or `'percent'` (percent of the current plan price, resolved at grant time). `kind: 'onetime'` grants once; **`kind: 'recurring'`** re-grants each billing period, re-granted from the periodic reconcile/metering path with **period-keyed** idempotency (a redelivered invoice never double-grants) and stopped when the promo is revoked / out of window / over budget or the org is no longer eligible.
+
+**Batch activation & backfill.** `POST /admin/promotions/:id/activate` grants across the **existing** eligible base now (idempotent per org, budget-bounded — skips are logged, never silent). A **backfill cron** (`BILLING_PROMOTION_BACKFILL_INTERVAL_MS`, leader-locked) periodically does the same for every active promo, so a grant dropped by a transient failure or a campaign activated after an org's signup still lands.
+
+**Clawback.** A grant is reversed (ledger row pulled, balance reduced, budget released, `promotion_clawback` emitted) if the subscription **cancels within the clawback window** (`BILLING_PROMOTION_CLAWBACK_WINDOW_MS`, default 7d) — defusing signup-grab-churn. **Revoking** a promotion (`isActive: false`, or `DELETE`) stops future auto-grants; credits granted earlier and outside the clawback window stay.
+
+### Referrals
+
+A `referral` promotion is **two-sided**. A new org subscribes with a **referral code** (= the referrer's org id) via `referralCode` on `POST /billing/subscriptions`:
+
+- The **referee** is credited immediately (`value`), and a pending `Referral` is recorded.
+- The **referrer** is credited only once the referee **qualifies** — its *first paid invoice* — with `referrerValue` (or the same as the referee if unset). Gating on first payment defeats fake-referral farming.
+
+Guards: no self-referral, a referee is referred **at most once** (unique), the referrer must be a real subscribed org, and both grants flow through the shared budget + idempotency machinery (referee keyed per org, referrer keyed per pair). A referral whose referrer grant can't be funded (budget) still marks qualified — it won't retry forever.
+
+---
+
 ## API
 
 All routes are under `/billing` and gated by `BILLING_DISCOUNTS_ENABLED`.

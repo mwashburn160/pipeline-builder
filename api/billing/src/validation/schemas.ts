@@ -11,6 +11,9 @@ const BillingIntervalSchema = z.enum(['monthly', 'annual']);
 export const SubscriptionCreateSchema = z.object({
   planId: z.string().min(1, 'Plan ID is required'),
   interval: BillingIntervalSchema.default('monthly'),
+  /** Optional referral code (= the referrer's org id) — credits the referee now
+   *  and the referrer once this org first pays. See docs/billing-discounts.md#promotions. */
+  referralCode: z.string().min(1).max(64).optional(),
 });
 
 /**
@@ -88,5 +91,53 @@ export const DiscountApplySchema = z.object({
  */
 export const DiscountRedeemSchema = z.object({
   code: z.string().min(1, 'code is required'),
+});
+
+// ── Promotions (rule-driven auto-grant campaigns) ────────────────────
+
+const PromotionConditionsSchema = z.object({
+  tiers: z.array(z.string().min(1)).max(10).optional(),
+  intervals: z.array(z.enum(['monthly', 'annual'])).max(2).optional(),
+  firstSubscriptionOnly: z.boolean().optional(),
+});
+
+/** Mint a promotion (POST /billing/admin/promotions). */
+export const PromotionMintSchema = z.object({
+  name: z.string().min(1).max(120),
+  campaign: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
+  value: z.number().int().min(1),
+  unit: z.enum(['dollar', 'percent']),
+  kind: z.enum(['onetime', 'recurring']).optional().default('onetime'),
+  /** For a `referral` promotion: the referrer's grant magnitude (referee uses `value`). */
+  referrerValue: z.number().int().min(1).optional(),
+  trigger: z.object({
+    event: z.enum(['subscription_created', 'plan_change', 'manual', 'referral']),
+    conditions: PromotionConditionsSchema.optional(),
+  }),
+  startsAt: z.string().datetime().optional(),
+  endsAt: z.string().datetime().optional(),
+  budgetCents: z.number().int().min(1).max(1_000_000_000),
+  perOrgCapCents: z.number().int().min(1).optional(),
+  maxGrants: z.number().int().min(1).max(10_000_000).optional(),
+}).refine((v) => v.unit !== 'percent' || v.value <= 100, {
+  message: 'percent value must be ≤ 100',
+  path: ['value'],
+}).refine((v) => v.unit !== 'percent' || v.referrerValue == null || v.referrerValue <= 100, {
+  message: 'percent referrerValue must be ≤ 100',
+  path: ['referrerValue'],
+});
+
+/** Edit / activate / revoke a promotion (PUT /billing/admin/promotions/:id). */
+export const PromotionUpdateSchema = z.object({
+  name: z.string().min(1).max(120).optional(),
+  isActive: z.boolean().optional(),
+  endsAt: z.string().datetime().optional(),
+  budgetCents: z.number().int().min(1).max(1_000_000_000).optional(),
+  maxGrants: z.number().int().min(1).max(10_000_000).optional(),
+});
+
+/** Manual admin grant to one org (POST /billing/admin/promotions/:id/grant). */
+export const PromotionGrantSchema = z.object({
+  targetOrgId: z.string().min(1, 'targetOrgId is required'),
 });
 

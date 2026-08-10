@@ -3,7 +3,7 @@
 
 import { Router } from 'express';
 import { impersonateUser } from '../controllers/impersonate.js';
-import { requireAuth, requireStepUp } from '../middleware/index.js';
+import { requireAuth, requireSystemAdmin, requireStepUp } from '../middleware/index.js';
 
 const router: Router = Router({ mergeParams: true });
 
@@ -12,6 +12,7 @@ const router: Router = Router({ mergeParams: true });
  * impersonation session of the target user. Step-up gated; sysadmin
  * gate is enforced inside the controller.
  */
-router.post('/:userId', requireAuth, requireStepUp, impersonateUser);
+// `requireSystemAdmin` mirrors the controller's own first-line gate (defense-in-depth).
+router.post('/:userId', requireAuth, requireSystemAdmin, requireStepUp, impersonateUser);
 
 export default router;

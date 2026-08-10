@@ -16,16 +16,20 @@ import { requireAuth, requireStepUp } from '../middleware/index.js';
 
 const router: Router = Router();
 
-/** GET /users - List all users (system admin only) */
+// These routes are gated by `members:manage` and are DUAL-MODE: a sysadmin acts
+// fleet-wide, while an org-admin is scoped to their own org (enforced in the
+// controller). Create/bulk paths are further restricted to sysadmins there.
+
+/** GET /users - List users (members:manage; sysadmin = all, org-admin = own org). */
 router.get('/', requireAuth, requirePermission('members:manage'), listAllUsers);
 
-/** POST /users - Create a user (system admin only; enforced in the controller) */
+/** POST /users - Create a user (members:manage; controller restricts to sysadmin). */
 router.post('/', requireAuth, requirePermission('members:manage'), createUserByAdmin);
 
-/** GET /users/:id - Get user by ID (system admin only) */
+/** GET /users/:id - Get a user (members:manage; org-admin scoped to a shared org). */
 router.get('/:id', requireAuth, requirePermission('members:manage'), getUserById);
 
-/** PUT /users/:id - Update user by ID (system admin only) */
+/** PUT /users/:id - Update a user (members:manage; org-admin scoped to a shared org). */
 router.put('/:id', requireAuth, requirePermission('members:manage'), updateUserById);
 
 /** PUT /users/:id/features - Update user feature overrides (admin only) */

@@ -213,6 +213,12 @@ export type AuditAction =
   | 'billing.discount.apply'
   | 'billing.discount.remove'
   | 'billing.discount.revoke'
+  // Promotions — rule-driven auto-grant campaigns (docs/billing-discounts.md#promotions).
+  | 'billing.promotion.create'
+  | 'billing.promotion.update'
+  | 'billing.promotion.revoke'
+  | 'billing.promotion.grant'
+  | 'billing.promotion.activate'
   // Usage-credit realization — credit consumed (Marketplace metered drawdown),
   // exhausted (balance hit zero), and a combo ending. `details` carry cents/ids only.
   | 'billing.credit.consumed'
@@ -345,6 +351,11 @@ export const ALL_AUDIT_ACTIONS = [
   'billing.discount.apply',
   'billing.discount.remove',
   'billing.discount.revoke',
+  'billing.promotion.create',
+  'billing.promotion.update',
+  'billing.promotion.revoke',
+  'billing.promotion.grant',
+  'billing.promotion.activate',
   'billing.credit.consumed',
   'billing.credit.exhausted',
   'billing.combo.expired',

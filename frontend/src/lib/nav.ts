@@ -29,6 +29,7 @@ import {
   Rocket,
   Landmark,
   Fingerprint,
+  Megaphone,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -147,6 +148,9 @@ export const NAV_SECTIONS: NavSection[] = [
       // Discounts live in the billing service (BILLING_DISCOUNTS_ENABLED) — hide the
       // link when billing is disabled in this deployment, like Billing/Billing Admin.
       { title: 'Discounts', href: '/dashboard/discounts', icon: Ticket, systemAdminOnly: true, requiresBillingEnabled: true },
+      // Promotions (rule-driven auto-grant campaigns) — same billing gate; also
+      // requires BILLING_PROMOTIONS_ENABLED server-side (routes 404 otherwise).
+      { title: 'Promotions', href: '/dashboard/promotions', icon: Megaphone, systemAdminOnly: true, requiresBillingEnabled: true },
       // Fleet-wide billing admin (all-orgs subscriptions, platform finance, backfill).
       // Also gated on the billing service being enabled in this deployment.
       { title: 'Billing Admin', href: '/dashboard/admin/billing', icon: Landmark, systemAdminOnly: true, requiresBillingEnabled: true },

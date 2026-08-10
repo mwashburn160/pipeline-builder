@@ -73,11 +73,11 @@ export interface QuotaService {
   /** Reset quota usage. Returns true on success. */
   reset(orgId: string, quotaType?: QuotaType, authHeader?: string, requestId?: string): Promise<boolean>;
   /**
-   * Get the org's quota tier ('developer' | 'pro' | 'team' | 'enterprise'). Used by
-   * the plugin-build queue partitioning to route a build to the
-   * right per-tier queue. Fail-open returns DEFAULT_TIER ('developer')
-   * a misclassified pro/team/enterprise org will land in the developer queue
-   * and still build, just without the tier-scoped scheduling boost.
+   * Get the org's quota `QuotaTier`. Used by the plugin-build queue partitioning
+   * to route a build to the right per-tier queue. Fail-open returns `DEFAULT_TIER`
+   * (`developer` when billing is enabled, `unlimited` when it's disabled); a
+   * misclassified org still builds on the default queue, just without the
+   * tier-scoped scheduling boost.
    */
   getTier(orgId: string, authHeader: string, requestId?: string): Promise<QuotaTier>;
 }
@@ -297,8 +297,8 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       }>(path, { headers: buildHeaders(orgId, authHeader, requestId), ...QUOTA_REQUEST_OPTIONS });
 
       if (!response || response.statusCode !== 200 || !response.body.success) {
-        logger.warn('QUOTA_FAIL_OPEN: tier lookup failed, defaulting to developer tier', {
-          orgId, statusCode: response?.statusCode,
+        logger.warn(`QUOTA_FAIL_OPEN: tier lookup failed, defaulting to ${DEFAULT_TIER} tier`, {
+          orgId, statusCode: response?.statusCode, defaultTier: DEFAULT_TIER,
         });
         emitCounter('quota_fail_open_total', { operation: 'tier', reason: response ? 'non-ok' : 'unreachable', quotaType: 'tier' });
         return DEFAULT_TIER;

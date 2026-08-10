@@ -8,6 +8,7 @@ import mongoose from 'mongoose';
 
 import { config } from './config.js';
 import { startMarketplaceMetering, stopMarketplaceMetering } from './helpers/marketplace-metering.js';
+import { startPromotionBackfill } from './helpers/promotion-backfill.js';
 import { seedPlans } from './helpers/seed-plans.js';
 import { startSubscriptionLifecycleChecker, stopSubscriptionLifecycleChecker } from './helpers/subscription-lifecycle.js';
 import { createAddonRoutes } from './routes/addons.js';
@@ -15,6 +16,7 @@ import { createAdminSubscriptionRoutes } from './routes/admin-subscriptions.js';
 import { createBillingSummaryRoutes } from './routes/billing-summary.js';
 import { createDiscountRoutes } from './routes/discounts.js';
 import { createMarketplaceRoutes } from './routes/marketplace.js';
+import { createPromotionRoutes } from './routes/promotions.js';
 import { createReadPlanRoutes } from './routes/read-plans.js';
 import { createStripeWebhookRoutes } from './routes/stripe-webhook.js';
 import { createSubscriptionRoutes } from './routes/subscriptions.js';
@@ -66,6 +68,7 @@ if (config.enabled) {
   app.use('/billing', createSubscriptionRoutes());
   app.use('/billing', createAddonRoutes());
   app.use('/billing', createDiscountRoutes());
+  app.use('/billing', createPromotionRoutes());
   app.use('/billing', createBillingSummaryRoutes());
   app.use('/billing', createUsageRoutes());
   app.use('/billing', createAdminSubscriptionRoutes());
@@ -86,6 +89,7 @@ if (config.enabled) {
       await seedPlans();
       startSubscriptionLifecycleChecker();
       startMarketplaceMetering();
+      startPromotionBackfill();
     },
     testDatabase: async () => mongoose.connection.readyState === 1,
     closeDatabase: async () => {

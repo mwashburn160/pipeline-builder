@@ -98,7 +98,7 @@ export function loadBillingConfig(): BillingConfig {
   // 5th QuotaTier without a plan here is now a compile error (was a hand-kept
   // 4-element array that silently shipped no plan/price for a new tier). The
   // public `config.plans` shape stays an array, derived below in VALID_TIERS
-  // order (developer, pro, team, enterprise) to preserve consumer ordering.
+  // order (developer, pro, team, enterprise, unlimited) to preserve consumer ordering.
   const planByTier: Record<QuotaTier, BillingPlanConfig> = {
     developer: {
       id: 'developer',
@@ -199,7 +199,10 @@ export function loadBillingConfig(): BillingConfig {
   // Derive the array consumers read (`config.plans`) in canonical tier order.
   const plans: BillingPlanConfig[] = VALID_TIERS.map((tier) => planByTier[tier]);
 
-  return { plans, bundles: loadBundles(), comboDiscounts: loadComboDiscounts() };
+  // Build bundles ONCE and thread them into the combo loader (which needs their
+  // env-effective prices) — avoids parsing the whole bundle catalog twice per load.
+  const bundles = loadBundles();
+  return { plans, bundles, comboDiscounts: loadComboDiscounts(bundles) };
 }
 
 /**
@@ -216,7 +219,7 @@ export function loadBillingConfig(): BillingConfig {
  *    together $35/mo ($350/yr) → a $20/mo credit.
  * Prices env-overridable via `BILLING_COMBO_<ID>_MONTHLY` / `_ANNUAL`.
  */
-function loadComboDiscounts(): ComboDiscountConfig[] {
+function loadComboDiscounts(bundles: BundleConfig[]): ComboDiscountConfig[] {
   const c = (
     id: string,
     name: string,
@@ -242,7 +245,7 @@ function loadComboDiscounts(): ComboDiscountConfig[] {
     c('analytics_suite', 'Analytics Suite', ['advanced_reporting', 'team_usage_analytics'], 4000, 40000, 0),
     c('team_growth', 'Team Growth Bundle', ['seat_pack', 'team_usage_analytics'], 3500, 35000, 1, { seat_pack: 1 }),
   ];
-  warnOnNonDiscountCombos(combos);
+  warnOnNonDiscountCombos(combos, bundles);
   return combos;
 }
 
@@ -251,9 +254,9 @@ function loadComboDiscounts(): ComboDiscountConfig[] {
  * no credit (the credit clamps to $0) and is silently inert. Warn loudly instead so a
  * misconfigured `BILLING_COMBO_*` override is caught. Non-fatal.
  */
-function warnOnNonDiscountCombos(combos: ComboDiscountConfig[]): void {
+function warnOnNonDiscountCombos(combos: ComboDiscountConfig[], bundles: BundleConfig[]): void {
   // Combo members are always bundles; resolve their (env-effective) unit prices once.
-  const byId = new Map(loadBundles().map((b) => [b.id, b]));
+  const byId = new Map(bundles.map((b) => [b.id, b]));
   for (const combo of combos) {
     for (const interval of ['monthly', 'annual'] as const) {
       const basket = combo.bundleIds.reduce((s, id) => s + (byId.get(id)?.prices[interval] ?? 0) * (combo.minQuantities?.[id] ?? 1), 0);

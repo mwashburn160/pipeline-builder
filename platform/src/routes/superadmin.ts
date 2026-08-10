@@ -12,11 +12,13 @@
 
 import { Router } from 'express';
 import { addUserGrant, removeUserGrant } from '../controllers/superadmin.js';
-import { requireAuth, requireStepUp } from '../middleware/index.js';
+import { requireAuth, requireSystemAdmin, requireStepUp } from '../middleware/index.js';
 
 const router: Router = Router({ mergeParams: true });
 
-router.post('/', requireAuth, requireStepUp, addUserGrant);
-router.delete('/', requireAuth, requireStepUp, removeUserGrant);
+// `requireSystemAdmin` mirrors the controllers' own first-line gate at the route
+// layer (defense-in-depth) — granting/revoking platform-admin is sysadmin-only.
+router.post('/', requireAuth, requireSystemAdmin, requireStepUp, addUserGrant);
+router.delete('/', requireAuth, requireSystemAdmin, requireStepUp, removeUserGrant);
 
 export default router;

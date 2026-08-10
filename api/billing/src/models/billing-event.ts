@@ -23,7 +23,9 @@ export type BillingEventType =
   | 'credit_applied'
   | 'credit_exhausted'
   | 'credit_consumed'
-  | 'combo_expired';
+  | 'combo_expired'
+  | 'promotion_granted'
+  | 'promotion_clawback';
 
 export interface BillingEventDocument extends Document {
   orgId: string;
@@ -68,6 +70,8 @@ const billingEventSchema = new Schema<BillingEventDocument>(
         'credit_exhausted',
         'credit_consumed',
         'combo_expired',
+        'promotion_granted',
+        'promotion_clawback',
       ],
       required: true,
     },

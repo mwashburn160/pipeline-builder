@@ -21,6 +21,56 @@ export interface DiscountMintInput {
   campaign?: string;
 }
 
+/** A promotion campaign (rule-driven usage-credit auto-grant). */
+export interface PromotionTrigger {
+  event: 'subscription_created' | 'plan_change' | 'manual' | 'referral';
+  conditions?: { tiers?: string[]; intervals?: Array<'monthly' | 'annual'>; firstSubscriptionOnly?: boolean };
+}
+export interface Promotion {
+  id: string;
+  name: string;
+  campaign?: string;
+  value: number;
+  unit: 'dollar' | 'percent';
+  kind: 'onetime' | 'recurring';
+  referrerValue?: number;
+  trigger: PromotionTrigger;
+  startsAt?: string;
+  endsAt?: string;
+  budgetCents: number;
+  spentCents: number;
+  grantsCount: number;
+  perOrgCapCents?: number;
+  maxGrants?: number;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+export interface PromotionInput {
+  name: string;
+  campaign?: string;
+  value: number;
+  unit: 'dollar' | 'percent';
+  kind?: 'onetime' | 'recurring';
+  referrerValue?: number;
+  trigger: PromotionTrigger;
+  startsAt?: string;
+  endsAt?: string;
+  budgetCents: number;
+  perOrgCapCents?: number;
+  maxGrants?: number;
+}
+export interface PromotionGrantResult { promotionId: string; granted: boolean; cents?: number; reason?: string }
+export interface PromotionSpend {
+  budgetCents: number;
+  committedCents: number;
+  committedGrants: number;
+  cachedSpentCents: number;
+  cachedGrantsCount: number;
+  remainingBudgetCents: number;
+  driftCents: number;
+}
+
 export function billingApi(core: ApiCore) {
   return {
     // ============================================
@@ -46,10 +96,10 @@ export function billingApi(core: ApiCore) {
     },
 
     /** Create a new subscription. */
-    createSubscription: async (planId: string, interval: BillingInterval = 'monthly') => {
+    createSubscription: async (planId: string, interval: BillingInterval = 'monthly', referralCode?: string) => {
       return core.request<ApiResponse<{ subscription: Subscription }>>('/api/billing/subscriptions', {
         method: 'POST',
-        body: JSON.stringify({ planId, interval }),
+        body: JSON.stringify({ planId, interval, ...(referralCode ? { referralCode } : {}) }),
       });
     },
 
@@ -223,6 +273,54 @@ export function billingApi(core: ApiCore) {
     /** Hard-revoke a discount (isActive:false). */
     deleteDiscount: async (id: string) => {
       return core.request<ApiResponse<{ discount: Discount }>>(`/api/billing/admin/discounts/${id}`, { method: 'DELETE' });
+    },
+
+    // ============================================
+    // Promotions — admin authoring (system-admin only)
+    // ============================================
+
+    /** List promotion campaigns. */
+    listPromotions: async (params?: { campaign?: string; active?: 'true' | 'false' }) => {
+      return core.request<ApiResponse<{ promotions: Promotion[]; total: number }>>(`/api/billing/admin/promotions${buildQuery(params)}`);
+    },
+
+    /** Mint a promotion campaign. */
+    createPromotion: async (body: PromotionInput) => {
+      return core.request<ApiResponse<{ promotion: Promotion }>>('/api/billing/admin/promotions', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+
+    /** Edit / activate / revoke a promotion. */
+    updatePromotion: async (id: string, body: Partial<{ name: string; isActive: boolean; endsAt: string; budgetCents: number; maxGrants: number }>) => {
+      return core.request<ApiResponse<{ promotion: Promotion }>>(`/api/billing/admin/promotions/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+    },
+
+    /** Manually grant a promotion to one org (honors budget + idempotency). */
+    grantPromotion: async (id: string, targetOrgId: string) => {
+      return core.request<ApiResponse<{ result: PromotionGrantResult }>>(`/api/billing/admin/promotions/${id}/grant`, {
+        method: 'POST',
+        body: JSON.stringify({ targetOrgId }),
+      });
+    },
+
+    /** Grant across the existing eligible base now (batch activation). */
+    activatePromotion: async (id: string) => {
+      return core.request<ApiResponse<{ result: { total: number; matched: number; granted: number; alreadyGranted: number; skippedBudget: number; spentCents: number } }>>(`/api/billing/admin/promotions/${id}/activate`, { method: 'POST' });
+    },
+
+    /** Projected reach + committed spend for a campaign. */
+    previewPromotion: async (id: string) => {
+      return core.request<ApiResponse<{ projection: { eligibleOrgs: number; projectedCents: number; remainingBudgetCents: number } }>>(`/api/billing/admin/promotions/${id}/preview`, { method: 'POST' });
+    },
+
+    /** Ledger-derived spend rollup (authoritative + advisory cache + drift). */
+    promotionSpend: async (id: string) => {
+      return core.request<ApiResponse<{ spend: PromotionSpend }>>(`/api/billing/admin/promotions/${id}/spend`);
     },
 
     // ============================================

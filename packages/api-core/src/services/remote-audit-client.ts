@@ -119,6 +119,13 @@ export const REMOTE_AUDIT_ACTIONS = [
   'billing.discount.apply',
   'billing.discount.remove',
   'billing.discount.revoke',
+  // Promotions (docs/billing-discounts.md#promotions) — rule-driven auto-grant
+  // campaigns. `details` carry the promotion id + cents/event only.
+  'billing.promotion.create',
+  'billing.promotion.update',
+  'billing.promotion.revoke',
+  'billing.promotion.grant',
+  'billing.promotion.activate',
   // Usage-credit realization — a customer/compliance-visible record of credit
   // movement: `consumed` (Marketplace metered drawdown), `exhausted` (balance hit
   // zero), and a combo ending. `details` carry cents/ids only, no payment secrets.

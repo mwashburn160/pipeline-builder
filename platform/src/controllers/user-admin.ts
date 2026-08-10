@@ -146,7 +146,13 @@ export const getUserById = withController('Get user', async (req, res) => {
     if (!allowed) return sendError(res, 403, 'Forbidden: Can only view users in your organization');
   }
 
-  const organizations: OrgMembership[] = memberships.map(m => {
+  // A non-sysadmin org-admin must not learn the target's memberships in OTHER orgs
+  // — scope the list to the admin's own org (authz above already confirmed the
+  // target is a member of it). Sysadmins see the full cross-org list.
+  const visibleMemberships = admin.isOrgAdmin
+    ? memberships.filter(m => m.organizationId.toString() === req.user!.organizationId)
+    : memberships;
+  const organizations: OrgMembership[] = visibleMemberships.map(m => {
     const org = orgMap.get(m.organizationId.toString());
     return { id: m.organizationId.toString(), name: org?.name || 'Unknown', role: m.role };
   });

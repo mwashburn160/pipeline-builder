@@ -17,6 +17,7 @@ import { applyPlanTierChange, applyTierIncludedAddonPrune, createBillingEvent, c
 import type { PrunedAddon } from '../helpers/billing-helpers.js';
 import { ingestStripeInvoice } from '../helpers/billing-ledger.js';
 import { clearDiscountsOnCancel, reconcileDiscountsOnInvoice } from '../helpers/discount-helpers.js';
+import { grantRecurringPromotions, qualifyReferral } from '../helpers/promotion-engine.js';
 import { findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers.js';
 import { Plan } from '../models/plan.js';
 import { claimWebhookEvent, releaseWebhookEvent } from '../models/webhook-dedupe.js';
@@ -455,6 +456,15 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
   // recurring discount. Price-only; mutates the sub in place before the save below.
   await reconcileDiscountsOnInvoice(subscription, invoice);
 
+  // Re-grant standing RECURRING promotions for the period this invoice opens
+  // (period-keyed on the invoice id; in-memory, persisted by the save below).
+  // Fail-soft — a promo error must never fail the payment webhook.
+  try {
+    await grantRecurringPromotions(subscription, invoice.id ?? 'renew');
+  } catch (promoErr) {
+    logger.warn('Recurring promotion re-grant failed', { orgId: subscription.orgId, invoiceId: invoice.id, error: String(promoErr) });
+  }
+
   await subscription.save();
 
   // Mirror the settled invoice into the billing ledger (dashboard actuals).
@@ -471,6 +481,15 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
     stripeSubscriptionId,
     recovered: wasRecovery,
   }, subscription._id.toString());
+
+  // Referral (phase 2c): a paid invoice is the QUALIFYING event — if this org was
+  // referred, credit the referrer now. Idempotent (flips pending→qualified) and
+  // fail-soft — never fails the payment webhook.
+  try {
+    await qualifyReferral(subscription.orgId);
+  } catch (refErr) {
+    logger.warn('Referral qualification failed', { orgId: subscription.orgId, error: String(refErr) });
+  }
 
   logger.info('Stripe payment succeeded', {
     orgId: subscription.orgId,

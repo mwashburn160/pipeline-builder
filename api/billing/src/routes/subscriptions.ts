@@ -29,6 +29,7 @@ import {
   syncEntitlements,
 } from '../helpers/billing-helpers.js';
 import type { PrunedAddon } from '../helpers/billing-helpers.js';
+import { evaluatePromotions, clawbackRecentPromotions, processReferralSignup } from '../helpers/promotion-engine.js';
 import { mapStripeStatus } from '../helpers/stripe-helpers.js';
 import { BillingEvent } from '../models/billing-event.js';
 import { Plan } from '../models/plan.js';
@@ -191,6 +192,41 @@ export function createSubscriptionRoutes(): Router {
       planId, interval, tier: plan.tier,
     }, subscription._id.toString(), req.user?.sub);
 
+    // Promotions + referrals: only credit an ENTITLEMENT-WORTHY signup (active/
+    // trialing). An `incomplete`/`past_due` sub hasn't paid and may be deleted by
+    // Stripe without a clawback path, so banking a credit / reserving campaign
+    // budget for it is a leak. Post-save + fail-soft (atomic writes only, so no
+    // clobber of the just-saved subscription).
+    if (entitlementWorthy) {
+      try {
+        const isFirstSubscription = (await Subscription.countDocuments({ orgId })) <= 1;
+        await evaluatePromotions(orgId, subscription, 'subscription_created', {
+          tier: plan.tier,
+          interval: subscription.interval,
+          planPriceCents: plan.prices[subscription.interval],
+          isFirstSubscription,
+          actorId: req.user?.sub,
+        });
+      } catch (promoErr) {
+        logger.error('Promotion evaluation failed (subscription_created)', {
+          orgId, error: promoErr instanceof Error ? promoErr.message : String(promoErr),
+        });
+      }
+
+      // Referral (phase 2c): credit the referee now and record the pending referral.
+      if (validation.value.referralCode) {
+        try {
+          await processReferralSignup(orgId, subscription, validation.value.referralCode, {
+            tier: plan.tier, interval: subscription.interval, planPriceCents: plan.prices[subscription.interval],
+          });
+        } catch (refErr) {
+          logger.error('Referral processing failed (subscription_created)', {
+            orgId, error: refErr instanceof Error ? refErr.message : String(refErr),
+          });
+        }
+      }
+    }
+
     logger.info('Subscription created', { orgId, planId, interval });
 
     return sendSuccess(res, 201, {
@@ -307,6 +343,23 @@ export function createSubscriptionRoutes(): Router {
     // drift the quota service / event log / provider ahead of the document.
     if (runPlanSideEffects) await runPlanSideEffects();
 
+    // Promotions: auto-grant plan-change-triggered campaigns (e.g. upgrade credit).
+    // Only on an actual plan change; post-side-effects + fail-soft.
+    if (planChanged && plan) {
+      try {
+        await evaluatePromotions(orgId, subscription, 'plan_change', {
+          tier: plan.tier,
+          interval: subscription.interval,
+          planPriceCents: plan.prices[subscription.interval],
+          actorId: req.user?.sub,
+        });
+      } catch (promoErr) {
+        logger.error('Promotion evaluation failed (plan_change)', {
+          orgId, error: promoErr instanceof Error ? promoErr.message : String(promoErr),
+        });
+      }
+    }
+
     logger.info('Subscription updated', { orgId, subscriptionId, planId, interval });
 
     return sendSuccess(res, 200, {
@@ -362,6 +415,16 @@ export function createSubscriptionRoutes(): Router {
       targetId: subscriptionId,
       details: { planId: subscription.planId, orgId },
     }, 'billing');
+
+    // Promotions: claw back any grants made inside the clawback window — defuses
+    // signup-grab-churn. Post-event + fail-soft; never blocks the cancellation.
+    try {
+      await clawbackRecentPromotions(subscription, req.user?.sub);
+    } catch (promoErr) {
+      logger.error('Promotion clawback failed on cancel', {
+        orgId, error: promoErr instanceof Error ? promoErr.message : String(promoErr),
+      });
+    }
 
     logger.info('Subscription marked for cancellation', { orgId, subscriptionId });
 

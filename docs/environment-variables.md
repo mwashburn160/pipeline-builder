@@ -351,6 +351,9 @@ Discount codes + usage credits ([docs/billing-discounts.md](billing-discounts.md
 | `BILLING_DISCOUNT_KEYS` | — | **Secret.** AES-256-GCM signing keys for discount tokens, `v1:<base64-32B>,v2:…`; the highest version mints, older keys still decode (rotation). Required to issue Mode-B tokens |
 | `BILLING_DISCOUNT_MAX_PERCENT` | `100` | Mint-time ceiling on a percent discount (1-100) |
 | `BILLING_DISCOUNT_MAX_CENTS` | `10000000` | Mint-time ceiling on a dollar/credit discount, in cents ($100k) |
+| `BILLING_PROMOTIONS_ENABLED` | `true` | Master switch for [promotions](billing-discounts.md#promotions) (rule-driven auto-grant campaigns). Same opt-out default as `BILLING_DISCOUNTS_ENABLED` (on unless set to `false`). Additionally requires `BILLING_DISCOUNTS_ENABLED` (shared usage-credit machinery), so discounts off ⇒ promotions off; the routes 404 and the auto-grant engine no-ops when off |
+| `BILLING_PROMOTION_BACKFILL_INTERVAL_MS` | `3600000` | Backfill-cron cadence (1h). Re-scans eligible-but-ungranted orgs so a transient failure or a late-activated campaign still lands. Leader-locked; idempotent |
+| `BILLING_PROMOTION_CLAWBACK_WINDOW_MS` | `604800000` | Clawback window (7d). A promotion grant is reversed (ledger row pulled, balance reduced, budget released) if the subscription cancels within this window of the grant — defuses signup-grab-churn |
 
 `BILLING_DISCOUNT_KEYS` is a secret — provision it via a sealed secret / SSM, never commit a real value. Losing it makes previously issued Mode-B tokens undecodable (already-applied discounts on subscriptions are unaffected).
 

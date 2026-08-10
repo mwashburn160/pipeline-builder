@@ -61,6 +61,19 @@ export interface DiscountConfig {
   maxCents: number;
 }
 
+export interface PromotionConfig {
+  /** Feature flag — same opt-out default as `BILLING_DISCOUNTS_ENABLED` (on unless
+   *  set to `false`). Additionally requires `discounts.enabled` (shared usage-credit
+   *  machinery), so discounts off ⇒ promotions off. */
+  enabled: boolean;
+  /** Backfill cron cadence (ms) — re-scans eligible-but-ungranted orgs so a
+   *  transient failure or a late-activated campaign still lands. Default 1h. */
+  backfillIntervalMs: number;
+  /** Clawback window (ms): a promo grant is reversed if the subscription cancels
+   *  within this window of the grant (defuses signup-grab-churn). Default 7d. */
+  clawbackWindowMs: number;
+}
+
 export interface AppConfig {
   enabled: boolean;
   port: number;
@@ -83,6 +96,7 @@ export interface AppConfig {
   marketplace: MarketplaceConfig;
   stripe: StripeConfig;
   discounts: DiscountConfig;
+  promotions: PromotionConfig;
   /** Public frontend base URL — the fallback return target for the Stripe billing
    *  portal when the request carries no Origin header (`PLATFORM_FRONTEND_URL`). */
   frontendUrl: string;
@@ -134,6 +148,12 @@ const billingEnabled = (process.env.BILLING_ENABLED || 'true').toLowerCase() !==
 // Marketplace metered-credit realization, so the two are the SAME value — there
 // is no separate Marketplace opt-in.
 const discountsEnabled = (process.env.BILLING_DISCOUNTS_ENABLED || 'true').toLowerCase() !== 'false';
+// Promotions (rule-driven auto-grants) follow the SAME opt-out default as
+// discounts (`BILLING_DISCOUNTS_ENABLED`) — on unless set to `false` — and share
+// its usage-credit machinery, so they're additionally gated on `discountsEnabled`
+// (discounts off ⇒ promotions off, since a promo credit couldn't be realized).
+const promotionsEnabled =
+  (process.env.BILLING_PROMOTIONS_ENABLED || 'true').toLowerCase() !== 'false' && discountsEnabled;
 // Parsed ONCE — the top-level `meteringEnabled` (scheduler gate) and
 // `marketplace.meteringEnabled` (credit-drawdown gate + provider invariant) MUST be
 // the same value, so they read this single const rather than re-parsing the env.
@@ -232,5 +252,10 @@ export const config: AppConfig = {
     enabled: discountsEnabled,
     maxPercent: Math.min(100, parseInt(process.env.BILLING_DISCOUNT_MAX_PERCENT || '100', 10) || 100),
     maxCents: parseInt(process.env.BILLING_DISCOUNT_MAX_CENTS || '10000000', 10) || 10000000,
+  },
+  promotions: {
+    enabled: promotionsEnabled,
+    backfillIntervalMs: parseInt(process.env.BILLING_PROMOTION_BACKFILL_INTERVAL_MS || '3600000', 10) || 3600000,
+    clawbackWindowMs: parseInt(process.env.BILLING_PROMOTION_CLAWBACK_WINDOW_MS || String(7 * 24 * 3600 * 1000), 10) || 7 * 24 * 3600 * 1000,
   },
 };
