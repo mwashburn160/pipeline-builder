@@ -14,6 +14,9 @@
  * (spies it asserts on, a bespoke error class, a stateful cache, etc.).
  */
 import { jest } from '@jest/globals';
+// Shared tier fixture — deep path is NOT intercepted by the api-core module mock
+// (see tier-mock.ts). Sources the tier NAME LIST from the real VALID_TIERS.
+import { MOCK_TIER_NAMES, mockIsValidTier, mockQuotaTiers } from '@pipeline-builder/api-core/lib/testing/tier-mock.js';
 
 /** The 4-method logger stub every suite repeats; a fresh set of spies per call. */
 export const loggerMock = () => ({
@@ -73,19 +76,15 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     SSE_TICKET_TTL_MS: 30_000,
     // pipeline-core's billing-config imports QUOTA_TIERS at module load (derives
     // marketing copy from each tier's limits), so the transitively-loaded graph
-    // needs these tier exports or ESM linking against the mock throws.
-    QUOTA_TIERS: {
-      developer: { label: 'Developer', limits: TIER_LIMITS.developer },
-      pro: { label: 'Pro', limits: TIER_LIMITS.pro },
-      team: { label: 'Team', limits: TIER_LIMITS.team },
-      enterprise: { label: 'Enterprise', limits: TIER_LIMITS.enterprise },
-      unlimited: { label: 'Unlimited', limits: TIER_LIMITS.unlimited },
-    },
+    // needs an entry for EVERY tier. Built from the shared fixture over the real
+    // tier list, with this mock's limit values as overrides; unspecified/new
+    // tiers default to uncapped.
+    QUOTA_TIERS: mockQuotaTiers(TIER_LIMITS),
     // Mirrors api-core: returns a tier's limits, defaulting unknown tiers to developer.
     getTierLimits: (tier: string) => TIER_LIMITS[tier] ?? TIER_LIMITS.developer,
     DEFAULT_TIER: 'developer',
-    VALID_TIERS: ['developer', 'pro', 'team', 'enterprise', 'unlimited'],
-    STANDARD_TIERS: ['developer', 'pro', 'team', 'enterprise'],
+    VALID_TIERS: [...MOCK_TIER_NAMES],
+    STANDARD_TIERS: MOCK_TIER_NAMES.filter((t) => t !== 'unlimited'),
     // billing-config also derives marketed feature copy from the enforced entitlement
     // set + labels, so the transitively-loaded graph needs these too (ESM linking).
     TIER_FEATURES: {
@@ -103,7 +102,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       sso: { label: 'SSO', description: '' },
       custom_integrations: { label: 'Custom Integrations', description: '' },
     },
-    isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise', 'unlimited'].includes(t),
+    isValidTier: mockIsValidTier,
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },

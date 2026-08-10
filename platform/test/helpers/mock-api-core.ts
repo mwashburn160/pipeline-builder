@@ -14,6 +14,9 @@
  * (spies it asserts on, a bespoke error class, a stateful cache, etc.).
  */
 import { jest } from '@jest/globals';
+// Shared tier fixture — deep path is NOT intercepted by the api-core module mock
+// (see tier-mock.ts). Sources the tier NAME LIST from the real VALID_TIERS.
+import { MOCK_TIER_NAMES, mockIsValidTier, mockQuotaTiers } from '@pipeline-builder/api-core/lib/testing/tier-mock.js';
 
 /** The 4-method logger stub every suite repeats; a fresh set of spies per call. */
 export const loggerMock = () => ({
@@ -155,34 +158,20 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // load. A suite can override QUOTA_TIERS via `overrides` for shape-specific
     // assertions; DEFAULT_TIER stays 'developer' unless a suite overrides it.
     DEFAULT_TIER: 'developer',
-    VALID_TIERS: ['developer', 'pro', 'team', 'enterprise', 'unlimited'],
-    STANDARD_TIERS: ['developer', 'pro', 'team', 'enterprise'],
-    isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise', 'unlimited'].includes(t),
+    VALID_TIERS: [...MOCK_TIER_NAMES],
+    STANDARD_TIERS: MOCK_TIER_NAMES.filter((t) => t !== 'unlimited'),
+    isValidTier: mockIsValidTier,
     // Minimal default so any suite importing the real quota/service chain resolves
     // the `QUOTA_TIERS` binding at module load; a suite override wins for
-    // shape-specific assertions. All non-seat dims are -1 (unlimited) — enough to
-    // load; tests that assert reseed shapes pass their own QUOTA_TIERS.
-    QUOTA_TIERS: (() => {
-      const limits = (seats: number) => ({
-        seats,
-        plugins: -1,
-        pipelines: -1,
-        apiCalls: -1,
-        aiCalls: -1,
-        storageBytes: -1,
-        dashboards: -1,
-        alertRules: -1,
-        alertDestinations: -1,
-        idpConfigs: -1,
-      });
-      return {
-        developer: { label: 'Developer', limits: limits(1) },
-        pro: { label: 'Pro', limits: limits(3) },
-        team: { label: 'Team', limits: limits(10) },
-        enterprise: { label: 'Enterprise', limits: limits(-1) },
-        unlimited: { label: 'Unlimited', limits: limits(-1) },
-      };
-    })(),
+    // shape-specific assertions. Built from the shared fixture (complete over the
+    // real tier list); only the per-tier `seats` differ, so all other dims default
+    // to uncapped. Suites that assert reseed shapes pass their own QUOTA_TIERS.
+    QUOTA_TIERS: mockQuotaTiers({
+      developer: { seats: 1 },
+      pro: { seats: 3 },
+      team: { seats: 10 },
+      enterprise: { seats: -1 },
+    }),
     // Tier → default feature set (mirrors api-core TIER_FEATURES). user-admin's
     // feature-override entitlement gate reads this to decide which features an org
     // admin may enable without a purchase.

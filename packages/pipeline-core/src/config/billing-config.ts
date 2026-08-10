@@ -14,7 +14,7 @@
  *
  * All defaults match the original hardcoded seed data for backward compatibility.
  */
-import { QUOTA_TIERS, TIER_FEATURES, FEATURE_METADATA, VALID_TIERS, isValidTier, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
+import { QUOTA_TIERS, TIER_FEATURES, FEATURE_METADATA, VALID_TIERS, STANDARD_TIERS, isValidTier, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
 import type { BillingConfig, BillingPlanConfig, BundleConfig, ComboDiscountConfig } from './config-types.js';
 
 /** Per-unit quota deltas for a bundle — keys constrained to real quota fields
@@ -341,7 +341,9 @@ function loadBundles(): BundleConfig[] {
     };
   };
 
-  const ALL: QuotaTier[] = ['developer', 'pro', 'team', 'enterprise'];
+  // Bundles are purchasable on every SELECTABLE tier (excludes `unlimited`, which
+  // is the billing-off tier and buys nothing) — so this is exactly STANDARD_TIERS.
+  const ALL: QuotaTier[] = [...STANDARD_TIERS];
   return [
     // Capacity packs (seats/pipelines/plugins) are available on EVERY tier so any
     // account — including free (developer) — can expand in place. Feature bundles

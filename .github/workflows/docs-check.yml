@@ -1,0 +1,74 @@
+# Validates the Jekyll docs site (the GitHub Pages source: `_config.yml`,
+# `index.md`, `docs/`, `assets/`, `_includes/`, `_layouts/`) on every change.
+#
+# Catches two regression classes that a browser-only "looks fine locally" pass
+# misses and that previously 404'd the live custom-domain site:
+#   1. baseurl/CNAME mismatch — a non-empty `baseurl` under a custom domain makes
+#      every link resolve to a bogus "/<baseurl>/..." path (deterministic guard).
+#   2. Broken internal links / missing sub-page indexes — html-proofer walks the
+#      BUILT site the same way GitHub Pages' native Jekyll build produces it.
+#
+# NOTE: hand-authored (not projen-managed); a CHECK only — it does not deploy.
+name: docs-check
+
+on:
+  pull_request:
+    paths:
+      - '_config.yml'
+      - 'index.md'
+      - 'docs/**'
+      - 'assets/**'
+      - '_includes/**'
+      - '_layouts/**'
+      - 'CNAME'
+      - '.github/workflows/docs-check.yml'
+      - '.github/scripts/check-pages-baseurl.sh'
+  push:
+    branches: [main]
+    paths:
+      - '_config.yml'
+      - 'index.md'
+      - 'docs/**'
+      - 'assets/**'
+      - '_includes/**'
+      - '_layouts/**'
+      - 'CNAME'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  docs-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # Fast, dependency-free, deterministic — fails before the slower build if
+      # the custom domain and baseurl disagree.
+      - name: Guard baseurl vs CNAME
+        run: bash .github/scripts/check-pages-baseurl.sh
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+
+      # `github-pages` pins the exact Jekyll + theme + plugin versions GitHub's
+      # native Pages builder uses, so the built `_site` matches production.
+      - name: Install Jekyll (github-pages) + html-proofer
+        run: gem install github-pages html-proofer --no-document
+
+      - name: Build the site
+        run: JEKYLL_ENV=production jekyll build --trace
+
+      # Internal links only — no flaky external HTTP. This is what would have
+      # caught the custom-domain baseurl breakage and any missing sub-page index.
+      - name: Check internal links
+        run: |
+          htmlproofer ./_site \
+            --disable-external \
+            --allow-hash-href \
+            --ignore-empty-alt \
+            --no-enforce-https

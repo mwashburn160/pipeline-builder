@@ -188,9 +188,10 @@ export const QUOTA_TIERS: Record<QuotaTier, QuotaTierPreset> = {
 export const VALID_TIERS: readonly QuotaTier[] = Object.keys(QUOTA_TIERS) as QuotaTier[];
 
 /** The standard, billing-selectable tiers — the ones offered as purchasable plans
- *  and shown in tier pickers. Excludes `unlimited`, which is the billing-DISABLED
- *  default and is never displayed/selectable when billing is enabled. */
-export const STANDARD_TIERS: readonly QuotaTier[] = ['developer', 'pro', 'team', 'enterprise'];
+ *  and shown in tier pickers. Derived as "every valid tier except `unlimited`",
+ *  which is the billing-DISABLED default and is never displayed/selectable when
+ *  billing is enabled. Kept DRY off `VALID_TIERS` so adding a tier flows through. */
+export const STANDARD_TIERS: readonly QuotaTier[] = VALID_TIERS.filter((t) => t !== 'unlimited');
 
 /** Whether the billing service is enabled in this deployment (`BILLING_ENABLED`,
  *  opt-out default-on — mirrors the billing/platform configs). With billing OFF

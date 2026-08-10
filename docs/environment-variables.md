@@ -66,7 +66,7 @@ This reference documents every environment variable across the Pipeline Builder 
 |----------|---------|-------------|
 | `JWT_SECRET` | — | **Required.** JWT signing secret. Must be **identical across all services** — `signServiceToken()` mints inter-service tokens with this same secret so any service's `requireAuth` can verify them. |
 | `REFRESH_TOKEN_SECRET` | — | **Required.** Refresh token secret |
-| `JWT_EXPIRES_IN` | `7200` | Token TTL in seconds (2h). Per-tier overrides take precedence. |
+| `JWT_EXPIRES_IN` | `900` | Access-token TTL in seconds (15 min) at the platform auth issuer — deliberately short so privilege changes take effect quickly (paired with `tokenVersion` revocation). Per-tier overrides take precedence. (The generic pipeline-core server scaffold falls back to `7200` where it isn't the token issuer.) |
 | `JWT_EXPIRES_IN_DEVELOPER` | (inherits `JWT_EXPIRES_IN`) | Developer-tier access-token TTL override |
 | `JWT_EXPIRES_IN_PRO` | (inherits `JWT_EXPIRES_IN`) | Pro-tier override — commonly shorter for compliance |
 | `JWT_EXPIRES_IN_TEAM` | (inherits `JWT_EXPIRES_IN`) | Team-tier override |

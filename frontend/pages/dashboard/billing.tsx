@@ -4,6 +4,7 @@ import { useRouter } from 'next/router';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useAuth } from '@/hooks/useAuth';
 import { useBillingEnabledState } from '@/hooks/useBillingEnabled';
+import { TIER_KEYS } from '@/lib/tiers';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
 import ReportTabs from '@/components/reports/ReportTabs';
@@ -25,7 +26,9 @@ import { BillingHistory } from '@/components/billing/BillingHistory';
 
 // Plan hierarchy (low → high). Used to detect a downgrade so the confirm dialog
 // can warn that caps/features may drop.
-const PLAN_RANK = ['developer', 'pro', 'team', 'enterprise'];
+// Selectable tiers in ascending order — sourced from the shared TIER_KEYS so the
+// rank never drifts from the tier catalog. (`unlimited` is intentionally absent.)
+const PLAN_RANK: readonly string[] = TIER_KEYS;
 
 // Billing page is organized into tabs (same bar as the Reports page). Each is
 // deep-linkable via `?tab=` so links/back-forward land on the right section.

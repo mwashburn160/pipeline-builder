@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { QuotaTier } from '@pipeline-builder/api-core';
+import { VALID_TIERS, type QuotaTier } from '@pipeline-builder/api-core';
 import mongoose, { Schema, Document } from 'mongoose';
 
 // Types
@@ -32,7 +32,8 @@ const planSchema = new Schema<PlanDocument>(
     _id: { type: Schema.Types.Mixed },
     name: { type: String, required: true },
     description: { type: String, default: '' },
-    tier: { type: String, enum: ['developer', 'pro', 'team', 'enterprise', 'unlimited'], required: true },
+    // Enum derived from api-core's VALID_TIERS so a new tier surfaces here automatically.
+    tier: { type: String, enum: [...VALID_TIERS], required: true },
     prices: {
       monthly: { type: Number, required: true, default: 0 },
       annual: { type: Number, required: true, default: 0 },

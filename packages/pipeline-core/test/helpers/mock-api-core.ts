@@ -14,6 +14,10 @@
  * (spies it asserts on, a bespoke error class, a stateful cache, etc.).
  */
 import { jest } from '@jest/globals';
+// Shared tier fixture — deep path is NOT intercepted by the api-core module mock
+// (see tier-mock.ts). Sources the tier NAME LIST from the real VALID_TIERS so a
+// new tier flows into this mock automatically.
+import { MOCK_TIER_NAMES, mockIsValidTier, mockQuotaTiers } from '@pipeline-builder/api-core/lib/testing/tier-mock.js';
 
 /** The 4-method logger stub every suite repeats; a fresh set of spies per call. */
 export const loggerMock = () => ({
@@ -50,15 +54,16 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     SYSTEM_ORG_ID: '000000000000000000000001',
     // Quota tier presets — billing-config.ts reads these at import time
     // (defaultFeatures derives marketing copy from each tier's limits), so the
-    // mock must expose every tier with a numeric `limits` shape — incl.
-    // `unlimited` (all dims -1), the billing-disabled default.
-    QUOTA_TIERS: {
-      developer: { label: 'Developer', limits: { seats: 1, plugins: 25, pipelines: 5, apiCalls: 25000, aiCalls: 50 } },
-      pro: { label: 'Pro', limits: { seats: 1, plugins: 50, pipelines: 10, apiCalls: 500000, aiCalls: 2500 } },
-      team: { label: 'Team', limits: { seats: 10, plugins: 100, pipelines: 200, apiCalls: -1, aiCalls: 10000 } },
-      enterprise: { label: 'Enterprise', limits: { seats: 25, plugins: 250, pipelines: 200, apiCalls: -1, aiCalls: 25000 } },
-      unlimited: { label: 'Unlimited', limits: { seats: -1, plugins: -1, pipelines: -1, apiCalls: -1, aiCalls: -1 } },
-    },
+    // mock must expose EVERY tier with a numeric `limits` shape. Built from the
+    // shared fixture: the values below (asserted by billing-config.test, e.g.
+    // "Up to 25 plugins") are preserved as overrides; any tier not listed —
+    // incl. `unlimited` and any future addition — defaults to uncapped.
+    QUOTA_TIERS: mockQuotaTiers({
+      developer: { seats: 1, plugins: 25, pipelines: 5, apiCalls: 25000, aiCalls: 50 },
+      pro: { seats: 1, plugins: 50, pipelines: 10, apiCalls: 500000, aiCalls: 2500 },
+      team: { seats: 10, plugins: 100, pipelines: 200, apiCalls: -1, aiCalls: 10000 },
+      enterprise: { seats: 25, plugins: 250, pipelines: 200, apiCalls: -1, aiCalls: 25000 },
+    }),
     // billing-config.ts also derives marketed "included feature" perks from the
     // enforced entitlement set at import time, so the mock must expose both the
     // tier→feature map and the label metadata (must mirror the real api-core).
@@ -79,10 +84,10 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     },
     // billing-config.ts derives its `plans` array from VALID_TIERS (in order) so
     // the plan set stays compile-bound to QuotaTier; the mock must expose it.
-    VALID_TIERS: ['developer', 'pro', 'team', 'enterprise', 'unlimited'],
-    STANDARD_TIERS: ['developer', 'pro', 'team', 'enterprise'],
+    VALID_TIERS: [...MOCK_TIER_NAMES],
+    STANDARD_TIERS: MOCK_TIER_NAMES.filter((t) => t !== 'unlimited'),
     // billing-config.ts validates BILLING_BUNDLE_<ID>_TIERS entries with this.
-    isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise', 'unlimited'].includes(t),
+    isValidTier: mockIsValidTier,
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },

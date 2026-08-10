@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_TIER, sendError } from '@pipeline-builder/api-core';
+import { DEFAULT_TIER, VALID_TIERS, sendError, type QuotaTier } from '@pipeline-builder/api-core';
 import type { Response } from 'express';
 import { z } from 'zod';
 import { config } from '../config/index.js';
@@ -152,7 +152,8 @@ export const sendInvitationSchema = z.object({
 export const createOrganizationSchema = z.object({
   name: z.string().min(2).max(100),
   description: z.string().max(500).optional(),
-  tier: z.enum(['developer', 'pro', 'team', 'enterprise', 'unlimited']).optional().default(DEFAULT_TIER),
+  // Enum derived from api-core's VALID_TIERS so a new tier is accepted automatically.
+  tier: z.enum([...VALID_TIERS] as [QuotaTier, ...QuotaTier[]]).optional().default(DEFAULT_TIER),
   // Org → team hierarchy: when set, create this org as a team nested under
   // `parentOrgId`. The caller must be an admin/owner of the parent (or an
   // ancestor); the parent must itself be a root org (one level of nesting).

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { QuotaTier } from '@pipeline-builder/api-core';
+import { VALID_TIERS, type QuotaTier } from '@pipeline-builder/api-core';
 import mongoose, { Schema, Document } from 'mongoose';
 import { config } from '../config.js';
 import { getNextResetDate } from '../helpers/quota-helpers.js';
@@ -87,7 +87,8 @@ const organizationSchema = new Schema<OrganizationDocument>( {
   slug: { type: String, required: true },
   // Org → team hierarchy parent (null = root). Indexed for descendant lookups.
   parentOrgId: { type: String, default: null, index: true },
-  tier: { type: String, enum: ['developer', 'pro', 'team', 'enterprise', 'unlimited'], default: 'developer' },
+  // Enum derived from api-core's VALID_TIERS so a new tier surfaces here automatically.
+  tier: { type: String, enum: [...VALID_TIERS], default: 'developer' },
   quotas: {
     plugins: { type: Number, default: config.quota.defaults.plugins },
     pipelines: { type: Number, default: config.quota.defaults.pipelines },

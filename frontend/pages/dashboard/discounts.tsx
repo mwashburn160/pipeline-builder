@@ -25,9 +25,12 @@ import api from '@/lib/api';
 import { formatCents } from '@/lib/format';
 import type { DiscountPriceBreakdown } from '@/lib/api/domains/billing';
 import type { Discount } from '@/types';
+import { TIER_KEYS } from '@/lib/tiers';
 
 /** Known pricing tiers offered as `appliesToTiers` checkboxes in the edit modal. */
-const TIER_OPTIONS = ['developer', 'pro', 'team', 'enterprise'] as const;
+// Selectable tiers a discount can target — sourced from the shared TIER_KEYS so
+// the picker never drifts from the tier catalog. (`unlimited` is intentionally absent.)
+const TIER_OPTIONS = TIER_KEYS;
 
 /** Human-readable discount amount+kind, e.g. "50% one-time", "$25.00 recurring",
  *  "$100.00 credit". `value` is percent-points for `percent`, else whole CENTS —
