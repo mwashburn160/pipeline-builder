@@ -157,7 +157,11 @@ export const getUserById = withController('Get user', async (req, res) => {
     return { id: m.organizationId.toString(), name: org?.name || 'Unknown', role: m.role };
   });
 
-  const activeOrgId = user.lastActiveOrgId?.toString();
+  // A non-sysadmin org-admin sees the member's summary (org id/name/slug, tier, role,
+  // resolved features) STRICTLY as they exist in the ADMIN's own org — never the
+  // member's (possibly foreign) lastActiveOrg — so no other org's details leak. The
+  // target is guaranteed a member of the admin's org by the authz check above.
+  const activeOrgId = admin.isOrgAdmin ? req.user!.organizationId : user.lastActiveOrgId?.toString();
   let organizationName: string | null = null;
   let organization: OrgSummary | undefined;
   let activeOrgRole: string | undefined;

@@ -109,14 +109,16 @@ export default function PromotionsPage() {
     const budgetDollars = Number(budget.trim());
     if (!nm) { createForm.setError('Name is required.'); return; }
     if (!Number.isFinite(val) || val < 1) { createForm.setError('Value must be 1 or more.'); return; }
-    if (unit === 'percent' && val > 100) { createForm.setError('Percent value must be ≤ 100.'); return; }
+    // Percent values must be whole numbers (backend schema is z.number().int());
+    // a fractional percent would otherwise pass here and 400 server-side.
+    if (unit === 'percent' && (!Number.isInteger(val) || val > 100)) { createForm.setError('Percent value must be a whole number ≤ 100.'); return; }
     if (!Number.isFinite(budgetDollars) || budgetDollars < 0.01) { createForm.setError('Budget is required.'); return; }
     if (perOrgCap.trim() && !(Number(perOrgCap.trim()) > 0)) { createForm.setError('Per-org cap must be a positive number.'); return; }
     if (maxGrants.trim() && !(Number.isInteger(Number(maxGrants.trim())) && Number(maxGrants.trim()) >= 1)) { createForm.setError('Max grants must be a whole number ≥ 1.'); return; }
     if (event === 'referral' && referrerValue.trim()) {
       const rv = Number(referrerValue.trim());
       if (!Number.isFinite(rv) || rv < 1) { createForm.setError('Referrer value must be 1 or more.'); return; }
-      if (unit === 'percent' && rv > 100) { createForm.setError('Percent referrer value must be ≤ 100.'); return; }
+      if (unit === 'percent' && (!Number.isInteger(rv) || rv > 100)) { createForm.setError('Percent referrer value must be a whole number ≤ 100.'); return; }
     }
 
     // dollar value + budget/cap are entered in DOLLARS; the API takes cents.
@@ -164,6 +166,7 @@ export default function PromotionsPage() {
       const res = await api.previewPromotion(p.id);
       const proj = res.data?.projection;
       if (proj) toast.info(`Projected: ${proj.eligibleOrgs} orgs, ${formatCents(proj.projectedCents)} of ${formatCents(proj.remainingBudgetCents)} remaining`);
+      else toast.info('No projection returned.');
     } catch (err) {
       list.setError(formatError(err, 'Failed to preview promotion'));
     }
@@ -173,7 +176,8 @@ export default function PromotionsPage() {
     try {
       const res = await api.activatePromotion(p.id);
       const r = res.data?.result;
-      if (r) toast.success(`Activated: ${r.granted} granted (${r.matched} eligible)${r.skippedBudget ? `, ${r.skippedBudget} skipped (budget)` : ''}`);
+      if (r) toast.success(`Activated: ${r.granted} granted (${r.matched} eligible)${r.alreadyGranted ? `, ${r.alreadyGranted} already granted` : ''}${r.skippedBudget ? `, ${r.skippedBudget} skipped (budget)` : ''}`);
+      else toast.info('No activation result returned.');
       list.refresh();
     } catch (err) {
       list.setError(formatError(err, 'Failed to activate promotion'));
@@ -185,6 +189,7 @@ export default function PromotionsPage() {
       const res = await api.promotionSpend(p.id);
       const s = res.data?.spend;
       if (s) toast.info(`Committed ${formatCents(s.committedCents)} / ${formatCents(s.budgetCents)} (${s.committedGrants} grants)${s.driftCents ? ` — cache drift ${formatCents(s.driftCents)}` : ''}`);
+      else toast.info('No spend data returned.');
     } catch (err) {
       list.setError(formatError(err, 'Failed to load spend'));
     }

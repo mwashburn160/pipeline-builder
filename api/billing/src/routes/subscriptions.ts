@@ -216,7 +216,7 @@ export function createSubscriptionRoutes(): Router {
       // Referral (phase 2c): credit the referee now and record the pending referral.
       if (validation.value.referralCode) {
         try {
-          await processReferralSignup(orgId, subscription, validation.value.referralCode, {
+          await processReferralSignup(orgId, validation.value.referralCode, {
             tier: plan.tier, interval: subscription.interval, planPriceCents: plan.prices[subscription.interval],
           });
         } catch (refErr) {

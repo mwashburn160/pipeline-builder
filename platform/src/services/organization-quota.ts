@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, getServiceAuthHeader, QUOTA_TIERS, VALID_TIERS } from '@pipeline-builder/api-core';
+import { createLogger, getServiceAuthHeader, QUOTA_TIERS, VALID_TIERS, tierAllowsTeams } from '@pipeline-builder/api-core';
 import type { ClientSession, Types } from 'mongoose';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/controller-helper.js';
@@ -302,7 +302,7 @@ export async function checkTierOvercap(
   // parent tier to be `team`/`enterprise` (checkParentEligible). Downgrading a
   // root that HAS teams to a team-forbidding tier (developer/pro) would strand
   // them, so surface it as an over-cap the sysadmin must `force` past.
-  if (newTier !== 'team' && newTier !== 'enterprise') {
+  if (!tierAllowsTeams(newTier)) {
     const teamCount = scopeIds.length - 1; // subtree minus the root itself
     if (teamCount > 0) {
       overages.push({ quotaType: 'teams', currentUsage: teamCount, targetCap: 0, overage: teamCount });

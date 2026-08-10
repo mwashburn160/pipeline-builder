@@ -9,6 +9,7 @@ import { createBillingEvent } from './billing-helpers.js';
 import { recordMarketplaceConsumption } from './billing-ledger.js';
 import { grantPeriodicCredits } from './discount-helpers.js';
 import { planMeteredDrawdown } from './marketplace-credit.js';
+import { grantRecurringPromotions } from './promotion-engine.js';
 import { Subscription } from '../models/subscription.js';
 import { AWSMarketplaceProvider, type MeterUsageResult } from '../providers/aws-marketplace-provider.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
@@ -105,6 +106,9 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
       // retries instead of permanently losing this period's credit.
       try {
         await grantPeriodicCredits(claimed, periodKey);
+        // Recurring PROMOTIONS re-grant on the same period key (Marketplace parity
+        // with the Stripe invoice path) — in-memory, persisted by the save below.
+        await grantRecurringPromotions(claimed, periodKey);
         await claimed.save();
         subscription = claimed;
       } catch (err) {

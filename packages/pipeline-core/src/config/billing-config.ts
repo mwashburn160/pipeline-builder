@@ -73,8 +73,11 @@ const DEFAULT_UNLIMITED_FEATURES = defaultFeatures('unlimited', [
  */
 function envCents(envVar: string | undefined, fallback: number): number {
   if (envVar === undefined || envVar === '') return fallback;
-  const n = parseInt(envVar, 10);
-  return Number.isNaN(n) ? fallback : n;
+  // `parseInt` is too lenient here: '49.99'→49, '49abc'→49, '-100'→-100 would all
+  // flow through as a "price". Require a clean, non-negative integer (cents),
+  // matching `applyGrantOverride`'s rigor — anything else falls back.
+  const n = Number(envVar);
+  return Number.isInteger(n) && n >= 0 ? n : fallback;
 }
 
 /**
@@ -84,7 +87,11 @@ function parseFeatures(envVar: string | undefined, fallback: string[]): string[]
   if (!envVar) return fallback;
   try {
     const parsed = JSON.parse(envVar);
-    return Array.isArray(parsed) ? parsed : fallback;
+    // Array-of-strings only — a JSON array of non-strings (e.g. `[1,2]`) must not
+    // ship numbers as feature labels. Filter to strings (mirrors applyTiersOverride).
+    if (!Array.isArray(parsed)) return fallback;
+    const strings = parsed.filter((x): x is string => typeof x === 'string');
+    return strings.length === parsed.length ? strings : fallback;
   } catch {
     return fallback;
   }

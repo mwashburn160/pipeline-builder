@@ -365,6 +365,15 @@ export const ALL_AUDIT_ACTIONS = [
   'admin.user.features.update',
 ] as const satisfies ReadonlyArray<AuditAction>;
 
+// `satisfies` above only proves every ARRAY element is an `AuditAction`; it does NOT
+// prove every union member is present. This assert closes that gap — if a new
+// `AuditAction` is added to the union but omitted from the array above (which the
+// `POST /audit/events` ingest validator uses as its allow-list), `_MissingAction`
+// becomes a non-`never` union and this line fails to compile.
+type _MissingAction = Exclude<AuditAction, (typeof ALL_AUDIT_ACTIONS)[number]>;
+const _assertNoMissingAuditActions: _MissingAction extends never ? true : never = true;
+void _assertNoMissingAuditActions;
+
 /**
  * Audit event document stored in MongoDB.
  *

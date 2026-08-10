@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_TIER, QUOTA_TIERS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { DEFAULT_TIER, QUOTA_TIERS, SYSTEM_ORG_ID, tierAllowsTeams } from '@pipeline-builder/api-core';
 import type { Types } from 'mongoose';
 import { applyAIProviderKeyUpdates, buildProvidersMap, changedAiProviderFields, ORG_AI_KEY_TOO_LONG } from './organization-ai-secrets.js';
 import {
@@ -261,7 +261,7 @@ class OrganizationService {
     if (!parent) return 'not-found';
     if (parent.parentOrgId) return 'not-root';
     const tier = parent.tier as QuotaTier | undefined;
-    if (tier !== 'team' && tier !== 'enterprise') return 'tier-forbidden';
+    if (!tierAllowsTeams(tier)) return 'tier-forbidden';
     return 'ok';
   }
 

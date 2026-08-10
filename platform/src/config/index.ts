@@ -138,7 +138,9 @@ export const config = {
       team: parseFloat(process.env.LIMITER_MULT_TEAM || '25'),
       enterprise: parseFloat(process.env.LIMITER_MULT_ENTERPRISE || '50'),
       unlimited: parseFloat(process.env.LIMITER_MULT_UNLIMITED || '100'),
-    } as Record<QuotaTier, number>,
+      // `satisfies` (not `as`): adding a QuotaTier without a multiplier here is a
+      // compile error, matching the sibling `tierExpiresIn`'s VALID_TIERS derivation.
+    } satisfies Record<QuotaTier, number>,
     auth: {
       max: parseInt(process.env.AUTH_LIMITER_MAX || '20', 10),
       windowMs: parseInt(process.env.AUTH_LIMITER_WINDOWMS || '900000', 10), // 15 min

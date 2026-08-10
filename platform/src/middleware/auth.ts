@@ -277,5 +277,7 @@ export function requireSystemAdmin(req: Request, res: Response, next: NextFuncti
   if (req.user && isSystemAdmin(req)) {
     return next();
   }
+  // Unauthenticated → 401 (missing/invalid credentials); authenticated non-sysadmin → 403.
+  if (!req.user) return sendError(res, 401, 'Authentication required');
   return sendError(res, 403, 'Forbidden: system administrator access required');
 }

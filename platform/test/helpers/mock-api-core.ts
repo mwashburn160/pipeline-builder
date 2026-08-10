@@ -160,6 +160,8 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     DEFAULT_TIER: 'developer',
     VALID_TIERS: [...MOCK_TIER_NAMES],
     STANDARD_TIERS: MOCK_TIER_NAMES.filter((t) => t !== 'unlimited'),
+    TEAM_CAPABLE_TIERS: ['team', 'enterprise', 'unlimited'],
+    tierAllowsTeams: (t: string | undefined | null) => !!t && ['team', 'enterprise', 'unlimited'].includes(t),
     isValidTier: mockIsValidTier,
     // Minimal default so any suite importing the real quota/service chain resolves
     // the `QUOTA_TIERS` binding at module load; a suite override wins for

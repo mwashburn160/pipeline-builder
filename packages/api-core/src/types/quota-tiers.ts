@@ -193,6 +193,15 @@ export const VALID_TIERS: readonly QuotaTier[] = Object.keys(QUOTA_TIERS) as Quo
  *  billing is enabled. Kept DRY off `VALID_TIERS` so adding a tier flows through. */
 export const STANDARD_TIERS: readonly QuotaTier[] = VALID_TIERS.filter((t) => t !== 'unlimited');
 
+/** Tiers that permit the org → team hierarchy (nesting teams under a root). The
+ *  billing-off `unlimited` tier is team-capable (it's the most permissive); the
+ *  entry-level `developer`/`pro` tiers are not. Single source for the parent-
+ *  eligibility + downgrade-overcap checks so they can't drift. */
+export const TEAM_CAPABLE_TIERS: readonly QuotaTier[] = ['team', 'enterprise', 'unlimited'];
+export function tierAllowsTeams(tier: string | undefined | null): boolean {
+  return !!tier && (TEAM_CAPABLE_TIERS as readonly string[]).includes(tier);
+}
+
 /** Whether the billing service is enabled in this deployment (`BILLING_ENABLED`,
  *  opt-out default-on — mirrors the billing/platform configs). With billing OFF
  *  there's no metering/enforcement surface, so the default tier is `unlimited`. */

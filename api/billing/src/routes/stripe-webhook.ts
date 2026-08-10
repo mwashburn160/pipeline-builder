@@ -17,7 +17,7 @@ import { applyPlanTierChange, applyTierIncludedAddonPrune, createBillingEvent, c
 import type { PrunedAddon } from '../helpers/billing-helpers.js';
 import { ingestStripeInvoice } from '../helpers/billing-ledger.js';
 import { clearDiscountsOnCancel, reconcileDiscountsOnInvoice } from '../helpers/discount-helpers.js';
-import { grantRecurringPromotions, qualifyReferral } from '../helpers/promotion-engine.js';
+import { grantRecurringPromotions, qualifyReferral, recurringPeriodKey } from '../helpers/promotion-engine.js';
 import { findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers.js';
 import { Plan } from '../models/plan.js';
 import { claimWebhookEvent, releaseWebhookEvent } from '../models/webhook-dedupe.js';
@@ -460,7 +460,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
   // (period-keyed on the invoice id; in-memory, persisted by the save below).
   // Fail-soft — a promo error must never fail the payment webhook.
   try {
-    await grantRecurringPromotions(subscription, invoice.id ?? 'renew');
+    await grantRecurringPromotions(subscription, recurringPeriodKey(subscription.interval));
   } catch (promoErr) {
     logger.warn('Recurring promotion re-grant failed', { orgId: subscription.orgId, invoiceId: invoice.id, error: String(promoErr) });
   }

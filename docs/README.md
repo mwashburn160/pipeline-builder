@@ -44,6 +44,7 @@ This is the documentation index for **Pipeline Builder**, a multi-tenant platfor
 | [CDK Usage](cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Compliance](compliance.md) | Per-org rule engine with 18 operators, computed fields, audit trail |
 | [Roles & Permissions](permissions.md) | Permission catalog, built-in Roles, `requirePermission` enforcement, session invalidation |
+| [Error Handling](error-handling.md) | Error-to-HTTP convention — throw typed `AppError`s |
 | [Audit Events](audit-events.md) | Tamper-evident audit trail — hash-chain + `/audit/verify`, ingest security, durable spool, action catalog |
 | [DORA Metrics](dora-metrics.md) | Deployment frequency, change failure rate, MTTR + performance-level bands and an approximate lead-time proxy (Enterprise, or the Advanced Reporting add-on) |
 | [Environment Variables](environment-variables.md) | Configuration reference for all services |

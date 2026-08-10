@@ -38,6 +38,8 @@ const mockCreateBillingEvent = jest.fn<(...a: unknown[]) => Promise<void>>().moc
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({ createBillingEvent: (...a: unknown[]) => mockCreateBillingEvent(...a) }));
 const mockGrantPeriodicCredits = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 jest.unstable_mockModule('../src/helpers/discount-helpers.js', () => ({ grantPeriodicCredits: (...a: unknown[]) => mockGrantPeriodicCredits(...a) }));
+const mockGrantRecurringPromotions = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+jest.unstable_mockModule('../src/helpers/promotion-engine.js', () => ({ grantRecurringPromotions: (...a: unknown[]) => mockGrantRecurringPromotions(...a) }));
 const mockRecordMarketplaceConsumption = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 jest.unstable_mockModule('../src/helpers/billing-ledger.js', () => ({ recordMarketplaceConsumption: (...a: unknown[]) => mockRecordMarketplaceConsumption(...a) }));
 const mockAuditRecord = jest.fn();

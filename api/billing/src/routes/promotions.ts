@@ -39,6 +39,7 @@ function toPromotionResponse(p: PromotionDocument): Record<string, unknown> {
     value: p.value,
     unit: p.unit,
     kind: p.kind,
+    referrerValue: p.referrerValue,
     trigger: p.trigger,
     startsAt: p.startsAt?.toISOString(),
     endsAt: p.endsAt?.toISOString(),
@@ -104,10 +105,12 @@ export function createPromotionRoutes(): Router {
   router.get('/admin/promotions', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
     if (!promotionsEnabled()) return sendError(res, 404, 'Promotions are not enabled');
     const campaign = parseQueryString(req.query.campaign);
-    const activeOnly = parseQueryString(req.query.active) === 'true';
+    const active = parseQueryString(req.query.active);
     const filter: Record<string, unknown> = {};
     if (campaign) filter.campaign = campaign;
-    if (activeOnly) filter.isActive = true;
+    // Honor BOTH true and false (the 'Inactive' filter was a no-op before), matching discounts.
+    if (active === 'true') filter.isActive = true;
+    else if (active === 'false') filter.isActive = false;
     const promos = await Promotion.find(filter).sort({ createdAt: -1 }).limit(500);
     return sendSuccess(res, 200, { promotions: promos.map(toPromotionResponse), total: promos.length });
   }));

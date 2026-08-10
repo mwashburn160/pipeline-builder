@@ -27,7 +27,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, emitCounter } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { createBillingEvent } from './billing-helpers.js';
 import { Plan } from '../models/plan.js';
@@ -113,6 +113,15 @@ export function matchesConditions(conditions: PromotionConditions | undefined, c
   return true;
 }
 
+/** Calendar period key for a recurring re-grant — `YYYY` (annual) / `YYYY-MM`
+ *  (monthly). Deterministic + idempotent PER PERIOD; keying on this (not a Stripe
+ *  invoice id) means a proration / one-off invoice in the same period can't inject a
+ *  second grant, and it matches the Marketplace metering path's key format. */
+export function recurringPeriodKey(interval: string, now: Date = new Date()): string {
+  const y = now.getUTCFullYear();
+  return interval === 'annual' ? String(y) : `${y}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
 /** Active window check (absent bound = open-ended that side). */
 function inWindow(promo: PromotionDocument, now: Date): boolean {
   if (promo.startsAt && promo.startsAt > now) return false;
@@ -176,6 +185,7 @@ async function reserveAndGrant(
     logger.warn('Promotion skipped — provider cannot realize a usage credit', {
       promotionId: promo._id, orgId, provider: config.billingProvider,
     });
+    emitCounter('billing_promotion_unrealizable_total', { provider: config.billingProvider });
     return { promotionId: promo._id, granted: false, reason: 'unrealizable' };
   }
   if (cents <= 0) return { promotionId: promo._id, granted: false, reason: 'zero' };
@@ -190,14 +200,19 @@ async function reserveAndGrant(
   const reserved = await Promotion.findOneAndUpdate(reserveGuard(promo, cents), { $inc: { spentCents: cents, grantsCount: 1 } }, { new: true });
   if (!reserved) return { promotionId: promo._id, granted: false, reason: 'budget_exhausted' };
 
-  // 2) Apply + realize, idempotent on dedupeKey. Compensate on ANY failure.
+  // 2) Apply + realize, idempotent on dedupeKey. Compensate on ANY failure BEFORE
+  //    the ledger commits — but ONLY through the commit. The `try` deliberately does
+  //    not cover the post-commit side effects (event/metric/log): once the ledger row
+  //    is written the grant is durable, so a throwing side effect must not release the
+  //    budget reservation (which would leave spentCents < ledger → a loose guard).
+  let committed: SubscriptionDocument | null;
   try {
     let ref: { kind: string; ref: string } | undefined;
     if (provider.applyUsageCredit && subscription.externalCustomerId) {
       const r = await provider.applyUsageCredit(subscription.externalCustomerId, cents, `promo-${dedupeKey}`);
       ref = r.ref;
     }
-    const updated = await Subscription.findOneAndUpdate(
+    committed = await Subscription.findOneAndUpdate(
       { '_id': subscription._id, 'creditLedger.dedupeKey': { $ne: dedupeKey } },
       {
         $push: { creditLedger: { discountId: ledgerId(promo._id), cents, appliedAt: new Date(), fulfillmentRef: ref, dedupeKey } },
@@ -205,23 +220,25 @@ async function reserveAndGrant(
       },
       { new: true },
     );
-    if (!updated) {
-      // A concurrent trigger won the idempotency guard — release our reservation.
-      await Promotion.updateOne({ _id: promo._id }, { $inc: { spentCents: -cents, grantsCount: -1 } });
-      return { promotionId: promo._id, granted: false, reason: 'already_granted' };
-    }
-    await createBillingEvent(
-      orgId, 'promotion_granted',
-      { promotionId: promo._id, cents, campaign: promo.campaign, ...extraDetails },
-      updated._id.toString(), actorId,
-    );
-    logger.info('Promotion granted', { promotionId: promo._id, orgId, cents });
-    return { promotionId: promo._id, granted: true, cents, reason: 'granted' };
   } catch (err) {
-    // Grant/realization failed after reservation — release it (under-spend, never over).
+    // Grant/realization failed before the ledger commit — release it (under-spend, never over).
     await Promotion.updateOne({ _id: promo._id }, { $inc: { spentCents: -cents, grantsCount: -1 } });
     throw err;
   }
+  if (!committed) {
+    // A concurrent trigger won the idempotency guard — release our reservation.
+    await Promotion.updateOne({ _id: promo._id }, { $inc: { spentCents: -cents, grantsCount: -1 } });
+    return { promotionId: promo._id, granted: false, reason: 'already_granted' };
+  }
+  // Ledger committed — the grant is durable; side effects below can't undo it.
+  await createBillingEvent(
+    orgId, 'promotion_granted',
+    { promotionId: promo._id, cents, campaign: promo.campaign, ...extraDetails },
+    committed._id.toString(), actorId,
+  );
+  emitCounter('billing_promotion_granted_total');
+  logger.info('Promotion granted', { promotionId: promo._id, orgId, cents });
+  return { promotionId: promo._id, granted: true, cents, reason: 'granted' };
 }
 
 /**
@@ -239,7 +256,10 @@ export async function evaluatePromotions(
 
   const now = new Date();
   const candidates = (await Promotion.find({ 'isActive': true, 'trigger.event': event }))
-    .filter((p) => inWindow(p, now) && matchesConditions(p.trigger?.conditions, ctx));
+    // `recurring` promos are granted ONLY by the periodic path (grantRecurringPromotions),
+    // never by the lifecycle event — else a recurring promo triggered on signup/plan_change
+    // would be granted here AND again on the first invoice (double-grant / overspend).
+    .filter((p) => p.kind !== 'recurring' && inWindow(p, now) && matchesConditions(p.trigger?.conditions, ctx));
 
   const results: PromotionGrantResult[] = [];
   for (const promo of candidates) {
@@ -288,8 +308,10 @@ export interface BatchResult { total: number; matched: number; granted: number; 
  */
 export async function batchEvaluatePromotion(promo: PromotionDocument): Promise<BatchResult> {
   // Honor the active window like every live path — an expired (`endsAt` passed) or
-  // not-yet-started campaign must not keep granting via activate/backfill.
-  if (!inWindow(promo, new Date())) {
+  // not-yet-started campaign must not keep granting via activate/backfill. Also skip
+  // `recurring` promos: they're owned by the periodic path, so batch-granting them
+  // (one-time dedupeKey) would double with grantRecurringPromotions.
+  if (promo.kind === 'recurring' || !inWindow(promo, new Date())) {
     return { total: 0, matched: 0, granted: 0, alreadyGranted: 0, skippedBudget: 0, spentCents: 0 };
   }
   const loadPlan = makePlanCache();
@@ -322,10 +344,12 @@ export async function batchEvaluatePromotion(promo: PromotionDocument): Promise<
 /**
  * Heal a promotion's advisory `spentCents`/`grantsCount` from the LEDGER (the
  * source of truth) — Σ of its `promo:<id>` entries across all subscriptions.
- * Corrects the only drift path: the recurring re-grant reserves budget then
- * persists the ledger row via the CALLER's `save()`, so a failed save leaves
- * `spentCents` over-counted (conservative — never over-grants). Run periodically
- * (backfill cron), leader-locked. Idempotent.
+ * Corrects the recurring re-grant drift: it reserves budget then persists the
+ * ledger row via the CALLER's `save()`, so a failed save leaves `spentCents`
+ * over-counted (conservative). NOTE the inverse race: if this reconcile aggregates
+ * the ledger AFTER a reserve but BEFORE that save, it can transiently UNDER-count
+ * until the next cycle heals it — acceptable since it's leader-locked + hourly and
+ * self-correcting. Idempotent.
  */
 export async function reconcilePromotionSpend(
   promo: Pick<PromotionDocument, '_id' | 'spentCents' | 'grantsCount'>,
@@ -371,6 +395,7 @@ export async function clawbackRecentPromotions(subscription: SubscriptionDocumen
     subscription.creditBalanceCents = Math.max(0, balance - reduce);
     await Promotion.updateOne({ _id: promoId }, { $inc: { spentCents: -row.cents, grantsCount: -1 } });
     await createBillingEvent(subscription.orgId, 'promotion_clawback', { promotionId: promoId, cents: row.cents, reducedCents: reduce }, subscription._id.toString(), actorId);
+    emitCounter('billing_promotion_clawback_total');
     count += 1;
   }
   if (count > 0) logger.info('Promotion grants clawed back on cancel', { orgId: subscription.orgId, count });
@@ -424,7 +449,7 @@ export async function grantRecurringPromotions(subscription: SubscriptionDocumen
 }
 
 /** Build the trigger context (tier / interval / plan price) for an existing subscription. */
-export async function contextForSubscription(subscription: SubscriptionDocument): Promise<PromotionContext | null> {
+async function contextForSubscription(subscription: SubscriptionDocument): Promise<PromotionContext | null> {
   const plan = await Plan.findById(subscription.planId).lean();
   if (!plan) return null;
   const interval: 'monthly' | 'annual' = subscription.interval === 'annual' ? 'annual' : 'monthly';
@@ -434,17 +459,16 @@ export async function contextForSubscription(subscription: SubscriptionDocument)
 // ─── Referral (phase 2c) ────────────────────────────────────────────
 
 /**
- * Process a referral at signup: a NEW org (`refereeOrgId`) subscribed with another
- * org's referral code (= the referrer's org id). Credits the REFEREE immediately
- * and records a pending `Referral`; the REFERRER is credited later, only once the
- * referee QUALIFIES (first paid invoice — see `qualifyReferral`). Fail-soft — never
- * blocks subscription creation. Guards: no self-referral, referee referred at most
- * once (unique index), referrer must be a real subscribed org, an active `referral`
- * promotion must match the referee.
+ * Record a PENDING referral at signup — a NEW org (`refereeOrgId`) subscribed with
+ * another org's referral code (= the referrer's org id). NO credit is granted here:
+ * BOTH sides are credited only once the referee QUALIFIES (their first paid invoice
+ * — see `qualifyReferral`), so merely naming a paying org can't self-issue a free
+ * credit. Fail-soft. Guards: no self-referral, referee referred at most once (unique
+ * index), referrer must be a real subscribed org, an active `referral` promotion
+ * must match the referee.
  */
 export async function processReferralSignup(
   refereeOrgId: string,
-  refereeSubscription: SubscriptionDocument,
   referralCode: string,
   ctx: PromotionContext,
 ): Promise<void> {
@@ -461,10 +485,9 @@ export async function processReferralSignup(
   // The referrer must be a real, subscribed org.
   if (!(await loadManageableSubscription(referrerOrgId))) return;
 
-  // Claim the (unique) referee slot — a duplicate key means already referred.
-  let referralId: string;
+  // Record the pending pairing (unique refereeOrgId → referred at most once). No grant.
   try {
-    const created = await Referral.create({
+    await Referral.create({
       _id: `ref_${randomUUID()}`,
       promotionId: promo._id,
       referrerOrgId,
@@ -473,29 +496,18 @@ export async function processReferralSignup(
       referrerGrantCents: 0,
       status: 'pending',
     });
-    referralId = created._id;
   } catch {
-    return; // already referred (or a create race) — ignore
-  }
-
-  // Grant the referee now (referee value = promo.value).
-  const cents = promotionCreditCents(promo, ctx.planPriceCents);
-  const result = await reserveAndGrant(promo, refereeSubscription, refereeOrgId, cents, dedupeKeyFor(promo._id, refereeOrgId), undefined, { referral: 'referee', referrerOrgId });
-  if (result.granted) {
-    await Referral.updateOne({ _id: referralId }, { $set: { refereeGrantCents: result.cents } });
-  } else {
-    // Referee grant didn't land (budget/unrealizable) — release the slot so the
-    // org can be legitimately referred later.
-    await Referral.deleteOne({ _id: referralId });
-    logger.warn('Referral referee grant did not land — referral released', { promotionId: promo._id, refereeOrgId, reason: result.reason });
+    /* already referred (or a create race) — ignore */
   }
 }
 
 /**
- * Qualify a referral on the referee's FIRST paid invoice — credits the REFERRER.
- * Idempotent: flips the pending referral to `qualified` (so a later payment won't
- * re-fire), and the referrer grant itself is dedupe-guarded per pair. No-op when
- * there's no pending referral for this org.
+ * Qualify a referral on the referee's FIRST paid invoice — the qualifying moment.
+ * Credits BOTH the referee (`value`) and the referrer (`referrerValue` ?? `value`),
+ * each dedupe-guarded and budget-bounded, then TERMINATES the referral so a later
+ * payment can't re-fire. Gating both grants on the referee actually paying defeats
+ * the "name any paying org for a free credit" abuse. No-op when there's no pending
+ * referral for this org.
  */
 export async function qualifyReferral(refereeOrgId: string): Promise<void> {
   if (!promotionsEnabled()) return;
@@ -506,28 +518,31 @@ export async function qualifyReferral(refereeOrgId: string): Promise<void> {
   // Promo revoked/removed → leave the referral pending (it simply never qualifies).
   if (!promo || !promo.isActive) return;
 
-  const referrerSub = await loadManageableSubscription(referral.referrerOrgId);
-  const ctx = referrerSub ? await contextForSubscription(referrerSub) : null;
-  if (!referrerSub || !ctx) {
-    // Referrer is no longer subscribed/manageable — TERMINATE the referral (it can
-    // never be funded) so it doesn't re-run on every future payment. No grant.
-    await Referral.updateOne({ _id: referral._id }, { $set: { status: 'qualified', qualifiedAt: new Date(), referrerGrantCents: 0 } });
-    return;
+  // Grant the REFEREE (their current plan) — this is the qualifying payment.
+  let refereeCents = 0;
+  const refereeSub = await loadManageableSubscription(refereeOrgId);
+  const refereeCtx = refereeSub ? await contextForSubscription(refereeSub) : null;
+  if (refereeSub && refereeCtx) {
+    const r = await reserveAndGrant(promo, refereeSub, refereeOrgId, promotionCreditCents(promo, refereeCtx.planPriceCents), dedupeKeyFor(promo._id, refereeOrgId), undefined, { referral: 'referee', referrerOrgId: referral.referrerOrgId });
+    if (r.granted) refereeCents = r.cents ?? 0;
   }
 
-  // Referrer grant magnitude: `referrerValue` if set, else the same as the referee's.
-  const cents = promotionCreditCents(
-    { unit: promo.unit, value: promo.referrerValue ?? promo.value, perOrgCapCents: promo.perOrgCapCents },
-    ctx.planPriceCents,
-  );
-  const dedupeKey = `promo:${promo._id}:${referral.referrerOrgId}:ref:${refereeOrgId}`;
-  const result = await reserveAndGrant(promo, referrerSub, referral.referrerOrgId, cents, dedupeKey, undefined, { referral: 'referrer', refereeOrgId });
+  // Grant the REFERRER (if still subscribed), magnitude `referrerValue` ?? `value`.
+  let referrerCents = 0;
+  const referrerSub = await loadManageableSubscription(referral.referrerOrgId);
+  const referrerCtx = referrerSub ? await contextForSubscription(referrerSub) : null;
+  if (referrerSub && referrerCtx) {
+    const cents = promotionCreditCents({ unit: promo.unit, value: promo.referrerValue ?? promo.value, perOrgCapCents: promo.perOrgCapCents }, referrerCtx.planPriceCents);
+    const dedupeKey = `promo:${promo._id}:${referral.referrerOrgId}:ref:${refereeOrgId}`;
+    const r = await reserveAndGrant(promo, referrerSub, referral.referrerOrgId, cents, dedupeKey, undefined, { referral: 'referrer', refereeOrgId });
+    if (r.granted) referrerCents = r.cents ?? 0;
+  }
 
-  // Mark qualified regardless of the referrer-grant outcome — a budget-exhausted
-  // referrer grant shouldn't make every subsequent payment retry forever.
+  // Terminate regardless of grant outcomes — a budget-exhausted grant must not make
+  // every subsequent payment retry forever.
   await Referral.updateOne(
     { _id: referral._id },
-    { $set: { status: 'qualified', qualifiedAt: new Date(), referrerGrantCents: result.granted ? (result.cents ?? 0) : 0 } },
+    { $set: { status: 'qualified', qualifiedAt: new Date(), refereeGrantCents: refereeCents, referrerGrantCents: referrerCents } },
   );
-  logger.info('Referral qualified', { promotionId: promo._id, refereeOrgId, referrerOrgId: referral.referrerOrgId, referrerGranted: result.granted });
+  logger.info('Referral qualified', { promotionId: promo._id, refereeOrgId, referrerOrgId: referral.referrerOrgId, refereeCents, referrerCents });
 }

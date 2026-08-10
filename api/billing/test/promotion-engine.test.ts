@@ -230,24 +230,21 @@ describe('clawbackRecentPromotions', () => {
 describe('processReferralSignup (referral)', () => {
   beforeEach(() => { promo.trigger = { event: 'referral' }; });
 
-  it('records a pending referral and grants the referee', async () => {
-    const refereeSub = { _id: 'sub_referee', externalCustomerId: 'cus_r', creditLedger: [] as LedgerRow[] };
-    await processReferralSignup('referee_org', refereeSub as any, 'referrer_org', CTX);
+  it('records a pending referral WITHOUT granting at signup (abuse guard)', async () => {
+    await processReferralSignup('referee_org', 'referrer_org', CTX);
     expect(mockReferralCreate).toHaveBeenCalledTimes(1);
     expect(referralStore[0]).toMatchObject({ referrerOrgId: 'referrer_org', refereeOrgId: 'referee_org', status: 'pending' });
-    expect(ledgerStore.some((l) => l.dedupeKey === 'promo:promo_1:referee_org')).toBe(true); // referee credited
+    expect(ledgerStore).toHaveLength(0); // no credit until the referee qualifies (first payment)
   });
 
   it('rejects self-referral (code === referee org)', async () => {
-    const refereeSub = { _id: 'sub_referee', externalCustomerId: 'cus_r', creditLedger: [] as LedgerRow[] };
-    await processReferralSignup('referee_org', refereeSub as any, 'referee_org', CTX);
+    await processReferralSignup('referee_org', 'referee_org', CTX);
     expect(mockReferralCreate).not.toHaveBeenCalled();
   });
 
   it('rejects when the referrer is not a subscribed org', async () => {
     mockSubFindOne.mockResolvedValueOnce(null as never); // referrer has no subscription
-    const refereeSub = { _id: 'sub_referee', externalCustomerId: 'cus_r', creditLedger: [] as LedgerRow[] };
-    await processReferralSignup('referee_org', refereeSub as any, 'referrer_org', CTX);
+    await processReferralSignup('referee_org', 'referrer_org', CTX);
     expect(mockReferralCreate).not.toHaveBeenCalled();
   });
 });
@@ -255,10 +252,11 @@ describe('processReferralSignup (referral)', () => {
 describe('qualifyReferral (referral)', () => {
   beforeEach(() => { promo.trigger = { event: 'referral' }; });
 
-  it('credits the referrer and marks the referral qualified on first payment', async () => {
+  it('credits BOTH the referee and the referrer, and marks qualified, on first payment', async () => {
     referralStore.push({ _id: 'ref_1', promotionId: 'promo_1', referrerOrgId: 'referrer_org', refereeOrgId: 'referee_org', status: 'pending' });
     await qualifyReferral('referee_org');
-    expect(ledgerStore.some((l) => l.dedupeKey === 'promo:promo_1:referrer_org:ref:referee_org')).toBe(true);
+    expect(ledgerStore.some((l) => l.dedupeKey === 'promo:promo_1:referee_org')).toBe(true); // referee credited
+    expect(ledgerStore.some((l) => l.dedupeKey === 'promo:promo_1:referrer_org:ref:referee_org')).toBe(true); // referrer credited
     expect(referralStore[0].status).toBe('qualified');
   });
 
