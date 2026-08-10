@@ -108,7 +108,7 @@ A minimal `{{ ... }}` template language for pipeline configs and plugin specs �
 An **organization** is the isolation boundary — every pipeline, plugin, secret, quota, and bill is scoped to it. A **team** is an organization optionally nested one level under a parent org (the org → team hierarchy); nesting is opt-in (orgs are flat roots by default), and a parent-org admin manages its teams while visibility, quotas, compliance, and analytics roll up across them.
 
 - **RBAC** — access via **Roles**: each Role is a named set of fine-grained `resource:action` permissions (reads and writes both enforced), and a user's effective permissions are the **union of the Roles assigned to them** (no separate role-based baseline). Built-in Roles (**Admin**, **Member**) plus admin-defined custom Roles; the coarse **Owner / Admin / Member** label is *derived* (governs ownership/seats, not permissions), a global **Super Admin** spans everything, and a parent-org admin inherits admin over its teams. Privilege changes invalidate live sessions (short-TTL tokens + `tokenVersion`). See [Roles & Permissions]({{ '/docs/permissions.html' | relative_url }})
-- **Per-organization quotas** — `plugins`, `pipelines`, `apiCalls`, `aiCalls`, storage, and `seats`; **feature tiers** (Developer / Pro / Team / Enterprise, plus a hidden **Unlimited** tier that is the default when billing is disabled and never shown when it's enabled) with stackable [add-on bundles](docs/billing-bundles.md) that raise pooled caps and grantable [discounts](docs/billing-discounts.md) (coupons + usage credits); a parent's caps pool across its teams
+- **Per-organization quotas** — `plugins`, `pipelines`, `apiCalls`, `aiCalls`, storage, and `seats`; **feature tiers** (Developer / Pro / Team / Enterprise, plus a hidden **Unlimited** tier that is the default when billing is disabled and never shown when it's enabled) with stackable [add-on bundles]({{ '/docs/billing-bundles.html' | relative_url }}) that raise pooled caps and grantable [discounts]({{ '/docs/billing-discounts.html' | relative_url }}) (coupons + usage credits); a parent's caps pool across its teams
 - **Isolated secrets** — AWS Secrets Manager per organization (`pipeline-builder/{orgId}/{secret}`), injected at build time, never stored in images
 - **Execution analytics** — EventBridge-fed success rates, duration percentiles (p50 / p90 / p99), stage-level failure heatmaps, and per-organization cost attribution (rolled up across child teams for parent orgs)
 - **DORA metrics** — deployment frequency, change failure rate, MTTR, and a lead-time proxy with Elite/High/Medium/Low performance bands and a trend sparkline on the Reports page (median successful run time is an approximation, *not* true commit→production lead time); see [DORA Metrics]({{ '/docs/dora-metrics.html' | relative_url }})
@@ -183,7 +183,7 @@ pipeline-manager provision --target docker --json       # inspect the plan as JS
 # or: pipeline-manager provision --prompt "deploy to EKS in us-east-1 with email"
 ```
 
-> **`--init <mode>`** controls post-deploy initialization. The default is **`auto`** — the deploy initializes the platform itself — on EC2 on first boot, on EKS in `setup.sh`'s final phase (register admin + load plugins/compliance/samples, over a `kubectl` port-forward); on `local`/`minikube`, `provision` runs init for you. Use **`--init manual`** to run `init-platform` yourself or **`--init skip`** to do nothing. See the [AWS deployment guide](docs/aws-deployment.md#ai-assisted-install-provision).
+> **`--init <mode>`** controls post-deploy initialization. The default is **`auto`** — the deploy initializes the platform itself — on EC2 on first boot, on EKS in `setup.sh`'s final phase (register admin + load plugins/compliance/samples, over a `kubectl` port-forward); on `local`/`minikube`, `provision` runs init for you. Use **`--init manual`** to run `init-platform` yourself or **`--init skip`** to do nothing. See the [AWS deployment guide]({{ '/docs/aws-deployment.html' | relative_url }}#ai-assisted-install-provision).
 
 Prefer to run it directly? The full stack runs locally with Docker — prebuilt public images, no registry login:
 
@@ -213,16 +213,39 @@ From there:
 
 ## Documentation
 
+Browse the full docs at **[{{ '/docs/' | relative_url }}]({{ '/docs/' | relative_url }})**, or read the source on **[GitHub](https://github.com/mwashburn160/pipeline-builder)**.
+
+### Getting Started
+
 | Guide | Description |
 |-------|-------------|
+| [Overview]({{ '/docs/' | relative_url }}) | Key concepts, usage guides, operational how-to |
 | [Pipeline Manager CLI]({{ '/docs/pipeline-manager.html' | relative_url }}) | The `pipeline-manager` CLI — provision the platform, build/deploy pipelines, manage plugins |
+| [Developer Guide]({{ '/docs/developer-guide.html' | relative_url }}) | Cut-and-paste pipeline examples for 7 languages |
+| [Samples]({{ '/docs/samples.html' | relative_url }}) | Pipeline configs and CDK patterns |
+| [Organization Benefits]({{ '/docs/organization-benefits.html' | relative_url }}) | What orgs gain from standardizing on the platform |
+| [Architecture Flow]({{ '/docs/architecture-flow.html' | relative_url }}) | End-to-end flow diagrams (request → build → deploy) |
+
+### Developer Reference
+
+| Guide | Description |
+|-------|-------------|
 | [API Reference]({{ '/docs/api-reference.html' | relative_url }}) | REST endpoints for pipelines, plugins, compliance, reporting, and AI |
-| [CDK Usage]({{ '/docs/cdk-usage.html' | relative_url }}) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
-| [Compliance]({{ '/docs/compliance.html' | relative_url }}) | Per-org rule engine with 18 operators, computed fields, audit trail |
 | [Roles & Permissions]({{ '/docs/permissions.html' | relative_url }}) | Permission catalog, built-in Roles, enforcement, session invalidation |
-| [Audit Events]({{ '/docs/audit-events.html' | relative_url }}) | Tamper-evident trail — hash-chain + verify, ingest security, durable spool |
+| [CDK Usage]({{ '/docs/cdk-usage.html' | relative_url }}) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Metadata Keys]({{ '/docs/metadata-keys.html' | relative_url }}) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Template Syntax]({{ '/docs/templates.html' | relative_url }}) | Synth-time interpolation for pipeline configs and plugin specs |
-| [AWS Deployment]({{ '/docs/aws-deployment.html' | relative_url }}) | EC2 and EKS deployment, post-deploy setup |
+| [Error Handling]({{ '/docs/error-handling.html' | relative_url }}) | Error-to-HTTP convention — throw typed `AppError`s |
 | [Plugin Catalog]({{ '/docs/plugins/' | relative_url }}) | 119 pre-built plugins across 10 categories |
-| [Samples]({{ '/docs/samples.html' | relative_url }}) | Pipeline configs for 7 languages and CDK patterns |
+
+### Operations
+
+| Guide | Description |
+|-------|-------------|
+| [AWS Deployment]({{ '/docs/aws-deployment.html' | relative_url }}) | EC2 and EKS deployment, post-deploy setup |
+| [Environment Variables]({{ '/docs/environment-variables.html' | relative_url }}) | Full config reference for all services |
+| [Compliance]({{ '/docs/compliance.html' | relative_url }}) | Per-org rule engine with 18 operators, computed fields, audit trail |
+| [Audit Events]({{ '/docs/audit-events.html' | relative_url }}) | Tamper-evident trail — hash-chain + verify, ingest security, durable spool |
+| [DORA Metrics]({{ '/docs/dora-metrics.html' | relative_url }}) | Deployment frequency, change failure rate, MTTR, lead-time proxy, trend |
+| [Billing Add-on Bundles]({{ '/docs/billing-bundles.html' | relative_url }}) | Stackable add-ons that raise pooled caps and unlock features |
+| [Billing Discounts]({{ '/docs/billing-discounts.html' | relative_url }}) | Coupon codes + usage credits — one-time, recurring, or credit |
