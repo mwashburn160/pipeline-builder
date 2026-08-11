@@ -15,6 +15,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import jwt from 'jsonwebtoken';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string, code?: string) => {
@@ -70,8 +71,6 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 const { _resetConsumedJtiForTests, consumeJti } = await import('../src/middleware/consumed-jti.js');
 const { requireStepUp } = await import('../src/middleware/step-up.js');
 const { issueStepUpToken, verifyStepUpToken } = await import('../src/utils/token.js');
-
-import jwt from 'jsonwebtoken';
 
 function mockReq(opts: { userId?: string; token?: string } = {}) {
   const headers: Record<string, string> = {};
