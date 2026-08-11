@@ -43,10 +43,14 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  signPersonalAccessToken: jest.fn(),
   issueStepUpToken: (...a: unknown[]) => mockIssueStepUpToken(...a),
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   User: {
     findById: (...a: unknown[]) => mockUserFindById(...a),
   },

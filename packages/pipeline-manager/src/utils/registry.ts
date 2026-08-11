@@ -20,9 +20,9 @@ import { printInfo } from './output-utils.js';
  *      registry POST fails. Without retry the deploy command would have to
  *      re-run cdk-deploy (slow, sometimes blocked by stack state) just to
  *      record the ARN. Instead, we write a pending intent to a local file;
- *      `pipeline-manager register` drains them.
+ *      `pipeline-manager pipeline register` drains them.
  *
- *   2. User explicitly invokes `pipeline-manager register --id <pipelineId>`
+ *   2. User explicitly invokes `pipeline-manager pipeline register --id <pipelineId>`
  *      after a successful deploy that didn't register. Same path: rebuilds
  *      the ARN from STS, POSTs to the platform.
  *

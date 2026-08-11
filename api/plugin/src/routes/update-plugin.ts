@@ -61,7 +61,16 @@ export function createUpdatePluginRoutes(): Router {
         timeout: body.timeout,
         failureBehavior: body.failureBehavior,
         secrets: body.secrets,
+        // Developer-portal catalog metadata (lifecycle / classification).
+        lifecycle: body.lifecycle,
+        criticality: body.criticality,
+        labels: body.labels,
+        links: body.links,
       }),
+      // Ownership reassignment is admin-only (see update-pipeline.ts).
+      ...((req.user?.isAdmin === true || req.user?.isSuperAdmin === true)
+        ? pickDefined({ ownerId: body.ownerId, ownerType: body.ownerType })
+        : {}),
       // Access modifier requires special handling (admin-only public)
       ...(body.accessModifier !== undefined ? { accessModifier: resolveAccessModifier(req, body.accessModifier, 'plugins:publish') } : {}),
     };

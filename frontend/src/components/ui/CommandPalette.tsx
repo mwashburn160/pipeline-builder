@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Search, Sun, Moon } from 'lucide-react';
+import { Search, Sun, Moon, GitBranch, Puzzle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useFeatures } from '@/hooks/useFeatures';
 import { useAuth } from '@/hooks/useAuth';
 import { hasPermission, isMutationPermission } from '@/lib/auth-helpers';
 import { NAV_SECTIONS, QUICK_ACTIONS, isNavItemVisible } from '@/lib/nav';
+import api from '@/lib/api';
 
 interface CommandItem {
   id: string;
@@ -35,6 +36,8 @@ export function CommandPalette({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [resourceItems, setResourceItems] = useState<CommandItem[]>([]);
+  const resourcesLoadedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -99,15 +102,75 @@ export function CommandPalette({
     ];
   }, [navigate, isSuperAdmin, isAdmin, isDark, onToggleDark, runAndClose, features, user, isReadOnly]);
 
+  // Cross-resource catalog search: when the palette opens, lazily load a page of
+  // the org's pipelines and plugins so ⌘K can find actual RESOURCES by name — not
+  // just navigate to pages. Loaded once per mount; filtered client-side below so
+  // there's no per-keystroke request. Best-effort: a failure just means the
+  // palette stays a pure navigator.
+  useEffect(() => {
+    // Refetch once per open so the index stays fresh (a pipeline/plugin created
+    // this session shows up) and a transient failure retries next open.
+    if (!open) { resourcesLoadedRef.current = false; return; }
+    if (resourcesLoadedRef.current) return;
+    let cancelled = false;
+    (async () => {
+      const [pRes, plRes] = await Promise.all([
+        api.listPipelines({ limit: '100', includeTotal: 'false' }).catch(() => null),
+        api.listPlugins({ limit: '100' }).catch(() => null),
+      ]);
+      if (cancelled) return;
+      // Only mark loaded on a real result — if BOTH calls failed, leave the flag
+      // false so the next open retries instead of permanently disabling search.
+      if (!pRes && !plRes) return;
+      resourcesLoadedRef.current = true;
+      const items: CommandItem[] = [];
+      if (pRes?.success && pRes.data) {
+        for (const p of pRes.data.pipelines || []) {
+          items.push({
+            id: `pipeline:${p.id}`,
+            label: p.pipelineName || p.project,
+            icon: GitBranch,
+            section: 'Pipelines',
+            keywords: `pipeline ${p.project} ${(p.keywords || []).join(' ')}`,
+            action: () => navigate(`/dashboard/pipelines/${p.id}`),
+          });
+        }
+      }
+      if (plRes?.success && plRes.data) {
+        for (const pl of plRes.data.plugins || []) {
+          items.push({
+            id: `plugin:${pl.id}`,
+            label: pl.name,
+            icon: Puzzle,
+            section: 'Plugins',
+            keywords: `plugin ${pl.category || ''} ${(pl.keywords || []).join(' ')}`,
+            // Seed the plugins page search with the name so the row is filtered to.
+            action: () => navigate(`/dashboard/plugins?q=${encodeURIComponent(pl.name)}`),
+          });
+        }
+      }
+      setResourceItems(items);
+    })();
+    return () => { cancelled = true; };
+  }, [open, navigate]);
+
   const filtered = useMemo(() => {
     if (!query) return commands;
     const q = query.toLowerCase();
-    return commands.filter((c) =>
+    const base = commands.filter((c) =>
       c.label.toLowerCase().includes(q) ||
       c.section.toLowerCase().includes(q) ||
       c.keywords?.toLowerCase().includes(q)
     );
-  }, [commands, query]);
+    // Resources are noisy, so only surface them once the query is specific
+    // enough (≥2 chars) — otherwise every pipeline/plugin would flood the list.
+    const resources = q.length >= 2
+      ? resourceItems.filter((c) =>
+          c.label.toLowerCase().includes(q) ||
+          c.keywords?.toLowerCase().includes(q))
+      : [];
+    return [...base, ...resources];
+  }, [commands, resourceItems, query]);
 
   // Group by section with flat index for keyboard navigation
   const { sections, flatItems } = useMemo(() => {

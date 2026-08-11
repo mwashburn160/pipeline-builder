@@ -38,7 +38,7 @@ const PipelineRegistrySchema = z.object({
  * - POST /pipelines/registry — upsert a pipeline ARN mapping for event reporting.
  * - GET  /pipelines/registry — list registry entries owned by the caller's org.
  *   Used by the dashboard's "deployed pipelines" panel and by drift-detection
- *   tools (the `pipeline-manager audit-stacks` CLI joins this against live
+ *   tools (the `pipeline-manager audit stacks` CLI joins this against live
  *   CloudFormation stacks tagged `pipeline-builder` to surface orphans).
  */
 export function createRegistryRoutes(): Router {
@@ -118,8 +118,8 @@ export function createRegistryRoutes(): Router {
    * DELETE /pipelines/registry/:id — remove a single registry row by its UUID.
    *
    * Used to reconcile drift after a CloudFormation stack is deleted out-of-band
-   * (i.e. without `pipeline-manager deploy`), which leaves a stale registry row.
-   * The `pipeline-manager audit-stacks` CLI surfaces such rows; this endpoint is
+   * (i.e. without `pipeline-manager pipeline deploy`), which leaves a stale registry row.
+   * The `pipeline-manager audit stacks` CLI surfaces such rows; this endpoint is
    * the supported path to clear them.
    *
    * Tenancy: scoped to the caller's orgId. A 404 is returned for both

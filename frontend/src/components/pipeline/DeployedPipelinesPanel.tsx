@@ -25,7 +25,7 @@ interface RegistryRow {
  * stack was deleted out-of-band (`aws cloudformation delete-stack`, console
  * action, etc.), the registry row stays behind. Removing it here calls
  * `DELETE /api/pipelines/registry/:id` to clear it. The CLI counterpart is
- * `pipeline-manager audit-stacks` which surfaces these orphans across an org.
+ * `pipeline-manager audit stacks` which surfaces these orphans across an org.
  */
 export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -127,7 +127,7 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
           emptyState={{
             icon: Cloud,
             title: 'No deployed pipelines yet',
-            description: 'Pipelines register here when `pipeline-manager deploy` succeeds.',
+            description: 'Pipelines register here when `pipeline-manager pipeline deploy` succeeds.',
           }}
         >
           {rows.length > 0 && (

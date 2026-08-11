@@ -125,6 +125,16 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
           props: body.props as unknown as PipelineInsert['props'],
           accessModifier: accessModifier as AccessModifier,
           createdBy: userId || 'system',
+          // Catalog ownership + classification. Owner is ALWAYS the creator on
+          // create — a client-supplied `ownerId` is ignored so a member can't
+          // create an entity "owned" by someone else (poisoning their My Services
+          // / scorecard). Ownership reassignment happens via update (admin-gated).
+          ownerId: userId ?? 'system',
+          ownerType: 'user',
+          ...(body.lifecycle !== undefined ? { lifecycle: body.lifecycle } : {}),
+          ...(body.criticality !== undefined ? { criticality: body.criticality } : {}),
+          ...(body.labels !== undefined ? { labels: body.labels } : {}),
+          ...(body.links !== undefined ? { links: body.links } : {}),
         },
         userId || 'system',
         project,

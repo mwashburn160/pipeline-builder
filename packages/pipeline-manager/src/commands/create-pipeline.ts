@@ -25,7 +25,7 @@ const { bold, cyan, dim, green } = pico;
  */
 export function createPipeline(program: Command): void {
   program
-    .command('create-pipeline')
+    .command('create')
     .description('Create a new pipeline with the provided configuration')
     .requiredOption('-f, --file <file>', 'Path to pipeline properties JSON file')
     .option('-p, --project <project>', 'Project name (falls back to value in props file)')

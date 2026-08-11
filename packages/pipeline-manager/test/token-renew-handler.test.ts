@@ -68,7 +68,7 @@ describe('token-renew-handler (orchestrator)', () => {
     const [, args, opts] = nodeCall as [string, string[], { env: Record<string, string> }];
     expect(args[0]).toBe('/tmp/pm/node_modules/@pipeline-builder/pipeline-manager/dist/cli.js');
     expect(args).toEqual(expect.arrayContaining([
-      'store-token',
+      'infra', 'store-token',
       '--region', 'us-east-1',
       '--days', '30',
     ]));

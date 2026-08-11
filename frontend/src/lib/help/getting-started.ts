@@ -30,7 +30,7 @@ export const gettingStartedTopic: HelpTopic = {
           headers: ['Method', 'Best for', 'Example'],
           rows: [
             ['CDK Construct', 'Teams embedding pipelines in their own CDK stacks', 'new PipelineBuilder(stack, \'P\', { ... })'],
-            ['CLI', 'Scripted/automated pipeline creation', 'pipeline-manager create-pipeline --file props.json'],
+            ['CLI', 'Scripted/automated pipeline creation', 'pipeline-manager pipeline create --file props.json'],
             ['REST API', 'Integration with other tooling', 'POST /api/pipelines'],
             ['Dashboard', 'Visual creation and management', 'Point, click, deploy'],
             ['AI Prompt', 'Fastest path from idea to pipeline', '"Build and deploy a Next.js app from GitHub"'],
@@ -53,7 +53,7 @@ export const gettingStartedTopic: HelpTopic = {
             'Click "Generate" — the AI analyzes your repo and generates a pipeline config.',
             'Review the auto-detected settings (source, stages, plugins).',
             'Click "Create" to save the pipeline configuration.',
-            'Use the CLI to deploy: pipeline-manager deploy --id <pipeline-id>',
+            'Use the CLI to deploy: pipeline-manager pipeline deploy --id <pipeline-id>',
           ],
         },
       ],
@@ -72,8 +72,8 @@ export const gettingStartedTopic: HelpTopic = {
           content: `npm install -g @pipeline-builder/pipeline-manager
 export PLATFORM_TOKEN=<jwt-from-login>
 
-pipeline-manager create-pipeline --file my-pipeline.json --project my-app --organization my-org
-pipeline-manager deploy --id <pipeline-id>`,
+pipeline-manager pipeline create --file my-pipeline.json --project my-app --organization my-org
+pipeline-manager pipeline deploy --id <pipeline-id>`,
         },
         {
           type: 'note',

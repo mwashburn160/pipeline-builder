@@ -54,8 +54,18 @@ export function createUpdatePipelineRoutes(): Router {
         keywords: body.keywords,
         props: body.props, // Validated by PipelineUpdateSchema (BuilderPropsSchema)
         isActive: body.isActive,
+        // Developer-portal catalog metadata (lifecycle / classification).
+        lifecycle: body.lifecycle,
+        criticality: body.criticality,
+        labels: body.labels,
+        links: body.links,
         // isDefault is handled separately below via setDefault() for promotion.
       }),
+      // Ownership reassignment is admin-only — a regular member must not be able
+      // to hand a resource to (or take it from) another user/team.
+      ...((req.user?.isAdmin === true || req.user?.isSuperAdmin === true)
+        ? pickDefined({ ownerId: body.ownerId, ownerType: body.ownerType })
+        : {}),
       // Access modifier requires special handling (admin-only public)
       ...(body.accessModifier !== undefined ? { accessModifier: resolveAccessModifier(req, body.accessModifier, 'pipelines:publish') } : {}),
       updatedAt: new Date(),

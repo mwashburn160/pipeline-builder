@@ -11,6 +11,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
+import { BillingAdminTabs } from '@/components/billing/BillingAdminTabs';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -287,6 +288,7 @@ export default function BillingAdminPage() {
         )
       }
     >
+      <BillingAdminTabs active="admin" />
       <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
 
       {notEnabled ? (

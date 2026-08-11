@@ -26,6 +26,8 @@ export type AuditAction =
   | 'user.email.verified'
   | 'user.token.create'
   | 'user.tokens.revoke-all'
+  | 'user.pat.create'
+  | 'user.pat.revoke'
   // Organization (controllers/organization.ts)
   | 'org.create'
   // Owner/admin self-serve org identity edit (name/slug). `affectedOrgId` is
@@ -156,6 +158,9 @@ export type AuditAction =
   | 'pipeline.create'
   | 'pipeline.update'
   | 'pipeline.delete'
+  | 'pipeline_template.create'
+  | 'pipeline_template.update'
+  | 'pipeline_template.delete'
   | 'pipeline.execution.start'
   | 'pipeline.execution.cancel'
   | 'pipeline.registry.register'
@@ -257,6 +262,8 @@ export const ALL_AUDIT_ACTIONS = [
   'user.email.verified',
   'user.token.create',
   'user.tokens.revoke-all',
+  'user.pat.create',
+  'user.pat.revoke',
   'org.create',
   'org.update',
   'org.soft_delete',
@@ -309,6 +316,9 @@ export const ALL_AUDIT_ACTIONS = [
   'pipeline.create',
   'pipeline.update',
   'pipeline.delete',
+  'pipeline_template.create',
+  'pipeline_template.update',
+  'pipeline_template.delete',
   'pipeline.execution.start',
   'pipeline.execution.cancel',
   'pipeline.registry.register',

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { z } from 'zod';
-import { BaseFilterSchema, BooleanQuerySchema, AccessModifierSchema } from './common-schemas.js';
+import { BaseFilterSchema, BooleanQuerySchema, AccessModifierSchema, CatalogMetadataShape } from './common-schemas.js';
 
 /**
  * Plugin filter schema for query parameters
@@ -22,6 +22,7 @@ export const PluginFilterSchema = BaseFilterSchema.extend({
  * Retained for future direct-create endpoint and OpenAPI spec completeness.
  */
 export const PluginCreateSchema = z.object({
+  ...CatalogMetadataShape,
   orgId: z.string().min(1, 'Organization ID is required'),
   name: z.string().min(1, 'Plugin name is required'),
   version: z.string().min(1, 'Version is required'),
@@ -50,6 +51,7 @@ export const PluginCreateSchema = z.object({
  * Plugin update schema
  */
 export const PluginUpdateSchema = z.object({
+  ...CatalogMetadataShape,
   name: z.string().min(1).optional(),
   description: z.string().optional(),
   keywords: z.array(z.string()).optional(),

@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { useToast } from '@/components/ui/Toast';
 import { useOpenOnCreateQuery } from '@/hooks/useOpenOnCreateQuery';
@@ -25,7 +26,7 @@ import CreatePluginModal from '@/components/plugin/CreatePluginModal';
 import api from '@/lib/api';
 import { mapCommonParams, canModify } from '@/lib/resource-helpers';
 import { visitedPluginsKey } from '@/lib/onboarding';
-import { loadFavorites, toggleFavorite } from '@/lib/favorites';
+import { loadFavorites, toggleFavorite, hydrateFavoritesFromServer } from '@/lib/favorites';
 import type { Plugin } from '@/types';
 
 // Maps a DataTable column id to the server-side sort field the plugins list
@@ -96,13 +97,24 @@ export default function PluginsPage() {
     try { localStorage.setItem(visitedPluginsKey(user.organizationId), '1'); } catch { /* localStorage may be unavailable */ }
   }, [user?.organizationId]);
 
-  // Per-org favorited plugin IDs (localStorage-backed).
+  // Per-org favorited plugin IDs. localStorage gives an instant first paint;
+  // hydrateFavoritesFromServer then reconciles with the server source of truth
+  // so favorites follow the user across devices.
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  // Bumped on every local toggle. Captured when a hydrate starts, so a hydrate
+  // that resolves AFTER the user toggled doesn't revert their newer local state.
+  const favMutationRef = useRef(0);
   useEffect(() => {
-    if (user?.organizationId) setFavorites(loadFavorites(user.organizationId));
+    if (!user?.organizationId) return;
+    setFavorites(loadFavorites(user.organizationId));
+    const startVersion = favMutationRef.current;
+    void hydrateFavoritesFromServer(user.organizationId).then((server) => {
+      if (favMutationRef.current === startVersion) setFavorites(server);
+    });
   }, [user?.organizationId]);
   const handleToggleFavorite = useCallback((id: string) => {
     if (!user?.organizationId) return;
+    favMutationRef.current += 1;
     toggleFavorite(user.organizationId, id);
     setFavorites(loadFavorites(user.organizationId));
   }, [user?.organizationId]);
@@ -169,6 +181,15 @@ export default function PluginsPage() {
 
   // "Show favorites only" quick-chip (client-side over the fetched page).
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+
+  // Seed the name search from a `?q=` deep-link (e.g. ⌘K "find plugin X" or a
+  // My Services plugin link) so the list lands filtered to that plugin.
+  const router = useRouter();
+  useEffect(() => {
+    const q = router.query.q;
+    if (typeof q === 'string' && q) list.updateFilter('name', q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router.query.q]);
 
   // Server-side sort: translate a column click into sortBy/sortOrder query
   // params, instead of an in-memory reorder of one page.

@@ -299,6 +299,35 @@ export async function issueTokens(user: UserDocument, activeOrgId?: string, expi
   return { accessToken, refreshToken, expiresIn: tokenExpiresIn };
 }
 
+/**
+ * Sign a Personal Access Token (PAT) for a user. Same claims as a session access
+ * token (so it carries the user's real org permissions) but stamped with a
+ * caller-supplied `jti` for individual revocation and a long, explicit lifetime.
+ * When `scope` is set the token is forced to least-privilege (see
+ * {@link createAccessTokenPayload}). No refresh token and no `issuedTokens`
+ * history entry — a PAT is tracked by the `PersonalAccessToken` record keyed on
+ * its `jti`, not the session ring buffer.
+ */
+export async function signPersonalAccessToken(
+  user: UserDocument,
+  activeOrgId: string | undefined,
+  jti: string,
+  expiresInSeconds: number,
+  scope?: TokenScope,
+): Promise<string> {
+  let membership: MembershipContext | undefined;
+  try {
+    membership = await resolveMembership(user._id.toString(), activeOrgId || user.lastActiveOrgId?.toString());
+  } catch (error) {
+    logger.warn('Failed to resolve membership for PAT', { error });
+  }
+  const payload: AccessTokenPayload = { ...createAccessTokenPayload(user, membership, scope), jti };
+  return jwt.sign(payload, config.auth.jwt.secret, {
+    algorithm: config.auth.jwt.algorithm,
+    expiresIn: expiresInSeconds,
+  });
+}
+
 /** Verify and decode a JWT access token. */
 export function verifyAccessToken(token: string): AccessTokenPayload {
   return jwt.verify(token, config.auth.jwt.secret, {

@@ -58,7 +58,7 @@ export function _resetCredentialsCache(): void { cachedToken = null; }
  * Caches the result for the lifetime of the Lambda execution context.
  *
  * The secret name is set via PLATFORM_SECRET_NAME env var (e.g. `{prefix}/{orgId}/platform`)
- * Create it with: `pipeline-manager store-token`
+ * Create it with: `pipeline-manager infra store-token`
  */
 async function getToken(): Promise<string> {
   if (cachedToken) return cachedToken;
@@ -79,7 +79,7 @@ async function getToken(): Promise<string> {
   // pipeline-image-registry token endpoint validates the password as a JWT
   // and issues a registry token scoped to the JWT's org.
   if (!parsed.password) {
-    throw new Error(`Secret "${PLATFORM_SECRET_NAME}" missing password — run "pipeline-manager store-token" to generate`);
+    throw new Error(`Secret "${PLATFORM_SECRET_NAME}" missing password — run "pipeline-manager infra store-token" to generate`);
   }
 
   cachedToken = parsed.password;
@@ -206,7 +206,7 @@ function validatePluginFilter(pluginFilter: unknown): pluginFilter is PluginFilt
  * Lambda handler for CloudFormation Custom Resource that performs plugin lookup.
  *
  * Authenticates using JWT token from AWS Secrets Manager (PLATFORM_SECRET_NAME env var).
- * Create the secret with: `pipeline-manager store-token`
+ * Create the secret with: `pipeline-manager infra store-token`
  *
  * Request Types:
  * - Create/Update: fetches and returns plugin configuration from API

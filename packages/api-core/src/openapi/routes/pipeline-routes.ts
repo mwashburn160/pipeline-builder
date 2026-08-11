@@ -37,6 +37,16 @@ export function registerPipelineRoutes(): void {
   });
 
   registry.registerPath({
+    method: 'get',
+    path: '/pipelines/{id}/scorecard',
+    summary: 'Get a pipeline maturity scorecard',
+    description: 'Per-pipeline maturity scorecard blending compliance posture with DORA performance bands into a 0–100 score and letter grade. Requires the `advanced_reporting` feature.',
+    tags,
+    security: auth,
+    responses: { 200: { description: 'Scorecard' }, 403: { description: 'Feature not enabled' }, 404: { description: 'Not found' } },
+  });
+
+  registry.registerPath({
     method: 'post',
     path: '/pipelines',
     summary: 'Create a pipeline',

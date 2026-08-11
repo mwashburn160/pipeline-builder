@@ -58,11 +58,16 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unkno
 // purchased feature entitlements for the get/update-features responses). Not
 // exercised by bulk-delete, but the import must resolve.
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
-jest.unstable_mockModule('../src/models/index.js', () => ({ Organization: { findById: jest.fn() } }));
+jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
+  UserPreferences: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
+  Organization: { findById: jest.fn() },
+}));
 
 // user-admin transitively imports utils/token via user-profile; mock so we
 // don't pull in the real JWT signing path (which would demand env vars).
-jest.unstable_mockModule('../src/utils/token.js', () => ({ issueTokens: jest.fn() }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn() }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: jest.fn(),
   updateProfileSchema: {},
@@ -102,6 +107,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   PROFILE_OWNER_HAS_ORGS: 'PROFILE_OWNER_HAS_ORGS',
   PROFILE_USER_NOT_FOUND: 'PROFILE_USER_NOT_FOUND',
   PROFILE_LAST_PRIVILEGED_MEMBER: 'PROFILE_LAST_PRIVILEGED_MEMBER',
+  PROFILE_PAT_LIMIT: 'PROFILE_PAT_LIMIT',
 }));
 
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: {} }));

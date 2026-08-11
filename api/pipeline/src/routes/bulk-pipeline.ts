@@ -140,6 +140,10 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
             props: body.props as unknown as PipelineInsert['props'],
             accessModifier: accessModifier as AccessModifier,
             createdBy: userId || 'system',
+            // Catalog ownership: default to the creator so bulk-imported
+            // pipelines also appear under "my services".
+            ownerId: userId || 'system',
+            ownerType: 'user',
           },
           userId || 'system',
           project,

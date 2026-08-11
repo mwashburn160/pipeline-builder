@@ -29,16 +29,16 @@ interface PluginFilterParams extends CommonFilterParams {
  *
  * @example
  * ```bash
- * cli list-plugins
- * cli list-plugins --name auth-plugin --is-active true
- * cli list-plugins --version "^1.0.0"
- * cli list-plugins --limit 50 --offset 100 --sort "name:asc"
- * cli list-plugins --format json --output plugins.json
+ * cli plugin list
+ * cli plugin list --name auth-plugin --is-active true
+ * cli plugin list --version "^1.0.0"
+ * cli plugin list --limit 50 --offset 100 --sort "name:asc"
+ * cli plugin list --format json --output plugins.json
  * ```
  */
 export function listPlugins(program: Command): void {
   program
-    .command('list-plugins')
+    .command('list')
     .description('Query plugins with comprehensive filters')
 
     // Common filter options

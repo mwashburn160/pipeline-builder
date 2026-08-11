@@ -46,7 +46,7 @@ export const organizationBenefitsTopic: HelpTopic = {
           rows: [
             ['Dashboard', 'Visual builder — select plugins, configure stages, deploy'],
             ['AI Prompt', 'Paste a Git URL, get a complete pipeline generated from repo analysis'],
-            ['CLI', 'pipeline-manager create-pipeline for scripted workflows'],
+            ['CLI', 'pipeline-manager pipeline create for scripted workflows'],
             ['REST API', 'Programmatic control for platform teams'],
             ['CDK Construct', 'PipelineBuilder for infrastructure-as-code'],
           ],

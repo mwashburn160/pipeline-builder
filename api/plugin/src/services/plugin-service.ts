@@ -224,6 +224,12 @@ export class PluginService extends CrudService<
           pluginType: data.pluginType as PluginType,
           computeType: data.computeType as ComputeType,
           accessModifier: data.accessModifier as AccessModifier,
+          // Catalog ownership: always the creating user on the insert branch (a
+          // client-supplied ownerId is ignored, matching the pipeline convention
+          // so a member can't mint a plugin owned by someone else). Not touched on
+          // the conflict (re-upload) branch, so a re-upload never steals ownership.
+          ownerId: userId,
+          ownerType: 'user',
           isDefault: true,
           isActive: true,
           createdBy: userId,

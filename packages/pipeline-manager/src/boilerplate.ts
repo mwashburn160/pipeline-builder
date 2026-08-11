@@ -21,7 +21,7 @@ function parse(): BuilderProps {
   if (!encodedProps) {
     throw new Error(
       'PIPELINE_PROPS environment variable is missing. ' +
-      'Use "pipeline-manager synth --id <id>" or "pipeline-manager deploy --id <id>" to set it.',
+      'Use "pipeline-manager pipeline synth --id <id>" or "pipeline-manager pipeline deploy --id <id>" to set it.',
     );
   }
 

@@ -83,6 +83,9 @@ jest.unstable_mockModule('../src/helpers/seats.js', () => ({
 
 const mockOrgFind = jest.fn<(...a: unknown[]) => any>();
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   Organization: { find: (...a: unknown[]) => mockOrgFind(...a), findById: jest.fn(), countDocuments: jest.fn() },
   User: { updateOne: jest.fn() },
   UserOrganization: { countDocuments: jest.fn(), create: jest.fn(), distinct: () => ({ session: () => Promise.resolve([]) }) },

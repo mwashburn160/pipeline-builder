@@ -43,10 +43,10 @@ import {
  * @example
  * ```bash
  * # Retry a registration that failed during deploy
- * pipeline-manager register --id pipe-123
+ * pipeline-manager pipeline register --id pipe-123
  *
  * # Just drain pending intents from disk, no specific registration
- * pipeline-manager register
+ * pipeline-manager pipeline register
  * ```
  */
 export function register(program: Command): void {

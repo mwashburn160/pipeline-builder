@@ -129,9 +129,9 @@ export default function DownloadsPage() {
               <div className="flex-1">
                 <p className="text-sm text-gray-700 dark:text-gray-300 mb-1.5">Start using the CLI:</p>
                 <div className="rounded-lg bg-gray-900 dark:bg-gray-950 px-4 py-2.5 space-y-1">
-                  <code className="block text-sm font-mono text-green-400">pipeline-manager list-pipelines</code>
-                  <code className="block text-sm font-mono text-green-400">pipeline-manager list-plugins</code>
-                  <code className="block text-sm font-mono text-green-400">pipeline-manager deploy --id &lt;pipeline-id&gt;</code>
+                  <code className="block text-sm font-mono text-green-400">pipeline-manager pipeline list</code>
+                  <code className="block text-sm font-mono text-green-400">pipeline-manager plugin list</code>
+                  <code className="block text-sm font-mono text-green-400">pipeline-manager pipeline deploy --id &lt;pipeline-id&gt;</code>
                 </div>
               </div>
             </div>

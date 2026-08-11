@@ -3,14 +3,14 @@
 
 /**
  * Lambda handler that re-mints the platform JWT in Secrets Manager so it never
- * lapses. Deployed + scheduled (once a day) by `pipeline-manager store-token
+ * lapses. Deployed + scheduled (once a day) by `pipeline-manager infra store-token
  * --schedule`. Rather than re-implementing the token flow, it is a thin
  * orchestrator that reuses the tested CLI — each run:
  *
  *   1. Point the `@pipeline-builder` npm scope at public npm.
  *   2. Download `@pipeline-builder/pipeline-manager` from npm into /tmp.
  *   3. Read the current platform JWT from the secret.
- *   4. Run `pipeline-manager store-token`, which mints a fresh long-lived token
+ *   4. Run `pipeline-manager infra store-token`, which mints a fresh long-lived token
  *      via /api/user/generate-token and writes it back to the same secret.
  *
  * `/tmp` is the only writable path in Lambda, so npm's HOME/cache/prefix all live
@@ -75,7 +75,7 @@ export const handler = async (): Promise<void> => {
   //    write uses the Lambda role's creds.
   // store-token no longer takes --secret-name; it reads PLATFORM_SECRET_NAME from
   // the environment (else derives it from the token's org).
-  const args = ['store-token', '--region', region, '--days', days];
+  const args = ['infra', 'store-token', '--region', region, '--days', days];
   // SECURITY: the spawned store-token POSTs the JWT to the platform. Refuse to
   // disable TLS verification in production so a MITM can't harvest it. Production
   // is this Lambda's normal mode (the renew stack sets NODE_ENV=production), so

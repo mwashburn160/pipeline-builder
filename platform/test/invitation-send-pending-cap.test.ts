@@ -50,6 +50,9 @@ const mockCountDocuments = jest.fn((filter: Record<string, unknown>) => {
 });
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   Organization: { findById: () => sessionResolving({ _id: 'org-1', name: 'Acme', owner: { toString: () => 'owner-1' } }) },
   User: { findOne: () => sessionResolving(null), findById: () => sessionResolving({ username: 'inviter' }) },
   UserOrganization: { findOne: () => sessionResolving(null) },

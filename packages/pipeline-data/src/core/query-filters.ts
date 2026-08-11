@@ -71,6 +71,20 @@ export interface CommonFilter {
    * @example "name:asc", "createdAt:desc"
    */
   readonly sort?: string;
+
+  /**
+   * Filter by catalog owner (developer-portal "my services" view).
+   * Matches the entity's `ownerId` exactly (a user id or team id).
+   * Only applied by builders for entities that carry an owner column
+   * (pipelines, plugins); ignored elsewhere.
+   */
+  readonly ownerId?: string;
+
+  /**
+   * Filter by lifecycle stage (experimental | production | deprecated).
+   * Only applied by builders for entities that carry a lifecycle column.
+   */
+  readonly lifecycle?: string;
 }
 
 /**
@@ -144,6 +158,18 @@ export interface PipelineFilter extends CommonFilter {
   /**
    * Keyword to search within the keywords JSONB array (case-insensitive contains)
    */
+  readonly keyword?: string;
+}
+
+/**
+ * Filter interface for pipeline-template queries (golden-path catalog).
+ */
+export interface PipelineTemplateFilter extends CommonFilter {
+  /** Template name (case-insensitive contains). */
+  readonly name?: string;
+  /** Category to filter by (e.g. 'language', 'general'). */
+  readonly category?: string;
+  /** Keyword search within the keywords JSONB array. */
   readonly keyword?: string;
 }
 

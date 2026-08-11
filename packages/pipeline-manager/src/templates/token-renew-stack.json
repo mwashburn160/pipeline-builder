@@ -1,6 +1,6 @@
 {
   "AWSTemplateFormatVersion": "2010-09-09",
-  "Description": "Pipeline Builder platform-token renewal — a scheduled Lambda that re-mints the platform JWT in Secrets Manager before it expires, so CodeBuild/Lambda credentials never lapse. Lambda code is deployed separately via pipeline-manager store-token.",
+  "Description": "Pipeline Builder platform-token renewal — a scheduled Lambda that re-mints the platform JWT in Secrets Manager before it expires, so CodeBuild/Lambda credentials never lapse. Lambda code is deployed separately via pipeline-manager infra store-token.",
   "Parameters": {
     "PlatformBaseUrl": {
       "Type": "String",
@@ -69,7 +69,7 @@
         "Runtime": "nodejs24.x",
         "Handler": "index.handler",
         "Code": {
-          "ZipFile": "exports.handler=async()=>{console.log('Placeholder handler — run pipeline-manager store-token to deploy real code');return{statusCode:200}}"
+          "ZipFile": "exports.handler=async()=>{console.log('Placeholder handler — run pipeline-manager infra store-token to deploy real code');return{statusCode:200}}"
         },
         "Role": { "Fn::GetAtt": ["LambdaRole", "Arn"] },
         "Timeout": 300,

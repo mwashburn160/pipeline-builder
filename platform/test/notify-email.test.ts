@@ -39,6 +39,9 @@ jest.unstable_mockModule('../src/middleware/index.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   UserOrganization: { find: (...a: unknown[]) => ({ lean: () => mockMembershipFind(...a) }) },
   User: { find: (...a: unknown[]) => ({ lean: () => mockUserFind(...a) }) },
 }));

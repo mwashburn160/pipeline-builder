@@ -236,7 +236,7 @@ sequenceDiagram
 
     CP->>CB: Stage: Synth
     CB->>IMG: Pull cdk-synth image
-    CB->>CB: Run pipeline-manager synth
+    CB->>CB: Run pipeline-manager pipeline synth
     CB-->>CP: Output: cdk.out/
 
     CP->>CP: Stage: SelfMutation (update pipeline if changed)

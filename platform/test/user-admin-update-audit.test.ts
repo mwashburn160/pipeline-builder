@@ -47,7 +47,12 @@ jest.unstable_mockModule('../src/controllers/user-profile.js', () => ({
   toOverridesRecord: (v: unknown) => v,
 }));
 
-jest.unstable_mockModule('../src/models/index.js', () => ({ Organization: { findById: jest.fn() } }));
+jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
+  Organization: { findById: jest.fn() },
+}));
 
 jest.unstable_mockModule('../src/services/index.js', () => ({
   userAdminService: {

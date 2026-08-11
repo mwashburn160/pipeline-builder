@@ -27,6 +27,9 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 const emptyFindChain = () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) });
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   User: {
     updateOne: jest.fn().mockResolvedValue({}),
   },

@@ -60,6 +60,7 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unkno
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
 
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  signPersonalAccessToken: jest.fn(),
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
 }));
 

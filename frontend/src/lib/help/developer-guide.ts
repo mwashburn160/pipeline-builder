@@ -50,13 +50,13 @@ export const developerGuideTopic: HelpTopic = {
           type: 'code',
           language: 'bash',
           content: `# Login
-pipeline-manager login --url https://your-instance --no-verify-ssl
+pipeline-manager auth login --url https://your-instance --no-verify-ssl
 
 # Create from a JSON definition
-pipeline-manager create-pipeline --file pipeline.json --no-verify-ssl
+pipeline-manager pipeline create --file pipeline.json --no-verify-ssl
 
 # Deploy to AWS
-pipeline-manager deploy --id <pipeline-id> --no-verify-ssl --store-tokens`,
+pipeline-manager pipeline deploy --id <pipeline-id> --no-verify-ssl --store-tokens`,
         },
       ],
     },
@@ -249,8 +249,8 @@ new PipelineBuilder(stack, 'MyPipeline', {
           type: 'code',
           language: 'bash',
           content: `# Save as pipeline.json, then create and deploy
-pipeline-manager create-pipeline --file pipeline.json --no-verify-ssl
-pipeline-manager deploy --id <returned-id> --no-verify-ssl --store-tokens`,
+pipeline-manager pipeline create --file pipeline.json --no-verify-ssl
+pipeline-manager pipeline deploy --id <returned-id> --no-verify-ssl --store-tokens`,
         },
       ],
     },

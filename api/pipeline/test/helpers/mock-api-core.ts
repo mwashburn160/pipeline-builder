@@ -39,6 +39,16 @@ class NotFoundError extends Error {
   }
 }
 
+/** Mirrors api-core's ValidationError (statusCode 400 / code VALIDATION_ERROR). */
+class ValidationError extends Error {
+  statusCode = 400;
+  code = 'VALIDATION_ERROR';
+  constructor(message?: string) {
+    super(message);
+    this.name = 'ValidationError';
+  }
+}
+
 /**
  * Default api-core namespace for `unstable_mockModule`. Spread `overrides` last
  * so a suite can replace any default (and add exports the default omits).
@@ -85,6 +95,14 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // feature gate itself override this with a capability/feature-aware stub.
     requireFeature: () => passThroughMiddleware,
     NotFoundError,
+    ValidationError,
+    // Pipeline-template Zod schemas — the template routes import them as values
+    // (passed to validateBody/validateQuery). Inert stubs suffice for ESM linking;
+    // suites that exercise validation override validateBody/validateQuery anyway.
+    PipelineTemplateFilterSchema: {},
+    PipelineTemplateCreateSchema: {},
+    PipelineTemplateUpdateSchema: {},
+    InstantiateTemplateSchema: {},
     // Shared SSRF guard — git-analysis http.ts links against this. Default is a
     // permissive async no-op; suites exercising the guard override it.
     assertSafeUrl: async () => {},

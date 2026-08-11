@@ -68,6 +68,9 @@ const mockOrgFindById = jest.fn(() => {
 });
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   Invitation: { distinct: (...a: unknown[]) => mockInvDistinct(a[0] as string, a[1] as Record<string, unknown>) },
   Organization: { findById: (...a: unknown[]) => mockOrgFindById(...a) },
   UserOrganization: { distinct: (...a: unknown[]) => mockUoDistinct(...a) },

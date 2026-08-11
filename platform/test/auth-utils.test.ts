@@ -26,6 +26,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   Organization: {
     findById: jest.fn().mockReturnValue({
       select: jest.fn().mockResolvedValue(null),

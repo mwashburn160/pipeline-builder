@@ -31,13 +31,13 @@ interface TokenAuditEntry {
  *
  * @example
  * ```bash
- * pipeline-manager audit-tokens --region us-east-1 --warn-days 7
- * pipeline-manager audit-tokens --region us-east-1 --json
+ * pipeline-manager audit tokens --region us-east-1 --warn-days 7
+ * pipeline-manager audit tokens --region us-east-1 --json
  * ```
  */
 export function auditTokens(program: Command): void {
   program
-    .command('audit-tokens')
+    .command('tokens')
     .description('Scan stored platform tokens in AWS Secrets Manager and report upcoming expirations')
     .option('--region <region>', 'AWS region (defaults to AWS_REGION env)')
     .option('--profile <profile>', 'AWS CLI profile', 'default')
@@ -145,7 +145,7 @@ export function auditTokens(program: Command): void {
                 : `expires in ${e.daysUntilExpiry} day${e.daysUntilExpiry === 1 ? '' : 's'}`;
               printWarning(`${e.secretName} — ${label}`);
             }
-            printError(`${atRisk.length} secret${atRisk.length === 1 ? '' : 's'} need rotation. Run \`pipeline-manager store-token --days <N>\` to refresh.`);
+            printError(`${atRisk.length} secret${atRisk.length === 1 ? '' : 's'} need rotation. Run \`pipeline-manager infra store-token --days <N>\` to refresh.`);
           }
         }
         process.exit(exitCode);

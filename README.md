@@ -48,7 +48,7 @@ Meet developers where they are — visual, scripted, declarative, or AI-driven. 
 |-----------|----------|-------------|
 | **Dashboard** | Application developers | Point, click, configure stages visually, deploy |
 | **AI Prompt** | Brand-new repositories | Paste a Git URL — Pipeline Builder analyzes the repo and generates stages and plugins automatically |
-| **CLI** | CI integration, scripting | `pipeline-manager create-pipeline` from any shell |
+| **CLI** | CI integration, scripting | `pipeline-manager pipeline create` from any shell |
 | **REST API** | Platform teams, automation | Full CRUD + AI generation endpoints |
 | **CDK Construct** | Infrastructure-as-code shops | `PipelineBuilder` construct deployable from any CDK app |
 
@@ -125,7 +125,7 @@ commands:
 - **Type coercion** — `| number`, `| bool`, `| json` for non-string fields
 - **Plugin contracts** — `requiredMetadata` / `requiredVars` / `metadataTypes` declare what a plugin needs, validated at upload
 - **Self-references with cycle detection** in pipeline configs
-- **Preview & validate** — `pipeline-manager validate-templates`, `--show-resolved` flag, `?resolve=true` API param
+- **Preview & validate** — `pipeline-manager template validate`, `--show-resolved` flag, `?resolve=true` API param
 - **Editor support** — frontend MetadataEditor parses tokens inline as you type
 
 Fully backward-compatible: pipelines and plugins without `{{ ... }}` continue working unchanged. See [Template Syntax](docs/templates.md) for the full grammar, scope reference, and migration guide.
@@ -164,6 +164,7 @@ Every CodePipeline and CodeBuild state change flows through EventBridge into the
 - Error categorization — build vs test vs deploy failures
 - Per-organization cost attribution
 - [DORA metrics](docs/dora-metrics.md) — deployment frequency, change failure rate, MTTR, and a lead-time proxy with Elite/High/Medium/Low performance bands and a trend sparkline (median successful run time — an approximation, **not** true commit→production lead time)
+- [Developer portal](docs/developer-portal.md) — catalog ownership + *My Services*, golden-path templates you instantiate by filling inputs (still governed by compliance + quota), and a per-pipeline maturity scorecard (compliance posture + DORA → A–F grade)
 
 ### Built for Production
 
@@ -231,17 +232,17 @@ For detailed end-to-end flows (plugin upload, pipeline creation, CDK synthesis, 
 
 ## Quick Start
 
-**Recommended — install with the CLI.** `pipeline-manager provision` is the primary way to stand up the platform: it picks the target, checks prerequisites — offering to **fetch** missing single-binary tools (`yq`, `kubectl`, `minikube`) and to generate the local `.env` with secrets, no system install — can sparse-clone a fresh machine, and assembles the exact, validated command (and, with an AI key set, parses a natural-language goal and diagnoses failures).
+**Recommended — install with the CLI.** `pipeline-manager infra provision` is the primary way to stand up the platform: it picks the target, checks prerequisites — offering to **fetch** missing single-binary tools (`yq`, `kubectl`, `minikube`) and to generate the local `.env` with secrets, no system install — can sparse-clone a fresh machine, and assembles the exact, validated command (and, with an AI key set, parses a natural-language goal and diagnoses failures).
 
 ```bash
 npm install -g @pipeline-builder/pipeline-manager
-pipeline-manager provision --target docker              # deploy it (shows the plan, then asks to confirm)
-pipeline-manager provision --target docker --yes        # non-interactive (auto-accept prompts; for CI)
-pipeline-manager provision --target docker --json       # inspect the plan as JSON, run nothing
-# or describe the goal: pipeline-manager provision --prompt "deploy to EKS in us-east-1 with email"
+pipeline-manager infra provision --target docker              # deploy it (shows the plan, then asks to confirm)
+pipeline-manager infra provision --target docker --yes        # non-interactive (auto-accept prompts; for CI)
+pipeline-manager infra provision --target docker --json       # inspect the plan as JSON, run nothing
+# or describe the goal: pipeline-manager infra provision --prompt "deploy to EKS in us-east-1 with email"
 ```
 
-> **`--init <mode>`** controls post-deploy initialization. The default is **`auto`** — the deploy initializes the platform itself — on EC2 on first boot, on EKS in `setup.sh`'s final phase (register admin + load plugins/compliance/samples, over a `kubectl` port-forward); on `local`/`minikube`, `provision` runs init for you. Use **`--init manual`** to run `init-platform` yourself (e.g. to set real admin credentials) or **`--init skip`** to do nothing. See the [AWS deployment guide](docs/aws-deployment.md#ai-assisted-install-provision).
+> **`--init <mode>`** controls post-deploy initialization. The default is **`auto`** — the deploy initializes the platform itself — on EC2 on first boot, on EKS in `setup.sh`'s final phase (register admin + load plugins/compliance/samples, over a `kubectl` port-forward); on `local`/`minikube`, `infra provision` runs init for you. Use **`--init manual`** to run `init-platform` yourself (e.g. to set real admin credentials) or **`--init skip`** to do nothing. See the [AWS deployment guide](docs/aws-deployment.md#ai-assisted-install-infra-provision).
 
 Prefer to run it directly? Every target ships a `bin/setup.sh`:
 
@@ -298,6 +299,7 @@ catalog; see [Post-Deploy: Initialize Platform](docs/README.md#post-deploy-initi
 | Document | Description |
 |----------|-------------|
 | [API Reference](docs/api-reference.md) | REST endpoints, query params, curl examples |
+| [Developer Portal](docs/developer-portal.md) | Catalog ownership & My Services, golden-path templates, per-pipeline maturity scorecards |
 | [Roles & Permissions](docs/permissions.md) | Permission catalog, built-in Roles, `requirePermission` enforcement, session invalidation |
 | [CDK Usage](docs/cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Metadata Keys](docs/metadata-keys.md) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |

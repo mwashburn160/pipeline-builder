@@ -35,11 +35,11 @@ interface LoginResponse {
  *
  * @example
  * ```bash
- * pipeline-manager login --identifier admin@example.com --password secret
- * pipeline-manager login -u admin@example.com -p secret
- * pipeline-manager login -u admin@example.com -p secret --url https://myhost:8443
- * eval $(pipeline-manager login -u admin@example.com -p secret --quiet)
- * pipeline-manager login --refresh <refresh-token>
+ * pipeline-manager auth login --identifier admin@example.com --password secret
+ * pipeline-manager auth login -u admin@example.com -p secret
+ * pipeline-manager auth login -u admin@example.com -p secret --url https://myhost:8443
+ * eval $(pipeline-manager auth login -u admin@example.com -p secret --quiet)
+ * pipeline-manager auth login --refresh <refresh-token>
  * ```
  */
 export function login(program: Command): void {
@@ -202,9 +202,9 @@ export function login(program: Command): void {
           printInfo('Tip: Run the following to set the token in your shell:');
           const orgFlag = options.org ? ` --org ${options.org}` : '';
           if (isRefresh) {
-            console.log(green(`  eval $(pipeline-manager login --refresh '<refresh-token>'${orgFlag} --quiet)`));
+            console.log(green(`  eval $(pipeline-manager auth login --refresh '<refresh-token>'${orgFlag} --quiet)`));
           } else {
-            console.log(green(`  eval $(pipeline-manager login -u ${identifier} -p '***'${orgFlag} --quiet)`));
+            console.log(green(`  eval $(pipeline-manager auth login -u ${identifier} -p '***'${orgFlag} --quiet)`));
           }
         }
       } catch (error) {

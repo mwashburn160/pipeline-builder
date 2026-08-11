@@ -54,9 +54,9 @@ async function fetchPipelineConfig(
  *
  * @example
  * ```bash
- * pipeline-manager synth --id <pipeline-id> --no-verify-ssl
- * pipeline-manager synth --id <pipeline-id> --store-tokens
- * pipeline-manager synth --quiet --no-notices          # CodePipeline (uses env vars)
+ * pipeline-manager pipeline synth --id <pipeline-id> --no-verify-ssl
+ * pipeline-manager pipeline synth --id <pipeline-id> --store-tokens
+ * pipeline-manager pipeline synth --quiet --no-notices          # CodePipeline (uses env vars)
  * ```
  */
 export function synth(program: Command): void {

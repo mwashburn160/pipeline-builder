@@ -312,21 +312,21 @@ Unparseable values (e.g. `"abc" | number`) throw `TEMPLATE_TYPE_MISMATCH` at syn
 
 ```bash
 # Print what the pipeline will look like after resolution (no CDK deploy)
-pipeline-manager deploy --id <uuid> --show-resolved
-pipeline-manager synth  --id <uuid> --show-resolved
+pipeline-manager pipeline deploy --id <uuid> --show-resolved
+pipeline-manager pipeline synth  --id <uuid> --show-resolved
 ```
 
 ### Validate templates without uploading
 
 ```bash
 # Validate a local plugin-spec.yaml or pipeline.json before upload
-pipeline-manager validate-templates --file ./plugin-spec.yaml
+pipeline-manager template validate --file ./plugin-spec.yaml
 
 # Validate a pipeline by ID against the platform
-pipeline-manager validate-templates --pipeline <uuid>
+pipeline-manager template validate --pipeline <uuid>
 
 # Validate a published plugin
-pipeline-manager validate-templates --plugin kubectl-deploy:2.0.0
+pipeline-manager template validate --plugin kubectl-deploy:2.0.0
 ```
 
 ---

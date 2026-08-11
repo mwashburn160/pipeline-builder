@@ -47,7 +47,7 @@ export interface PluginLookupProps {
   /** Reserved concurrent executions for the lookup Lambda (default: 30) */
   readonly reservedConcurrentExecutions?: number;
   /**
-   * Plugins pre-resolved by `pipeline-manager synth` from the platform API.
+   * Plugins pre-resolved by `pipeline-manager pipeline synth` from the platform API.
    * Keyed by `alias || name` (matches the construct's normalize() output).
    * When a lookup hits this map, `plugin()` returns the resolved Plugin
    * directly — no custom resource is created. This is what makes the
@@ -71,7 +71,7 @@ export interface PluginLookupProps {
  *
  * Before deploying, store a JWT token in Secrets Manager:
  * ```sh
- * pipeline-manager store-token --days 30 --region <region>
+ * pipeline-manager infra store-token --days 30 --region <region>
  * ```
  *
  * The Lambda resolves the secret by name at runtime:
@@ -146,7 +146,7 @@ export class PluginLookup extends Construct {
   public plugin(plugin: string | PluginOptions): Plugin {
     const props = this.normalize(plugin);
 
-    // Pre-resolved by `pipeline-manager synth` from the platform API.
+    // Pre-resolved by `pipeline-manager pipeline synth` from the platform API.
     // Skip the custom resource entirely — we already know the plugin's
     // name, version, commands, env, etc. at synth time, so the resulting CFN
     // template can ship with the real CodeBuild image baked in.
@@ -188,7 +188,7 @@ export class PluginLookup extends Construct {
    * secret by name at runtime using `CoreConstants.SECRETS_PATH_PREFIX`.
    *
    * Create the secret before deploying with:
-   *   pipeline-manager store-token --days 30 --region <region>
+   *   pipeline-manager infra store-token --days 30 --region <region>
    */
   private createLambdaFunction(): NodejsFunction {
     if (!this._orgId) {
@@ -318,6 +318,12 @@ export class PluginLookup extends Construct {
       commands: [],
       dockerfile: null,
       buildType: 'metadata_only',
+      ownerId: null,
+      ownerType: null,
+      lifecycle: 'production',
+      criticality: null,
+      labels: {},
+      links: [],
       accessModifier: 'public',
       isDefault: false,
       isActive: true,
@@ -352,11 +358,11 @@ export class PluginLookup extends Construct {
 
   /**
    * Synth plugin with pipeline-manager commands. Cold-start bootstrap for
-   * the synth step when pre-resolution by `pipeline-manager synth/deploy`
+   * the synth step when pre-resolution by `pipeline-manager pipeline synth/deploy`
    * didn't populate `resolvedPlugins` for the synth plugin. Runs on the
    * configured `CODEBUILD_DEFAULT_IMAGE` (default `pipeline-bootstrap:1.0`)
    * and self-bootstraps the real synth via
-   * `pipeline-manager synth --id ${PIPELINE_ID}`.
+   * `pipeline-manager pipeline synth --id ${PIPELINE_ID}`.
    *
    * No `installCommands`: the default image already has `pipeline-manager`
    * baked in (that's the whole point of `pipeline-bootstrap:1.0`). If the
@@ -371,7 +377,7 @@ export class PluginLookup extends Construct {
       name: 'cdk-synth',
       primaryOutputDirectory: 'cdk.out',
       commands: [
-        'pipeline-manager synth --id ${PIPELINE_ID} --store-tokens --quiet --no-notices --no-verify-ssl',
+        'pipeline-manager pipeline synth --id ${PIPELINE_ID} --store-tokens --quiet --no-notices --no-verify-ssl',
       ],
     };
   }

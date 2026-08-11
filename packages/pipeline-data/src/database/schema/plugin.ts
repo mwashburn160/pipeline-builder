@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AccessModifier, ComputeType, PluginType, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { AccessModifier, ComputeType, PluginType, SYSTEM_ORG_ID, type Criticality, type EntityLabels, type EntityLink, type Lifecycle, type OwnerType } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
 
@@ -115,6 +115,25 @@ export const plugin = pgTable('plugins', {
     .default('build_image')
     .notNull(),
 
+  // Developer-portal catalog metadata (ownership / lifecycle / classification).
+  // ownerId defaults to the creating user (set at insert), so every plugin has
+  // an owner for "my services" views; ownerType distinguishes user vs team.
+  ownerId: text('owner_id'),
+  ownerType: varchar('owner_type', { length: 10 }).$type<OwnerType>(),
+  lifecycle: varchar('lifecycle', { length: 20 })
+    .$type<Lifecycle>()
+    .default('production' as Lifecycle)
+    .notNull(),
+  criticality: varchar('criticality', { length: 10 }).$type<Criticality>(),
+  labels: jsonb('labels')
+    .$type<EntityLabels>()
+    .default({})
+    .notNull(),
+  links: jsonb('links')
+    .$type<EntityLink[]>()
+    .default([])
+    .notNull(),
+
   // Access and visibility
   accessModifier: varchar('access_modifier', { length: 10 })
     .$type<AccessModifier>()
@@ -141,6 +160,10 @@ export const plugin = pgTable('plugins', {
 
   // Category index for filtering
   categoryIdx: index('plugin_category_idx').on(table.category),
+
+  // Developer-portal catalog indexes: "my services" (owner) + lifecycle filter.
+  ownerIdx: index('plugin_owner_idx').on(table.orgId, table.ownerId),
+  lifecycleIdx: index('plugin_lifecycle_idx').on(table.orgId, table.lifecycle),
 
   // Composite index for common access pattern (orgId + isActive)
   orgActiveIdx: index('plugin_org_active_idx').on(table.orgId, table.isActive),

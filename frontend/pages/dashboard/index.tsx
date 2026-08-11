@@ -4,8 +4,7 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import {
   GitBranch, ArrowRight, Upload, Wand2, Puzzle, Activity, CheckCircle2,
-  BarChart3, XCircle, Shield, Users, FileText, MessageSquare, Settings,
-  CreditCard, Clock, Star, Search, Inbox,
+  BarChart3, XCircle, Inbox,
 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -36,34 +35,6 @@ interface PluginSummary {
   active: number;
 }
 
-// ─── Service catalog (AWS Console-style) ────────────────
-
-interface ServiceTile {
-  name: string;
-  description: string;
-  href: string;
-  icon: typeof GitBranch;
-}
-
-// TODO: SERVICES duplicates the sidebar nav catalog in src/components/ui/Sidebar.tsx.
-// Drift here causes the AWS-Console-style services grid and the sidebar to
-// disagree on labels/hrefs. Consolidate into src/lib/nav.ts once src/lib/
-// ownership permits.
-const SERVICES: ServiceTile[] = [
-  { name: 'Pipelines', description: 'Define and manage CI/CD pipelines', href: '/dashboard/pipelines', icon: GitBranch },
-  { name: 'Plugins', description: 'Reusable build steps and plugins', href: '/dashboard/plugins', icon: Puzzle },
-  { name: 'Compliance', description: 'Rules, policies, and audit trail', href: '/dashboard/compliance', icon: Shield },
-  { name: 'Reports', description: 'Execution analytics and metrics', href: '/dashboard/reports', icon: BarChart3 },
-  { name: 'Activity', description: 'Pipeline events and audit log', href: '/dashboard/audit', icon: Activity },
-  { name: 'Members', description: 'Members, roles, and invitations', href: '/dashboard/members', icon: Users },
-  { name: 'Messages', description: 'Org announcements and conversations', href: '/dashboard/messages', icon: MessageSquare },
-  { name: 'Billing', description: 'Plans, subscriptions, and usage', href: '/dashboard/billing', icon: CreditCard },
-  { name: 'Settings', description: 'Account and organization settings', href: '/dashboard/settings', icon: Settings },
-  { name: 'Documentation', description: 'Guides, samples, and reference', href: '/dashboard/help', icon: FileText },
-];
-
-const SERVICE_BY_NAME = new Map(SERVICES.map(s => [s.name, s]));
-
 // ─── Helpers ────────────────────────────────────────────
 
 const stagger = {
@@ -71,16 +42,15 @@ const stagger = {
   item: { hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0, transition: { duration: 0.2 } } },
 };
 
-const RECENT_KEY = 'pb-recently-visited';
-
-function loadRecent(): string[] {
-  if (typeof window === 'undefined') return [];
-  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; }
-}
-
 // ─── Page ───────────────────────────────────────────────
 
-/** Dashboard home — AWS Console-style services grid + welcome + activity. */
+/**
+ * Dashboard home. Orients the user toward action: a primary "create a pipeline"
+ * hero, then role-adaptive signal (sysadmin fleet ops / org-admin health), and
+ * for members their personal action items (recent runs + inbox) BEFORE the
+ * org-wide stats and trend. The old AWS-Console-style service tile grid was
+ * removed — it duplicated the sidebar; navigation lives in one place now.
+ */
 export default function DashboardPage() {
   const { user, isReady, isAuthenticated, isSuperAdmin, isAdmin } = useAuthGuard();
   // Org admin = admin/owner WITHIN their org (not sysadmin). Sysadmin gets
@@ -88,7 +58,6 @@ export default function DashboardPage() {
   // home from displacing the platform-admin one.
   const isOrgAdmin = isAdmin && !isSuperAdmin;
   const [gitUrl, setGitUrl] = useState('');
-  const [serviceSearch, setServiceSearch] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [modalGitUrl, setModalGitUrl] = useState<string | undefined>();
   const [createLoading, setCreateLoading] = useState(false);
@@ -101,7 +70,6 @@ export default function DashboardPage() {
   // Execution Trend window (days). Drives the getSuccessRate from/to range.
   const [trendRange, setTrendRange] = useState<7 | 30 | 90>(7);
   const [pluginSummary, setPluginSummary] = useState<PluginSummary | null>(null);
-  const [recent, setRecent] = useState<string[]>([]);
   const [pipelineCount, setPipelineCount] = useState<number | null>(null);
   const [memberCount, setMemberCount] = useState<number | null>(null);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
@@ -139,28 +107,27 @@ export default function DashboardPage() {
   }, [isAuthenticated, fetchData]);
 
   // Execution Trend timeline — fetched separately so changing the range window
-  // only re-hits the success-rate report, not the whole dashboard.
-  const fetchTimeline = useCallback(async () => {
-    const to = new Date();
-    const from = new Date();
-    from.setDate(from.getDate() - trendRange);
-    try {
-      const res = await api.getSuccessRate({
-        interval: 'day',
-        from: from.toISOString().slice(0, 10),
-        to: to.toISOString().slice(0, 10),
-      });
-      setTimeline((res.data?.timeline || []).slice(-trendRange));
-    } catch { /* best-effort — leave the previous timeline in place */ }
-  }, [trendRange]);
-
+  // only re-hits the success-rate report, not the whole dashboard. Guarded with a
+  // `cancelled` flag so quickly toggling 7/30/90 can't let an earlier response
+  // land after a later one (stale overwrite).
   useEffect(() => {
-    if (isAuthenticated) fetchTimeline();
-  }, [isAuthenticated, fetchTimeline]);
-
-  useEffect(() => {
-    setRecent(loadRecent());
-  }, []);
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    (async () => {
+      const to = new Date();
+      const from = new Date();
+      from.setDate(from.getDate() - trendRange);
+      try {
+        const res = await api.getSuccessRate({
+          interval: 'day',
+          from: from.toISOString().slice(0, 10),
+          to: to.toISOString().slice(0, 10),
+        });
+        if (!cancelled) setTimeline((res.data?.timeline || []).slice(-trendRange));
+      } catch { /* best-effort — leave the previous timeline in place */ }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, trendRange]);
 
   // Read onboarding flags from localStorage once the user/org is known.
   useEffect(() => {
@@ -188,19 +155,6 @@ export default function DashboardPage() {
       { label: 'Active Plugins', value: pluginSummary ? String(pluginSummary.active) : '--', icon: Puzzle, color: 'text-purple-500' },
     ];
   }, [executions, pluginSummary, pipelineCount]);
-
-  const filteredServices = useMemo(() => {
-    if (!serviceSearch) return SERVICES;
-    const q = serviceSearch.toLowerCase();
-    return SERVICES.filter(s =>
-      s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q),
-    );
-  }, [serviceSearch]);
-
-  const recentServices = useMemo(
-    () => recent.map(name => SERVICE_BY_NAME.get(name)).filter((s): s is ServiceTile => !!s).slice(0, 6),
-    [recent],
-  );
 
   const timelineMax = useMemo(
     () => Math.max(1, ...timeline.map(e => e.succeeded + e.failed + e.canceled)),
@@ -235,13 +189,6 @@ export default function DashboardPage() {
     );
 
   if (!isReady || !user) return <LoadingPage />;
-
-  const trackVisit = (name: string) => {
-    if (typeof window === 'undefined') return;
-    const updated = [name, ...recent.filter(n => n !== name)].slice(0, 10);
-    try { localStorage.setItem(RECENT_KEY, JSON.stringify(updated)); } catch { /* localStorage may be unavailable */ }
-    setRecent(updated);
-  };
 
   // ─── Handlers ───
 
@@ -279,10 +226,10 @@ export default function DashboardPage() {
   };
 
   return (
-    <DashboardLayout title="Console Home" subtitle={`Welcome back, ${user.username}`}>
+    <DashboardLayout title="Home" subtitle={`Welcome back, ${user.username}`}>
       <motion.div variants={stagger.container} initial="hidden" animate="show" className="page-section">
 
-        {/* ─── Welcome Banner with Git URL hero ─── */}
+        {/* ─── Primary action: generate a pipeline from Git ─── */}
         <motion.div variants={stagger.item} className="card mb-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-blue-200 dark:border-blue-900">
           <div className="flex items-start gap-4">
             <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-blue-600 flex items-center justify-center">
@@ -315,6 +262,9 @@ export default function DashboardPage() {
                 <button onClick={openModalTab} className="action-link-muted underline">
                   <Wand2 className="w-3 h-3 inline mr-0.5" /> Create manually
                 </button>
+                <Link href="/dashboard/templates" className="action-link-muted underline">
+                  <Puzzle className="w-3 h-3 inline mr-0.5" /> Start from a template
+                </Link>
               </div>
             </div>
           </div>
@@ -323,7 +273,7 @@ export default function DashboardPage() {
         {/* ─── Role-specific home view ─── */}
         {/* Sysadmin: operations-focused (fleet stats, RLS posture, recent audit).
             Org-admin: health-focused (quotas, compliance, billing, team).
-            Member-user: continues with the existing stats + activity + timeline below. */}
+            Member-user: continues with personal activity + stats + timeline below. */}
         {isSuperAdmin && (
           <motion.div variants={stagger.item}>
             <SysadminHome />
@@ -339,19 +289,23 @@ export default function DashboardPage() {
           </motion.div>
         )}
 
-        {/* ─── Member-only stack: onboarding + stats + recent + timeline ─── */}
+        {/* ─── Member-only stack: onboarding → action items → stats → timeline ─── */}
         {/* Sysadmin and org-admin get richer signals from their role-home above;
             showing the generic org-wide stats too would be noise. */}
         {!isSuperAdmin && !isOrgAdmin && (<>
 
-        {/* ─── New-org onboarding (auto-hides once user has both pipelines and executions) ─── */}
+        {/* New-org onboarding (auto-hides once user has both pipelines and executions). */}
         {pipelineCount !== null && shouldShowOnboarding(onboardingSignals, onboardingDismissed) && (
           <motion.div variants={stagger.item}>
             <NewOrgWelcome signals={onboardingSignals} onDismiss={dismissOnboarding} />
           </motion.div>
         )}
 
-        {/* ─── Stats Strip ─── */}
+        {/* Personal action items FIRST — the user lands on what's theirs (recent
+            runs + inbox) before the generic org-wide numbers. */}
+        <MyRecentActivity executions={executions} unreadCount={unreadMessageCount} />
+
+        {/* Org-wide stats strip. */}
         <motion.div variants={stagger.item} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
           {stats.map((s) => {
             const Icon = s.icon;
@@ -369,88 +323,7 @@ export default function DashboardPage() {
           })}
         </motion.div>
 
-        {/* ─── My recent activity strip ─── */}
-        <MyRecentActivity executions={executions} unreadCount={unreadMessageCount} />
-
         </>)}
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* ─── Services Grid (AWS Console-style) ─── */}
-          <motion.div variants={stagger.item} className="lg:col-span-2 card">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Services</h3>
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                <Input
-                  type="text"
-                  value={serviceSearch}
-                  onChange={(e) => setServiceSearch(e.target.value)}
-                  placeholder="Search services"
-                  className="input-sm pl-8 w-48 text-xs"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {filteredServices.map((svc) => {
-                const Icon = svc.icon;
-                return (
-                  <Link
-                    key={svc.name}
-                    href={svc.href}
-                    onClick={() => trackVisit(svc.name)}
-                    className="group flex items-start gap-2.5 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50/30 dark:hover:bg-blue-950/20 transition-all"
-                  >
-                    <div className="flex-shrink-0 w-8 h-8 rounded-md bg-gray-100 dark:bg-gray-800 group-hover:bg-blue-100 dark:group-hover:bg-blue-900/40 flex items-center justify-center transition-colors">
-                      <Icon className="w-4 h-4 text-gray-600 dark:text-gray-300 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{svc.name}</p>
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-2">{svc.description}</p>
-                    </div>
-                  </Link>
-                );
-              })}
-              {filteredServices.length === 0 && (
-                <div className="col-span-full text-center py-6 text-sm text-gray-500 dark:text-gray-400">
-                  No services match "{serviceSearch}"
-                </div>
-              )}
-            </div>
-          </motion.div>
-
-          {/* ─── Recently Visited ─── */}
-          <motion.div variants={stagger.item} className="card">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-1.5">
-              <Clock className="w-4 h-4 text-gray-400" />
-              Recently visited
-            </h3>
-            {recentServices.length > 0 ? (
-              <ul className="space-y-1">
-                {recentServices.map((svc) => {
-                  const Icon = svc.icon;
-                  return (
-                    <li key={svc.name}>
-                      <Link
-                        href={svc.href}
-                        onClick={() => trackVisit(svc.name)}
-                        className="flex items-center gap-2 px-2 py-1.5 rounded text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                      >
-                        <Icon className="w-4 h-4 text-gray-400" />
-                        <span className="truncate">{svc.name}</span>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <div className="text-center py-6 text-xs text-gray-500 dark:text-gray-400">
-                <Star className="w-6 h-6 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
-                Visit a service to see it here
-              </div>
-            )}
-          </motion.div>
-        </div>
 
         {/* ─── Execution Timeline (full width) ─── */}
         {/* Hidden for sysadmins (their cross-tenant feed already covers
@@ -537,13 +410,10 @@ export default function DashboardPage() {
 }
 
 /**
- * "My recent activity" strip. Renders above the services catalog so the
- * user lands on something personally relevant (their own recent runs +
- * unread messages) before the generic org-wide service tiles.
- *
- * Sourced entirely from data the home page already loads — no new
- * endpoints, no extra round trips. Pipelines without a `last_execution`
- * are filtered out (never run).
+ * "My recent activity" strip — the user's own recent runs + unread messages,
+ * surfaced first so the home leads with what's personally actionable. Sourced
+ * entirely from data the home already loads (no extra round trips). Links to the
+ * fuller Inbox and Executions pages.
  */
 function MyRecentActivity({
   executions,
@@ -604,7 +474,7 @@ function MyRecentActivity({
             <Inbox className="w-4 h-4 text-gray-400" />
             Inbox
           </h3>
-          <Link href="/dashboard/messages" className="action-link text-xs">Open →</Link>
+          <Link href="/dashboard/inbox" className="action-link text-xs">Open →</Link>
         </div>
         {unreadCount === 0 ? (
           <div className="text-xs text-gray-500 dark:text-gray-400 py-2">No unread messages.</div>

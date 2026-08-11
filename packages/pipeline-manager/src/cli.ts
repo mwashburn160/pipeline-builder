@@ -8,6 +8,7 @@ import { program } from 'commander';
 import { auditStacks } from './commands/audit-stacks.js';
 import { auditTokens } from './commands/audit-tokens.js';
 import { bootstrap } from './commands/bootstrap.js';
+import { createPat } from './commands/create-pat.js';
 import { createPipeline } from './commands/create-pipeline.js';
 import { deploy } from './commands/deploy.js';
 import { getPipeline } from './commands/get-pipeline.js';
@@ -15,6 +16,7 @@ import { getPlugin } from './commands/get-plugin.js';
 import { listPipelines } from './commands/list-pipelines.js';
 import { listPlugins } from './commands/list-plugins.js';
 import { login } from './commands/login.js';
+import { newPlugin } from './commands/new-plugin.js';
 import { orgExport } from './commands/org-export.js';
 import { provision } from './commands/provision.js';
 import { register } from './commands/register.js';
@@ -23,6 +25,7 @@ import { status } from './commands/status.js';
 import { storeToken } from './commands/store-token.js';
 import { synth } from './commands/synth.js';
 import { uploadPlugin } from './commands/upload-plugin.js';
+import { validatePlugin } from './commands/validate-plugin.js';
 import { validateTemplatesCommand } from './commands/validate-templates.js';
 import { version } from './commands/version.js';
 import {
@@ -154,6 +157,15 @@ function registerCommands(): void {
     .option('--quiet', 'Minimal output (errors only)', false)
     .option('--no-color', 'Disable colored output', false)
     .addHelpText('after', `
+Command groups  auth      Authenticate and manage credentials (login, pat)
+  pipeline  Create, inspect, and deploy pipelines (create, list, get, register, synth, deploy)
+  plugin    Author, validate, and publish plugins (new, validate, upload, get, list)
+  template  Validate {{ ... }} templates (validate)
+  infra     Set up and operate platform infrastructure (bootstrap, setup-events, store-token, provision)
+  audit     Operator audits, cron-friendly (tokens, stacks)
+  org       Organization data operations (export)
+  status / version / completions
+
 Environment Variables  ${ENV_VARS.PLATFORM_TOKEN} Authentication token (required)
   ${ENV_VARS.PLATFORM_BASE_URL} API base URL (optional)
   ${ENV_VARS.CLI_CONFIG_PATH} Config file path (optional)
@@ -161,56 +173,67 @@ Environment Variables  ${ENV_VARS.PLATFORM_TOKEN} Authentication token (required
   ${ENV_VARS.DEBUG} Enable debug mode if 'true'
 
 Examples  $ ${APP_NAME} version
-  $ ${APP_NAME} list-pipelines --project my-app
-  $ ${APP_NAME} get-pipeline --id pipe-123 --format json
-  $ ${APP_NAME} store-token --days 30 --region us-east-1
-  $ ${APP_NAME} bootstrap --account 123456789012 --region us-east-1
-  $ ${APP_NAME} deploy --id pipe-123 --profile production
+  $ ${APP_NAME} auth login -u me@example.com
+  $ ${APP_NAME} pipeline list --project my-app
+  $ ${APP_NAME} pipeline get --id pipe-123 --format json
+  $ ${APP_NAME} plugin upload --file plugin.zip --organization acme
+  $ ${APP_NAME} infra store-token --days 30 --region us-east-1
+  $ ${APP_NAME} infra bootstrap --account 123456789012 --region us-east-1
+  $ ${APP_NAME} pipeline deploy --id pipe-123 --profile production
 
+Run '${APP_NAME} <group> --help' to see a group's subcommands.
 `);
 
-  // Version command (special handling)
+  // Top-level meta commands (no namespace).
   version(program);
-
-  // Authentication commands
-  printDebug('Registering authentication commands');
-  login(program); // Login and obtain PLATFORM_TOKEN (also supports --refresh)
-
-  // Query commands
-  printDebug('Registering query commands');
-  getPlugin(program); // Single plugin by ID
-  listPlugins(program); // Multiple plugins with filters
-  getPipeline(program); // Single pipeline by ID
-  listPipelines(program); // Multiple pipelines with filters
-
-  // Create/Upload commands
-  printDebug('Registering create/upload commands');
-  createPipeline(program); // Create pipeline configuration
-  uploadPlugin(program); // Upload and deploy plugin
-
-  // Status command
-  printDebug('Registering status command');
   status(program); // Show environment and connectivity status
 
-  // Org admin commands
-  printDebug('Registering org admin commands');
-  orgExport(program); // GDPR portability export â sysadmin (any org) or org admin (own org)
+  // Task namespaces — commands are grouped by the job the user is doing, not by
+  // implementation. Each parent is a subcommand container; the leaf verb lives in
+  // the command file (e.g. `.command('list')`), so `pipeline list` reads as a task.
+  printDebug('Registering task namespaces');
 
-  // Deployment commands
-  printDebug('Registering deployment commands');
-  storeToken(program); // Generate JWT token and store in Secrets Manager
-  setupEvents(program); // Deploy EventBridge event ingestion infrastructure
-  bootstrap(program); // Bootstrap CDK toolkit stack
-  deploy(program); // Deploy pipeline with CDK (--app prints boilerplate path)
-  register(program); // Re-register a deployed pipeline ARN + drain pending intents from prior failed deploys
-  provision(program); // AI-assisted deploy/teardown of the PLATFORM (local/minikube/EC2/EKS); --json prints the plan without executing
+  // auth — authenticate and manage credentials
+  const auth = program.command('auth').description('Authenticate and manage credentials');
+  login(auth); // auth login — obtain PLATFORM_TOKEN (also supports --refresh)
+  createPat(auth); // auth pat — create a named Personal Access Token
 
-  // Operator audit commands (cron-friendly: exit 1 on findings)
-  printDebug('Registering audit commands');
-  auditTokens(program); // Scan Secrets Manager for expiring platform tokens
-  auditStacks(program); // Diff CFN stacks vs pipeline_registry to find drift
-  synth(program); // Run CDK synthesis
-  validateTemplatesCommand(program); // Validate {{... }} templates in a pipeline or plugin
+  // pipeline — create, inspect, and deploy pipelines
+  const pipeline = program.command('pipeline').description('Create, inspect, and deploy pipelines');
+  createPipeline(pipeline); // pipeline create
+  listPipelines(pipeline); // pipeline list
+  getPipeline(pipeline); // pipeline get
+  register(pipeline); // pipeline register — re-register a deployed ARN + drain pending intents
+  synth(pipeline); // pipeline synth — CDK synthesis from pipeline config
+  deploy(pipeline); // pipeline deploy — CDK deploy (--app prints boilerplate path)
+
+  // plugin — author, validate, and publish plugins
+  const plugin = program.command('plugin').description('Author, validate, and publish plugins');
+  newPlugin(plugin); // plugin new — scaffold a local plugin directory
+  validatePlugin(plugin); // plugin validate — validate a local plugin before upload
+  uploadPlugin(plugin); // plugin upload — upload and deploy
+  getPlugin(plugin); // plugin get
+  listPlugins(plugin); // plugin list
+
+  // template — validate {{ ... }} templates
+  const template = program.command('template').description('Validate {{ ... }} templates in a pipeline or plugin spec');
+  validateTemplatesCommand(template); // template validate
+
+  // infra — set up and operate platform infrastructure
+  const infra = program.command('infra').description('Set up and operate platform infrastructure');
+  bootstrap(infra); // infra bootstrap — CDK toolkit stack
+  setupEvents(infra); // infra setup-events — EventBridge event ingestion
+  storeToken(infra); // infra store-token — JWT token in Secrets Manager for CDK
+  provision(infra); // infra provision — AI-assisted deploy/teardown of the platform
+
+  // audit — operator audits (cron-friendly: exit 1 on findings)
+  const audit = program.command('audit').description('Operator audits (cron-friendly: exit 1 on findings)');
+  auditTokens(audit); // audit tokens — expiring platform tokens in Secrets Manager
+  auditStacks(audit); // audit stacks — CFN stacks vs pipeline_registry drift
+
+  // org — organization data operations
+  const org = program.command('org').description('Organization data operations');
+  orgExport(org); // org export — GDPR portability export
 
   // Shell completions
   printDebug('Registering completions command');
@@ -219,31 +242,61 @@ Examples  $ ${APP_NAME} version
     .description('Generate shell completions (bash, zsh, fish)')
     .argument('<shell>', 'Shell type: bash, zsh, or fish')
     .action((shell: string) => {
-      // Pull command names from commander's registered list so completions never
-      // drift from the actual CLI surface. Sorted for stable output.
-      const commands = program.commands.map(c => c.name()).sort().join(' ');
+      // Walk commander's registered tree so completions never drift from the actual
+      // surface. `topLevel` is the first-word set (namespaces + meta commands);
+      // `subs` maps each namespace to its leaf verbs for second-word completion.
+      const topLevel = program.commands.map(c => c.name()).sort();
+      const subs: Record<string, string[]> = {};
+      for (const c of program.commands) {
+        if (c.commands.length > 0) subs[c.name()] = c.commands.map(s => s.name()).sort();
+      }
+      const topLevelStr = topLevel.join(' ');
       switch (shell) {
-        case 'bash':
+        case 'bash': {
+          // Two-level: complete the group at word 1, its subcommands at word 2.
+          const cases = Object.entries(subs)
+            .map(([ns, leaves]) => `      ${ns}) COMPREPLY=($(compgen -W "${leaves.join(' ')}" -- "\${cur}"));;`)
+            .join('\n');
           console.log(`# pipeline-manager bash completions
 _pipeline_manager_completions() {
   local cur="\${COMP_WORDS[COMP_CWORD]}"
-  local commands="${commands}"
-  COMPREPLY=($(compgen -W "\${commands}" -- "\${cur}"))
+  if [ "\${COMP_CWORD}" -eq 1 ]; then
+    COMPREPLY=($(compgen -W "${topLevelStr}" -- "\${cur}"))
+    return
+  fi
+  case "\${COMP_WORDS[1]}" in
+${cases}
+  esac
 }
 complete -F _pipeline_manager_completions pipeline-manager`);
           break;
-        case 'zsh':
+        }
+        case 'zsh': {
+          const cases = Object.entries(subs)
+            .map(([ns, leaves]) => `        ${ns}) _values 'subcommand' ${leaves.join(' ')};;`)
+            .join('\n');
           console.log(`# pipeline-manager zsh completions
 _pipeline_manager() {
-  local commands=(${commands})
-  _describe 'command' commands
+  if (( CURRENT == 2 )); then
+    _values 'command' ${topLevel.join(' ')}
+    return
+  fi
+  case "\${words[2]}" in
+${cases}
+  esac
 }
 compdef _pipeline_manager pipeline-manager`);
           break;
-        case 'fish':
-          console.log(`# pipeline-manager fish completions
-complete -c pipeline-manager -n '__fish_use_subcommand' -a '${commands}'`);
+        }
+        case 'fish': {
+          const lines = [
+            `complete -c pipeline-manager -n '__fish_use_subcommand' -a '${topLevelStr}'`,
+            ...Object.entries(subs).map(([ns, leaves]) =>
+              `complete -c pipeline-manager -n '__fish_seen_subcommand_from ${ns}' -a '${leaves.join(' ')}'`),
+          ];
+          console.log(`# pipeline-manager fish completions\n${lines.join('\n')}`);
           break;
+        }
         default:
           console.error(`Unknown shell: ${shell}. Use bash, zsh, or fish.`);
           process.exit(1);

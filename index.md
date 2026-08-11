@@ -48,7 +48,7 @@ Same backend, same compliance, same audit trail — meet developers where they a
 |-----------|----------|-------------|
 | **Dashboard** | Application developers | Point, click, configure stages visually, deploy |
 | **AI prompt** | Brand-new repositories | Paste a Git URL — Pipeline Builder analyzes the repo and generates stages + plugins |
-| **CLI** | CI integration, scripting | `pipeline-manager create-pipeline` from any shell |
+| **CLI** | CI integration, scripting | `pipeline-manager pipeline create` from any shell |
 | **REST API** | Platform teams, automation | Full CRUD + AI generation endpoints |
 | **CDK construct** | Infrastructure-as-code shops | `PipelineBuilder` construct deployable from any CDK app |
 
@@ -112,6 +112,7 @@ An **organization** is the isolation boundary — every pipeline, plugin, secret
 - **Isolated secrets** — AWS Secrets Manager per organization (`pipeline-builder/{orgId}/{secret}`), injected at build time, never stored in images
 - **Execution analytics** — EventBridge-fed success rates, duration percentiles (p50 / p90 / p99), stage-level failure heatmaps, and per-organization cost attribution (rolled up across child teams for parent orgs)
 - **DORA metrics** — deployment frequency, change failure rate, MTTR, and a lead-time proxy with Elite/High/Medium/Low performance bands and a trend sparkline on the Reports page (median successful run time is an approximation, *not* true commit→production lead time); see [DORA Metrics]({{ '/docs/dora-metrics.html' | relative_url }})
+- **Developer portal** — a catalog with **ownership** (a *My Services* view of what you own), **golden-path templates** you instantiate by filling a few inputs (governed by the same compliance + quota checks), and a per-pipeline **maturity scorecard** blending compliance posture with DORA into an A–F grade; see [Developer Portal]({{ '/docs/developer-portal.html' | relative_url }})
 - **Tamper-evident audit trail** — every privileged action hash-chained per tenant with a sysadmin `/audit/verify`, forgery-locked service ingest, and a durable spool so the security log survives an outage (see [Audit Events]({{ '/docs/audit-events.html' | relative_url }}))
 - **Built for production** — zero-trust internal JWT auth, Kubernetes `health` / `ready` / `warmup` / `metrics` endpoints, graceful degradation
 
@@ -173,17 +174,17 @@ See [Architecture Flow]({{ '/docs/architecture-flow.html' | relative_url }}) for
 
 ## Get started
 
-**Recommended — install with the CLI.** `pipeline-manager provision` is the primary way to stand up the platform: it picks the target, checks prerequisites — offering to **fetch** missing single-binary tools (`yq`, `kubectl`, `minikube`) and to generate the local `.env` with secrets, no system install — can sparse-clone a fresh machine, and gives you the exact, validated command to run (and, with an AI key set, parses a natural-language goal and diagnoses failures).
+**Recommended — install with the CLI.** `pipeline-manager infra provision` is the primary way to stand up the platform: it picks the target, checks prerequisites — offering to **fetch** missing single-binary tools (`yq`, `kubectl`, `minikube`) and to generate the local `.env` with secrets, no system install — can sparse-clone a fresh machine, and gives you the exact, validated command to run (and, with an AI key set, parses a natural-language goal and diagnoses failures).
 
 ```bash
 npm install -g @pipeline-builder/pipeline-manager
-pipeline-manager provision --target docker              # deploy it (shows the plan, then asks to confirm)
-pipeline-manager provision --target docker --yes        # non-interactive (auto-accept prompts; for CI)
-pipeline-manager provision --target docker --json       # inspect the plan as JSON, run nothing
-# or: pipeline-manager provision --prompt "deploy to EKS in us-east-1 with email"
+pipeline-manager infra provision --target docker              # deploy it (shows the plan, then asks to confirm)
+pipeline-manager infra provision --target docker --yes        # non-interactive (auto-accept prompts; for CI)
+pipeline-manager infra provision --target docker --json       # inspect the plan as JSON, run nothing
+# or: pipeline-manager infra provision --prompt "deploy to EKS in us-east-1 with email"
 ```
 
-> **`--init <mode>`** controls post-deploy initialization. The default is **`auto`** — the deploy initializes the platform itself — on EC2 on first boot, on EKS in `setup.sh`'s final phase (register admin + load plugins/compliance/samples, over a `kubectl` port-forward); on `local`/`minikube`, `provision` runs init for you. Use **`--init manual`** to run `init-platform` yourself or **`--init skip`** to do nothing. See the [AWS deployment guide]({{ '/docs/aws-deployment.html' | relative_url }}#ai-assisted-install-provision).
+> **`--init <mode>`** controls post-deploy initialization. The default is **`auto`** — the deploy initializes the platform itself — on EC2 on first boot, on EKS in `setup.sh`'s final phase (register admin + load plugins/compliance/samples, over a `kubectl` port-forward); on `local`/`minikube`, `infra provision` runs init for you. Use **`--init manual`** to run `init-platform` yourself or **`--init skip`** to do nothing. See the [AWS deployment guide]({{ '/docs/aws-deployment.html' | relative_url }}#ai-assisted-install-infra-provision).
 
 Prefer to run it directly? The full stack runs locally with Docker — prebuilt public images, no registry login:
 
@@ -231,6 +232,7 @@ Browse the full docs at **[{{ '/docs/' | relative_url }}]({{ '/docs/' | relative
 | Guide | Description |
 |-------|-------------|
 | [API Reference]({{ '/docs/api-reference.html' | relative_url }}) | REST endpoints for pipelines, plugins, compliance, reporting, and AI |
+| [Developer Portal]({{ '/docs/developer-portal.html' | relative_url }}) | Catalog ownership & My Services, golden-path templates, per-pipeline maturity scorecards |
 | [Roles & Permissions]({{ '/docs/permissions.html' | relative_url }}) | Permission catalog, built-in Roles, enforcement, session invalidation |
 | [CDK Usage]({{ '/docs/cdk-usage.html' | relative_url }}) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Metadata Keys]({{ '/docs/metadata-keys.html' | relative_url }}) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |

@@ -208,9 +208,14 @@ export class PipelineService extends CrudService<
    * (rewriting provenance on every re-create) and `id` must never change — so
    * strip those and write only mutable columns plus the fresh default/active
    * flags, the undelete, and the update stamps.
+   *
+   * `ownerId`/`ownerType` are stripped for the same provenance reason: a re-create
+   * of an existing default must not silently transfer catalog ownership to whoever
+   * re-ran it. Other catalog metadata (lifecycle/criticality/labels/links) stays in
+   * `mutable` so a re-create can legitimately refresh it.
    */
   private buildDefaultConflictSet(data: PipelineInsert, userId: string): Record<string, unknown> {
-    const { id: _id, createdAt: _createdAt, createdBy: _createdBy, ...mutable } = data as Record<string, unknown>;
+    const { id: _id, createdAt: _createdAt, createdBy: _createdBy, ownerId: _ownerId, ownerType: _ownerType, ...mutable } = data as Record<string, unknown>;
     return {
       ...mutable,
       isDefault: true,

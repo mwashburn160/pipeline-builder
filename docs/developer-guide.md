@@ -17,7 +17,7 @@ This guide is for developers building CI/CD pipelines with Pipeline Builder. It 
 2. **Select plugins** for each stage from the catalog (language, test, lint, security, deploy, ...).
 3. **Assemble stages** — copy a language or [common pattern](#common-patterns) block and add steps (Docker build, Terraform, manual approval, notifications).
 4. **Tune step behavior** — `commands`, `failureBehavior`, timeouts, compute size, and metadata.
-5. **Deploy** — e.g. `pipeline-manager create-pipeline` then `deploy`; each plugin runs as an isolated container in AWS CodePipeline.
+5. **Deploy** — e.g. `pipeline-manager pipeline create` then `pipeline deploy`; each plugin runs as an isolated container in AWS CodePipeline.
 
 ---
 
@@ -59,13 +59,13 @@ Paste a Git repository URL. Pipeline Builder analyzes the repo (language, framew
 
 ```bash
 # Login
-pipeline-manager login --url https://your-instance --no-verify-ssl
+pipeline-manager auth login --url https://your-instance --no-verify-ssl
 
 # Create from a JSON definition
-pipeline-manager create-pipeline --file pipeline.json --no-verify-ssl
+pipeline-manager pipeline create --file pipeline.json --no-verify-ssl
 
 # Deploy to AWS
-pipeline-manager deploy --id <pipeline-id> --no-verify-ssl --store-tokens
+pipeline-manager pipeline deploy --id <pipeline-id> --no-verify-ssl --store-tokens
 ```
 
 ### 4. REST API
@@ -523,8 +523,8 @@ A full pipeline definition for a Spring Boot application:
 Save as `pipeline.json` and deploy:
 
 ```bash
-pipeline-manager create-pipeline --file pipeline.json --no-verify-ssl
-pipeline-manager deploy --id <returned-id> --no-verify-ssl --store-tokens
+pipeline-manager pipeline create --file pipeline.json --no-verify-ssl
+pipeline-manager pipeline deploy --id <returned-id> --no-verify-ssl --store-tokens
 ```
 
 ---

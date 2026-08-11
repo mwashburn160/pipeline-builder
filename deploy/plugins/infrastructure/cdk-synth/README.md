@@ -12,7 +12,7 @@ When CodeBuild runs this plugin, it:
 1. Health-checks the platform service at `${PLATFORM_BASE_URL}/health` —
    fail-fast if the platform is unreachable, since synthesis depends on
    fetching the pipeline definition from it.
-2. Invokes the bundled `pipeline-manager synth` CLI (an internal binary
+2. Invokes the bundled `pipeline-manager pipeline synth` CLI (an internal binary
    pinned to `@pipeline-builder/pipeline-manager@1.6.6` in the Dockerfile)
    with the pipeline ID provided in `${PIPELINE_ID}`.
 3. Writes the resulting CloudAssembly to `cdk.out/`, which `cdk-deploy`
@@ -72,7 +72,7 @@ docker run --rm \
   -e AWS_REGION=us-east-1 \
   -e AWS_ACCOUNT_ID=123456789012 \
   cdk-synth-test \
-  pipeline-manager synth --id "$PIPELINE_ID" --output cdk.out
+  pipeline-manager pipeline synth --id "$PIPELINE_ID" --output cdk.out
 ```
 
 ## See also

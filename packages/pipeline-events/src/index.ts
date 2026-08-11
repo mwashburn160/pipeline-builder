@@ -149,11 +149,11 @@ async function getAuthToken(): Promise<string> {
   if (!response.SecretString) throw new Error(`Secret "${secretName}" is empty`);
 
   const secret = JSON.parse(response.SecretString) as Record<string, string>;
-  // store-token writes the JWT in `password` (the canonical field — also used by
+  // infra store-token writes the JWT in `password` (the canonical field — also used by
   // CodeBuild secretsManagerCredentials, the plugin-lookup Lambda, and token-renew).
   const token = secret.password;
   if (!token) {
-    throw new Error('Secret missing JWT (password) — run "pipeline-manager store-token" to generate');
+    throw new Error('Secret missing JWT (password) — run "pipeline-manager infra store-token" to generate');
   }
 
   cachedToken = token;

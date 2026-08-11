@@ -30,6 +30,9 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (cb: (s: unknown) => unknown) => cb({ id: 'test-session' }),
 }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   Role: {
     findOne: (...a: unknown[]) => mockRoleFindOne(...a),
     create: (...a: unknown[]) => mockRoleCreate(...a),

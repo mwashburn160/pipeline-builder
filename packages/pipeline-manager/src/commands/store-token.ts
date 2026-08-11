@@ -112,14 +112,14 @@ async function deployRenewSchedule(opts: {
  *
  * @example
  * ```bash
- * pipeline-manager store-token --region us-east-1
- * pipeline-manager store-token --days 90 --region us-east-1
- * pipeline-manager store-token --schedule --region us-east-1          # + daily auto-renewal
- * pipeline-manager store-token --schedule --cron '0 3 * * *'          # custom renewal time
- * pipeline-manager store-token --days 7 --no-verify-ssl
- * PLATFORM_SECRET_NAME=my-custom-secret pipeline-manager store-token   # override the derived name
- * pipeline-manager store-token --dry-run
- * pipeline-manager store-token -e admin -p '***' --region us-east-1
+ * pipeline-manager infra store-token --region us-east-1
+ * pipeline-manager infra store-token --days 90 --region us-east-1
+ * pipeline-manager infra store-token --schedule --region us-east-1          # + daily auto-renewal
+ * pipeline-manager infra store-token --schedule --cron '0 3 * * *'          # custom renewal time
+ * pipeline-manager infra store-token --days 7 --no-verify-ssl
+ * PLATFORM_SECRET_NAME=my-custom-secret pipeline-manager infra store-token   # override the derived name
+ * pipeline-manager infra store-token --dry-run
+ * pipeline-manager infra store-token -e admin -p '***' --region us-east-1
  * ```
  */
 export function storeToken(program: Command): void {
@@ -311,12 +311,12 @@ export function storeToken(program: Command): void {
           console.log('');
           printSuccess('Token stored. To use with synth/deploy:');
           printInfo(`  export PLATFORM_SECRET_NAME=${secretName}`);
-          printInfo('  pipeline-manager synth --id <pipeline-id> --store-tokens');
+          printInfo('  pipeline-manager pipeline synth --id <pipeline-id> --store-tokens');
           console.log('');
           if (scheduleExpression) {
             printInfo(`Auto-renewal is active (${scheduleExpression}); the secret refreshes before ${expiresAt}.`);
           } else {
-            printInfo(`Renew before ${expiresAt} with: pipeline-manager store-token --days ${days}`);
+            printInfo(`Renew before ${expiresAt} with: pipeline-manager infra store-token --days ${days}`);
             printInfo('  (or pass --schedule to install a daily auto-renewal stack)');
           }
         }

@@ -28,6 +28,9 @@ const mockUOFind = jest.fn();
 const mockOrgFindById = jest.fn();
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   User: { updateOne: jest.fn().mockResolvedValue({}) },
   Organization: { findById: (...a: unknown[]) => mockOrgFindById(...a) },
   UserOrganization: {

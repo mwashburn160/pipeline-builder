@@ -27,15 +27,15 @@ const { bold, green } = pico;
  *
  * @example
  * ```bash
- * cli upload-plugin --file plugin.zip --organization acme
- * cli upload-plugin --file plugin.zip --organization acme --public
- * cli upload-plugin --file plugin.zip --organization acme --name my-plugin --version 1.0.0
- * cli upload-plugin --file plugin.zip --organization acme --no-verify-ssl
+ * cli plugin upload --file plugin.zip --organization acme
+ * cli plugin upload --file plugin.zip --organization acme --public
+ * cli plugin upload --file plugin.zip --organization acme --name my-plugin --version 1.0.0
+ * cli plugin upload --file plugin.zip --organization acme --no-verify-ssl
  * ```
  */
 export function uploadPlugin(program: Command): void {
   program
-    .command('upload-plugin')
+    .command('upload')
     .description('Upload and deploy a plugin package')
     .requiredOption('-f, --file <file>', 'Path to plugin ZIP file')
     .requiredOption('-o, --organization <organization>', 'Organization name')
@@ -137,9 +137,10 @@ export function uploadPlugin(program: Command): void {
 
         printSuccess('Plugin file validated');
 
-        // Validate version format if provided
+        // Validate version format if provided. Allows -prerelease and +build
+        // metadata (valid semver) to match validate-plugin and the DB constraint.
         if (options.version) {
-          const versionRegex = /^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?$/;
+          const versionRegex = /^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$/;
           if (!versionRegex.test(options.version)) {
             printWarning('Version format may be invalid', {
               provided: options.version,

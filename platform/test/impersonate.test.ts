@@ -41,9 +41,13 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
     async (req: any, res: any) => fn(req, res),
 }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   User: { findById: (...a: unknown[]) => mockUserFindById(...a) },
 }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  signPersonalAccessToken: jest.fn(),
   issueImpersonationToken: (...a: unknown[]) => mockIssueImpersonation(...a),
 }));
 

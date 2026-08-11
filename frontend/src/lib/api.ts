@@ -8,6 +8,7 @@ import { adminApi } from './api/domains/admin';
 import { billingApi } from './api/domains/billing';
 import { pluginsApi } from './api/domains/plugins';
 import { pipelinesApi } from './api/domains/pipelines';
+import { pipelineTemplatesApi } from './api/domains/pipeline-templates';
 import { registryApi } from './api/domains/registry';
 import { observabilityApi } from './api/domains/observability';
 import { messagesApi } from './api/domains/messages';
@@ -24,6 +25,7 @@ export const api = Object.assign(
   billingApi(core),
   pluginsApi(core),
   pipelinesApi(core),
+  pipelineTemplatesApi(core),
   registryApi(core),
   observabilityApi(core),
   messagesApi(core),
@@ -36,6 +38,7 @@ export const api = Object.assign(
   & ReturnType<typeof billingApi>
   & ReturnType<typeof pluginsApi>
   & ReturnType<typeof pipelinesApi>
+  & ReturnType<typeof pipelineTemplatesApi>
   & ReturnType<typeof registryApi>
   & ReturnType<typeof observabilityApi>
   & ReturnType<typeof messagesApi>

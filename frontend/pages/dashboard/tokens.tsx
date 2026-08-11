@@ -12,6 +12,7 @@ import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import api from '@/lib/api';
+import { PatSection } from '@/components/settings/PatSection';
 import { decodeJwt, formatTimestamp, isExpired, expiresIn } from '@/lib/jwt';
 import { redactString, redactDetails } from '@/lib/redact';
 
@@ -266,6 +267,10 @@ export default function TokensPage() {
           {generating ? 'Generating...' : <><RefreshCw className="w-4 h-4 mr-2" />Generate Token</>}
         </Button>
       </motion.div>
+
+      <div className="mb-6">
+        <PatSection />
+      </div>
 
       <div className="space-y-6">
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.1 }}>

@@ -41,6 +41,9 @@ const mockInvFind = jest.fn<(...a: unknown[]) => unknown>();
 const mockInvCount = jest.fn<(...a: unknown[]) => Promise<number>>();
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   Invitation: {
     find: (...a: unknown[]) => mockInvFind(...a),
     countDocuments: (...a: unknown[]) => mockInvCount(...a),

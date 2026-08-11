@@ -158,7 +158,7 @@ export const architectureFlowTopic: HelpTopic = {
           type: 'list',
           items: [
             'Source — fetch code (e.g. GitHub push/webhook).',
-            'Synth — pull the cdk-synth image and run pipeline-manager synth, producing cdk.out/.',
+            'Synth — pull the cdk-synth image and run pipeline-manager pipeline synth, producing cdk.out/.',
             'SelfMutation — update the pipeline if its definition changed.',
             'Stages (Test, Security, Deploy, ...) — pull each plugin image and run its commands/scans/deploy.',
           ],

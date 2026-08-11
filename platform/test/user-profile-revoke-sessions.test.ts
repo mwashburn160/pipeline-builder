@@ -54,9 +54,12 @@ jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unkno
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => unknown) => fn({ id: 'sess' }),
 }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({ hashRefreshToken: (t: string) => `hash:${t}` }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), hashRefreshToken: (t: string) => `hash:${t}` }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: { updateMany: jest.fn(async () => ({ modifiedCount: 0 })) },
+  UserPreferences: {},
   User: {
     findById: (...a: unknown[]) => mockUserFindById(...a),
     updateOne: (...a: unknown[]) => mockUserUpdateOne(...a),

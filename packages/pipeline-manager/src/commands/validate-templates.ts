@@ -20,13 +20,13 @@ interface ValidateOptions {
  * Register the `validate-templates` command.
  *
  * Usage:
- *   pipeline-manager validate-templates --pipeline <uuid>
- *   pipeline-manager validate-templates --plugin <name:version>
- *   pipeline-manager validate-templates --file ./plugin-spec.yaml
+ *   pipeline-manager template validate --pipeline <uuid>
+ *   pipeline-manager template validate --plugin <name:version>
+ *   pipeline-manager template validate --file ./plugin-spec.yaml
  */
 export function validateTemplatesCommand(program: Command): void {
   program
-    .command('validate-templates')
+    .command('validate')
     .description('Parse and validate {{ ... }} templates in a pipeline or plugin spec')
     .option('--pipeline <id>', 'Validate the pipeline with this ID')
     .option('--plugin <name:version>', 'Validate the plugin with this name and version')

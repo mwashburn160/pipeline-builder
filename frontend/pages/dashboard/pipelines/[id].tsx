@@ -28,6 +28,8 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Modal } from '@/components/ui/Modal';
 import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
+import { ScorecardCard } from '@/components/pipeline/ScorecardCard';
+import { PipelineContextCard } from '@/components/pipeline/PipelineContextCard';
 import { formatError } from '@/lib/constants';
 import { canWritePipeline } from '@/lib/resource-helpers';
 import api from '@/lib/api';
@@ -231,6 +233,10 @@ export default function PipelineDetailPage() {
 
       {pipeline && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Per-pipeline maturity scorecard (renders only when advanced_reporting is on) */}
+          <ScorecardCard pipelineId={pipeline.id} />
+          {/* Cross-resource context: plugins used + live compliance posture */}
+          <PipelineContextCard pipeline={pipeline} />
           {/* Identity card */}
           <Card>
             <div className="flex items-start justify-between mb-3">
@@ -260,6 +266,21 @@ export default function PipelineDetailPage() {
               <div>
                 <dt className="text-gray-500 dark:text-gray-400">Organization</dt>
                 <dd>{pipeline.organization}</dd>
+              </div>
+              <div>
+                <dt className="text-gray-500 dark:text-gray-400">Owner</dt>
+                <dd>
+                  {pipeline.ownerId
+                    ? <><code className="text-xs">{pipeline.ownerId}</code>{pipeline.ownerType ? <span className="text-gray-400"> ({pipeline.ownerType})</span> : null}</>
+                    : <span className="text-gray-400">Unassigned</span>}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-gray-500 dark:text-gray-400">Lifecycle</dt>
+                <dd>
+                  {pipeline.lifecycle ?? 'production'}
+                  {pipeline.criticality ? <span className="text-gray-400"> · {pipeline.criticality} criticality</span> : null}
+                </dd>
               </div>
               {pipeline.description && (
                 <div>

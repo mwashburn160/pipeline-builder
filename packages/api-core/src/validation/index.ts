@@ -3,6 +3,7 @@
 
 export * from './common-schemas.js';
 export * from './pipeline-schemas.js';
+export * from './pipeline-template-schemas.js';
 export * from './plugin-schemas.js';
 export * from './message-schemas.js';
 export * from './ai-schemas.js';

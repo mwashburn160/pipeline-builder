@@ -33,16 +33,16 @@ interface PipelineFilterParams extends CommonFilterParams {
  *
  * @example
  * ```bash
- * cli list-pipelines
- * cli list-pipelines --project my-app --is-active true
- * cli list-pipelines --organization my-org
- * cli list-pipelines --limit 50 --offset 100 --sort "pipelineName:asc"
- * cli list-pipelines --format json --output pipelines.json
+ * cli pipeline list
+ * cli pipeline list --project my-app --is-active true
+ * cli pipeline list --organization my-org
+ * cli pipeline list --limit 50 --offset 100 --sort "pipelineName:asc"
+ * cli pipeline list --format json --output pipelines.json
  * ```
  */
 export function listPipelines(program: Command): void {
   program
-    .command('list-pipelines')
+    .command('list')
     .description('Query pipelines with comprehensive filters')
 
     // Common filter options

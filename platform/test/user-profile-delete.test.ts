@@ -76,6 +76,9 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   User: { findByIdAndDelete: (...args: unknown[]) => mockUserFindByIdAndDelete(...args) },
   Organization: {},
   UserOrganization: {
@@ -93,6 +96,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   PROFILE_INVALID_CREDENTIALS: 'PROFILE_INVALID_CREDENTIALS',
   PROFILE_OWNER_HAS_ORGS: 'PROFILE_OWNER_HAS_ORGS',
   PROFILE_LAST_PRIVILEGED_MEMBER: 'PROFILE_LAST_PRIVILEGED_MEMBER',
+  PROFILE_PAT_LIMIT: 'PROFILE_PAT_LIMIT',
   userProfileService: {
     deleteAccount: async (userId: string) => {
       const ownerCount = await mockUserOrgCount({ userId, role: 'owner' });
@@ -104,7 +108,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   },
 }));
 
-jest.unstable_mockModule('../src/utils/token.js', () => ({ issueTokens: jest.fn() }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn() }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: jest.fn(),
   updateProfileSchema: {},

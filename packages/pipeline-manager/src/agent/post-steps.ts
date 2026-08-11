@@ -139,13 +139,13 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
         label: 'Store platform token in AWS Secrets Manager (+ daily auto-renewal)',
         // --schedule: the event-ingestion Lambda reads this token, so install the
         // renewal stack so it never lapses (store-token no longer deploys it by default).
-        command: `pipeline-manager store-token --schedule${region}`,
+        command: `pipeline-manager infra store-token --schedule${region}`,
         env,
       });
       steps.push({
         id: 'events',
         label: 'EventBridge ingestion (setup-events)',
-        command: `pipeline-manager setup-events${region}`,
+        command: `pipeline-manager infra setup-events${region}`,
         env,
       });
     } else {

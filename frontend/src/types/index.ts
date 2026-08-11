@@ -4,7 +4,7 @@
 // Quota + tier identifiers come from the api-core source of truth (see below).
 // `import type` is fully erased at build time, so this pulls no server-only
 // runtime code into the Next bundle.
-import type { QuotaType, QuotaTier, AccessModifier } from '@pipeline-builder/api-core';
+import type { QuotaType, QuotaTier, AccessModifier, Criticality, EntityLink, Lifecycle, OwnerType, TemplateInput } from '@pipeline-builder/api-core';
 
 /**
  * User model.
@@ -134,7 +134,7 @@ export interface QuotaSummary {
  * can't drift from the backend's. The local copy previously listed only 4 of
  * the 9 quota types, silently under-typing quota responses.
  */
-export type { QuotaType, QuotaTier, AccessModifier };
+export type { QuotaType, QuotaTier, AccessModifier, Criticality, EntityLink, Lifecycle, OwnerType, TemplateInput };
 
 /**
  * The quota kinds the dashboard currently surfaces — a curated subset of the
@@ -287,12 +287,20 @@ export interface Plugin {
   /** Computed image URI: `<namespace>/<name>:<version>`. Server-side derived. */
   uri: string;
   dockerfile?: string;
-  
+
+  // Developer-portal catalog metadata (ownership / lifecycle / classification)
+  ownerId?: string | null;
+  ownerType?: OwnerType | null;
+  lifecycle?: Lifecycle;
+  criticality?: Criticality | null;
+  labels?: Record<string, string>;
+  links?: EntityLink[];
+
   // Access and visibility
   accessModifier: AccessModifier;
   isDefault: boolean;
   isActive: boolean;
-  
+
   // Deletion tracking (soft delete)
   deletedAt?: string;
   deletedBy?: string;
@@ -402,15 +410,79 @@ export interface Pipeline {
   
   // Pipeline configuration
   props: BuilderProps;
-  
+
+  // Developer-portal catalog metadata (ownership / lifecycle / classification)
+  ownerId?: string | null;
+  ownerType?: OwnerType | null;
+  lifecycle?: Lifecycle;
+  criticality?: Criticality | null;
+  labels?: Record<string, string>;
+  links?: EntityLink[];
+
   // Access and visibility
   accessModifier: AccessModifier;
   isDefault: boolean;
   isActive: boolean;
-  
+
   // Deletion tracking (soft delete)
   deletedAt?: string;
   deletedBy?: string;
+}
+
+/** DORA performance band (shared with the reporting domain type). */
+export type ScorecardDoraLevel = 'elite' | 'high' | 'medium' | 'low' | null;
+
+/**
+ * Per-pipeline maturity scorecard: compliance posture + DORA bands → a graded
+ * 0–100 score. Mirrors the server `Scorecard` shape.
+ */
+export interface PipelineScorecard {
+  pipelineId: string;
+  score: number | null;
+  grade: 'A' | 'B' | 'C' | 'D' | 'F' | 'N/A';
+  compliance: {
+    score: number | null;
+    rulesEvaluated: number;
+    violations: number;
+    warnings: number;
+  };
+  dora: {
+    score: number | null;
+    basis: 'deploy' | 'run';
+    deploymentFrequency: ScorecardDoraLevel;
+    changeFailureRate: ScorecardDoraLevel;
+    meanTimeToRestore: ScorecardDoraLevel;
+    leadTime: ScorecardDoraLevel;
+  };
+  computedAt: string;
+}
+
+/**
+ * Golden-path pipeline template (parameterized starter).
+ */
+export interface PipelineTemplate {
+  id: string;
+  orgId: string;
+  createdBy: string;
+  createdAt: string;
+  updatedBy: string;
+  updatedAt: string;
+  name: string;
+  description?: string | null;
+  keywords: string[];
+  category: string;
+  /** Template body: a BuilderProps with `{{ vars.* }}` placeholders. */
+  props: BuilderProps;
+  /** Declared inputs the user fills in to instantiate. */
+  inputs: TemplateInput[];
+  ownerId?: string | null;
+  ownerType?: OwnerType | null;
+  lifecycle?: Lifecycle;
+  criticality?: Criticality | null;
+  labels?: Record<string, string>;
+  links?: EntityLink[];
+  accessModifier: AccessModifier;
+  isActive: boolean;
 }
 
 /**

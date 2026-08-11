@@ -8,6 +8,7 @@ import { useDelete } from '@/hooks/useDelete';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
+import { BillingAdminTabs } from '@/components/billing/BillingAdminTabs';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -401,6 +402,7 @@ export default function DiscountsPage() {
         )
       }
     >
+      <BillingAdminTabs active="discounts" />
       <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
 
       {notEnabled ? (

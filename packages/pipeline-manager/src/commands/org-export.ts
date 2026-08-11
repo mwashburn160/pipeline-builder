@@ -12,7 +12,7 @@ import { printError, printInfo, printKeyValue, printSection, printSuccess } from
 const { bold, green } = pico;
 
 /**
- * CLI  `pipeline-manager org-export --id <orgId> --output <file>`.
+ * CLI  `pipeline-manager org export --id <orgId> --output <file>`.
  *
  * Fetches the GDPR portability dump from `GET /api/organization/:id/export`
  * on the platform service and writes it to disk (or stdout). The endpoint
@@ -27,15 +27,15 @@ const { bold, green } = pico;
  * @example
  * ```bash
  * # Sysadmin: any org
- * pipeline-manager org-export --id org-acme --output acme.json
+ * pipeline-manager org export --id org-acme --output acme.json
  *
  * # Org admin: own org only (server rejects other ids with 403)
- * pipeline-manager org-export --id org-acme --output acme.json
+ * pipeline-manager org export --id org-acme --output acme.json
  * ```
  */
 export function orgExport(program: Command): void {
   program
-    .command('org-export')
+    .command('export')
     .description('Export an organization\'s data as JSON (GDPR portability, ).')
     .requiredOption('-i, --id <id>', 'Organization ID to export')
     .option('-o, --output <file>', 'Output file path (default: org-<id>-export.json in CWD)')

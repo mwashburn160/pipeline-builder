@@ -65,12 +65,15 @@ const mockAudit = jest.fn();
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   Organization: { findById: (...a: unknown[]) => mockOrgFindById(...a) },
 }));
 
 // user-admin transitively imports utils/token via user-profile; mock so we
 // don't pull in the real JWT signing path (which would demand env vars).
-jest.unstable_mockModule('../src/utils/token.js', () => ({ issueTokens: jest.fn() }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn() }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: jest.fn(),
   updateProfileSchema: {},
@@ -107,6 +110,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   PROFILE_OWNER_HAS_ORGS: 'PROFILE_OWNER_HAS_ORGS',
   PROFILE_USER_NOT_FOUND: 'PROFILE_USER_NOT_FOUND',
   PROFILE_LAST_PRIVILEGED_MEMBER: 'PROFILE_LAST_PRIVILEGED_MEMBER',
+  PROFILE_PAT_LIMIT: 'PROFILE_PAT_LIMIT',
 }));
 
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { passwordMinLength: 8 } } }));

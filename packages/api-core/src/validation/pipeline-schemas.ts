@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { z } from 'zod';
-import { BaseFilterSchema, BooleanQuerySchema, AccessModifierSchema } from './common-schemas.js';
+import { BaseFilterSchema, BooleanQuerySchema, AccessModifierSchema, CatalogMetadataShape } from './common-schemas.js';
 
 /**
  * Pipeline filter schema for query parameters
@@ -85,6 +85,7 @@ const BuilderPropsSchema = z.object({
  * Pipeline creation schema
  */
 export const PipelineCreateSchema = z.object({
+  ...CatalogMetadataShape,
   project: z.string().min(1, 'Project is required'),
   organization: z.string().min(1, 'Organization is required'),
   pipelineName: z.string().min(1).optional(),
@@ -98,6 +99,7 @@ export const PipelineCreateSchema = z.object({
  * Pipeline update schema
  */
 export const PipelineUpdateSchema = z.object({
+  ...CatalogMetadataShape,
   pipelineName: z.string().min(1).optional(),
   description: z.string().optional(),
   keywords: z.array(z.string()).optional(),

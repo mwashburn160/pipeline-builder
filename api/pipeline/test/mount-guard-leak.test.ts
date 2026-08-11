@@ -135,6 +135,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   runMigrations: jest.fn(async () => undefined),
   withTenantTx: (fn: (tx: unknown) => unknown) => fn({}),
   schema: {},
+  // Scorecard route calls per-pipeline DORA in-process; stub the singleton.
+  reportingService: { getDoraMetrics: jest.fn(async () => ({})) },
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
@@ -147,6 +149,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   },
   AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
   replaceNonAlphanumeric: (s: string, r: string) => s.replace(/[^a-zA-Z0-9]/g, r),
+  // Template routes tokenize the body to find undeclared-var references.
+  tokenize: () => [],
 }));
 
 // -- Service / helper stubs (routers must import; reads return empty) ---------
@@ -166,6 +170,8 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
     update: jest.fn(),
     setDefault: jest.fn(),
   },
+  // Scorecard route imports this projection helper alongside the service.
+  toComplianceAttributes: (x: unknown) => x,
 }));
 jest.unstable_mockModule('../src/services/pipeline-registry-service.js', () => ({
   pipelineRegistryService: { findByPipelineId: jest.fn(), upsert: jest.fn(), findPaginated: jest.fn() },
@@ -199,6 +205,16 @@ jest.unstable_mockModule('../src/helpers/pipeline-template-validator.js', () => 
   validatePipelineTemplates: jest.fn(),
   resolvePipeline: jest.fn(),
   resolvePipeline_: jest.fn(),
+}));
+jest.unstable_mockModule('../src/services/pipeline-template-service.js', () => ({
+  pipelineTemplateService: {
+    findPaginated: jest.fn(async () => ({ data: [], total: 0, limit: 25, offset: 0, hasMore: false })),
+    find: jest.fn(async () => []),
+    findById: jest.fn(async () => null),
+    create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+  },
 }));
 
 // Import the REAL boot module — this assembles the production route wiring.

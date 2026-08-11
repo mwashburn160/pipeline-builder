@@ -45,7 +45,7 @@ export const pipelinesTopic: HelpTopic = {
         {
           type: 'code',
           language: 'bash',
-          content: `pipeline-manager create-pipeline \\
+          content: `pipeline-manager pipeline create \\
   --file ./pipeline-props.json \\
   --project my-app \\
   --organization my-org \\
@@ -53,7 +53,7 @@ export const pipelinesTopic: HelpTopic = {
   --access private
 
 # Preview without creating
-pipeline-manager create-pipeline --file ./pipeline-props.json --project my-app --organization my-org --dry-run`,
+pipeline-manager pipeline create --file ./pipeline-props.json --project my-app --organization my-org --dry-run`,
         },
       ],
     },
@@ -90,13 +90,13 @@ pipeline-manager create-pipeline --file ./pipeline-props.json --project my-app -
           type: 'code',
           language: 'bash',
           content: `# Deploy a stored pipeline by ID
-pipeline-manager deploy --id <pipeline-id>
+pipeline-manager pipeline deploy --id <pipeline-id>
 
 # Deploy with a specific AWS profile
-pipeline-manager deploy --id <pipeline-id> --profile production
+pipeline-manager pipeline deploy --id <pipeline-id> --profile production
 
 # Synth only (generate CloudFormation without deploying)
-pipeline-manager deploy --id <pipeline-id> --synth`,
+pipeline-manager pipeline deploy --id <pipeline-id> --synth`,
         },
       ],
     },

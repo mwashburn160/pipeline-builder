@@ -258,7 +258,7 @@ export default function DeploymentsPage() {
           emptyState={{
             icon: Cloud,
             title: 'No deployed pipelines yet',
-            description: 'Pipelines register here when `pipeline-manager deploy` succeeds, or register one manually.',
+            description: 'Pipelines register here when `pipeline-manager pipeline deploy` succeeds, or register one manually.',
             action: canWrite ? <Button onClick={openRegister}>Register deployment</Button> : undefined,
           }}
         >
@@ -270,7 +270,7 @@ export default function DeploymentsPage() {
             emptyState={{
               icon: Cloud,
               title: 'No deployed pipelines yet',
-              description: 'Pipelines register here when `pipeline-manager deploy` succeeds.',
+              description: 'Pipelines register here when `pipeline-manager pipeline deploy` succeeds.',
             }}
           />
         </ResourceList>

@@ -40,9 +40,10 @@ This is the documentation index for **Pipeline Builder**, a multi-tenant platfor
 | Document | Description |
 |----------|-------------|
 | [AWS Deployment](aws-deployment.md) | EC2 and EKS deployment, post-deploy setup, drift detection |
-| [Pipeline Manager (CLI)](pipeline-manager.md) | `pipeline-manager` CLI — install the platform (`provision`), build/deploy pipelines, manage plugins, run audits |
+| [Pipeline Manager (CLI)](pipeline-manager.md) | `pipeline-manager` CLI — install the platform (`infra provision`), build/deploy pipelines, manage plugins, run audits |
 | [CDK Usage](cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Compliance](compliance.md) | Per-org rule engine with 18 operators, computed fields, audit trail |
+| [Developer Portal](developer-portal.md) | Catalog ownership & My Services, golden-path templates, per-pipeline maturity scorecards |
 | [Roles & Permissions](permissions.md) | Permission catalog, built-in Roles, `requirePermission` enforcement, session invalidation |
 | [Error Handling](error-handling.md) | Error-to-HTTP convention — throw typed `AppError`s |
 | [Audit Events](audit-events.md) | Tamper-evident audit trail — hash-chain + `/audit/verify`, ingest security, durable spool, action catalog |
@@ -85,9 +86,9 @@ The web UI at `https://localhost:8443` provides visual pipeline and plugin manag
 npm install -g @pipeline-builder/pipeline-manager
 export PLATFORM_TOKEN=<jwt-from-login>
 
-pipeline-manager upload-plugin --file ./node-build.zip --organization my-org --name node-build --version 1.0.0
-pipeline-manager create-pipeline --file ./pipeline-props.json --project my-app --organization my-org
-pipeline-manager deploy --id <pipeline-id> --profile production
+pipeline-manager plugin upload --file ./node-build.zip --organization my-org --name node-build --version 1.0.0
+pipeline-manager pipeline create --file ./pipeline-props.json --project my-app --organization my-org
+pipeline-manager pipeline deploy --id <pipeline-id> --profile production
 ```
 
 ### REST API
@@ -192,7 +193,7 @@ See [AWS Deployment](aws-deployment.md) for full instructions and post-deploy se
 
 ### Post-Deploy: Initialize Platform
 
-`init-platform.sh` registers the admin user and loads plugins. **The AWS deploys self-init by default** (the `provision` default `--init auto`) — **EC2** on first boot, **EKS** in `setup.sh`'s final phase (over a `kubectl` port-forward); on **local/minikube** `provision` runs it for you. You only run it by hand when you deployed with `--init manual`:
+`init-platform.sh` registers the admin user and loads plugins. **The AWS deploys self-init by default** (the `infra provision` default `--init auto`) — **EC2** on first boot, **EKS** in `setup.sh`'s final phase (over a `kubectl` port-forward); on **local/minikube** `infra provision` runs it for you. You only run it by hand when you deployed with `--init manual`:
 
 ```bash
 # Local / Minikube — interactive

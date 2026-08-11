@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run `pipeline-manager provision` inside an EPHEMERAL stock `node:24-slim`
+# Run `pipeline-manager infra provision` inside an EPHEMERAL stock `node:24-slim`
 # container, installing ONLY the tools the chosen target needs. No custom image
 # to build or publish — the host's footprint stays just Docker (+ AWS creds for
-# ec2/eks). Everything after the flags is passed straight to `provision`.
+# ec2/eks). Everything after the flags is passed straight to `infra provision`.
 #
-# Usage (args are forwarded verbatim to `pipeline-manager provision`):
+# Usage (args are forwarded verbatim to `pipeline-manager infra provision`):
 #   deploy/bin/provision-docker.sh --target eks --repo --domain x.example.com \
 #       --hosted-zone-id Z123 --execute --yes --admin-email a@x.com --admin-password "$PW"
 #   deploy/bin/provision-docker.sh --target docker --repo --with-plugins --execute --yes
 #
 # Per-target install fingerprint (installed in the throwaway container, not the
-# host) — this MUST cover every prerequisite `provision` checks for the target,
-# or provision would block inside the container the same way it does on a bare host.
+# host) — this MUST cover every prerequisite `infra provision` checks for the target,
+# or infra provision would block inside the container the same way it does on a bare host.
 #   ec2           : git, curl, unzip, AWS CLI v2                       (mounts ~/.aws ro)
 #   eks           : ec2 set + openssl + envsubst + eksctl + kubectl              (mounts ~/.aws + ~/.kube ro)
 #   docker        : git, yq, openssl — Docker + Docker Compose are EXTERNAL (Docker
@@ -72,7 +72,7 @@ case "$TARGET" in
     [ -d "$HOME/.docker/cli-plugins" ] && mounts+=( -v "$HOME/.docker/cli-plugins:/root/.docker/cli-plugins:ro" )
     ;;
   minikube)
-    echo "minikube runs a host-side cluster; run provision directly on the host (with minikube + kubectl)." >&2
+    echo "minikube runs a host-side cluster; run infra provision directly on the host (with minikube + kubectl)." >&2
     exit 1 ;;
   "")
     echo "Pass --target <docker|ec2|eks> so the right minimal tools are installed." >&2
@@ -87,5 +87,5 @@ exec docker run --rm -it "${mounts[@]}" \
     set -e
     apt-get update -qq && apt-get install -y -qq --no-install-recommends $APT >/dev/null
     [ -n "$EXTRA" ] && eval "$EXTRA"
-    exec npx -y "$CLI_PKG" provision "$@"
+    exec npx -y "$CLI_PKG" infra provision "$@"
   ' _ "$@"

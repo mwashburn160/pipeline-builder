@@ -17,7 +17,7 @@ export const deploymentTopic: HelpTopic = {
         {
           type: 'text',
           content:
-            'The recommended way to stand up the platform is the `pipeline-manager provision` installer. It picks the target, runs read-only prerequisite checks, and assembles the exact, validated `bin/setup.sh` command — secrets masked, missing inputs reported (never guessed). Add `--execute` to run it (gated by approval; it then verifies `/health` + `/ready` and offers to run `init-platform`). With an AI key set it also parses a natural-language goal and diagnoses CloudFormation failures.',
+            'The recommended way to stand up the platform is the `pipeline-manager infra provision` installer. It picks the target, runs read-only prerequisite checks, and assembles the exact, validated `bin/setup.sh` command — secrets masked, missing inputs reported (never guessed). Add `--execute` to run it (gated by approval; it then verifies `/health` + `/ready` and offers to run `init-platform`). With an AI key set it also parses a natural-language goal and diagnoses CloudFormation failures.',
         },
         {
           type: 'code',
@@ -25,21 +25,21 @@ export const deploymentTopic: HelpTopic = {
           content: `npm install -g @pipeline-builder/pipeline-manager
 
 # Advisor (default) — prints the exact command + prereq results, runs nothing:
-pipeline-manager provision --target docker
+pipeline-manager infra provision --target docker
 
 # Run it (gated: confirm → deploy → verify health → init-platform):
-pipeline-manager provision --target docker --execute
+pipeline-manager infra provision --target docker --execute
 
 # Fargate, executed (SES email is provisioned by default):
-pipeline-manager provision --target fargate \\
+pipeline-manager infra provision --target fargate \\
   --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-token ghp_xxx --execute
 
 # Describe the goal (needs an AI key); or diagnose a failure:
-pipeline-manager provision --prompt "deploy to Fargate in us-east-1 with email"
-pipeline-manager provision --target fargate --diagnose ./stack-events.txt
+pipeline-manager infra provision --prompt "deploy to Fargate in us-east-1 with email"
+pipeline-manager infra provision --target fargate --diagnose ./stack-events.txt
 
 # Tear it down (AWS targets prompt you to TYPE the target id to confirm):
-pipeline-manager provision --target fargate --teardown --execute`,
+pipeline-manager infra provision --target fargate --teardown --execute`,
         },
         {
           type: 'note',
@@ -153,7 +153,7 @@ pipeline-manager provision --target fargate --teardown --execute`,
       blocks: [
         {
           type: 'note',
-          content: 'Recommended: install with the CLI. `pipeline-manager provision --target fargate --domain … --hosted-zone-id …` checks prerequisites and prints the exact, validated bin/setup.sh command (SES email is provisioned by default; pass `--no-email` to skip); add `--execute` to run it (gated by approval, then verifies /health + /ready and offers init-platform). With an AI key it also parses a natural-language goal and diagnoses failures.',
+          content: 'Recommended: install with the CLI. `pipeline-manager infra provision --target fargate --domain … --hosted-zone-id …` checks prerequisites and prints the exact, validated bin/setup.sh command (SES email is provisioned by default; pass `--no-email` to skip); add `--execute` to run it (gated by approval, then verifies /health + /ready and offers init-platform). With an AI key it also parses a natural-language goal and diagnoses failures.',
         },
         {
           type: 'text',
@@ -231,7 +231,7 @@ bash bin/setup.sh --domain pipeline.example.com --hosted-zone-id Z123 \\
         {
           type: 'list',
           items: [
-            'Run `pipeline-manager setup-events` once per AWS account to provision the EventBridge → SQS → Lambda path.',
+            'Run `pipeline-manager infra setup-events` once per AWS account to provision the EventBridge → SQS → Lambda path.',
             'The Lambda execution role needs `codepipeline:ListTagsForResource` (an AccessDenied fails the batch loudly rather than silently dropping events).',
             'Failed runs carry the failure reason and a link to the build logs.',
             'Plugin Docker builds are reported automatically by the plugin service — no EventBridge needed.',

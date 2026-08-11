@@ -15,21 +15,21 @@ Observability is the native `/dashboard/observability` page across all deploymen
 
 ## Overview
 
-This guide is for operators standing up Pipeline Builder on AWS. It covers the two targets — **EC2** (single Minikube instance) and **EKS** (managed Kubernetes, Auto Mode) — deployed in either **public** (internet-facing ALB) or **private** (internal ALB, the default) mode, plus email (SES), platform initialization, execution reporting, and drift detection. Both targets keep the compute in private subnets behind a TLS-terminating ALB using a DNS-validated ACM cert, so a domain and public Route 53 zone are always required. The recommended entry point is the AI-assisted [`provision`](#ai-assisted-install-provision) command, which wraps the underlying `bin/setup.sh` scripts that remain the source of truth.
+This guide is for operators standing up Pipeline Builder on AWS. It covers the two targets — **EC2** (single Minikube instance) and **EKS** (managed Kubernetes, Auto Mode) — deployed in either **public** (internet-facing ALB) or **private** (internal ALB, the default) mode, plus email (SES), platform initialization, execution reporting, and drift detection. Both targets keep the compute in private subnets behind a TLS-terminating ALB using a DNS-validated ACM cert, so a domain and public Route 53 zone are always required. The recommended entry point is the AI-assisted [`infra provision`](#ai-assisted-install-infra-provision) command, which wraps the underlying `bin/setup.sh` scripts that remain the source of truth.
 
 ## Process overview
 
 1. **Pick a target and mode** — EC2 or EKS; public or private. Both need `--domain` + `--hosted-zone-id`.
-2. **Provision** — run [`pipeline-manager provision`](#ai-assisted-install-provision) (recommended) or `bin/setup.sh` / raw CloudFormation directly; it requests a DNS-validated ACM cert and fronts the private compute with an ALB.
+2. **Provision** — run [`pipeline-manager infra provision`](#ai-assisted-install-infra-provision) (recommended) or `bin/setup.sh` / raw CloudFormation directly; it requests a DNS-validated ACM cert and fronts the private compute with an ALB.
 3. **Wait for the URL** — the cert validates mid-deploy, then instances/pods pass health checks a few minutes later; the URL is `https://<your-domain>` (public, or in-VPC only for private mode).
 4. **Initialize the platform** — register the admin and load plugins/compliance/samples via [`init-platform.sh`](#1-initialize-the-platform) (runs automatically by default; use `--init manual` to set real admin creds yourself).
-5. **Store service credentials** — [`store-token`](#2-store-service-credentials) writes a platform JWT to Secrets Manager for the lookup and event-ingestion Lambdas.
+5. **Store service credentials** — [`infra store-token`](#2-store-service-credentials) writes a platform JWT to Secrets Manager for the lookup and event-ingestion Lambdas.
 6. **Deploy reporting** — wire up the [EventBridge → SQS → Lambda](#3-deploy-eventbridge-reporting-infrastructure) stack for execution and plugin analytics.
-7. **Operate** — monitor via `/dashboard/observability`, reconcile registry vs live stacks with [`audit-stacks`](#drift-detection-audit-stacks), and tear down with `--teardown` when done.
+7. **Operate** — monitor via `/dashboard/observability`, reconcile registry vs live stacks with [`audit stacks`](#drift-detection-audit-stacks), and tear down with `--teardown` when done.
 
 ## Table of Contents
 
-- [AI-assisted install (`provision`)](#ai-assisted-install-provision) -- The recommended way to install the platform
+- [AI-assisted install (`infra provision`)](#ai-assisted-install-infra-provision) -- The recommended way to install the platform
 - [Deployment modes](#deployment-modes-public-vs-private) -- Public vs private, and what each changes
 - [Public deployment (quickstart)](#public-deployment-quickstart) -- Internet-facing install, EC2 or EKS
 - [Private deployment (quickstart)](#private-deployment-quickstart) -- Inside-AWS-only install, EC2 or EKS
@@ -37,7 +37,7 @@ This guide is for operators standing up Pipeline Builder on AWS. It covers the t
 - [EKS](#eks) -- Managed Kubernetes, EKS Auto Mode (production, ~$150-400/mo)
 - [Email (SES)](#email-ses) -- Transactional email (provisioned by default; `--no-email` to skip)
 - [Post-Deploy Steps](#post-deploy-steps) -- Platform init, credentials, EventBridge reporting
-- [Drift Detection (`audit-stacks`)](#drift-detection-audit-stacks) -- Reconcile registry vs live CloudFormation
+- [Drift Detection (`audit stacks`)](#drift-detection-audit-stacks) -- Reconcile registry vs live CloudFormation
 - [Report API Endpoints](#report-api-endpoints) -- Execution and plugin analytics
 - [Access Points](#access-points) -- Service URLs after deployment
 - [File Structure](#file-structure) -- Deployment file layout
@@ -56,53 +56,53 @@ This guide is for operators standing up Pipeline Builder on AWS. It covers the t
 
 ---
 
-## AI-assisted install (`provision`)
+## AI-assisted install (`infra provision`)
 
-The **recommended** way to install the platform is `pipeline-manager provision`. It picks the target, runs prerequisite checks (AWS CLI + working credentials for EC2/EKS — plus `kubectl`, `openssl`, and `envsubst` for EKS (`eksctl` is auto-installed by `setup.sh`); Docker etc. for local), assembles the **exact, validated `setup.sh` command** (secrets masked, missing inputs reported rather than guessed), prints the plan, and then **deploys it — gated by confirmation prompts** (`--yes` to auto-accept for CI; `--json` prints the plan and runs nothing). With an AI key configured it also parses a natural-language goal and diagnoses CloudFormation failures.
+The **recommended** way to install the platform is `pipeline-manager infra provision`. It picks the target, runs prerequisite checks (AWS CLI + working credentials for EC2/EKS — plus `kubectl`, `openssl`, and `envsubst` for EKS (`eksctl` is auto-installed by `setup.sh`); Docker etc. for local), assembles the **exact, validated `setup.sh` command** (secrets masked, missing inputs reported rather than guessed), prints the plan, and then **deploys it — gated by confirmation prompts** (`--yes` to auto-accept for CI; `--json` prints the plan and runs nothing). With an AI key configured it also parses a natural-language goal and diagnoses CloudFormation failures.
 
 ```bash
 npm install -g @pipeline-builder/pipeline-manager
 
 # Deploy (shows the plan, then confirms; add --yes for non-interactive CI):
-pipeline-manager provision --target eks \
+pipeline-manager infra provision --target eks \
   --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-token ghp_xxx --email
 
 # Inspect the plan as JSON without running anything:
-pipeline-manager provision --target eks --json \
+pipeline-manager infra provision --target eks --json \
   --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-token ghp_xxx --email
 
 # Or describe the goal (needs an AI key — see Environment Variables):
-pipeline-manager provision --prompt "deploy to EKS in us-east-1 with email enabled"
+pipeline-manager infra provision --prompt "deploy to EKS in us-east-1 with email enabled"
 
 # Diagnose a failed deploy:
-pipeline-manager provision --target eks --diagnose ./stack-events.txt
+pipeline-manager infra provision --target eks --diagnose ./stack-events.txt
 ```
 
-> **Always deploys (gated).** `provision` checks, assembles, prints the plan, and runs the deploy — it **refuses** on failed prerequisites or missing inputs, asks for confirmation before deploying (**`--yes`** auto-accepts for CI), streams the deploy to your terminal, then verifies `/health` + `/ready` on the application URL. On the **AWS targets the deploy self-inits** (EC2 on first boot; EKS in `setup.sh`'s final phase), so `provision` surfaces it rather than running it separately; on **local/minikube** `provision` runs `init-platform` for you. **`--json`** is the only non-executing mode — it prints the plan and exits (for tooling).
+> **Always deploys (gated).** `infra provision` checks, assembles, prints the plan, and runs the deploy — it **refuses** on failed prerequisites or missing inputs, asks for confirmation before deploying (**`--yes`** auto-accepts for CI), streams the deploy to your terminal, then verifies `/health` + `/ready` on the application URL. On the **AWS targets the deploy self-inits** (EC2 on first boot; EKS in `setup.sh`'s final phase), so `infra provision` surfaces it rather than running it separately; on **local/minikube** `infra provision` runs `init-platform` for you. **`--json`** is the only non-executing mode — it prints the plan and exits (for tooling).
 >
 > **On failure it troubleshoots.** It matches known CloudFormation signatures and prints the likely cause + fix — and for a few it can **auto-fix and retry** (e.g. an existing SES identity → re-run with `--skip-ses-identity`; an ACM/DNS-propagation timeout → resume). Retries are gated and bounded by **`--retries <n>`** (default 1; the scripts are idempotent so a re-run resumes). With an AI key it adds a free-form diagnosis on top. When SES is enabled, a successful deploy prints DKIM/sandbox next-steps.
 >
 > Flags: **`--yes`** auto-approves (CI), **`--retries <n>`** auto-fix/retry budget, **`--init <mode>`** controls post-deploy initialization (`auto` default / `manual` / `skip` — see below), **`--skip-ses-identity`** for an already-verified SES domain, **`--stack-name <name>`** (EC2) / **`--cluster-name <name>`** (EKS) to deploy/manage a second environment.
 >
 > **Init mode (`--init <mode>`).** One flag controls how the platform initializes after deploy:
-> - **`auto`** (default) — `init-platform` runs once the platform is up, registering the admin (with the **default** password) and loading plugins/compliance/samples. The **AWS targets self-run it as part of the deploy**: **EC2** on first boot (UserData → on the box as the `minikube` user — watch with `aws ssm start-session … && sudo tail -f /var/log/user-data.log`); **EKS** in `setup.sh`'s final phase, reaching the cluster over a `kubectl port-forward`. **local/minikube** run it from `provision`.
-> - **`manual`** — don't init; `provision` surfaces the exact step for you to run yourself (do this to set real admin credentials `PLATFORM_IDENTIFIER`/`PLATFORM_PASSWORD` instead of the default).
+> - **`auto`** (default) — `init-platform` runs once the platform is up, registering the admin (with the **default** password) and loading plugins/compliance/samples. The **AWS targets self-run it as part of the deploy**: **EC2** on first boot (UserData → on the box as the `minikube` user — watch with `aws ssm start-session … && sudo tail -f /var/log/user-data.log`); **EKS** in `setup.sh`'s final phase, reaching the cluster over a `kubectl port-forward`. **local/minikube** run it from `infra provision`.
+> - **`manual`** — don't init; `infra provision` surfaces the exact step for you to run yourself (do this to set real admin credentials `PLATFORM_IDENTIFIER`/`PLATFORM_PASSWORD` instead of the default).
 > - **`skip`** — don't initialize at all (no register, no loads).
 >
 > **Teardown.** Add **`--teardown`** to remove a deployment. `local`/`minikube` stop the stack (on-disk / PVC data persists). **EC2 DELETEs its CloudFormation stack and EKS runs `bin/shutdown.sh` (deletes the cluster, EFS, ACM cert + Route 53 alias) — both irreversible** — so the destructive path is gated harder than deploy: you must **type the resource id** to confirm (a y/N is too easy to fat-finger), and **`--yes` alone does *not* bypass it** — only **`--force`** does (for CI). When you pass a custom **`--stack-name <name>`** (EC2) or **`--cluster-name <name>`** (EKS), the confirmation binds to that name — you type the **stack/cluster name**, not the target id, so a wrong name can't be confirmed by habit. The region comes from **`--region`** / `AWS_REGION`. As always, `bin/shutdown.sh` (local/minikube/EKS) and `aws cloudformation delete-stack` (EC2) can be run directly.
 >
 > ```bash
 > # Teardown — prints the destroy plan, then prompts (type "eks" to confirm):
-> pipeline-manager provision --target eks --teardown
+> pipeline-manager infra provision --target eks --teardown
 > ```
 >
 > **Bootstrap a fresh machine (`--repo`).** Without a checkout, `--repo` git-clones the platform repo first and runs from it. The clone is **sparse + partial** — `git clone --filter=blob:none --no-checkout` + cone `sparse-checkout` (git ≥ 2.27; older git falls back to a full clone) — so it materializes **only the deploy folders the selected target + options need**, not the whole repo (`packages/`, `api/`, `frontend/`, … are never downloaded). The common base is just `deploy/bin`; each target adds its own folder (`deploy/local/docker`, `deploy/local/minikube` — self-contained — `deploy/aws/ec2`, `deploy/aws/eks`), and each post-install load adds its folder. Re-syncs are **additive** (`sparse-checkout add`), so one `--workdir` can accumulate multiple targets. Override with `--repo <url>`, `--ref <branch|tag>`, `--workdir <dir>`. (`--ref` is a branch/tag; arbitrary SHAs may not fetch under the shallow clone.)
 >
-> **Post-install steps.** After deploy + health, `provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`, which set `PLATFORM_IDENTIFIER`/`PLATFORM_PASSWORD`) and runs **opt-in** loads — each also pulls its folder into the sparse clone: `--with-plugins` (build + load plugins; adds `deploy/plugins` + `deploy/codebuild`), `--with-compliance` (`deploy/compliance`), `--with-samples` (`deploy/samples`), or `--with-all`. Also `--build-bootstrap` (CodeBuild bootstrap image), `--with-smoke-test` (read-only API check), `--with-events` (EC2/EKS event ingestion — a two-step bundle: **`store-token`** writes a platform JWT to Secrets Manager at the `pipeline-builder/{orgId}/platform` pattern, then **`setup-events`** deploys the EventBridge → SQS → Lambda that reads it; both pull AWS creds from the standard env / `~/.aws` chain), and repeatable `--post-step "<cmd>"`. The default is **register-only** (minimal clone); the loads are deterministic + idempotent, so re-running with more options just layers them on. On the AWS targets these loads run **deploy-side by default** (so `provision` doesn't prompt for them locally) — EC2 on first boot, EKS in `setup.sh`'s final phase over a `kubectl port-forward`. Pass `--init manual` to drive them yourself.
+> **Post-install steps.** After deploy + health, `infra provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`, which set `PLATFORM_IDENTIFIER`/`PLATFORM_PASSWORD`) and runs **opt-in** loads — each also pulls its folder into the sparse clone: `--with-plugins` (build + load plugins; adds `deploy/plugins` + `deploy/codebuild`), `--with-compliance` (`deploy/compliance`), `--with-samples` (`deploy/samples`), or `--with-all`. Also `--build-bootstrap` (CodeBuild bootstrap image), `--with-smoke-test` (read-only API check), `--with-events` (EC2/EKS event ingestion — a two-step bundle: **`infra store-token`** writes a platform JWT to Secrets Manager at the `pipeline-builder/{orgId}/platform` pattern, then **`infra setup-events`** deploys the EventBridge → SQS → Lambda that reads it; both pull AWS creds from the standard env / `~/.aws` chain), and repeatable `--post-step "<cmd>"`. The default is **register-only** (minimal clone); the loads are deterministic + idempotent, so re-running with more options just layers them on. On the AWS targets these loads run **deploy-side by default** (so `infra provision` doesn't prompt for them locally) — EC2 on first boot, EKS in `setup.sh`'s final phase over a `kubectl port-forward`. Pass `--init manual` to drive them yourself.
 >
 > ```bash
 > # Fresh box → sparse-clone just deploy/bin + deploy/local/docker, deploy, register, load samples:
-> pipeline-manager provision --target docker --repo --with-samples --yes \
+> pipeline-manager infra provision --target docker --repo --with-samples --yes \
 >   --admin-email admin@acme.com --admin-password 's3cret'
 > ```
 
@@ -458,7 +458,7 @@ Managed Kubernetes on **Amazon EKS Auto Mode** — AWS-managed, Karpenter-scaled
 
 - **AWS CLI** + working credentials for the target account/region.
 - **`eksctl`** (creates/destroys the Auto Mode cluster) — **auto-installed** by `setup.sh`/`shutdown.sh` (latest binary) when it isn't already on PATH.
-- **`kubectl`** (applies the manifests), **`openssl`** (registry token keypair), and **`envsubst`** (renders `cluster.yaml` + the manifests). `provision` checks all of these; `deploy/bin/provision-docker.sh --target eks` installs them in a throwaway container if you'd rather not put them on your host.
+- **`kubectl`** (applies the manifests), **`openssl`** (registry token keypair), and **`envsubst`** (renders `cluster.yaml` + the manifests). `infra provision` checks all of these; `deploy/bin/provision-docker.sh --target eks` installs them in a throwaway container if you'd rather not put them on your host.
 - A registered domain + its **public Route 53 hosted zone** (required — the deploy requests a DNS-validated ACM cert against it).
 
 ### Deploy
@@ -515,7 +515,7 @@ kubectl rollout status deploy/nginx deploy/platform deploy/pipeline deploy/plugi
 kubectl exec -it deploy/platform -n pipeline-builder -- /bin/sh
 ```
 
-Plugin **base images** are seeded by `init-platform.sh eks` (the post-deploy step) — built by the in-cluster rootless buildkitd and pushed to the in-cluster registry; `setup.sh` itself doesn't build them. By default `provision` runs that init for you over a `kubectl port-forward`; with the raw script, run `./deploy/bin/init-platform.sh eks` once the registry is up (see [Post-Deploy Steps](#post-deploy-steps)). It works from anywhere with `kubectl` access — no VPC-attached host needed, even in private mode.
+Plugin **base images** are seeded by `init-platform.sh eks` (the post-deploy step) — built by the in-cluster rootless buildkitd and pushed to the in-cluster registry; `setup.sh` itself doesn't build them. By default `infra provision` runs that init for you over a `kubectl port-forward`; with the raw script, run `./deploy/bin/init-platform.sh eks` once the registry is up (see [Post-Deploy Steps](#post-deploy-steps)). It works from anywhere with `kubectl` access — no VPC-attached host needed, even in private mode.
 
 ### Storage Requirements
 
@@ -579,7 +579,7 @@ EKS reuses the same Kubernetes manifests as minikube/ec2, with these AWS-managed
 
 ### Scripts
 
-All in `deploy/aws/eks/bin/`. Run from your local machine (or via `provision`).
+All in `deploy/aws/eks/bin/`. Run from your local machine (or via `infra provision`).
 
 | Script | Purpose |
 |--------|---------|
@@ -817,7 +817,7 @@ DEPLOY_TARGET=ec2 BOOTSTRAP_IMAGE_TAG=pipeline-bootstrap:1.1 ./build-codebuild-b
     DEPLOY_TARGET=ec2 ./build-codebuild-bootstrap.sh
   ```
   (Find the context name with `kubectl config get-contexts`; default is `pipeline-builder`.)
-- **After a fresh deploy** (which rotates `JWT_SECRET`), re-run `store-token` before publishing — otherwise the crane push / CodeBuild image pull can 401.
+- **After a fresh deploy** (which rotates `JWT_SECRET`), re-run `infra store-token` before publishing — otherwise the crane push / CodeBuild image pull can 401.
 
 ### 2. Store Service Credentials
 
@@ -825,22 +825,22 @@ The plugin-lookup Lambda and event-ingestion Lambda use a JWT token stored in Se
 
 ```bash
 # First, login to get a PLATFORM_TOKEN
-eval $(pipeline-manager login -u admin@your-domain.com -p '***' --quiet --no-verify-ssl)
+eval $(pipeline-manager auth login -u admin@your-domain.com -p '***' --quiet --no-verify-ssl)
 
 # Then generate a long-lived token and store in Secrets Manager
-pipeline-manager store-token --days 30 --region us-east-1
+pipeline-manager infra store-token --days 30 --region us-east-1
 ```
 
-By default `store-token` **only writes the secret** — you must re-run it before the
-token expires (`audit-tokens` warns you in advance). To avoid that, add `--schedule`
+By default `infra store-token` **only writes the secret** — you must re-run it before the
+token expires (`audit tokens` warns you in advance). To avoid that, add `--schedule`
 to also deploy a small **daily auto-renewal stack** (`pipeline-builder-token-renew`):
 
 ```bash
 # Write the token AND install a Lambda that re-mints it daily, so it never lapses
-pipeline-manager store-token --days 30 --schedule --region us-east-1
+pipeline-manager infra store-token --days 30 --schedule --region us-east-1
 
 # Custom renewal time (5-field cron; minimum every 15 minutes):
-pipeline-manager store-token --schedule --cron '0 3 * * *' --region us-east-1
+pipeline-manager infra store-token --schedule --cron '0 3 * * *' --region us-east-1
 ```
 
 The renewal stack is a scheduled Lambda that reads the current JWT, mints a fresh
@@ -855,7 +855,7 @@ Set up pipeline execution reporting to track success rates, stage performance, a
 ```bash
 export PLATFORM_BASE_URL=https://pipeline.example.com
 
-pipeline-manager setup-events --region us-east-1
+pipeline-manager infra setup-events --region us-east-1
 ```
 
 This creates a CloudFormation stack (`pipeline-builder-events`) containing:
@@ -894,11 +894,11 @@ View    → Dashboard Reports page or GET /api/reports/...
 
 > Plugin Docker builds are captured automatically by the plugin service (no EventBridge needed).
 
-### Drift Detection (`audit-stacks`)
+### Drift Detection (`audit stacks`)
 
-The `pipeline_registry` table is written only when `pipeline-manager deploy` succeeds. CloudFormation stacks can be created or destroyed outside of that path — manual `aws cloudformation delete-stack`, console operations, side-channel deploys — and over time the registry can drift from reality.
+The `pipeline_registry` table is written only when `pipeline-manager pipeline deploy` succeeds. CloudFormation stacks can be created or destroyed outside of that path — manual `aws cloudformation delete-stack`, console operations, side-channel deploys — and over time the registry can drift from reality.
 
-The `audit-stacks` command joins the registry against live CloudFormation stacks tagged `pipeline-builder` and surfaces two categories of drift:
+The `audit stacks` command joins the registry against live CloudFormation stacks tagged `pipeline-builder` and surfaces two categories of drift:
 
 | Finding | Meaning | Typical cause |
 |---------|---------|---------------|
@@ -909,13 +909,13 @@ The `audit-stacks` command joins the registry against live CloudFormation stacks
 
 ```bash
 # Scan all orgs in the default region
-pipeline-manager audit-stacks --region us-east-1
+pipeline-manager audit stacks --region us-east-1
 
 # Scan one org, JSON output (suitable for piping into jq / cron alerting)
-pipeline-manager audit-stacks --org acme --region us-east-1 --json
+pipeline-manager audit stacks --org acme --region us-east-1 --json
 
 # With a specific AWS profile
-pipeline-manager audit-stacks --profile production --region us-east-1
+pipeline-manager audit stacks --profile production --region us-east-1
 ```
 
 Flags:
@@ -941,7 +941,7 @@ A typical alerting setup runs the audit nightly and pages on non-zero exit:
 
 ```bash
 # /etc/cron.d/pipeline-builder-audit
-0 6 * * * deploy-bot pipeline-manager audit-stacks --region us-east-1 --json > /var/log/pb-audit.json || alert-on-call "pipeline-builder drift detected"
+0 6 * * * deploy-bot pipeline-manager audit stacks --region us-east-1 --json > /var/log/pb-audit.json || alert-on-call "pipeline-builder drift detected"
 ```
 
 #### Remediation
@@ -949,7 +949,7 @@ A typical alerting setup runs the audit nightly and pages on non-zero exit:
 Drift is **not auto-fixed** — the command only reports. Reconciliation is manual and depends on the cause:
 
 - **Orphaned stack**: confirm the pipeline definition really was deleted, then `aws cloudformation delete-stack --stack-name <name>` to clean up the leftover. If the deletion was unintentional, recreate the pipeline definition and redeploy.
-- **Missing stack**: redeploy the pipeline (`pipeline-manager deploy --id <pipelineId>`) to recreate the stack and refresh the registry row. There is currently no API or dashboard surface to drop a stale registry row in isolation — if redeploy isn't desired, the row must be removed directly in Postgres (`DELETE FROM pipeline_registry WHERE pipeline_id = '<pipelineId>'`).
+- **Missing stack**: redeploy the pipeline (`pipeline-manager pipeline deploy --id <pipelineId>`) to recreate the stack and refresh the registry row. There is currently no API or dashboard surface to drop a stale registry row in isolation — if redeploy isn't desired, the row must be removed directly in Postgres (`DELETE FROM pipeline_registry WHERE pipeline_id = '<pipelineId>'`).
 
 #### What it doesn't catch
 
@@ -1104,7 +1104,7 @@ The AWS Load Balancer Controller provisions the ALB from `ingress.yaml`. Check `
 The ACM cert DNS-validates during stack creation (a few minutes). If it never issues, the `--hosted-zone-id` is wrong or not authoritative for `--domain`. Check ACM status: `aws acm describe-certificate --certificate-arn <arn>` (look for `DomainValidationOptions[].ValidationStatus`).
 
 **No reporting data after deploy:**
-1. Verify `pipeline-manager store-token` was run
+1. Verify `pipeline-manager infra store-token` was run
 2. Check Lambda logs: `aws logs tail /aws/lambda/pipeline-builder-event-ingestion --follow`
 3. Check SQS DLQ for failed events
-4. Verify pipeline was deployed after `setup-events` (ARN must be registered)
+4. Verify pipeline was deployed after `infra setup-events` (ARN must be registered)

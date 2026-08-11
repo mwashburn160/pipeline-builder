@@ -14,6 +14,7 @@ import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Button } from '@/components/ui/Button';
+import { BillingAdminTabs } from '@/components/billing/BillingAdminTabs';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
@@ -269,6 +270,7 @@ export default function PromotionsPage() {
         <Button onClick={openCreate}><Plus className="w-4 h-4 mr-1" /> New promotion</Button>
       )}
     >
+      <BillingAdminTabs active="promotions" />
       <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
 
       {notEnabled ? (

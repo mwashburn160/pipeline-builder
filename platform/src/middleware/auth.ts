@@ -4,7 +4,7 @@
 import { createLogger, ErrorCode, isSystemAdmin, resolveUserPermissions, sendError } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 import { toOrgId } from '../helpers/controller-helper.js';
-import { User, Organization, UserOrganization } from '../models/index.js';
+import { User, Organization, UserOrganization, PersonalAccessToken } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
 import type { AccessTokenPayload } from '../types/index.js';
 import {
@@ -156,9 +156,52 @@ export async function requireAuth(
     // the request needs — role, org, permissions, isSuperAdmin — already rides in
     // the validated JWT and is kept fresh by that same bump, so re-deriving it
     // per request (previously up to 5 sequential queries) is redundant.
-    const user = await User.findById(decoded.sub).select('+tokenVersion').lean();
+    const user = await User.findById(decoded.sub).select('+tokenVersion +isSuperAdmin').lean();
 
-    if (!user || decoded.tokenVersion !== user.tokenVersion) {
+    if (!user) {
+      return sendError(res, 401, 'Session invalid');
+    }
+
+    if (decoded.jti) {
+      // Personal Access Token. Its authority comes from the PersonalAccessToken
+      // record, NOT `tokenVersion` — so a normal session logout (which bumps
+      // tokenVersion) does not silently kill a durable CI credential. "Sign out
+      // everywhere" and account deletion explicitly flip `revoked` on the user's
+      // PATs. Only PATs carry a `jti`, so this branch never touches the hot
+      // session path. Look up by jti AND userId (defense in depth against a
+      // jti/sub mismatch).
+      const pat = await PersonalAccessToken.findOne({ jti: decoded.jti, userId: decoded.sub }).select('revoked expiresAt lastUsedAt').lean();
+      if (!pat || pat.revoked || (pat.expiresAt && pat.expiresAt.getTime() < Date.now())) {
+        return sendError(res, 401, 'Token revoked or expired');
+      }
+      // A PAT bakes point-in-time authority. Because it's decoupled from
+      // tokenVersion, re-validate the pieces a privilege REDUCTION would change so
+      // it can't outlive the access it represents:
+      //  - superadmin must not have been revoked;
+      //  - the org membership the token was minted against must still be active
+      //    (catches member removal / deactivation / ownership transfer).
+      // (A role/permission change WITHIN an active membership still leaves stale
+      // baked claims until the PAT is revoked or expires — a documented limitation.)
+      if (decoded.isSuperAdmin && user.isSuperAdmin !== true) {
+        return sendError(res, 401, 'Token authority revoked');
+      }
+      if (decoded.organizationId) {
+        const membership = await UserOrganization.findOne({
+          userId: decoded.sub, organizationId: toOrgId(decoded.organizationId), isActive: true,
+        }).select('_id').lean();
+        if (!membership) {
+          return sendError(res, 401, 'Token authority revoked');
+        }
+      }
+      // Throttle the lastUsedAt stamp to at most once/minute so a busy CI/poller
+      // doesn't turn every request into a Mongo write on the auth hot path.
+      const STALE_MS = 60_000;
+      if (!pat.lastUsedAt || (Date.now() - new Date(pat.lastUsedAt).getTime()) > STALE_MS) {
+        void PersonalAccessToken.updateOne({ jti: decoded.jti }, { $set: { lastUsedAt: new Date() } }).catch(() => { /* best-effort */ });
+      }
+    } else if (decoded.tokenVersion !== user.tokenVersion) {
+      // Session token: reject if minted before the last "invalidate all sessions"
+      // / role / permission / membership change.
       return sendError(res, 401, 'Session invalid');
     }
 

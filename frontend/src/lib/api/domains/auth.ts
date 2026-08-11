@@ -4,6 +4,19 @@
 import type { ApiCore } from '../core';
 import type { ApiResponse, User } from '@/types';
 
+/** Personal Access Token metadata (never includes the token secret). */
+export interface PatMeta {
+  id: string;
+  jti: string;
+  name: string;
+  scope: string | null;
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt: string | null;
+  revoked: boolean;
+  status: 'active' | 'expired' | 'revoked';
+}
+
 export function authApi(core: ApiCore) {
   return {
     // ============================================
@@ -142,6 +155,41 @@ export function authApi(core: ApiCore) {
       return core.request<ApiResponse<{ tokens: Array<{ id: string; createdAt: string; expiresAt: string; status: 'active' | 'expired' | 'revoked' }> }>>(
         '/api/user/tokens',
       );
+    },
+
+    /** POST /user/pats — create a named Personal Access Token. Returns the token ONCE.
+     *  Step-up gated: pass the token from a StepUpModal via `X-Step-Up-Token`. */
+    createPat: async (body: { name: string; expiresIn?: number; scope?: string }, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ token: string; pat: PatMeta }>>('/api/user/pats', {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+        body: JSON.stringify(body),
+      });
+    },
+
+    /** GET /user/pats — list the user's Personal Access Tokens (metadata only). */
+    listPats: async () => {
+      return core.request<ApiResponse<{ pats: PatMeta[] }>>('/api/user/pats');
+    },
+
+    /** DELETE /user/pats/:jti — revoke a single Personal Access Token immediately. */
+    revokePat: async (jti: string) => {
+      return core.request<ApiResponse<{ revoked: boolean }>>(`/api/user/pats/${encodeURIComponent(jti)}`, {
+        method: 'DELETE',
+      });
+    },
+
+    /** GET /user/preferences — server-persisted favorites/recents for the active org. */
+    getPreferences: async () => {
+      return core.request<ApiResponse<{ preferences: { favorites: string[]; recents: string[] } }>>('/api/user/preferences');
+    },
+
+    /** PUT /user/preferences — replace favorites and/or recents for the active org. */
+    updatePreferences: async (patch: { favorites?: string[]; recents?: string[] }) => {
+      return core.request<ApiResponse<{ preferences: { favorites: string[]; recents: string[] } }>>('/api/user/preferences', {
+        method: 'PUT',
+        body: JSON.stringify(patch),
+      });
     },
 
     /** POST /user/tokens/revoke-all — sign out everywhere (bumps tokenVersion). Re-issues a fresh token for the active session.

@@ -10,8 +10,10 @@ import { createCreatePipelineRoutes } from './routes/create-pipeline.js';
 import { createDeletePipelineRoutes } from './routes/delete-pipeline.js';
 import { createExecutionRoutes } from './routes/executions.js';
 import { createGeneratePipelineRoutes } from './routes/generate-pipeline.js';
+import { createPipelineTemplateRoutes } from './routes/pipeline-template-routes.js';
 import { createReadPipelineRoutes } from './routes/read-pipelines.js';
 import { createRegistryRoutes } from './routes/registry.js';
+import { createScorecardRoutes } from './routes/scorecard-routes.js';
 import { createUpdatePipelineRoutes } from './routes/update-pipeline.js';
 import { getAuditClient } from './services/audit.js';
 
@@ -59,11 +61,24 @@ app.use('/pipelines', createExecutionRoutes());
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
 app.use('/pipelines', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPipelineRoutes(quotaService));
 
+// -- Per-pipeline maturity scorecard — auth + org + apiCalls quota (metered
+//    like the other reads), + advanced_reporting per-route inside. MUST be
+//    mounted BEFORE the write-gated update/delete routes below: those apply
+//    requirePermission('pipelines:write') as a PREFIX layer that would otherwise
+//    run for GET /pipelines/:id/scorecard (a read) and 403 read-only viewers.
+//    The two-segment path (/:id/scorecard) doesn't clash with the read /:id.
+app.use('/pipelines', ...createProtectedRoute(quotaService, 'apiCalls'), createScorecardRoutes(quotaService));
+
 // -- Update route — auth + orgId + pipelines:write ---------------------------
 app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), createUpdatePipelineRoutes());
 
 // -- Delete route — auth + orgId + pipelines:write ---------------------------
 app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), createDeletePipelineRoutes());
+
+// -- Golden-path pipeline templates (list/get/instantiate + author) ----------
+// Middleware is applied per-route inside the router (reads: auth+org; writes:
+// +pipelines:write), so it mounts bare like the create route.
+app.use('/pipeline-templates', createPipelineTemplateRoutes());
 
 // -- Register compliance event subscriber for entity lifecycle events --------
 // `'pipeline'` is the service principal baked into the signed JWT the

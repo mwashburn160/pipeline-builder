@@ -8,7 +8,7 @@ import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { seatCapacityAvailable, seatCapacityStillWithinCap, userHasSeatInAccount } from '../helpers/seats.js';
 import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
-import { User, Organization, UserOrganization, Role, RoleAssignment, type OrgMemberRole } from '../models/index.js';
+import { User, Organization, UserOrganization, Role, RoleAssignment, PersonalAccessToken, UserPreferences, type OrgMemberRole } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
 
@@ -490,6 +490,10 @@ class UserAdminService {
 
       await UserOrganization.deleteMany({ userId: user._id }, { session });
       await RoleAssignment.deleteMany({ userId: user._id }, { session });
+      // Clean up PATs + personalization (mirrors self-serve deleteAccount) so an
+      // admin delete leaves nothing orphaned.
+      await PersonalAccessToken.deleteMany({ userId: user._id }, { session });
+      await UserPreferences.deleteMany({ userId: user._id }, { session });
       await User.findByIdAndDelete(id, { session });
     });
     // Revoke the deleted user's outstanding tokens on the stateless services

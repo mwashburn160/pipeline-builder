@@ -57,6 +57,9 @@ export const REMOTE_AUDIT_ACTIONS = [
   'pipeline.create',
   'pipeline.update',
   'pipeline.delete',
+  'pipeline_template.create',
+  'pipeline_template.update',
+  'pipeline_template.delete',
   'pipeline.execution.start',
   'pipeline.execution.cancel',
   // CodePipeline ARN-registry config (api/pipeline registry route) — registering /

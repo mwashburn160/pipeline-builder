@@ -15,14 +15,14 @@ const { bold, dim, green } = pico;
  *
  * @example
  * ```bash
- * pipeline-manager get-pipeline --id <pipeline-id>
- * pipeline-manager get-pipeline --id <pipeline-id> --format json
- * pipeline-manager get-pipeline --id <pipeline-id> --output pipeline.json
+ * pipeline-manager pipeline get --id <pipeline-id>
+ * pipeline-manager pipeline get --id <pipeline-id> --format json
+ * pipeline-manager pipeline get --id <pipeline-id> --output pipeline.json
  * ```
  */
 export function getPipeline(program: Command): void {
   program
-    .command('get-pipeline')
+    .command('get')
     .description('Get a single pipeline by ID')
     .requiredOption('-i, --id <id>', 'Pipeline ID')
     .option('-f, --format <format>', 'Output format (json, yaml, table)', 'json')

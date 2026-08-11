@@ -30,7 +30,7 @@ installCommands:
   - command -v pipeline-manager >/dev/null 2>&1 || npm install -g @pipeline-builder/pipeline-manager
 commands:
   - 'curl -sf ${PLATFORM_BASE_URL}/health > /dev/null || { echo "ERROR: Platform unreachable at ${PLATFORM_BASE_URL}"; exit 1; }'
-  - pipeline-manager synth --id ${PIPELINE_ID} --store-tokens --quiet --no-notices --output cdk.out
+  - pipeline-manager pipeline synth --id ${PIPELINE_ID} --store-tokens --quiet --no-notices --output cdk.out
 env:
   CDK_DEFAULT_REGION: ${AWS_REGION}
   CDK_DEFAULT_ACCOUNT: ${AWS_ACCOUNT_ID}

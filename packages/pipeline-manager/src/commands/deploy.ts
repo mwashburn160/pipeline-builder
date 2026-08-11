@@ -27,10 +27,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  *
  * Fetches pipeline properties by ID from the platform API, then
  * runs `cdk deploy` to provision the pipeline infrastructure in AWS.
- * For synthesis only, use `pipeline-manager synth`.
+ * For synthesis only, use `pipeline-manager pipeline synth`.
  *
  * Requires service credentials to be pre-stored in AWS Secrets Manager.
- * Create them first with: `pipeline-manager store-token`
+ * Create them first with: `pipeline-manager infra store-token`
  *
  * @param program - The root Commander program instance to attach the command to.
  */
@@ -251,7 +251,7 @@ export function deploy(program: Command): void {
               const intentPath = await writePendingIntent(payload);
               printWarning('Pipeline registry update failed; queued for retry', {
                 error: regError instanceof Error ? regError.message : String(regError),
-                retry: 'pipeline-manager register',
+                retry: 'pipeline-manager pipeline register',
                 intent: intentPath,
               });
             } catch (writeErr) {

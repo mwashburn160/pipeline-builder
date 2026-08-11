@@ -138,7 +138,7 @@ The CodeBuild bootstrap image (`pipeline-bootstrap:1.0`, built `FROM node:24-sli
 with AWS CLI v2 + the AWS CDK CLI + esbuild + pnpm + pipeline-manager baked in)
 lives separately at `../codebuild/bootstrap/` and is built/published by its own
 script, `deploy/bin/build-codebuild-bootstrap.sh`. It backs `CODEBUILD_DEFAULT_IMAGE`,
-the image cold-start synth runs `pipeline-manager synth` on (which shells out to
+the image cold-start synth runs `pipeline-manager pipeline synth` on (which shells out to
 `cdk synth` and bundles the PluginLookup Lambda locally via esbuild — hence those
 tools). `init-platform.sh` builds and publishes it before plugin loading.
 

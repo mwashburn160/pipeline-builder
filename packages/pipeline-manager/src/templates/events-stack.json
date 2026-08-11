@@ -1,6 +1,6 @@
 {
   "AWSTemplateFormatVersion": "2010-09-09",
-  "Description": "Pipeline Builder event ingestion — EventBridge rule, SQS queue, and Lambda that resolves each pipeline's PIPELINE_EVENT_ID tag and forwards CodePipeline events to the reporting service API. Lambda code is deployed separately via pipeline-manager setup-events.",
+  "Description": "Pipeline Builder event ingestion — EventBridge rule, SQS queue, and Lambda that resolves each pipeline's PIPELINE_EVENT_ID tag and forwards CodePipeline events to the reporting service API. Lambda code is deployed separately via pipeline-manager infra setup-events.",
   "Parameters": {
     "PlatformBaseUrl": {
       "Type": "String",
@@ -114,7 +114,7 @@
         "Runtime": "nodejs24.x",
         "Handler": "index.handler",
         "Code": {
-          "ZipFile": "exports.handler=async(event)=>{console.log('Placeholder handler — run pipeline-manager setup-events to deploy real code');return{statusCode:200,body:JSON.stringify({message:'hello',records:event.Records?.length||0})}}"
+          "ZipFile": "exports.handler=async(event)=>{console.log('Placeholder handler — run pipeline-manager infra setup-events to deploy real code');return{statusCode:200,body:JSON.stringify({message:'hello',records:event.Records?.length||0})}}"
         },
         "Role": { "Fn::GetAtt": ["LambdaRole", "Arn"] },
         "Timeout": 60,

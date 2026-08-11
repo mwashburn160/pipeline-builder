@@ -70,6 +70,14 @@ CREATE TABLE IF NOT EXISTS plugins (    -- Identity & Audit Fields
     install_commands TEXT[] NOT NULL DEFAULT '{}',
     commands TEXT[] NOT NULL DEFAULT '{}',
 
+    -- Developer-portal catalog metadata (ownership / lifecycle / classification)
+    owner_id TEXT,
+    owner_type VARCHAR(10) CHECK (owner_type IN ('user', 'team')),
+    lifecycle VARCHAR(20) NOT NULL DEFAULT 'production'
+                        CHECK (lifecycle IN ('experimental', 'production', 'deprecated')),
+    criticality VARCHAR(10) CHECK (criticality IN ('low', 'medium', 'high', 'critical')),
+    labels JSONB NOT NULL DEFAULT '{}',
+    links JSONB NOT NULL DEFAULT '[]',
 
     -- Access Control & Status
     access_modifier VARCHAR(10) NOT NULL DEFAULT 'private'
@@ -102,6 +110,15 @@ CREATE TABLE IF NOT EXISTS pipelines (    -- Identity & Audit Fields
     keywords JSONB NOT NULL DEFAULT '[]',
     props JSONB NOT NULL DEFAULT '{}',
 
+    -- Developer-portal catalog metadata (ownership / lifecycle / classification)
+    owner_id TEXT,
+    owner_type VARCHAR(10) CHECK (owner_type IN ('user', 'team')),
+    lifecycle VARCHAR(20) NOT NULL DEFAULT 'production'
+                        CHECK (lifecycle IN ('experimental', 'production', 'deprecated')),
+    criticality VARCHAR(10) CHECK (criticality IN ('low', 'medium', 'high', 'critical')),
+    labels JSONB NOT NULL DEFAULT '{}',
+    links JSONB NOT NULL DEFAULT '[]',
+
     -- Access Control & Status
     access_modifier VARCHAR(10) NOT NULL DEFAULT 'private'
                         CHECK (access_modifier IN ('public', 'private')),
@@ -112,6 +129,55 @@ CREATE TABLE IF NOT EXISTS pipelines (    -- Identity & Audit Fields
     deleted_at TIMESTAMPTZ,
     deleted_by TEXT
 );
+
+-- ============================================================================
+-- PIPELINE TEMPLATES TABLE (Golden-path parameterized starters)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS pipeline_templates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id VARCHAR(255) NOT NULL DEFAULT '000000000000000000000001',
+    created_by TEXT NOT NULL DEFAULT '000000000000000000000001',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by TEXT NOT NULL DEFAULT '000000000000000000000001',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    keywords JSONB NOT NULL DEFAULT '[]',
+    category VARCHAR(50) NOT NULL DEFAULT 'general',
+
+    -- Template body (BuilderProps with {{ vars.* }} placeholders) + input contract
+    props JSONB NOT NULL DEFAULT '{}',
+    inputs JSONB NOT NULL DEFAULT '[]',
+
+    -- Developer-portal catalog metadata
+    owner_id TEXT,
+    owner_type VARCHAR(10) CHECK (owner_type IN ('user', 'team')),
+    lifecycle VARCHAR(20) NOT NULL DEFAULT 'production'
+                        CHECK (lifecycle IN ('experimental', 'production', 'deprecated')),
+    criticality VARCHAR(10) CHECK (criticality IN ('low', 'medium', 'high', 'critical')),
+    labels JSONB NOT NULL DEFAULT '{}',
+    links JSONB NOT NULL DEFAULT '[]',
+
+    -- Access Control & Status
+    access_modifier VARCHAR(10) NOT NULL DEFAULT 'private'
+                        CHECK (access_modifier IN ('public', 'private')),
+    is_default BOOLEAN NOT NULL DEFAULT false,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+
+    -- Soft Delete
+    deleted_at TIMESTAMPTZ,
+    deleted_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS pipeline_template_org_id_idx ON pipeline_templates(org_id);
+CREATE INDEX IF NOT EXISTS pipeline_template_active_idx ON pipeline_templates(is_active);
+CREATE INDEX IF NOT EXISTS pipeline_template_category_idx ON pipeline_templates(category);
+CREATE INDEX IF NOT EXISTS pipeline_template_org_access_active_idx ON pipeline_templates(org_id, access_modifier, is_active);
+CREATE INDEX IF NOT EXISTS pipeline_template_owner_idx ON pipeline_templates(org_id, owner_id);
+CREATE INDEX IF NOT EXISTS pipeline_template_lifecycle_idx ON pipeline_templates(org_id, lifecycle);
+CREATE UNIQUE INDEX IF NOT EXISTS pipeline_template_name_org_unique ON pipeline_templates(name, org_id);
 
 -- ============================================================================
 -- MESSAGES TABLE (Internal messaging between organizations and system org)
@@ -220,6 +286,68 @@ ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS pipeline_name VARCHAR(150);
 ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(100);
+
+-- Developer-portal catalog metadata (ownership / lifecycle / classification).
+-- Additive for existing installs; fresh installs already have them from CREATE.
+ALTER TABLE plugins ADD COLUMN IF NOT EXISTS owner_id TEXT;
+ALTER TABLE plugins ADD COLUMN IF NOT EXISTS owner_type VARCHAR(10);
+ALTER TABLE plugins ADD COLUMN IF NOT EXISTS lifecycle VARCHAR(20) NOT NULL DEFAULT 'production';
+ALTER TABLE plugins ADD COLUMN IF NOT EXISTS criticality VARCHAR(10);
+ALTER TABLE plugins ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE plugins ADD COLUMN IF NOT EXISTS links JSONB NOT NULL DEFAULT '[]';
+
+ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS owner_id TEXT;
+ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS owner_type VARCHAR(10);
+ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS lifecycle VARCHAR(20) NOT NULL DEFAULT 'production';
+ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS criticality VARCHAR(10);
+ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS links JSONB NOT NULL DEFAULT '[]';
+
+-- Backfill owner from creator for pre-existing rows (skip system-seeded content,
+-- which stays owner-less / catalog-shared).
+UPDATE plugins SET owner_id = created_by, owner_type = 'user'
+    WHERE owner_id IS NULL AND created_by <> '000000000000000000000001';
+UPDATE pipelines SET owner_id = created_by, owner_type = 'user'
+    WHERE owner_id IS NULL AND created_by <> '000000000000000000000001';
+
+-- Catalog indexes: owner = "my services" view, lifecycle = catalog filter.
+CREATE INDEX IF NOT EXISTS plugin_owner_idx ON plugins(org_id, owner_id);
+CREATE INDEX IF NOT EXISTS plugin_lifecycle_idx ON plugins(org_id, lifecycle);
+CREATE INDEX IF NOT EXISTS pipeline_owner_idx ON pipelines(org_id, owner_id);
+CREATE INDEX IF NOT EXISTS pipeline_lifecycle_idx ON pipelines(org_id, lifecycle);
+
+-- Enum CHECK constraints for the additive catalog columns (fresh installs
+-- get these from CREATE TABLE; upgraded installs need them added here).
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'plugins_owner_type_check') THEN
+    ALTER TABLE plugins ADD CONSTRAINT plugins_owner_type_check CHECK (owner_type IN ('user', 'team'));
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'plugins_lifecycle_check') THEN
+    ALTER TABLE plugins ADD CONSTRAINT plugins_lifecycle_check CHECK (lifecycle IN ('experimental', 'production', 'deprecated'));
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'plugins_criticality_check') THEN
+    ALTER TABLE plugins ADD CONSTRAINT plugins_criticality_check CHECK (criticality IN ('low', 'medium', 'high', 'critical'));
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pipelines_owner_type_check') THEN
+    ALTER TABLE pipelines ADD CONSTRAINT pipelines_owner_type_check CHECK (owner_type IN ('user', 'team'));
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pipelines_lifecycle_check') THEN
+    ALTER TABLE pipelines ADD CONSTRAINT pipelines_lifecycle_check CHECK (lifecycle IN ('experimental', 'production', 'deprecated'));
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pipelines_criticality_check') THEN
+    ALTER TABLE pipelines ADD CONSTRAINT pipelines_criticality_check CHECK (criticality IN ('low', 'medium', 'high', 'critical'));
+  END IF;
+END $$;
 
 -- ============================================================================
 -- DASHBOARDS + DASHBOARD PANELS (user-editable observability dashboards)

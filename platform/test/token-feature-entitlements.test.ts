@@ -51,6 +51,9 @@ const mockUserOrgFind = jest.fn<(...a: unknown[]) => unknown>();
 const emptyRoleChain = () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) });
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   User: { updateOne: jest.fn(async () => ({})) },
   Organization: { findById: (...a: unknown[]) => mockOrgFindById(...a) },
   UserOrganization: {

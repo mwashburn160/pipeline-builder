@@ -27,7 +27,7 @@ CodeBuild `Build State` events are skipped: a build project can be shared across
 - Triggered by an SQS queue fed by an EventBridge rule matching the `aws.codepipeline` source; processes events in batches and POSTs them in a single request per invocation.
 - Requires `PLATFORM_BASE_URL` (set by `setup-events`).
 - **IAM:** the execution role must allow `codepipeline:ListTagsForResource`. An `AccessDenied` is logged as an error and fails the batch, so a missing grant is visible rather than silent.
-- Authenticates with either `PLATFORM_TOKEN` (a JWT set directly) or `PLATFORM_SECRET_NAME` (a Secrets Manager secret holding `accessToken`, created via `pipeline-manager store-token`); the resolved token is cached across invocations.
+- Authenticates with either `PLATFORM_TOKEN` (a JWT set directly) or `PLATFORM_SECRET_NAME` (a Secrets Manager secret holding `accessToken`, created via `pipeline-manager infra store-token`); the resolved token is cached across invocations.
 
 ## Development
 

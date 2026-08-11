@@ -459,7 +459,7 @@ const pipelineEvents = new PackageProject({
   ],
 });
 pipelineEvents.eslint?.addRules(rules);
-// Published to npm: `pipeline-manager setup-events` runs `npm install
+// Published to npm: `pipeline-manager infra setup-events` runs `npm install
 // @pipeline-builder/pipeline-events@<version>` to fetch the Lambda handler it
 // uploads (see commands/setup-events.ts), so it must be on the registry and
 // version-synced. Listed in LIBRARY_PROJECTS (projenrc/workflow.ts).

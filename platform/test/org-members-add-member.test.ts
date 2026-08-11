@@ -52,6 +52,9 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   Organization: { findById: (...a: unknown[]) => mockOrgFindById(...a) },
   User: {
     findById: (...a: unknown[]) => mockUserFindById(...a),

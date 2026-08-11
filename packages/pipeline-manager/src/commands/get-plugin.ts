@@ -16,14 +16,14 @@ const { bold, dim, green } = pico;
  *
  * @example
  * ```bash
- * pipeline-manager get-plugin --id <plugin-id>
- * pipeline-manager get-plugin --id <plugin-id> --format json
- * pipeline-manager get-plugin --id <plugin-id> --output plugin.json
+ * pipeline-manager plugin get --id <plugin-id>
+ * pipeline-manager plugin get --id <plugin-id> --format json
+ * pipeline-manager plugin get --id <plugin-id> --output plugin.json
  * ```
  */
 export function getPlugin(program: Command): void {
   program
-    .command('get-plugin')
+    .command('get')
     .description('Get a single plugin by ID')
     .requiredOption('-i, --id <id>', 'Plugin ID')
     .option('-f, --format <format>', 'Output format (json, yaml, table)', 'json')

@@ -54,13 +54,13 @@ const ACTIVE_STATUSES = [
  *
  * @example
  * ```bash
- * pipeline-manager audit-stacks --region us-east-1
- * pipeline-manager audit-stacks --org acme --json
+ * pipeline-manager audit stacks --region us-east-1
+ * pipeline-manager audit stacks --org acme --json
  * ```
  */
 export function auditStacks(program: Command): void {
   program
-    .command('audit-stacks')
+    .command('stacks')
     .description('Diff CloudFormation stacks vs pipeline_registry to find orphaned or missing CDK deployments')
     .option('--region <region>', 'AWS region (defaults to AWS_REGION env)')
     .option('--profile <profile>', 'AWS CLI profile', 'default')

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { SYSTEM_ORG_ID, type Lifecycle } from '@pipeline-builder/api-core';
 import { and, eq, ilike, isNull, not, or, gte, lte, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import {
@@ -14,6 +14,7 @@ import {
 import type {
   MessageFilter,
   PipelineFilter,
+  PipelineTemplateFilter,
   PluginFilter,
   CompliancePolicyFilter,
   ComplianceRuleFilter,
@@ -33,6 +34,7 @@ import {
 // Query builder instances
 const pipelineBuilder = new AccessControlQueryBuilder(schema.pipeline);
 const pluginBuilder = new AccessControlQueryBuilder(schema.plugin);
+const pipelineTemplateBuilder = new AccessControlQueryBuilder(schema.pipelineTemplate);
 
 /**
  * Equality predicate for a filter's `id` (a single string, or the first id of a
@@ -112,6 +114,15 @@ export function buildPipelineConditions(
     conditions.push(buildJsonbKeywordCondition(schema.pipeline.keywords, normalizeStringFilter(filter.keyword)));
   }
 
+  // Developer-portal catalog filters (owner / lifecycle).
+  if (filter.ownerId !== undefined) {
+    conditions.push(eq(schema.pipeline.ownerId, filter.ownerId));
+  }
+
+  if (filter.lifecycle !== undefined) {
+    conditions.push(eq(schema.pipeline.lifecycle, filter.lifecycle as Lifecycle));
+  }
+
   return conditions;
 }
 
@@ -155,6 +166,59 @@ export function buildPluginConditions(
 
   if (filter.category !== undefined) {
     conditions.push(eq(schema.plugin.category, filter.category as string));
+  }
+
+  // Developer-portal catalog filters (owner / lifecycle).
+  if (filter.ownerId !== undefined) {
+    conditions.push(eq(schema.plugin.ownerId, filter.ownerId));
+  }
+
+  if (filter.lifecycle !== undefined) {
+    conditions.push(eq(schema.plugin.lifecycle, filter.lifecycle as Lifecycle));
+  }
+
+  return conditions;
+}
+
+/**
+ * Build SQL conditions for pipeline-template queries.
+ *
+ * Visibility mirrors plugins/pipelines: the caller's own-org rows (any modifier)
+ * plus the system org's PUBLIC templates (the shared golden-path catalog) and,
+ * for a team, the parent org's public templates.
+ */
+export function buildPipelineTemplateConditions(
+  filter: Partial<PipelineTemplateFilter>,
+  orgId?: string,
+  parentOrgId?: string,
+): SQL[] {
+  const conditions = pipelineTemplateBuilder.buildCommonConditions(filter, orgId, parentOrgId);
+
+  // Optional narrowing to a specific org within the caller's visibility (mirrors
+  // the plugin builder). Access control above still bounds what's visible.
+  if (filter.orgId !== undefined) {
+    conditions.push(eq(schema.pipelineTemplate.orgId, normalizeStringFilter(filter.orgId as string)));
+  }
+
+  if (filter.name !== undefined) {
+    conditions.push(ilike(schema.pipelineTemplate.name, `%${escapeLikeWildcards(normalizeStringFilter(filter.name))}%`));
+  }
+
+  // Verbatim match, consistent with the plugin builder (categories are stored as-is).
+  if (filter.category !== undefined) {
+    conditions.push(eq(schema.pipelineTemplate.category, filter.category as string));
+  }
+
+  if (filter.keyword !== undefined) {
+    conditions.push(buildJsonbKeywordCondition(schema.pipelineTemplate.keywords, normalizeStringFilter(filter.keyword)));
+  }
+
+  if (filter.ownerId !== undefined) {
+    conditions.push(eq(schema.pipelineTemplate.ownerId, filter.ownerId));
+  }
+
+  if (filter.lifecycle !== undefined) {
+    conditions.push(eq(schema.pipelineTemplate.lifecycle, filter.lifecycle as Lifecycle));
   }
 
   return conditions;

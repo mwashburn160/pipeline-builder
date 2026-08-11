@@ -119,7 +119,7 @@ export interface BuilderProps {
   readonly tags?: Record<string, string>;
 
   /**
-   * Plugins pre-resolved by `pipeline-manager synth` from the platform API,
+   * Plugins pre-resolved by `pipeline-manager pipeline synth` from the platform API,
    * keyed by `alias || name`. When present, `PluginLookup.plugin()` returns
    * the matching entry directly and skips the custom resource — so the
    * synthesized CFN template ships with the real CodeBuild image baked in.
@@ -218,10 +218,10 @@ export class PipelineBuilder extends Construct {
       const source = sourceBuilder.create(uniqueId);
 
       // Synth-plugin resolution:
-      //   1. Pre-resolved by `pipeline-manager synth/deploy` from the platform
+      //   1. Pre-resolved by `pipeline-manager pipeline synth/deploy` from the platform
       //      API → use it. Synth step runs on the real `cdk-synth` image with
       //      real commands baked into the template.
-      //   2. Otherwise → `bootstrap()`: cold-start `pipeline-manager synth`
+      //   2. Otherwise → `bootstrap()`: cold-start `pipeline-manager pipeline synth`
       //      on the configured CODEBUILD_DEFAULT_IMAGE (default
       //      pipeline-bootstrap:1.0). Used when the platform isn't reachable
       //      at synth time (CLI logs a warning per missed plugin).
@@ -328,7 +328,7 @@ export class PipelineBuilder extends Construct {
 
       // ── Tags ──
       // The first three are operations-essential and used by `pipeline-manager
-      // audit-stacks` to diff CFN stacks against the pipeline_registry table.
+      // audit stacks` to diff CFN stacks against the pipeline_registry table.
       // `OrgId` is the canonical key for cost attribution (AWS Cost Explorer
       // groups by tag key/value when activated in Billing settings).
       Tags.of(this.pipeline).add('pipeline-builder', 'true');

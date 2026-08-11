@@ -53,6 +53,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   PROFILE_INVALID_CREDENTIALS: 'PROFILE_INVALID_CREDENTIALS',
   PROFILE_OWNER_HAS_ORGS: 'PROFILE_OWNER_HAS_ORGS',
   PROFILE_LAST_PRIVILEGED_MEMBER: 'PROFILE_LAST_PRIVILEGED_MEMBER',
+  PROFILE_PAT_LIMIT: 'PROFILE_PAT_LIMIT',
   userProfileService: {
     updateProfile: (...a: unknown[]) => mockUpdateProfile(...a),
     changePassword: (...a: unknown[]) => mockChangePassword(...a),
@@ -60,9 +61,16 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   },
 }));
 
-jest.unstable_mockModule('../src/models/index.js', () => ({ User: {}, Organization: {}, UserOrganization: {} }));
+jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
+  User: {},
+  Organization: {},
+  UserOrganization: {},
+}));
 
-jest.unstable_mockModule('../src/utils/token.js', () => ({ issueTokens: (...a: unknown[]) => mockIssueTokens(...a) }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: (...a: unknown[]) => mockIssueTokens(...a) }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: (schema: unknown, body: unknown, _res: unknown) => mockValidateBody(schema, body),
   updateProfileSchema: {},

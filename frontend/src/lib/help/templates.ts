@@ -222,13 +222,13 @@ metadata:
           type: 'code',
           language: 'bash',
           content: `# Preview resolved output without deploying
-pipeline-manager deploy --id <uuid> --show-resolved
-pipeline-manager synth  --id <uuid> --show-resolved
+pipeline-manager pipeline deploy --id <uuid> --show-resolved
+pipeline-manager pipeline synth  --id <uuid> --show-resolved
 
 # Validate templates before upload
-pipeline-manager validate-templates --file ./plugin-spec.yaml
-pipeline-manager validate-templates --pipeline <uuid>
-pipeline-manager validate-templates --plugin kubectl-deploy:2.0.0`,
+pipeline-manager template validate --file ./plugin-spec.yaml
+pipeline-manager template validate --pipeline <uuid>
+pipeline-manager template validate --plugin kubectl-deploy:2.0.0`,
         },
         {
           type: 'text',

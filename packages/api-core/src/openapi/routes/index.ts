@@ -4,6 +4,7 @@
 import { registerBillingRoutes } from './billing-routes.js';
 import { registerMessageRoutes } from './message-routes.js';
 import { registerPipelineRoutes } from './pipeline-routes.js';
+import { registerPipelineTemplateRoutes } from './pipeline-template-routes.js';
 import { registerPluginRoutes } from './plugin-routes.js';
 import { registerQuotaRoutes } from './quota-routes.js';
 
@@ -15,6 +16,7 @@ export function registerAllRoutes(): void {
   registerBillingRoutes();
   registerMessageRoutes();
   registerPipelineRoutes();
+  registerPipelineTemplateRoutes();
   registerPluginRoutes();
   registerQuotaRoutes();
 }

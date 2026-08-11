@@ -1,13 +1,16 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import crypto from 'crypto';
 import { createLogger } from '@pipeline-builder/api-core';
+import type { TokenScope } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { authService } from './auth-service.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
-import { User, Organization, UserOrganization, Role, RoleAssignment } from '../models/index.js';
+import { User, Organization, UserOrganization, Role, RoleAssignment, PersonalAccessToken, type PersonalAccessTokenDocument, UserPreferences } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
+import { signPersonalAccessToken } from '../utils/token.js';
 
 const logger = createLogger('user-profile-service');
 
@@ -17,6 +20,7 @@ export const PROFILE_EMAIL_TAKEN = 'PROFILE_EMAIL_TAKEN';
 export const PROFILE_INVALID_CREDENTIALS = 'PROFILE_INVALID_CREDENTIALS';
 export const PROFILE_OWNER_HAS_ORGS = 'PROFILE_OWNER_HAS_ORGS';
 export const PROFILE_LAST_PRIVILEGED_MEMBER = 'PROFILE_LAST_PRIVILEGED_MEMBER';
+export const PROFILE_PAT_LIMIT = 'PROFILE_PAT_LIMIT';
 
 interface OrgInfo {
   id: string;
@@ -176,6 +180,10 @@ class UserProfileService {
       capturedTokenVersion = result.tokenVersion ?? 0;
       await UserOrganization.deleteMany({ userId: uid }, { session });
       await RoleAssignment.deleteMany({ userId: uid }, { session });
+      // Clean up the user's PATs and personalization so nothing is orphaned
+      // (PATs are dead-safe once the User is gone, but leave no storage leak).
+      await PersonalAccessToken.deleteMany({ userId: uid }, { session });
+      await UserPreferences.deleteMany({ userId: uid }, { session });
       return true;
     });
     if (!existed) throw new Error(PROFILE_USER_NOT_FOUND);
@@ -242,20 +250,127 @@ class UserProfileService {
     }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
+  // ── Personal Access Tokens (named, individually revocable) ───────────────
+
+  /** Shape returned to the API (never includes the token secret). */
+  private serializePat(doc: PersonalAccessTokenDocument | (PersonalAccessTokenDocument & { _id: unknown })) {
+    const now = Date.now();
+    const expiresAt = doc.expiresAt instanceof Date ? doc.expiresAt : new Date(doc.expiresAt);
+    let status: 'active' | 'expired' | 'revoked';
+    if (doc.revoked) status = 'revoked';
+    else if (expiresAt.getTime() <= now) status = 'expired';
+    else status = 'active';
+    return {
+      id: String((doc as { _id: unknown })._id),
+      jti: doc.jti,
+      name: doc.name,
+      scope: doc.scope ?? null,
+      createdAt: (doc.createdAt instanceof Date ? doc.createdAt : new Date(doc.createdAt)).toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      lastUsedAt: doc.lastUsedAt ? new Date(doc.lastUsedAt).toISOString() : null,
+      revoked: doc.revoked,
+      status,
+    };
+  }
+
+  /**
+   * Mint a named Personal Access Token: sign a jti-stamped JWT and persist its
+   * revocation record. The raw token is returned ONCE (never stored).
+   */
+  /** Max active (non-revoked, non-expired) PATs a single user may hold. */
+  private readonly MAX_ACTIVE_PATS = 50;
+
+  async createPat(userId: string, name: string, expiresInSeconds: number, scope?: TokenScope) {
+    const user = await this.findForTokenIssue(userId);
+    // Cap active PATs per user so a compromised session can't mint thousands of
+    // durable credentials (mirrors the 20-slot cap on session token history).
+    const activeCount = await PersonalAccessToken.countDocuments({ userId: user._id, revoked: false, expiresAt: { $gt: new Date() } });
+    if (activeCount >= this.MAX_ACTIVE_PATS) throw new Error(PROFILE_PAT_LIMIT);
+    const jti = crypto.randomBytes(16).toString('hex');
+    const orgId = user.lastActiveOrgId?.toString();
+    const expiresAt = new Date(Date.now() + expiresInSeconds * 1000);
+    const token = await signPersonalAccessToken(user, orgId, jti, expiresInSeconds, scope);
+    const doc = await PersonalAccessToken.create({
+      userId: user._id,
+      jti,
+      name,
+      scope: scope ?? null,
+      organizationId: orgId ?? null,
+      expiresAt,
+    });
+    return { token, pat: this.serializePat(doc) };
+  }
+
+  /** List the user's PAT metadata (never the token secret), newest first. */
+  async listPats(userId: string) {
+    const docs = await PersonalAccessToken.find({ userId }).sort({ createdAt: -1 }).lean();
+    return docs.map((d) => this.serializePat(d as unknown as PersonalAccessTokenDocument));
+  }
+
+  /** Revoke a single PAT by jti. Returns false if not found or already revoked. */
+  async revokePat(userId: string, jti: string): Promise<boolean> {
+    const res = await PersonalAccessToken.updateOne(
+      { userId, jti, revoked: false },
+      { $set: { revoked: true, revokedAt: new Date() } },
+    );
+    return res.modifiedCount > 0;
+  }
+
+  // ── Personalization (server-persisted favorites / recents, per user+org) ──
+
+  private readonly MAX_FAVORITES = 500;
+  private readonly MAX_RECENTS = 50;
+
+  /** Read a user's per-org preferences (favorites + recents). Empty when unset. */
+  async getPreferences(userId: string, organizationId: string): Promise<{ favorites: string[]; recents: string[] }> {
+    const doc = await UserPreferences.findOne({ userId, organizationId }).lean();
+    return { favorites: doc?.favorites ?? [], recents: doc?.recents ?? [] };
+  }
+
+  /**
+   * Replace a user's per-org favorites and/or recents (upsert). Each provided
+   * list is de-duplicated and capped. Undefined lists are left unchanged.
+   */
+  async updatePreferences(
+    userId: string,
+    organizationId: string,
+    patch: { favorites?: string[]; recents?: string[] },
+  ): Promise<{ favorites: string[]; recents: string[] }> {
+    // Cap element length too (not just array count) so a user can't bloat the
+    // document toward the 16MB BSON limit with a few giant strings.
+    const clean = (arr: string[], cap: number) =>
+      [...new Set(arr.filter((s) => typeof s === 'string' && s && s.length <= 256))].slice(0, cap);
+    const set: Record<string, string[]> = {};
+    if (patch.favorites !== undefined) set.favorites = clean(patch.favorites, this.MAX_FAVORITES);
+    if (patch.recents !== undefined) set.recents = clean(patch.recents, this.MAX_RECENTS);
+    const doc = await UserPreferences.findOneAndUpdate(
+      { userId, organizationId },
+      { $set: set },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    ).lean();
+    return { favorites: doc?.favorites ?? [], recents: doc?.recents ?? [] };
+  }
+
   /**
    * "Sign out everywhere" — routes through `authService.invalidateAllSessions`,
    * the SAME path auth logout uses, so the profile "revoke all" behaves
    * identically: bump `tokenVersion`, CLEAR the stored `refreshToken` hash, AND
-   * publish the revocation to the stateless services. (It previously called the
-   * model's `invalidateAllSessions()`, which only bumped `tokenVersion` and left
-   * the stored refresh-token hash valid — a divergence masked only because the
-   * refresh path also re-checks `tokenVersion`.) Returns the user with
-   * `tokenVersion` selected so the caller can issue a fresh replacement token.
+   * publish the revocation to the stateless services. Also revokes the user's
+   * PATs (which are decoupled from `tokenVersion`, so a durable credential must
+   * be killed explicitly). Returns the user with `tokenVersion` selected so the
+   * caller can issue a fresh replacement token.
    */
   async revokeAllSessions(userId: string) {
     const user = await User.findById(userId).select('+tokenVersion issuedTokens');
     if (!user) throw new Error(PROFILE_USER_NOT_FOUND);
-    // Authoritative "sign out everywhere": $inc tokenVersion + $unset refreshToken
+    // Revoke the DURABLE credentials (PATs) FIRST — if the session-invalidate
+    // step below were to throw after PATs were left live, the user would believe
+    // "sign out everywhere" succeeded while long-lived tokens still worked.
+    await PersonalAccessToken.updateMany(
+      { userId: new Types.ObjectId(String(userId)), revoked: false },
+      { $set: { revoked: true, revokedAt: new Date() } },
+    );
+    // Authoritative session revocation: $inc tokenVersion + $unset refreshToken
     // in the DB and publish the revocation (best-effort) — all inside the service.
     await authService.invalidateAllSessions(String(userId));
     // The service bumped tokenVersion via $inc in the DB; mirror that on the doc

@@ -17,6 +17,9 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 
 const mockUpdateMany = jest.fn<(...a: unknown[]) => Promise<{ modifiedCount: number }>>();
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   Invitation: { updateMany: (...a: unknown[]) => mockUpdateMany(...a) },
 }));
 

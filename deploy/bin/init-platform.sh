@@ -294,7 +294,7 @@ gate_services_ready() {
 # Load plugins
 echo ""
 # Env-overridable (LOAD_PLUGINS=y|n) for non-interactive / automated runs (e.g.
-# `pipeline-manager provision`); prompt only on a TTY when unset.
+# `pipeline-manager infra provision`); prompt only on a TTY when unset.
 LOAD_PLUGINS="${LOAD_PLUGINS:-}"
 # Did LOAD_PLUGINS come from the ENV (automation) rather than the prompt? If so the whole
 # plugin load is non-interactive, so the build-strategy + category selections below must ALSO

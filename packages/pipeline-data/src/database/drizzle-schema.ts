@@ -11,6 +11,7 @@
 
 export * from './schema/plugin.js';
 export * from './schema/pipeline.js';
+export * from './schema/pipeline-template.js';
 export * from './schema/message.js';
 export * from './schema/compliance.js';
 export * from './schema/dashboard.js';
@@ -34,6 +35,7 @@ import {
 } from './schema/compliance.js';
 import { dashboard, dashboardPanel } from './schema/dashboard.js';
 import { message } from './schema/message.js';
+import { pipelineTemplate } from './schema/pipeline-template.js';
 import { pipeline, pipelineRegistry, pipelineEvent } from './schema/pipeline.js';
 import { plugin } from './schema/plugin.js';
 
@@ -43,6 +45,7 @@ import { plugin } from './schema/plugin.js';
 export const schema = {
   plugin,
   pipeline,
+  pipelineTemplate,
   message,
   pipelineRegistry,
   pipelineEvent,

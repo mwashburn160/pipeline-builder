@@ -122,7 +122,7 @@ bash "$BIN_DIR/ensure-binfmt.sh" "${PUBLISH_PLATFORM:-linux/amd64}"
 # -----------------------------------------------------------------------
 echo "=== Starting Docker Compose ==="
 # Detached: start the stack and RETURN (so an orchestrator like
-# `pipeline-manager provision` can proceed to health checks + init-platform, and
+# `pipeline-manager infra provision` can proceed to health checks + init-platform, and
 # a direct run doesn't block on streamed container logs). Matches the README
 # quick-start. Watch logs any time with: docker compose logs -f
 "${DC[@]}" up -d --remove-orphans "$@"

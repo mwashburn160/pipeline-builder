@@ -173,7 +173,7 @@ export class ApiClient {
     if (payload && typeof payload.exp === 'number') {
       const expiresAt = new Date(payload.exp * 1000);
       if (expiresAt.getTime() < Date.now()) {
-        printWarning(`Token expired at ${expiresAt.toISOString()} — run "pipeline-manager login" to refresh`);
+        printWarning(`Token expired at ${expiresAt.toISOString()} — run "pipeline-manager auth login" to refresh`);
       }
     }
   }

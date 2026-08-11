@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, CreatePipelineData, BuilderProps, Pipeline } from '@/types';
+import type { ApiResponse, CreatePipelineData, BuilderProps, Pipeline, PipelineScorecard } from '@/types';
 
 /** A single pipeline spec accepted by the bulk-create endpoint. Mirrors the
  *  single-create body (PipelineCreateSchema on the server). */
@@ -50,6 +50,11 @@ export function pipelinesApi(core: ApiCore) {
 
     getPipelineById: async (id: string) => {
       return core.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipeline/${id}`);
+    },
+
+    /** Per-pipeline maturity scorecard (compliance posture + DORA bands). Requires `advanced_reporting`. */
+    getPipelineScorecard: async (id: string) => {
+      return core.request<ApiResponse<{ scorecard: PipelineScorecard }>>(`/api/pipelines/${id}/scorecard`);
     },
 
     createPipeline: async (data: CreatePipelineData) => {

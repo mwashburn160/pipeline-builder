@@ -58,8 +58,11 @@ afterEach(() => exitSpy.mockRestore());
 function runCli(args: string[]): Promise<void> {
   const program = new Command();
   program.exitOverride();
-  validateTemplatesCommand(program);
-  return program.parseAsync(['node', 'test', 'validate-templates', ...args]) as unknown as Promise<void>;
+  // Mirror production wiring: the command is the `validate` leaf under the
+  // `template` namespace (see cli.ts), invoked as `template validate ...`.
+  const template = program.command('template');
+  validateTemplatesCommand(template);
+  return program.parseAsync(['node', 'test', 'template', 'validate', ...args]) as unknown as Promise<void>;
 }
 
 describe('validate-templates CLI', () => {

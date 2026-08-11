@@ -13,6 +13,7 @@ import {
   PROFILE_INVALID_CREDENTIALS,
   PROFILE_OWNER_HAS_ORGS,
   PROFILE_LAST_PRIVILEGED_MEMBER,
+  PROFILE_PAT_LIMIT,
 } from '../services/index.js';
 import { issueTokens } from '../utils/token.js';
 import { validateBody, updateProfileSchema, changePasswordSchema } from '../utils/validation.js';
@@ -25,6 +26,7 @@ const profileErrorMap = {
   [PROFILE_INVALID_CREDENTIALS]: { status: 401, message: 'Current password incorrect' },
   [PROFILE_OWNER_HAS_ORGS]: { status: 400, message: 'Cannot delete account while you own an organization. Transfer ownership first.' },
   [PROFILE_LAST_PRIVILEGED_MEMBER]: { status: 409, message: 'Cannot delete your account while you are the last member of an admin or super-admin role.' },
+  [PROFILE_PAT_LIMIT]: { status: 409, message: 'You have reached the maximum number of active personal access tokens. Revoke one first.' },
 };
 
 /** Compact organization summary included in user responses. */
@@ -275,6 +277,100 @@ export const listTokenHistory = withController('List token history', async (req,
   if (!userId) return;
   const tokens = await userProfileService.listTokenHistory(userId);
   sendSuccess(res, 200, { tokens });
+}, profileErrorMap);
+
+/**
+ * POST /user/pats — create a named Personal Access Token.
+ * Body: { name, expiresIn?: seconds (default 90d, max 365d), scope? }.
+ * The raw token is returned ONCE; thereafter only its metadata is listable.
+ */
+export const createPat = withController('Create personal access token', async (req, res) => {
+  const userId = requireAuthUserId(req, res);
+  if (!userId) return;
+
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  if (!name) return sendError(res, 400, 'name is required', 'INVALID_NAME');
+  if (name.length > 100) return sendError(res, 400, 'name must be at most 100 characters', 'INVALID_NAME');
+
+  const MAX_EXPIRES_IN = 365 * 24 * 60 * 60;
+  const DEFAULT_EXPIRES_IN = 90 * 24 * 60 * 60;
+  let expiresIn = DEFAULT_EXPIRES_IN;
+  if (req.body?.expiresIn !== undefined) {
+    expiresIn = parseInt(req.body.expiresIn, 10);
+    if (isNaN(expiresIn) || expiresIn < 1) {
+      return sendError(res, 400, 'expiresIn must be a positive integer (seconds)', 'INVALID_EXPIRES_IN');
+    }
+    if (expiresIn > MAX_EXPIRES_IN) {
+      return sendError(res, 400, `expiresIn must not exceed ${MAX_EXPIRES_IN} seconds (365 days)`, 'EXPIRES_IN_TOO_LARGE');
+    }
+  }
+
+  let scope: TokenScope | undefined;
+  if (req.body?.scope !== undefined && req.body.scope !== null && req.body.scope !== '') {
+    if (typeof req.body.scope !== 'string' || !ALLOWED_TOKEN_SCOPES.has(req.body.scope)) {
+      return sendError(res, 400, `scope must be one of: ${[...ALLOWED_TOKEN_SCOPES].join(', ')}`, 'INVALID_TOKEN_SCOPE');
+    }
+    scope = req.body.scope as TokenScope;
+  }
+
+  const { token, pat } = await userProfileService.createPat(userId, name, expiresIn, scope);
+  audit(req, 'user.pat.create', {
+    targetType: 'user',
+    targetId: userId,
+    details: { name, expiresIn, ...(scope ? { scope } : {}) },
+  });
+  sendSuccess(res, 201, { token, pat });
+}, profileErrorMap);
+
+/** GET /user/pats — list the user's PATs (metadata only, never the secret). */
+export const listPats = withController('List personal access tokens', async (req, res) => {
+  const userId = requireAuthUserId(req, res);
+  if (!userId) return;
+  const pats = await userProfileService.listPats(userId);
+  sendSuccess(res, 200, { pats });
+}, profileErrorMap);
+
+/** DELETE /user/pats/:jti — revoke a single PAT immediately. */
+export const revokePat = withController('Revoke personal access token', async (req, res) => {
+  const userId = requireAuthUserId(req, res);
+  if (!userId) return;
+  const jti = typeof req.params.jti === 'string' ? req.params.jti : '';
+  if (!jti) return sendError(res, 400, 'jti is required', 'INVALID_JTI');
+  const revoked = await userProfileService.revokePat(userId, jti);
+  if (!revoked) return sendError(res, 404, 'Token not found or already revoked', 'PAT_NOT_FOUND');
+  audit(req, 'user.pat.revoke', { targetType: 'user', targetId: userId, details: { jti } });
+  sendSuccess(res, 200, { revoked: true });
+}, profileErrorMap);
+
+/** GET /user/preferences — the current user's per-org favorites and recents. */
+export const getPreferences = withController('Get preferences', async (req, res) => {
+  const userId = requireAuthUserId(req, res);
+  if (!userId) return;
+  const orgId = req.user?.organizationId;
+  if (!orgId) return sendError(res, 400, 'No active organization', 'NO_ACTIVE_ORG');
+  const preferences = await userProfileService.getPreferences(userId, orgId);
+  sendSuccess(res, 200, { preferences });
+}, profileErrorMap);
+
+/** PUT /user/preferences — replace favorites and/or recents for the active org. */
+export const updatePreferences = withController('Update preferences', async (req, res) => {
+  const userId = requireAuthUserId(req, res);
+  if (!userId) return;
+  const orgId = req.user?.organizationId;
+  if (!orgId) return sendError(res, 400, 'No active organization', 'NO_ACTIVE_ORG');
+
+  const patch: { favorites?: string[]; recents?: string[] } = {};
+  if (req.body?.favorites !== undefined) {
+    if (!Array.isArray(req.body.favorites)) return sendError(res, 400, 'favorites must be an array of strings', 'INVALID_FAVORITES');
+    patch.favorites = req.body.favorites.map(String);
+  }
+  if (req.body?.recents !== undefined) {
+    if (!Array.isArray(req.body.recents)) return sendError(res, 400, 'recents must be an array of strings', 'INVALID_RECENTS');
+    patch.recents = req.body.recents.map(String);
+  }
+
+  const preferences = await userProfileService.updatePreferences(userId, orgId, patch);
+  sendSuccess(res, 200, { preferences });
 }, profileErrorMap);
 
 /** POST /user/tokens/revoke-all — sign out everywhere + issue a fresh token. */

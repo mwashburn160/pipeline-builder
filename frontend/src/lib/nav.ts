@@ -25,11 +25,13 @@ import {
   History,
   SlidersHorizontal,
   Bell,
-  Ticket,
   Rocket,
   Landmark,
   Fingerprint,
-  Megaphone,
+  Layers,
+  LayoutTemplate,
+  Code,
+  Inbox,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -86,40 +88,67 @@ export const QUICK_ACTIONS: { href: string; label: string; icon: LucideIcon; col
   { href: '/dashboard/downloads', label: 'Get the CLI', icon: Download, color: 'bg-green-600' },
 ];
 
+// ---------------------------------------------------------------------------
+// Journey-based information architecture. Groups map to what a developer is
+// trying to DO — Home (orient) → Build (author) → Deliver (ship & operate) →
+// Insights (analyze) → Govern (policy & audit) — then the admin/settings scopes.
+// Reorganized from the older feature-siloed layout so items live where the task
+// lives (e.g. Deployments/Executions/Logs sit under Deliver, not Build/Insights;
+// Compliance/Audit are their own Govern group rather than mixed into analytics).
+// ---------------------------------------------------------------------------
 export const NAV_SECTIONS: NavSection[] = [
   {
-    label: 'Overview',
+    label: 'Home',
     items: [
       { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+      // Unified action-item queue (failing owned pipelines, pending reviews, unread messages).
+      { title: 'Inbox', href: '/dashboard/inbox', icon: Inbox },
+      // Developer-portal "my services": the pipelines & plugins this user owns.
+      { title: 'My Services', href: '/dashboard/my-services', icon: Layers },
       { title: 'Messages', href: '/dashboard/messages', icon: MessageSquare, requiredPermission: 'messages:read' },
     ],
   },
   {
     label: 'Build',
+    // Pinned open — the core daily authoring surfaces.
+    alwaysExpanded: true,
     items: [
       { title: 'Pipelines', href: '/dashboard/pipelines', icon: GitBranch },
+      // Golden-path template gallery — instantiate a governed pipeline from a starter.
+      { title: 'Templates', href: '/dashboard/templates', icon: LayoutTemplate },
       { title: 'Plugins', href: '/dashboard/plugins', icon: Puzzle },
+    ],
+  },
+  {
+    label: 'Deliver',
+    // Pinned open — ship & operate surfaces are frequently hit.
+    alwaysExpanded: true,
+    items: [
       // Deployed-pipelines registry (view/register/deregister + drift vs config).
       { title: 'Deployments', href: '/dashboard/deployments', icon: Rocket, requiredPermission: 'pipelines:read' },
+      // Per-pipeline run health.
+      { title: 'Executions', href: '/dashboard/executions', icon: Activity },
+      { title: 'Logs', href: '/dashboard/logs', icon: ScrollText },
+      // Plugin-build queue + failed-build triage (sysadmin). An operate surface,
+      // moved out of the Platform admin group to sit with the other run views.
+      { title: 'Builds', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true, extraActivePaths: ['/dashboard/triage'] },
     ],
   },
   {
     label: 'Insights',
-    // Pinned open — Reports/Executions/Logs are frequently hit and easy to lose
-    // if this section is accidentally collapsed and the state persists.
-    alwaysExpanded: true,
     items: [
       { title: 'Reports', href: '/dashboard/reports', icon: FileBarChart, requiredPermission: 'reports:read' },
-      // Per-pipeline run health (was only reachable from the home card).
-      { title: 'Executions', href: '/dashboard/executions', icon: Activity },
-      { title: 'Logs', href: '/dashboard/logs', icon: ScrollText },
-      // Security audit trail (was only reachable from deep links).
-      { title: 'Audit Log', href: '/dashboard/audit', icon: History, adminOnly: true },
-      { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, requiredPermission: 'compliance:read' },
       // Observability is visible to any authenticated user. Server-side
-      // $ORG substitution scopes their view to their own org's metrics;
-      // sysadmins see all orgs.
+      // $ORG substitution scopes their view to their own org's metrics.
       { title: 'Observability', href: '/dashboard/observability', icon: BarChart3 },
+    ],
+  },
+  {
+    label: 'Govern',
+    items: [
+      { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, requiredPermission: 'compliance:read' },
+      // Security audit trail.
+      { title: 'Audit Log', href: '/dashboard/audit', icon: History, adminOnly: true },
     ],
   },
   {
@@ -145,18 +174,22 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: 'All Organizations', href: '/dashboard/organizations', icon: Building2, systemAdminOnly: true },
       { title: 'All Users', href: '/dashboard/users', icon: Users, systemAdminOnly: true },
       { title: 'Registry', href: '/dashboard/registry', icon: Boxes, systemAdminOnly: true },
-      // Discounts live in the billing service (BILLING_DISCOUNTS_ENABLED) — hide the
-      // link when billing is disabled in this deployment, like Billing/Billing Admin.
-      { title: 'Discounts', href: '/dashboard/discounts', icon: Ticket, systemAdminOnly: true, requiresBillingEnabled: true },
-      // Promotions (rule-driven auto-grant campaigns) — same billing gate; also
-      // requires BILLING_PROMOTIONS_ENABLED server-side (routes 404 otherwise).
-      { title: 'Promotions', href: '/dashboard/promotions', icon: Megaphone, systemAdminOnly: true, requiresBillingEnabled: true },
-      // Fleet-wide billing admin (all-orgs subscriptions, platform finance, backfill).
-      // Also gated on the billing service being enabled in this deployment.
-      { title: 'Billing Admin', href: '/dashboard/admin/billing', icon: Landmark, systemAdminOnly: true, requiresBillingEnabled: true },
+      // Fleet-wide billing admin — a single entry that folds Overview, Discounts,
+      // and Promotions into one page with a tab bar (BillingAdminTabs), mirroring
+      // the Builds queue/triage consolidation. extraActivePaths keeps this item
+      // highlighted while on any of the three sub-routes. All three share the
+      // billing-service gate; Promotions additionally needs BILLING_PROMOTIONS_ENABLED
+      // server-side (its own page handles the disabled case).
+      {
+        title: 'Billing Admin',
+        href: '/dashboard/admin/billing',
+        icon: Landmark,
+        systemAdminOnly: true,
+        requiresBillingEnabled: true,
+        extraActivePaths: ['/dashboard/discounts', '/dashboard/promotions'],
+      },
       // Sysadmin roster of which orgs have SSO/IdP configured.
       { title: 'IdP / SSO', href: '/dashboard/admin/idp', icon: Fingerprint, systemAdminOnly: true },
-      { title: 'Builds', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true, extraActivePaths: ['/dashboard/triage'] },
       { title: 'Platform Settings', href: '/dashboard/admin/platform-settings', icon: SlidersHorizontal, systemAdminOnly: true },
     ],
   },
@@ -166,6 +199,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: 'Profile', href: '/dashboard/settings', icon: Settings },
       { title: 'Notifications', href: '/dashboard/notifications', icon: Bell },
       { title: 'API Tokens', href: '/dashboard/tokens', icon: KeyRound },
+      { title: 'API Catalog', href: '/dashboard/api-catalog', icon: Code },
       { title: 'Downloads', href: '/dashboard/downloads', icon: Download },
       { title: 'Help', href: '/dashboard/help', icon: HelpCircle },
     ],

@@ -4,12 +4,17 @@
 import { Router } from 'express';
 import {
   changePassword,
+  createPat,
   deleteUser,
   generateToken,
+  getPreferences,
   getUser,
+  listPats,
   listTokenHistory,
   listUserOrganizations,
   revokeAllTokens,
+  revokePat,
+  updatePreferences,
   updateUser,
 } from '../controllers/index.js';
 import { requireAuth, requireStepUp } from '../middleware/index.js';
@@ -40,6 +45,18 @@ router.post('/generate-token', requireAuth, generateToken);
 
 /** GET /user/tokens - List the user's recent token-issuance history (with computed status). */
 router.get('/tokens', requireAuth, listTokenHistory);
+
+/** Personal Access Tokens — named, individually-revocable API credentials.
+ *  Creation is step-up gated: minting a long-lived bearer credential is at least
+ *  as sensitive as change-password / revoke-all, and step-up also blocks
+ *  PAT-chaining (a PAT can't produce the step-up token creating a new one needs). */
+router.post('/pats', requireAuth, requireStepUp, createPat);
+router.get('/pats', requireAuth, listPats);
+router.delete('/pats/:jti', requireAuth, revokePat);
+
+/** Personalization — server-persisted favorites/recents for the active org. */
+router.get('/preferences', requireAuth, getPreferences);
+router.put('/preferences', requireAuth, updatePreferences);
 
 /** POST /user/tokens/revoke-all - Sign out everywhere by bumping tokenVersion.
  *  Step-up gated — a stolen session shouldn't be able to forcibly sign out

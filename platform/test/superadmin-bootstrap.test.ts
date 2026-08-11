@@ -21,6 +21,9 @@ const mockGrant = jest.fn<(userId: string) => Promise<{ changed: boolean }>>();
 const mockAuditCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   User: {
     updateMany: (...args: unknown[]) => mockUpdateMany(...args),
     updateOne: (...args: unknown[]) => mockUpdateOne(...args),

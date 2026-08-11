@@ -22,6 +22,9 @@ const mockDelete = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockCreateEvent = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   Organization: { find: (...a: unknown[]) => mockOrgFind(...a) },
 }));
 jest.unstable_mockModule('../src/services/org-cascade-service.js', () => ({

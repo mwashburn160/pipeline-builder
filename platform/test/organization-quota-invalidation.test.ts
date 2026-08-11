@@ -78,6 +78,9 @@ const mockUserUpdateMany = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUserOrgDistinct = jest.fn<(...a: unknown[]) => { session: (s?: unknown) => Promise<unknown[]> }>();
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
+  PersonalAccessToken: {},
+  UserPreferences: {},
   Organization: {
     findById: (...a: unknown[]) => mockOrgFindById(...a),
     updateOne: (...a: unknown[]) => mockOrgUpdateOne(...a),

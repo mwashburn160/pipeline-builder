@@ -123,12 +123,12 @@ cd deploy/aws/eks
 ../../bin/init-platform.sh eks      # register admin + load plugins/samples
 ```
 or via the CLI (runs both in an ephemeral container):
-`pipeline-manager provision --target eks --domain … --hosted-zone-id … --execute --yes`
+`pipeline-manager infra provision --target eks --domain … --hosted-zone-id … --execute --yes`
 
 ### Prerequisites
 
 `setup.sh` needs the AWS CLI (+ credentials), `kubectl`, `openssl`, and `envsubst` on the host.
 **`eksctl` is auto-installed** — when it isn't already on PATH, `setup.sh`/`shutdown.sh` download
 the latest binary (to `/usr/local/bin`, falling back to `~/.local/bin` if that isn't writable)
-before creating/deleting the cluster. `pipeline-manager provision --target eks` additionally
+before creating/deleting the cluster. `pipeline-manager infra provision --target eks` additionally
 installs the other tools at runtime.

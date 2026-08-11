@@ -63,7 +63,7 @@ export interface AppConfig {
    * Platform's JWT verification material. Used to validate incoming Basic
    * auth where the password is a platform-issued JWT — this is the path
    * customer CodeBuild + plugin-lookup Lambda use, by reading the same
-   * Secrets Manager secret platform wrote with `pipeline-manager store-token`.
+   * Secrets Manager secret platform wrote with `pipeline-manager infra store-token`.
    */
   readonly platformJwt: {
     readonly secret: string;
