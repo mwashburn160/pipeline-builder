@@ -4,6 +4,13 @@ import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import { FormField } from '@/components/ui/FormField';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Textarea } from '@/components/ui/Textarea';
+import { Checkbox } from '@/components/ui/Checkbox';
+import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import api from '@/lib/api';
 import { formatJSON, safeJSONParse } from '@/lib/constants';
 import { Plugin } from '@/types';
@@ -134,27 +141,19 @@ export default function EditPluginModal({ plugin, isSuperAdmin, onClose, onSaved
 
   const footer = (
     <div className="flex justify-end space-x-3">
-      <button onClick={onClose} disabled={loading} className="btn btn-secondary">
+      <Button variant="secondary" onClick={onClose} disabled={loading}>
         Cancel
-      </button>
-      <button onClick={handleSave} disabled={loading || fetching} className="btn btn-primary">
+      </Button>
+      <Button onClick={handleSave} disabled={loading || fetching}>
         {loading ? (<><LoadingSpinner size="sm" className="mr-2" />Saving...</>) : 'Save Changes'}
-      </button>
+      </Button>
     </div>
   );
 
   return (
     <Modal title="Edit Plugin" onClose={onClose} maxWidth="max-w-2xl" tall footer={footer}>
-      {error && (
-        <div className="alert-error">
-          <p>{error}</p>
-        </div>
-      )}
-      {success && (
-        <div className="alert-success">
-          <p>{success}</p>
-        </div>
-      )}
+      <ErrorAlert message={error} />
+      <SuccessAlert message={success} />
 
       {fetching ? (
         <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>
@@ -205,16 +204,16 @@ export default function EditPluginModal({ plugin, isSuperAdmin, onClose, onSaved
           <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Core Information</h3>
             <FormField label="Name" className="mb-3">
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="input" disabled={loading} />
+              <Input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={loading} />
             </FormField>
             <FormField label="Description" className="mb-3">
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="input" disabled={loading} />
+              <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} disabled={loading} />
             </FormField>
             <FormField label="Keywords (comma-separated)" className="mb-3">
-              <input type="text" value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="keyword1, keyword2, keyword3" className="input" disabled={loading} />
+              <Input type="text" value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="keyword1, keyword2, keyword3" disabled={loading} />
             </FormField>
             <FormField label="Version" className="mb-3">
-              <input type="text" value={version} onChange={(e) => setVersion(e.target.value)} className="input" disabled={loading} />
+              <Input type="text" value={version} onChange={(e) => setVersion(e.target.value)} disabled={loading} />
             </FormField>
           </div>
 
@@ -223,41 +222,41 @@ export default function EditPluginModal({ plugin, isSuperAdmin, onClose, onSaved
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Plugin Configuration</h3>
             <div className="grid grid-cols-2 gap-4 mb-3">
               <FormField label="Plugin Type">
-                <select value={pluginType} onChange={(e) => setPluginType(e.target.value)} className="input" disabled={loading}>
+                <Select value={pluginType} onChange={(e) => setPluginType(e.target.value)} disabled={loading}>
                   <option value="CodeBuildStep">CodeBuildStep</option>
                   <option value="ShellStep">ShellStep</option>
                   <option value="ManualApprovalStep">ManualApprovalStep</option>
-                </select>
+                </Select>
               </FormField>
               <FormField label="Compute Type">
-                <select value={computeType} onChange={(e) => setComputeType(e.target.value)} className="input" disabled={loading}>
+                <Select value={computeType} onChange={(e) => setComputeType(e.target.value)} disabled={loading}>
                   <option value="SMALL">SMALL</option>
                   <option value="MEDIUM">MEDIUM</option>
                   <option value="LARGE">LARGE</option>
                   <option value="X2_LARGE">X2_LARGE</option>
-                </select>
+                </Select>
               </FormField>
             </div>
             <FormField label="Primary Output Directory" className="mb-3" hint="Directory where build artifacts are output (used for pipeline artifact tracking)">
-              <input type="text" value={primaryOutputDirectory} onChange={(e) => setPrimaryOutputDirectory(e.target.value)} className="input" disabled={loading} placeholder="e.g. cdk.out, dist, build" />
+              <Input type="text" value={primaryOutputDirectory} onChange={(e) => setPrimaryOutputDirectory(e.target.value)} disabled={loading} placeholder="e.g. cdk.out, dist, build" />
             </FormField>
             <div className="grid grid-cols-2 gap-4 mb-3">
               <FormField label="Timeout (minutes)" hint="Build timeout — blank = CodeBuild default (60 min)">
-                <input type="number" value={timeout} onChange={(e) => setPluginTimeout(e.target.value)} className="input" disabled={loading} placeholder="60" min={1} />
+                <Input type="number" value={timeout} onChange={(e) => setPluginTimeout(e.target.value)} disabled={loading} placeholder="60" min={1} />
               </FormField>
               <FormField label="Failure Behavior" hint="What happens when this step fails">
-                <select value={failureBehavior} onChange={(e) => setFailureBehavior(e.target.value as 'fail' | 'warn' | 'ignore')} className="input" disabled={loading}>
+                <Select value={failureBehavior} onChange={(e) => setFailureBehavior(e.target.value as 'fail' | 'warn' | 'ignore')} disabled={loading}>
                   <option value="fail">Fail (stop pipeline)</option>
                   <option value="warn">Warn (log warning, continue)</option>
                   <option value="ignore">Ignore (silently continue)</option>
-                </select>
+                </Select>
               </FormField>
             </div>
             <FormField label="Metadata (JSON)" className="mb-3">
-              <textarea value={metadata} onChange={(e) => setMetadata(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder='{"key": "value"}' />
+              <Textarea value={metadata} onChange={(e) => setMetadata(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder='{"key": "value"}' />
             </FormField>
             <FormField label="Secrets (JSON)" className="mb-3" hint='Array of {name, required, description}'>
-              <textarea value={secrets} onChange={(e) => setSecrets(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder='[{"name": "API_KEY", "required": true, "description": "API key for service"}]' />
+              <Textarea value={secrets} onChange={(e) => setSecrets(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder='[{"name": "API_KEY", "required": true, "description": "API key for service"}]' />
             </FormField>
           </div>
 
@@ -265,13 +264,13 @@ export default function EditPluginModal({ plugin, isSuperAdmin, onClose, onSaved
           <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Build Configuration</h3>
             <FormField label="Environment Variables (JSON)" className="mb-3">
-              <textarea value={env} onChange={(e) => setEnv(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder='{"API_URL": "https://api.example.com"}' />
+              <Textarea value={env} onChange={(e) => setEnv(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder='{"API_URL": "https://api.example.com"}' />
             </FormField>
             <FormField label="Install Commands (one per line)" className="mb-3">
-              <textarea value={installCommands} onChange={(e) => setInstallCommands(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder={"npm install\npip install -r requirements.txt"} />
+              <Textarea value={installCommands} onChange={(e) => setInstallCommands(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder={"npm install\npip install -r requirements.txt"} />
             </FormField>
             <FormField label="Commands (one per line)" className="mb-3">
-              <textarea value={commands} onChange={(e) => setCommands(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder={"npm run build\nnpm test"} />
+              <Textarea value={commands} onChange={(e) => setCommands(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder={"npm run build\nnpm test"} />
             </FormField>
           </div>
 
@@ -280,19 +279,19 @@ export default function EditPluginModal({ plugin, isSuperAdmin, onClose, onSaved
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Access & Status</h3>
             <div className="grid grid-cols-2 gap-4 mb-3">
               <FormField label="Access Modifier" hint={!isSuperAdmin ? 'Only system admins can change access level' : undefined}>
-                <select value={accessModifier} onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')} className="input disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500" disabled={loading || !isSuperAdmin}>
+                <Select value={accessModifier} onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')} className="disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500" disabled={loading || !isSuperAdmin}>
                   <option value="private">Private</option>
                   <option value="public">Public</option>
-                </select>
+                </Select>
               </FormField>
             </div>
             <div className="flex items-center space-x-6">
               <div className="flex items-center">
-                <input id="editIsActive" type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded" disabled={loading} />
+                <Checkbox id="editIsActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500" disabled={loading} />
                 <label htmlFor="editIsActive" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Active</label>
               </div>
               <div className="flex items-center">
-                <input id="editIsDefault" type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded" disabled={loading} />
+                <Checkbox id="editIsDefault" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500" disabled={loading} />
                 <label htmlFor="editIsDefault" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Default</label>
               </div>
             </div>

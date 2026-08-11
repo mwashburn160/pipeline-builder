@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useState } from 'react';
-import { X, KeyRound, AlertTriangle } from 'lucide-react';
+import { KeyRound, AlertTriangle } from 'lucide-react';
 import api from '@/lib/api';
-import { Card } from '@/components/ui/Card';
+import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Textarea';
+import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
-import { ModalPortal } from '@/components/ui/ModalPortal';
+import { Modal } from '@/components/ui/Modal';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import type { Organization } from '@/types';
 
@@ -139,26 +142,40 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
   }, [pendingOp, executeSave, executeClear]);
 
   return (
-    <ModalPortal>
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <Card className="w-full max-w-2xl">
-        <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-5 py-3">
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
-            <KeyRound className="w-5 h-5" /> KMS Config — {org.name}
-          </h2>
-          <button onClick={onClose} aria-label="Close" className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800">
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
-
-        <div className="px-5 py-4 space-y-4">
+    <>
+      <Modal
+        title={`KMS Config — ${org.name}`}
+        titleIcon={<KeyRound className="w-5 h-5 shrink-0" />}
+        onClose={onClose}
+        maxWidth="max-w-2xl"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            {configured && (
+              <Button variant="danger-outline" onClick={handleClear} disabled={submitting || testing}>
+                Clear
+              </Button>
+            )}
+            <Button
+              variant="secondary"
+              onClick={handleTest}
+              disabled={testing || submitting || !keyId || !ciphertextBase64}
+              title="Verify the proposed config without touching stored secrets"
+            >
+              {testing ? <LoadingSpinner size="sm" /> : 'Test'}
+            </Button>
+            <Button variant="secondary" onClick={onClose} disabled={submitting || testing}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={submitting || testing || !keyId || !ciphertextBase64}>
+              {submitting ? <LoadingSpinner size="sm" /> : 'Save & re-encrypt'}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
           {loading && <LoadingSpinner size="sm" />}
 
-          {error && (
-            <div className="alert-error">
-              <p>{error}</p>
-            </div>
-          )}
+          <ErrorAlert message={error} />
 
           {lastResult && (
             <div className="rounded-lg bg-green-50 dark:bg-green-900/20 px-3 py-2 text-sm text-green-800 dark:text-green-300">
@@ -192,24 +209,24 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
 
           <div>
             <label className="label">KMS key id / alias</label>
-            <input
+            <Input
               type="text"
               value={keyId}
               onChange={(e) => setKeyId(e.target.value)}
               placeholder="alias/pb-org-acme"
-              className="input font-mono text-sm"
+              className="font-mono text-sm"
               disabled={submitting}
             />
           </div>
 
           <div>
             <label className="label">Wrapped master (base64)</label>
-            <textarea
+            <Textarea
               value={ciphertextBase64}
               onChange={(e) => setCiphertextBase64(e.target.value)}
               placeholder="AQICAHi..."
               rows={4}
-              className="input font-mono text-xs"
+              className="font-mono text-xs"
               disabled={submitting}
             />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -218,37 +235,8 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
             </p>
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-2">
-            {configured && (
-              <button
-                onClick={handleClear}
-                disabled={submitting || testing}
-                className="btn btn-danger-outline"
-              >
-                Clear
-              </button>
-            )}
-            <button
-              onClick={handleTest}
-              disabled={testing || submitting || !keyId || !ciphertextBase64}
-              className="btn btn-secondary"
-              title="Verify the proposed config without touching stored secrets"
-            >
-              {testing ? <LoadingSpinner size="sm" /> : 'Test'}
-            </button>
-            <button onClick={onClose} className="btn btn-secondary" disabled={submitting || testing}>
-              Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={submitting || testing || !keyId || !ciphertextBase64}
-              className="btn btn-primary"
-            >
-              {submitting ? <LoadingSpinner size="sm" /> : 'Save & re-encrypt'}
-            </button>
-          </div>
         </div>
-      </Card>
+      </Modal>
 
       {pendingOp && (
         <StepUpModal
@@ -259,7 +247,6 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
           onClose={() => setPendingOp(null)}
         />
       )}
-    </div>
-    </ModalPortal>
+    </>
   );
 }

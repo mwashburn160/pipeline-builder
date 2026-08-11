@@ -16,6 +16,8 @@ import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Button } from '@/components/ui/Button';
 import { BillingAdminTabs } from '@/components/billing/BillingAdminTabs';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { Badge } from '@/components/ui/Badge';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -334,23 +336,23 @@ export default function PromotionsPage() {
             <Field label={<>Campaign <span className="text-gray-400">(optional)</span></>}><Input value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="summer24" /></Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Unit">
-                <select className="input w-full" value={unit} onChange={(e) => setUnit(e.target.value as 'dollar' | 'percent')}>
+                <Select className="w-full" value={unit} onChange={(e) => setUnit(e.target.value as 'dollar' | 'percent')}>
                   <option value="dollar">Dollars</option>
                   <option value="percent">Percent of plan</option>
-                </select>
+                </Select>
               </Field>
               <Field label={unit === 'percent' ? 'Percent' : 'Amount ($)'}><Input value={value} onChange={(e) => setValue(e.target.value)} placeholder={unit === 'percent' ? '20' : '50'} /></Field>
             </div>
             <Field label="Frequency">
-              <select className="input w-full" value={kind} onChange={(e) => setKind(e.target.value as 'onetime' | 'recurring')}>
+              <Select className="w-full" value={kind} onChange={(e) => setKind(e.target.value as 'onetime' | 'recurring')}>
                 <option value="onetime">One-time</option>
                 <option value="recurring">Recurring (each period)</option>
-              </select>
+              </Select>
             </Field>
             <Field label="Trigger">
-              <select className="input w-full" value={event} onChange={(e) => setEvent(e.target.value as Promotion['trigger']['event'])}>
+              <Select className="w-full" value={event} onChange={(e) => setEvent(e.target.value as Promotion['trigger']['event'])}>
                 {EVENTS.map((ev) => <option key={ev.value} value={ev.value}>{ev.label}</option>)}
-              </select>
+              </Select>
             </Field>
             {event === 'referral' && (
               <Field label={<>Referrer {unit === 'percent' ? 'percent' : 'amount ($)'} <span className="text-gray-400">(blank = same as referee)</span></>}>
@@ -371,7 +373,7 @@ export default function PromotionsPage() {
               </div>
             </div>
             <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input type="checkbox" checked={firstOnly} onChange={(e) => setFirstOnly(e.target.checked)} />
+              <Checkbox checked={firstOnly} onChange={(e) => setFirstOnly(e.target.checked)} />
               First subscription only
             </label>
             <div className="grid grid-cols-3 gap-3">

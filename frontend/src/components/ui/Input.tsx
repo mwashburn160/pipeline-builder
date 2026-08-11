@@ -1,11 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { InputHTMLAttributes } from 'react';
+import type { InputHTMLAttributes, Ref } from 'react';
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   /** `lg` applies the `.input-lg` sizing. */
   inputSize?: 'md' | 'lg';
+  /** React 19 passes `ref` as a regular prop; it's spread onto the native
+   *  `<input>` so callers can grab the DOM node (focus, indeterminate, …). */
+  ref?: Ref<HTMLInputElement>;
 }
 
 /**

@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
@@ -239,8 +240,7 @@ export default function InvitationsPage() {
       // Header checkbox toggles all visible pending rows. Only pending invites
       // are revocable, so non-pending rows render no checkbox.
       header: (
-        <input
-          type="checkbox"
+        <Checkbox
           aria-label="Select all pending invitations"
           checked={allPendingSelected}
           onChange={toggleSelectAllPending}
@@ -250,8 +250,7 @@ export default function InvitationsPage() {
       headerClassName: 'w-10',
       cellClassName: 'w-10',
       render: (inv) => inv.status === 'pending' ? (
-        <input
-          type="checkbox"
+        <Checkbox
           aria-label={`Select invitation for ${inv.email}`}
           checked={selectedIds.has(inv.id)}
           onChange={() => toggleSelected(inv.id)}

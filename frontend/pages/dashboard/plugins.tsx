@@ -14,6 +14,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -293,14 +294,12 @@ export default function PluginsPage() {
       locked: true,
       render: (plugin: Plugin) => (
         canModify(isSuperAdmin, plugin.accessModifier) ? (
-          <input
-            type="checkbox"
+          <Checkbox
             checked={selectedIds.has(plugin.id)}
             onChange={(e) => {
               e.stopPropagation();
               toggleSelect(plugin.id);
             }}
-            className="rounded border-gray-300 dark:border-gray-600"
           />
         ) : null
       ),

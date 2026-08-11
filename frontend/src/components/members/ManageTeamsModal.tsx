@@ -3,6 +3,7 @@
 
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import type { OrganizationMember, MemberTeam } from '@/types';
 
@@ -63,12 +64,10 @@ export function ManageTeamsModal({
                 className={`flex items-center gap-2 px-2 py-1.5 rounded text-sm ${isOwner ? 'opacity-60' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer'}`}
                 title={isOwner ? 'Owner of this team — transfer ownership to remove' : undefined}
               >
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={selectedTeamIds.has(t.orgId)}
                   onChange={() => onToggleTeam(t.orgId)}
                   disabled={saving || isOwner}
-                  className="rounded border-gray-300"
                 />
                 <span className="flex-1 truncate text-gray-900 dark:text-gray-100">{t.orgName}</span>
                 {t.isMember && <Badge color={isOwner ? 'purple' : 'gray'}>{t.role}</Badge>}

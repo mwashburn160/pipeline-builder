@@ -3,6 +3,7 @@
 
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import type { FormState } from '@/hooks/useFormState';
 
@@ -60,12 +61,10 @@ export function AddMemberModal({
           <div className="space-y-0.5 max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded p-1">
             {teamRoster.map((t) => (
               <label key={t.orgId} className="flex items-center gap-2 px-2 py-1 rounded text-sm hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={selectedTeams.has(t.orgId)}
                   onChange={() => onToggleTeam(t.orgId)}
                   disabled={form.loading}
-                  className="rounded border-gray-300"
                 />
                 <span className="truncate text-gray-900 dark:text-gray-100">{t.orgName}</span>
               </label>

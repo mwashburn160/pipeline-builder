@@ -4,7 +4,13 @@ import { Upload, CheckCircle, XCircle } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import { FormField } from '@/components/ui/FormField';
+import { Select } from '@/components/ui/Select';
+import { TabBar, type TabBarItem } from '@/components/ui/TabBar';
+import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import AIPluginBuilderTab from './AIPluginBuilderTab';
+import WizardPluginTab from './WizardPluginTab';
 import api from '@/lib/api';
 import { PLUGIN_BUILD_TIMEOUT_MS } from '@/lib/constants';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
@@ -18,12 +24,12 @@ interface CreatePluginModalProps {
   /** Callback when a plugin is successfully created (upload or AI deploy). */
   onCreated: () => void;
   /** Which tab to open on mount. Defaults to 'ai'. */
-  initialTab?: 'upload' | 'ai';
+  initialTab?: 'upload' | 'ai' | 'wizard';
 }
 
-/** Tabbed modal for creating plugins via file upload or AI generation. */
+/** Tabbed modal for creating plugins via AI generation, a guided form (wizard), or file upload. */
 export default function CreatePluginModal({ canUploadPublic, onClose, onCreated, initialTab = 'ai' }: CreatePluginModalProps) {
-  const [activeTab, setActiveTab] = useState<'upload' | 'ai'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'upload' | 'ai' | 'wizard'>(initialTab);
 
   // Upload tab state
   const [file, setFile] = useState<File | null>(null);
@@ -140,71 +146,53 @@ export default function CreatePluginModal({ canUploadPublic, onClose, onCreated,
   // subscription while events are still streaming in.
   const tabDisabled = isBuilding;
 
+  const tabItems: TabBarItem[] = [
+    { id: 'ai', label: 'AI Builder' },
+    { id: 'wizard', label: 'Wizard' },
+    { id: 'upload', label: 'Upload' },
+  ];
+
   const tabs = (
-    <div className="border-b border-gray-200 dark:border-gray-700 px-6">
-      <nav className="-mb-px flex space-x-8">
-        <button
-          onClick={() => {
-            if (tabDisabled) return;
-            setActiveTab('ai');
-            resetUploadState();
-          }}
-          disabled={tabDisabled}
-          className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
-            activeTab === 'ai'
-              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-          } ${tabDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-        >
-          AI Builder
-        </button>
-        <button
-          onClick={() => {
-            if (tabDisabled) return;
-            setActiveTab('upload');
-            resetUploadState();
-          }}
-          disabled={tabDisabled}
-          className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
-            activeTab === 'upload'
-              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-          } ${tabDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-        >
-          Upload
-        </button>
-      </nav>
+    <div className="px-6">
+      <TabBar
+        items={tabItems}
+        activeId={activeTab}
+        // Lock tab-switching mid-build so the SSE subscription isn't torn down.
+        disabledIds={tabDisabled ? ['ai', 'wizard', 'upload'] : undefined}
+        onSelect={(id) => { setActiveTab(id as 'upload' | 'ai' | 'wizard'); resetUploadState(); }}
+        className="!mb-0"
+      />
     </div>
   );
 
   const uploadDisabled = loading || isBuilding;
   const uploadFooter = (
     <div className="flex justify-end space-x-3">
-      <button onClick={onClose} disabled={isBuilding} className="btn btn-secondary">
+      <Button variant="secondary" onClick={onClose} disabled={isBuilding}>
         {isComplete ? 'Close' : 'Cancel'}
-      </button>
+      </Button>
       {isFailed && (
-        <button onClick={handleRetry} className="btn btn-primary">
+        <Button onClick={handleRetry}>
           <Upload className="w-4 h-4 mr-2" />Retry
-        </button>
+        </Button>
       )}
       {!requestId && (
-        <button onClick={handleUpload} disabled={uploadDisabled || !file} className="btn btn-primary">
+        <Button onClick={handleUpload} disabled={uploadDisabled || !file}>
           {loading ? (
             <><LoadingSpinner size="sm" className="mr-2" />Uploading...</>
           ) : (
             <><Upload className="w-4 h-4 mr-2" />Upload</>
           )}
-        </button>
+        </Button>
       )}
     </div>
   );
 
   const aiFooter = (
     <div className="flex justify-end">
-      <button onClick={onClose} className="btn btn-secondary">
+      <Button variant="secondary" onClick={onClose}>
         Cancel
-      </button>
+      </Button>
     </div>
   );
 
@@ -218,16 +206,8 @@ export default function CreatePluginModal({ canUploadPublic, onClose, onCreated,
     >
       {activeTab === 'upload' ? (
         <>
-          {error && (
-            <div className="alert-error mb-4">
-              <p>{error}</p>
-            </div>
-          )}
-          {success && (
-            <div className="alert-success mb-4">
-              <p>{success}</p>
-            </div>
-          )}
+          <ErrorAlert message={error} className="mb-4" />
+          <SuccessAlert message={success} className="mb-4" />
           {isComplete && (
             <div className="alert-success mb-4">
               <p className="flex items-center gap-2">
@@ -295,14 +275,21 @@ export default function CreatePluginModal({ canUploadPublic, onClose, onCreated,
               </div>
 
               <FormField label="Access Level" hint={!canUploadPublic ? 'Only admins can upload public plugins' : undefined}>
-                <select value={access} onChange={(e) => setAccess(e.target.value as 'public' | 'private')} className="input" disabled={uploadDisabled || !canUploadPublic}>
+                <Select value={access} onChange={(e) => setAccess(e.target.value as 'public' | 'private')} disabled={uploadDisabled || !canUploadPublic}>
                   <option value="private">Private (Organization only)</option>
                   {canUploadPublic && <option value="public">Public (Available to all)</option>}
-                </select>
+                </Select>
               </FormField>
             </div>
           )}
         </>
+      ) : activeTab === 'wizard' ? (
+        <WizardPluginTab
+          canUploadPublic={canUploadPublic}
+          disabled={false}
+          onCreated={onCreated}
+          onClose={onClose}
+        />
       ) : (
         <AIPluginBuilderTab
           canUploadPublic={canUploadPublic}

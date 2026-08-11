@@ -13,6 +13,7 @@ import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { CopyButton } from '@/components/ui/CopyButton';
@@ -646,12 +647,10 @@ export default function DiscountsPage() {
           </p>
           <div className="space-y-3">
             <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={editActive}
                 onChange={(e) => setEditActive(e.target.checked)}
                 disabled={editForm.loading}
-                className="rounded border-gray-300"
               />
               <span><strong>Active</strong> — uncheck to deactivate (existing grants persist).</span>
             </label>

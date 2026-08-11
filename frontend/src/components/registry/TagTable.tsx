@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Copy, Trash2, Tag } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { SkeletonTableRow } from '@/components/ui/Skeleton';
 import { ResourceList } from '@/components/ui/ResourceList';
@@ -176,13 +177,12 @@ export function TagTable({
                   target separate from the tag name beside it. */}
               <th className="pl-4 pr-2 py-2 w-12">
                 <Tooltip content="Select all visible tags">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={allInViewSelected}
                     ref={(el) => { if (el) el.indeterminate = someInViewSelected; }}
                     onChange={toggleSelectAllInView}
                     aria-label="Select all visible tags"
-                    className="rounded cursor-pointer"
+                    className="cursor-pointer"
                   />
                 </Tooltip>
               </th>
@@ -212,12 +212,11 @@ export function TagTable({
                   }`}
                 >
                   <td className="pl-4 pr-2 py-2">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={isChecked}
                       onChange={() => toggleSelect(tag)}
                       aria-label={`Select ${tag}`}
-                      className="rounded cursor-pointer"
+                      className="cursor-pointer"
                     />
                   </td>
                   <td className="px-3 py-2">

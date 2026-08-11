@@ -54,7 +54,12 @@ export function createDeleteMessageRoutes(sseManager: SSEManager): Router {
 
     ctx.log('INFO', 'Deleting message', { id });
 
-    const deleted = await messageService.delete(id, orgId, userId);
+    // Sysadmins moderate cross-org: drop the org pin so any conversation root/reply
+    // is deletable (the reply-cascade below already sweeps cross-org). Non-admins
+    // stay org-scoped via the base delete.
+    const deleted = sysadmin
+      ? await messageService.deleteAsSysadmin(id, userId)
+      : await messageService.delete(id, orgId, userId);
     if (!deleted) {
       return sendEntityNotFound(res, 'Message');
     }

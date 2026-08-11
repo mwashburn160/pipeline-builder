@@ -276,6 +276,17 @@ class UserProfileService {
   /**
    * Mint a named Personal Access Token: sign a jti-stamped JWT and persist its
    * revocation record. The raw token is returned ONCE (never stored).
+   *
+   * DURABILITY CAVEAT (cross-service): platform's `requireAuth` special-cases the
+   * jti branch to ignore `tokenVersion`, so a PAT survives normal tokenVersion
+   * bumps *on platform*. The stateless services (plugin/compliance) validate via
+   * the shared Redis tokenVersion revocation store with no jti awareness, so a
+   * published bump — password change, admin feature/role change, org soft-delete —
+   * DOES invalidate a user's PATs there (i.e. on exactly the services CI PATs
+   * target) until they re-issue. This is an accepted trade-off (those events are
+   * strong "revalidate credentials" signals); making the stateless path PAT-aware
+   * would require it to consult the PersonalAccessToken record, and is deliberately
+   * out of scope. Individual PAT revocation (revokePat) works everywhere.
    */
   /** Max active (non-revoked, non-expired) PATs a single user may hold. */
   private readonly MAX_ACTIVE_PATS = 50;

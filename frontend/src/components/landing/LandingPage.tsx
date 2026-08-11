@@ -12,6 +12,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import api from '@/lib/api';
 
 // sessionStorage key carrying the OAuth "intent" across the provider redirect.
@@ -197,12 +199,11 @@ function Hero() {
             )}
 
             <form onSubmit={handleSignIn} className="space-y-3">
-              <input
+              <Input
                 id="signin-identifier"
                 type="text"
                 autoComplete="username"
                 required
-                className="input"
                 placeholder="Email or username"
                 aria-label="Email or username"
                 value={identifier}
@@ -210,12 +211,12 @@ function Hero() {
                 disabled={isLoading}
               />
               <div className="relative">
-                <input
+                <Input
                   id="signin-password"
                   type={showPassword ? 'text' : 'password'}
                   autoComplete="current-password"
                   required
-                  className="input pr-10"
+                  className="pr-10"
                   placeholder="Password"
                   aria-label="Password"
                   value={password}
@@ -233,12 +234,12 @@ function Hero() {
                   {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
                 </button>
               </div>
-              <button type="submit" disabled={isLoading} className="btn btn-primary btn-full text-sm">
+              <Button type="submit" fullWidth disabled={isLoading} className="text-sm">
                 {isLoading
                   ? <><LoadingSpinner size="sm" className="mr-2" /> Signing in...</>
                   : <><LogIn className="w-4 h-4 mr-1.5" /> Sign in</>
                 }
-              </button>
+              </Button>
             </form>
 
             {providers.length > 0 && (
@@ -250,17 +251,19 @@ function Hero() {
                 </div>
                 <div className="space-y-2">
                   {providers.map((p) => (
-                    <button
+                    <Button
                       key={p}
                       type="button"
+                      variant="secondary"
+                      fullWidth
                       onClick={() => startOAuth(p)}
                       disabled={isLoading || oauthBusy !== null}
-                      className="btn btn-secondary btn-full text-sm"
+                      className="text-sm"
                     >
                       {oauthBusy === p
                         ? <><LoadingSpinner size="sm" className="mr-2" /> Redirecting…</>
                         : <><LogIn className="w-4 h-4 mr-1.5" /> Sign in with {providerLabel(p)}</>}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>

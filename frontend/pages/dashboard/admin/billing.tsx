@@ -16,6 +16,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { useToast } from '@/components/ui/Toast';
@@ -470,12 +471,10 @@ export default function BillingAdminPage() {
               </div>
             </div>
             <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 pt-1">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={editCancelAtPeriodEnd}
                 onChange={(e) => setEditCancelAtPeriodEnd(e.target.checked)}
                 disabled={editForm.loading}
-                className="rounded border-gray-300"
               />
               <span>Cancel at period end</span>
             </label>

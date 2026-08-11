@@ -10,6 +10,9 @@ import { Mail, CheckCircle, XCircle, ArrowLeft, UserPlus, LogIn } from 'lucide-r
 import { useAuth } from '@/hooks/useAuth';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Card } from '@/components/ui/Card';
+import { Input } from '@/components/ui/Input';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { Button } from '@/components/ui/Button';
 import api from '@/lib/api';
 import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/lib/site-url';
 
@@ -208,7 +211,7 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
                   join as <strong className="text-[var(--pb-text)]">{invite.role}</strong>.
                 </p>
 
-                {actionError && <div className="alert-error text-sm mb-3">{actionError}</div>}
+                <ErrorAlert message={actionError} className="text-sm mb-3" />
 
                 {inviteUnusable ? (
                   <div className="text-center py-2">
@@ -226,15 +229,16 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
                         <> This invite was sent to a different email — accepting may be rejected.</>
                       )}
                     </p>
-                    <button
+                    <Button
                       onClick={handleAcceptLoggedIn}
                       disabled={submitting}
-                      className="btn btn-primary btn-full text-sm"
+                      fullWidth
+                      className="text-sm"
                     >
                       {submitting
                         ? <><LoadingSpinner size="sm" className="mr-2" /> Accepting…</>
                         : <><CheckCircle className="w-4 h-4 mr-1.5" /> Accept invitation</>}
-                    </button>
+                    </Button>
                   </>
                 ) : invite.canAcceptViaEmail ? (
                   // Logged out — register-and-accept.
@@ -243,51 +247,48 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
                       Create your account to accept. Already have one?{' '}
                       <Link href="/" className="text-[var(--pb-brand)] hover:underline">Sign in</Link> first, then reopen this link.
                     </p>
-                    <input
+                    <Input
                       type="email"
-                      className="input opacity-70"
+                      className="opacity-70"
                       value={invite.email}
                       disabled
                       aria-label="Invited email"
                     />
-                    <input
+                    <Input
                       type="text"
                       autoComplete="username"
                       required
-                      className="input"
                       placeholder="Username"
                       aria-label="Username"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       disabled={submitting}
                     />
-                    <input
+                    <Input
                       type="password"
                       autoComplete="new-password"
                       required
-                      className="input"
                       placeholder="Password (min 8 chars)"
                       aria-label="Password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       disabled={submitting}
                     />
-                    <input
+                    <Input
                       type="password"
                       autoComplete="new-password"
                       required
-                      className="input"
                       placeholder="Confirm password"
                       aria-label="Confirm password"
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       disabled={submitting}
                     />
-                    <button type="submit" disabled={submitting} className="btn btn-primary btn-full text-sm">
+                    <Button type="submit" disabled={submitting} fullWidth className="text-sm">
                       {submitting
                         ? <><LoadingSpinner size="sm" className="mr-2" /> Creating account…</>
                         : <><UserPlus className="w-4 h-4 mr-1.5" /> Create account &amp; accept</>}
-                    </button>
+                    </Button>
                   </form>
                 ) : invite.canAcceptViaGoogle ? (
                   // OAuth-only invite, logged out — accept by signing in with the
@@ -297,15 +298,16 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
                     <p className="text-xs text-[var(--pb-text-muted)] mb-3">
                       This invitation is accepted by signing in with Google.
                     </p>
-                    <button
+                    <Button
                       onClick={() => handleOAuthAccept('google')}
                       disabled={submitting}
-                      className="btn btn-primary btn-full text-sm"
+                      fullWidth
+                      className="text-sm"
                     >
                       {submitting
                         ? <><LoadingSpinner size="sm" className="mr-2" /> Redirecting…</>
                         : <><LogIn className="w-4 h-4 mr-1.5" /> Continue with Google</>}
-                    </button>
+                    </Button>
                   </div>
                 ) : (
                   // OAuth-only invite with no supported provider we can drive here.

@@ -1,6 +1,8 @@
 import { useCallback } from 'react';
 import { Plugin } from '@/types';
 import { FormPluginOptions, FormPluginFilter } from '@/types/form-types';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import CollapsibleSection from './CollapsibleSection';
 import MetadataEditor from './MetadataEditor';
 import PluginNameCombobox from './PluginNameCombobox';
@@ -67,13 +69,12 @@ export default function PluginOptionsEditor({
       />
       <div>
         <label className="label">{label} Alias</label>
-        <input
+        <Input
           type="text"
           value={value.alias}
           onChange={(e) => update({ alias: e.target.value })}
           placeholder="Optional alias"
           disabled={disabled}
-          className="input"
         />
       </div>
       <CollapsibleSection title={`${label} Filters`} hasContent={hasFilter}>
@@ -81,90 +82,83 @@ export default function PluginOptionsEditor({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">Plugin ID</label>
-              <input
+              <Input
                 type="text"
                 value={value.filter.id}
                 onChange={(e) => updateFilter({ id: e.target.value })}
                 placeholder="Plugin UUID"
                 disabled={disabled}
-                className="input"
               />
             </div>
             <div>
               <label className="label">Org ID</label>
-              <input
+              <Input
                 type="text"
                 value={value.filter.orgId}
                 onChange={(e) => updateFilter({ orgId: e.target.value })}
                 placeholder="Organization ID"
                 disabled={disabled}
-                className="input"
               />
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="label">Access Modifier</label>
-              <select
+              <Select
                 value={value.filter.accessModifier}
                 onChange={(e) => updateFilter({ accessModifier: e.target.value })}
                 disabled={disabled}
-                className="input"
               >
                 <option value="">Any</option>
                 <option value="public">Public</option>
                 <option value="private">Private</option>
-              </select>
+              </Select>
             </div>
             <div>
               <label className="label">Is Default</label>
-              <select
+              <Select
                 value={value.filter.isDefault}
                 onChange={(e) => updateFilter({ isDefault: e.target.value })}
                 disabled={disabled}
-                className="input"
               >
                 <option value="">Any</option>
                 <option value="true">Yes</option>
                 <option value="false">No</option>
-              </select>
+              </Select>
             </div>
             <div>
               <label className="label">Is Active</label>
-              <select
+              <Select
                 value={value.filter.isActive}
                 onChange={(e) => updateFilter({ isActive: e.target.value })}
                 disabled={disabled}
-                className="input"
               >
                 <option value="">Any</option>
                 <option value="true">Yes</option>
                 <option value="false">No</option>
-              </select>
+              </Select>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">Filter Name</label>
-              <input
+              <Input
                 type="text"
                 value={value.filter.name}
                 onChange={(e) => updateFilter({ name: e.target.value })}
                 placeholder="Exact plugin name"
                 disabled={disabled}
-                className="input"
               />
             </div>
           </div>
           <div>
             <label className="label">Version</label>
-            <input
+            <Input
               type="text"
               value={value.filter.version}
               onChange={(e) => updateFilter({ version: e.target.value })}
               placeholder="e.g. 1.0.0"
               disabled={disabled}
-              className="input"
             />
           </div>
         </div>

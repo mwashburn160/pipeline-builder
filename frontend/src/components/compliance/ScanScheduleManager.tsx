@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { CalendarClock, Plus, Pencil, Trash2, Loader2, X } from 'lucide-react';
 import api from '@/lib/api';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { useToast } from '@/components/ui/Toast';
 import { TextEmptyState } from '@/components/ui/EmptyState';
@@ -126,9 +128,9 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Scan Schedules</h2>
         </div>
         {!readOnly && (
-          <button onClick={openCreate} className="btn btn-primary">
+          <Button onClick={openCreate}>
             <Plus className="w-4 h-4" /> New Schedule
-          </button>
+          </Button>
         )}
       </div>
 
@@ -158,23 +160,21 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
             </div>
             <div className="flex-[2]">
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Cron Expression</label>
-              <input
+              <Input
                 type="text"
                 value={formData.cronExpression}
                 onChange={e => setFormData(prev => ({ ...prev, cronExpression: e.target.value }))}
                 placeholder="0 0 * * *"
                 required
-                className="input"
               />
             </div>
             <div className="flex gap-2">
-              <button type="button" onClick={closeForm} className="btn btn-secondary">
+              <Button type="button" variant="secondary" onClick={closeForm}>
                 Cancel
-              </button>
-              <button type="submit" disabled={submitting} className="btn btn-primary">
-                {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+              </Button>
+              <Button type="submit" loading={submitting}>
                 {editingId ? 'Update' : 'Create'}
-              </button>
+              </Button>
             </div>
           </form>
         </div>
@@ -233,18 +233,20 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
                   <td className="px-4 py-3 text-right">
                     {!readOnly && (
                       <div className="flex items-center justify-end gap-1">
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="xs"
                           onClick={() => openEdit(schedule)}
-                          className="btn btn-ghost btn-xs"
                           title="Edit schedule"
                           aria-label="Edit schedule"
                         >
                           <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="xs"
                           onClick={() => setConfirmDelete(schedule)}
                           disabled={deletingId === schedule.id}
-                          className="btn btn-danger btn-xs"
                           title="Delete schedule"
                           aria-label="Delete schedule"
                         >
@@ -253,7 +255,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
                           ) : (
                             <Trash2 className="w-4 h-4" />
                           )}
-                        </button>
+                        </Button>
                       </div>
                     )}
                   </td>

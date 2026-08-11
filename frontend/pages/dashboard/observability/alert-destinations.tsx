@@ -13,6 +13,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Modal } from '@/components/ui/Modal';
 import { Card } from '@/components/ui/Card';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { Badge } from '@/components/ui/Badge';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { api, getErrorMessage } from '@/lib/api';
@@ -126,7 +127,7 @@ export default function AlertDestinationsPage() {
         <div className="flex items-center gap-2">
           {isSuperAdmin && (
             <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400" title="View every org's destinations (read-only)">
-              <input type="checkbox" checked={allOrgs} onChange={(e) => setAllOrgs(e.target.checked)} className="rounded border-gray-300" />
+              <Checkbox checked={allOrgs} onChange={(e) => setAllOrgs(e.target.checked)} />
               All organizations
             </label>
           )}
@@ -403,7 +404,7 @@ function DestinationModal(props: {
           </select>
         </div>
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          <Checkbox checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           Enabled
         </label>
         <div className="flex justify-end gap-2 pt-2">

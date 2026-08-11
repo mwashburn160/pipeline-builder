@@ -26,6 +26,7 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { FilterBar } from '@/components/ui/FilterBar';
 import { Button } from '@/components/ui/Button';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { DateRangePicker } from '@/components/reports/ReportHelpers';
 import { downloadCsv } from '@/lib/csv-export';
@@ -248,11 +249,9 @@ export default function ExecutionsPage() {
             <DateRangePicker from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} />
             {canRollup && hasTeams && (
               <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Aggregate executions across this organization and its teams">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={includeDescendants}
                   onChange={(e) => setIncludeDescendants(e.target.checked)}
-                  className="rounded border-gray-300"
                 />
                 Include child teams
               </label>

@@ -1,5 +1,8 @@
 import { FormBuilderState } from '@/types/form-types';
 import { FormField } from '@/components/ui/FormField';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Checkbox } from '@/components/ui/Checkbox';
 
 /** Props for {@link SourceTypeEditor}. */
 interface SourceTypeEditorProps {
@@ -43,59 +46,54 @@ export default function SourceTypeEditor({
   return (
     <div className="space-y-3">
       <FormField label="Source Type">
-        <select
+        <Select
           value={sourceType}
           onChange={(e) => onSourceTypeChange(e.target.value as FormBuilderState['synth']['sourceType'])}
           disabled={disabled}
-          className="input"
         >
           <option value="github">GitHub</option>
           <option value="s3">S3</option>
           <option value="codestar">CodeStar</option>
           <option value="codecommit">CodeCommit</option>
-        </select>
+        </Select>
       </FormField>
 
       {sourceType === 's3' && (
         <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
           <FormField label="Bucket Name *" error={errors['synth.s3.bucketName']}>
-            <input
+            <Input
               type="text"
               value={s3.bucketName}
               onChange={(e) => onS3Change('bucketName', e.target.value)}
               placeholder="my-source-bucket"
               disabled={disabled}
-              className="input"
             />
           </FormField>
           <FormField label="Object Key">
-            <input
+            <Input
               type="text"
               value={s3.objectKey}
               onChange={(e) => onS3Change('objectKey', e.target.value)}
               placeholder="source.zip"
               disabled={disabled}
-              className="input"
             />
           </FormField>
           <FormField label="Trigger">
-            <select
+            <Select
               value={s3.trigger}
               onChange={(e) => onS3Change('trigger', e.target.value)}
               disabled={disabled}
-              className="input"
             >
               <option value="NONE">None (Manual)</option>
               <option value="AUTO">Auto</option>
               <option value="SCHEDULE">On Schedule</option>
-            </select>
+            </Select>
           </FormField>
           {s3.trigger === 'SCHEDULE' && (
             <div>
               <label className="label">Schedule Expression</label>
-              <input
+              <Input
                 type="text"
-                className="input"
                 placeholder="rate(1 day) or cron(0 0 * * ? *)"
                 value={s3.schedule || ''}
                 onChange={(e) => onS3Change('schedule', e.target.value)}
@@ -112,55 +110,50 @@ export default function SourceTypeEditor({
       {sourceType === 'github' && (
         <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
           <FormField label="Repository *" error={errors['synth.github.repo']}>
-            <input
+            <Input
               type="text"
               value={github.repo}
               onChange={(e) => onGithubChange('repo', e.target.value)}
               placeholder="owner/repo"
               disabled={disabled}
-              className="input"
             />
           </FormField>
           <FormField label="Branch">
-            <input
+            <Input
               type="text"
               value={github.branch}
               onChange={(e) => onGithubChange('branch', e.target.value)}
               placeholder="main"
               disabled={disabled}
-              className="input"
             />
           </FormField>
           <FormField label="Token (PAT)">
-            <input
+            <Input
               type="text"
               autoComplete="off"
               value={github.token}
               onChange={(e) => onGithubChange('token', e.target.value)}
               placeholder="ghp_..."
               disabled={disabled}
-              className="input"
               style={{ WebkitTextSecurity: 'disc' } as React.CSSProperties}
             />
           </FormField>
           <FormField label="Trigger">
-            <select
+            <Select
               value={github.trigger}
               onChange={(e) => onGithubChange('trigger', e.target.value)}
               disabled={disabled}
-              className="input"
             >
               <option value="NONE">None (Manual)</option>
               <option value="AUTO">Auto</option>
               <option value="SCHEDULE">On Schedule</option>
-            </select>
+            </Select>
           </FormField>
           {github.trigger === 'SCHEDULE' && (
             <div>
               <label className="label">Schedule Expression</label>
-              <input
+              <Input
                 type="text"
-                className="input"
                 placeholder="rate(1 day) or cron(0 0 * * ? *)"
                 value={github.schedule || ''}
                 onChange={(e) => onGithubChange('schedule', e.target.value)}
@@ -177,53 +170,48 @@ export default function SourceTypeEditor({
       {sourceType === 'codestar' && (
         <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
           <FormField label="Repository *" error={errors['synth.codestar.repo']}>
-            <input
+            <Input
               type="text"
               value={codestar.repo}
               onChange={(e) => onCodestarChange('repo', e.target.value)}
               placeholder="owner/repo"
               disabled={disabled}
-              className="input"
             />
           </FormField>
           <FormField label="Branch">
-            <input
+            <Input
               type="text"
               value={codestar.branch}
               onChange={(e) => onCodestarChange('branch', e.target.value)}
               placeholder="main"
               disabled={disabled}
-              className="input"
             />
           </FormField>
           <FormField label="Connection ARN *" error={errors['synth.codestar.connectionArn']}>
-            <input
+            <Input
               type="text"
               value={codestar.connectionArn}
               onChange={(e) => onCodestarChange('connectionArn', e.target.value)}
               placeholder="arn:aws:codestar-connections:..."
               disabled={disabled}
-              className="input"
             />
           </FormField>
           <FormField label="Trigger">
-            <select
+            <Select
               value={codestar.trigger}
               onChange={(e) => onCodestarChange('trigger', e.target.value)}
               disabled={disabled}
-              className="input"
             >
               <option value="NONE">None (Manual)</option>
               <option value="AUTO">Auto</option>
               <option value="SCHEDULE">On Schedule</option>
-            </select>
+            </Select>
           </FormField>
           {codestar.trigger === 'SCHEDULE' && (
             <div>
               <label className="label">Schedule Expression</label>
-              <input
+              <Input
                 type="text"
-                className="input"
                 placeholder="rate(1 day) or cron(0 0 * * ? *)"
                 value={codestar.schedule || ''}
                 onChange={(e) => onCodestarChange('schedule', e.target.value)}
@@ -235,13 +223,12 @@ export default function SourceTypeEditor({
             </div>
           )}
           <div className="flex items-center">
-            <input
+            <Checkbox
               id="codeBuildCloneOutput"
-              type="checkbox"
               checked={codestar.codeBuildCloneOutput}
               onChange={(e) => onCodestarChange('codeBuildCloneOutput', e.target.checked)}
               disabled={disabled}
-              className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
+              className="h-4 w-4 text-blue-600 focus:ring-blue-500"
             />
             <label htmlFor="codeBuildCloneOutput" className="ml-2 text-sm text-gray-700 dark:text-gray-300">
               CodeBuild Clone Output
@@ -253,43 +240,39 @@ export default function SourceTypeEditor({
       {sourceType === 'codecommit' && (
         <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
           <FormField label="Repository Name *" error={errors['synth.codecommit.repositoryName']}>
-            <input
+            <Input
               type="text"
               value={codecommit.repositoryName}
               onChange={(e) => onCodecommitChange('repositoryName', e.target.value)}
               placeholder="my-repo"
               disabled={disabled}
-              className="input"
             />
           </FormField>
           <FormField label="Branch">
-            <input
+            <Input
               type="text"
               value={codecommit.branch}
               onChange={(e) => onCodecommitChange('branch', e.target.value)}
               placeholder="main"
               disabled={disabled}
-              className="input"
             />
           </FormField>
           <FormField label="Trigger">
-            <select
+            <Select
               value={codecommit.trigger}
               onChange={(e) => onCodecommitChange('trigger', e.target.value)}
               disabled={disabled}
-              className="input"
             >
               <option value="NONE">None (Manual)</option>
               <option value="AUTO">Auto</option>
               <option value="SCHEDULE">On Schedule</option>
-            </select>
+            </Select>
           </FormField>
           {codecommit.trigger === 'SCHEDULE' && (
             <div>
               <label className="label">Schedule Expression</label>
-              <input
+              <Input
                 type="text"
-                className="input"
                 placeholder="rate(1 day) or cron(0 0 * * ? *)"
                 value={codecommit.schedule || ''}
                 onChange={(e) => onCodecommitChange('schedule', e.target.value)}

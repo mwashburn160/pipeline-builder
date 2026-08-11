@@ -21,6 +21,7 @@ import {
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { formatError } from '@/lib/constants';
@@ -88,11 +89,7 @@ export function SysadminHome() {
 
   return (
     <>
-      {error && (
-        <div className="alert-error mb-4">
-          <p>{error}</p>
-        </div>
-      )}
+      <ErrorAlert message={error} className="mb-4" />
 
       {loading && !summary && <LoadingSpinner />}
 

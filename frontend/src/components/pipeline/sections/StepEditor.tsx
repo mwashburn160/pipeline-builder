@@ -1,6 +1,8 @@
 import { useRef } from 'react';
 import { FormStep, FormNetworkConfig, FormPluginOptions, CommandGroup, MetadataEntry, EnvEntry } from '@/types/form-types';
 import { FormField } from '@/components/ui/FormField';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import CollapsibleSection from '../editors/CollapsibleSection';
 import PluginOptionsEditor from '../editors/PluginOptionsEditor';
 import NetworkConfigEditor from '../editors/NetworkConfigEditor';
@@ -70,40 +72,37 @@ export default function StepEditor({
   return (
     <div className="space-y-3">
       <FormField label="Step Position">
-        <select
+        <Select
           value={step.position}
           onChange={(e) => updatePosition(e.target.value as 'pre' | 'post')}
           disabled={disabled}
-          className="input"
         >
           <option value="pre">Pre (before deployment)</option>
           <option value="post">Post (after deployment)</option>
-        </select>
+        </Select>
       </FormField>
 
       <div className="grid grid-cols-2 gap-4">
         <FormField label="Timeout (minutes)" hint="Overrides plugin default">
-          <input
+          <Input
             type="number"
             value={step.timeout}
             onChange={(e) => onChange({ ...step, timeout: e.target.value })}
             disabled={disabled}
-            className="input"
             placeholder="Plugin default"
             min={1}
           />
         </FormField>
         <FormField label="Failure Behavior" hint="Overrides plugin default">
-          <select
+          <Select
             value={step.failureBehavior}
             onChange={(e) => onChange({ ...step, failureBehavior: e.target.value as 'fail' | 'warn' | 'ignore' })}
             disabled={disabled}
-            className="input"
           >
             <option value="fail">Fail (stop pipeline)</option>
             <option value="warn">Warn (log warning, continue)</option>
             <option value="ignore">Ignore (silently continue)</option>
-          </select>
+          </Select>
         </FormField>
       </div>
 
@@ -136,15 +135,14 @@ export default function StepEditor({
       <CollapsibleSection title="Install Commands" hasContent={step.installCommands.commands.length > 0}>
         <div className="mt-3 space-y-2">
           <FormField label="Position">
-            <select
+            <Select
               value={step.installCommands.position}
               onChange={(e) => updateCommandGroup('installCommands', { ...step.installCommands, position: e.target.value as 'pre' | 'post' })}
               disabled={disabled}
-              className="input"
             >
               <option value="pre">Before plugin install commands</option>
               <option value="post">After plugin install commands</option>
-            </select>
+            </Select>
           </FormField>
           <StringArrayEditor
             value={step.installCommands.commands}
@@ -159,15 +157,14 @@ export default function StepEditor({
       <CollapsibleSection title="Build Commands" hasContent={step.buildCommands.commands.length > 0}>
         <div className="mt-3 space-y-2">
           <FormField label="Position">
-            <select
+            <Select
               value={step.buildCommands.position}
               onChange={(e) => updateCommandGroup('buildCommands', { ...step.buildCommands, position: e.target.value as 'pre' | 'post' })}
               disabled={disabled}
-              className="input"
             >
               <option value="pre">Before plugin build commands</option>
               <option value="post">After plugin build commands</option>
-            </select>
+            </Select>
           </FormField>
           <StringArrayEditor
             value={step.buildCommands.commands}
@@ -202,13 +199,13 @@ export default function StepEditor({
             <div className="space-y-2">
               {step.additionalInputArtifacts.map((entry, idx) => (
                 <div key={inputIds[idx]} className="flex gap-2 items-center">
-                  <input
+                  <Input
                     type="text"
                     value={entry.path}
                     onChange={(e) => updateAdditionalInput(idx, 'path', e.target.value)}
                     placeholder="directory (optional, defaults to outputDir)"
                     disabled={disabled}
-                    className="input flex-1"
+                    className="flex-1"
                   />
                   <ArtifactKeyCombobox
                     value={entry.key}

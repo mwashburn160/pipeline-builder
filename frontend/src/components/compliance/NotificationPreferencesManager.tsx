@@ -5,6 +5,7 @@ import { Loader2, Save } from 'lucide-react';
 import api from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
 import { Badge } from '@/components/ui/Badge';
+import { Checkbox } from '@/components/ui/Checkbox';
 import type { OrganizationMember } from '@/types';
 import type {
   ComplianceNotificationPreference,
@@ -125,11 +126,11 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
       <fieldset className="space-y-2" disabled={readOnly}>
         <legend className="sr-only">Severity</legend>
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={notifyOnBlock} onChange={(e) => setNotifyOnBlock(e.target.checked)} disabled={readOnly} />
+          <Checkbox checked={notifyOnBlock} onChange={(e) => setNotifyOnBlock(e.target.checked)} disabled={readOnly} />
           Notify on <strong>blocks</strong> (violations that stop an operation)
         </label>
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={notifyOnWarning} onChange={(e) => setNotifyOnWarning(e.target.checked)} disabled={readOnly} />
+          <Checkbox checked={notifyOnWarning} onChange={(e) => setNotifyOnWarning(e.target.checked)} disabled={readOnly} />
           Notify on <strong>warnings</strong> (non-blocking issues)
         </label>
       </fieldset>
@@ -137,7 +138,7 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
       {/* Email */}
       <div className="space-y-2 border-t border-gray-200 dark:border-gray-700 pt-4">
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={emailEnabled} onChange={(e) => setEmailEnabled(e.target.checked)} disabled={readOnly} />
+          <Checkbox checked={emailEnabled} onChange={(e) => setEmailEnabled(e.target.checked)} disabled={readOnly} />
           <strong>Email</strong> notifications
         </label>
         <div>
@@ -151,8 +152,7 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
             <div className={`max-h-48 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded divide-y divide-gray-100 dark:divide-gray-800 ${(!emailEnabled || readOnly) ? 'opacity-60 pointer-events-none' : ''}`}>
               {members.map((m) => (
                 <label key={m.id} className="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={selectedUserIds.has(m.id)}
                     onChange={() => toggleUser(m.id)}
                     disabled={readOnly || !emailEnabled}

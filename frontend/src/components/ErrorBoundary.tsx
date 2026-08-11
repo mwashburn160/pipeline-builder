@@ -1,5 +1,6 @@
 import { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
 import { reportClientError } from '@/lib/error-reporter';
 
 /** Props for the ErrorBoundary component. */
@@ -61,12 +62,9 @@ export class ErrorBoundary extends Component<Props, State> {
             <p className="text-gray-600 dark:text-gray-400 mb-4">
               An unexpected error occurred. Please try again.
             </p>
-            <button
-              onClick={this.handleRetry}
-              className="btn btn-primary"
-            >
+            <Button onClick={this.handleRetry}>
               Try again
-            </button>
+            </Button>
             {this.state.error && process.env.NODE_ENV !== 'production' && (
               <details className="mt-4 text-left text-sm text-gray-500 dark:text-gray-400">
                 <summary className="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">

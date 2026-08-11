@@ -25,6 +25,8 @@ import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 
@@ -118,9 +120,9 @@ export default function PlatformSettingsPage() {
       subtitle="Read-only view of deploy-time configuration"
       titleExtra={<Badge color="red">System Admin</Badge>}
       actions={
-        <button onClick={() => void load()} disabled={loading} className="btn btn-secondary inline-flex items-center gap-1">
+        <Button variant="secondary" onClick={() => void load()} disabled={loading} className="inline-flex items-center gap-1">
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
-        </button>
+        </Button>
       }
     >
       <div className="mb-4">
@@ -129,11 +131,7 @@ export default function PlatformSettingsPage() {
         </Link>
       </div>
 
-      {error && (
-        <div className="alert-error mb-4">
-          <p>{error}</p>
-        </div>
-      )}
+      <ErrorAlert message={error} className="mb-4" />
 
       <Card className="mb-4 border-amber-200/60 dark:border-amber-800/60 bg-amber-50/80 dark:bg-amber-900/20">
         <div className="flex items-start gap-2">

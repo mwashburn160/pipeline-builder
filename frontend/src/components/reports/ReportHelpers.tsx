@@ -4,6 +4,8 @@ import { RefreshCw, Download, Timer, Lock } from 'lucide-react';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { FEATURE_METADATA } from '@/lib/feature-flags';
 import type { DoraLevel, DoraTrendPoint } from '@/lib/api/domains/reporting';
 import { StatCard } from './StatCard';
@@ -383,11 +385,9 @@ export function DoraScopeControls({
         ))}
       </datalist>
       <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400" title="Count only steps marked as deployments (excludes non-deploy pipeline runs)">
-        <input
-          type="checkbox"
+        <Checkbox
           checked={deploysOnly}
           onChange={(e) => onDeploysOnlyChange(e.target.checked)}
-          className="rounded border-gray-300 dark:border-gray-600"
         />
         Deployments only
       </label>
@@ -525,9 +525,9 @@ export function AutoRefresh({ onRefresh, loading }: AutoRefreshProps) {
       {interval > 0 && (
         <Timer className="w-3.5 h-3.5 text-blue-500 animate-pulse" />
       )}
-      <button onClick={onRefresh} disabled={loading} className="btn btn-secondary px-3 py-1.5 text-sm">
+      <Button variant="secondary" onClick={onRefresh} disabled={loading} className="px-3 py-1.5 text-sm">
         <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-      </button>
+      </Button>
     </div>
   );
 }
@@ -568,14 +568,15 @@ export function ExportCSVButton({ data, filename }: ExportButtonProps) {
   };
 
   return (
-    <button
+    <Button
+      variant="ghost"
+      size="xs"
       onClick={handleExport}
       disabled={data.length === 0}
-      className="btn btn-ghost btn-xs"
       title="Export to CSV"
     >
       <Download className="w-3.5 h-3.5 mr-1" />
       CSV
-    </button>
+    </Button>
   );
 }

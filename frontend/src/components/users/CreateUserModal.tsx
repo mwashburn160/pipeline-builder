@@ -8,6 +8,7 @@ import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Badge } from '@/components/ui/Badge';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { roleDisplayName } from '@/lib/permissions';
 import type { FormState } from '@/hooks/useFormState';
@@ -61,7 +62,7 @@ export function CreateUserModal({
       }
     >
       <ErrorAlert message={form.error} />
-      {form.success && <div className="alert-success"><p>{form.success}</p></div>}
+      <SuccessAlert message={form.success} />
 
       <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
         <div>

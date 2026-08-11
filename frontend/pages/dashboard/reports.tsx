@@ -6,6 +6,7 @@ import { GitBranch, Puzzle, AlertTriangle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Checkbox } from '@/components/ui/Checkbox';
 
 const ReportTabs = dynamic(() => import('@/components/reports/ReportTabs'), {
   loading: () => <LoadingPage />,
@@ -329,11 +330,9 @@ export default function ReportsPage() {
         <div className="flex items-center gap-3">
           {canRollup && hasTeams && topTab === 'pipelines' && (
             <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Aggregate pipeline analytics across this organization and its teams">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={includeDescendants}
                 onChange={(e) => setIncludeDescendants(e.target.checked)}
-                className="rounded border-gray-300 dark:border-gray-600"
               />
               Include child teams
             </label>

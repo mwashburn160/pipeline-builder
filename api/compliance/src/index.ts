@@ -13,6 +13,7 @@ import {
   combineHealthChecks,
 } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
+import { Router } from 'express';
 import { startAuditPruneCron } from './helpers/compliance-check-log.js';
 import { startDigestScheduler, stopDigestScheduler } from './helpers/digest-scheduler.js';
 import { evaluateEntityEvent } from './helpers/entity-event-handler.js';
@@ -57,10 +58,20 @@ app.use('/compliance/validate', ...createAuthenticatedWithOrgRoute(), createVali
 // Rule CRUD routes — all mutations and reads run through quota middleware.
 // Mutations additionally require an org admin/owner: compliance rules are
 // org-governance config, so a regular member must not create/change/delete them.
-app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), createReadRuleRoutes());
-app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), requirePermission('compliance:write'), createCreateRuleRoutes());
-app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), requirePermission('compliance:write'), createUpdateRuleRoutes());
-app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), requirePermission('compliance:write'), createDeleteRuleRoutes());
+// ONE protected layer per resource. Read routes go first (they terminate GETs);
+// then a single write-permission gate; then the mutation routers. Previously each
+// verb was a SEPARATE `createProtectedRoute()` layer on the same prefix, so a write
+// request re-ran the protected chain — the read layer reserved the Idempotency-Key
+// as `pending`, then the write layer saw `pending` and 409'd before the handler ran
+// (keyed rule/policy writes never executed; auth/quota also ran twice). Combining
+// into one router runs the protected chain exactly once.
+const rulesRouter = Router();
+rulesRouter.use(createReadRuleRoutes());
+rulesRouter.use(requirePermission('compliance:write'));
+rulesRouter.use(createCreateRuleRoutes());
+rulesRouter.use(createUpdateRuleRoutes());
+rulesRouter.use(createDeleteRuleRoutes());
+app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), rulesRouter);
 
 // Published rules catalog (auth + org, rate limited)
 app.use('/compliance/published-rules', ...createProtectedRoute(quotaService, 'apiCalls'), createPublishedRulesCatalogRoutes());
@@ -84,11 +95,17 @@ app.use('/compliance/scans', ...createAuthenticatedWithOrgRoute(), createScanRou
 app.use('/compliance/scan-schedules', ...createAuthenticatedWithOrgRoute(), createScanScheduleRoutes());
 
 // Policy CRUD routes — mutations require an org admin/owner (governance config),
-// reads are open to any authenticated org member.
-app.use('/compliance/policies', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPolicyRoutes());
-app.use('/compliance/policies', ...createAuthenticatedWithOrgRoute(), requirePermission('compliance:write'), createCreatePolicyRoutes());
-app.use('/compliance/policies', ...createAuthenticatedWithOrgRoute(), requirePermission('compliance:write'), createUpdatePolicyRoutes());
-app.use('/compliance/policies', ...createAuthenticatedWithOrgRoute(), requirePermission('compliance:write'), createDeletePolicyRoutes());
+// reads are open to any authenticated org member. Single router (see rules above):
+// one protected chain, read-first, then the write-permission gate + mutations. This
+// also brings policy writes under the same `apiCalls` quota + idempotency the reads
+// use (previously policy writes ran on the un-metered auth-only chain).
+const policiesRouter = Router();
+policiesRouter.use(createReadPolicyRoutes());
+policiesRouter.use(requirePermission('compliance:write'));
+policiesRouter.use(createCreatePolicyRoutes());
+policiesRouter.use(createUpdatePolicyRoutes());
+policiesRouter.use(createDeletePolicyRoutes());
+app.use('/compliance/policies', ...createProtectedRoute(quotaService, 'apiCalls'), policiesRouter);
 
 // Rule templates (auth + org)
 app.use('/compliance/templates', ...createAuthenticatedWithOrgRoute(), createTemplateRoutes());

@@ -11,6 +11,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { api, getErrorMessage } from '@/lib/api';
 import type { AlertRule, AlertRuleWrite } from '@/types/observability';
@@ -308,7 +309,7 @@ function RuleModal(props: {
           />
         </div>
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          <Checkbox checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           Enabled
         </label>
         <div className="flex justify-end gap-2 pt-2">

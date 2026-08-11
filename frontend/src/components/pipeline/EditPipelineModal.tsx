@@ -4,6 +4,11 @@ import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
+import { Select } from '@/components/ui/Select';
+import { Checkbox } from '@/components/ui/Checkbox';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import api from '@/lib/api';
 import { Pipeline, BuilderProps } from '@/types';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
@@ -144,10 +149,10 @@ export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onS
       <div className="grid grid-cols-2 gap-4 mb-3">
         <div>
           <label className="label">Access Modifier</label>
-          <select value={accessModifier} onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')} className="input disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500" disabled={loading || !isSuperAdmin}>
+          <Select value={accessModifier} onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')} className="disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500" disabled={loading || !isSuperAdmin}>
             <option value="private">Private</option>
             <option value="public">Public</option>
-          </select>
+          </Select>
           {!isSuperAdmin && (
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Only system admins can change access level</p>
           )}
@@ -155,11 +160,11 @@ export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onS
       </div>
       <div className="flex items-center space-x-6">
         <div className="flex items-center">
-          <input id="editPipelineIsActive" type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded" disabled={loading} />
+          <Checkbox id="editPipelineIsActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500" disabled={loading} />
           <label htmlFor="editPipelineIsActive" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Active</label>
         </div>
         <div className="flex items-center">
-          <input id="editPipelineIsDefault" type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded" disabled={loading} />
+          <Checkbox id="editPipelineIsDefault" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500" disabled={loading} />
           <label htmlFor="editPipelineIsDefault" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Default</label>
         </div>
       </div>
@@ -185,35 +190,35 @@ export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onS
 
   const footer = (
     <div className="flex items-center justify-between">
-      <button
+      <Button
+        variant="secondary"
         onClick={handlePreview}
         disabled={loading || fetching}
-        className="btn btn-secondary"
       >
         Preview JSON
-      </button>
+      </Button>
 
       <div className="flex items-center space-x-3">
-        <button onClick={onClose} disabled={loading} className="btn btn-secondary">
+        <Button variant="secondary" onClick={onClose} disabled={loading}>
           Cancel
-        </button>
+        </Button>
 
         {currentStep > 0 && (
-          <button onClick={handlePrevious} disabled={loading || fetching} className="btn btn-secondary">
+          <Button variant="secondary" onClick={handlePrevious} disabled={loading || fetching}>
             <ChevronLeft className="w-4 h-4 mr-1" />
             Previous
-          </button>
+          </Button>
         )}
 
         {!isLastStep ? (
-          <button onClick={handleNext} disabled={loading || fetching} className="btn btn-primary">
+          <Button onClick={handleNext} disabled={loading || fetching}>
             Next
             <ChevronRight className="w-4 h-4 ml-1" />
-          </button>
+          </Button>
         ) : (
-          <button onClick={handleSave} disabled={loading || fetching} className="btn btn-primary">
+          <Button onClick={handleSave} disabled={loading || fetching}>
             {loading ? (<><LoadingSpinner size="sm" className="mr-2" />Saving...</>) : 'Save Changes'}
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -229,16 +234,9 @@ export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onS
       preFooter={jsonPreview}
       footer={footer}
     >
-      {error && (
-        <div className="alert-error mb-4">
-          <p>{error}</p>
-        </div>
-      )}
-      {success && (
-        <div className="alert-success mb-4">
-          <p>{success}</p>
-        </div>
-      )}
+      <ErrorAlert message={error} className="mb-4" />
+      <SuccessAlert message={success} className="mb-4" />
+
 
       {fetching ? (
         <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>

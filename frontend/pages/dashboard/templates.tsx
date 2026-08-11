@@ -11,7 +11,10 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { IconButton } from '@/components/ui/IconButton';
 import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { ResourceList } from '@/components/ui/ResourceList';
 import api from '@/lib/api';
@@ -175,7 +178,7 @@ export default function TemplatesPage() {
         >
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {gallery.map((t) => (
-              <div key={t.id} className="card flex flex-col p-4">
+              <Card key={t.id} className="flex flex-col p-4">
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="font-semibold text-gray-900 dark:text-gray-100">{t.name}</h3>
                   <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300">{t.category}</span>
@@ -187,7 +190,7 @@ export default function TemplatesPage() {
                     <Sparkles className="w-4 h-4 mr-1.5" /> Use template
                   </Button>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         </ResourceList>
@@ -216,25 +219,23 @@ export default function TemplatesPage() {
                     </label>
                     {inp.description && <p className="text-xs text-gray-400 mb-1">{inp.description}</p>}
                     {inp.type === 'boolean' ? (
-                      <input
+                      <Checkbox
                         id={`tpl-input-${inp.name}`}
-                        type="checkbox"
                         checked={Boolean(inputValues[inp.name])}
                         onChange={(e) => setInputValues((s) => ({ ...s, [inp.name]: e.target.checked }))}
                         disabled={submitting}
                         className="h-4 w-4"
                       />
                     ) : inp.options && inp.options.length > 0 ? (
-                      <select
+                      <Select
                         id={`tpl-input-${inp.name}`}
                         value={String(inputValues[inp.name] ?? '')}
                         onChange={(e) => setInputValues((s) => ({ ...s, [inp.name]: e.target.value }))}
                         disabled={submitting}
-                        className="input"
                       >
                         <option value="">Select…</option>
                         {inp.options.map((o) => <option key={o} value={o}>{o}</option>)}
-                      </select>
+                      </Select>
                     ) : (
                       <Input
                         id={`tpl-input-${inp.name}`}

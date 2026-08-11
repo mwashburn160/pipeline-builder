@@ -5,6 +5,7 @@ import { BookOpen, ToggleLeft, ToggleRight, Copy, Pin, PinOff, Loader2, Zap, Eye
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { TextEmptyState } from '@/components/ui/EmptyState';
+import { Checkbox } from '@/components/ui/Checkbox';
 import type { PublishedRuleCatalogEntry, ComplianceRule, ComplianceRuleSubscription, ComplianceCheckResult, RuleTarget, RuleSeverity } from '@/types/compliance';
 import { SEVERITY_BADGE as SEVERITY_COLORS } from '@/lib/compliance-styles';
 
@@ -238,11 +239,9 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                   <div className="flex items-center justify-between p-3">
                     <div className="flex items-center gap-3">
                       {!readOnly && (
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={selectedIds.has(sub.ruleId)}
                           onChange={() => toggleSelect(sub.ruleId)}
-                          className="rounded border-gray-300"
                         />
                       )}
                       <div>

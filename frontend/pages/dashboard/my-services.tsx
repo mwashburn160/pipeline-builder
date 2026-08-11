@@ -12,6 +12,7 @@ import { IconButton } from '@/components/ui/IconButton';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import { TabBar, type TabBarItem } from '@/components/ui/TabBar';
 import api from '@/lib/api';
 import type { Pipeline, Plugin, Lifecycle } from '@/types';
 
@@ -57,6 +58,9 @@ export default function MyServicesPage() {
   const [pipelinesError, setPipelinesError] = useState<string | null>(null);
   const [pluginsError, setPluginsError] = useState<string | null>(null);
   const [lifecycle, setLifecycle] = useState<'' | Lifecycle>('');
+  // Which resource panel is shown. Pipelines and plugins live in the same
+  // tabbed panel rather than stacked, so the page stays compact.
+  const [tab, setTab] = useState<'pipelines' | 'plugins'>('pipelines');
 
   const ownerId = user?.id;
 
@@ -132,6 +136,27 @@ export default function MyServicesPage() {
     { id: 'updated', header: 'Updated', render: (p) => <RelativeTime value={p.updatedAt} />, sortValue: (p) => p.updatedAt },
   ], []);
 
+  const tabItems: TabBarItem[] = [
+    {
+      id: 'pipelines',
+      label: (
+        <span className="inline-flex items-center gap-1.5">
+          <GitBranch className="w-4 h-4" /> Pipelines
+          <span className="text-gray-400 font-normal">({shownPipelines.length})</span>
+        </span>
+      ),
+    },
+    {
+      id: 'plugins',
+      label: (
+        <span className="inline-flex items-center gap-1.5">
+          <Puzzle className="w-4 h-4" /> Plugins
+          <span className="text-gray-400 font-normal">({shownPlugins.length})</span>
+        </span>
+      ),
+    },
+  ];
+
   if (!isReady || !user) return <LoadingPage />;
 
   return (
@@ -156,12 +181,10 @@ export default function MyServicesPage() {
         </div>
       }
     >
-      <div className="page-section space-y-8">
-        <section>
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-            <GitBranch className="w-4 h-4" /> Pipelines
-            <span className="text-gray-400 font-normal">({shownPipelines.length})</span>
-          </h2>
+      <div className="page-section">
+        <TabBar items={tabItems} activeId={tab} onSelect={(id) => setTab(id as 'pipelines' | 'plugins')} />
+
+        {tab === 'pipelines' ? (
           <ResourceList<Pipeline>
             loading={loading}
             error={pipelinesError}
@@ -182,13 +205,7 @@ export default function MyServicesPage() {
               emptyState={{ icon: Layers, title: 'No pipelines owned by you', description: 'Pipelines you create are assigned to you and appear here.' }}
             />
           </ResourceList>
-        </section>
-
-        <section>
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-            <Puzzle className="w-4 h-4" /> Plugins
-            <span className="text-gray-400 font-normal">({shownPlugins.length})</span>
-          </h2>
+        ) : (
           <ResourceList<Plugin>
             loading={loading}
             error={pluginsError}
@@ -209,7 +226,7 @@ export default function MyServicesPage() {
               emptyState={{ icon: Layers, title: 'No plugins owned by you', description: 'Plugins you upload or generate are assigned to you and appear here.' }}
             />
           </ResourceList>
-        </section>
+        )}
       </div>
     </DashboardLayout>
   );

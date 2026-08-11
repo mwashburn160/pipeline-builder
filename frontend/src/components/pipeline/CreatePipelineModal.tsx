@@ -3,6 +3,11 @@ import { Plus, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
 import { BuilderProps } from '@/types';
 import type { ComplianceCheckResult } from '@/types/compliance';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Select } from '@/components/ui/Select';
+import { TabBar, type TabBarItem } from '@/components/ui/TabBar';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import api from '@/lib/api';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
@@ -184,15 +189,15 @@ export default function CreatePipelineModal({
     <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
       <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Access</h3>
       <div className="flex items-center space-x-3">
-        <select
+        <Select
           value={createAccess}
           onChange={(e) => setCreateAccess(e.target.value as 'public' | 'private')}
-          className="input !w-auto"
+          className="!w-auto"
           disabled={createLoading || !canCreatePublic}
         >
           <option value="private">Private</option>
           {canCreatePublic && <option value="public">Public</option>}
-        </select>
+        </Select>
         {!canCreatePublic && (
           <span className="text-xs text-gray-500 dark:text-gray-400">Only admins can create public pipelines</span>
         )}
@@ -200,50 +205,21 @@ export default function CreatePipelineModal({
     </div>
   );
 
+  const tabItems: TabBarItem[] = [
+    { id: 'ai', label: 'Git URL' },
+    { id: 'prompt', label: 'From prompt' },
+    { id: 'upload', label: 'Upload' },
+    { id: 'form', label: 'Wizard' },
+  ];
+
   const tabs = (
-    <div className="border-b border-gray-200 dark:border-gray-700 px-6">
-      <nav className="-mb-px flex space-x-8">
-        <button
-          onClick={() => setActiveTab('ai')}
-          className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
-            activeTab === 'ai'
-              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-          }`}
-        >
-          Git URL
-        </button>
-        <button
-          onClick={() => setActiveTab('prompt')}
-          className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
-            activeTab === 'prompt'
-              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-          }`}
-        >
-          From prompt
-        </button>
-        <button
-          onClick={() => setActiveTab('upload')}
-          className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
-            activeTab === 'upload'
-              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-          }`}
-        >
-          Upload
-        </button>
-        <button
-          onClick={() => setActiveTab('form')}
-          className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
-            activeTab === 'form'
-              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-          }`}
-        >
-          Wizard
-        </button>
-      </nav>
+    <div className="px-6">
+      <TabBar
+        items={tabItems}
+        activeId={activeTab}
+        onSelect={(id) => setActiveTab(id as 'upload' | 'form' | 'ai' | 'prompt')}
+        className="!mb-0"
+      />
     </div>
   );
 
@@ -267,49 +243,48 @@ export default function CreatePipelineModal({
   const footer = (
     <div className="flex items-center justify-between">
       <div className="flex items-center space-x-2">
-        <button
+        <Button
+          variant="secondary"
           onClick={handlePreview}
           disabled={createLoading}
-          className="btn btn-secondary"
         >
           Preview JSON
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="secondary"
           onClick={handleComplianceCheck}
           disabled={createLoading || complianceLoading}
-          className="btn btn-secondary"
         >
           {complianceLoading ? <LoadingSpinner size="sm" className="mr-1" /> : <ShieldCheck className="w-4 h-4 mr-1" />}
           Preview Compliance
-        </button>
+        </Button>
       </div>
 
       <div className="flex items-center space-x-3">
-        <button
+        <Button
+          variant="secondary"
           onClick={onClose}
           disabled={createLoading}
-          className="btn btn-secondary"
         >
           Cancel
-        </button>
+        </Button>
 
         {isWizardTab && currentStep > 0 && (
-          <button onClick={handlePrevious} disabled={createLoading} className="btn btn-secondary">
+          <Button variant="secondary" onClick={handlePrevious} disabled={createLoading}>
             <ChevronLeft className="w-4 h-4 mr-1" />
             Previous
-          </button>
+          </Button>
         )}
 
         {isWizardTab && !isLastStep ? (
-          <button onClick={handleNext} disabled={createLoading} className="btn btn-primary">
+          <Button onClick={handleNext} disabled={createLoading}>
             Next
             <ChevronRight className="w-4 h-4 ml-1" />
-          </button>
+          </Button>
         ) : (
-          <button
+          <Button
             onClick={handleSubmit}
             disabled={isSubmitDisabled}
-            className="btn btn-primary"
           >
             {createLoading ? (
               <>
@@ -322,7 +297,7 @@ export default function CreatePipelineModal({
                 Create
               </>
             )}
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -339,16 +314,9 @@ export default function CreatePipelineModal({
       preFooter={jsonPreview}
       footer={footer}
     >
-      {createError && (
-        <div className="alert-error mb-4">
-          <p>{createError}</p>
-        </div>
-      )}
-      {createSuccess && (
-        <div className="alert-success mb-4">
-          <p>{createSuccess}</p>
-        </div>
-      )}
+      <ErrorAlert message={createError} className="mb-4" />
+      <SuccessAlert message={createSuccess} className="mb-4" />
+
 
       {activeTab === 'upload' ? (
         <UploadConfigTab ref={uploadRef} disabled={createLoading} />

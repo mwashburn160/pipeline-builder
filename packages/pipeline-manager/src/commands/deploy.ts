@@ -214,7 +214,7 @@ export function deploy(program: Command): void {
           }
           // Build the payload up-front so a registration POST failure can write
           // the same payload to a pending-intent file for `pipeline-manager
-          // register` to drain later. We never want to retry STS lookups —
+          // pipeline register` to drain later. We never want to retry STS lookups —
           // they can fail too (e.g. credential rotation) and would compound
           // the issue.
           if (!pipeline.orgId) {
@@ -245,7 +245,7 @@ export function deploy(program: Command): void {
             printSuccess('Pipeline registered for event reporting', { pipelineId: payload.pipelineId });
           } catch (regError) {
             // Persist for retry. The user can drain with `pipeline-manager
-            // register` (or just re-run that command at any time — it's
+            // pipeline register` (or just re-run that command at any time — it's
             // idempotent). The deploy itself does NOT fail.
             try {
               const intentPath = await writePendingIntent(payload);

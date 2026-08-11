@@ -22,6 +22,8 @@ import { useToast } from '@/components/ui/Toast';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Badge } from '@/components/ui/Badge';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -217,17 +219,8 @@ export default function PipelineDetailPage() {
         </Link>
       </div>
 
-      {fetchError && (
-        <div className="alert-error">
-          <p>{fetchError.message}</p>
-        </div>
-      )}
-      {actionError && (
-        <div className="alert-error">
-          <p>{actionError}</p>
-          <button onClick={() => setActionError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
-        </div>
-      )}
+      <ErrorAlert message={fetchError?.message} />
+      <ErrorAlert message={actionError} onDismiss={() => setActionError(null)} />
 
       {fetching && !pipeline && <LoadingSpinner />}
 
@@ -356,22 +349,19 @@ export default function PipelineDetailPage() {
           <Card className="lg:col-span-2">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Executions</h3>
-              <button
+              <Button
+                variant="secondary"
                 onClick={handleTrigger}
                 disabled={!canEdit || triggering}
-                className="btn btn-secondary inline-flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 title={canEdit ? undefined : 'Read-only (public catalog entry)'}
               >
                 {triggering ? <LoadingSpinner size="sm" /> : <Play className="w-4 h-4" />}
                 {executions && executions.length > 0 ? 'Re-run' : 'Run pipeline'}
-              </button>
+              </Button>
             </div>
             {execLoading && !executions && <LoadingSpinner />}
-            {execError && (
-              <div className="alert-error">
-                <p>{execError}</p>
-              </div>
-            )}
+            <ErrorAlert message={execError} />
             {!execLoading && !execError && executions && executions.length === 0 && (
               <p className="text-sm text-gray-500 dark:text-gray-400">No executions recorded yet.</p>
             )}
@@ -406,17 +396,18 @@ export default function PipelineDetailPage() {
                         <td className="py-2 pr-4"><CopyableId value={ex.execution_id} size="sm" /></td>
                         <td className="py-2 text-right">
                           {ex.status === 'in-progress' ? (
-                            <button
+                            <Button
+                              variant="secondary"
                               onClick={() => setCancelTarget(ex.execution_id)}
                               disabled={!canEdit || (canceling && cancelTarget === ex.execution_id)}
-                              className="btn btn-secondary inline-flex items-center gap-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="inline-flex items-center gap-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                               title={canEdit ? 'Cancel this execution' : 'Read-only (public catalog entry)'}
                             >
                               {canceling && cancelTarget === ex.execution_id
                                 ? <LoadingSpinner size="sm" />
                                 : <Ban className="w-3.5 h-3.5" />}
                               Cancel
-                            </button>
+                            </Button>
                           ) : (
                             <span className="text-gray-400">—</span>
                           )}
@@ -433,23 +424,25 @@ export default function PipelineDetailPage() {
           <Card className="lg:col-span-2">
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Operations</h3>
             <div className="flex flex-wrap items-center gap-2">
-              <button
+              <Button
+                variant="secondary"
                 onClick={() => setShowEdit(true)}
                 disabled={!canEdit}
-                className="btn btn-secondary inline-flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 title={canEdit ? undefined : 'Read-only (public catalog entry)'}
               >
                 <Pencil className="w-4 h-4" /> Edit
-              </button>
+              </Button>
               <div className="flex-1" />
-              <button
+              <Button
+                variant="danger"
                 onClick={() => setShowDelete(true)}
                 disabled={!canEdit}
-                className="btn btn-danger inline-flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 title={canEdit ? undefined : 'Read-only (public catalog entry)'}
               >
                 <Trash2 className="w-4 h-4" /> Delete pipeline
-              </button>
+              </Button>
             </div>
           </Card>
         </div>
@@ -470,13 +463,13 @@ export default function PipelineDetailPage() {
           onClose={() => { if (!canceling) setCancelTarget(null); }}
           footer={(
             <div className="flex justify-end gap-3">
-              <button onClick={() => setCancelTarget(null)} disabled={canceling} className="btn btn-secondary">
+              <Button variant="secondary" onClick={() => setCancelTarget(null)} disabled={canceling}>
                 Keep running
-              </button>
-              <button onClick={confirmCancel} disabled={canceling} className="btn btn-danger inline-flex items-center gap-2">
+              </Button>
+              <Button variant="danger" onClick={confirmCancel} disabled={canceling} className="inline-flex items-center gap-2">
                 {canceling ? <LoadingSpinner size="sm" /> : <Ban className="w-4 h-4" />}
                 Cancel execution
-              </button>
+              </Button>
             </div>
           )}
         >

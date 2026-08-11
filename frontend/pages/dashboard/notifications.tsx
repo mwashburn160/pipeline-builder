@@ -21,6 +21,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
+import { Checkbox } from '@/components/ui/Checkbox';
 
 /** localStorage keys for in-app preferences. Bumped if the shape changes. */
 const PREF_KEY = 'pb-notification-prefs:v1';
@@ -99,8 +100,7 @@ export default function NotificationsPage() {
                 <div className="text-xs text-gray-500 dark:text-gray-400">{hint}</div>
               </div>
               <label className="inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={prefs[key]}
                   onChange={(e) => update({ [key]: e.target.checked } as Partial<Prefs>)}
                   className="h-4 w-4"

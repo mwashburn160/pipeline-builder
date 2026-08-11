@@ -117,6 +117,19 @@ async function resolvePipeline(arn: string, region: string): Promise<ResolvedPip
       log.error('AccessDenied calling codepipeline:ListTagsForResource — grant it to the Lambda role', { arn, error: name });
       throw err;
     }
+    // Transient/infra errors (throttling, timeouts, 5xx) MUST propagate so the SQS
+    // batch is retried rather than silently dropping the event — the ingest payload
+    // has no idempotency key, so a dropped event is lost permanently. Only swallow
+    // when the failure is a definitive answer that this ARN has no usable tag.
+    const e = err as { name?: string; $retryable?: unknown; $metadata?: { httpStatusCode?: number } };
+    const status = e.$metadata?.httpStatusCode;
+    const retryable = e.$retryable != null
+      || (typeof status === 'number' && status >= 500)
+      || /throttl|timeout|toomanyrequests|serviceunavailable|econnreset|networkingerror/i.test(name ?? '');
+    if (retryable) {
+      log.error('Transient error resolving PIPELINE_EVENT_ID tag — will retry the batch', { arn, error: name ?? String(err) });
+      throw err;
+    }
     log.error('Failed to resolve PIPELINE_EVENT_ID tag', { arn, error: name ?? String(err) });
     return { pipelineId: null };
   }
@@ -378,6 +391,10 @@ export const handler = async (event: SQSEvent): Promise<void> => {
     throw new Error(`Reporting API failed: ${res.status}`);
   }
 
-  const result = await res.json() as Record<string, unknown>;
+  // The insert already succeeded (2xx). The parsed body is only used for a log
+  // line, so a non-JSON/empty body must not throw and fail the whole batch —
+  // that would trigger an SQS redelivery and re-POST (duplicate) already-inserted
+  // events, since the payload carries no idempotency key.
+  const result = await res.json().catch(() => ({})) as Record<string, unknown>;
   log.info(`Ingested ${events.length} events`, { inserted: result.data });
 };

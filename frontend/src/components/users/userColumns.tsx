@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Badge } from '@/components/ui/Badge';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { type Column } from '@/components/ui/DataTable';
 import type { UserListItem } from './types';
 
@@ -36,8 +37,7 @@ export function buildUserColumns({
       // Header checkbox toggles all visible (non-self) rows. Indeterminate
       // state isn't surfaced — partial selection just shows unchecked.
       header: (
-        <input
-          type="checkbox"
+        <Checkbox
           aria-label="Select all visible users"
           checked={allVisibleSelected}
           onChange={onToggleSelectAllVisible}
@@ -48,8 +48,7 @@ export function buildUserColumns({
       cellClassName: 'w-10',
       render: (u) => (
         u.id === currentUserId ? null : (
-          <input
-            type="checkbox"
+          <Checkbox
             aria-label={`Select ${u.email}`}
             checked={selectedIds.has(u.id)}
             onChange={() => onToggleSelected(u.id)}

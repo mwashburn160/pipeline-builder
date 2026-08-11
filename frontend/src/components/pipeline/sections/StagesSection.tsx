@@ -1,6 +1,7 @@
 import { FormBuilderState, FormStage, FormStep } from '@/types/form-types';
 import { type Plugin } from '@/types';
 import { FormField } from '@/components/ui/FormField';
+import { Input } from '@/components/ui/Input';
 import CollapsibleSection from '../editors/CollapsibleSection';
 import StepEditor from './StepEditor';
 import { computeAvailableArtifacts } from '@/lib/artifact-keys';
@@ -64,23 +65,21 @@ export default function StagesSection({
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-4">
                 <FormField label="Stage Name *" error={errors[`stages.${stageIdx}.stageName`]}>
-                  <input
+                  <Input
                     type="text"
                     value={stage.stageName}
                     onChange={(e) => onStageFieldChange(stageIdx, 'stageName', e.target.value)}
                     placeholder="deploy"
                     disabled={disabled}
-                    className="input"
                   />
                 </FormField>
                 <FormField label="Alias">
-                  <input
+                  <Input
                     type="text"
                     value={stage.alias}
                     onChange={(e) => onStageFieldChange(stageIdx, 'alias', e.target.value)}
                     placeholder="Optional alias"
                     disabled={disabled}
-                    className="input"
                   />
                 </FormField>
               </div>

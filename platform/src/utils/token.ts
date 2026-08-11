@@ -384,10 +384,11 @@ export function verifyRefreshToken(token: string): RefreshTokenPayload {
  * once the caller re-verifies their password; required (as
  * `X-Step-Up-Token`) on destructive endpoints behind `requireStepUp`.
  *
- * Single-use enforcement is NOT done today — the token is short-lived
- * (60s default) and bound to the user's sub, so the realistic replay
- * window is tiny. If we ever need true single-use, swap in a Redis-backed
- * jti consumption set.
+ * Single-use IS enforced: `requireStepUp` consumes the `jti` via the
+ * process-local set in `middleware/consumed-jti.ts`, so a replay against the
+ * same process is rejected within the token's (60s default) TTL. Multi-instance
+ * deployments get best-effort single-use per process; swap the consumed-jti
+ * module for a Redis-backed store when strict cross-instance single-use matters.
  */
 export interface StepUpTokenPayload {
   type: 'step-up';

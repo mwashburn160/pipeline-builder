@@ -12,6 +12,8 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { Checkbox } from '@/components/ui/Checkbox';
+import { Textarea } from '@/components/ui/Textarea';
 import { IconButton } from '@/components/ui/IconButton';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Modal } from '@/components/ui/Modal';
@@ -259,14 +261,12 @@ export default function PipelinesPage() {
       locked: true,
       render: (pipeline: Pipeline) => (
         canWritePipeline(can, isSuperAdmin, pipeline.accessModifier) ? (
-          <input
-            type="checkbox"
+          <Checkbox
             checked={selectedIds.has(pipeline.id)}
             onChange={(e) => {
               e.stopPropagation();
               toggleSelect(pipeline.id);
             }}
-            className="rounded border-gray-300 dark:border-gray-600"
           />
         ) : null
       ),
@@ -521,12 +521,12 @@ export default function PipelinesPage() {
             <p className="text-gray-600 dark:text-gray-400">
               Paste a JSON array of pipeline specs (each with <code className="font-mono">project</code>, <code className="font-mono">organization</code>, and <code className="font-mono">props</code>; optional <code className="font-mono">pipelineName</code>, <code className="font-mono">description</code>, <code className="font-mono">keywords</code>, <code className="font-mono">accessModifier</code>). A <code className="font-mono">{'{ "pipelines": [...] }'}</code> wrapper is also accepted.
             </p>
-            <textarea
+            <Textarea
               value={bulkText}
               onChange={(e) => { setBulkText(e.target.value); setBulkCreateError(null); }}
               placeholder={'[\n  { "project": "web", "organization": "acme", "props": { /* BuilderProps */ } }\n]'}
               rows={12}
-              className="input font-mono text-xs w-full"
+              className="font-mono text-xs w-full"
               disabled={bulkCreating}
               spellCheck={false}
             />

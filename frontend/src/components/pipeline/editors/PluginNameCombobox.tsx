@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Plugin } from '@/types';
+import { Input } from '@/components/ui/Input';
 import { usePlugins, groupPlugins } from '@/hooks/usePlugins';
 import { useCombobox } from '@/hooks/useCombobox';
 
@@ -52,7 +53,7 @@ export default function PluginNameCombobox({
     <div>
       <label className="label">{label} Name *</label>
       <div ref={wrapperRef} className="relative">
-        <input
+        <Input
           ref={inputRef}
           type="text"
           value={value}
@@ -62,7 +63,6 @@ export default function PluginNameCombobox({
           placeholder="plugin-name (type or select)"
           disabled={disabled}
           autoComplete="off"
-          className="input"
         />
         {open && !disabled && (
           <div className="absolute z-50 mt-1 w-full max-h-60 overflow-auto bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl shadow-lg text-sm">

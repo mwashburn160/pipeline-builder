@@ -13,6 +13,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { useToast } from '@/components/ui/Toast';
@@ -474,12 +475,11 @@ export default function OrganizationsPage() {
 
             {/* Team toggle — defaults OFF (top-level org). When on, pick the parent. */}
             <label className="flex items-start gap-2 text-xs text-gray-700 dark:text-gray-300 pt-1">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={createAsSubOrg}
                 onChange={(e) => setCreateAsSubOrg(e.target.checked)}
                 disabled={createForm.loading}
-                className="mt-0.5 rounded border-gray-300"
+                className="mt-0.5"
               />
               <span>
                 <strong>Team</strong> — nest this organization under a parent org.

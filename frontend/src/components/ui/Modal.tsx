@@ -5,8 +5,13 @@ import { createPortal } from 'react-dom';
 interface ModalProps {
   /** Modal title displayed in the header */
   title: string;
+  /** Optional icon rendered before the title (e.g. a status/severity glyph). */
+  titleIcon?: ReactNode;
   /** Callback when the modal is closed (via Escape, backdrop click, or close button) */
   onClose: () => void;
+  /** Element to focus on open instead of the first focusable (e.g. a form's
+   *  primary input, so the header close button isn't focused first). */
+  initialFocusRef?: RefObject<HTMLElement | null>;
   /** Tailwind max-width class for the modal panel */
   maxWidth?: string;
   /** When true, the modal expands to 90vh with a scrollable content area */
@@ -37,7 +42,7 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
 
 /** Accessible modal dialog with focus trapping, Escape-to-close, and backdrop click dismissal. */
 export function Modal({
-  title, onClose, maxWidth = 'max-w-md', tall = false,
+  title, titleIcon, onClose, initialFocusRef, maxWidth = 'max-w-md', tall = false,
   children, footer, subHeader, preFooter, scrollRef,
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -126,10 +131,12 @@ export function Modal({
     if (!mounted) return;
     previousActiveElement.current = document.activeElement;
 
-    // Focus the first focusable element on open.
+    // Focus the caller-specified element (e.g. a form's primary input) if given,
+    // else the first focusable element on open.
     if (panelRef.current) {
       const focusable = getFocusableElements(panelRef.current);
-      if (focusable.length > 0) focusable[0].focus();
+      const target = initialFocusRef?.current ?? focusable[0];
+      target?.focus();
     }
 
     // Prevent background scrolling. Capture the prior value so we restore
@@ -170,8 +177,11 @@ export function Modal({
       >
         {/* Header */}
         <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 id={titleId} className="text-lg font-medium text-gray-900 dark:text-gray-100">{title}</h2>
-          <button onClick={onClose} aria-label="Close dialog" className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 transition-colors">
+          <div className="flex items-center gap-2 min-w-0">
+            {titleIcon}
+            <h2 id={titleId} className="text-lg font-medium text-gray-900 dark:text-gray-100 truncate">{title}</h2>
+          </div>
+          <button onClick={onClose} aria-label="Close dialog" className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 transition-colors ml-3 shrink-0">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>

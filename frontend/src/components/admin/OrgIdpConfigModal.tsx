@@ -2,11 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useState } from 'react';
-import { X, ShieldCheck } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 import api, { ApiError } from '@/lib/api';
-import { Card } from '@/components/ui/Card';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Checkbox } from '@/components/ui/Checkbox';
+import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
-import { ModalPortal } from '@/components/ui/ModalPortal';
+import { Modal } from '@/components/ui/Modal';
 import type { Organization, OrgIdpConfigDto } from '@/types';
 
 interface Props {
@@ -131,26 +135,32 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
   }, [org.id, org.name, onSaved, onClose]);
 
   return (
-    <ModalPortal>
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <Card className="w-full max-w-2xl">
-        <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-5 py-3">
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
-            <ShieldCheck className="w-5 h-5" /> IdP Config — {org.name}
-          </h2>
-          <button onClick={onClose} aria-label="Close" className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800">
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
+    <Modal
+      title={`IdP Config — ${org.name}`}
+      titleIcon={<ShieldCheck className="w-5 h-5 shrink-0" />}
+      onClose={onClose}
+      maxWidth="max-w-2xl"
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          {existing && (
+            <Button variant="danger-outline" onClick={handleDelete} disabled={submitting}>
+              Remove
+            </Button>
+          )}
+          <Button variant="secondary" onClick={onClose} disabled={submitting}>Cancel</Button>
+          <Button
+            onClick={handleSave}
+            disabled={submitting || !clientId.trim() || (!existing && !clientSecret.trim())}
+          >
+            {submitting ? <LoadingSpinner size="sm" /> : (existing ? 'Save changes' : 'Create')}
+          </Button>
         </div>
-
-        <div className="px-5 py-4 space-y-4">
+      }
+    >
+        <div className="space-y-4">
           {loading && <LoadingSpinner size="sm" />}
 
-          {error && (
-            <div className="alert-error">
-              <p>{error}</p>
-            </div>
-          )}
+          <ErrorAlert message={error} />
 
           {existing && (
             <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 px-3 py-2 text-sm">
@@ -166,26 +176,25 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
 
           <div>
             <label className="label">Provider</label>
-            <select
+            <Select
               value={provider}
               onChange={(e) => setProvider(e.target.value as Provider)}
-              className="input"
               disabled={submitting}
             >
               <option value="generic-oidc">Generic OIDC</option>
               <option value="google">Google</option>
               <option value="github">GitHub</option>
-            </select>
+            </Select>
           </div>
 
           <div>
             <label className="label">Client ID</label>
-            <input
+            <Input
               type="text"
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
               placeholder="oauth-client-id"
-              className="input font-mono text-sm"
+              className="font-mono text-sm"
               disabled={submitting}
             />
           </div>
@@ -195,12 +204,12 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
               Client Secret
               {existing && <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">(leave empty to keep existing)</span>}
             </label>
-            <input
+            <Input
               type="password"
               value={clientSecret}
               onChange={(e) => setClientSecret(e.target.value)}
               placeholder={existing ? '••••••••' : 'Set the OAuth client secret'}
-              className="input font-mono text-sm"
+              className="font-mono text-sm"
               disabled={submitting}
               autoComplete="new-password"
             />
@@ -212,12 +221,12 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
           {provider === 'generic-oidc' && (
             <div>
               <label className="label">Discovery URL</label>
-              <input
+              <Input
                 type="url"
                 value={discoveryUrl}
                 onChange={(e) => setDiscoveryUrl(e.target.value)}
                 placeholder="https://idp.example.com/.well-known/openid-configuration"
-                className="input font-mono text-sm"
+                className="font-mono text-sm"
                 disabled={submitting}
               />
             </div>
@@ -225,12 +234,12 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
 
           <div>
             <label className="label">Allowed Email Domains</label>
-            <input
+            <Input
               type="text"
               value={allowedEmailDomains}
               onChange={(e) => setAllowedEmailDomains(e.target.value)}
               placeholder="example.com, acme.io"
-              className="input text-sm"
+              className="text-sm"
               disabled={submitting}
             />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -239,8 +248,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
           </div>
 
           <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={enabled}
               onChange={(e) => setEnabled(e.target.checked)}
               disabled={submitting}
@@ -248,24 +256,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
             Enabled
           </label>
 
-          <div className="flex items-center justify-end gap-2 pt-2">
-            {existing && (
-              <button onClick={handleDelete} disabled={submitting} className="btn btn-danger-outline">
-                Remove
-              </button>
-            )}
-            <button onClick={onClose} className="btn btn-secondary" disabled={submitting}>Cancel</button>
-            <button
-              onClick={handleSave}
-              disabled={submitting || !clientId.trim() || (!existing && !clientSecret.trim())}
-              className="btn btn-primary"
-            >
-              {submitting ? <LoadingSpinner size="sm" /> : (existing ? 'Save changes' : 'Create')}
-            </button>
-          </div>
         </div>
-      </Card>
-    </div>
-    </ModalPortal>
+      </Modal>
   );
 }

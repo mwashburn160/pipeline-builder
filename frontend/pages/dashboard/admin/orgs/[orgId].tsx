@@ -27,6 +27,8 @@ import { StepUpModal } from '@/components/admin/StepUpModal';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Input } from '@/components/ui/Input';
+import { Button } from '@/components/ui/Button';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useFormState } from '@/hooks/useFormState';
 import { CopyableId } from '@/components/ui/CopyableId';
@@ -282,12 +284,7 @@ export default function OrgDetailPage() {
         </Link>
       </div>
 
-      {error && (
-        <div className="alert-error">
-          <p>{error}</p>
-          <button onClick={() => setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
-        </div>
-      )}
+      <ErrorAlert message={error} onDismiss={() => setError(null)} />
 
       {loading && !org && <LoadingSpinner />}
 
@@ -490,19 +487,19 @@ export default function OrgDetailPage() {
           <Card className="lg:col-span-2">
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Operations</h3>
             <div className="flex flex-wrap items-center gap-2">
-              <button onClick={downloadNamespaceYaml} className="btn btn-secondary inline-flex items-center gap-2 text-sm">
+              <Button variant="secondary" onClick={downloadNamespaceYaml} className="inline-flex items-center gap-2 text-sm">
                 <FileDown className="w-4 h-4" /> Download k8s namespace YAML
-              </button>
-              <button onClick={handleExport} disabled={exporting} className="btn btn-secondary inline-flex items-center gap-2 text-sm disabled:opacity-60">
+              </Button>
+              <Button variant="secondary" onClick={handleExport} disabled={exporting} className="inline-flex items-center gap-2 text-sm disabled:opacity-60">
                 <Download className="w-4 h-4" /> {exporting ? 'Exporting…' : 'Export data'}
-              </button>
+              </Button>
               <Link href={`/dashboard/audit?affectedOrgId=${org.id}`} className="btn btn-secondary text-sm">
                 View audit log
               </Link>
               <div className="flex-1" />
-              <button onClick={() => setShowDelete(true)} className="btn btn-danger inline-flex items-center gap-2 text-sm">
+              <Button variant="danger" onClick={() => setShowDelete(true)} className="inline-flex items-center gap-2 text-sm">
                 <Trash2 className="w-4 h-4" /> Delete organization
-              </button>
+              </Button>
             </div>
           </Card>
         </div>
@@ -582,12 +579,10 @@ export default function OrgDetailPage() {
               />
             </div>
             <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={seatUnlimited}
                 onChange={(e) => setSeatUnlimited(e.target.checked)}
                 disabled={seatForm.loading}
-                className="rounded border-gray-300"
               />
               Unlimited seats
             </label>

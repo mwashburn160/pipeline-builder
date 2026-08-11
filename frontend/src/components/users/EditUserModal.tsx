@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { FeatureOverridesEditor } from '@/components/admin/FeatureOverridesEditor';
@@ -85,7 +86,7 @@ export function EditUserModal({
       }
     >
       <ErrorAlert message={form.error} />
-      {form.success && <div className="alert-success"><p>{form.success}</p></div>}
+      <SuccessAlert message={form.success} />
 
       <div className="space-y-4">
         <div>

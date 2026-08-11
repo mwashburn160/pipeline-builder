@@ -2,6 +2,9 @@ import { useState, useEffect, useImperativeHandle, forwardRef, useCallback, useR
 import { GitBranch, ChevronDown, ChevronUp, Globe, Code, Package, Plug, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import { BuilderProps, Plugin, GeneratedPluginRef, asGeneratedSynth, asGeneratedStages } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Button } from '@/components/ui/Button';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { clearPluginCache } from '@/hooks/usePlugins';
 import { getProviderSourceLabel } from '@/lib/ai-constants';
@@ -309,12 +312,12 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         {/* Git URL Input */}
         <div>
           <label className="label">Git Repository URL</label>
-          <input
+          <Input
             type="text"
             value={gitUrl}
             onChange={(e) => { setGitUrl(e.target.value); setError(null); setAnalysis(null); }}
             placeholder="https://github.com/owner/repo"
-            className="input text-sm"
+            className="text-sm"
             disabled={disabled || generating}
           />
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
@@ -334,13 +337,13 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
           </button>
           {showPrivate && (
             <div className="mt-2">
-              <input
+              <Input
                 type="password"
                 autoComplete="off"
                 value={repoToken}
                 onChange={(e) => setRepoToken(e.target.value)}
                 placeholder="Personal access token for private repos"
-                className="input text-sm"
+                className="text-sm"
                 disabled={disabled || generating}
               />
             </div>
@@ -351,10 +354,9 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="label">Provider</label>
-            <select
+            <Select
               value={ai.selectedProvider}
               onChange={(e) => ai.setSelectedProvider(e.target.value)}
-              className="input"
               disabled={disabled || generating}
             >
               {ai.providers.map((p) => (
@@ -362,20 +364,19 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
                   {p.name} — {getProviderSourceLabel(p)}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           <div>
             <label className="label">Model</label>
-            <select
+            <Select
               value={ai.selectedModel}
               onChange={(e) => ai.setSelectedModel(e.target.value)}
-              className="input"
               disabled={disabled || generating}
             >
               {ai.currentModels.map((m) => (
                 <option key={m.id} value={m.id}>{m.name}</option>
               ))}
-            </select>
+            </Select>
           </div>
         </div>
 
@@ -391,7 +392,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
           </button>
           {ai.showKeyOverride && (
             <div className="mt-2">
-              <input
+              <Input
                 type="password"
                 autoComplete="off"
                 value={ai.customApiKey}
@@ -401,7 +402,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
                     ? 'Enter API key for this provider'
                     : ai.currentSource === 'org' ? 'Leave empty to use organization key' : 'Leave empty to use server key'
                 }
-                className="input text-sm"
+                className="text-sm"
                 disabled={disabled || generating}
               />
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
@@ -415,10 +416,9 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
 
         {/* Generate Button */}
         <div className="flex justify-end">
-          <button
+          <Button
             onClick={handleGenerate}
             disabled={disabled || generating || !gitUrl.trim()}
-            className="btn btn-primary"
           >
             {generating ? (
               <>
@@ -431,7 +431,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
                 Generate from URL
               </>
             )}
-          </button>
+          </Button>
         </div>
 
         {/* Streaming progress */}
@@ -517,23 +517,23 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label">Project</label>
-              <input
+              <Input
                 type="text"
                 value={projectOverride}
                 onChange={(e) => setProjectOverride(e.target.value)}
                 placeholder="Project name"
-                className="input text-sm"
+                className="text-sm"
                 disabled={disabled || generating}
               />
             </div>
             <div>
               <label className="label">Organization</label>
-              <input
+              <Input
                 type="text"
                 value={organizationOverride}
                 onChange={(e) => setOrganizationOverride(e.target.value)}
                 placeholder="Organization name"
-                className="input text-sm"
+                className="text-sm"
                 disabled={disabled || generating}
               />
             </div>

@@ -3,6 +3,8 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import api from '@/lib/api';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { Button } from '@/components/ui/Button';
 import { ALL_FEATURE_FLAGS, FEATURE_METADATA, type FeatureFlag } from '@/lib/feature-flags';
 
 /**
@@ -105,18 +107,19 @@ export function FeatureOverridesEditor({
           );
         })}
       </ul>
-      {error && <div className="alert-error mt-2 text-xs"><p>{error}</p></div>}
+      <ErrorAlert message={error} className="mt-2 text-xs" />
       <div className="mt-2 flex items-center justify-between">
         <span className="text-xs text-gray-500 dark:text-gray-400">
           {savedAt && !dirty && 'Saved.'}
         </span>
-        <button
+        <Button
+          variant="secondary"
           onClick={handleSave}
           disabled={saving || !dirty}
-          className="btn btn-secondary text-xs"
+          className="text-xs"
         >
           {saving ? 'Saving…' : 'Save overrides'}
-        </button>
+        </Button>
       </div>
     </div>
   );

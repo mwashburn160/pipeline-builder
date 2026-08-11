@@ -1,12 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useState } from 'react';
-import { X, ShieldAlert } from 'lucide-react';
+import { useCallback, useRef, useState } from 'react';
+import { ShieldAlert } from 'lucide-react';
 import api from '@/lib/api';
-import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
-import { ModalPortal } from '@/components/ui/ModalPortal';
+import { Modal } from '@/components/ui/Modal';
 
 interface Props {
   /** Short description of the action being gated, shown to the user. */
@@ -32,6 +34,7 @@ export function StepUpModal({ action, onConfirmed, onClose }: Props) {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = useCallback(async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -57,66 +60,44 @@ export function StepUpModal({ action, onConfirmed, onClose }: Props) {
   }, [password, onConfirmed, onClose]);
 
   return (
-    <ModalPortal>
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <Card className="w-full max-w-md">
-        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="h-5 w-5 text-amber-500" />
-            <h2 className="text-sm font-semibold">Confirm with password</h2>
-          </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200" aria-label="Close">
-            <X className="h-4 w-4" />
-          </button>
+    <Modal
+      title="Confirm with password"
+      titleIcon={<ShieldAlert className="h-5 w-5 text-amber-500 shrink-0" />}
+      onClose={onClose}
+      initialFocusRef={passwordRef}
+    >
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <p className="text-sm text-gray-700 dark:text-gray-300">
+          About to: <strong>{action}</strong>
+        </p>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Re-enter your password to confirm. This protects against accidental
+          destructive actions on a left-open session.
+        </p>
+
+        <Input
+          ref={passwordRef}
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
+          placeholder="Password"
+          className="w-full"
+          disabled={submitting}
+        />
+
+        <ErrorAlert message={error} />
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button type="submit" className="inline-flex items-center gap-2" disabled={submitting || !password}>
+            {submitting && <LoadingSpinner size="sm" />}
+            Confirm
+          </Button>
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-3 px-4 py-4">
-          <p className="text-sm text-gray-700 dark:text-gray-300">
-            About to: <strong>{action}</strong>
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            Re-enter your password to confirm. This protects against accidental
-            destructive actions on a left-open session.
-          </p>
-
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoFocus
-            autoComplete="current-password"
-            placeholder="Password"
-            className="filter-input w-full"
-            disabled={submitting}
-          />
-
-          {error && (
-            <div className="alert-error">
-              <p>{error}</p>
-            </div>
-          )}
-
-          <div className="flex justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="btn btn-secondary"
-              disabled={submitting}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="btn btn-primary inline-flex items-center gap-2"
-              disabled={submitting || !password}
-            >
-              {submitting && <LoadingSpinner size="sm" />}
-              Confirm
-            </button>
-          </div>
-        </form>
-      </Card>
-    </div>
-    </ModalPortal>
+      </form>
+    </Modal>
   );
 }

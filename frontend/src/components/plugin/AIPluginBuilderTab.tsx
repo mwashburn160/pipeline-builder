@@ -1,7 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { Sparkles, ChevronDown, ChevronUp, Rocket, CheckCircle, XCircle } from 'lucide-react';
+import { Sparkles, ChevronDown, ChevronUp, Rocket, XCircle } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Textarea } from '@/components/ui/Textarea';
+import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { getProviderSourceLabel } from '@/lib/ai-constants';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
@@ -178,10 +184,9 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="label">Provider</label>
-          <select
+          <Select
             value={ai.selectedProvider}
             onChange={(e) => ai.setSelectedProvider(e.target.value)}
-            className="input"
             disabled={disabled || isWorking}
           >
             {ai.providers.map((p) => (
@@ -189,20 +194,19 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
                 {p.name} — {getProviderSourceLabel(p)}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         <div>
           <label className="label">Model</label>
-          <select
+          <Select
             value={ai.selectedModel}
             onChange={(e) => ai.setSelectedModel(e.target.value)}
-            className="input"
             disabled={disabled || isWorking}
           >
             {ai.currentModels.map((m) => (
               <option key={m.id} value={m.id}>{m.name}</option>
             ))}
-          </select>
+          </Select>
         </div>
       </div>
 
@@ -218,7 +222,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
         </button>
         {ai.showKeyOverride && (
           <div className="mt-2">
-            <input
+            <Input
               type="password"
               autoComplete="off"
               value={ai.customApiKey}
@@ -228,7 +232,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
                   ? 'Enter API key for this provider'
                   : ai.currentSource === 'org' ? 'Leave empty to use organization key' : 'Leave empty to use server key'
               }
-              className="input text-sm"
+              className="text-sm"
               disabled={disabled || isWorking}
             />
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
@@ -243,12 +247,12 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
       {/* Prompt Input */}
       <div>
         <label className="label">Describe your plugin</label>
-        <textarea
+        <Textarea
           value={prompt}
           onChange={(e) => { setPrompt(e.target.value); setError(null); }}
           placeholder={'Example: "A Node.js 20 build plugin that runs npm ci and npm run build. Should support TypeScript and output to the dist directory."'}
           rows={4}
-          className="input text-sm"
+          className="text-sm"
           disabled={disabled || isWorking}
           maxLength={AI_MAX_PROMPT_LENGTH}
         />
@@ -256,10 +260,9 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
           <p className="text-xs text-gray-500 dark:text-gray-400">
             {prompt.length}/{AI_MAX_PROMPT_LENGTH} characters
           </p>
-          <button
+          <Button
             onClick={handleGenerate}
             disabled={disabled || isWorking || !prompt.trim()}
-            className="btn btn-primary"
           >
             {generating ? (
               <>
@@ -272,26 +275,15 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
                 Generate Plugin
               </>
             )}
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* Error */}
-      {(error || ai.error) && (
-        <div className="rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
-          <p className="text-sm text-red-800 dark:text-red-300">{error || ai.error}</p>
-        </div>
-      )}
+      <ErrorAlert message={error || ai.error} />
 
       {/* Success */}
-      {success && (
-        <div className="alert-success">
-          <p className="flex items-center gap-2">
-            <CheckCircle className="w-4 h-4" />
-            {success}
-          </p>
-        </div>
-      )}
+      <SuccessAlert message={success} />
 
       {/* Build failure */}
       {buildStatus === 'failed' && lastEvent && (
@@ -367,21 +359,20 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
             <div className="flex items-center justify-between">
               <FormField label="Access Level" hint={!canUploadPublic ? 'Only admins can create public plugins' : undefined}>
-                <select
+                <Select
                   value={access}
                   onChange={(e) => setAccess(e.target.value as 'public' | 'private')}
-                  className="input !w-auto"
+                  className="!w-auto"
                   disabled={isWorking || !canUploadPublic}
                 >
                   <option value="private">Private (Organization only)</option>
                   {canUploadPublic && <option value="public">Public (Available to all)</option>}
-                </select>
+                </Select>
               </FormField>
 
-              <button
+              <Button
                 onClick={handleDeploy}
                 disabled={disabled || isWorking}
-                className="btn btn-primary"
               >
                 {deploying || isBuilding ? (
                   <>
@@ -394,7 +385,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
                     Deploy Plugin
                   </>
                 )}
-              </button>
+              </Button>
             </div>
             <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
               This will build a Docker image from the generated Dockerfile and save the plugin to your organization.

@@ -1,5 +1,7 @@
 import { useRef } from 'react';
 import { FormNetworkConfig, TagEntry } from '@/types/form-types';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import StringArrayEditor from './StringArrayEditor';
 
 /** How the VPC/network is specified. */
@@ -56,30 +58,28 @@ export default function NetworkConfigEditor({
     <div className="space-y-3">
       <div>
         <label className="label">Network Type</label>
-        <select
+        <Select
           value={networkType}
           onChange={(e) => onTypeChange(e.target.value as NetworkType)}
           disabled={disabled}
-          className="input"
         >
           <option value="none">None</option>
           <option value="subnetIds">Subnet IDs</option>
           <option value="vpcId">VPC by ID</option>
           <option value="vpcLookup">VPC by Tag Lookup</option>
-        </select>
+        </Select>
       </div>
 
       {networkType === 'subnetIds' && (
         <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
           <div>
             <label className="label">VPC ID *</label>
-            <input
+            <Input
               type="text"
               value={network.vpcId}
               onChange={(e) => update({ vpcId: e.target.value })}
               placeholder="vpc-..."
               disabled={disabled}
-              className="input"
             />
           </div>
           <StringArrayEditor
@@ -105,28 +105,26 @@ export default function NetworkConfigEditor({
         <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
           <div>
             <label className="label">VPC ID *</label>
-            <input
+            <Input
               type="text"
               value={network.vpcId}
               onChange={(e) => update({ vpcId: e.target.value })}
               placeholder="vpc-..."
               disabled={disabled}
-              className="input"
             />
           </div>
           <div>
             <label className="label">Subnet Type</label>
-            <select
+            <Select
               value={network.subnetType}
               onChange={(e) => update({ subnetType: e.target.value })}
               disabled={disabled}
-              className="input"
             >
               <option value="PRIVATE_WITH_EGRESS">Private with Egress</option>
               <option value="PRIVATE_WITH_NAT">Private with NAT</option>
               <option value="PRIVATE_ISOLATED">Private Isolated</option>
               <option value="PUBLIC">Public</option>
-            </select>
+            </Select>
           </div>
           <StringArrayEditor
             label="Availability Zones"
@@ -138,12 +136,11 @@ export default function NetworkConfigEditor({
           />
           <div>
             <label className="label">Subnet Group Name</label>
-            <input
+            <Input
               type="text"
               value={network.subnetGroupName}
               onChange={(e) => update({ subnetGroupName: e.target.value })}
               disabled={disabled}
-              className="input"
             />
           </div>
           <StringArrayEditor
@@ -202,38 +199,35 @@ export default function NetworkConfigEditor({
           </div>
           <div>
             <label className="label">VPC Name</label>
-            <input
+            <Input
               type="text"
               value={network.vpcName}
               onChange={(e) => update({ vpcName: e.target.value })}
               disabled={disabled}
-              className="input"
             />
           </div>
           <div>
             <label className="label">Region</label>
-            <input
+            <Input
               type="text"
               value={network.region}
               onChange={(e) => update({ region: e.target.value })}
               placeholder="us-east-1"
               disabled={disabled}
-              className="input"
             />
           </div>
           <div>
             <label className="label">Subnet Type</label>
-            <select
+            <Select
               value={network.subnetType}
               onChange={(e) => update({ subnetType: e.target.value })}
               disabled={disabled}
-              className="input"
             >
               <option value="PRIVATE_WITH_EGRESS">Private with Egress</option>
               <option value="PRIVATE_WITH_NAT">Private with NAT</option>
               <option value="PRIVATE_ISOLATED">Private Isolated</option>
               <option value="PUBLIC">Public</option>
-            </select>
+            </Select>
           </div>
           <StringArrayEditor
             label="Availability Zones"
@@ -245,12 +239,11 @@ export default function NetworkConfigEditor({
           />
           <div>
             <label className="label">Subnet Group Name</label>
-            <input
+            <Input
               type="text"
               value={network.subnetGroupName}
               onChange={(e) => update({ subnetGroupName: e.target.value })}
               disabled={disabled}
-              className="input"
             />
           </div>
           <StringArrayEditor

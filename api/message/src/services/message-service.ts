@@ -307,6 +307,41 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
     // invalidated both participants via CrudService.delete's hook).
     await this.invalidateMessageCaches(orgId);
   }
+
+  /**
+   * Sysadmin moderation: soft-delete ANY message by id, regardless of which org
+   * authored it. Mirrors `deleteThread(allOrgs=true)`: the base `delete` pins the
+   * mutation to the caller's org, so a message a member org sent to the system org
+   * was un-deletable by a sysadmin (404) even though the reply-cascade already
+   * sweeps cross-org. This lets a sysadmin remove any conversation root/reply.
+   *
+   * Returns the row so the caller can cascade + audit; the `isActive = true` guard
+   * makes a re-delete return null (→ 404), matching `CrudService.delete`. The route
+   * restricts this to sysadmins.
+   */
+  async deleteAsSysadmin(id: string, userId: string): Promise<Message | null> {
+    const [deleted] = await withTenantTx(async (tx) => tx
+      .update(schema.message)
+      .set({
+        isActive: false,
+        updatedAt: new Date(),
+        updatedBy: userId || 'system',
+        deletedAt: new Date(),
+        deletedBy: userId || 'system',
+      })
+      .where(and(
+        eq(schema.message.id, id),
+        eq(schema.message.isActive, true),
+      ))
+      .returning());
+    if (deleted) {
+      // Reuse the delete hook so BOTH participants' cached inbox/conversation
+      // views are invalidated (the actual message's sender + recipient orgs, not
+      // the sysadmin's own org). Best-effort — a cache miss must not fail the delete.
+      try { await this.onAfterDelete(id, deleted); } catch { /* best-effort cache invalidation */ }
+    }
+    return deleted ?? null;
+  }
 }
 
 export const messageService = new MessageService();

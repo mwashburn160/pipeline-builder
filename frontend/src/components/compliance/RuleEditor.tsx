@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, FlaskConical, CheckCircle, AlertTriangle, XCircle, BarChart3, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleCondition, RuleTarget, RuleSeverity, RuleOperator, RuleConditionMode, RuleScope, ComplianceCheckResult } from '@/types/compliance';
 
@@ -316,13 +317,13 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           </div>
           <div className="flex items-end pb-2">
             <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input type="checkbox" checked={form.suppressNotification} onChange={e => set('suppressNotification', e.target.checked)} className="rounded border-gray-300" />
+              <Checkbox checked={form.suppressNotification} onChange={e => set('suppressNotification', e.target.checked)} />
               Suppress Notification
             </label>
           </div>
           <div className="flex items-end pb-2">
             <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Also enforce this rule on team organizations nested under this org">
-              <input type="checkbox" checked={form.propagateToChildren} onChange={e => set('propagateToChildren', e.target.checked)} className="rounded border-gray-300" />
+              <Checkbox checked={form.propagateToChildren} onChange={e => set('propagateToChildren', e.target.checked)} />
               Apply to child teams
             </label>
           </div>

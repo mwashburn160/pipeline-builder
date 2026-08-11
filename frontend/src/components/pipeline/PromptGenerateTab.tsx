@@ -2,6 +2,10 @@ import { useState, useImperativeHandle, forwardRef, useCallback, useEffect, useR
 import { Sparkles, ChevronDown, ChevronUp, Plug } from 'lucide-react';
 import { BuilderProps, Plugin, GeneratedPluginRef, asGeneratedSynth, asGeneratedStages } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Textarea } from '@/components/ui/Textarea';
+import { Button } from '@/components/ui/Button';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { getProviderSourceLabel } from '@/lib/ai-constants';
 import PluginNameCombobox from '@/components/pipeline/editors/PluginNameCombobox';
@@ -242,10 +246,9 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="label">Provider</label>
-            <select
+            <Select
               value={ai.selectedProvider}
               onChange={(e) => ai.setSelectedProvider(e.target.value)}
-              className="input"
               disabled={disabled || generating}
             >
               {ai.providers.map((p) => (
@@ -253,20 +256,19 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
                   {p.name} — {getProviderSourceLabel(p)}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           <div>
             <label className="label">Model</label>
-            <select
+            <Select
               value={ai.selectedModel}
               onChange={(e) => ai.setSelectedModel(e.target.value)}
-              className="input"
               disabled={disabled || generating}
             >
               {ai.currentModels.map((m) => (
                 <option key={m.id} value={m.id}>{m.name}</option>
               ))}
-            </select>
+            </Select>
           </div>
         </div>
 
@@ -282,7 +284,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
           </button>
           {ai.showKeyOverride && (
             <div className="mt-2">
-              <input
+              <Input
                 type="password"
                 autoComplete="off"
                 value={ai.customApiKey}
@@ -292,7 +294,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
                     ? 'Enter API key for this provider'
                     : ai.currentSource === 'org' ? 'Leave empty to use organization key' : 'Leave empty to use server key'
                 }
-                className="input text-sm"
+                className="text-sm"
                 disabled={disabled || generating}
               />
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
@@ -307,12 +309,12 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
         {/* Prompt Input */}
         <div>
           <label className="label">Describe your pipeline</label>
-          <textarea
+          <Textarea
             value={prompt}
             onChange={(e) => { setPrompt(e.target.value); setError(null); }}
             placeholder={'Example: "A CI/CD pipeline for a Node.js API: install deps, run unit tests, build a Docker image, then deploy to staging on the main branch."'}
             rows={4}
-            className="input text-sm"
+            className="text-sm"
             disabled={disabled || generating}
             maxLength={AI_MAX_PROMPT_LENGTH}
           />
@@ -320,10 +322,9 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {prompt.length}/{AI_MAX_PROMPT_LENGTH} characters
             </p>
-            <button
+            <Button
               onClick={handleGenerate}
               disabled={disabled || generating || !prompt.trim()}
-              className="btn btn-primary"
             >
               {generating ? (
                 <>
@@ -336,7 +337,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
                   Generate from prompt
                 </>
               )}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -369,23 +370,23 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label">Project</label>
-              <input
+              <Input
                 type="text"
                 value={projectOverride}
                 onChange={(e) => setProjectOverride(e.target.value)}
                 placeholder="Project name"
-                className="input text-sm"
+                className="text-sm"
                 disabled={disabled || generating}
               />
             </div>
             <div>
               <label className="label">Organization</label>
-              <input
+              <Input
                 type="text"
                 value={organizationOverride}
                 onChange={(e) => setOrganizationOverride(e.target.value)}
                 placeholder="Organization name"
-                className="input text-sm"
+                className="text-sm"
                 disabled={disabled || generating}
               />
             </div>

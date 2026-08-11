@@ -48,7 +48,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
   router.get('/providers', requireFeature('ai_generation'), withRoute(async ({ res }) => {
     const providers = getAvailableProviders();
     return sendSuccess(res, 200, { providers });
-  }, { requireOrgId: false }));
+  }));
 
   // -- POST /generate  generate plugin config from natural language ----------
   router.post('/generate', requireFeature('ai_generation'), withRoute(async ({ req, res, ctx, orgId }) => {

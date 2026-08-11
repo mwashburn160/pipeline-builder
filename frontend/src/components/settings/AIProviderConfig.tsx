@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { type AIProviderStatus } from '@/types';
 import { AI_PROVIDER_NAMES } from '@/lib/ai-constants';
 import { formatError } from '@/lib/constants';
@@ -123,8 +128,8 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
         Configure API keys for AI-powered pipeline generation. Keys are stored at the organization level.
       </p>
 
-      {error && <div className="alert-error mb-4"><p>{error}</p></div>}
-      {success && <div className="alert-success mb-4"><p>{success}</p></div>}
+      <ErrorAlert message={error} className="mb-4" />
+      <SuccessAlert message={success} className="mb-4" />
 
       {/* Configured providers */}
       {configuredIds.length > 0 && (
@@ -152,45 +157,44 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
                   </div>
                   {canEdit && isEditing ? (
                     <div className="flex items-center gap-2">
-                      <input
+                      <Input
                         type="password"
                         autoComplete="off"
                         value={editApiKey}
                         onChange={(e) => setEditApiKey(e.target.value)}
                         placeholder="Enter new API key"
-                        className="input text-sm flex-1"
+                        className="text-sm flex-1"
                         disabled={isItemLoading}
                       />
-                      <button
+                      <Button
                         onClick={() => handleUpdate(id)}
                         disabled={isItemLoading || !editApiKey.trim()}
-                        className="btn btn-primary"
                       >
                         {isItemLoading ? <LoadingSpinner size="sm" /> : 'Save'}
-                      </button>
-                      <button
+                      </Button>
+                      <Button
+                        variant="secondary"
                         onClick={() => { setEditingProvider(null); setEditApiKey(''); }}
                         disabled={isItemLoading}
-                        className="btn btn-secondary"
                       >
                         Cancel
-                      </button>
+                      </Button>
                     </div>
                   ) : canEdit ? (
                     <div className="flex items-center gap-2">
-                      <button
+                      <Button
+                        variant="secondary"
                         onClick={() => { setEditingProvider(id); setEditApiKey(''); }}
-                        className="btn btn-secondary"
                       >
                         Update
-                      </button>
-                      <button
+                      </Button>
+                      <Button
+                        variant="danger"
                         onClick={() => handleRemove(id)}
                         disabled={isItemLoading}
-                        className="btn btn-danger"
                       >
                         {isItemLoading ? <LoadingSpinner size="sm" /> : 'Remove'}
-                      </button>
+                      </Button>
                     </div>
                   ) : (
                     <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -215,39 +219,38 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
           <div className="flex items-end gap-3">
             <div className="flex-shrink-0">
               <label htmlFor="ai-provider-select" className="label text-xs">Provider</label>
-              <select
+              <Select
                 id="ai-provider-select"
                 value={selectedProvider}
                 onChange={(e) => setSelectedProvider(e.target.value)}
-                className="input text-sm"
+                className="text-sm"
                 disabled={addLoading}
               >
                 <option value="">Select provider...</option>
                 {availableProviders.map(([id, name]) => (
                   <option key={id} value={id}>{name}</option>
                 ))}
-              </select>
+              </Select>
             </div>
             <div className="flex-1">
               <label htmlFor="ai-api-key" className="label text-xs">API Key</label>
-              <input
+              <Input
                 id="ai-api-key"
                 type="password"
                 autoComplete="off"
                 value={newApiKey}
                 onChange={(e) => setNewApiKey(e.target.value)}
                 placeholder="Enter API key"
-                className="input text-sm"
+                className="text-sm"
                 disabled={addLoading || !selectedProvider}
               />
             </div>
-            <button
+            <Button
               onClick={handleAdd}
               disabled={addLoading || !selectedProvider || !newApiKey.trim()}
-              className="btn btn-primary"
             >
               {addLoading ? <LoadingSpinner size="sm" /> : 'Add'}
-            </button>
+            </Button>
           </div>
         </div>
       )}

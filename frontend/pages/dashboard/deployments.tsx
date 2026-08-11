@@ -11,6 +11,8 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { IconButton } from '@/components/ui/IconButton';
 import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -380,10 +382,9 @@ function RegisterDeploymentModal({
       <div className="space-y-4 text-sm">
         <div>
           <label className="label">Pipeline</label>
-          <select
+          <Select
             value={pipelineId}
             onChange={(e) => { setPipelineId(e.target.value); setErr(null); }}
-            className="input"
             disabled={submitting}
           >
             <option value="">Select a pipeline…</option>
@@ -392,7 +393,7 @@ function RegisterDeploymentModal({
                 {c.pipelineName || c.id}{c.project ? ` — ${c.project}` : ''}
               </option>
             ))}
-          </select>
+          </Select>
           {configs.length === 0 && (
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               No pipeline configurations found. Create a pipeline first.
@@ -402,23 +403,23 @@ function RegisterDeploymentModal({
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="label">Region <span className="text-gray-400">(optional)</span></label>
-            <input
+            <Input
               type="text"
               value={region}
               onChange={(e) => setRegion(e.target.value)}
               placeholder="us-east-1"
-              className="input text-sm"
+              className="text-sm"
               disabled={submitting}
             />
           </div>
           <div>
             <label className="label">Stack name <span className="text-gray-400">(optional)</span></label>
-            <input
+            <Input
               type="text"
               value={stackName}
               onChange={(e) => setStackName(e.target.value)}
               placeholder="my-pipeline-stack"
-              className="input text-sm"
+              className="text-sm"
               disabled={submitting}
             />
           </div>

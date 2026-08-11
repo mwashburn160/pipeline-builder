@@ -1064,6 +1064,7 @@ export class ReportingService {
     orgIds?: string[],
     opts: DoraOptions = {},
   ): Promise<DoraTrendPoint[]> {
+    assertReportInterval(interval);
     const { pred, multi } = this.orgScope(orgId, orgIds);
     const { pipelineId, environment, deploysOnly } = opts;
     const { pipelineClause, deployClause } = doraScopeClauses(opts);
@@ -1152,7 +1153,12 @@ export class ReportingService {
         SELECT
           ${schema.plugin.name},
           COUNT(*)::int AS version_count,
-          MAX(${schema.plugin.version}) AS latest_version,
+          -- Highest version by NUMERIC semver core (not lexical: '10.0.0' > '9.0.0').
+          -- Strip any -prerelease/+build suffix before the int[] cast so it can't
+          -- error on valid semver; keep the original string for display.
+          (array_agg(${schema.plugin.version}
+             ORDER BY string_to_array(regexp_replace(${schema.plugin.version}, '[-+].*$', ''), '.')::int[] DESC
+          ))[1] AS latest_version,
           bool_or(${schema.plugin.isDefault}) AS has_default
         FROM ${schema.plugin}
         WHERE ${schema.plugin.orgId} = ${orgId} AND ${schema.plugin.isActive} = true
