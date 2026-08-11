@@ -15,6 +15,9 @@ const VARIANT_CLASS: Record<ButtonVariant, string> = {
   'danger-outline': 'btn-danger-outline',
   outline: 'btn-outline',
   indigo: 'btn-indigo',
+  purple: 'btn-purple',
+  orange: 'btn-orange',
+  link: 'btn-link',
 };
 
 const SIZE_CLASS: Record<ButtonSize, string> = {

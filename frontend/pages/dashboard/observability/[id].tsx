@@ -258,12 +258,13 @@ export default function DashboardPage() {
           {urlFilters.event && <span className="font-mono text-blue-700 dark:text-blue-300">event={urlFilters.event}</span>}
           {urlFilters.actor && <span className="font-mono text-blue-700 dark:text-blue-300">actor={urlFilters.actor}</span>}
           {urlFilters.digest && <span className="font-mono text-blue-700 dark:text-blue-300 break-all">digest={urlFilters.digest.slice(0, 19)}…</span>}
-          <button
+          <Button
+            variant="link"
             onClick={() => void router.replace({ pathname: router.pathname, query: { id: router.query.id, range } }, undefined, { shallow: true })}
-            className="ml-auto text-blue-700 dark:text-blue-300 underline hover:no-underline"
+            className="ml-auto text-blue-700 dark:text-blue-300"
           >
             Clear
-          </button>
+          </Button>
         </div>
       )}
       {dashboard.panels.length === 0 ? (

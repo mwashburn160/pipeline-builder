@@ -12,6 +12,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
@@ -142,20 +143,19 @@ export default function AlertRulesPage() {
               </div>
               {canWrite && (
                 <>
-                  <button
+                  <IconButton
                     onClick={() => setEditing(r)}
                     aria-label="Edit rule"
-                    className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                   >
                     <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
+                  </IconButton>
+                  <IconButton
                     onClick={() => setDeleting(r)}
+                    tone="danger"
                     aria-label="Delete rule"
-                    className="p-1 text-red-500 hover:text-red-700"
                   >
                     <Trash2 className="w-4 h-4" />
-                  </button>
+                  </IconButton>
                 </>
               )}
             </div>

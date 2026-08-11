@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { Input } from '@/components/ui/Input';
+import { Button } from '@/components/ui/Button';
 
 /** Props for {@link StringArrayEditor}. */
 interface StringArrayEditorProps {
@@ -61,25 +62,25 @@ export default function StringArrayEditor({
               disabled={disabled}
               className="flex-1"
             />
-            <button
-              type="button"
+            <Button
+              variant="link"
               onClick={() => handleRemove(idx)}
               disabled={disabled}
-              className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-sm px-2 py-1 transition-colors"
+              className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-sm"
             >
               Remove
-            </button>
+            </Button>
           </div>
         ))}
       </div>
-      <button
-        type="button"
+      <Button
+        variant="link"
         onClick={handleAdd}
         disabled={disabled}
-        className="mt-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+        className="mt-2 text-sm"
       >
         {addLabel}
-      </button>
+      </Button>
     </div>
   );
 }

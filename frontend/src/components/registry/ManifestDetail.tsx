@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { Disclosure } from '@/components/ui/Disclosure';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -85,13 +86,13 @@ export function ManifestDetail({
             <span key={i}>
               {i > 0 && <span className="text-gray-400 mx-1">→</span>}
               {seg.onClick ? (
-                <button
+                <Button
+                  variant="link"
                   onClick={seg.onClick}
-                  className="text-blue-600 dark:text-blue-400 hover:underline"
                   title="Back to this level"
                 >
                   {seg.label}
-                </button>
+                </Button>
               ) : (
                 <span>{seg.label}</span>
               )}

@@ -222,11 +222,12 @@ export function CopyTagModal({
             <div className="text-xs font-mono break-all">existing: {conflict.existing}</div>
             <div className="text-xs font-mono break-all">requested: {conflict.requested}</div>
             <Button
+              variant="orange"
               size="sm"
               onClick={() => submit(true)}
               disabled={submitting || !promotionGatePassed}
               title={isPromotion && !promotionGatePassed ? `Type ${PROMOTE_CONFIRM_PHRASE} above to enable` : undefined}
-              className="mt-2 bg-orange-600 hover:bg-orange-700 text-white"
+              className="mt-2"
             >
               Overwrite (replace existing tag)
             </Button>
@@ -242,12 +243,9 @@ export function CopyTagModal({
           <LinkIcon className="w-3.5 h-3.5 flex-shrink-0" />
           <span className="flex-1">Need someone else to do this? Copy a share link.</span>
           <CopyButton text={shareLink} />
-          <button
-            onClick={copyShareLink}
-            className="underline hover:no-underline"
-          >
+          <Button variant="link" onClick={copyShareLink}>
             Copy share link
-          </button>
+          </Button>
         </div>
 
         <div className="flex justify-end gap-2 pt-2">

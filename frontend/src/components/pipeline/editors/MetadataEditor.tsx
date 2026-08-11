@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { MetadataEntry } from '@/types/form-types';
+import { Button } from '@/components/ui/Button';
 import { useCombobox } from '@/hooks/useCombobox';
 import { useTemplateValidation } from '@/hooks/useTemplateValidation';
 import { METADATA_KEY_GROUPS, type MetadataKeyOption } from '@/lib/metadata-keys';
@@ -224,25 +225,25 @@ export default function MetadataEditor({ value, onChange, disabled, label }: Met
                 onChange={(v) => handleChange(idx, 'value', v)}
               />
             )}
-            <button
-              type="button"
+            <Button
+              variant="link"
               onClick={() => handleRemove(idx)}
               disabled={disabled}
-              className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-sm px-2 py-1 transition-colors"
+              className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-sm"
             >
               Remove
-            </button>
+            </Button>
           </div>
         ))}
       </div>
-      <button
-        type="button"
+      <Button
+        variant="link"
         onClick={handleAdd}
         disabled={disabled}
-        className="mt-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+        className="mt-2 text-sm"
       >
         + Add Entry
-      </button>
+      </Button>
     </div>
   );
 }

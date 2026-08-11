@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/components/ui/Toast';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
@@ -164,12 +165,12 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
   if (!scan) {
     return (
       <div className="space-y-4">
-        <button onClick={onBack} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" aria-label="Go back">
+        <IconButton tone="default" onClick={onBack} aria-label="Go back">
           <ArrowLeft className="h-5 w-5" />
-        </button>
+        </IconButton>
         <div className="text-center py-8 text-gray-500 dark:text-gray-400">
           {scanError ?? 'Scan not found.'}
-          {scanError && <button onClick={fetchScan} className="ml-2 underline hover:no-underline text-red-600 dark:text-red-400">Retry</button>}
+          {scanError && <Button variant="link" onClick={fetchScan} className="ml-2 text-red-600 dark:text-red-400">Retry</Button>}
         </div>
       </div>
     );
@@ -182,9 +183,9 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <button onClick={onBack} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" aria-label="Go back">
+        <IconButton tone="default" onClick={onBack} aria-label="Go back">
           <ArrowLeft className="h-5 w-5" />
-        </button>
+        </IconButton>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Scan Details</h2>
         {scan.status === 'running' && (
           <Button

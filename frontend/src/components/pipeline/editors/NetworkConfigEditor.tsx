@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { FormNetworkConfig, TagEntry } from '@/types/form-types';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { Button } from '@/components/ui/Button';
 import StringArrayEditor from './StringArrayEditor';
 
 /** How the VPC/network is specified. */
@@ -177,25 +178,25 @@ export default function NetworkConfigEditor({
                     disabled={disabled}
                     className="flex-1"
                   />
-                  <button
-                    type="button"
+                  <Button
+                    variant="link"
                     onClick={() => removeTag(idx)}
                     disabled={disabled}
-                    className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-sm px-2 py-1 transition-colors"
+                    className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-sm"
                   >
                     Remove
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>
-            <button
-              type="button"
+            <Button
+              variant="link"
               onClick={addTag}
               disabled={disabled}
-              className="mt-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+              className="mt-2 text-sm"
             >
               + Add Tag
-            </button>
+            </Button>
           </div>
           <div>
             <label className="label">VPC Name</label>

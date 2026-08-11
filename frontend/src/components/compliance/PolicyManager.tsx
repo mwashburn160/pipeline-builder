@@ -5,6 +5,7 @@ import { FileText, Plus, Pencil, Trash2, ToggleLeft, ToggleRight } from 'lucide-
 import { StatusPill } from '@/components/ui/StatusPill';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
@@ -94,13 +95,14 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
           </h2>
         </div>
         {!readOnly && (
-          <button
+          <Button
+            variant="purple"
             onClick={() => { setShowForm(true); setEditingId(null); setForm({ name: '', description: '', version: '1.0.0' }); }}
-            className="flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-2 text-sm font-medium text-white hover:bg-purple-700 transition-colors"
+            className="gap-1.5"
           >
             <Plus className="h-4 w-4" />
             New Policy
-          </button>
+          </Button>
         )}
       </div>
 
@@ -125,9 +127,9 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
             rows={2}
           />
           <div className="flex gap-2">
-            <button onClick={handleSubmit} className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+            <Button variant="purple" size="sm" onClick={handleSubmit}>
               {editingId ? 'Update' : 'Create'} Policy
-            </button>
+            </Button>
             <Button variant="secondary" size="sm" onClick={handleCancel}>
               Cancel
             </Button>
@@ -176,28 +178,28 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
                   <td className="px-4 py-3 text-right">
                     {!readOnly && (
                       <div className="flex items-center justify-end gap-1">
-                        <button
+                        <IconButton
+                          restTone={policy.isActive ? 'success' : 'default'}
                           onClick={() => updatePolicy(policy.id, { isActive: !policy.isActive })}
-                          className={`p-1.5 rounded-lg transition-colors ${policy.isActive ? 'text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20' : 'text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                           title={policy.isActive ? 'Deactivate' : 'Activate'}
                           aria-label={policy.isActive ? 'Deactivate policy' : 'Activate policy'}
                         >
                           {policy.isActive ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
-                        </button>
-                        <button
+                        </IconButton>
+                        <IconButton
+                          tone="primary"
                           onClick={() => handleEdit(policy)}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
                           aria-label="Edit policy"
                         >
                           <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
+                        </IconButton>
+                        <IconButton
+                          tone="danger"
                           onClick={() => deletePolicy(policy.id)}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                           aria-label="Delete policy"
                         >
                           <Trash2 className="h-4 w-4" />
-                        </button>
+                        </IconButton>
                       </div>
                     )}
                   </td>

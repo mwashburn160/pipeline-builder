@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAsyncCallback } from '@/hooks/useAsync';
 import { ArrowLeft, Send, Megaphone, MessageCircle, AlertTriangle, AlertOctagon, Trash2 } from 'lucide-react';
 import { Textarea } from '@/components/ui/Textarea';
+import { IconButton } from '@/components/ui/IconButton';
 import api from '@/lib/api';
 import type { Message } from '@/types';
 
@@ -103,13 +104,13 @@ export function ThreadView({ rootMessage, currentOrgId, onBack, onThreadRead, on
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-        <button
+        <IconButton
           onClick={onBack}
           aria-label="Back"
-          className="lg:hidden p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          className="lg:hidden"
         >
           <ArrowLeft className="w-5 h-5 text-gray-500" />
-        </button>
+        </IconButton>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             {rootMessage.messageType === 'announcement' ? (
@@ -131,14 +132,15 @@ export function ThreadView({ rootMessage, currentOrgId, onBack, onThreadRead, on
           </p>
         </div>
         {onDelete && (
-          <button
+          <IconButton
             onClick={() => { onDelete(rootMessage.id); onBack(); }}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex-shrink-0"
+            tone="danger"
+            className="flex-shrink-0"
             title="Delete conversation"
             aria-label="Delete conversation"
           >
             <Trash2 className="w-4 h-4" />
-          </button>
+          </IconButton>
         )}
       </div>
 

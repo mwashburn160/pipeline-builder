@@ -9,6 +9,7 @@ import { SEVERITY_CONFIG } from '@/lib/compliance-styles';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
 import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
@@ -209,29 +210,29 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         {onEdit && (
-                          <button
+                          <IconButton
+                            restTone={rule.isActive ? 'success' : 'default'}
                             onClick={() => updateRule(rule.id, { isActive: !rule.isActive })}
-                            className={`p-1.5 rounded-lg transition-colors ${rule.isActive ? 'text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20' : 'text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                             title={rule.isActive ? 'Deactivate' : 'Activate'}
                             aria-label={rule.isActive ? 'Deactivate rule' : 'Activate rule'}
                           >
                             {rule.isActive ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
-                          </button>
+                          </IconButton>
                         )}
                         {onViewHistory && (
-                          <button onClick={() => onViewHistory(rule)} className="p-1.5 rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors" title="View history" aria-label="View history">
+                          <IconButton tone="indigo" onClick={() => onViewHistory(rule)} title="View history" aria-label="View history">
                             <History className="h-4 w-4" />
-                          </button>
+                          </IconButton>
                         )}
                         {onEdit && (
-                          <button onClick={() => onEdit(rule)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors" title="Edit" aria-label="Edit rule">
+                          <IconButton tone="primary" onClick={() => onEdit(rule)} title="Edit" aria-label="Edit rule">
                             <Pencil className="h-4 w-4" />
-                          </button>
+                          </IconButton>
                         )}
                         {onEdit && (
-                          <button onClick={() => deleteRule(rule.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" title="Delete" aria-label="Delete rule">
+                          <IconButton tone="danger" onClick={() => deleteRule(rule.id)} title="Delete" aria-label="Delete rule">
                             <Trash2 className="h-4 w-4" />
-                          </button>
+                          </IconButton>
                         )}
                       </div>
                     </td>

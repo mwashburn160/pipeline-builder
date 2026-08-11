@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Scan, Play, Square, Loader2, Eye } from 'lucide-react';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
 import { Pagination } from '@/components/ui/Pagination';
@@ -164,14 +165,14 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
                           {onViewScan && (
-                            <button onClick={() => onViewScan(scan.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20" title="View details" aria-label="View scan details">
+                            <IconButton tone="primary" onClick={() => onViewScan(scan.id)} title="View details" aria-label="View scan details">
                               <Eye className="h-4 w-4" />
-                            </button>
+                            </IconButton>
                           )}
                           {!readOnly && scan.status === 'running' && (
-                            <button onClick={() => handleCancel(scan.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20" title="Cancel scan" aria-label="Cancel scan">
+                            <IconButton tone="danger" onClick={() => handleCancel(scan.id)} title="Cancel scan" aria-label="Cancel scan">
                               <Square className="h-4 w-4" />
-                            </button>
+                            </IconButton>
                           )}
                         </div>
                       </td>

@@ -7,6 +7,7 @@ import { Pagination } from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toast';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
@@ -292,22 +293,17 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
                     <div className="flex items-center gap-1">
                       {ex.status === 'pending' && (
                         <>
-                          <button onClick={() => handleApprove(ex.id)} className="p-1.5 rounded-lg text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20" title="Approve" aria-label="Approve">
+                          <IconButton restTone="success" onClick={() => handleApprove(ex.id)} title="Approve" aria-label="Approve">
                             <Check className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => openReject(ex.id)}
-                            className="p-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                            title="Reject"
-                            aria-label="Reject"
-                          >
+                          </IconButton>
+                          <IconButton restTone="danger" onClick={() => openReject(ex.id)} title="Reject" aria-label="Reject">
                             <X className="h-4 w-4" />
-                          </button>
+                          </IconButton>
                         </>
                       )}
-                      <button onClick={() => handleDelete(ex.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20" title="Delete" aria-label="Delete">
+                      <IconButton tone="danger" onClick={() => handleDelete(ex.id)} title="Delete" aria-label="Delete">
                         <Trash2 className="h-4 w-4" />
-                      </button>
+                      </IconButton>
                     </div>
                   )}
                 </div>

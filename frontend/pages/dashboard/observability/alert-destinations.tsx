@@ -16,6 +16,7 @@ import { Card } from '@/components/ui/Card';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { FilterInput } from '@/components/ui/FilterInput';
@@ -262,20 +263,19 @@ export default function AlertDestinationsPage() {
                     >
                       <Send className="w-3.5 h-3.5" /> {testingId === d.id ? 'Sending…' : 'Send test'}
                     </Button>
-                    <button
+                    <IconButton
                       onClick={() => setEditing(d)}
                       aria-label="Edit destination"
-                      className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                     >
                       <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
+                    </IconButton>
+                    <IconButton
                       onClick={() => void onDelete(d)}
+                      tone="danger"
                       aria-label="Delete destination"
-                      className="p-1 text-red-500 hover:text-red-700"
                     >
                       <Trash2 className="w-4 h-4" />
-                    </button>
+                    </IconButton>
                   </>
                 )}
               </div>

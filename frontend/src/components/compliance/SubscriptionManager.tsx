@@ -7,6 +7,7 @@ import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
 import type { PublishedRuleCatalogEntry, ComplianceRule, ComplianceRuleSubscription, ComplianceCheckResult, RuleTarget, RuleSeverity } from '@/types/compliance';
@@ -281,34 +282,36 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                       )}
                     </div>
                     <div className="flex items-center gap-1">
-                      <button onClick={() => handlePreview(sub.ruleId)} className={`p-1.5 rounded-lg transition-colors ${previewId === sub.ruleId ? 'text-indigo-600 bg-indigo-50 dark:bg-indigo-900/20' : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'}`} title="Preview impact" aria-label="Preview impact">
+                      {/* Preview is a stateful toggle: indigo at rest while its panel is open, else muted+hover-indigo. */}
+                      <IconButton restTone={previewId === sub.ruleId ? 'indigo' : undefined} tone="indigo" onClick={() => handlePreview(sub.ruleId)} title="Preview impact" aria-label="Preview impact">
                         <Eye className="h-4 w-4" />
-                      </button>
+                      </IconButton>
                       {!readOnly && (
                         <>
-                          <button
+                          <IconButton
+                            restTone={sub.isActive ? 'success' : 'default'}
                             onClick={() => handleToggle(sub.ruleId, !sub.isActive)}
-                            className={`p-1.5 rounded-lg transition-colors ${sub.isActive ? 'text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20' : 'text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                             title={sub.isActive ? 'Deactivate' : 'Activate'}
                             aria-label={sub.isActive ? 'Deactivate' : 'Activate'}
                           >
                             {sub.isActive ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
-                          </button>
-                          <button onClick={() => handleClone(sub.ruleId)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors" title="Clone as an org-owned rule (one-shot copy, no upstream sync)" aria-label="Clone to org rule">
+                          </IconButton>
+                          <IconButton tone="primary" onClick={() => handleClone(sub.ruleId)} title="Clone as an org-owned rule (one-shot copy, no upstream sync)" aria-label="Clone to org rule">
                             <Copy className="h-4 w-4" />
-                          </button>
+                          </IconButton>
                           {sub.pinnedVersion ? (
-                            <button onClick={() => handleUnpin(sub.ruleId)} className="p-1.5 rounded-lg text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors" title="Unpin version" aria-label="Unpin version">
+                            // Pinned: purple at rest (matches the "pinned" badge language).
+                            <IconButton restTone="purple" onClick={() => handleUnpin(sub.ruleId)} title="Unpin version" aria-label="Unpin version">
                               <PinOff className="h-4 w-4" />
-                            </button>
+                            </IconButton>
                           ) : (
-                            <button onClick={() => handlePin(sub.ruleId)} className="p-1.5 rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors" title="Pin to current version" aria-label="Pin to current version">
+                            <IconButton tone="purple" onClick={() => handlePin(sub.ruleId)} title="Pin to current version" aria-label="Pin to current version">
                               <Pin className="h-4 w-4" />
-                            </button>
+                            </IconButton>
                           )}
-                          <button onClick={() => handleUnsubscribe(sub.ruleId)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" title="Unsubscribe" aria-label="Unsubscribe">
+                          <IconButton tone="danger" onClick={() => handleUnsubscribe(sub.ruleId)} title="Unsubscribe" aria-label="Unsubscribe">
                             <span className="text-xs font-medium">&times;</span>
-                          </button>
+                          </IconButton>
                         </>
                       )}
                     </div>

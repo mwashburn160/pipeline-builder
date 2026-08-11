@@ -5,7 +5,7 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 import { buttonClasses } from './buttonClasses';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'success' | 'ghost' | 'danger-outline' | 'outline' | 'indigo';
+export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'success' | 'ghost' | 'danger-outline' | 'outline' | 'indigo' | 'purple' | 'orange' | 'link';
 export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

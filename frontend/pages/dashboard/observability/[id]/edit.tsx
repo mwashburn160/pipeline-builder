@@ -13,6 +13,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
 import { LinkButton } from '@/components/ui/LinkButton';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -361,13 +362,13 @@ export default function DashboardEditPage() {
                         onChange={(e) => setPanels(prev => prev.map((q, j) => j === i ? { ...q, title: e.target.value } : q))}
                         className="flex-1 px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800"
                       />
-                      <button
+                      <IconButton
                         onClick={() => removePanel(i)}
+                        tone="danger"
                         aria-label="Remove panel"
-                        className="text-red-500 hover:text-red-700"
                       >
                         <X className="w-4 h-4" />
-                      </button>
+                      </IconButton>
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate">
                       {panels[i].queryKey} · {panels[i].vizKind}
@@ -391,22 +392,22 @@ export default function DashboardEditPage() {
               {panels.map((p, i) => (
                 <li key={i} className="px-4 py-3 flex items-center gap-3">
                   <div className="flex flex-col gap-0.5">
-                    <button
+                    <IconButton
                       onClick={() => movePanel(i, -1)}
                       disabled={i === 0}
                       aria-label="Move up"
-                      className="p-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                      className="disabled:opacity-30"
                     >
                       <ArrowUp className="w-3.5 h-3.5" />
-                    </button>
-                    <button
+                    </IconButton>
+                    <IconButton
                       onClick={() => movePanel(i, 1)}
                       disabled={i === panels.length - 1}
                       aria-label="Move down"
-                      className="p-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                      className="disabled:opacity-30"
                     >
                       <ArrowDown className="w-3.5 h-3.5" />
-                    </button>
+                    </IconButton>
                   </div>
                   <div className="flex-1 min-w-0">
                     <input
@@ -436,13 +437,13 @@ export default function DashboardEditPage() {
                   >
                     {[3, 4, 6, 8, 9, 12].map(s => <option key={s} value={s}>span {s}</option>)}
                   </select>
-                  <button
+                  <IconButton
                     onClick={() => removePanel(i)}
+                    tone="danger"
                     aria-label="Remove panel"
-                    className="text-red-500 hover:text-red-700"
                   >
                     <X className="w-4 h-4" />
-                  </button>
+                  </IconButton>
                 </li>
               ))}
             </ul>

@@ -206,16 +206,16 @@ export function QuotasAdmin({
                 <ul className="space-y-1">
                   {atRisk.slice(0, 10).map((entry) => (
                     <li key={`${entry.orgId}:${entry.type}`} className="text-sm">
-                      <button
-                        type="button"
+                      <Button
+                        variant="link"
                         onClick={() => handleSelectOrg(entry.orgId)}
-                        className="text-amber-900 dark:text-amber-100 hover:underline"
+                        className="text-amber-900 dark:text-amber-100"
                       >
                         <span className="font-medium">{entry.name}</span>
                         <span className="ml-2 text-amber-700 dark:text-amber-300">
                           {entry.type} {entry.percent}% ({entry.used}/{entry.limit})
                         </span>
-                      </button>
+                      </Button>
                     </li>
                   ))}
                   {atRisk.length > 10 && (
