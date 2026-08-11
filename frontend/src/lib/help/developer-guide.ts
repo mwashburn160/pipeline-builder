@@ -261,7 +261,7 @@ pipeline-manager pipeline deploy --id <returned-id> --no-verify-ssl --store-toke
         {
           type: 'text',
           content:
-            'Pipeline Builder ships with 125 plugins across 10 categories. Every plugin runs as an isolated container step inside AWS CodePipeline, so build environments are reproducible and secrets never leak into image layers.',
+            'Pipeline Builder ships with 119 plugins across 10 categories. Every plugin runs as an isolated container step inside AWS CodePipeline, so build environments are reproducible and secrets never leak into image layers.',
         },
         {
           type: 'list',

@@ -60,7 +60,7 @@ export const organizationBenefitsTopic: HelpTopic = {
         {
           type: 'text',
           content:
-            '125 pre-built, containerized plugins cover the full CI/CD lifecycle. Every plugin is versioned, tested, and shared across the organization — teams use the same tools instead of maintaining their own Docker images and build scripts.',
+            '119 pre-built, containerized plugins cover the full CI/CD lifecycle. Every plugin is versioned, tested, and shared across the organization — teams use the same tools instead of maintaining their own Docker images and build scripts.',
         },
         {
           type: 'table',

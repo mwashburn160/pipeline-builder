@@ -64,7 +64,7 @@ export function buildSteps(signals: OnboardingSignals): OnboardingStep[] {
     {
       id: 'explore-plugins',
       title: 'Explore the plugin catalog',
-      description: '124 pre-built plugins for builds, tests, security scans, and deploys.',
+      description: '119 pre-built plugins for builds, tests, security scans, and deploys.',
       href: '/dashboard/plugins',
       done: signals.visitedPlugins,
     },

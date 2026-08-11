@@ -22,7 +22,7 @@ export const architectureFlowTopic: HelpTopic = {
         {
           type: 'note',
           content:
-            'It ships with 125 ready-to-use plugins spanning build, test, security, quality, monitoring, and infrastructure, and can generate new plugins and pipelines from natural-language prompts via pluggable AI providers (Anthropic, OpenAI, Amazon Bedrock).',
+            'It ships with 119 ready-to-use plugins spanning build, test, security, quality, monitoring, and infrastructure, and can generate new plugins and pipelines from natural-language prompts via pluggable AI providers (Anthropic, OpenAI, Google, xAI, Amazon Bedrock).',
         },
       ],
     },

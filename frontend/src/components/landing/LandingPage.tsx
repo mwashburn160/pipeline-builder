@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import { motion } from 'framer-motion';
 import {
   Shield, Package, BarChart3,
-  Cloud,
+  Cloud, Users, Gauge,
   Bot, Globe, Zap, ArrowRight, Check, LogIn, Sparkles,
   Menu, X, Moon, Sun, Eye, EyeOff,
 } from 'lucide-react';
@@ -160,7 +160,7 @@ function Hero() {
             transition={{ duration: 0.4, delay: 0.08 }}
           >
             Deploy as native AWS CodePipeline in your account.
-            125 plugins, per-org compliance, zero lock-in.
+            119 plugins, per-org compliance, zero lock-in.
           </motion.p>
           <motion.div
             className="flex flex-wrap gap-4 text-sm text-[var(--pb-text-muted)]"
@@ -285,8 +285,10 @@ function Hero() {
 
 const highlights = [
   { icon: Shield, text: 'Per-org compliance' },
-  { icon: Package, text: '125 plugins' },
+  { icon: Package, text: '119 plugins' },
   { icon: BarChart3, text: 'Execution analytics' },
+  { icon: Users, text: 'Team analytics' },
+  { icon: Gauge, text: 'DORA reporting' },
 ];
 
 function ValueProps() {
@@ -369,6 +371,81 @@ function AI() {
 }
 
 // ---------------------------------------------------------------------------
+// Features — the full value-prop set, grouped so it's comprehensive but scannable
+// ---------------------------------------------------------------------------
+
+const featureGroups = [
+  {
+    icon: Sparkles,
+    title: 'Generate',
+    items: ['AI from a Git URL or prompt', '119 plugins across 10 categories', 'Golden-path templates', 'Dashboard, CLI, REST API & CDK'],
+  },
+  {
+    icon: Cloud,
+    title: 'Deploy',
+    items: ['Native AWS CodePipeline + CodeBuild', 'Runs in your own AWS account', 'Per-org container registry', 'Zero lock-in'],
+  },
+  {
+    icon: Shield,
+    title: 'Govern',
+    items: ['Per-org compliance rules & scans', 'Role-based access control', 'Tamper-evident audit trail', 'SSO / OAuth + step-up auth'],
+  },
+  {
+    icon: BarChart3,
+    title: 'Measure',
+    items: ['Execution analytics', 'Team usage analytics', 'DORA metrics & trends', 'Observability + quotas'],
+  },
+];
+
+function Features() {
+  return (
+    <section className="py-14 px-6">
+      <div className="max-w-5xl mx-auto">
+        <motion.h2
+          className="text-2xl font-bold text-center mb-2"
+          initial={{ opacity: 0, y: 8 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.4 }}
+        >
+          Everything you get
+        </motion.h2>
+        <p className="text-sm text-[var(--pb-text-muted)] text-center mb-8">
+          Generate, deploy, govern, and measure — in one self-service platform.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          {featureGroups.map((g, i) => (
+            <motion.div
+              key={g.title}
+              variants={fadeUp}
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              custom={i}
+            >
+              <Card className="h-full p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <g.icon className="w-5 h-5 text-[var(--pb-brand)]" strokeWidth={1.5} />
+                  <h3 className="font-semibold">{g.title}</h3>
+                </div>
+                <ul className="space-y-2">
+                  {g.items.map((item) => (
+                    <li key={item} className="flex items-start gap-1.5 text-sm text-[var(--pb-text-muted)]">
+                      <Check className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[var(--pb-success)]" strokeWidth={2} />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // CTA
 // ---------------------------------------------------------------------------
 
@@ -432,6 +509,7 @@ export default function LandingPage() {
       <Hero />
       <ValueProps />
       <AI />
+      <Features />
       <CTA />
       <Footer />
     </div>
