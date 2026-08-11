@@ -24,6 +24,7 @@ const mockMarkAsRead = jest.fn<(...args: unknown[]) => unknown>();
 const mockMarkThreadAsRead = jest.fn<(...args: unknown[]) => unknown>();
 const mockDelete = jest.fn<(...args: unknown[]) => unknown>();
 const mockDeleteThread = jest.fn<(...args: unknown[]) => unknown>();
+const mockDeleteAsSysadmin = jest.fn<(...args: unknown[]) => unknown>();
 
 jest.unstable_mockModule('../src/services/message-service.js', () => ({
   messageService: {
@@ -38,6 +39,7 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
     markThreadAsRead: mockMarkThreadAsRead,
     delete: mockDelete,
     deleteThread: mockDeleteThread,
+    deleteAsSysadmin: mockDeleteAsSysadmin,
   },
 }));
 
@@ -981,7 +983,7 @@ describe('DELETE /messages/:id', () => {
 
   it('allows system admin to delete any message', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
-    mockDelete.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: 'org-1', recipientOrgId: '000000000000000000000001' });
+    mockDeleteAsSysadmin.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: 'org-1', recipientOrgId: '000000000000000000000001' });
     mockDeleteThread.mockResolvedValue(undefined);
 
     const req = mockReq({ params: { id: 'msg-1' } });
@@ -989,7 +991,8 @@ describe('DELETE /messages/:id', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(mockDelete).toHaveBeenCalledWith('msg-1', 'org-1', 'user-1');
+    // Sysadmin moderation drops the org pin (id + userId only) — see deleteAsSysadmin.
+    expect(mockDeleteAsSysadmin).toHaveBeenCalledWith('msg-1', 'user-1');
     // Verify SSE notification sent to the other party
     expect(mockSseManager.send).toHaveBeenCalledWith(
       '000000000000000000000001',
@@ -1048,7 +1051,7 @@ describe('DELETE /messages/:id', () => {
 
   it('returns 404 when delete returns null (admin)', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
-    mockDelete.mockResolvedValue(null);
+    mockDeleteAsSysadmin.mockResolvedValue(null);
 
     const req = mockReq({ params: { id: 'nonexistent' } });
     const res = mockRes();
@@ -1067,7 +1070,7 @@ describe('DELETE /messages/:id', () => {
 
   it('returns 500 on service error', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
-    mockDelete.mockRejectedValue(new Error('DB error'));
+    mockDeleteAsSysadmin.mockRejectedValue(new Error('DB error'));
 
     const req = mockReq({ params: { id: 'msg-1' } });
     const res = mockRes();
@@ -1078,7 +1081,7 @@ describe('DELETE /messages/:id', () => {
 
   it('does not send SSE notification for broadcast message deletion', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
-    mockDelete.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: '000000000000000000000001', recipientOrgId: '*' });
+    mockDeleteAsSysadmin.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: '000000000000000000000001', recipientOrgId: '*' });
     mockDeleteThread.mockResolvedValue(undefined);
 
     const req = mockReq({ params: { id: 'msg-1' } });
@@ -1164,7 +1167,7 @@ describe('Remote audit emissions', () => {
 
   it('emits message.delete with metadata (no body) on successful delete', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
-    mockDelete.mockResolvedValue({
+    mockDeleteAsSysadmin.mockResolvedValue({
       id: 'msg-1',
       threadId: null,
       orgId: 'org-1',
