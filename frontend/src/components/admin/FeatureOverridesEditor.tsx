@@ -5,6 +5,7 @@ import { useCallback, useMemo, useState } from 'react';
 import api from '@/lib/api';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Button } from '@/components/ui/Button';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ALL_FEATURE_FLAGS, FEATURE_METADATA, type FeatureFlag } from '@/lib/feature-flags';
 
 /**
@@ -89,20 +90,20 @@ export function FeatureOverridesEditor({
                 <div className="text-xs font-medium text-gray-800 dark:text-gray-200">{meta.label}</div>
                 <div className="text-xs text-gray-500 dark:text-gray-400">{meta.description}</div>
               </div>
-              <select
+              <FilterSelect
                 value={value === true ? 'on' : value === false ? 'off' : 'inherit'}
                 onChange={(e) => {
                   const v = e.target.value;
                   setFlag(flag, v === 'on' ? true : v === 'off' ? false : undefined);
                 }}
-                className="filter-select text-xs"
+                className="text-xs"
                 aria-label={`Override ${meta.label}`}
                 disabled={saving}
               >
                 <option value="inherit">inherit</option>
                 <option value="on">on</option>
                 <option value="off">off</option>
-              </select>
+              </FilterSelect>
             </li>
           );
         })}

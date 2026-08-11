@@ -5,6 +5,8 @@ import { formatBytes, fmtNum, formatCents } from '@/lib/format';
 import { statusInfo, barStyles } from '@/lib/quota-helpers';
 import type { UsageRollup } from '@/types';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { formatDate } from './helpers';
 
 /** Quota-type → human label. Keep in sync with the keys returned by
@@ -60,7 +62,7 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
         <div>
           <label className="text-sm text-gray-500 dark:text-gray-400" htmlFor="usage-period-start">Period start</label>
           {editable ? (
-            <input
+            <Input
               id="usage-period-start"
               type="date"
               value={startVal}
@@ -75,7 +77,7 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
         <div>
           <label className="text-sm text-gray-500 dark:text-gray-400" htmlFor="usage-period-end">Period end</label>
           {editable ? (
-            <input
+            <Input
               id="usage-period-end"
               type="date"
               value={endVal}
@@ -93,13 +95,14 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
         <div className="mb-6 flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
           <span>Adjusts the displayed window. Consumption below is the current live period, not the selected dates.</span>
           {overridden && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => onPeriodChange?.(undefined, undefined)}
               className="text-blue-600 dark:text-blue-400 hover:underline"
             >
               Reset
-            </button>
+            </Button>
           )}
         </div>
       )}

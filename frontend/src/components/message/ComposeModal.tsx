@@ -3,6 +3,10 @@ import { Send } from 'lucide-react';
 import type { MessageType, MessagePriority } from '@/types';
 import { useAsyncCallback } from '@/hooks/useAsync';
 import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Textarea';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 // The compose "To" field prefills the configured support alias (passed in via
 // the `supportAlias` prop, sourced from the server's SUPPORT_ALIASES). This
 // module constant is only the fallback until that config loads. A send to a
@@ -151,20 +155,18 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
 
   const footer = (
     <div className="flex justify-end gap-3">
-      <button
-        onClick={onClose}
-        className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-      >
+      <Button onClick={onClose} variant="ghost" className="text-sm">
         Cancel
-      </button>
-      <button
+      </Button>
+      <Button
         onClick={handleSend}
         disabled={sending || !content.trim()}
-        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+        variant="primary"
+        className="gap-2 text-sm"
       >
         <Send className="w-4 h-4" />
         {sending ? 'Sending...' : 'Send'}
-      </button>
+      </Button>
     </div>
   );
 
@@ -177,11 +179,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
     >
         {/* Body */}
         <div className="space-y-3">
-          {error && (
-            <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">
-              {error}
-            </div>
-          )}
+          <ErrorAlert message={error} />
 
           {/* System org: toggle announcement vs conversation */}
           {isSuperAdmin && (
@@ -212,13 +210,13 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
           {/* Recipient free-form entry (full-compose users only) — prefilled with
               the support alias; autocompletes support + teams via the datalist. */}
           {canWrite && !isAnnouncement && (
-            <input
+            <Input
               type="text"
               value={recipientOrgId}
               onChange={(e) => setRecipientOrgId(e.target.value)}
               list="compose-recipient-options"
               placeholder="To: Organization ID"
-              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label="Recipient organization"
             />
           )}
 
@@ -252,13 +250,13 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
           )}
 
           {/* Content */}
-          <textarea
+          <Textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
             rows={4}
-            className="w-full resize-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="resize-none"
           />
         </div>
     </Modal>

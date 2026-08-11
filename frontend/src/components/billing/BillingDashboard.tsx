@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api from '@/lib/api';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { StatCard } from '@/components/reports/StatCard';
 import { formatCents as money } from '@/lib/format';
 import type { BillingSummary, BillingInvoiceRow, BillingAllocation } from '@/lib/api/domains/billing';
@@ -77,25 +79,26 @@ export function BillingDashboard() {
       <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Amounts billed</h2>
       <div className="flex items-center gap-2 text-sm">
         <label className="text-gray-500 dark:text-gray-400" htmlFor="billing-from">From</label>
-        <input
+        <Input
           id="billing-from" type="date" value={from} max={to || undefined}
           onChange={(e) => setFrom(e.target.value)}
           className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-gray-900 dark:text-gray-100"
         />
         <label className="text-gray-500 dark:text-gray-400" htmlFor="billing-to">To</label>
-        <input
+        <Input
           id="billing-to" type="date" value={to} min={from || undefined}
           onChange={(e) => setTo(e.target.value)}
           className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-gray-900 dark:text-gray-100"
         />
         {isFiltered && (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => { setFrom(''); setTo(''); }}
             className="text-blue-600 dark:text-blue-400 hover:underline"
           >
             Clear
-          </button>
+          </Button>
         )}
       </div>
     </div>

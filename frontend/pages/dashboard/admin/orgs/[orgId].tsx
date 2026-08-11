@@ -28,7 +28,9 @@ import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { LinkButton } from '@/components/ui/LinkButton';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useToast } from '@/components/ui/Toast';
 import { useFormState } from '@/hooks/useFormState';
@@ -329,7 +331,7 @@ export default function OrgDetailPage() {
                   the actual PATCH runs via executeTierChange. Disabled on the
                   current tier (no-op) so accidental clicks don't trigger a
                   step-up prompt. */}
-              <select
+              <FilterSelect
                 value={org.tier ?? 'developer'}
                 onChange={(e) => {
                   const newTier = e.target.value as 'developer' | 'pro' | 'team' | 'enterprise';
@@ -337,13 +339,13 @@ export default function OrgDetailPage() {
                   setPendingTier(newTier);
                   setPendingOp('tier');
                 }}
-                className="filter-select text-xs"
+                className="text-xs"
                 aria-label="Change pricing tier"
               >
                 {TIER_KEYS.map((tier) => (
                   <option key={tier} value={tier}>{getTierMeta(tier).label}</option>
                 ))}
-              </select>
+              </FilterSelect>
               </div>
             </div>
             <dl className="text-sm space-y-2">
@@ -519,9 +521,9 @@ export default function OrgDetailPage() {
               <Button variant="secondary" onClick={handleExport} disabled={exporting} className="inline-flex items-center gap-2 text-sm disabled:opacity-60">
                 <Download className="w-4 h-4" /> {exporting ? 'Exporting…' : 'Export data'}
               </Button>
-              <Link href={`/dashboard/audit?affectedOrgId=${org.id}`} className="btn btn-secondary text-sm">
+              <LinkButton href={`/dashboard/audit?affectedOrgId=${org.id}`} variant="secondary" className="text-sm">
                 View audit log
-              </Link>
+              </LinkButton>
               <div className="flex-1" />
               <Button variant="danger" onClick={() => setShowDelete(true)} className="inline-flex items-center gap-2 text-sm">
                 <Trash2 className="w-4 h-4" /> Delete organization

@@ -9,6 +9,8 @@ import { formatError } from '@/lib/constants';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { IconButton } from '@/components/ui/IconButton';
+import { FilterSelect } from '@/components/ui/FilterSelect';
+import { LinkButton } from '@/components/ui/LinkButton';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -165,16 +167,15 @@ export default function MyServicesPage() {
       subtitle="Pipelines and plugins you own across the catalog"
       actions={
         <div className="flex items-center gap-2">
-          <select
+          <FilterSelect
             value={lifecycle}
             onChange={(e) => setLifecycle(e.target.value as '' | Lifecycle)}
-            className="text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1.5"
             aria-label="Filter by lifecycle"
           >
             {LIFECYCLE_FILTERS.map((f) => (
               <option key={f.value} value={f.value}>{f.label}</option>
             ))}
-          </select>
+          </FilterSelect>
           <IconButton onClick={fetchAll} title="Refresh" aria-label="Refresh" disabled={loading}>
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </IconButton>
@@ -196,9 +197,9 @@ export default function MyServicesPage() {
               title: 'No pipelines owned by you',
               description: 'Pipelines you create are assigned to you and appear here.',
               action: (
-                <Link href="/dashboard/pipelines" className="btn btn-primary">
+                <LinkButton href="/dashboard/pipelines">
                   Go to Pipelines
-                </Link>
+                </LinkButton>
               ),
             }}
           >

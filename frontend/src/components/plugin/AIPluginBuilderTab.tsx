@@ -182,8 +182,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
     <div className="space-y-4">
       {/* Provider and Model Selection */}
       <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="label">Provider</label>
+        <FormField label="Provider">
           <Select
             value={ai.selectedProvider}
             onChange={(e) => ai.setSelectedProvider(e.target.value)}
@@ -195,9 +194,8 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
               </option>
             ))}
           </Select>
-        </div>
-        <div>
-          <label className="label">Model</label>
+        </FormField>
+        <FormField label="Model">
           <Select
             value={ai.selectedModel}
             onChange={(e) => ai.setSelectedModel(e.target.value)}
@@ -207,7 +205,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
               <option key={m.id} value={m.id}>{m.name}</option>
             ))}
           </Select>
-        </div>
+        </FormField>
       </div>
 
       {/* Custom API Key Override */}
@@ -215,6 +213,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
         <button
           type="button"
           onClick={() => ai.setShowKeyOverride(!ai.showKeyOverride)}
+          aria-expanded={ai.showKeyOverride}
           className="flex items-center text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
         >
           {ai.showKeyOverride ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}

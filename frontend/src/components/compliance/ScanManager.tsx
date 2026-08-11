@@ -8,6 +8,7 @@ import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
 import { Pagination } from '@/components/ui/Pagination';
 import { StatusPill } from '@/components/ui/StatusPill';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { useServerPagination } from '@/hooks/useServerPagination';
 import type { ComplianceScan } from '@/types/compliance';
@@ -98,19 +99,19 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
 
       {/* Filters */}
       <div className="flex gap-3">
-        <select value={targetFilter} onChange={e => setTargetFilter(e.target.value)} aria-label="Filter scans by target" className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
+        <FilterSelect value={targetFilter} onChange={e => setTargetFilter(e.target.value)} aria-label="Filter scans by target">
           <option value="">All targets</option>
           <option value="plugin">Plugin</option>
           <option value="pipeline">Pipeline</option>
-        </select>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} aria-label="Filter scans by status" className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
+        </FilterSelect>
+        <FilterSelect value={statusFilter} onChange={e => setStatusFilter(e.target.value)} aria-label="Filter scans by status">
           <option value="">All statuses</option>
           <option value="pending">Pending</option>
           <option value="running">Running</option>
           <option value="completed">Completed</option>
           <option value="failed">Failed</option>
           <option value="cancelled">Cancelled</option>
-        </select>
+        </FilterSelect>
       </div>
 
       {loading ? (

@@ -7,6 +7,10 @@ import { Pagination } from '@/components/ui/Pagination';
 import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/components/ui/Toast';
 import { StatusPill } from '@/components/ui/StatusPill';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Textarea } from '@/components/ui/Textarea';
 import { useServerPagination } from '@/hooks/useServerPagination';
 import type { ComplianceScan, ComplianceAuditEntry, RuleTarget } from '@/types/compliance';
 import { SCAN_STATUS_CONFIG as STATUS_CONFIG, RESULT_STYLES } from '@/lib/compliance-styles';
@@ -183,13 +187,15 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
         </button>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Scan Details</h2>
         {scan.status === 'running' && (
-          <button
+          <Button
+            variant="danger"
+            size="sm"
             onClick={handleCancel}
             disabled={cancelling}
-            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+            className="ml-auto gap-1.5"
           >
             <Square className="h-3.5 w-3.5" /> {cancelling ? 'Cancelling...' : 'Cancel scan'}
-          </button>
+          </Button>
         )}
       </div>
 
@@ -308,14 +314,15 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
           onClose={() => setExemptTarget(null)}
           footer={
             <div className="flex justify-end gap-2">
-              <button onClick={() => setExemptTarget(null)} className="px-3 py-1.5 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg">Cancel</button>
-              <button
+              <Button variant="secondary" size="sm" onClick={() => setExemptTarget(null)}>Cancel</Button>
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={handleExemptSubmit}
                 disabled={exemptSubmitting || !exemptForm.ruleId || !exemptForm.reason.trim()}
-                className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
                 {exemptSubmitting ? 'Submitting...' : 'Submit Request'}
-              </button>
+              </Button>
             </div>
           }
         >
@@ -336,33 +343,30 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Rule *</label>
-              <select
+              <Select
                 value={exemptForm.ruleId}
                 onChange={e => setExemptForm(f => ({ ...f, ruleId: e.target.value }))}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
               >
                 {exemptTarget.rules.map(rule => (
                   <option key={rule.ruleId} value={rule.ruleId}>{rule.ruleName}</option>
                 ))}
-              </select>
+              </Select>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Reason *</label>
-              <textarea
+              <Textarea
                 value={exemptForm.reason}
                 onChange={e => setExemptForm(f => ({ ...f, reason: e.target.value }))}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
                 rows={3}
                 placeholder="Why should this violation be exempted?"
               />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Expires (optional)</label>
-              <input
+              <Input
                 type="date"
                 value={exemptForm.expiresAt}
                 onChange={e => setExemptForm(f => ({ ...f, expiresAt: e.target.value }))}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
               />
             </div>
           </div>

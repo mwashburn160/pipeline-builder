@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { EnvEntry } from '@/types/form-types';
+import { Input } from '@/components/ui/Input';
 
 /** Props for {@link EnvEditor}. */
 interface EnvEditorProps {
@@ -47,22 +48,22 @@ export default function EnvEditor({ value, onChange, disabled }: EnvEditorProps)
       <div className="space-y-2">
         {value.map((entry, idx) => (
           <div key={ids[idx]} className="flex items-center space-x-2">
-            <input
+            <Input
               type="text"
               value={entry.key}
               onChange={(e) => handleChange(idx, 'key', e.target.value)}
               placeholder="KEY"
               disabled={disabled}
-              className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+              className="flex-1 font-mono"
             />
             <span className="text-gray-400 dark:text-gray-500">=</span>
-            <input
+            <Input
               type="text"
               value={entry.value}
               onChange={(e) => handleChange(idx, 'value', e.target.value)}
               placeholder="value"
               disabled={disabled}
-              className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+              className="flex-1 font-mono"
             />
             <button
               type="button"

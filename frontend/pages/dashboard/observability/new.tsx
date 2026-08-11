@@ -3,11 +3,15 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/router';
-import Link from 'next/link';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Button } from '@/components/ui/Button';
+import { LinkButton } from '@/components/ui/LinkButton';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Textarea } from '@/components/ui/Textarea';
 import { api, getErrorMessage } from '@/lib/api';
 
 /**
@@ -58,52 +62,51 @@ export default function NewDashboardPage() {
       <div className="max-w-xl rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 space-y-4">
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Name <span className="text-red-500">*</span></label>
-          <input
+          <Input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. My team's plugin uptake"
-            className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
             autoFocus
           />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Description</label>
-          <textarea
+          <Textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
             placeholder="One sentence about what this dashboard surfaces."
-            className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
           />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Visibility</label>
-          <select
+          <Select
             value={visibility}
             onChange={(e) => setVisibility(e.target.value as typeof visibility)}
-            className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
           >
             <option value="private">Private (only me)</option>
             <option value="org">Org (anyone in my organization)</option>
             <option value="public">Public — sysadmin only</option>
-          </select>
+          </Select>
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <Link
+          <LinkButton
             href="/dashboard/observability"
-            className="px-4 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded"
+            variant="secondary"
+            size="sm"
           >
             Cancel
-          </Link>
-          <button
+          </LinkButton>
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => void onCreate()}
             disabled={submitting || !name.trim() || !canWrite}
             title={canWrite ? undefined : 'Read-only — requires dashboards:write'}
-            className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded disabled:opacity-50"
           >
             {submitting ? 'Creating…' : 'Create & add panels'}
-          </button>
+          </Button>
         </div>
       </div>
     </DashboardLayout>

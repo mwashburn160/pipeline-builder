@@ -5,6 +5,9 @@ import { useMemo, useState } from 'react';
 import { Link as LinkIcon } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { CopyButton } from '@/components/ui/CopyButton';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useToast } from '@/components/ui/Toast';
 import { api, ApiError, ConflictError } from '@/lib/api';
 import { invalidateImageTags } from '@/hooks/useImageTags';
@@ -151,7 +154,7 @@ export function CopyTagModal({
 
         <div>
           <label htmlFor="copy-target-repo" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Target repo</label>
-          <input
+          <Input
             id="copy-target-repo"
             type="text"
             value={targetRepo}
@@ -168,7 +171,7 @@ export function CopyTagModal({
 
         <div>
           <label htmlFor="copy-target-ref" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Target ref</label>
-          <input
+          <Input
             id="copy-target-ref"
             type="text"
             value={targetRef}
@@ -200,7 +203,7 @@ export function CopyTagModal({
               <label htmlFor="promote-confirm" className="block text-xs font-medium mb-1">
                 Type <code className="font-mono font-bold">{PROMOTE_CONFIRM_PHRASE}</code> to confirm:
               </label>
-              <input
+              <Input
                 id="promote-confirm"
                 type="text"
                 value={confirmPhrase}
@@ -218,22 +221,19 @@ export function CopyTagModal({
             <div className="font-medium mb-2">Target tag already exists with a different digest.</div>
             <div className="text-xs font-mono break-all">existing: {conflict.existing}</div>
             <div className="text-xs font-mono break-all">requested: {conflict.requested}</div>
-            <button
+            <Button
+              size="sm"
               onClick={() => submit(true)}
               disabled={submitting || !promotionGatePassed}
               title={isPromotion && !promotionGatePassed ? `Type ${PROMOTE_CONFIRM_PHRASE} above to enable` : undefined}
-              className="mt-2 px-3 py-1.5 text-sm bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50"
+              className="mt-2 bg-orange-600 hover:bg-orange-700 text-white"
             >
               Overwrite (replace existing tag)
-            </button>
+            </Button>
           </div>
         )}
 
-        {error && !conflict && (
-          <div className="p-3 text-sm border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300 rounded">
-            {error}
-          </div>
-        )}
+        {!conflict && <ErrorAlert message={error} />}
 
         {/* Share-link affordance — copy a URL that re-opens this modal
             pre-filled, so the operator can hand the action off to a
@@ -251,22 +251,19 @@ export function CopyTagModal({
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <button
-            onClick={onClose}
-            disabled={submitting}
-            className="px-4 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={submitting}>
             Cancel
-          </button>
+          </Button>
           {!conflict && (
-            <button
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => submit(false)}
               disabled={!canSubmit}
               title={isPromotion && !promotionGatePassed ? `Type ${PROMOTE_CONFIRM_PHRASE} above to enable` : undefined}
-              className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? 'Copying…' : isPromotion ? 'Promote' : 'Copy'}
-            </button>
+            </Button>
           )}
         </div>
       </div>

@@ -27,6 +27,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { FilterBar } from '@/components/ui/FilterBar';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { DateRangePicker } from '@/components/reports/ReportHelpers';
 import { downloadCsv } from '@/lib/csv-export';
@@ -235,15 +236,15 @@ export default function ExecutionsPage() {
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
               <Filter className="w-4 h-4 text-gray-400" />
-              <select
+              <FilterSelect
                 value={status}
                 onChange={(e) => setStatus(e.target.value as StatusFilter)}
-                className="filter-select"
+                aria-label="Filter by pipeline status"
               >
                 <option value="all">All pipelines</option>
                 <option value="failing">Failing (≥1 fail)</option>
                 <option value="succeeding">All-clean</option>
-              </select>
+              </FilterSelect>
             </div>
             {/* Date-range scope — empty bounds mean all-time. */}
             <DateRangePicker from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} />

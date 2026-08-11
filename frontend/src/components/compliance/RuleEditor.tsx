@@ -5,6 +5,10 @@ import { ArrowLeft, Plus, Trash2, FlaskConical, CheckCircle, AlertTriangle, XCir
 import api from '@/lib/api';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Textarea } from '@/components/ui/Textarea';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleCondition, RuleTarget, RuleSeverity, RuleOperator, RuleConditionMode, RuleScope, ComplianceCheckResult } from '@/types/compliance';
 
@@ -262,8 +266,6 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
     }
   };
 
-  const inputCls = 'rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm w-full';
-
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
@@ -275,55 +277,55 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
         </h2>
       </div>
 
-      {error && <div className="rounded-lg bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-700 dark:text-red-300">{error}</div>}
+      <ErrorAlert message={error} />
 
       <div className="space-y-4 p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
         {/* Basic info */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label htmlFor="rule-name" className="block text-xs font-medium text-gray-500 mb-1">Name *</label>
-            <input id="rule-name" value={form.name} onChange={e => set('name', e.target.value)} className={inputCls} placeholder="Rule name" />
+            <Input id="rule-name" value={form.name} onChange={e => set('name', e.target.value)} placeholder="Rule name" />
           </div>
           <div>
             <label htmlFor="rule-target" className="block text-xs font-medium text-gray-500 mb-1">Target *</label>
-            <select id="rule-target" value={form.target} onChange={e => set('target', e.target.value as RuleTarget)} className={inputCls} disabled={isEdit}>
+            <Select id="rule-target" value={form.target} onChange={e => set('target', e.target.value as RuleTarget)} disabled={isEdit}>
               <option value="plugin">Plugin</option>
               <option value="pipeline">Pipeline</option>
-            </select>
+            </Select>
           </div>
         </div>
         {isSuperAdmin && (
           <div>
             <label htmlFor="rule-scope" className="block text-xs font-medium text-gray-500 mb-1">Scope</label>
-            <select id="rule-scope" value={form.scope} onChange={e => set('scope', e.target.value as RuleScope)} className={inputCls} disabled={isEdit}>
+            <Select id="rule-scope" value={form.scope} onChange={e => set('scope', e.target.value as RuleScope)} disabled={isEdit}>
               <option value="org">Org — private to your organization</option>
               <option value="published">Published — shared catalog, other orgs can subscribe</option>
-            </select>
+            </Select>
             {isEdit && <p className="mt-1 text-xs text-gray-500">Scope is set at creation and cannot be changed.</p>}
           </div>
         )}
         <div>
           <label htmlFor="rule-description" className="block text-xs font-medium text-gray-500 mb-1">Description</label>
-          <textarea id="rule-description" value={form.description} onChange={e => set('description', e.target.value)} className={inputCls} rows={2} placeholder="Optional description" />
+          <Textarea id="rule-description" value={form.description} onChange={e => set('description', e.target.value)} rows={2} placeholder="Optional description" />
         </div>
 
         {/* Severity, priority, tags */}
         <div className="grid grid-cols-3 gap-3">
           <div>
             <label htmlFor="rule-severity" className="block text-xs font-medium text-gray-500 mb-1">Severity</label>
-            <select id="rule-severity" value={form.severity} onChange={e => set('severity', e.target.value as RuleSeverity)} className={inputCls}>
+            <Select id="rule-severity" value={form.severity} onChange={e => set('severity', e.target.value as RuleSeverity)}>
               <option value="warning">Warning</option>
               <option value="error">Error</option>
               <option value="critical">Critical</option>
-            </select>
+            </Select>
           </div>
           <div>
             <label htmlFor="rule-priority" className="block text-xs font-medium text-gray-500 mb-1">Priority</label>
-            <input id="rule-priority" type="number" value={form.priority} onChange={e => set('priority', parseInt(e.target.value) || 0)} className={inputCls} />
+            <Input id="rule-priority" type="number" value={form.priority} onChange={e => set('priority', parseInt(e.target.value) || 0)} />
           </div>
           <div>
             <label htmlFor="rule-tags" className="block text-xs font-medium text-gray-500 mb-1">Tags (comma-separated)</label>
-            <input id="rule-tags" value={form.tags} onChange={e => set('tags', e.target.value)} className={inputCls} placeholder="security, naming" />
+            <Input id="rule-tags" value={form.tags} onChange={e => set('tags', e.target.value)} placeholder="security, naming" />
           </div>
         </div>
 
@@ -331,11 +333,11 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
         <div className="grid grid-cols-3 gap-3">
           <div>
             <label htmlFor="rule-effective-from" className="block text-xs font-medium text-gray-500 mb-1">Effective From</label>
-            <input id="rule-effective-from" type="date" value={form.effectiveFrom} onChange={e => set('effectiveFrom', e.target.value)} className={inputCls} />
+            <Input id="rule-effective-from" type="date" value={form.effectiveFrom} onChange={e => set('effectiveFrom', e.target.value)} />
           </div>
           <div>
             <label htmlFor="rule-effective-until" className="block text-xs font-medium text-gray-500 mb-1">Effective Until</label>
-            <input id="rule-effective-until" type="date" value={form.effectiveUntil} onChange={e => set('effectiveUntil', e.target.value)} className={inputCls} />
+            <Input id="rule-effective-until" type="date" value={form.effectiveUntil} onChange={e => set('effectiveUntil', e.target.value)} />
           </div>
           <div className="flex items-end pb-2">
             <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -369,18 +371,18 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Field</label>
-                <input value={form.field} onChange={e => set('field', e.target.value)} className={inputCls} placeholder="e.g. name, computeType" />
+                <Input value={form.field} onChange={e => set('field', e.target.value)} placeholder="e.g. name, computeType" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Operator</label>
-                <select value={form.operator} onChange={e => set('operator', e.target.value as RuleOperator)} className={inputCls}>
+                <Select value={form.operator} onChange={e => set('operator', e.target.value as RuleOperator)}>
                   {OPERATORS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
+                </Select>
               </div>
               {!NO_VALUE_OPS.has(form.operator) && (
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">Value (JSON)</label>
-                  <input value={form.value} onChange={e => set('value', e.target.value)} className={inputCls} placeholder='"required-prefix"' />
+                  <Input value={form.value} onChange={e => set('value', e.target.value)} placeholder='"required-prefix"' />
                 </div>
               )}
             </div>
@@ -401,11 +403,11 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
               )}
               {form.conditions.map((cond, idx) => (
                 <div key={condIds[idx]} className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800">
-                  <input
+                  <Input
                     value={cond.field}
                     onChange={e => updateCondition(idx, { field: e.target.value })}
                     aria-label={`Condition ${idx + 1} field`}
-                    className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm flex-1"
+                    className="flex-1"
                     placeholder="Field"
                   />
                   <select
@@ -417,11 +419,11 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                     {OPERATORS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                   {!NO_VALUE_OPS.has(cond.operator) && (
-                    <input
+                    <Input
                       value={cond.value}
                       onChange={e => updateCondition(idx, { value: e.target.value })}
                       aria-label={`Condition ${idx + 1} value`}
-                      className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm flex-1"
+                      className="flex-1"
                       placeholder="Value (JSON)"
                     />
                   )}
@@ -441,10 +443,10 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Dry-Run Validation</span>
           </div>
           <div className="flex gap-2">
-            <textarea
+            <Textarea
               value={dryRunAttrs}
               onChange={e => setDryRunAttrs(e.target.value)}
-              className={`${inputCls} flex-1 font-mono`}
+              className="flex-1 font-mono"
               rows={2}
               placeholder='{"name": "my-plugin", "computeType": "LAMBDA"}'
             />

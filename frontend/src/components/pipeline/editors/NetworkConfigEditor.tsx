@@ -161,21 +161,21 @@ export default function NetworkConfigEditor({
             <div className="space-y-2">
               {network.tags.map((tag: TagEntry, idx: number) => (
                 <div key={tagIds[idx]} className="flex items-center space-x-2">
-                  <input
+                  <Input
                     type="text"
                     value={tag.key}
                     onChange={(e) => handleTagChange(idx, 'key', e.target.value)}
                     placeholder="Tag Key"
                     disabled={disabled}
-                    className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    className="flex-1"
                   />
-                  <input
+                  <Input
                     type="text"
                     value={tag.value}
                     onChange={(e) => handleTagChange(idx, 'value', e.target.value)}
                     placeholder="Tag Value"
                     disabled={disabled}
-                    className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    className="flex-1"
                   />
                   <button
                     type="button"

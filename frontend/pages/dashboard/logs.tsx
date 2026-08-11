@@ -8,6 +8,8 @@ import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Button } from '@/components/ui/Button';
+import { FilterInput } from '@/components/ui/FilterInput';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LogDetailsDrawer } from '@/components/observability/LogDetailsDrawer';
 import api from '@/lib/api';
@@ -240,26 +242,26 @@ export default function LogsPage() {
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-            <input type="text" placeholder="Search log messages..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="filter-input" />
+            <FilterInput type="text" placeholder="Search log messages..." aria-label="Search log messages" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
           </div>
-          <select value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)} className="filter-select">
+          <FilterSelect value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)} aria-label="Filter by service">
             <option value="">All Services</option>
             {services.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)} className="filter-select">
+          </FilterSelect>
+          <FilterSelect value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)} aria-label="Filter by level">
             <option value="">All Levels</option>
             {levels.map(l => <option key={l} value={l}>{l}</option>)}
-          </select>
-          <select value={timeRange} onChange={(e) => setTimeRange(Number(e.target.value))} className="filter-select">
+          </FilterSelect>
+          <FilterSelect value={timeRange} onChange={(e) => setTimeRange(Number(e.target.value))} aria-label="Filter by time range">
             {LOG_TIME_RANGES.map(r => <option key={r.ms} value={r.ms}>{r.label}</option>)}
-          </select>
-          <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} className="filter-select">
+          </FilterSelect>
+          <FilterSelect value={limit} onChange={(e) => setLimit(Number(e.target.value))} aria-label="Maximum log lines">
             <option value={50}>50 lines</option>
             <option value={100}>100 lines</option>
             <option value={250}>250 lines</option>
             <option value={500}>500 lines</option>
             <option value={1000}>1000 lines</option>
-          </select>
+          </FilterSelect>
         </div>
       </div>
 

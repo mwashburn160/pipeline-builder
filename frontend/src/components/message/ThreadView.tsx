@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAsyncCallback } from '@/hooks/useAsync';
 import { ArrowLeft, Send, Megaphone, MessageCircle, AlertTriangle, AlertOctagon, Trash2 } from 'lucide-react';
+import { Textarea } from '@/components/ui/Textarea';
 import api from '@/lib/api';
 import type { Message } from '@/types';
 
@@ -180,13 +181,13 @@ export function ThreadView({ rootMessage, currentOrgId, onBack, onThreadRead, on
       {/* Reply input */}
       <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
         <div className="flex items-end gap-2">
-          <textarea
+          <Textarea
             value={replyContent}
             onChange={(e) => setReplyContent(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Type your reply... (Enter to send, Shift+Enter for new line)"
             rows={2}
-            className="flex-1 resize-none rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="flex-1 resize-none"
           />
           <button
             onClick={handleSendReply}

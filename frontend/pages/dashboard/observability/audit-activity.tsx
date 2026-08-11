@@ -21,6 +21,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { api, getErrorMessage } from '@/lib/api';
 
@@ -77,9 +78,7 @@ export default function AuditActivityRedirect() {
   if (error) {
     return (
       <DashboardLayout title="Audit Activity" subtitle="">
-        <div className="rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200">
-          {error}
-        </div>
+        <ErrorAlert message={error} />
         <Link href="/dashboard/observability" className="mt-4 inline-block text-blue-600 hover:underline text-sm">← Back to all dashboards</Link>
       </DashboardLayout>
     );

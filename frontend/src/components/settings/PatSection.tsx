@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { KeyRound, Trash2 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { FormField } from '@/components/ui/FormField';
 import { Badge } from '@/components/ui/Badge';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -107,14 +109,12 @@ export function PatSection() {
       </p>
 
       <div className="flex flex-wrap items-end gap-2 mb-4">
-        <div className="flex-1 min-w-[180px]">
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Name</label>
-          <input className="input w-full" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. ci-deploy" maxLength={100} disabled={creating} />
-        </div>
-        <div className="w-32">
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Expires (days)</label>
-          <input type="number" min={1} max={365} className="input w-full" value={days} onChange={(e) => setDays(Number(e.target.value))} disabled={creating} />
-        </div>
+        <FormField label="Name" className="flex-1 min-w-[180px]">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. ci-deploy" maxLength={100} disabled={creating} />
+        </FormField>
+        <FormField label="Expires (days)" className="w-32">
+          <Input type="number" min={1} max={365} value={days} onChange={(e) => setDays(Number(e.target.value))} disabled={creating} />
+        </FormField>
         <Button onClick={handleCreate} loading={creating || !!pendingCreate}>Create token</Button>
       </div>
 
@@ -165,13 +165,15 @@ export function PatSection() {
                   <td className="py-2 pr-4">{p.lastUsedAt ? <RelativeTime value={p.lastUsedAt} /> : <span className="text-gray-400">never</span>}</td>
                   <td className="py-2 text-right">
                     {!p.revoked && p.status !== 'expired' && (
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="xs"
                         onClick={() => handleRevoke(p.jti)}
                         disabled={revoking === p.jti}
-                        className="text-red-600 hover:text-red-700 disabled:opacity-50 inline-flex items-center gap-1 text-xs"
+                        className="gap-1 text-red-600 hover:text-red-700"
                       >
                         <Trash2 className="w-3.5 h-3.5" /> Revoke
-                      </button>
+                      </Button>
                     )}
                   </td>
                 </tr>

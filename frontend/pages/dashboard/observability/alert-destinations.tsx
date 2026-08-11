@@ -15,6 +15,12 @@ import { Modal } from '@/components/ui/Modal';
 import { Card } from '@/components/ui/Card';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { FilterInput } from '@/components/ui/FilterInput';
+import { FilterSelect } from '@/components/ui/FilterSelect';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { api, getErrorMessage } from '@/lib/api';
 import type { AlertDestination, AlertDestinationWrite } from '@/types/observability';
@@ -132,12 +138,14 @@ export default function AlertDestinationsPage() {
             </label>
           )}
           {!viewingAll && canWrite && (
-            <button
+            <Button
+              variant="secondary"
+              size="xs"
               onClick={() => setCreating(true)}
-              className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
+              className="gap-1"
             >
               <Plus className="w-3.5 h-3.5" /> Add destination
-            </button>
+            </Button>
           )}
         </div>
       }
@@ -146,27 +154,22 @@ export default function AlertDestinationsPage() {
         See current firing alerts on the <Link href="/dashboard/observability/alerts" className="text-blue-600 hover:underline">Alerts page</Link>.
       </div>
 
-      {error && (
-        <div className="mb-4 rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200">
-          {error.message}
-        </div>
-      )}
+      <ErrorAlert message={error?.message} className="mb-4" />
 
       {viewingAll ? (
         /* ───── Sysadmin cross-tenant view (read-only, grouped by org) ───── */
         <>
           <div className="filter-bar flex flex-wrap items-center gap-2 mb-4">
-            <input
+            <FilterInput
               type="text"
               placeholder="Filter by org id or label..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="filter-input flex-1 min-w-[16rem]"
+              className="flex-1 min-w-[16rem]"
             />
-            <select
+            <FilterSelect
               value={channelFilter}
               onChange={(e) => setChannelFilter(e.target.value as typeof channelFilter)}
-              className="filter-select"
               aria-label="Filter by channel"
             >
               <option value="all">All channels</option>
@@ -174,7 +177,7 @@ export default function AlertDestinationsPage() {
               <option value="webhook">Webhook</option>
               <option value="in-app">In-app</option>
               <option value="email">Email</option>
-            </select>
+            </FilterSelect>
           </div>
           {loading ? (
             <Card className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">Loading…</Card>
@@ -248,15 +251,17 @@ export default function AlertDestinationsPage() {
                 </div>
                 {canWrite && (
                   <>
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="xs"
                       onClick={() => void onTest(d)}
                       disabled={testingId === d.id}
                       aria-label="Send test notification"
                       title="Send a test notification to this destination"
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 disabled:opacity-50"
+                      className="gap-1"
                     >
                       <Send className="w-3.5 h-3.5" /> {testingId === d.id ? 'Sending…' : 'Send test'}
-                    </button>
+                    </Button>
                     <button
                       onClick={() => setEditing(d)}
                       aria-label="Edit destination"
@@ -349,26 +354,25 @@ function DestinationModal(props: {
       <div className="space-y-3">
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Channel</label>
-          <select
+          <Select
             value={channel}
             onChange={(e) => setChannel(e.target.value as AlertDestination['channel'])}
             disabled={!!existing} // channel is immutable on edit (changes target validation)
-            className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 disabled:opacity-60"
+            className="disabled:opacity-60"
           >
             <option value="slack">Slack incoming webhook</option>
             <option value="webhook">Generic HTTPS webhook</option>
             <option value="email">Email recipient</option>
             <option value="in-app">In-app message (deferred — logs only for now)</option>
-          </select>
+          </Select>
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Label</label>
-          <input
+          <Input
             type="text"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="e.g. SRE Slack channel"
-            className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
           />
         </div>
         {channel !== 'in-app' && (
@@ -376,14 +380,14 @@ function DestinationModal(props: {
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
               {channel === 'slack' ? 'Slack incoming-webhook URL' : channel === 'email' ? 'Email address' : 'Webhook URL'}
             </label>
-            <input
+            <Input
               // Email targets aren't secrets — show them; URLs are bearer-equivalent, so mask.
               type={channel === 'email' ? 'text' : 'password'}
               autoComplete="off"
               value={target}
               onChange={(e) => setTarget(e.target.value)}
               placeholder={existing ? '(leave blank to keep existing)' : (channel === 'slack' ? 'https://hooks.slack.com/services/...' : channel === 'email' ? 'ops@example.com' : 'https://...')}
-              className="w-full px-3 py-1.5 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+              className="font-mono"
             />
             {existing && (
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -394,30 +398,30 @@ function DestinationModal(props: {
         )}
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Minimum severity</label>
-          <select
+          <Select
             value={minSeverity}
             onChange={(e) => setMinSeverity(e.target.value as typeof minSeverity)}
-            className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
           >
             <option value="warning">Warning + Critical</option>
             <option value="critical">Critical only</option>
-          </select>
+          </Select>
         </div>
         <label className="flex items-center gap-2 text-sm">
           <Checkbox checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           Enabled
         </label>
         <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose} disabled={saving} className="px-4 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded">
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={saving}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => void onSubmit()}
             disabled={saving || !label.trim()}
-            className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded disabled:opacity-50"
           >
             {saving ? 'Saving…' : (existing ? 'Save' : 'Create')}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

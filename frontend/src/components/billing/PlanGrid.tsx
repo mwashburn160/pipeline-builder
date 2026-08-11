@@ -3,6 +3,7 @@
 
 import { Check } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { getTierMeta } from '@/lib/tiers';
 import { formatCents } from '@/lib/format';
@@ -90,13 +91,15 @@ export function PlanGrid({
               ))}
             </ul>
 
-            <button
+            <Button
+              variant="primary"
+              fullWidth
               onClick={() => onSubscribe(plan.id)}
               disabled={isCurrent || actionLoading || !canChangePlan}
-              className={`w-full py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
+              className={`justify-center ${
                 isCurrent || !canChangePlan
                   ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed'
-: 'btn btn-primary justify-center'
+: ''
               }`}
             >
               {actionLoading ? (                    <LoadingSpinner size="sm" />
@@ -104,7 +107,7 @@ export function PlanGrid({
               ): subscription ? (                    'Switch to this plan'
               ): (                    'Get Started'
               )}
-            </button>
+            </Button>
           </Card>
         );
       })}

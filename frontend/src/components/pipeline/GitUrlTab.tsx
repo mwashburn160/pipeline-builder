@@ -2,9 +2,11 @@ import { useState, useEffect, useImperativeHandle, forwardRef, useCallback, useR
 import { GitBranch, ChevronDown, ChevronUp, Globe, Code, Package, Plug, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import { BuilderProps, Plugin, GeneratedPluginRef, asGeneratedSynth, asGeneratedStages } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { clearPluginCache } from '@/hooks/usePlugins';
 import { getProviderSourceLabel } from '@/lib/ai-constants';
@@ -72,6 +74,7 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
         className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
       >
         <span className="flex items-center gap-2">
@@ -339,6 +342,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
           <button
             type="button"
             onClick={() => setShowPrivate(!showPrivate)}
+            aria-expanded={showPrivate}
             className="flex items-center text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
           >
             {showPrivate ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}
@@ -361,8 +365,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
 
         {/* Provider and Model Selection */}
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="label">Provider</label>
+          <FormField label="Provider">
             <Select
               value={ai.selectedProvider}
               onChange={(e) => ai.setSelectedProvider(e.target.value)}
@@ -374,9 +377,8 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
                 </option>
               ))}
             </Select>
-          </div>
-          <div>
-            <label className="label">Model</label>
+          </FormField>
+          <FormField label="Model">
             <Select
               value={ai.selectedModel}
               onChange={(e) => ai.setSelectedModel(e.target.value)}
@@ -386,7 +388,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
                 <option key={m.id} value={m.id}>{m.name}</option>
               ))}
             </Select>
-          </div>
+          </FormField>
         </div>
 
         {/* Custom API Key Override */}
@@ -394,6 +396,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
           <button
             type="button"
             onClick={() => ai.setShowKeyOverride(!ai.showKeyOverride)}
+            aria-expanded={ai.showKeyOverride}
             className="flex items-center text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
           >
             {ai.showKeyOverride ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}
@@ -463,11 +466,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         )}
 
         {/* Error */}
-        {(error || ai.error) && (
-          <div className="rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
-            <p className="text-sm text-red-800 dark:text-red-300">{error || ai.error}</p>
-          </div>
-        )}
+        <ErrorAlert message={error || ai.error} />
 
         {/* Analysis Badges */}
         {analysis && (
@@ -524,8 +523,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         {/* Project & Organization Override */}
         {generatedProps && (
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label">Project</label>
+            <FormField label="Project">
               <Input
                 type="text"
                 value={projectOverride}
@@ -534,9 +532,8 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
                 className="text-sm"
                 disabled={disabled || generating}
               />
-            </div>
-            <div>
-              <label className="label">Organization</label>
+            </FormField>
+            <FormField label="Organization">
               <Input
                 type="text"
                 value={organizationOverride}
@@ -545,7 +542,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
                 className="text-sm"
                 disabled={disabled || generating}
               />
-            </div>
+            </FormField>
           </div>
         )}
 

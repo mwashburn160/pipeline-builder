@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { FileText, Plus, Pencil, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { TextEmptyState } from '@/components/ui/EmptyState';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Textarea';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import api from '@/lib/api';
 import { useCrudResource } from '@/hooks/useCrudResource';
 import type { CompliancePolicy } from '@/types/compliance';
@@ -77,11 +81,7 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
   }
 
   if (error) {
-    return (
-      <div className="rounded-lg bg-red-50 dark:bg-red-900/20 p-4 text-red-700 dark:text-red-300">
-        {error.message}
-      </div>
-    );
+    return <ErrorAlert message={error.message} />;
   }
 
   return (
@@ -107,33 +107,30 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
       {showForm && (
         <div className="p-4 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20 space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <input
+            <Input
               placeholder="Policy name"
               value={form.name}
               onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
             />
-            <input
+            <Input
               placeholder="Version (e.g. 1.0.0)"
               value={form.version}
               onChange={e => setForm(f => ({ ...f, version: e.target.value }))}
-              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
             />
           </div>
-          <textarea
+          <Textarea
             placeholder="Description (optional)"
             value={form.description}
             onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
             rows={2}
           />
           <div className="flex gap-2">
             <button onClick={handleSubmit} className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700">
               {editingId ? 'Update' : 'Create'} Policy
             </button>
-            <button onClick={handleCancel} className="px-3 py-1.5 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg">
+            <Button variant="secondary" size="sm" onClick={handleCancel}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}

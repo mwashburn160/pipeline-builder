@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 import type { OrgQuotaResponse, DisplayedQuotaType } from '@/types';
 import { fmtNum } from '@/lib/format';
 import { QuotaCard } from './QuotaCard';
@@ -98,7 +99,7 @@ export function QuotasReadOnly({
           <div className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300" role="alert">
             <span>{loadError}</span>
             {onRetry && (
-              <button type="button" onClick={onRetry} className="underline hover:no-underline">Retry</button>
+              <Button variant="ghost" size="sm" onClick={onRetry} className="underline hover:no-underline">Retry</Button>
             )}
           </div>
         )}

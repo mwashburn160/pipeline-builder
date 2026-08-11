@@ -3,6 +3,8 @@
 
 import { useEffect, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { api } from '@/lib/api';
 
 interface BulkDeleteConfirmProps {
@@ -152,7 +154,7 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
             <label htmlFor="bulk-delete-confirm" className="block text-xs font-medium mb-1">
               Type <code className="font-mono font-bold">{expectedPhrase}</code> (the count) to confirm:
             </label>
-            <input
+            <Input
               id="bulk-delete-confirm"
               type="text"
               value={confirmPhrase}
@@ -173,21 +175,18 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
         )}
 
         <div className="flex justify-end gap-2 pt-2">
-          <button
-            onClick={onClose}
-            disabled={submitting}
-            className="px-4 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={submitting}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
             onClick={submit}
             disabled={submitting || complete || !typeConfirmPassed}
             title={!typeConfirmPassed ? `Type ${expectedPhrase} above to enable` : undefined}
-            className="px-4 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {complete ? 'Done' : submitting ? `Deleting (${progress.done}/${refs.length})…` : `Delete ${refs.length}`}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

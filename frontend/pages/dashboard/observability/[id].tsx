@@ -11,6 +11,9 @@ import { useFetch } from '@/hooks/useFetch';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Button } from '@/components/ui/Button';
+import { LinkButton } from '@/components/ui/LinkButton';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LinePanel } from '@/components/observability/LinePanel';
 import { StackedBarPanel } from '@/components/observability/StackedBarPanel';
 import { StatPanel } from '@/components/observability/StatPanel';
@@ -183,9 +186,7 @@ export default function DashboardPage() {
   if (error) {
     return (
       <DashboardLayout title="Dashboard" subtitle="">
-        <div className="rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200">
-          {error.message}
-        </div>
+        <ErrorAlert message={error.message} />
         <Link href="/dashboard/observability" className="mt-4 inline-block text-blue-600 hover:underline text-sm">← Back to all dashboards</Link>
       </DashboardLayout>
     );
@@ -217,26 +218,32 @@ export default function DashboardPage() {
         <div className="flex items-center gap-2">
           <RangePicker value={range} onChange={setRange} />
           {mightEdit && (
-            <Link
+            <LinkButton
               href={`/dashboard/observability/${dashboard.id}/edit`}
-              className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
+              variant="secondary"
+              size="xs"
+              className="gap-1"
             >
               <Edit2 className="w-3.5 h-3.5" /> Edit
-            </Link>
+            </LinkButton>
           )}
-          <button
+          <Button
+            variant="secondary"
+            size="xs"
             onClick={() => void onClone()}
-            className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
+            className="gap-1"
           >
             <Copy className="w-3.5 h-3.5" /> Clone
-          </button>
+          </Button>
           {mightEdit && (
-            <button
+            <Button
+              variant="danger-outline"
+              size="xs"
               onClick={() => void onDelete()}
-              className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 rounded hover:bg-red-50 dark:hover:bg-red-900/20"
+              className="gap-1"
             >
               <Trash2 className="w-3.5 h-3.5" /> Delete
-            </button>
+            </Button>
           )}
         </div>
       }

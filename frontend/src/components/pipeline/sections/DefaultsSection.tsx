@@ -1,4 +1,5 @@
 import { FormBuilderState, FormNetworkConfig, FormSecurityGroupConfig, MetadataEntry } from '@/types/form-types';
+import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { Checkbox } from '@/components/ui/Checkbox';
 import NetworkConfigEditor from '../editors/NetworkConfigEditor';
@@ -133,8 +134,7 @@ export default function DefaultsSection({
             </div>
 
             {/* Notifications */}
-            <div className="space-y-3">
-              <label className="label">SNS Topic ARN (optional)</label>
+            <FormField label="SNS Topic ARN (optional)" hint="Receive pipeline execution notifications via SNS (FAILED + SUCCEEDED events).">
               <Input
                 type="text"
                 placeholder="arn:aws:sns:us-east-1:123456789012:my-topic"
@@ -144,10 +144,7 @@ export default function DefaultsSection({
                 )}
                 disabled={disabled}
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Receive pipeline execution notifications via SNS (FAILED + SUCCEEDED events).
-              </p>
-            </div>
+            </FormField>
 
             {/* Operations */}
             <div className="space-y-3">
@@ -174,8 +171,7 @@ export default function DefaultsSection({
             </div>
 
             {/* Encryption */}
-            <div className="space-y-2">
-              <label className="label">KMS Key ARN (optional)</label>
+            <FormField label="KMS Key ARN (optional)">
               <Input
                 type="text"
                 placeholder="arn:aws:kms:us-east-1:123456789012:key/..."
@@ -185,7 +181,7 @@ export default function DefaultsSection({
                 )}
                 disabled={disabled}
               />
-            </div>
+            </FormField>
           </div>
         )}
       </div>

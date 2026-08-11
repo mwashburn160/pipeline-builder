@@ -6,6 +6,8 @@ import api from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import type { OrganizationMember } from '@/types';
 import type {
@@ -18,7 +20,6 @@ interface NotificationPreferencesManagerProps {
 }
 
 const labelClass = 'block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1';
-const inputClass = 'w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 disabled:opacity-60';
 
 export default function NotificationPreferencesManager({ readOnly = false }: NotificationPreferencesManagerProps) {
   const toast = useToast();
@@ -182,25 +183,25 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
       <div className="space-y-2 border-t border-gray-200 dark:border-gray-700 pt-4">
         <div>
           <label className={labelClass}>Webhook URL</label>
-          <input
+          <Input
             type="url"
             value={webhookUrl}
             onChange={(e) => setWebhookUrl(e.target.value)}
             disabled={readOnly}
             placeholder="https://… (leave blank to disable)"
-            className={inputClass}
+            className="disabled:opacity-60"
           />
         </div>
         <div>
           <label className={labelClass}>Webhook signing secret</label>
-          <input
+          <Input
             type="password"
             autoComplete="off"
             value={webhookSecret}
             onChange={(e) => setWebhookSecret(e.target.value)}
             disabled={readOnly}
             placeholder={hasSecret ? '(leave blank to keep existing)' : 'optional — signs the X-PB-Signature header'}
-            className={`${inputClass} font-mono`}
+            className="font-mono disabled:opacity-60"
           />
         </div>
       </div>
@@ -208,16 +209,16 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
       {/* Digest cadence */}
       <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
         <label className={labelClass}>Delivery cadence</label>
-        <select
+        <Select
           value={digestMode}
           onChange={(e) => setDigestMode(e.target.value as typeof digestMode)}
           disabled={readOnly}
-          className={inputClass}
+          className="disabled:opacity-60"
         >
           <option value="immediate">Immediate</option>
           <option value="daily">Daily digest</option>
           <option value="weekly">Weekly digest</option>
-        </select>
+        </Select>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
           Digests batch notifications and deliver them once per day/week instead of immediately.
         </p>

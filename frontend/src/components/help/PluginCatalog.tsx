@@ -1,5 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Search } from 'lucide-react';
+import { FilterInput } from '@/components/ui/FilterInput';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { PLUGIN_CATALOG, PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
 import type { PluginCategory } from '@/lib/help';
 
@@ -23,24 +25,25 @@ export function PluginCatalog() {
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
+          <FilterInput
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search plugins..."
-            className="input pl-9 text-sm w-full"
+            aria-label="Search plugins"
           />
         </div>
-        <select
+        <FilterSelect
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          className="input text-sm sm:w-48"
+          aria-label="Filter by category"
+          className="sm:w-48"
         >
           <option value="">All Categories</option>
           {PLUGIN_CATEGORIES.map((cat) => (
             <option key={cat} value={cat}>{CATEGORY_DISPLAY_NAMES[cat]}</option>
           ))}
-        </select>
+        </FilterSelect>
       </div>
 
       {/* Results count */}

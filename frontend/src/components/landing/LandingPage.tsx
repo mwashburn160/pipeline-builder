@@ -14,6 +14,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import api from '@/lib/api';
 
 // sessionStorage key carrying the OAuth "intent" across the provider redirect.
@@ -192,11 +193,7 @@ function Hero() {
                 <p>Session expired. Please sign in again.</p>
               </div>
             )}
-            {error && (
-              <div className="alert-error mb-3" role="alert" aria-live="polite">
-                <p>{error}</p>
-              </div>
-            )}
+            <ErrorAlert message={error} className="mb-3" />
 
             <form onSubmit={handleSignIn} className="space-y-3">
               <Input

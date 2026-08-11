@@ -30,6 +30,7 @@ import { Pagination } from '@/components/ui/Pagination';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { Button } from '@/components/ui/Button';
+import { FilterInput } from '@/components/ui/FilterInput';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { formatError } from '@/lib/constants';
 import { downloadCsv, downloadJsonl } from '@/lib/csv-export';
@@ -240,27 +241,27 @@ export default function AuditPage() {
       <div className="filter-bar grid grid-cols-1 md:grid-cols-3 gap-2">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-          <input
+          <FilterInput
             type="text"
             placeholder="Filter by action (substring match)"
+            aria-label="Filter by action"
             value={action}
             onChange={(e) => { setAction(e.target.value); setOffset(0); }}
-            className="filter-input"
           />
         </div>
-        <input
+        <FilterInput
           type="text"
           placeholder="Actor user id"
+          aria-label="Filter by actor user id"
           value={actorId}
           onChange={(e) => { setActorId(e.target.value); setOffset(0); }}
-          className="filter-input"
         />
-        <input
+        <FilterInput
           type="text"
           placeholder="Request id (correlation)"
+          aria-label="Filter by request id"
           value={requestId}
           onChange={(e) => { setRequestId(e.target.value); setOffset(0); }}
-          className="filter-input"
         />
         <select
           aria-label="Filter by outcome"
@@ -291,33 +292,31 @@ export default function AuditPage() {
         </select>
         <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           <span className="shrink-0">From</span>
-          <input
+          <FilterInput
             type="date"
             aria-label="Filter events created on or after"
             value={from}
             max={to || undefined}
             onChange={(e) => { setFrom(e.target.value); setOffset(0); }}
-            className="filter-input"
           />
         </label>
         <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           <span className="shrink-0">To</span>
-          <input
+          <FilterInput
             type="date"
             aria-label="Filter events created on or before"
             value={to}
             min={from || undefined}
             onChange={(e) => { setTo(e.target.value); setOffset(0); }}
-            className="filter-input"
           />
         </label>
         {isSuperAdmin && (
-          <input
+          <FilterInput
             type="text"
             placeholder="Affected org id (sysadmin filter)"
+            aria-label="Filter by affected org id"
             value={affectedOrgId}
             onChange={(e) => { setAffectedOrgId(e.target.value); setOffset(0); }}
-            className="filter-input"
           />
         )}
       </div>

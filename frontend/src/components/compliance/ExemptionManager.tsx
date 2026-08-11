@@ -7,6 +7,10 @@ import { Pagination } from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toast';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Textarea } from '@/components/ui/Textarea';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { useServerPagination } from '@/hooks/useServerPagination';
@@ -194,17 +198,16 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Exemptions</h2>
         </div>
         <div className="flex gap-2">
-          <select
+          <FilterSelect
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             aria-label="Filter exemptions by status"
-            className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm"
           >
             <option value="">All statuses</option>
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>
             <option value="rejected">Rejected</option>
-          </select>
+          </FilterSelect>
           {!readOnly && (
             <>
               <input
@@ -246,15 +249,15 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       {showForm && (
         <div className="p-4 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <input aria-label="Rule ID" placeholder="Rule ID" value={form.ruleId} onChange={e => setForm(f => ({ ...f, ruleId: e.target.value }))} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm" />
-            <select value={form.entityType} onChange={e => setForm(f => ({ ...f, entityType: e.target.value as 'plugin' | 'pipeline' }))} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
+            <Input aria-label="Rule ID" placeholder="Rule ID" value={form.ruleId} onChange={e => setForm(f => ({ ...f, ruleId: e.target.value }))} />
+            <Select value={form.entityType} onChange={e => setForm(f => ({ ...f, entityType: e.target.value as 'plugin' | 'pipeline' }))}>
               <option value="plugin">Plugin</option>
               <option value="pipeline">Pipeline</option>
-            </select>
-            <input aria-label="Entity ID" placeholder="Entity ID" value={form.entityId} onChange={e => setForm(f => ({ ...f, entityId: e.target.value }))} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm" />
-            <input aria-label="Entity Name (optional)" placeholder="Entity Name (optional)" value={form.entityName} onChange={e => setForm(f => ({ ...f, entityName: e.target.value }))} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm" />
+            </Select>
+            <Input aria-label="Entity ID" placeholder="Entity ID" value={form.entityId} onChange={e => setForm(f => ({ ...f, entityId: e.target.value }))} />
+            <Input aria-label="Entity Name (optional)" placeholder="Entity Name (optional)" value={form.entityName} onChange={e => setForm(f => ({ ...f, entityName: e.target.value }))} />
           </div>
-          <textarea aria-label="Reason for exemption" placeholder="Reason for exemption..." value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm" rows={2} />
+          <Textarea aria-label="Reason for exemption" placeholder="Reason for exemption..." value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} rows={2} />
           <div className="flex gap-2">
             <Button variant="primary" size="sm" onClick={handleCreate}>Submit Request</Button>
             <Button variant="secondary" size="sm" onClick={() => setShowForm(false)}>Cancel</Button>
@@ -315,11 +318,11 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
                 )}
                 {rejectingId === ex.id && (
                   <div className="mt-2 flex gap-2">
-                    <input
+                    <Input
                       value={rejectionReason}
                       onChange={e => setRejectionReason(e.target.value)}
                       placeholder="Reason for rejection (optional)"
-                      className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm"
+                      className="flex-1"
                     />
                     <Button variant="danger" size="xs" onClick={() => handleReject(ex.id)}>
                       Confirm Reject

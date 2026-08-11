@@ -9,6 +9,9 @@ import { SEVERITY_CONFIG } from '@/lib/compliance-styles';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
+import { FilterInput } from '@/components/ui/FilterInput';
+import { FilterSelect } from '@/components/ui/FilterSelect';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 
 interface RuleListProps {
   onEdit?: (rule: ComplianceRule) => void;
@@ -88,9 +91,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
   }
 
   if (error) {
-    return (
-      <div className="rounded-lg bg-red-50 dark:bg-red-900/20 p-4 text-red-700 dark:text-red-300">{error.message}</div>
-    );
+    return <ErrorAlert message={error.message} />;
   }
 
   return (
@@ -114,38 +115,37 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
           <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
-          <input
+          <FilterInput
             value={nameSearch}
             onChange={e => setNameSearch(e.target.value)}
             placeholder="Search by name..."
             aria-label="Search by name"
-            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 pl-8 pr-3 py-1.5 text-sm"
           />
         </div>
-        <select value={targetFilter} onChange={e => setTargetFilter(e.target.value as RuleTarget | '')} aria-label="Filter rules by target" className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
+        <FilterSelect value={targetFilter} onChange={e => setTargetFilter(e.target.value as RuleTarget | '')} aria-label="Filter rules by target">
           <option value="">All targets</option>
           <option value="plugin">Plugin</option>
           <option value="pipeline">Pipeline</option>
-        </select>
-        <select value={severityFilter} onChange={e => setSeverityFilter(e.target.value as RuleSeverity | '')} aria-label="Filter rules by severity" className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
+        </FilterSelect>
+        <FilterSelect value={severityFilter} onChange={e => setSeverityFilter(e.target.value as RuleSeverity | '')} aria-label="Filter rules by severity">
           <option value="">All severities</option>
           <option value="critical">Critical</option>
           <option value="error">Error</option>
           <option value="warning">Warning</option>
-        </select>
-        <select value={scopeFilter} onChange={e => setScopeFilter(e.target.value as RuleScope | '')} aria-label="Filter rules by scope" className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
+        </FilterSelect>
+        <FilterSelect value={scopeFilter} onChange={e => setScopeFilter(e.target.value as RuleScope | '')} aria-label="Filter rules by scope">
           <option value="">All scopes</option>
           <option value="org">Org</option>
           <option value="published">Published</option>
-        </select>
-        <select value={`${sortBy}-${sortOrder}`} onChange={e => { const [s, o] = e.target.value.split('-'); setSortBy(s as typeof sortBy); setSortOrder(o as typeof sortOrder); }} aria-label="Sort rules" className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
+        </FilterSelect>
+        <FilterSelect value={`${sortBy}-${sortOrder}`} onChange={e => { const [s, o] = e.target.value.split('-'); setSortBy(s as typeof sortBy); setSortOrder(o as typeof sortOrder); }} aria-label="Sort rules">
           <option value="priority-asc">Priority (low first)</option>
           <option value="priority-desc">Priority (high first)</option>
           <option value="name-asc">Name A-Z</option>
           <option value="name-desc">Name Z-A</option>
           <option value="severity-asc">Severity (critical first)</option>
           <option value="severity-desc">Severity (warning first)</option>
-        </select>
+        </FilterSelect>
       </div>
 
       {/* Rule Table */}

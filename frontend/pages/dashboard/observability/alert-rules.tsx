@@ -11,6 +11,11 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Textarea } from '@/components/ui/Textarea';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { api, getErrorMessage } from '@/lib/api';
@@ -80,12 +85,14 @@ export default function AlertRulesPage() {
       subtitle="Operator-authored PromQL conditions that fire alerts for this org. Rules are auto-scoped to your org's metrics."
       actions={
         canWrite ? (
-          <button
+          <Button
+            variant="secondary"
+            size="xs"
             onClick={() => setCreating(true)}
-            className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
+            className="gap-1"
           >
             <Plus className="w-3.5 h-3.5" /> Add rule
-          </button>
+          </Button>
         ) : undefined
       }
     >
@@ -96,11 +103,7 @@ export default function AlertRulesPage() {
         <Link href="/dashboard/observability/alerts" className="text-blue-600 hover:underline">Alerts page</Link>.
       </div>
 
-      {error && (
-        <div className="mb-4 rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200">
-          {error.message}
-        </div>
-      )}
+      <ErrorAlert message={error?.message} className="mb-4" />
 
       {loading ? (
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
@@ -241,23 +244,22 @@ function RuleModal(props: {
       <div className="space-y-3">
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Name</label>
-          <input
+          <Input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. High build failure rate"
-            className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
           />
           <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">Letters, digits, space, _ or - (max 100 chars).</div>
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">PromQL expression</label>
-          <textarea
+          <Textarea
             value={expr}
             onChange={(e) => setExpr(e.target.value)}
             rows={3}
             placeholder={'rate(plugin_build_failures_total[5m]) > 0.1'}
-            className="w-full px-3 py-1.5 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+            className="font-mono"
           />
           <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
             Your org&apos;s <code>org_id</code> matcher is injected automatically — write plain PromQL. The alert fires when the expression returns a result.
@@ -266,46 +268,43 @@ function RuleModal(props: {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">For (duration)</label>
-            <input
+            <Input
               type="text"
               value={forDuration}
               onChange={(e) => setForDuration(e.target.value)}
               placeholder="5m"
-              className="w-full px-3 py-1.5 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+              className="font-mono"
             />
             <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">Prometheus syntax (e.g. 30s, 5m, 1h).</div>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Severity</label>
-            <select
+            <Select
               value={severity}
               onChange={(e) => setSeverity(e.target.value as typeof severity)}
-              className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
             >
               <option value="warning">Warning</option>
               <option value="critical">Critical</option>
-            </select>
+            </Select>
           </div>
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Summary</label>
-          <input
+          <Input
             type="text"
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
             placeholder="e.g. Build failure rate is elevated"
-            className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
           />
           <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">Alertmanager annotation; supports <code>{'{{ $value }}'}</code> (max 500 chars).</div>
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Description (optional)</label>
-          <textarea
+          <Textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
             placeholder="Extra context shown alongside the firing alert."
-            className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
           />
         </div>
         <label className="flex items-center gap-2 text-sm">
@@ -313,16 +312,17 @@ function RuleModal(props: {
           Enabled
         </label>
         <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose} disabled={saving} className="px-4 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded">
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={saving}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => void onSubmit()}
             disabled={saving || !canSubmit}
-            className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded disabled:opacity-50"
           >
             {saving ? 'Saving…' : (existing ? 'Save' : 'Create')}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

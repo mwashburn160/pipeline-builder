@@ -8,6 +8,10 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { useToast } from '@/components/ui/Toast';
 import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
+import { Select } from '@/components/ui/Select';
+import { Textarea } from '@/components/ui/Textarea';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { api, getErrorMessage } from '@/lib/api';
 import type { Alert, Silence } from '@/types/observability';
 import { formatRelativeTime } from '@/lib/relative-time';
@@ -125,21 +129,21 @@ export default function AlertsPage() {
       title="Alerts"
       subtitle="Firing + suppressed alerts from Alertmanager"
       actions={
-        <button
+        <Button
+          variant="secondary"
+          size="xs"
           onClick={() => void refresh()}
-          className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
+          className="gap-1"
           aria-label="Refresh alerts"
         >
           <RefreshCw className="w-3.5 h-3.5" /> Refresh
-        </button>
+        </Button>
       }
     >
       {loading && alerts.length === 0 ? (
         <div className="text-sm text-gray-500 dark:text-gray-400">Loading…</div>
       ) : error ? (
-        <div className="rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200">
-          {error}
-        </div>
+        <ErrorAlert message={error} />
       ) : (
         <div className="space-y-6">
           {sortedAlerts.length === 0 ? (
@@ -185,12 +189,14 @@ export default function AlertsPage() {
                         </div>
                       </div>
                       {!suppressed && canWrite && (
-                        <button
+                        <Button
+                          variant="secondary"
+                          size="xs"
                           onClick={() => setSilenceTarget(a)}
-                          className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-white dark:hover:bg-gray-800"
+                          className="flex-shrink-0 gap-1"
                         >
                           <BellOff className="w-3 h-3" /> Silence
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -216,12 +222,14 @@ export default function AlertsPage() {
                       </div>
                     </div>
                     {canWrite && (
-                      <button
+                      <Button
+                        variant="secondary"
+                        size="xs"
                         onClick={() => void onExpireSilence(s.id)}
-                        className="flex-shrink-0 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
+                        className="flex-shrink-0"
                       >
                         Expire
-                      </button>
+                      </Button>
                     )}
                   </div>
                 ))}
@@ -272,20 +280,22 @@ function SilenceModal(props: {
 
   const footer = (
     <div className="flex justify-end gap-2">
-      <button
+      <Button
+        variant="secondary"
+        size="sm"
         onClick={onClose}
         disabled={submitting}
-        className="px-4 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
       >
         Cancel
-      </button>
-      <button
+      </Button>
+      <Button
+        variant="primary"
+        size="sm"
         onClick={() => void handleSubmit()}
         disabled={submitting || !comment.trim()}
-        className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
       >
         {submitting ? 'Creating…' : 'Create silence'}
-      </button>
+      </Button>
     </div>
   );
 
@@ -300,24 +310,22 @@ function SilenceModal(props: {
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Duration</label>
-          <select
+          <Select
             value={durationMs}
             onChange={(e) => setDurationMs(parseInt(e.target.value, 10))}
-            className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
           >
             {DURATIONS.map(d => <option key={d.ms} value={d.ms}>{d.label}</option>)}
-          </select>
+          </Select>
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
             Reason <span className="text-red-500">*</span>
           </label>
-          <textarea
+          <Textarea
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             rows={3}
             placeholder="Why are you silencing this? (visible to other operators)"
-            className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
           />
         </div>
       </div>

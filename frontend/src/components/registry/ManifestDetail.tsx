@@ -6,6 +6,7 @@ import { ChevronRight } from 'lucide-react';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { Disclosure } from '@/components/ui/Disclosure';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { WarningAlert } from '@/components/ui/WarningAlert';
 import { api } from '@/lib/api';
 import { redactString, redactDetails } from '@/lib/redact';
 import type { RegistryManifestKind, RegistryPlatformRef } from '@/types';
@@ -106,10 +107,12 @@ export function ManifestDetail({
       </div>
 
       {kind.kind !== 'unknown' && (
-        <div className="border-b border-gray-200 dark:border-gray-700 flex">
+        <div role="tablist" className="border-b border-gray-200 dark:border-gray-700 flex">
           {(['summary', 'json'] as Tab[]).map((t) => (
             <button
               key={t}
+              role="tab"
+              aria-selected={effectiveTab === t}
               onClick={() => setTab(t)}
               className={`px-4 py-2 text-sm font-medium border-b-2 ${
                 effectiveTab === t
@@ -129,9 +132,7 @@ export function ManifestDetail({
           <IndexSummary platforms={kind.platforms} onSelectPlatform={onSelectPlatform} />
         )}
         {kind.kind === 'unknown' && (
-          <div className="m-3 p-3 text-sm border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-900 dark:text-yellow-200 rounded">
-            {kind.reason}. Showing raw JSON.
-          </div>
+          <WarningAlert className="m-3" message={<>{kind.reason}. Showing raw JSON.</>} />
         )}
         {effectiveTab === 'json' && (
           <pre className="m-3 p-3 max-h-[60vh] overflow-auto text-xs font-mono bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded">

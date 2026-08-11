@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
+import { FilterInput } from '@/components/ui/FilterInput';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -369,19 +371,18 @@ export default function InvitationsPage() {
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1 min-w-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-            <input
+            <FilterInput
               type="text"
               placeholder="Search by email..."
               value={list.filters.search}
               onChange={(e) => list.updateFilter('search', e.target.value)}
-              className="filter-input w-full"
+              className="w-full"
               aria-label="Search invitations by email"
             />
           </div>
-          <select
+          <FilterSelect
             value={list.filters.status}
             onChange={(e) => list.updateFilter('status', e.target.value)}
-            className="filter-select"
             aria-label="Filter by status"
           >
             <option value="all">All Statuses</option>
@@ -389,27 +390,25 @@ export default function InvitationsPage() {
             <option value="accepted">Accepted</option>
             <option value="expired">Expired</option>
             <option value="revoked">Revoked</option>
-          </select>
-          <select
+          </FilterSelect>
+          <FilterSelect
             value={list.filters.invitationType}
             onChange={(e) => list.updateFilter('invitationType', e.target.value)}
-            className="filter-select"
             aria-label="Filter by invitation type"
           >
             <option value="all">All Types</option>
             <option value="email">Email</option>
             <option value="oauth">OAuth</option>
-          </select>
-          <select
+          </FilterSelect>
+          <FilterSelect
             value={list.filters.role}
             onChange={(e) => list.updateFilter('role', e.target.value)}
-            className="filter-select"
             aria-label="Filter by role"
           >
             <option value="all">All Roles</option>
             <option value="member">Member</option>
             <option value="admin">Admin</option>
-          </select>
+          </FilterSelect>
         </div>
       </div>
 

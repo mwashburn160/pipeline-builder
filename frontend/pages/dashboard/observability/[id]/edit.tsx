@@ -12,6 +12,12 @@ import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
+import { LinkButton } from '@/components/ui/LinkButton';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Textarea } from '@/components/ui/Textarea';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { api, getErrorMessage } from '@/lib/api';
 import type { DashboardWithPanels, DashboardPanel, CatalogEntry, DashboardWrite } from '@/types/observability';
 import type { LayoutPanelInput, PanelCoords } from '@/components/observability/DashboardLayoutGrid';
@@ -229,9 +235,7 @@ export default function DashboardEditPage() {
   if (error || !original) {
     return (
       <DashboardLayout title="Edit dashboard" subtitle="">
-        <div className="rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200">
-          {error ?? 'Dashboard not found'}
-        </div>
+        <ErrorAlert message={error ?? 'Dashboard not found'} />
         <Link href="/dashboard/observability" className="mt-4 inline-block text-blue-600 hover:underline text-sm">← Back</Link>
       </DashboardLayout>
     );
@@ -248,20 +252,23 @@ export default function DashboardEditPage() {
       ]}
       actions={
         <div className="flex items-center gap-2">
-          <Link
+          <LinkButton
             href={`/dashboard/observability/${original.id}`}
-            className="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
+            variant="secondary"
+            size="xs"
           >
             Discard
-          </Link>
-          <button
+          </LinkButton>
+          <Button
+            variant="primary"
+            size="xs"
             onClick={() => void onSave()}
             disabled={saving || !name.trim() || !canWrite}
             title={canWrite ? undefined : 'Read-only — requires dashboards:write'}
-            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            className="gap-1"
           >
             <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…' : 'Save'}
-          </button>
+          </Button>
         </div>
       }
     >
@@ -270,33 +277,30 @@ export default function DashboardEditPage() {
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 space-y-3">
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Name</label>
-            <input
+            <Input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Description</label>
-            <textarea
+            <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Visibility</label>
-            <select
+            <Select
               value={visibility}
               onChange={(e) => setVisibility(e.target.value as typeof visibility)}
-              className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             >
               <option value="private">Private (only me)</option>
               <option value="org">Org (anyone in my organization)</option>
               <option value="public">Public (every authenticated user) — sysadmin only</option>
-            </select>
+            </Select>
           </div>
         </div>
 
@@ -322,12 +326,14 @@ export default function DashboardEditPage() {
                   <List className="w-3.5 h-3.5" /> List
                 </button>
               </div>
-              <button
+              <Button
+                variant="secondary"
+                size="xs"
                 onClick={() => setShowAddPanel(true)}
-                className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
+                className="gap-1"
               >
                 <Plus className="w-3.5 h-3.5" /> Add panel
-              </button>
+              </Button>
             </div>
           </div>
           {panels.length === 0 ? (
@@ -475,12 +481,11 @@ function AddPanelModal(props: {
       <div className="space-y-4">
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Filter</label>
-          <input
+          <Input
             type="text"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Type to filter catalog keys…"
-            className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
           />
         </div>
         <div>
@@ -505,52 +510,51 @@ function AddPanelModal(props: {
           <>
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Title</label>
-              <input
+              <Input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Viz</label>
-                <select
+                <Select
                   value={vizKind}
                   onChange={(e) => setVizKind(e.target.value)}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
                 >
                   <option value="stat">stat</option>
                   <option value="line">line</option>
                   <option value="table">table</option>
                   <option value="stacked-bar">stacked-bar</option>
-                </select>
+                </Select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Span</label>
-                <select
+                <Select
                   value={span}
                   onChange={(e) => setSpan(parseInt(e.target.value, 10))}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
                 >
                   {[3, 4, 6, 8, 9, 12].map(s => <option key={s} value={s}>span {s}</option>)}
-                </select>
+                </Select>
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={onClose}
-                className="px-4 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => onAdd(selected, title.trim() || selected.key, vizKind, span)}
                 disabled={!title.trim()}
-                className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded disabled:opacity-50"
               >
                 Add panel
-              </button>
+              </Button>
             </div>
           </>
         )}

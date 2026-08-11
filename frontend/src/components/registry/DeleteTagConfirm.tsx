@@ -4,6 +4,8 @@
 import { useEffect, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { CopyButton } from '@/components/ui/CopyButton';
+import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { api } from '@/lib/api';
 
 interface DeleteTagConfirmProps {
@@ -146,27 +148,15 @@ export function DeleteTagConfirm({ repo, tagRef, onClose, onDeleted }: DeleteTag
           Note: distribution deletes the manifest by digest, so any other tags pointing at the same digest also stop resolving immediately. Blob layers stay on disk as orphans until the registry's garbage collector runs (a separate maintenance pass — deletion does not reclaim disk on its own). This action is audit-logged.
         </div>
 
-        {error && (
-          <div className="p-3 text-sm border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300 rounded">
-            {error}
-          </div>
-        )}
+        <ErrorAlert message={error} />
 
         <div className="flex justify-end gap-2 pt-2">
-          <button
-            onClick={onClose}
-            disabled={submitting}
-            className="px-4 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={submitting}>
             Cancel
-          </button>
-          <button
-            onClick={submit}
-            disabled={submitting || scanning}
-            className="px-4 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
-          >
+          </Button>
+          <Button variant="danger" size="sm" onClick={submit} disabled={submitting || scanning}>
             {submitting ? 'Deleting…' : 'Delete'}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

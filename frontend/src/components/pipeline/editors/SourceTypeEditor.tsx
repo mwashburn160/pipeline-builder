@@ -90,8 +90,7 @@ export default function SourceTypeEditor({
             </Select>
           </FormField>
           {s3.trigger === 'SCHEDULE' && (
-            <div>
-              <label className="label">Schedule Expression</label>
+            <FormField label="Schedule Expression" hint="Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)">
               <Input
                 type="text"
                 placeholder="rate(1 day) or cron(0 0 * * ? *)"
@@ -99,10 +98,7 @@ export default function SourceTypeEditor({
                 onChange={(e) => onS3Change('schedule', e.target.value)}
                 disabled={disabled}
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)
-              </p>
-            </div>
+            </FormField>
           )}
         </div>
       )}
@@ -150,8 +146,7 @@ export default function SourceTypeEditor({
             </Select>
           </FormField>
           {github.trigger === 'SCHEDULE' && (
-            <div>
-              <label className="label">Schedule Expression</label>
+            <FormField label="Schedule Expression" hint="Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)">
               <Input
                 type="text"
                 placeholder="rate(1 day) or cron(0 0 * * ? *)"
@@ -159,10 +154,7 @@ export default function SourceTypeEditor({
                 onChange={(e) => onGithubChange('schedule', e.target.value)}
                 disabled={disabled}
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)
-              </p>
-            </div>
+            </FormField>
           )}
         </div>
       )}
@@ -208,8 +200,7 @@ export default function SourceTypeEditor({
             </Select>
           </FormField>
           {codestar.trigger === 'SCHEDULE' && (
-            <div>
-              <label className="label">Schedule Expression</label>
+            <FormField label="Schedule Expression" hint="Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)">
               <Input
                 type="text"
                 placeholder="rate(1 day) or cron(0 0 * * ? *)"
@@ -217,10 +208,7 @@ export default function SourceTypeEditor({
                 onChange={(e) => onCodestarChange('schedule', e.target.value)}
                 disabled={disabled}
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)
-              </p>
-            </div>
+            </FormField>
           )}
           <div className="flex items-center">
             <Checkbox
@@ -269,8 +257,7 @@ export default function SourceTypeEditor({
             </Select>
           </FormField>
           {codecommit.trigger === 'SCHEDULE' && (
-            <div>
-              <label className="label">Schedule Expression</label>
+            <FormField label="Schedule Expression" hint="Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)">
               <Input
                 type="text"
                 placeholder="rate(1 day) or cron(0 0 * * ? *)"
@@ -278,10 +265,7 @@ export default function SourceTypeEditor({
                 onChange={(e) => onCodecommitChange('schedule', e.target.value)}
                 disabled={disabled}
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)
-              </p>
-            </div>
+            </FormField>
           )}
         </div>
       )}

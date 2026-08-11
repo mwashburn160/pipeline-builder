@@ -7,6 +7,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 
 const ReportTabs = dynamic(() => import('@/components/reports/ReportTabs'), {
   loading: () => <LoadingPage />,
@@ -363,11 +364,11 @@ export default function ReportsPage() {
             })}
           </div>
           <DateRangePicker from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} />
-          <select value={timeInterval} onChange={(e) => setTimeInterval(e.target.value as 'day' | 'week' | 'month')} className="filter-select">
+          <FilterSelect value={timeInterval} onChange={(e) => setTimeInterval(e.target.value as 'day' | 'week' | 'month')} aria-label="Report time interval">
             <option value="day">Daily</option>
             <option value="week">Weekly</option>
             <option value="month">Monthly</option>
-          </select>
+          </FilterSelect>
           <AutoRefresh onRefresh={fetchData} loading={loading} />
         </div>
       }

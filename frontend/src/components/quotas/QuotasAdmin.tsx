@@ -178,11 +178,12 @@ export function QuotasAdmin({
             {loadError && !loading && (
               <div className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300">
                 <span>{loadError}</span>
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => { const o = isSuperAdmin ? selectedOrgId : user?.organizationId; if (o) fetchOrg(o); }}
                   className="underline hover:no-underline"
-                >Retry</button>
+                >Retry</Button>
               </div>
             )}
             {/* At-risk orgs banner — sysadmin only. Click an entry to jump
@@ -193,13 +194,14 @@ export function QuotasAdmin({
                   <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-100">
                     {atRisk.length} org{atRisk.length !== 1 ? 's' : ''} at risk (≥80% on a quota)
                   </h3>
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    size="xs"
                     onClick={fetchAtRisk}
                     className="text-xs text-amber-800 dark:text-amber-200 underline hover:no-underline"
                   >
                     Refresh
-                  </button>
+                  </Button>
                 </div>
                 <ul className="space-y-1">
                   {atRisk.slice(0, 10).map((entry) => (
