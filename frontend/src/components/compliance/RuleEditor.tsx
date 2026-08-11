@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, FlaskConical, CheckCircle, AlertTriangle, XCircle, BarChart3, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { Button } from '@/components/ui/Button';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleCondition, RuleTarget, RuleSeverity, RuleOperator, RuleConditionMode, RuleScope, ComplianceCheckResult } from '@/types/compliance';
 
@@ -138,6 +139,15 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
 
   const handleSubmit = async () => {
     if (!form.name || !form.target) { setError('Name and target are required.'); return; }
+    // Don't persist a predicate-less rule: multi-condition mode with no
+    // conditions collapses `conditions` to undefined and the single-field
+    // branch is skipped, saving a rule that matches nothing.
+    if (form.useConditions && form.conditions.length === 0) {
+      setError('Add at least one condition, or switch to single-field mode.'); return;
+    }
+    if (!form.useConditions && !form.field.trim()) {
+      setError('A field is required for single-field mode.'); return;
+    }
 
     setSaving(true);
     setError(null);
@@ -205,12 +215,24 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
 
   const handleDryRun = async () => {
     setDryRunResult(null);
+    setError(null);
+    // Parse the JSON separately so a genuine request/server failure isn't
+    // mislabelled as "Invalid JSON".
+    let attrs: Record<string, unknown>;
     try {
-      const attrs = JSON.parse(dryRunAttrs);
+      attrs = JSON.parse(dryRunAttrs);
+    } catch {
+      setError('Invalid JSON for dry-run attributes');
+      return;
+    }
+    try {
       const fn = form.target === 'pipeline' ? api.dryRunPipelineCompliance : api.dryRunPluginCompliance;
       const res = await fn.call(api, attrs);
       if (res.success && res.data) setDryRunResult(res.data);
-    } catch { setError('Invalid JSON for dry-run attributes'); }
+      else setError(res.message || 'Dry-run failed');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Dry-run failed');
+    }
   };
 
   // Preview how many of the org's existing entities would fail this rule right
@@ -370,9 +392,9 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                   <option value="all">ALL conditions (AND)</option>
                   <option value="any">ANY condition (OR)</option>
                 </select>
-                <button onClick={addCondition} className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                <Button variant="primary" size="xs" onClick={addCondition}>
                   <Plus className="h-3 w-3" /> Add Condition
-                </button>
+                </Button>
               </div>
               {form.conditions.length === 0 && (
                 <div className="text-center py-4 text-sm text-gray-400">No conditions yet. Click &quot;Add Condition&quot; to start.</div>
@@ -426,9 +448,9 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
               rows={2}
               placeholder='{"name": "my-plugin", "computeType": "LAMBDA"}'
             />
-            <button onClick={handleDryRun} className="self-end px-3 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+            <Button variant="indigo" size="sm" onClick={handleDryRun} className="self-end">
               Test
-            </button>
+            </Button>
           </div>
           {dryRunResult && (
             <div className="mt-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 text-sm">
@@ -471,14 +493,10 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                 <BarChart3 className="h-4 w-4 text-indigo-600" />
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Impact Preview</span>
               </div>
-              <button
-                onClick={handlePreviewImpact}
-                disabled={impactLoading}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-              >
+              <Button variant="indigo" size="sm" onClick={handlePreviewImpact} disabled={impactLoading} className="gap-1.5">
                 {impactLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BarChart3 className="h-3.5 w-3.5" />}
                 Preview impact
-              </button>
+              </Button>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
               Counts your existing {form.target}s that would fail this rule as currently saved.
@@ -523,12 +541,12 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
 
       {/* Actions */}
       <div className="flex gap-2">
-        <button onClick={handleSubmit} disabled={saving} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+        <Button variant="primary" onClick={handleSubmit} loading={saving}>
           {saving ? 'Saving...' : isEdit ? 'Update Rule' : 'Create Rule'}
-        </button>
-        <button onClick={onCancel} className="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg">
+        </Button>
+        <Button variant="secondary" onClick={onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );

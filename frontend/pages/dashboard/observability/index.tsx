@@ -26,7 +26,7 @@ export default function ObservabilityIndexPage() {
   const { isReady, isAuthenticated, can } = useAuthGuard();
   const canCreateDashboard = can('dashboards:write');
   const ready = isReady && isAuthenticated;
-  const { data, loading, error } = useFetch(
+  const { data, loading, error, refetch } = useFetch(
     async () => (ready ? (await api.listDashboards()).data?.dashboards ?? [] : []),
     [ready],
   );
@@ -90,8 +90,9 @@ export default function ObservabilityIndexPage() {
       }
     >
       {error && (
-        <div className="mb-4 rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200">
-          {error.message}
+        <div className="mb-4 flex items-center justify-between gap-3 rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200" role="alert">
+          <span>{error.message}</span>
+          <button type="button" onClick={refetch} className="underline hover:no-underline whitespace-nowrap">Retry</button>
         </div>
       )}
 

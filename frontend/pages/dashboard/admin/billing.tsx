@@ -13,6 +13,7 @@ import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { BillingAdminTabs } from '@/components/billing/BillingAdminTabs';
 import { Modal } from '@/components/ui/Modal';
+import { StepUpModal } from '@/components/admin/StepUpModal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -101,11 +102,15 @@ export default function BillingAdminPage() {
   // ── Platform finance summary ────────────────────────────
   const [summary, setSummary] = useState<AdminBillingSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  // Distinguishes a summary LOAD FAILURE from a genuinely empty window (a 500 must
+  // not read as "No billing ledger data"). A 404 stays soft (billing disabled).
+  const [summaryError, setSummaryError] = useState<string | null>(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
   const loadSummary = useCallback(async () => {
     setSummaryLoading(true);
+    setSummaryError(null);
     try {
       const res = await api.getAdminBillingSummary({
         ...(from.trim() && { from: new Date(from.trim()).toISOString() }),
@@ -113,15 +118,17 @@ export default function BillingAdminPage() {
       });
       if (res.success && res.data) setSummary(res.data);
     } catch (err) {
-      // Fail-soft: the subscriptions table remains the primary surface.
+      // A 404 means billing isn't enabled — stay soft (the subscriptions table is
+      // the primary surface). Any other error is a real load failure: surface it as
+      // a retryable error rather than a misleading empty state.
       if (!(err instanceof ApiError && err.statusCode === 404)) {
-        toast.error(formatError(err, 'Failed to load billing summary'));
+        setSummaryError(formatError(err, 'Failed to load billing summary'));
       }
       setSummary(null);
     } finally {
       setSummaryLoading(false);
     }
-  }, [from, to, toast]);
+  }, [from, to]);
 
   useEffect(() => {
     if (isAuthenticated && isSuperAdmin) void loadSummary();
@@ -174,24 +181,22 @@ export default function BillingAdminPage() {
   };
 
   // ── Purge an org's subscription(s) ──────────────────────
+  // Fleet-level destructive op (cancels every subscription at the provider +
+  // deletes all rows/events) → gated behind a step-up password re-verify rather
+  // than a plain two-button confirm. `purgeSub` holds the target while the
+  // StepUpModal is open; the actual purge runs only after step-up succeeds.
   const [purgeSub, setPurgeSub] = useState<Subscription | null>(null);
-  const [purgeLoading, setPurgeLoading] = useState(false);
 
   const handlePurge = async () => {
     if (!purgeSub) return;
-    setPurgeLoading(true);
     try {
       const res = await api.deleteSubscriptionByOrg(purgeSub.orgId);
       if (!res.success) throw new Error(res.message || 'Purge failed');
       toast.success(`Purged ${res.data?.deleted ?? 0} subscription(s) and ${res.data?.events ?? 0} event(s)`);
-      setPurgeSub(null);
       list.refresh();
       void loadSummary();
     } catch (err) {
       list.setError(formatError(err, 'Failed to purge org subscription'));
-      setPurgeSub(null);
-    } finally {
-      setPurgeLoading(false);
     }
   };
 
@@ -365,6 +370,11 @@ export default function BillingAdminPage() {
                   </div>
                 )}
               </>
+            ) : summaryError ? (
+              <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300" role="alert">
+                <span>{summaryError}</span>
+                <button type="button" onClick={() => void loadSummary()} className="underline hover:no-underline">Retry</button>
+              </div>
             ) : (
               <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
                 {summaryLoading ? 'Loading summary…' : 'No billing ledger data for this window.'}
@@ -483,24 +493,15 @@ export default function BillingAdminPage() {
         </Modal>
       )}
 
-      {/* Purge confirm */}
+      {/* Purge confirm — step-up gated (fleet-level destructive). The purge runs
+          from onConfirmed after the password re-verify; the endpoint doesn't
+          require the token itself, so it's used purely as the confirmation gate. */}
       {purgeSub && (
-        <Modal
-          title="Purge Org Subscription"
-          onClose={() => { if (!purgeLoading) setPurgeSub(null); }}
-          footer={
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="secondary" onClick={() => setPurgeSub(null)} disabled={purgeLoading}>Cancel</Button>
-              <Button variant="danger" onClick={handlePurge} loading={purgeLoading}>Purge</Button>
-            </div>
-          }
-        >
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            This cancels every billable subscription at the provider and deletes all subscription rows and
-            billing events for <span className="font-mono text-xs text-gray-700 dark:text-gray-300">{purgeSub.orgId}</span>.
-          </p>
-          <p className="text-sm text-red-600 dark:text-red-400 mt-2">This action cannot be undone.</p>
-        </Modal>
+        <StepUpModal
+          action={`Purge all subscriptions and billing events for ${purgeSub.orgId} (cancels every subscription at the provider — cannot be undone)`}
+          onConfirmed={handlePurge}
+          onClose={() => setPurgeSub(null)}
+        />
       )}
 
       {/* Backfill confirm */}

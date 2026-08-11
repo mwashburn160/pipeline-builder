@@ -44,7 +44,7 @@ interface InvitePreview {
 export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl>) {
   const OG_SOLUTION = `${siteUrl}/og-image-solution.png`;
   const router = useRouter();
-  const { user, isInitialized, login, register, refreshUser } = useAuth();
+  const { user, isInitialized, register, refreshUser } = useAuth();
 
   const [token, setToken] = useState('');
   const [invite, setInvite] = useState<InvitePreview | null>(null);
@@ -137,9 +137,10 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
     setSubmitting(true);
     try {
       // No organizationName — accepting the invite is what places the user in an
-      // org; creating a second org here would be wrong.
-      await register(username.trim(), invite.email, password);
-      await login(invite.email, password);
+      // org; creating a second org here would be wrong. `redirect: false` keeps
+      // register from navigating to /dashboard before we accept the invite —
+      // otherwise the page unmounts mid-accept and `finish()` never runs.
+      await register(username.trim(), invite.email, password, undefined, undefined, { redirect: false });
       const res = await api.acceptInvitation(token);
       if (!res.success) throw new Error(res.message || 'Failed to accept invitation');
       await finish();

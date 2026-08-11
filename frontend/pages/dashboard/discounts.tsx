@@ -5,6 +5,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
 import { useDelete } from '@/hooks/useDelete';
+import { useOrgOptions } from '@/hooks/useOrgOptions';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
@@ -13,6 +14,7 @@ import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ModalFooter } from '@/components/ui/ModalFooter';
@@ -74,6 +76,9 @@ function PriceBreakdown({ breakdown }: { breakdown: DiscountPriceBreakdown }) {
 export default function DiscountsPage() {
   const { user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
   const toast = useToast();
+  // Org picker for "Apply to org" — mirrors the Users page rather than a raw
+  // org-id text field, so operators pick from names instead of pasting ids.
+  const { orgOptions, loadOrgOptions } = useOrgOptions();
 
   // When the billing-discounts feature is off the admin endpoints return 404.
   // We catch that in the fetcher and render a dedicated empty state rather than
@@ -96,7 +101,9 @@ export default function DiscountsPage() {
         const data = response.data;
         return {
           items: data?.discounts || [],
-          pagination: data?.pagination,
+          // Fall back so useListPage.total isn't left stale (undefined) on first
+          // load, which can suppress the Pagination control — mirrors the 404 branch.
+          pagination: data?.pagination ?? { total: 0, offset: 0 },
         };
       } catch (err) {
         // Fail-soft: feature disabled in this deployment.
@@ -183,6 +190,9 @@ export default function DiscountsPage() {
     setApplyPreview(null);
     applyForm.reset();
     setApplyDiscount(d);
+    // Populate the org picker. Best-effort — a failure just leaves it empty
+    // (any prefilled target org stays selectable via its own fallback option).
+    loadOrgOptions();
   };
 
   // Dry-run the direct grant so the operator sees the effect before it counts as
@@ -281,10 +291,13 @@ export default function DiscountsPage() {
   );
 
   const columns: Column<Discount>[] = useMemo(() => [
+    // NOTE: no `sortValue` on these columns. The list is server-paginated and the
+    // discounts list endpoint has no sort param, so a client sort would only
+    // reorder the current page — misleading. Sort affordance intentionally
+    // dropped until the backend supports it.
     {
       id: 'discount',
       header: 'Discount',
-      sortValue: (d) => d.value,
       render: (d) => (
         <div>
           <div className="text-sm font-medium text-gray-900 dark:text-gray-100 flex flex-wrap items-center gap-1.5">
@@ -303,7 +316,6 @@ export default function DiscountsPage() {
       id: 'campaign',
       header: 'Campaign / Alias',
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (d) => d.campaign ?? d.alias ?? '',
       render: (d) => (
         <div>
           {d.campaign && <div className="text-gray-700 dark:text-gray-300">{d.campaign}</div>}
@@ -316,7 +328,6 @@ export default function DiscountsPage() {
       id: 'targetOrg',
       header: 'Target Org',
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (d) => d.targetOrgId ?? '',
       render: (d) => (
         d.targetOrgId
           ? <span className="font-mono text-xs">{d.targetOrgId}</span>
@@ -327,7 +338,6 @@ export default function DiscountsPage() {
       id: 'redemptions',
       header: 'Redemptions',
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (d) => d.timesRedeemed,
       render: (d) => (
         <>{d.timesRedeemed}{d.maxRedemptions != null ? ` / ${d.maxRedemptions}` : ''}</>
       ),
@@ -336,7 +346,6 @@ export default function DiscountsPage() {
       id: 'redeemBy',
       header: 'Redeem By',
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (d) => d.redeemBy ? new Date(d.redeemBy) : null,
       render: (d) => d.redeemBy
         ? <RelativeTime value={d.redeemBy} />
         : <span className="text-gray-400 dark:text-gray-500">No expiry</span>,
@@ -344,7 +353,6 @@ export default function DiscountsPage() {
     {
       id: 'status',
       header: 'Status',
-      sortValue: (d) => (d.isActive ? 1 : 0),
       render: (d) => (
         d.isActive
           ? <Badge color="green">Active</Badge>
@@ -443,7 +451,6 @@ export default function DiscountsPage() {
             isLoading={list.isLoading}
             emptyState={{ icon: Ticket, title: 'No discounts', description: 'No discounts have been minted yet.' }}
             getRowKey={(d) => d.id}
-            defaultSortColumn="discount"
           />
 
           {!list.isLoading && list.pagination.total > 0 && (
@@ -604,17 +611,25 @@ export default function DiscountsPage() {
             organization. Preview the effect first — applying counts as a redemption.
           </p>
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Target org id</label>
-            <Input
-              type="text"
-              placeholder="e.g. org_abc123"
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Target organization</label>
+            <Select
               value={applyOrgId}
               onChange={(e) => { setApplyOrgId(e.target.value); setApplyPreview(null); }}
-              onKeyDown={(e) => e.key === 'Enter' && handlePreviewApply()}
-              className="text-sm font-mono"
+              className="text-sm"
+              aria-label="Target organization"
               autoFocus
               disabled={applyForm.loading}
-            />
+            >
+              <option value="">Select an organization…</option>
+              {/* Keep a prefilled target org selectable even if it isn't in the
+                  first page of loaded options. */}
+              {applyDiscount.targetOrgId && !orgOptions.some((o) => o.id === applyDiscount.targetOrgId) && (
+                <option value={applyDiscount.targetOrgId}>{applyDiscount.targetOrgId}</option>
+              )}
+              {orgOptions.map((o) => (
+                <option key={o.id} value={o.id}>{o.name}</option>
+              ))}
+            </Select>
           </div>
           {applyPreview && (
             <div className="mt-4 rounded-md border border-blue-200/70 dark:border-blue-800/60 bg-blue-50/70 dark:bg-blue-900/20 p-3">

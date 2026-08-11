@@ -72,17 +72,20 @@ export function Modal({
     tall && 'flex-1 overflow-y-auto',
   ].filter(Boolean).join(' ');
 
-  // Close on Escape. Only swallow the event if the focused element lives
-  // inside this modal's panel — otherwise a stacked dialog or some other
-  // listener should get a shot at the key (and we'd close prematurely if
-  // focus had been stolen elsewhere).
+  // Close on Escape — but ONLY the dialog that actually contains focus. With
+  // stacked dialogs every instance binds its own `document` keydown listener;
+  // `stopPropagation()` does not stop other listeners on the *same* target, so
+  // it can't prevent a parent dialog from also closing — `stopImmediate...`
+  // does. Gating the close on `focusInside` (the focus trap keeps focus in the
+  // topmost dialog) means only the topmost closes, and stopping immediate
+  // propagation keeps the parents' listeners from firing.
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {
       const focusInside = panelRef.current?.contains(document.activeElement);
       if (focusInside) {
-        e.stopPropagation();
+        e.stopImmediatePropagation();
+        onClose();
       }
-      onClose();
       return;
     }
 

@@ -20,6 +20,8 @@ import { DataTable } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { FilterInput } from '@/components/ui/FilterInput';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ActionBar } from '@/components/ui/ActionBar';
 import { AddMemberModal } from '@/components/members/AddMemberModal';
 import { PasswordResetModal } from '@/components/members/PasswordResetModal';
@@ -299,7 +301,12 @@ export default function MembersPage() {
     }
   };
 
-  const handleToggleActive = async (member: OrganizationMember) => {
+  // Deactivating a member revokes their access, so it's confirmed first;
+  // reactivation is harmless and applies immediately. Both paths toast.
+  const [deactivateTarget, setDeactivateTarget] = useState<OrganizationMember | null>(null);
+  const [deactivateLoading, setDeactivateLoading] = useState(false);
+
+  const performToggleActive = async (member: OrganizationMember) => {
     if (!orgId) return;
     try {
       if (member.isActive) {
@@ -307,10 +314,24 @@ export default function MembersPage() {
       } else {
         await api.activateMember(orgId, member.id);
       }
+      toast.success(`${member.username} ${member.isActive ? 'deactivated' : 'activated'}`);
       list.refresh();
     } catch {
       list.setError(`Failed to ${member.isActive ? 'deactivate' : 'activate'} member`);
     }
+  };
+
+  const handleToggleActive = async (member: OrganizationMember) => {
+    if (member.isActive) { setDeactivateTarget(member); return; }
+    await performToggleActive(member);
+  };
+
+  const confirmDeactivate = async () => {
+    if (!deactivateTarget) return;
+    setDeactivateLoading(true);
+    await performToggleActive(deactivateTarget);
+    setDeactivateLoading(false);
+    setDeactivateTarget(null);
   };
 
   const handleCreateOrg = async () => {
@@ -464,21 +485,21 @@ export default function MembersPage() {
           left={
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-              <input type="text" placeholder="Search by name or email..." value={list.filters.search} onChange={(e) => list.updateFilter('search', e.target.value)} className="filter-input" />
+              <FilterInput type="text" placeholder="Search by name or email..." value={list.filters.search} onChange={(e) => list.updateFilter('search', e.target.value)} aria-label="Search members by name or email" />
             </div>
           }
           right={
             <div className="flex gap-2">
-              <select value={list.filters.status} onChange={(e) => list.updateFilter('status', e.target.value)} className="filter-select" aria-label="Filter by status">
+              <FilterSelect value={list.filters.status} onChange={(e) => list.updateFilter('status', e.target.value)} aria-label="Filter by status">
                 <option value="all">All Statuses</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
-              </select>
-              <select value={list.filters.role} onChange={(e) => list.updateFilter('role', e.target.value)} className="filter-select" aria-label="Filter by role">
+              </FilterSelect>
+              <FilterSelect value={list.filters.role} onChange={(e) => list.updateFilter('role', e.target.value)} aria-label="Filter by role">
                 <option value="all">All Roles</option>
                 <option value="member">Members</option>
                 <option value="admin">Admins</option>
-              </select>
+              </FilterSelect>
             </div>
           }
         />
@@ -609,6 +630,17 @@ export default function MembersPage() {
           loading={removeMember.loading}
           onConfirm={removeMember.confirm}
           onCancel={removeMember.close}
+        />
+      )}
+
+      {/* Deactivate confirmation — deactivation revokes access, so confirm it. */}
+      {deactivateTarget && (
+        <DeleteConfirmModal
+          title="Deactivate Member"
+          itemName={deactivateTarget.username}
+          loading={deactivateLoading}
+          onConfirm={confirmDeactivate}
+          onCancel={() => setDeactivateTarget(null)}
         />
       )}
     </DashboardLayout>

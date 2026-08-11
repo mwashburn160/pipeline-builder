@@ -52,22 +52,29 @@ export function ThreadView({ rootMessage, currentOrgId, onBack, onThreadRead, on
   const onThreadReadRef = useRef(onThreadRead);
   onThreadReadRef.current = onThreadRead;
 
-  const fetchThread = async () => {
-    try {
-      setLoading(true);
-      const result = await api.getThread(rootMessage.id);
-      setThread(result.data?.messages || []);
-    } catch {
-      setThread([rootMessage]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchThread();
+    // Guard against stale responses: fast thread switching can resolve an older
+    // fetch after a newer one, rendering the wrong thread. Skip setState if this
+    // effect has been superseded (id changed) or the component unmounted.
+    let cancelled = false;
+    const fetchThread = async () => {
+      try {
+        setLoading(true);
+        const result = await api.getThread(rootMessage.id);
+        if (cancelled) return;
+        setThread(result.data?.messages || []);
+      } catch {
+        if (cancelled) return;
+        setThread([rootMessage]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void fetchThread();
     // Mark thread as read when viewing
     onThreadReadRef.current(rootMessage.id);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-fetch only on thread id change; rootMessage is the fallback body.
   }, [rootMessage.id]);
 
   useEffect(() => {

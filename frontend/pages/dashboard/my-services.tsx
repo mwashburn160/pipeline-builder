@@ -194,7 +194,12 @@ export default function MyServicesPage() {
             emptyState={{
               icon: Layers,
               title: 'No pipelines owned by you',
-              description: 'Pipelines you create are assigned to you and appear here. Create one from the Pipelines page.',
+              description: 'Pipelines you create are assigned to you and appear here.',
+              action: (
+                <Link href="/dashboard/pipelines" className="btn btn-primary">
+                  Go to Pipelines
+                </Link>
+              ),
             }}
           >
             <DataTable

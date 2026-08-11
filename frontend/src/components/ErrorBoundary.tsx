@@ -11,6 +11,10 @@ interface Props {
   fallback?: ReactNode;
   /** Callback invoked when an error is caught, useful for error reporting */
   onError?: (error: Error, errorInfo: ErrorInfo) => void;
+  /** When this value changes, a caught error is cleared automatically. Pass a
+   *  full-path key (e.g. `router.asPath`) so navigating within the same dynamic
+   *  route (id→id, query-only change) recovers instead of stranding the error UI. */
+  resetKey?: unknown;
 }
 
 /** Internal state for the ErrorBoundary. */
@@ -38,6 +42,14 @@ export class ErrorBoundary extends Component<Props, State> {
     // dev, ships to NEXT_PUBLIC_ERROR_REPORT_URL in prod when configured).
     reportClientError(error, { source: 'react', componentStack: errorInfo.componentStack ?? undefined });
     this.props.onError?.(error, errorInfo);
+  }
+
+  componentDidUpdate(prevProps: Props) {
+    // Clear a caught error when the reset key changes (e.g. the user navigated to
+    // a different record under the same dynamic route), so it doesn't strand.
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false, error: null });
+    }
   }
 
   handleRetry = () => {

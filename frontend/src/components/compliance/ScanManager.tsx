@@ -3,6 +3,9 @@
 import { useState } from 'react';
 import { Scan, Play, Square, Loader2, Eye } from 'lucide-react';
 import api from '@/lib/api';
+import { Button } from '@/components/ui/Button';
+import { useToast } from '@/components/ui/Toast';
+import { formatError } from '@/lib/constants';
 import { Pagination } from '@/components/ui/Pagination';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { TextEmptyState } from '@/components/ui/EmptyState';
@@ -16,6 +19,7 @@ interface ScanManagerProps {
 }
 
 export default function ScanManager({ onViewScan, readOnly = false }: ScanManagerProps) {
+  const toast = useToast();
   const [triggering, setTriggering] = useState(false);
   const [targetFilter, setTargetFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -54,13 +58,20 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
     try {
       await api.triggerScan(target);
       fetchScans();
-    } catch { /* handled */ }
-    setTriggering(false);
+    } catch (err) {
+      toast.error(formatError(err, 'Failed to trigger scan'));
+    } finally {
+      setTriggering(false);
+    }
   };
 
   const handleCancel = async (id: string) => {
-    await api.cancelScan(id);
-    fetchScans();
+    try {
+      await api.cancelScan(id);
+      fetchScans();
+    } catch (err) {
+      toast.error(formatError(err, 'Failed to cancel scan'));
+    }
   };
 
   return (
@@ -72,27 +83,27 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
         </div>
         {!readOnly && (
           <div className="flex gap-2">
-            <button onClick={() => handleTrigger('plugin')} disabled={triggering} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+            <Button variant="indigo" size="sm" onClick={() => handleTrigger('plugin')} disabled={triggering} className="gap-1.5">
               <Play className="h-3 w-3" /> Scan Plugins
-            </button>
-            <button onClick={() => handleTrigger('pipeline')} disabled={triggering} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+            </Button>
+            <Button variant="indigo" size="sm" onClick={() => handleTrigger('pipeline')} disabled={triggering} className="gap-1.5">
               <Play className="h-3 w-3" /> Scan Pipelines
-            </button>
-            <button onClick={() => handleTrigger('all')} disabled={triggering} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-800 text-white rounded-lg hover:bg-indigo-900 disabled:opacity-50">
+            </Button>
+            <Button variant="indigo" size="sm" onClick={() => handleTrigger('all')} disabled={triggering} className="gap-1.5">
               <Play className="h-3 w-3" /> Scan All
-            </button>
+            </Button>
           </div>
         )}
       </div>
 
       {/* Filters */}
       <div className="flex gap-3">
-        <select value={targetFilter} onChange={e => setTargetFilter(e.target.value)} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
+        <select value={targetFilter} onChange={e => setTargetFilter(e.target.value)} aria-label="Filter scans by target" className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
           <option value="">All targets</option>
           <option value="plugin">Plugin</option>
           <option value="pipeline">Pipeline</option>
         </select>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} aria-label="Filter scans by status" className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
           <option value="">All statuses</option>
           <option value="pending">Pending</option>
           <option value="running">Running</option>

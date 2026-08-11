@@ -9,12 +9,6 @@ import { BuilderProps } from '@/types';
  */
 const WRAPPER_ONLY_FIELDS = ['version', 'tags', 'description', 'keywords', 'props'] as const;
 
-interface BulkValidationItem {
-  index: number;
-  field?: string;
-  message: string;
-}
-
 /** Methods exposed to the parent modal via ref. */
 export interface UploadConfigTabRef {
   /** Parses the uploaded/pasted JSON and returns BuilderProps, or null on validation failure. */
@@ -43,14 +37,12 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
     const [propsInput, setPropsInput] = useState('');
     const [propsFile, setPropsFile] = useState<File | null>(null);
     const [propsError, setPropsError] = useState<string | null>(null);
-    const [itemErrors, setItemErrors] = useState<BulkValidationItem[]>([]);
     const descriptionRef = useRef('');
     const keywordsRef = useRef('');
 
     useImperativeHandle(ref, () => ({
       getProps: async (): Promise<BuilderProps | null> => {
         setPropsError(null);
-        setItemErrors([]);
         let propsData: BuilderProps;
 
         try {
@@ -187,23 +179,6 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
 
         {propsError && (
           <p className="mt-2 text-sm text-red-600 dark:text-red-400">{propsError}</p>
-        )}
-
-        {itemErrors.length > 0 && (
-          <div className="mt-2 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
-            <p className="text-xs font-medium text-red-800 dark:text-red-300 mb-1">
-              {itemErrors.length} item{itemErrors.length === 1 ? '' : 's'} failed validation:
-            </p>
-            <ul className="text-xs text-red-700 dark:text-red-300 space-y-0.5">
-              {itemErrors.map((it, i) => (
-                <li key={`${it.index}-${i}`}>
-                  <span className="font-mono">#{it.index}</span>
-                  {it.field && <span className="font-mono"> · {it.field}</span>}
-                  {': '}{it.message}
-                </li>
-              ))}
-            </ul>
-          </div>
         )}
 
         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">

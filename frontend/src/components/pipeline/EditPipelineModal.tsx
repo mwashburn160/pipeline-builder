@@ -51,6 +51,14 @@ export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onS
   const formRef = useRef<FormBuilderTabRef>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Track mount state so the success-close timer never calls onClose() after the
+  // parent has already torn the modal down (e.g. list refresh unmounts us).
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
   // Fetch full pipeline data by ID to ensure description/keywords are populated.
   // useEntityFetch only re-fetches when `id` changes, so stale re-mounts during
   // the 1.5s success-close window won't overwrite user edits.
@@ -137,7 +145,7 @@ export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onS
     if (response?.success) {
       setSuccess('Pipeline updated successfully!');
       onSaved();
-      setTimeout(() => onClose(), 1500);
+      setTimeout(() => { if (mountedRef.current) onClose(); }, 1500);
     }
   };
 

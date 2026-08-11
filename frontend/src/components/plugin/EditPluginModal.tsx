@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAsyncCallback } from '@/hooks/useAsync';
 import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -52,6 +52,14 @@ export default function EditPluginModal({ plugin, isSuperAdmin, onClose, onSaved
     (data: Parameters<typeof api.updatePlugin>[1]) => api.updatePlugin(plugin.id, data),
   );
   const error = validationError || saveError;
+
+  // Track mount state so the success-close timer never calls onClose() after the
+  // parent has already torn the modal down (e.g. list refresh unmounts us).
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // Fetch full plugin by ID; useEntityFetch only re-fires on id change so
   // a stale re-mount won't overwrite in-progress user edits.
@@ -135,7 +143,7 @@ export default function EditPluginModal({ plugin, isSuperAdmin, onClose, onSaved
     if (response?.success) {
       setSuccess('Plugin updated successfully!');
       onSaved();
-      setTimeout(() => onClose(), 1500);
+      setTimeout(() => { if (mountedRef.current) onClose(); }, 1500);
     }
   };
 

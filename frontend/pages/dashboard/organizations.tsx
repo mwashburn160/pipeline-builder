@@ -1,13 +1,12 @@
 import { useMemo, useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
-import { Building2, AlertTriangle, Search, KeyRound, FileDown, ShieldCheck, ExternalLink, Plus, Layers, RotateCcw } from 'lucide-react';
+import { Building2, Search, KeyRound, FileDown, ShieldCheck, ExternalLink, Plus, Layers, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -15,6 +14,10 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { InfoAlert } from '@/components/ui/InfoAlert';
+import { WarningAlert } from '@/components/ui/WarningAlert';
+import { FilterInput } from '@/components/ui/FilterInput';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { useToast } from '@/components/ui/Toast';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
@@ -88,6 +91,15 @@ export default function OrganizationsPage() {
       return true;
     });
   }, [list.data, list.filters.kms, list.filters.idp, list.filters.scope, list.filters.deleted]);
+
+  // The KMS / SSO / scope / deletion facets are applied client-side over the
+  // current page only (see `filteredOrgs`), so when one narrows the view we label
+  // that it's page-scoped rather than pretending it filtered the whole account.
+  const clientFacetActive =
+    String(list.filters.kms || 'all') !== 'all' ||
+    String(list.filters.idp || 'all') !== 'all' ||
+    String(list.filters.scope || 'all') !== 'all' ||
+    String(list.filters.deleted || 'hide') !== 'hide';
 
   // Two-phase delete: the existing DeleteConfirmModal collects intent, then
   // a StepUpModal collects password reverify. Backend requires the step-up
@@ -201,10 +213,13 @@ export default function OrganizationsPage() {
   }, [list]);
 
   const orgColumns: Column<OrganizationListItem>[] = useMemo(() => [
+    // NOTE: no `sortValue` on these columns. The list is server-paginated and the
+    // list endpoint has no sort param, so a client sort would only reorder the
+    // current page (and worse, only the client-facet-filtered subset of it).
+    // Sort affordance intentionally dropped until the backend supports it.
     {
       id: 'name',
       header: 'Organization',
-      sortValue: (org) => org.name,
       render: (org) => (
         <div>
           <div className="text-sm font-medium text-gray-900 dark:text-gray-100 flex flex-wrap items-center gap-1.5">
@@ -230,14 +245,12 @@ export default function OrganizationsPage() {
       id: 'members',
       header: 'Members',
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (org) => org.memberCount,
       render: (org) => <>{org.memberCount} member{org.memberCount !== 1 ? 's' : ''}</>,
     },
     {
       id: 'created',
       header: 'Created',
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (org) => org.createdAt ? new Date(org.createdAt) : null,
       render: (org) => <RelativeTime value={org.createdAt} />,
     },
     {
@@ -329,18 +342,17 @@ export default function OrganizationsPage() {
       <div className="filter-bar flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[16rem]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-          <input
+          <FilterInput
             type="text"
             placeholder="Search organizations..."
             value={list.filters.search}
             onChange={(e) => list.updateFilter('search', e.target.value)}
-            className="filter-input"
+            aria-label="Search organizations"
           />
         </div>
-        <select
+        <FilterSelect
           value={list.filters.tier}
           onChange={(e) => list.updateFilter('tier', e.target.value)}
-          className="filter-select"
           aria-label="Filter by tier"
         >
           <option value="all">All tiers</option>
@@ -348,37 +360,34 @@ export default function OrganizationsPage() {
           <option value="pro">Pro</option>
           <option value="team">Team</option>
           <option value="enterprise">Enterprise</option>
-        </select>
-        <select
+        </FilterSelect>
+        <FilterSelect
           value={list.filters.kms}
           onChange={(e) => list.updateFilter('kms', e.target.value)}
-          className="filter-select"
           aria-label="Filter by per-org KMS"
         >
           <option value="all">KMS: any</option>
           <option value="yes">KMS: configured</option>
           <option value="no">KMS: not configured</option>
-        </select>
-        <select
+        </FilterSelect>
+        <FilterSelect
           value={list.filters.idp}
           onChange={(e) => list.updateFilter('idp', e.target.value)}
-          className="filter-select"
           aria-label="Filter by SSO / IdP"
         >
           <option value="all">SSO: any</option>
           <option value="yes">SSO: configured</option>
           <option value="no">SSO: not configured</option>
-        </select>
-        <select
+        </FilterSelect>
+        <FilterSelect
           value={list.filters.deleted}
           onChange={(e) => list.updateFilter('deleted', e.target.value)}
-          className="filter-select"
           aria-label="Filter by deletion state"
         >
           <option value="hide">Deleted: hidden</option>
           <option value="show">Deleted: shown</option>
           <option value="only">Deleted: only</option>
-        </select>
+        </FilterSelect>
         <div className="inline-flex items-center gap-1" role="group" aria-label="Filter by org scope">
           {([['all', 'All'], ['top', 'Top-level'], ['team', 'Teams']] as const).map(([value, label]) => (
             <button
@@ -396,13 +405,19 @@ export default function OrganizationsPage() {
         </div>
       </div>
 
+      {clientFacetActive && (
+        <InfoAlert
+          className="mt-3"
+          message={`Showing ${filteredOrgs.length} of ${list.data.length} on this page — the KMS, SSO, scope, and deletion filters apply to the current page only.`}
+        />
+      )}
+
       <DataTable
         data={filteredOrgs}
         columns={orgColumns}
         isLoading={list.isLoading}
         emptyState={{ icon: Building2, title: 'No organizations', description: 'No organizations found.' }}
         getRowKey={(org) => org.id}
-        defaultSortColumn="name"
       />
 
       {!list.isLoading && list.pagination.total > 0 && (
@@ -410,18 +425,10 @@ export default function OrganizationsPage() {
       )}
 
       {/* Warning */}
-      <Card className="mt-6 border-yellow-200/60 dark:border-yellow-800/60 bg-yellow-50/80 dark:bg-yellow-900/20">
-        <div className="flex">
-          <AlertTriangle className="h-5 w-5 text-yellow-400 dark:text-yellow-500 flex-shrink-0" />
-          <div className="ml-3">
-            <h3 className="text-sm font-medium text-yellow-800 dark:text-yellow-300">Warning</h3>
-            <p className="mt-1 text-sm text-yellow-700 dark:text-yellow-400">
-              Deleting an organization will remove all members from the organization.
-              This action cannot be undone. Users will not be deleted but will no longer belong to any organization.
-            </p>
-          </div>
-        </div>
-      </Card>
+      <WarningAlert
+        className="mt-6"
+        message="Deleting an organization removes all members from it. This action cannot be undone. Users are not deleted but will no longer belong to any organization."
+      />
 
       {createOpen && (
         <Modal
@@ -539,6 +546,7 @@ export default function OrganizationsPage() {
               const res = await api.deleteOrganization(pendingDeleteOrg.id, stepUpToken);
               if (!res.success) throw new Error(res.message || 'Delete failed');
               list.refresh();
+              toast.success(`${pendingDeleteOrg.name} deleted`);
             } catch (err) {
               list.setError(formatError(err, 'Failed to delete organization'));
             }

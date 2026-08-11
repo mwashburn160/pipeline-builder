@@ -175,7 +175,10 @@ export default function DashboardPage() {
     }
   };
 
-  if (!isReady || !isAuthenticated) return <LoadingPage />;
+  // `!id` keeps the "Dashboard not found" branch from flashing on first client
+  // render, before `router.query.id` has hydrated (the fetcher no-ops to null
+  // while `ready` is false, flipping `loading` false).
+  if (!isReady || !isAuthenticated || !id) return <LoadingPage />;
   if (loading) return <LoadingPage />;
   if (error) {
     return (

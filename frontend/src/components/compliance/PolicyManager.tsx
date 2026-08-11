@@ -45,11 +45,12 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
 
   const handleSubmit = async () => {
     if (!form.name) return;
-    if (editingId) {
-      await updatePolicy(editingId, form);
-    } else {
-      await createPolicy(form);
-    }
+    // create/update return null on failure (the hook surfaces the error). Keep
+    // the form open in that case so the user's input isn't silently discarded.
+    const result = editingId
+      ? await updatePolicy(editingId, form)
+      : await createPolicy(form);
+    if (!result) return;
     setShowForm(false);
     setEditingId(null);
     setForm({ name: '', description: '', version: '1.0.0' });

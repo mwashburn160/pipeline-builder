@@ -125,6 +125,21 @@ export default function WizardPluginTab({ canUploadPublic, disabled, onCreated, 
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
+  // Monotonic token so a slower earlier selectPlugin() response can't prefill
+  // the form after a newer selection (or a mode switch) has moved on.
+  const selectGenRef = useRef(0);
+
+  // Reset the shared spec fields to their create-mode defaults. Used on mode
+  // switch so returning to "Create new" after editing plugin X doesn't leave
+  // X's values pre-populated in the create form.
+  const resetSpec = useCallback(() => {
+    setName(''); setDescription(''); setVersion('1.0.0');
+    setPluginType('CodeBuildStep'); setComputeType('MEDIUM');
+    setKeywords(''); setPrimaryOutputDirectory(''); setInstallCommands('');
+    setCommands(''); setEnvText(''); setDockerfile(DEFAULT_DOCKERFILE);
+    setAccess('private'); setTimeoutVal(''); setFailureBehavior('fail');
+    setIsActive(true); setIsDefault(false); setSelectedId('');
+  }, []);
 
   // Load the plugin list the first time Edit mode is opened.
   const loadPlugins = useCallback(async () => {
@@ -156,6 +171,7 @@ export default function WizardPluginTab({ canUploadPublic, disabled, onCreated, 
 
   // Prefill the form from a selected existing plugin (Edit mode).
   const selectPlugin = async (id: string) => {
+    const gen = ++selectGenRef.current;
     setSelectedId(id);
     setError(null);
     setSuccess(null);
@@ -163,6 +179,7 @@ export default function WizardPluginTab({ canUploadPublic, disabled, onCreated, 
     setPrefilling(true);
     try {
       const res = await api.getPluginById(id);
+      if (!mountedRef.current || selectGenRef.current !== gen) return; // superseded / unmounted
       const p = res.success ? res.data?.plugin : undefined;
       if (!p) { setError('Could not load the selected plugin.'); return; }
       setName(p.name);
@@ -181,9 +198,9 @@ export default function WizardPluginTab({ canUploadPublic, disabled, onCreated, 
       setIsActive(p.isActive);
       setIsDefault(p.isDefault);
     } catch (err) {
-      setError(formatError(err, 'Failed to load the selected plugin'));
+      if (mountedRef.current && selectGenRef.current === gen) setError(formatError(err, 'Failed to load the selected plugin'));
     } finally {
-      setPrefilling(false);
+      if (mountedRef.current && selectGenRef.current === gen) setPrefilling(false);
     }
   };
 
@@ -222,7 +239,7 @@ export default function WizardPluginTab({ canUploadPublic, disabled, onCreated, 
       } else if (response.success) {
         setSuccess(`Plugin "${name}" created successfully!`);
         onCreated();
-        setTimeout(() => onClose(), 2000);
+        setTimeout(() => { if (mountedRef.current) onClose(); }, 2000);
       }
     } catch (err: unknown) {
       setError(formatError(err, 'Failed to create plugin'));
@@ -318,7 +335,7 @@ export default function WizardPluginTab({ canUploadPublic, disabled, onCreated, 
           <button
             key={m}
             type="button"
-            onClick={() => { if (isWorking) return; setMode(m); setError(null); setSuccess(null); }}
+            onClick={() => { if (isWorking || mode === m) return; setMode(m); resetSpec(); setError(null); setSuccess(null); }}
             disabled={isWorking}
             className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
               mode === m ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'

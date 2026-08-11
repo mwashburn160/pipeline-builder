@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { formatError } from '@/lib/constants';
 import { motion } from 'framer-motion';
 import { CheckCircle, MailWarning } from 'lucide-react';
@@ -306,24 +306,33 @@ function OrgIdentitySettings({ onSaved }: { onSaved: () => Promise<void> }) {
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [initial, setInitial] = useState<{ name: string; slug: string }>({ name: '', slug: '' });
+  // Set when the initial org fetch fails, so the user gets an explicit error +
+  // retry instead of a silently-blank form they'd edit blindly (and only find out
+  // it failed on save).
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    api.getMyOrganization()
-      .then((res) => {
-        if (!active) return;
-        const org = res.data?.organization;
-        if (org) {
-          setOrgId(org.id);
-          setName(org.name ?? '');
-          setSlug(org.slug ?? '');
-          setInitial({ name: org.name ?? '', slug: org.slug ?? '' });
-        }
-      })
-      .catch(() => { /* surfaced on save attempt */ })
-      .finally(() => { if (active) setLoaded(true); });
-    return () => { active = false; };
+  const loadOrg = useCallback(async () => {
+    setLoadError(null);
+    setLoaded(false);
+    try {
+      const res = await api.getMyOrganization();
+      const org = res.data?.organization;
+      if (org) {
+        setOrgId(org.id);
+        setName(org.name ?? '');
+        setSlug(org.slug ?? '');
+        setInitial({ name: org.name ?? '', slug: org.slug ?? '' });
+      } else {
+        setLoadError('Could not load your organization settings.');
+      }
+    } catch (e) {
+      setLoadError(formatError(e, 'Could not load your organization settings.'));
+    } finally {
+      setLoaded(true);
+    }
   }, []);
+
+  useEffect(() => { void loadOrg(); }, [loadOrg]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -364,6 +373,12 @@ function OrgIdentitySettings({ onSaved }: { onSaved: () => Promise<void> }) {
   return (
     <>
       <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Organization</h2>
+      {loadError ? (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300" role="alert">
+          <span>{loadError}</span>
+          <button type="button" onClick={() => void loadOrg()} className="underline hover:no-underline">Retry</button>
+        </div>
+      ) : (
       <form onSubmit={handleSubmit} className="space-y-4">
         <ErrorAlert message={form.error} />
         <SuccessAlert message={form.success} />
@@ -383,6 +398,7 @@ function OrgIdentitySettings({ onSaved }: { onSaved: () => Promise<void> }) {
           Save Organization
         </Button>
       </form>
+      )}
     </>
   );
 }

@@ -18,7 +18,6 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
-import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -111,7 +110,7 @@ export default function IdpRosterPage() {
       cellClassName: 'text-right text-sm font-medium',
       render: (c) => (
         <Link
-          href={`/dashboard/admin/orgs/${c.orgId}`}
+          href={`/dashboard/admin/orgs/${c.orgId}?edit=idp`}
           className="action-link inline-flex items-center gap-1"
           title="Open the org's IdP editor"
         >
@@ -137,26 +136,36 @@ export default function IdpRosterPage() {
         </Link>
       </div>
 
-      <ErrorAlert message={error} onDismiss={() => setError(null)} />
-
-      {!loading && configs.length > 0 && (
-        <div className="mb-4 text-sm text-gray-500 dark:text-gray-400">
-          {configs.length} org{configs.length !== 1 ? 's' : ''} with an IdP configured · {enabledCount} enabled
+      {/* On failure, show ONLY a retryable error — not the "No IdP configurations"
+          empty state layered under an error banner (the old fail-soft set
+          configs=[] AND error, rendering both and offering no retry). */}
+      {error ? (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300" role="alert">
+          <span>{error}</span>
+          <button type="button" onClick={() => void load()} className="underline hover:no-underline">Retry</button>
         </div>
-      )}
+      ) : (
+        <>
+          {!loading && configs.length > 0 && (
+            <div className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+              {configs.length} org{configs.length !== 1 ? 's' : ''} with an IdP configured · {enabledCount} enabled
+            </div>
+          )}
 
-      <DataTable
-        data={configs}
-        columns={columns}
-        isLoading={loading}
-        emptyState={{
-          icon: ShieldCheck,
-          title: 'No IdP configurations',
-          description: 'No organization has an SSO / IdP config yet. Configure one from an org’s detail page.',
-        }}
-        getRowKey={(c) => c.orgId}
-        defaultSortColumn="org"
-      />
+          <DataTable
+            data={configs}
+            columns={columns}
+            isLoading={loading}
+            emptyState={{
+              icon: ShieldCheck,
+              title: 'No IdP configurations',
+              description: 'No organization has an SSO / IdP config yet. Configure one from an org’s detail page.',
+            }}
+            getRowKey={(c) => c.orgId}
+            defaultSortColumn="org"
+          />
+        </>
+      )}
     </DashboardLayout>
   );
 }

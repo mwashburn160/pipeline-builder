@@ -69,6 +69,21 @@ export default function CreatePipelineModal({
     scrollRef.current?.scrollTo(0, 0);
   }, [currentStep]);
 
+  // Reset wizard/preview/compliance state whenever the modal (re)opens. The
+  // component is rendered unconditionally and only gated by `if (!isOpen)`, so
+  // without this a mid-flow close→reopen would restore stale step/preview/
+  // compliance state while the child tabs remount empty (stepper desync).
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab('ai');
+      setCurrentStep(0);
+      setShowPreview(false);
+      setPreviewJson(null);
+      setPreviewError(null);
+      setComplianceResult(null);
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const resolveProps = async (): Promise<BuilderProps | null> => {

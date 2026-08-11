@@ -7,6 +7,7 @@ import { useBillingEnabledState } from '@/hooks/useBillingEnabled';
 import { TIER_KEYS } from '@/lib/tiers';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 import ReportTabs from '@/components/reports/ReportTabs';
 import { LoadingPage } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
@@ -124,17 +125,18 @@ export default function BillingPage() {
   const highlightRaw = router.query.highlight;
   const highlightFeature = Array.isArray(highlightRaw) ? highlightRaw[0] : highlightRaw ?? null;
 
-  // Billing service disabled in this deployment → redirect to dashboard. Only on a
-  // DEFINITIVE `false` (probe resolved + reported disabled); while `undefined`
-  // (probe in flight/failed) we wait rather than bounce the user out prematurely.
-  useEffect(() => {
-    if (isReady && billingEnabled === false) {
-      router.replace('/dashboard');
-    }
-  }, [isReady, billingEnabled, router]);
+  // Billing service disabled in this deployment → show a "Billing not enabled"
+  // card (below) rather than a silent redirect. A silent bounce made the page
+  // feel broken (and, while the probe was undefined, could spin forever); the
+  // explicit card tells the user what's happening.
+
+  // Set when the primary billing fetch (plans + subscription) fails, so a paying
+  // customer sees an error + retry instead of an empty "no subscription" page.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       // Usage rolls into the same fetch so the page renders the full picture
       // in one network round-trip. A usage-endpoint failure must not gate the
@@ -163,8 +165,8 @@ export default function BillingPage() {
       if (usageRes?.success && usageRes.data) {
         setUsage(usageRes.data);
       }
-    } catch {
-      toast.error('Failed to load billing data');
+    } catch (err) {
+      setLoadError(formatError(err, 'Failed to load billing data'));
     } finally {
       setLoading(false);
     }
@@ -346,9 +348,42 @@ export default function BillingPage() {
     }
   };
 
-  // Render the billing UI only once billing is DEFINITIVELY enabled; while the probe
-  // is unknown (`undefined`) or disabled (`false` → redirect in flight) show loading.
-  if (!isReady || loading || billingEnabled !== true) return <LoadingPage />;
+  // While auth or the billing-enabled probe is still resolving, show loading.
+  if (!isReady || billingEnabled === undefined) return <LoadingPage />;
+
+  // Billing service disabled in this deployment → explicit card (no silent redirect).
+  if (billingEnabled === false) {
+    return (
+      <DashboardLayout title="Billing" subtitle="Plans, invoices, and payment details">
+        <div className="page-section">
+          <Card className="flex flex-col items-center text-center py-14">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Billing is not enabled</h3>
+            <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400 max-w-sm">
+              The billing service is disabled in this deployment, so there are no plans or subscriptions to manage here.
+            </p>
+          </Card>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (loading) return <LoadingPage />;
+
+  // Primary billing fetch failed → error + retry, so a paying customer isn't shown
+  // an empty "no subscription" page that looks like a downgrade to free.
+  if (loadError) {
+    return (
+      <DashboardLayout title="Billing" subtitle="Plans, invoices, and payment details">
+        <div className="page-section">
+          <Card className="flex flex-col items-center text-center py-14">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Couldn&apos;t load your billing details</h3>
+            <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400 max-w-sm">{loadError}</p>
+            <Button variant="secondary" onClick={() => void fetchData()} className="mt-4">Retry</Button>
+          </Card>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (    <DashboardLayout title="Billing" subtitle="Plans, invoices, and payment details">
       <div className="page-section space-y-8">

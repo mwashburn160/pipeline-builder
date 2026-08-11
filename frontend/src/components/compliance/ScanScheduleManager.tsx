@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { CalendarClock, Plus, Pencil, Trash2, Loader2, X } from 'lucide-react';
 import api from '@/lib/api';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { useToast } from '@/components/ui/Toast';
 import { TextEmptyState } from '@/components/ui/EmptyState';
@@ -44,20 +45,30 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ScanSchedule | null>(null);
 
+  // Stale-response guard: skip setState if a newer fetch started or the
+  // component unmounted while this request was in flight.
+  const genRef = useRef(0);
+
   const fetchSchedules = useCallback(async () => {
+    const gen = ++genRef.current;
     setLoading(true);
     try {
       const res = await api.getScanSchedules();
+      if (gen !== genRef.current) return;
       if (res.success && res.data) {
         setSchedules(res.data.schedules as unknown as ScanSchedule[]);
       }
     } catch (err) {
+      if (gen !== genRef.current) return;
       toast.error(err instanceof Error ? err.message : 'Failed to load scan schedules');
     }
-    setLoading(false);
+    if (gen === genRef.current) setLoading(false);
   }, [toast]);
 
-  useEffect(() => { fetchSchedules(); }, [fetchSchedules]);
+  useEffect(() => {
+    fetchSchedules();
+    return () => { genRef.current++; };
+  }, [fetchSchedules]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -147,16 +158,16 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
           </div>
           <form onSubmit={handleSubmit} className="flex items-end gap-3">
             <div className="flex-1">
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Target</label>
-              <select
+              <label htmlFor="scan-schedule-target" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Target</label>
+              <FilterSelect
+                id="scan-schedule-target"
                 value={formData.target}
                 onChange={e => setFormData(prev => ({ ...prev, target: e.target.value }))}
-                className="filter-select"
               >
                 <option value="all">All</option>
                 <option value="plugin">Plugin</option>
                 <option value="pipeline">Pipeline</option>
-              </select>
+              </FilterSelect>
             </div>
             <div className="flex-[2]">
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Cron Expression</label>

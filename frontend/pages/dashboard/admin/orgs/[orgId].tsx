@@ -11,7 +11,7 @@
  * shell + curl for surfaces with no UI at all.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { ArrowLeft, Building2, KeyRound, ShieldCheck, FileDown, Users, Trash2, Armchair, Sparkles, Download } from 'lucide-react';
@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { useToast } from '@/components/ui/Toast';
 import { useFormState } from '@/hooks/useFormState';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -45,6 +46,7 @@ export default function OrgDetailPage() {
   const router = useRouter();
   const orgId = String(router.query.orgId || '');
   const { isReady, user } = useAuthGuard({ requireSystemAdmin: true });
+  const toast = useToast();
 
   const [org, setOrg] = useState<Organization | null>(null);
   const [kms, setKms] = useState<KmsStatus | null>(null);
@@ -112,6 +114,17 @@ export default function OrgDetailPage() {
   }, [orgId]);
 
   useEffect(() => { void reload(); }, [reload]);
+
+  // Deep-link from the IdP roster ("Edit" → `?edit=idp`) opens the IdP editor
+  // directly instead of just landing on this detail page. Handled once (ref
+  // guard) so closing the modal doesn't immediately re-open it.
+  const idpDeepLinkHandled = useRef(false);
+  useEffect(() => {
+    if (org && router.query.edit === 'idp' && !idpDeepLinkHandled.current) {
+      idpDeepLinkHandled.current = true;
+      setShowIdp(true);
+    }
+  }, [org, router.query.edit]);
 
   const openEdit = useCallback(() => {
     if (!org) return;
@@ -192,12 +205,13 @@ export default function OrgDetailPage() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      toast.success('Organization data exported');
     } catch (e) {
       setError(formatError(e, 'Failed to export organization data'));
     } finally {
       setExporting(false);
     }
-  }, [org]);
+  }, [org, toast]);
 
   const executeDownloadNamespaceYaml = useCallback(async (stepUpToken: string) => {
     if (!org) return;
@@ -212,10 +226,11 @@ export default function OrgDetailPage() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      toast.success('Namespace YAML downloaded');
     } catch (e) {
       setError(formatError(e, 'Failed to download namespace YAML'));
     }
-  }, [org]);
+  }, [org, toast]);
 
   const executeDelete = useCallback(async (stepUpToken: string) => {
     if (!org) return;
@@ -284,9 +299,20 @@ export default function OrgDetailPage() {
         </Link>
       </div>
 
-      <ErrorAlert message={error} onDismiss={() => setError(null)} />
+      {/* When the org is already loaded, `error` is a transient action failure
+          (export / tier / delete) → dismissable banner. When the initial load
+          itself failed (no org rendered), show a distinct retryable error instead
+          of a bare dismiss with nothing behind it. */}
+      {org && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
 
       {loading && !org && <LoadingSpinner />}
+
+      {!loading && !org && error && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300" role="alert">
+          <span>{error}</span>
+          <button type="button" onClick={() => void reload()} className="underline hover:no-underline">Retry</button>
+        </div>
+      )}
 
       {org && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

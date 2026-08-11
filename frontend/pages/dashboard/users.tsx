@@ -11,6 +11,9 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { InfoAlert } from '@/components/ui/InfoAlert';
+import { FilterInput } from '@/components/ui/FilterInput';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { DataTable } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { ActionBar } from '@/components/ui/ActionBar';
@@ -196,7 +199,10 @@ export default function UsersPage() {
   }, []);
 
   // Header checkbox: select-all / clear-all relative to the visible page.
-  const visibleIds = useMemo(() => list.data.map((u) => u.id).filter((id) => id !== user?.id), [list.data, user]);
+  // Derive from `displayedUsers` (the "Super Admins only" facet), NOT the raw
+  // page — otherwise select-all would select hidden rows and feed them into the
+  // destructive bulk-delete.
+  const visibleIds = useMemo(() => displayedUsers.map((u) => u.id).filter((id) => id !== user?.id), [displayedUsers, user]);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
   const toggleSelectAllVisible = useCallback(() => {
     setSelectedIds((prev) => {
@@ -349,22 +355,22 @@ export default function UsersPage() {
           left={
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-              <input type="text" placeholder="Search by username or email..." value={list.filters.search} onChange={(e) => list.updateFilter('search', e.target.value)} className="filter-input" />
+              <FilterInput type="text" placeholder="Search by username or email..." value={list.filters.search} onChange={(e) => list.updateFilter('search', e.target.value)} aria-label="Search users by username or email" />
             </div>
           }
           right={
             <div className="flex flex-wrap items-center gap-2">
-              <select value={list.filters.organizationId} onChange={(e) => list.updateFilter('organizationId', e.target.value)} className="filter-select" aria-label="Filter by organization">
+              <FilterSelect value={list.filters.organizationId} onChange={(e) => list.updateFilter('organizationId', e.target.value)} aria-label="Filter by organization">
                 <option value="all">All Organizations</option>
                 {orgOptions.map((o) => (
                   <option key={o.id} value={o.id}>{o.name}</option>
                 ))}
-              </select>
-              <select value={list.filters.role} onChange={(e) => list.updateFilter('role', e.target.value)} className="filter-select">
+              </FilterSelect>
+              <FilterSelect value={list.filters.role} onChange={(e) => list.updateFilter('role', e.target.value)} aria-label="Filter by role">
                 <option value="all">All Roles</option>
                 <option value="member">Members</option>
                 <option value="admin">Admins</option>
-              </select>
+              </FilterSelect>
               <button
                 type="button"
                 onClick={() => setSuperAdminsOnly((v) => !v)}
@@ -410,6 +416,16 @@ export default function UsersPage() {
           )}
           <button onClick={() => setBulkResult(null)} className="mt-1 text-xs underline">Dismiss</button>
         </div>
+      )}
+
+      {/* The "Super Admins only" facet is applied client-side over the current
+          page (platform-admin isn't a server list filter), so label it as
+          page-scoped rather than implying it searched every org. */}
+      {superAdminsOnly && (
+        <InfoAlert
+          className="mt-3"
+          message={`Filtering Super Admins on the current page only — showing ${displayedUsers.length} of ${list.data.length}.`}
+        />
       )}
 
       <DataTable

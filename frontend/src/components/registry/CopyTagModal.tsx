@@ -150,8 +150,9 @@ export function CopyTagModal({
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Target repo</label>
+          <label htmlFor="copy-target-repo" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Target repo</label>
           <input
+            id="copy-target-repo"
             type="text"
             value={targetRepo}
             onChange={(e) => setTargetRepo(e.target.value)}
@@ -166,8 +167,9 @@ export function CopyTagModal({
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Target ref</label>
+          <label htmlFor="copy-target-ref" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Target ref</label>
           <input
+            id="copy-target-ref"
             type="text"
             value={targetRef}
             onChange={(e) => setTargetRef(e.target.value)}
@@ -218,7 +220,8 @@ export function CopyTagModal({
             <div className="text-xs font-mono break-all">requested: {conflict.requested}</div>
             <button
               onClick={() => submit(true)}
-              disabled={submitting}
+              disabled={submitting || !promotionGatePassed}
+              title={isPromotion && !promotionGatePassed ? `Type ${PROMOTE_CONFIRM_PHRASE} above to enable` : undefined}
               className="mt-2 px-3 py-1.5 text-sm bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50"
             >
               Overwrite (replace existing tag)

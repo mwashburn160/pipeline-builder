@@ -68,6 +68,9 @@ export function QuotaBanner({ className = '' }: QuotaBannerProps = {}) {
   useEffect(() => {
     let mounted = true;
     const fetch = async () => {
+      // Background tabs throttle timers and quota data is stale anyway — skip
+      // the poll until the tab is visible again (mirrors useObservabilityResource).
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       try {
         const result = await api.getOwnQuotas();
         if (!mounted) return;

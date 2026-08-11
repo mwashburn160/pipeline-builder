@@ -16,6 +16,8 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { Textarea } from '@/components/ui/Textarea';
 import { IconButton } from '@/components/ui/IconButton';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { FilterInput } from '@/components/ui/FilterInput';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
@@ -93,6 +95,7 @@ export default function PipelinesPage() {
       return { items: response.data?.pipelines || [], pagination: response.data?.pagination };
     },
     enabled: isAuthenticated,
+    urlSync: true,
   });
 
   const del = useDelete<Pipeline>(
@@ -141,6 +144,9 @@ export default function PipelinesPage() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
+  // Gate bulk delete behind a confirmation modal (mirrors single-row delete's
+  // DeleteConfirmModal), since the bulk action is destructive and irreversible.
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds(prev => {
@@ -159,6 +165,7 @@ export default function PipelinesPage() {
       const count = selectedIds.size;
       await api.bulkDeletePipelines(Array.from(selectedIds));
       clearSelection();
+      setShowBulkDelete(false);
       list.refresh();
       toast.success(`${count} pipeline${count > 1 ? 's' : ''} deleted`);
     } catch (err) {
@@ -418,24 +425,24 @@ export default function PipelinesPage() {
           summary={!list.isLoading && list.hasActiveFilters ? `Showing ${filteredPipelines.length} of ${list.pagination.total} pipelines` : undefined}
           advancedContent={
             <>
-              <input type="text" value={list.filters.project} onChange={(e) => list.updateFilter('project', e.target.value)} placeholder="Project..." className="filter-input max-w-[160px]" />
-              <input type="text" value={list.filters.organization} onChange={(e) => list.updateFilter('organization', e.target.value)} placeholder="Organization..." className="filter-input max-w-[160px]" />
-              <input type="text" value={list.filters.keyword} onChange={(e) => list.updateFilter('keyword', e.target.value)} placeholder="Keyword..." className="filter-input max-w-[160px]" />
-              <select value={list.filters.status} onChange={(e) => list.updateFilter('status', e.target.value)} className="filter-select">
+              <FilterInput type="text" aria-label="Filter by project" value={list.filters.project} onChange={(e) => list.updateFilter('project', e.target.value)} placeholder="Project..." className="max-w-[160px]" />
+              <FilterInput type="text" aria-label="Filter by organization" value={list.filters.organization} onChange={(e) => list.updateFilter('organization', e.target.value)} placeholder="Organization..." className="max-w-[160px]" />
+              <FilterInput type="text" aria-label="Filter by keyword" value={list.filters.keyword} onChange={(e) => list.updateFilter('keyword', e.target.value)} placeholder="Keyword..." className="max-w-[160px]" />
+              <FilterSelect aria-label="Filter by status" value={list.filters.status} onChange={(e) => list.updateFilter('status', e.target.value)}>
                 <option value="all">All Status</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
-              </select>
-              <select value={list.filters.default} onChange={(e) => list.updateFilter('default', e.target.value)} className="filter-select">
+              </FilterSelect>
+              <FilterSelect aria-label="Filter by default" value={list.filters.default} onChange={(e) => list.updateFilter('default', e.target.value)}>
                 <option value="all">All Pipelines</option>
                 <option value="default">Default only</option>
-              </select>
+              </FilterSelect>
               {canViewPublic && (
-                <select value={list.filters.access} onChange={(e) => list.updateFilter('access', e.target.value)} className="filter-select">
+                <FilterSelect aria-label="Filter by access" value={list.filters.access} onChange={(e) => list.updateFilter('access', e.target.value)}>
                   <option value="all">All Access</option>
                   <option value="public">Public</option>
                   <option value="private">Private</option>
-                </select>
+                </FilterSelect>
               )}
             </>
           }
@@ -561,6 +568,16 @@ export default function PipelinesPage() {
         <DeleteConfirmModal title="Delete Pipeline" itemName={del.target.pipelineName || 'Unnamed Pipeline'} loading={del.loading} onConfirm={del.confirm} onCancel={del.close} />
       )}
 
+      {showBulkDelete && (
+        <DeleteConfirmModal
+          title="Delete Pipelines"
+          itemName={`${selectedIds.size} pipeline${selectedIds.size > 1 ? 's' : ''}`}
+          loading={bulkLoading}
+          onConfirm={handleBulkDelete}
+          onCancel={() => setShowBulkDelete(false)}
+        />
+      )}
+
       {editPipeline && (
         <EditPipelineModal pipeline={editPipeline} isSuperAdmin={isSuperAdmin} onClose={() => setEditPipeline(null)} onSaved={list.refresh} />
       )}
@@ -579,7 +596,7 @@ export default function PipelinesPage() {
               <Button variant="secondary" size="xs" onClick={() => handleBulkActivate(false)} disabled={bulkLoading}>
                 Deactivate
               </Button>
-              <Button variant="danger" size="xs" onClick={handleBulkDelete} disabled={bulkLoading}>
+              <Button variant="danger" size="xs" onClick={() => setShowBulkDelete(true)} disabled={bulkLoading}>
                 <Trash2 className="w-3.5 h-3.5" />
                 Delete
               </Button>

@@ -28,8 +28,8 @@ interface AuthContextType {
    *  rather than a genuine 401. The prior user is kept; callers can retry
    *  via `refreshUser`. Cleared on the next successful refresh. */
   authError: Error | null;
-  login: (email: string, password: string) => Promise<void>;
-  register: (username: string, email: string, password: string, organizationName?: string, planId?: string) => Promise<void>;
+  login: (email: string, password: string, opts?: { redirect?: boolean }) => Promise<void>;
+  register: (username: string, email: string, password: string, organizationName?: string, planId?: string, opts?: { redirect?: boolean }) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   /** Switch active organization. Re-issues tokens and refreshes user profile with the new org's role. */
@@ -190,7 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /**
    * Login with email/username and password
    */
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, opts?: { redirect?: boolean }) => {
     setIsLoading(true);
 
     try {
@@ -198,8 +198,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (response.success) {
         await refreshUser();
-        // Use Next.js router for client-side navigation
-        router.push('/dashboard');
+        // Use Next.js router for client-side navigation. Callers that need to
+        // run follow-up work on the same page first (e.g. the invite-accept
+        // flow, which must POST /invitation/accept before navigating away) pass
+        // `redirect: false` and drive navigation themselves.
+        if (opts?.redirect !== false) router.push('/dashboard');
       } else {
         throw new Error(response.message || 'Login failed');
       }
@@ -216,7 +219,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     email: string,
     password: string,
     organizationName?: string,
-    planId?: string
+    planId?: string,
+    opts?: { redirect?: boolean }
   ) => {
     setIsLoading(true);
 
@@ -232,8 +236,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // new user landed back on the login screen and had to re-enter the same
       // credentials. Authenticate immediately with the same email/password to
       // establish the session exactly like the login path (stores the token
-      // pair + refreshes the profile). `login` also routes to `/dashboard`.
-      await login(email, password);
+      // pair + refreshes the profile). `login` also routes to `/dashboard`
+      // (unless the caller opted out via `redirect: false`).
+      await login(email, password, opts);
     } finally {
       setIsLoading(false);
     }

@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { X, Send } from 'lucide-react';
+import { Send } from 'lucide-react';
 import type { MessageType, MessagePriority } from '@/types';
 import { useAsyncCallback } from '@/hooks/useAsync';
-import { ModalPortal } from '@/components/ui/ModalPortal';
+import { Modal } from '@/components/ui/Modal';
 // The compose "To" field prefills the configured support alias (passed in via
 // the `supportAlias` prop, sourced from the server's SUPPORT_ALIASES). This
 // module constant is only the fallback until that config loads. A send to a
@@ -88,6 +88,10 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
   if (!isOpen) return null;
 
   const handleSend = async () => {
+    // In-flight guard: the Send button is disabled while sending, but the Enter
+    // key handler calls this directly and bypasses that — without this guard,
+    // holding Enter during send latency fires duplicate messages.
+    if (sending) return;
     setValidationError('');
 
     if (!content.trim()) {
@@ -145,26 +149,34 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
     }
   };
 
-  return (
-    <ModalPortal>
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={isAnnouncement ? 'New Announcement' : 'New Message'}>
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            {isAnnouncement ? 'New Announcement' : 'New Message'}
-          </h2>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
+  const footer = (
+    <div className="flex justify-end gap-3">
+      <button
+        onClick={onClose}
+        className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+      >
+        Cancel
+      </button>
+      <button
+        onClick={handleSend}
+        disabled={sending || !content.trim()}
+        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+      >
+        <Send className="w-4 h-4" />
+        {sending ? 'Sending...' : 'Send'}
+      </button>
+    </div>
+  );
 
+  return (
+    <Modal
+      title={isAnnouncement ? 'New Announcement' : 'New Message'}
+      onClose={onClose}
+      maxWidth="max-w-md"
+      footer={footer}
+    >
         {/* Body */}
-        <div className="px-5 py-4 space-y-3">
+        <div className="space-y-3">
           {error && (
             <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">
               {error}
@@ -249,26 +261,6 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
             className="w-full resize-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-
-        {/* Footer */}
-        <div className="flex justify-end gap-3 px-5 py-3 border-t border-gray-200 dark:border-gray-700">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSend}
-            disabled={sending || !content.trim()}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
-          >
-            <Send className="w-4 h-4" />
-            {sending ? 'Sending...' : 'Send'}
-          </button>
-        </div>
-      </div>
-    </div>
-    </ModalPortal>
+    </Modal>
   );
 }

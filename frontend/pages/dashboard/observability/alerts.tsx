@@ -7,7 +7,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { useToast } from '@/components/ui/Toast';
-import { ModalPortal } from '@/components/ui/ModalPortal';
+import { Modal } from '@/components/ui/Modal';
 import { api, getErrorMessage } from '@/lib/api';
 import type { Alert, Silence } from '@/types/observability';
 import { formatRelativeTime } from '@/lib/relative-time';
@@ -270,61 +270,57 @@ function SilenceModal(props: {
     }
   };
 
+  const footer = (
+    <div className="flex justify-end gap-2">
+      <button
+        onClick={onClose}
+        disabled={submitting}
+        className="px-4 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+      >
+        Cancel
+      </button>
+      <button
+        onClick={() => void handleSubmit()}
+        disabled={submitting || !comment.trim()}
+        className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+      >
+        {submitting ? 'Creating…' : 'Create silence'}
+      </button>
+    </div>
+  );
+
   return (
-    <ModalPortal>
-    <div className="modal-backdrop" onClick={onClose} role="presentation">
-      <div className="modal-panel max-w-md" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Silence alert</h2>
-        </div>
-        <div className="px-6 py-4 space-y-4">
-          <div>
-            <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Matchers</div>
-            <div className="text-xs font-mono text-gray-700 dark:text-gray-300 break-all">
-              {seedMatchers.map(m => `${m.name}="${m.value}"`).join(', ')}
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Duration</label>
-            <select
-              value={durationMs}
-              onChange={(e) => setDurationMs(parseInt(e.target.value, 10))}
-              className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-            >
-              {DURATIONS.map(d => <option key={d.ms} value={d.ms}>{d.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-              Reason <span className="text-red-500">*</span>
-            </label>
-            <textarea
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              rows={3}
-              placeholder="Why are you silencing this? (visible to other operators)"
-              className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-            />
+    <Modal title="Silence alert" onClose={onClose} maxWidth="max-w-md" footer={footer}>
+      <div className="space-y-4">
+        <div>
+          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Matchers</div>
+          <div className="text-xs font-mono text-gray-700 dark:text-gray-300 break-all">
+            {seedMatchers.map(m => `${m.name}="${m.value}"`).join(', ')}
           </div>
         </div>
-        <div className="border-t border-gray-200 dark:border-gray-700 px-6 py-4 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            disabled={submitting}
-            className="px-4 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Duration</label>
+          <select
+            value={durationMs}
+            onChange={(e) => setDurationMs(parseInt(e.target.value, 10))}
+            className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
           >
-            Cancel
-          </button>
-          <button
-            onClick={() => void handleSubmit()}
-            disabled={submitting || !comment.trim()}
-            className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-          >
-            {submitting ? 'Creating…' : 'Create silence'}
-          </button>
+            {DURATIONS.map(d => <option key={d.ms} value={d.ms}>{d.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            Reason <span className="text-red-500">*</span>
+          </label>
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            rows={3}
+            placeholder="Why are you silencing this? (visible to other operators)"
+            className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+          />
         </div>
       </div>
-    </div>
-    </ModalPortal>
+    </Modal>
   );
 }

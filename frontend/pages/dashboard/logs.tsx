@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Search, ScrollText, RefreshCw, ChevronRight, Download, AlertCircle, AlertTriangle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -75,8 +75,13 @@ export default function LogsPage() {
     return () => { cancelled = true; };
   }, [isAuthenticated]);
 
+  // Monotonic guard: rapid filter/search/time-range changes can let a slower
+  // earlier response resolve last and overwrite newer results (or setState
+  // after unmount). Bail on any setState if a newer fetch has started.
+  const fetchGenRef = useRef(0);
   const fetchLogs = useCallback(async () => {
     if (!isAuthenticated) return;
+    const gen = ++fetchGenRef.current;
     try {
       setIsLoading(true);
       setError(null);
@@ -88,11 +93,12 @@ export default function LogsPage() {
       if (levelFilter) params.level = levelFilter;
       if (debouncedSearch) params.search = debouncedSearch;
       const response = await api.getLogs(params);
+      if (fetchGenRef.current !== gen) return; // superseded
       setEntries(response.data?.entries || []);
     } catch (err) {
-      setError(formatError(err, 'Failed to load logs'));
+      if (fetchGenRef.current === gen) setError(formatError(err, 'Failed to load logs'));
     } finally {
-      setIsLoading(false);
+      if (fetchGenRef.current === gen) setIsLoading(false);
     }
   }, [isAuthenticated, serviceFilter, levelFilter, debouncedSearch, timeRange, limit]);
 

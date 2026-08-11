@@ -364,7 +364,7 @@ export default function RegistryPage() {
       const target = e.target as HTMLElement | null;
       const inField = target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
       if (inField) return;
-      if (copyTag || deleteTag || bulkDelete || shortcutsOpen) return;
+      if (copyTag || deleteTag || bulkDelete || shortcutsOpen || deleteRepo || gcOpen || storageOpen) return;
 
       switch (e.key) {
         case 'j': repoListRef.current?.step(1); break;
@@ -390,7 +390,7 @@ export default function RegistryPage() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [tag, copyTag, deleteTag, bulkDelete, shortcutsOpen]);
+  }, [tag, copyTag, deleteTag, bulkDelete, shortcutsOpen, deleteRepo, gcOpen, storageOpen]);
 
   if (!isReady || !isSuperAdmin) return <LoadingPage />;
 

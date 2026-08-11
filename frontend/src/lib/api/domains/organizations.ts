@@ -302,7 +302,7 @@ export function organizationsApi(core: ApiCore) {
         allowedOAuthProviders?: string[];
         canAcceptViaEmail: boolean;
         canAcceptViaGoogle: boolean;
-      } }>>(`/api/invitation/${token}`);
+      } }>>(`/api/invitation/${encodeURIComponent(token)}`);
     },
 
     /** Accept an invitation as the currently logged-in user (POST /invitation/accept).

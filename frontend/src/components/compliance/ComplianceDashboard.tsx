@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { Shield, CheckCircle, AlertTriangle, XCircle, Activity, Clock, BookOpen, ShieldOff, Scan, Sparkles, FileText, Filter, Bell } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
@@ -76,7 +76,12 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
   const [auditDateTo, setAuditDateTo] = useState('');
   const [auditPagination, setAuditPagination] = useState<PaginationState>({ limit: 20, offset: 0, total: 0 });
 
+  // Monotonic guard: driven by four filters + pagination + retry, an older
+  // in-flight response could otherwise resolve last and overwrite the current
+  // filter's rows. Bail on any setState if a newer fetch has started since.
+  const auditGenRef = useRef(0);
   const fetchAudit = useCallback(async (offset = auditPagination.offset, limit = auditPagination.limit) => {
+    const gen = ++auditGenRef.current;
     try {
       const params: Record<string, string | number> = { limit, offset };
       if (auditTarget) params.target = auditTarget;
@@ -84,6 +89,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
       if (auditDateFrom) params.dateFrom = auditDateFrom;
       if (auditDateTo) params.dateTo = auditDateTo;
       const res = await api.getComplianceAuditLog(params);
+      if (auditGenRef.current !== gen) return; // superseded by a newer fetch
       if (res.success && res.data) {
         setAudit(res.data.entries);
         setAuditError(null);
@@ -94,7 +100,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
         setAuditError(res.message || 'Failed to load audit log');
       }
     } catch {
-      setAuditError('Failed to load audit log');
+      if (auditGenRef.current === gen) setAuditError('Failed to load audit log');
     }
   }, [auditTarget, auditResult, auditDateFrom, auditDateTo, auditPagination.offset, auditPagination.limit]);
 
@@ -131,7 +137,11 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
   // `filtersActive` truthy-string indirection skipped fetches when both
   // filters were cleared at once; this fires on any transition.
   useEffect(() => {
-    fetchAudit();
+    // Pass offset 0 explicitly: the reset-offset effect above runs in the same
+    // commit, so `auditPagination.offset` is still the previous page's value in
+    // this closure. Without the explicit 0, changing a filter while on page 2+
+    // would refetch the old offset and render an empty page.
+    fetchAudit(0);
     // fetchAudit closes over the same deps; we want to fire only when the
     // user-facing filters change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -290,6 +300,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
             <select
               value={auditTarget}
               onChange={e => onTargetChange(e.target.value)}
+              aria-label="Filter audit log by target"
               className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs"
             >
               <option value="">All targets</option>
@@ -299,6 +310,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
             <select
               value={auditResult}
               onChange={e => onResultChange(e.target.value)}
+              aria-label="Filter audit log by result"
               className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs"
             >
               <option value="">All results</option>

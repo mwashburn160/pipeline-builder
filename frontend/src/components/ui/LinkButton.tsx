@@ -4,6 +4,7 @@
 import type { AnchorHTMLAttributes, ReactNode } from 'react';
 import Link from 'next/link';
 import type { ButtonVariant, ButtonSize } from './Button';
+import { buttonClasses } from './buttonClasses';
 
 interface LinkButtonProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> {
   /** Navigation target (Next `<Link href>`). */
@@ -17,20 +18,6 @@ interface LinkButtonProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 
   children: ReactNode;
 }
 
-const VARIANT_CLASS: Record<ButtonVariant, string> = {
-  primary: 'btn-primary',
-  secondary: 'btn-secondary',
-  danger: 'btn-danger',
-  success: 'btn-success',
-  ghost: 'btn-ghost',
-  'danger-outline': 'btn-danger-outline',
-  outline: 'btn-outline',
-};
-
-const SIZE_CLASS: Record<ButtonSize, string> = {
-  xs: 'btn-xs', sm: 'btn-sm', md: '', lg: 'btn-lg',
-};
-
 /**
  * A Next `<Link>` painted with the `.btn` CSS layer. Use this for the
  * `<Link className="btn btn-secondary">` cases {@link Button} can't cover —
@@ -40,8 +27,7 @@ const SIZE_CLASS: Record<ButtonSize, string> = {
 export function LinkButton({
   href, variant = 'primary', size = 'md', fullWidth = false, className = '', children, ...props
 }: LinkButtonProps) {
-  const classes = ['btn', VARIANT_CLASS[variant], SIZE_CLASS[size], fullWidth && 'btn-full', className]
-    .filter(Boolean).join(' ');
+  const classes = buttonClasses(variant, size, fullWidth, className);
   return (
     <Link href={href} className={classes} {...props}>
       {children}

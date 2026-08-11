@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import api from '@/lib/api';
 import { Card } from '@/components/ui/Card';
 import { StatCard } from '@/components/reports/StatCard';
@@ -33,7 +33,13 @@ export function BillingDashboard() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
+  // Monotonic token: a rapid range change (or unmount) must not let an older
+  // in-flight load's response overwrite the latest one (last-write-wins /
+  // setState-after-unmount). Only the newest request applies its results.
+  const loadGenRef = useRef(0);
+
   const load = useCallback(async (f: string, t: string) => {
+    const gen = ++loadGenRef.current;
     setLoading(true);
     const range = { ...(f ? { from: f } : {}), ...(t ? { to: t } : {}) };
     const [s, inv, alloc] = await Promise.all([
@@ -43,6 +49,7 @@ export function BillingDashboard() {
       // parent org with teams; 400s / single-org silently yield nothing.
       api.getBillingAllocation({ ...range, includeDescendants: true }).catch(() => null),
     ]);
+    if (loadGenRef.current !== gen) return; // superseded by a newer range / unmounted
     setSummary(s?.data ?? null);
     setInvoices(inv?.data?.invoices ?? []);
     setAllocation(alloc?.data ?? null);
@@ -50,7 +57,12 @@ export function BillingDashboard() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { void load(from, to); }, [load, from, to]);
+  useEffect(() => {
+    void load(from, to);
+    // Invalidate any in-flight load on range change / unmount so its late
+    // response is ignored.
+    return () => { loadGenRef.current++; };
+  }, [load, from, to]);
 
   // Hide entirely until this account has had billing history at least once.
   if (!hasHistory && (loading || !summary || summary.invoiceCount === 0)) return null;

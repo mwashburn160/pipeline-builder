@@ -75,7 +75,7 @@ export default function PipelineConfigSection({
       {onDescriptionChange && (
         <FormField label="Description">
           <Textarea
-            value={description}
+            value={description ?? ''}
             onChange={(e) => onDescriptionChange(e.target.value)}
             rows={2}
             placeholder="Brief description of this pipeline"
@@ -88,7 +88,7 @@ export default function PipelineConfigSection({
         <FormField label="Keywords (comma-separated)">
           <Input
             type="text"
-            value={keywords}
+            value={keywords ?? ''}
             onChange={(e) => onKeywordsChange(e.target.value)}
             placeholder="keyword1, keyword2, keyword3"
             disabled={disabled}

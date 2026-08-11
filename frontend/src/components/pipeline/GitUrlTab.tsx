@@ -141,6 +141,13 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
     const ai = useAIProviders(() => api.getAIProviders());
     const autoGenAttemptedRef = useRef<boolean>(false);
 
+    // Set on unmount (e.g. the create modal closes or the user switches tab
+    // mid-generation) so the async SSE loop stops consuming events + stops
+    // calling setState on a dead component, and the generator's abort/`finally`
+    // fires (server-side git clone is torn down).
+    const cancelledRef = useRef(false);
+    useEffect(() => () => { cancelledRef.current = true; }, []);
+
     /** Update a plugin reference at the given path when the user swaps via combobox. */
     const handlePluginChange = useCallback((path: string, pluginName: string, plugin: Plugin | null) => {
       if (!generatedProps) return;
@@ -227,6 +234,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         for await (const event of api.streamPipelineFromUrl(
           gitUrl.trim(), ai.selectedProvider, ai.selectedModel, keyToUse, tokenToUse,
         )) {
+          if (cancelledRef.current) break; // unmounted/tab-switched mid-stream — stop reading
           switch (event.type) {
             case 'analyzing':
               setAnalyzing(true);
@@ -271,11 +279,12 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
           }
         }
       } catch (err: unknown) {
-        const message = formatError(err, 'Generation failed');
-        setError(message);
+        if (!cancelledRef.current) setError(formatError(err, 'Generation failed'));
       } finally {
-        setGenerating(false);
-        setAnalyzing(false);
+        if (!cancelledRef.current) {
+          setGenerating(false);
+          setAnalyzing(false);
+        }
       }
     };
 

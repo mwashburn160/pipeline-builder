@@ -18,6 +18,9 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
+import { FilterInput } from '@/components/ui/FilterInput';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
 import { FilterBar } from '@/components/ui/FilterBar';
@@ -172,6 +175,7 @@ export default function PluginsPage() {
       return { items: response.data?.plugins || [], pagination: response.data?.pagination };
     },
     enabled: isAuthenticated,
+    urlSync: true,
   });
 
   const del = useDelete<Plugin>(
@@ -229,6 +233,9 @@ export default function PluginsPage() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
+  // Gate bulk delete behind a confirmation modal (mirrors single-row delete's
+  // DeleteConfirmModal), since the bulk action is destructive and irreversible.
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds(prev => {
@@ -247,6 +254,7 @@ export default function PluginsPage() {
       const count = selectedIds.size;
       await api.bulkDeletePlugins(Array.from(selectedIds));
       clearSelection();
+      setShowBulkDelete(false);
       list.refresh();
       toast.success(`${count} plugin${count > 1 ? 's' : ''} deleted`);
     } catch (err) {
@@ -543,41 +551,41 @@ export default function PluginsPage() {
           summary={!list.isLoading && hasActiveFilters ? `Showing ${filteredPlugins.length} of ${list.pagination.total} plugins` : undefined}
           advancedContent={
             <>
-              <input type="text" value={list.filters.keyword} onChange={(e) => list.updateFilter('keyword', e.target.value)} placeholder="Keyword..." className="filter-input max-w-[160px]" />
-              <select value={list.filters.category} onChange={(e) => list.updateFilter('category', e.target.value)} className="filter-select">
+              <FilterInput type="text" aria-label="Filter by keyword" value={list.filters.keyword} onChange={(e) => list.updateFilter('keyword', e.target.value)} placeholder="Keyword..." className="max-w-[160px]" />
+              <FilterSelect aria-label="Filter by category" value={list.filters.category} onChange={(e) => list.updateFilter('category', e.target.value)}>
                 <option value="all">All Categories</option>
                 {PLUGIN_CATEGORIES.map((cat) => (
                   <option key={cat} value={cat}>{CATEGORY_DISPLAY_NAMES[cat]}</option>
                 ))}
-              </select>
-              <select value={list.filters.pluginType} onChange={(e) => list.updateFilter('pluginType', e.target.value)} className="filter-select">
+              </FilterSelect>
+              <FilterSelect aria-label="Filter by type" value={list.filters.pluginType} onChange={(e) => list.updateFilter('pluginType', e.target.value)}>
                 <option value="all">All Types</option>
                 <option value="CodeBuildStep">CodeBuildStep</option>
                 <option value="ShellStep">ShellStep</option>
                 <option value="ManualApprovalStep">ManualApprovalStep</option>
-              </select>
-              <select value={list.filters.computeType} onChange={(e) => list.updateFilter('computeType', e.target.value)} className="filter-select">
+              </FilterSelect>
+              <FilterSelect aria-label="Filter by compute" value={list.filters.computeType} onChange={(e) => list.updateFilter('computeType', e.target.value)}>
                 <option value="all">All Compute</option>
                 <option value="SMALL">SMALL</option>
                 <option value="MEDIUM">MEDIUM</option>
                 <option value="LARGE">LARGE</option>
                 <option value="X2_LARGE">X2_LARGE</option>
-              </select>
-              <select value={list.filters.status} onChange={(e) => list.updateFilter('status', e.target.value)} className="filter-select">
+              </FilterSelect>
+              <FilterSelect aria-label="Filter by status" value={list.filters.status} onChange={(e) => list.updateFilter('status', e.target.value)}>
                 <option value="all">All Status</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
-              </select>
-              <select value={list.filters.default} onChange={(e) => list.updateFilter('default', e.target.value)} className="filter-select">
+              </FilterSelect>
+              <FilterSelect aria-label="Filter by default" value={list.filters.default} onChange={(e) => list.updateFilter('default', e.target.value)}>
                 <option value="all">All Plugins</option>
                 <option value="default">Default only</option>
-              </select>
+              </FilterSelect>
               {canViewPublic && (
-                <select value={list.filters.access} onChange={(e) => list.updateFilter('access', e.target.value)} className="filter-select">
+                <FilterSelect aria-label="Filter by access" value={list.filters.access} onChange={(e) => list.updateFilter('access', e.target.value)}>
                   <option value="all">All Access</option>
                   <option value="public">Public</option>
                   <option value="private">Private</option>
-                </select>
+                </FilterSelect>
               )}
             </>
           }
@@ -664,6 +672,16 @@ export default function PluginsPage() {
         <DeleteConfirmModal title="Delete Plugin" itemName={del.target.name} loading={del.loading} onConfirm={del.confirm} onCancel={del.close} />
       )}
 
+      {showBulkDelete && (
+        <DeleteConfirmModal
+          title="Delete Plugins"
+          itemName={`${selectedIds.size} plugin${selectedIds.size > 1 ? 's' : ''}`}
+          loading={bulkLoading}
+          onConfirm={handleBulkDelete}
+          onCancel={() => setShowBulkDelete(false)}
+        />
+      )}
+
       {editPlugin && (
         <EditPluginModal plugin={editPlugin} isSuperAdmin={isSuperAdmin} onClose={() => setEditPlugin(null)} onSaved={list.refresh} />
       )}
@@ -737,13 +755,13 @@ export default function PluginsPage() {
               <Button variant="secondary" size="xs" onClick={() => handleBulkActivate(false)} disabled={bulkLoading}>
                 Deactivate
               </Button>
-              <Button variant="danger" size="xs" onClick={handleBulkDelete} disabled={bulkLoading}>
+              <Button variant="danger" size="xs" onClick={() => setShowBulkDelete(true)} disabled={bulkLoading}>
                 <Trash2 className="w-3.5 h-3.5" />
                 Delete
               </Button>
-              <button onClick={clearSelection} className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Clear selection">
+              <IconButton onClick={clearSelection} title="Clear selection" aria-label="Clear selection">
                 <X className="w-4 h-4" />
-              </button>
+              </IconButton>
             </div>
           </div>
         </div>

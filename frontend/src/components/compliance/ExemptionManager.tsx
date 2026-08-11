@@ -6,6 +6,9 @@ import api from '@/lib/api';
 import { Pagination } from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toast';
 import { TextEmptyState } from '@/components/ui/EmptyState';
+import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { useServerPagination } from '@/hooks/useServerPagination';
 import type { ComplianceExemption } from '@/types/compliance';
 import { EXEMPTION_STATUS_STYLES as STATUS_STYLES } from '@/lib/compliance-styles';
@@ -194,6 +197,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
+            aria-label="Filter exemptions by status"
             className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm"
           >
             <option value="">All statuses</option>
@@ -213,32 +217,31 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
                 }}
                 className="hidden"
               />
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
                 title="Import exemptions from a CSV (columns: ruleId, entityType, entityId, reason; optional: entityName, expiresAt)"
               >
                 <Upload className="h-4 w-4" /> Import CSV
-              </button>
-              <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700">
+              </Button>
+              <Button variant="primary" size="sm" onClick={() => setShowForm(!showForm)}>
                 <Plus className="h-4 w-4" /> Request
-              </button>
+              </Button>
             </>
           )}
         </div>
       </div>
 
-      {bulkError && (
-        <div className="p-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
-          {bulkError}
-        </div>
-      )}
-      {bulkResult && (
-        <div className="p-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-sm text-green-800 dark:text-green-300">
-          Imported <strong>{bulkResult.created}</strong> exemption{bulkResult.created === 1 ? '' : 's'}
-          {bulkResult.skipped > 0 && <> ({bulkResult.skipped} skipped of {bulkResult.total})</>}.
-        </div>
-      )}
+      <ErrorAlert message={bulkError} />
+      <SuccessAlert
+        message={bulkResult && (
+          <>
+            Imported <strong>{bulkResult.created}</strong> exemption{bulkResult.created === 1 ? '' : 's'}
+            {bulkResult.skipped > 0 && <> ({bulkResult.skipped} skipped of {bulkResult.total})</>}.
+          </>
+        )}
+      />
 
       {showForm && (
         <div className="p-4 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 space-y-3">
@@ -253,8 +256,8 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
           </div>
           <textarea aria-label="Reason for exemption" placeholder="Reason for exemption..." value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm" rows={2} />
           <div className="flex gap-2">
-            <button onClick={handleCreate} className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">Submit Request</button>
-            <button onClick={() => setShowForm(false)} className="px-3 py-1.5 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg">Cancel</button>
+            <Button variant="primary" size="sm" onClick={handleCreate}>Submit Request</Button>
+            <Button variant="secondary" size="sm" onClick={() => setShowForm(false)}>Cancel</Button>
           </div>
         </div>
       )}
@@ -318,12 +321,12 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
                       placeholder="Reason for rejection (optional)"
                       className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm"
                     />
-                    <button onClick={() => handleReject(ex.id)} className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700">
+                    <Button variant="danger" size="xs" onClick={() => handleReject(ex.id)}>
                       Confirm Reject
-                    </button>
-                    <button onClick={() => { setRejectingId(null); setRejectionReason(''); }} className="px-3 py-1.5 text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg">
+                    </Button>
+                    <Button variant="secondary" size="xs" onClick={() => { setRejectingId(null); setRejectionReason(''); }}>
                       Cancel
-                    </button>
+                    </Button>
                   </div>
                 )}
               </div>

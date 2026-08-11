@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Shield, Loader2 } from 'lucide-react';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import api from '@/lib/api';
@@ -13,22 +13,32 @@ export default function EnforcedRulesView() {
   const [error, setError] = useState<string | null>(null);
   const [targetFilter, setTargetFilter] = useState<RuleTarget | ''>('');
 
+  // Stale-response guard: a rapid target-filter switch (or unmount) must not
+  // let an older in-flight response overwrite the current filter's rules.
+  const genRef = useRef(0);
+
   const fetchRules = useCallback(async () => {
+    const gen = ++genRef.current;
     setLoading(true);
     setError(null);
     try {
       const params: Record<string, string> = {};
       if (targetFilter) params.target = targetFilter;
       const res = await api.getEnforcedRules(params);
+      if (gen !== genRef.current) return;
       if (res.success && res.data) setRules(res.data.rules);
       else setError(res.message || 'Failed to load enforced rules');
     } catch {
+      if (gen !== genRef.current) return;
       setError('Failed to load enforced rules');
     }
-    setLoading(false);
+    if (gen === genRef.current) setLoading(false);
   }, [targetFilter]);
 
-  useEffect(() => { fetchRules(); }, [fetchRules]);
+  useEffect(() => {
+    fetchRules();
+    return () => { genRef.current++; };
+  }, [fetchRules]);
 
   const orgRules = rules.filter(r => r.scope === 'org');
   const subscribedRules = rules.filter(r => r.scope === 'published');
@@ -43,6 +53,7 @@ export default function EnforcedRulesView() {
         <select
           value={targetFilter}
           onChange={(e) => setTargetFilter(e.target.value as RuleTarget | '')}
+          aria-label="Filter enforced rules by target"
           className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm"
         >
           <option value="">All targets</option>

@@ -52,12 +52,12 @@ export function TablePanel({ queryKey, title, range, span = 6, mode, logOpts = {
                 </tr>
               </thead>
               <tbody>
-                {entries.map((e, i) => {
+                {entries.map((e) => {
                   // Loki time is in nanoseconds (string). Convert to JS Date via ms.
                   const ms = Math.floor(Number(e.time) / 1_000_000);
                   return (
-                    <tr key={i} className="border-t border-gray-100 dark:border-gray-800 align-top">
-                      <td className="px-2 py-1 whitespace-nowrap text-gray-500">
+                    <tr key={`${e.time}-${e.line}`} className="border-t border-gray-100 dark:border-gray-800 align-top">
+                      <td className="px-2 py-1 whitespace-nowrap text-gray-500" title={new Date(ms).toLocaleString([], { hour12: false })}>
                         {new Date(ms).toLocaleTimeString([], { hour12: false })}
                       </td>
                       <td className="px-2 py-1 whitespace-nowrap font-mono">{e.labels.event ?? '—'}</td>
@@ -83,7 +83,7 @@ export function TablePanel({ queryKey, title, range, span = 6, mode, logOpts = {
                   const last = s.values[s.values.length - 1];
                   const count = last ? parseFloat(last.value) : 0;
                   return (
-                    <tr key={i} className="border-t border-gray-100 dark:border-gray-800">
+                    <tr key={s.labels[topkLabel] ?? `row-${i}`} className="border-t border-gray-100 dark:border-gray-800">
                       <td className="px-2 py-1 font-mono">{s.labels[topkLabel] ?? '—'}</td>
                       <td className="px-2 py-1 text-right tabular-nums">{count.toFixed(0)}</td>
                     </tr>

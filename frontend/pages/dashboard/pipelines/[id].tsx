@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { ArrowLeft, Ban, GitBranch, Pencil, Play, Trash2 } from 'lucide-react';
+import { ArrowLeft, Ban, GitBranch, LayoutTemplate, Pencil, Play, Trash2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { useToast } from '@/components/ui/Toast';
@@ -30,6 +30,7 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Modal } from '@/components/ui/Modal';
 import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
+import { CreateTemplateModal } from '@/components/pipeline/CreateTemplateModal';
 import { ScorecardCard } from '@/components/pipeline/ScorecardCard';
 import { PipelineContextCard } from '@/components/pipeline/PipelineContextCard';
 import { formatError } from '@/lib/constants';
@@ -88,7 +89,7 @@ export default function PipelineDetailPage() {
     }
     return response.data.pipeline;
   }, []);
-  const { entity: pipeline, fetching, error: fetchError } = useEntityFetch<Pipeline>(
+  const { entity: pipeline, fetching, error: fetchError, reload: reloadPipeline } = useEntityFetch<Pipeline>(
     id || null,
     fetchPipeline,
   );
@@ -176,6 +177,9 @@ export default function PipelineDetailPage() {
   }, [id, cancelTarget, loadExecutions, toast]);
 
   const [showEdit, setShowEdit] = useState(false);
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+  const canWrite = can('pipelines:write');
+  const canPublish = can('pipelines:publish');
   const [showDelete, setShowDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -433,6 +437,15 @@ export default function PipelineDetailPage() {
               >
                 <Pencil className="w-4 h-4" /> Edit
               </Button>
+              <Button
+                variant="secondary"
+                onClick={() => setShowSaveTemplate(true)}
+                disabled={!canWrite}
+                className="inline-flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                title={canWrite ? 'Save this pipeline as a reusable golden-path template' : 'Requires pipelines:write'}
+              >
+                <LayoutTemplate className="w-4 h-4" /> Save as template
+              </Button>
               <div className="flex-1" />
               <Button
                 variant="danger"
@@ -453,7 +466,16 @@ export default function PipelineDetailPage() {
           pipeline={pipeline}
           isSuperAdmin={isSuperAdmin}
           onClose={() => setShowEdit(false)}
-          onSaved={() => { setShowEdit(false); void router.replace(router.asPath); }}
+          onSaved={() => { setShowEdit(false); reloadPipeline(); }}
+        />
+      )}
+
+      {showSaveTemplate && pipeline && (
+        <CreateTemplateModal
+          pipeline={pipeline}
+          canPublish={canPublish}
+          onClose={() => setShowSaveTemplate(false)}
+          onCreated={() => setShowSaveTemplate(false)}
         />
       )}
 

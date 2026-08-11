@@ -25,9 +25,36 @@ interface SideDrawerProps {
 export function SideDrawer({ title, subtitle, onClose, children, ariaLabel }: SideDrawerProps) {
   const previousActiveElement = useRef<Element | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') onClose();
+    if (e.key === 'Escape') {
+      // Only close if focus is inside this drawer, and stop other document
+      // Escape listeners (a dialog stacked over/under it) from also firing —
+      // stopPropagation() doesn't stop same-target listeners.
+      if (panelRef.current?.contains(document.activeElement)) {
+        e.stopImmediatePropagation();
+        onClose();
+      }
+      return;
+    }
+    // Focus trap — keep Tab inside the drawer so it doesn't walk into the
+    // background page behind the overlay (mirrors Modal).
+    if (e.key === 'Tab' && panelRef.current) {
+      const focusable = Array.from(
+        panelRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      if (focusable.length === 0) { e.preventDefault(); return; }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      const inside = active instanceof Node && panelRef.current.contains(active);
+      if (!inside) { e.preventDefault(); first.focus(); return; }
+      if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+    }
   }, [onClose]);
 
   useEffect(() => {
@@ -53,6 +80,7 @@ export function SideDrawer({ title, subtitle, onClose, children, ariaLabel }: Si
       <div className="fixed inset-0 z-40" role="presentation" onClick={onClose}>
         <div className="absolute inset-0 bg-black/30" />
         <aside
+          ref={panelRef}
           className="absolute top-0 right-0 h-full w-full max-w-2xl bg-white dark:bg-gray-900 shadow-2xl flex flex-col"
           role="dialog"
           aria-modal="true"

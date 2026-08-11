@@ -321,6 +321,10 @@ export class ApiCore {
     endpoint: string,
     options: RequestInit = {},
     _retryCount = 0,
+    // Tracked separately from `_retryCount` so a 503 retry (which bumps
+    // `_retryCount`) can't consume the one-shot 401 token-refresh — a GET that
+    // 503s then 401s on retry must still refresh once, not surface a spurious auth error.
+    _refreshed = false,
   ): Promise<T> {
     // Proactively refresh token before it expires (skip for auth endpoints)
     if (!endpoint.includes('/auth/')) {
@@ -400,10 +404,10 @@ export class ApiCore {
     // Handle 401 - try to refresh token. Recurse into request() so the retry
     // inherits the full contract (step-up handling, 503-loop guard, Retry-After,
     // _retryCount cap) instead of duplicating a one-shot fetch here.
-    if (statusCode === 401 && this.refreshToken && !endpoint.includes('/auth/refresh') && _retryCount === 0) {
+    if (statusCode === 401 && this.refreshToken && !endpoint.includes('/auth/refresh') && !_refreshed) {
       const refreshed = await this.refreshAccessToken();
       if (refreshed) {
-        return this.request<T>(endpoint, options, _retryCount + 1);
+        return this.request<T>(endpoint, options, _retryCount + 1, true);
       }
     }
 
@@ -412,7 +416,7 @@ export class ApiCore {
     // or role mutation), so auto-retrying its 503 could apply the change twice.
     if (statusCode === 503 && _retryCount < 2 && !options.method?.match(/POST|PUT|PATCH|DELETE/i)) {
       await new Promise(r => setTimeout(r, 1000 * (_retryCount + 1)));
-      return this.request<T>(endpoint, options, _retryCount + 1);
+      return this.request<T>(endpoint, options, _retryCount + 1, _refreshed);
     }
 
     // Check statusCode from response body

@@ -212,7 +212,10 @@ export default function QuotasPage() {
     try {
       const res = await api.updateOrgQuotas(orgData.orgId, body);
       const updated = (res.data?.quota || res.data) as OrgQuotaResponse;
-      applyOrgData(updated);
+      // Pass the sidebar identity (as handleResetUsage does) — if the update
+      // response omits `name`, the fallback chain would otherwise resolve to the
+      // acting sysadmin's own org name while editing a different org.
+      applyOrgData(updated, { orgId: orgData.orgId, sidebarName: orgData.name, sidebarSlug: orgData.slug });
 
       toast.success('Saved');
     } catch (error) {
@@ -249,6 +252,8 @@ export default function QuotasPage() {
       <QuotasReadOnly
         orgData={orgData}
         loading={loading}
+        loadError={loadError}
+        onRetry={() => { if (user.organizationId) fetchOrg(user.organizationId); }}
         activeOrgIsTeam={activeOrgIsTeam}
         canManageBilling={canManageBilling}
         atRisk={ownAtRisk}

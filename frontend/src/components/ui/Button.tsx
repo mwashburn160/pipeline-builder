@@ -3,8 +3,9 @@
 
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
+import { buttonClasses } from './buttonClasses';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'success' | 'ghost' | 'danger-outline' | 'outline';
+export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'success' | 'ghost' | 'danger-outline' | 'outline' | 'indigo';
 export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -19,20 +20,6 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
 }
 
-const VARIANT_CLASS: Record<ButtonVariant, string> = {
-  primary: 'btn-primary',
-  secondary: 'btn-secondary',
-  danger: 'btn-danger',
-  success: 'btn-success',
-  ghost: 'btn-ghost',
-  'danger-outline': 'btn-danger-outline',
-  outline: 'btn-outline',
-};
-
-const SIZE_CLASS: Record<ButtonSize, string> = {
-  xs: 'btn-xs', sm: 'btn-sm', md: '', lg: 'btn-lg',
-};
-
 /**
  * Typed wrapper over the `.btn` CSS layer. Defaults `type="button"` (native
  * default is `submit`, a common footgun) and folds `loading` into the disabled
@@ -42,8 +29,7 @@ export function Button({
   variant = 'primary', size = 'md', fullWidth = false, loading = false,
   disabled, type = 'button', className = '', children, ...props
 }: ButtonProps) {
-  const classes = ['btn', VARIANT_CLASS[variant], SIZE_CLASS[size], fullWidth && 'btn-full', className]
-    .filter(Boolean).join(' ');
+  const classes = buttonClasses(variant, size, fullWidth, className);
   return (
     <button type={type} disabled={disabled || loading} className={classes} {...props}>
       {loading && <Loader2 className="w-4 h-4 mr-1.5 animate-spin" aria-hidden />}

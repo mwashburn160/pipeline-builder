@@ -27,6 +27,7 @@ export function SysadminGrantHistory({ userId, isSuperAdmin }: { userId: string;
     if (!expanded) return;
     let cancelled = false;
     setLoading(true);
+    setError(null); // clear any prior error so it doesn't render during reload
     api.listAuditEvents({
       targetId: userId,
       // Two actions to fetch; substring match against the regex filter.
@@ -61,7 +62,11 @@ export function SysadminGrantHistory({ userId, isSuperAdmin }: { userId: string;
             <ul className="space-y-1.5 text-xs text-gray-600 dark:text-gray-400">
               {events.map((e) => {
                 const source = (e.details as { source?: string } | undefined)?.source;
-                const verb = e.action.endsWith('.grant') ? 'Granted' : 'Revoked';
+                // Branch explicitly so a non-grant/non-revoke superadmin.* action
+                // isn't mislabelled "Revoked".
+                const verb = e.action.endsWith('.grant') ? 'Granted'
+                  : e.action.endsWith('.revoke') ? 'Revoked'
+                  : e.action;
                 return (
                   <li key={e._id} className="flex items-baseline justify-between gap-2">
                     <span>

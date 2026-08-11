@@ -12,6 +12,14 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useListPage, type FilterField } from '../src/hooks/useListPage';
 
+// useListPage now calls `useRouter()` for opt-in URL-sync. These tests don't pass
+// `urlSync`, so the sync effects stay inert (guarded on `urlSync` + `isReady`);
+// stub the router so the unconditional `useRouter()` call doesn't throw
+// "NextRouter was not mounted" outside a <RouterContext>.
+jest.mock('next/router', () => ({
+  useRouter: () => ({ query: {}, isReady: false, pathname: '/', replace: jest.fn() }),
+}));
+
 interface Row { id: string; }
 
 // A primary (debounced) text field + an immediate select field — mirrors the

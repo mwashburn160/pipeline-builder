@@ -117,9 +117,10 @@ export default function OAuthCallbackPage() {
           });
 
           const urlRes = await api.getOAuthUrl(provider);
-          const next: OAuthIntent = { state: urlRes.data!.state, kind: 'login', returnUrl: '/dashboard' };
+          if (!urlRes.data?.url || !urlRes.data.state) throw new Error('Could not start sign-in with this provider');
+          const next: OAuthIntent = { state: urlRes.data.state, kind: 'login', returnUrl: '/dashboard' };
           try { sessionStorage.setItem(OAUTH_INTENT_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ }
-          window.location.href = urlRes.data!.url;
+          window.location.href = urlRes.data.url;
           return;
         }
 

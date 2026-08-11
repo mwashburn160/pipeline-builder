@@ -13,6 +13,9 @@ import { Pagination } from '@/components/ui/Pagination';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { FilterInput } from '@/components/ui/FilterInput';
+import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useToast } from '@/components/ui/Toast';
 import type { QueueStatus } from '@/types';
 import api from '@/lib/api';
@@ -109,8 +112,12 @@ function SortHeader({ label, field, sortBy, sortDir, onSort }: SortHeaderProps) 
   const active = sortBy === field;
   return (
     <th
-      className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+      className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none hover:text-gray-900 dark:hover:text-gray-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
       onClick={() => onSort(field)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSort(field); } }}
+      role="button"
+      tabIndex={0}
+      aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
     >
       <span className="inline-flex items-center gap-1">
         {label}
@@ -214,13 +221,13 @@ function FailedJobsTable({ jobs, title, showCategory, onAction, actionPendingIds
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="relative min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-          <input
+          <FilterInput
             type="text"
             value={nameQuery}
             onChange={(e) => { setNameQuery(e.target.value); setPage(0); }}
             placeholder="Search plugin name..."
             aria-label="Search by plugin name"
-            className="filter-input pl-10"
+            className="pl-10"
           />
         </div>
         {showCategory && categories.length > 0 && (
@@ -326,7 +333,7 @@ function FailedJobsTable({ jobs, title, showCategory, onAction, actionPendingIds
           </table>
         </div>
       </Card>
-      {filtered.length > DEFAULT_PAGE_SIZE && (
+      {filtered.length > pageSize && (
         <div className="mt-3">
           <Pagination
             pagination={{ limit: pageSize, offset: page, total: filtered.length }}
@@ -355,6 +362,12 @@ export default function BuildQueuePage() {
   const [replayingIds, setReplayingIds] = useState<Set<string>>(new Set());
   const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
   const [purging, setPurging] = useState(false);
+  // Confirmation targets — destructive queue actions route through a confirm
+  // modal instead of a bare window.confirm (DeleteConfirmModal for per-row
+  // replay/retry, StepUpModal for the fleet-wide DLQ purge).
+  const [replayTarget, setReplayTarget] = useState<string | null>(null);
+  const [retryTarget, setRetryTarget] = useState<string | null>(null);
+  const [pendingPurge, setPendingPurge] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -404,7 +417,6 @@ export default function BuildQueuePage() {
   // Re-enqueue a single DLQ job onto the main build queue, then refetch the
   // DLQ list so the replayed row drops out. Mirrors the triage page's replay.
   const handleReplayDlq = useCallback(async (jobId: string) => {
-    if (!window.confirm('Re-enqueue this job onto the main build queue?')) return;
     setReplayingIds((prev) => new Set(prev).add(jobId));
     try {
       const res = await api.replayDlqJob(jobId);
@@ -428,7 +440,6 @@ export default function BuildQueuePage() {
   // the failed list + aggregate status so the retried row drops out. Mirrors
   // the DLQ replay handler above.
   const handleRetryFailed = useCallback(async (jobId: string) => {
-    if (!window.confirm('Re-enqueue this failed build onto the main build queue?')) return;
     setRetryingIds((prev) => new Set(prev).add(jobId));
     try {
       const res = await api.retryFailedJob(jobId);
@@ -451,7 +462,6 @@ export default function BuildQueuePage() {
   // Purge the ENTIRE dead-letter queue — destructive, sysadmin-only. Strong
   // confirm, then refresh the aggregate status + (if open) the DLQ list.
   const handlePurgeDlq = useCallback(async () => {
-    if (!window.confirm('Purge the ENTIRE dead-letter queue? This permanently deletes every DLQ entry and cannot be undone.')) return;
     setPurging(true);
     try {
       await api.purgeDlq();
@@ -592,7 +602,7 @@ export default function BuildQueuePage() {
             <FailedJobsTable
               jobs={failedJobs}
               title="failed jobs"
-              onAction={handleRetryFailed}
+              onAction={(id) => setRetryTarget(id)}
               actionPendingIds={retryingIds}
               actionLabel="Retry"
               actionPendingLabel="Retrying…"
@@ -625,7 +635,7 @@ export default function BuildQueuePage() {
                 </Button>
               )}
               {isSuperAdmin && (
-                <Button onClick={handlePurgeDlq} variant="danger" size="sm" disabled={purging}>
+                <Button onClick={() => setPendingPurge(true)} variant="danger" size="sm" disabled={purging}>
                   {purging ? 'Purging…' : 'Purge DLQ'}
                 </Button>
               )}
@@ -636,7 +646,7 @@ export default function BuildQueuePage() {
               jobs={dlqJobs}
               title="DLQ jobs"
               showCategory
-              onAction={handleReplayDlq}
+              onAction={(id) => setReplayTarget(id)}
               actionPendingIds={replayingIds}
               actionLabel="Replay"
               actionPendingLabel="Replaying…"
@@ -644,6 +654,38 @@ export default function BuildQueuePage() {
             />
           )}
         </motion.div>
+      )}
+
+      {/* Replay confirmation (per DLQ row) */}
+      {replayTarget && (
+        <DeleteConfirmModal
+          title="Replay DLQ job"
+          itemName={`job ${replayTarget.slice(0, 12)}`}
+          loading={replayingIds.has(replayTarget)}
+          onConfirm={async () => { if (!replayTarget) return; await handleReplayDlq(replayTarget); setReplayTarget(null); }}
+          onCancel={() => setReplayTarget(null)}
+        />
+      )}
+
+      {/* Retry confirmation (per failed-build row) */}
+      {retryTarget && (
+        <DeleteConfirmModal
+          title="Retry failed build"
+          itemName={`job ${retryTarget.slice(0, 12)}`}
+          loading={retryingIds.has(retryTarget)}
+          onConfirm={async () => { if (!retryTarget) return; await handleRetryFailed(retryTarget); setRetryTarget(null); }}
+          onCancel={() => setRetryTarget(null)}
+        />
+      )}
+
+      {/* Full-DLQ purge — fleet-wide + irreversible, so it re-verifies the
+          operator's password (step-up) before firing. */}
+      {pendingPurge && (
+        <StepUpModal
+          action="Purge the ENTIRE dead-letter queue — this permanently deletes every DLQ entry and cannot be undone"
+          onConfirmed={async () => { await handlePurgeDlq(); }}
+          onClose={() => setPendingPurge(false)}
+        />
       )}
     </DashboardLayout>
   );

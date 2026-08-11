@@ -43,7 +43,6 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<string | null>(null);
   // Gate destructive ops (save/clear) on a step-up password reverify.
   const [pendingOp, setPendingOp] = useState<'save' | 'clear' | null>(null);
 
@@ -68,23 +67,20 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
   const executeSave = useCallback(async (stepUpToken: string) => {
     setSubmitting(true);
     setError(null);
-    setLastResult(null);
     try {
       const res = await api.putOrgKmsConfig(org.id, { keyId, ciphertextBase64 }, undefined, stepUpToken);
       if (!res.success) throw new Error(res.message || 'Failed to save KMS config');
       setConfigured(true);
       setCurrentKeyId(res.data?.keyId);
-      const reenc = res.data?.aiKeysReencrypted !== undefined
-        ? ` Re-encrypted ${res.data.aiKeysReencrypted} AI key(s)${res.data.idpSecretReencrypted ? ' + IdP secret' : ''}.`
-        : '';
-      setLastResult(`KMS config saved.${reenc}`);
       setKeyId('');
       setCiphertextBase64('');
       onSaved?.();
+      // Reset busy state BEFORE onClose() unmounts the modal — otherwise the
+      // finally would setState on an unmounted component.
+      setSubmitting(false);
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
       setSubmitting(false);
     }
   }, [org.id, keyId, ciphertextBase64, onSaved, onClose]);
@@ -114,18 +110,16 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
   const executeClear = useCallback(async (stepUpToken: string) => {
     setSubmitting(true);
     setError(null);
-    setLastResult(null);
     try {
       const res = await api.deleteOrgKmsConfig(org.id, stepUpToken);
       if (!res.success) throw new Error(res.message || 'Failed to clear KMS config');
       setConfigured(false);
       setCurrentKeyId(undefined);
-      setLastResult('KMS config cleared.');
       onSaved?.();
+      setSubmitting(false);
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
       setSubmitting(false);
     }
   }, [org.id, onSaved, onClose]);
@@ -176,12 +170,6 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
           {loading && <LoadingSpinner size="sm" />}
 
           <ErrorAlert message={error} />
-
-          {lastResult && (
-            <div className="rounded-lg bg-green-50 dark:bg-green-900/20 px-3 py-2 text-sm text-green-800 dark:text-green-300">
-              {lastResult}
-            </div>
-          )}
 
           {testResult && (
             <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 px-3 py-2 text-sm text-blue-800 dark:text-blue-300 font-mono">

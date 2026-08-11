@@ -55,13 +55,14 @@ export function pluginsApi(core: ApiCore) {
         signal: options?.signal,
       });
 
-      const data = await response.json().catch(() => ({ 
-        statusCode: response.status, 
+      const data = await response.json().catch(() => ({
         message: 'Upload failed',
         success: false,
       }));
-    
-      const statusCode = data.statusCode || response.status;
+
+      // Success/failure is decided by the REAL HTTP status, never a body
+      // `statusCode` field — a proxy or error page may omit/lie about it.
+      const statusCode = response.status;
 
       if (statusCode >= 400) {
         throw new ApiError(data.message || 'Upload failed', statusCode, data.code);

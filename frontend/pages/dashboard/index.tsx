@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { formatError } from '@/lib/constants';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
@@ -75,8 +75,19 @@ export default function DashboardPage() {
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [onboardingVisitedPlugins, setOnboardingVisitedPlugins] = useState(false);
+  // Set when the core stats fetch (executions / pipeline count) fails, so a 500
+  // renders a distinct load-error + retry state instead of masquerading as a
+  // brand-new org ("0 Pipelines / -- Success Rate").
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Request-generation guard: a rapid org-switch re-creates fetchData (it keys on
+  // organizationId) and re-runs the effect, so an earlier org's in-flight response
+  // could otherwise land last and overwrite the current org's stats. Only the most
+  // recent invocation is allowed to apply state.
+  const fetchGenRef = useRef(0);
 
   const fetchData = useCallback(async () => {
+    const gen = ++fetchGenRef.current;
     // Org-admin/owner only: a cheap member-count probe (1-row page, read from
     // pagination.total) so a fresh account can be distinguished from an active
     // one — an owner who has invited a teammate has "started" and graduates to
@@ -93,12 +104,26 @@ export default function DashboardPage() {
       memberPromise,
     ]);
 
+    // Discard a superseded response: a slower fetch for a previously-selected org
+    // must not overwrite the org the user has since switched to.
+    if (gen !== fetchGenRef.current) return;
+
     if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
     if (pluginRes.status === 'fulfilled') setPluginSummary(pluginRes.value.data?.summary || null);
     if (pipelineRes.status === 'fulfilled') setPipelineCount(pipelineRes.value.data?.pagination?.total ?? 0);
     if (unreadRes.status === 'fulfilled') setUnreadMessageCount(unreadRes.value.data?.count ?? 0);
     if (memberRes.status === 'fulfilled' && memberRes.value?.success && memberRes.value.data) {
       setMemberCount(memberRes.value.data.pagination?.total ?? memberRes.value.data.members.length);
+    }
+
+    // The two fetches that back the headline stats (Pipelines / Total & Failed
+    // Executions / Success Rate). If BOTH the executions report and the pipeline
+    // count fail, the "0 / --" render is a load failure, not an empty org — surface
+    // a retryable error instead of a misleading empty dashboard.
+    if (execRes.status === 'rejected' && pipelineRes.status === 'rejected') {
+      setLoadError(formatError(execRes.reason, 'Failed to load dashboard data.'));
+    } else {
+      setLoadError(null);
     }
   }, [isOrgAdmin, user?.organizationId]);
 
@@ -148,7 +173,7 @@ export default function DashboardPage() {
     return [
       // Prefer the actual pipeline total (includes never-run pipelines); fall
       // back to the count that appear in the executions report only until it loads.
-      { label: 'Pipelines', value: String(pipelineCount ?? executions.length ?? 0), icon: GitBranch, color: 'text-blue-500' },
+      { label: 'Pipelines', value: String(pipelineCount ?? executions.length), icon: GitBranch, color: 'text-blue-500' },
       { label: 'Total Executions', value: String(totalExec), icon: BarChart3, color: 'text-indigo-500' },
       { label: 'Failed Executions', value: String(totalFailed), icon: XCircle, color: totalFailed > 0 ? 'text-red-500' : 'text-gray-400' },
       { label: 'Success Rate', value: successRate !== null ? `${successRate}%` : '--', icon: CheckCircle2, color: successRate !== null && successRate >= 90 ? 'text-green-500' : successRate !== null && successRate >= 70 ? 'text-yellow-500' : 'text-red-500' },
@@ -228,6 +253,19 @@ export default function DashboardPage() {
   return (
     <DashboardLayout title="Home" subtitle={`Welcome back, ${user.username}`}>
       <motion.div variants={stagger.container} initial="hidden" animate="show" className="page-section">
+
+        {/* Load-failure banner — distinguishes a 500 from a genuinely empty org so
+            the stats strip below isn't misread as "brand-new account". */}
+        {loadError && (
+          <motion.div
+            variants={stagger.item}
+            className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300"
+            role="alert"
+          >
+            <span>{loadError}</span>
+            <button type="button" onClick={() => { void fetchData(); }} className="underline hover:no-underline">Retry</button>
+          </motion.div>
+        )}
 
         {/* ─── Primary action: generate a pipeline from Git ─── */}
         <motion.div variants={stagger.item} className="card mb-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-blue-200 dark:border-blue-900">
@@ -363,7 +401,10 @@ export default function DashboardPage() {
                 const total = entry.succeeded + entry.failed + entry.canceled;
                 const height = total > 0 ? Math.max(8, (total / timelineMax) * 100) : 4;
                 const failPct = total > 0 ? (entry.failed / total) * 100 : 0;
-                const day = new Date(entry.period).toLocaleDateString(undefined, { weekday: 'short' });
+                // Anchor the date-only period at local midnight (append T00:00:00)
+                // so `toLocaleDateString` doesn't shift the weekday back a day for
+                // users in negative-UTC offsets (parsing "2026-08-01" alone is UTC).
+                const day = new Date(`${entry.period}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short' });
 
                 return (
                   <div key={entry.period} className="flex-1 flex flex-col items-center gap-1">

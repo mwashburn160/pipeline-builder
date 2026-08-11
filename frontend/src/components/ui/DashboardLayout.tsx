@@ -55,6 +55,7 @@ export function DashboardLayout({
   const router = useRouter();
   const [unreadCount, setUnreadCount] = useState(0);
   const cmdkRef = useRef<() => void>(null);
+  const mobileDrawerRef = useRef<HTMLDivElement>(null);
 
   // Global catch-all for stale step-up tokens. When a destructive API
   // call returns 401 STEP_UP_REQUIRED / INVALID / MISMATCH, the api
@@ -89,6 +90,45 @@ export function DashboardLayout({
     return () => clearInterval(interval);
   }, [fetchUnreadCount]);
 
+  // Mobile drawer focus management: when the drawer opens, move focus into it,
+  // keep Tab cycling within it, and close on Escape. The drawer is a fixed
+  // overlay with no native dialog semantics, so this has to be wired by hand.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const drawer = mobileDrawerRef.current;
+    const getFocusable = () =>
+      drawer
+        ? Array.from(
+            drawer.querySelectorAll<HTMLElement>(
+              'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])',
+            ),
+          )
+        : [];
+    getFocusable()[0]?.focus();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeMobile();
+        return;
+      }
+      if (e.key === 'Tab') {
+        const els = getFocusable();
+        if (els.length === 0) return;
+        const first = els[0];
+        const last = els[els.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [mobileOpen, closeMobile]);
+
   if (!isReady || !user || !featuresLoaded) return <LoadingPage />;
 
   const sidebarWidth = collapsed ? 'lg:w-16' : 'lg:w-64';
@@ -111,6 +151,14 @@ export function DashboardLayout({
         <title>{title} - Pipeline Builder</title>
       </Head>
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors flex">
+        {/* Skip link — first tab stop; jumps keyboard/AT users past the nav
+            straight to page content. Visually hidden until focused. */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[60] focus:px-3 focus:py-2 focus:rounded-lg focus:bg-blue-600 focus:text-white focus:shadow-lg"
+        >
+          Skip to content
+        </a>
         {/* Desktop sidebar */}
         <div className={`hidden lg:flex ${sidebarWidth} lg:flex-shrink-0 lg:fixed lg:inset-y-0 transition-all duration-200`}>
           <Sidebar {...sidebarProps} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
@@ -129,11 +177,15 @@ export function DashboardLayout({
                 onClick={closeMobile}
               />
               <motion.div
+                ref={mobileDrawerRef}
                 initial={{ x: -256 }}
                 animate={{ x: 0 }}
                 exit={{ x: -256 }}
                 transition={{ type: 'spring', damping: 25, stiffness: 300 }}
                 className="fixed inset-y-0 left-0 w-64 z-50 lg:hidden"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Navigation menu"
               >
                 <Sidebar {...sidebarProps} />
                 <button
@@ -182,6 +234,8 @@ export function DashboardLayout({
                 {/* Cmd+K hint */}
                 <button
                   onClick={() => cmdkRef.current?.()}
+                  aria-label="Open command palette"
+                  title="Open command palette (⌘K)"
                   className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 transition-colors"
                 >
                   <kbd className="font-medium">⌘K</kbd>
@@ -210,8 +264,8 @@ export function DashboardLayout({
           <AuthErrorBanner />
           <QuotaBanner />
 
-          <main className={`page-reveal ${maxWidthClasses[maxWidth]} mx-auto w-full py-6 px-4 sm:px-6 lg:px-8 ${mainClassName}`}>
-            <ErrorBoundary>
+          <main id="main-content" tabIndex={-1} className={`page-reveal ${maxWidthClasses[maxWidth]} mx-auto w-full py-6 px-4 sm:px-6 lg:px-8 ${mainClassName}`}>
+            <ErrorBoundary resetKey={router.asPath}>
               {children}
             </ErrorBoundary>
           </main>

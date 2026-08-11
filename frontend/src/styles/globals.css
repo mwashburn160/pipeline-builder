@@ -126,6 +126,16 @@
     @apply focus:ring-[color:var(--pb-success)] hover:brightness-105;
   }
 
+  /* Indigo "experimental" accent — dry-run / preview-impact / scan-trigger
+     actions (FlaskConical/BarChart3/Scan). No brand token exists for indigo, so
+     use a fixed indigo mirroring the .btn-primary structure. */
+  .btn-indigo {
+    background-image: linear-gradient(180deg, color-mix(in srgb, #4f46e5 92%, #fff 8%), #4338ca);
+    color: #fff;
+    box-shadow: 0 10px 22px rgba(79, 70, 229, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    @apply focus:ring-[color:#4f46e5] hover:brightness-105;
+  }
+
   .btn-ghost {
     @apply bg-transparent hover:bg-[color:var(--pb-surface-muted)]
            focus:ring-[color:var(--pb-brand)];
@@ -337,6 +347,19 @@
      can lean on their saturated base colors). */
   .alert-warning p {
     color: color-mix(in srgb, var(--pb-accent) 45%, var(--pb-text) 55%);
+    @apply text-sm font-medium;
+  }
+
+  /* Info (blue) — no saturated token exists, so mix a fixed blue against the
+     theme surface/text so it reads correctly in both light and dark. */
+  .alert-info {
+    background-color: color-mix(in srgb, #3b82f6 12%, var(--pb-surface) 88%);
+    border: 1px solid color-mix(in srgb, #3b82f6 35%, var(--pb-border) 65%);
+    @apply mb-6 rounded-2xl p-4;
+  }
+
+  .alert-info p {
+    color: color-mix(in srgb, #3b82f6 70%, var(--pb-text) 30%);
     @apply text-sm font-medium;
   }
 

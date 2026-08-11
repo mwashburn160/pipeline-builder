@@ -102,7 +102,7 @@ export function StackedBarPanel({ queryKey, title, range, span = 12, groupBy = '
       {/* Legend (deduped across all series — bar colors map per-series index). */}
       <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-600 dark:text-gray-400">
         {series.map((s, i) => (
-          <span key={i} className="inline-flex items-center gap-1.5">
+          <span key={s.labels[groupBy] ?? `series-${i}`} className="inline-flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: SERIES_COLORS[i % SERIES_COLORS.length] }} />
             {s.labels[groupBy] ?? `series ${i + 1}`}
           </span>

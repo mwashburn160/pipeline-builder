@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react';
 import { DEFAULT_TOAST_DURATION_MS } from '@/lib/constants';
@@ -95,13 +95,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const value: ToastContextValue = {
+  // Memoize so every `useToast()` consumer doesn't re-render on each toast
+  // add/remove (the provider re-renders whenever `toasts` changes). `addToast`
+  // is a stable useCallback, so the value identity is stable for the session.
+  const value = useMemo<ToastContextValue>(() => ({
     toast: addToast,
     success: (msg, dur) => addToast('success', msg, dur),
     error: (msg, dur) => addToast('error', msg, dur),
     warning: (msg, dur) => addToast('warning', msg, dur),
     info: (msg, dur) => addToast('info', msg, dur),
-  };
+  }), [addToast]);
 
   return (
     <ToastContext.Provider value={value}>

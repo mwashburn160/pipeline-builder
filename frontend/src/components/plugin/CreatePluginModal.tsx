@@ -38,6 +38,12 @@ export default function CreatePluginModal({ canUploadPublic, onClose, onCreated,
   const [success, setSuccess] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Guards the sync-upload close timer so it can't call onClose() after unmount.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
   const fileInputId = useId();
 
   // SSE build progress — driven by the requestId returned from the 202
@@ -121,7 +127,7 @@ export default function CreatePluginModal({ canUploadPublic, onClose, onCreated,
         setFile(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
         onCreated();
-        setTimeout(() => onClose(), 2000);
+        setTimeout(() => { if (mountedRef.current) onClose(); }, 2000);
       }
     }
   };
@@ -201,6 +207,7 @@ export default function CreatePluginModal({ canUploadPublic, onClose, onCreated,
       title="Create Plugin"
       onClose={onClose}
       maxWidth="max-w-2xl"
+      tall
       subHeader={tabs}
       footer={activeTab === 'upload' ? uploadFooter : aiFooter}
     >

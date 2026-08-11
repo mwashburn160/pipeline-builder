@@ -4,11 +4,13 @@
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
 export const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'https://localhost:8443');
 
-/** Build a query string from optional params, filtering out undefined/empty values. */
+/** Build a query string from optional params, filtering out undefined/null/empty values. */
 export function buildQuery(params?: Record<string, unknown>): string {
   if (!params) return '';
   const entries = Object.entries(params)
-    .filter(([, v]) => v !== undefined && v !== '')
+    // `v != null` drops both undefined AND null (String(null) → the literal
+    // "null", which would otherwise be sent as ?foo=null when a filter clears).
+    .filter(([, v]) => v != null && v !== '')
     .map(([k, v]) => [k, String(v)]);
   return entries.length ? '?' + new URLSearchParams(entries).toString() : '';
 }

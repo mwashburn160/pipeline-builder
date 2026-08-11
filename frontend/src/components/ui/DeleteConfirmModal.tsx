@@ -21,14 +21,37 @@ interface DeleteConfirmModalProps {
 /** Destructive-action confirmation dialog with a warning message and Cancel/Delete buttons. */
 export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCancel, className = '' }: DeleteConfirmModalProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !loading) {
-        // Stop propagation so a parent modal (if this is nested inside one)
-        // doesn't also receive the Escape and close itself.
-        e.stopPropagation();
-        onCancel();
+        // Only close if focus is inside THIS dialog, and stop other document
+        // listeners (a parent dialog) from also firing. stopPropagation() can't
+        // stop same-target listeners — stopImmediatePropagation() can.
+        if (panelRef.current?.contains(document.activeElement)) {
+          e.stopImmediatePropagation();
+          onCancel();
+        }
+        return;
+      }
+      // Focus trap: keep Tab within the two buttons so it can't escape to the
+      // background page behind the overlay.
+      if (e.key === 'Tab' && panelRef.current) {
+        const focusable = Array.from(
+          panelRef.current.querySelectorAll<HTMLElement>('button:not([disabled])'),
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        if (!(active instanceof Node) || !panelRef.current.contains(active)) {
+          e.preventDefault(); first.focus();
+        } else if (e.shiftKey && active === first) {
+          e.preventDefault(); last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault(); first.focus();
+        }
       }
     };
     document.addEventListener('keydown', handleKeyDown);
@@ -39,7 +62,7 @@ export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCanc
   return (
     <ModalPortal>
     <div className="modal-backdrop" onClick={() => !loading && onCancel()} role="presentation">
-      <div className={`modal-panel max-w-md ${className}`} onClick={(e) => e.stopPropagation()} role="alertdialog" aria-modal="true" aria-label={title}>
+      <div ref={panelRef} className={`modal-panel max-w-md ${className}`} onClick={(e) => e.stopPropagation()} role="alertdialog" aria-modal="true" aria-label={title}>
         <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">{title}</h3>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
           Are you sure you want to delete <strong className="text-gray-700 dark:text-gray-200">{itemName}</strong>?

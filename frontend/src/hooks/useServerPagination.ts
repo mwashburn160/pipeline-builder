@@ -74,9 +74,15 @@ export function useServerPagination<T, F extends Record<string, unknown>>(
         },
         onSuccess: (result) => {
           setItems(result.items);
-          setPagination((p) =>
-            p.total === result.pagination.total ? p : { ...p, total: result.pagination.total },
-          );
+          setPagination((p) => {
+            const total = result.pagination.total;
+            // Clamp a now-out-of-range offset (e.g. a filter shrank the result
+            // set while the user was on a later page) to the last valid page, so
+            // the list doesn't render empty on a stale offset (mirrors useListPage).
+            const maxOffset = total === 0 ? 0 : Math.floor((total - 1) / p.limit) * p.limit;
+            const offset = p.offset > maxOffset ? maxOffset : p.offset;
+            return p.total === total && p.offset === offset ? p : { ...p, total, offset };
+          });
         },
         onError: setError,
         onSettled: () => setLoading(false),

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { History, ArrowLeft, Loader2 } from 'lucide-react';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import api from '@/lib/api';
@@ -24,20 +24,32 @@ export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryPro
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Stale-response guard: a rapid rule switch (or unmount) must not let an
+  // older in-flight response overwrite the current rule's history. Each fetch
+  // captures a generation number; setState is skipped if a newer fetch (or the
+  // effect cleanup) has since bumped it.
+  const genRef = useRef(0);
+
   const fetchHistory = useCallback(async () => {
+    const gen = ++genRef.current;
     setLoading(true);
     setError(null);
     try {
       const res = await api.getComplianceRuleHistory(ruleId);
+      if (gen !== genRef.current) return;
       if (res.success && res.data) setHistory(res.data.history);
       else setError(res.message || 'Failed to load rule history');
     } catch {
+      if (gen !== genRef.current) return;
       setError('Failed to load rule history');
     }
-    setLoading(false);
+    if (gen === genRef.current) setLoading(false);
   }, [ruleId]);
 
-  useEffect(() => { fetchHistory(); }, [fetchHistory]);
+  useEffect(() => {
+    fetchHistory();
+    return () => { genRef.current++; };
+  }, [fetchHistory]);
 
   return (
     <div className="space-y-4">

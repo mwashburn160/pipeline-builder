@@ -18,6 +18,7 @@ import { ModalFooter } from '@/components/ui/ModalFooter';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 
 interface InvitationListItem {
@@ -40,6 +41,7 @@ const STATUS_BADGE_COLOR: Record<string, 'blue' | 'green' | 'gray' | 'red'> = {
 
 export default function InvitationsPage() {
   const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'invitations:manage' });
+  const toast = useToast();
   // Role admins/owners (via bundle) and custom-group members granted it.
   const canManageInvitations = can('invitations:manage');
 
@@ -212,6 +214,7 @@ export default function InvitationsPage() {
     setRevokeLoading(true);
     try {
       await api.revokeInvitation(revokeTarget.id);
+      toast.success(`Invitation to ${revokeTarget.email} revoked`);
       setRevokeTarget(null);
       list.refresh();
     } catch (err) {
@@ -226,6 +229,7 @@ export default function InvitationsPage() {
     setResendLoadingId(invitation.id);
     try {
       await api.resendInvitation(invitation.id);
+      toast.success(`Invitation to ${invitation.email} resent`);
       list.refresh();
     } catch (err) {
       list.setError(formatError(err, 'Failed to resend invitation'));
@@ -258,43 +262,41 @@ export default function InvitationsPage() {
         />
       ) : null,
     },
+    // NOTE: no `sortValue` on these columns. The list is server-paginated and
+    // the invitations list endpoint has no sort param, so a client sort would
+    // only reorder the current page — misleading. Sort affordance intentionally
+    // dropped until/unless the backend supports it.
     {
       id: 'email',
       header: 'Email',
-      sortValue: (inv) => inv.email,
       render: (inv) => <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{inv.email}</span>,
     },
     {
       id: 'role',
       header: 'Role',
-      sortValue: (inv) => inv.role,
       render: (inv) => <Badge color={inv.role === 'admin' ? 'purple' : 'gray'}>{inv.role}</Badge>,
     },
     {
       id: 'status',
       header: 'Status',
-      sortValue: (inv) => inv.status,
       render: (inv) => <Badge color={STATUS_BADGE_COLOR[inv.status] || 'gray'}>{inv.status}</Badge>,
     },
     {
       id: 'invitedBy',
       header: 'Invited By',
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (inv) => inv.inviterName || inv.invitedBy,
       render: (inv) => <>{inv.inviterName || inv.invitedBy || 'Unknown'}</>,
     },
     {
       id: 'createdAt',
       header: 'Created',
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (inv) => inv.createdAt,
       render: (inv) => <RelativeTime value={inv.createdAt} />,
     },
     {
       id: 'expiresAt',
       header: 'Expires',
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (inv) => inv.expiresAt,
       render: (inv) => <RelativeTime value={inv.expiresAt} />,
     },
     {
@@ -426,7 +428,6 @@ export default function InvitationsPage() {
           ),
         }}
         getRowKey={(inv) => inv.id}
-        defaultSortColumn="createdAt"
       />
 
       {!list.isLoading && list.pagination.total > 0 && (

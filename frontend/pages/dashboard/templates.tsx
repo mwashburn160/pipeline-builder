@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { ResourceList } from '@/components/ui/ResourceList';
+import { CreateTemplateModal } from '@/components/pipeline/CreateTemplateModal';
 import api from '@/lib/api';
 import type { PipelineTemplate, TemplateInput } from '@/types';
 
@@ -39,6 +40,8 @@ export default function TemplatesPage() {
   const toast = useToast();
   const router = useRouter();
   const canWrite = can('pipelines:write');
+  const canPublish = can('pipelines:publish');
+  const [showCreate, setShowCreate] = useState(false);
 
   const [templates, setTemplates] = useState<PipelineTemplate[]>([]);
   const [loading, setLoading] = useState(false);
@@ -145,7 +148,7 @@ export default function TemplatesPage() {
   const modalFooter = (
     <div className="flex items-center justify-end gap-3">
       <Button variant="secondary" onClick={() => setSelected(null)} disabled={submitting}>Cancel</Button>
-      <Button onClick={handleCreate} loading={submitting} disabled={!canWrite}>Create pipeline</Button>
+      <Button onClick={handleCreate} loading={submitting} disabled={!canWrite} title={canWrite ? undefined : 'Requires pipelines:write'}>Create pipeline</Button>
     </div>
   );
 
@@ -158,9 +161,16 @@ export default function TemplatesPage() {
       title="Templates"
       subtitle="Golden-path starters — instantiate a governed pipeline in a few fields"
       actions={
-        <IconButton onClick={fetchAll} title="Refresh" aria-label="Refresh" disabled={loading}>
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </IconButton>
+        <div className="flex items-center gap-2">
+          {canWrite && (
+            <Button onClick={() => setShowCreate(true)}>
+              <LayoutTemplate className="w-4 h-4 mr-1.5" /> New template
+            </Button>
+          )}
+          <IconButton onClick={fetchAll} title="Refresh" aria-label="Refresh" disabled={loading}>
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </IconButton>
+        </div>
       }
     >
       <div className="page-section">
@@ -186,7 +196,7 @@ export default function TemplatesPage() {
                 {t.description && <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 line-clamp-3">{t.description}</p>}
                 <div className="mt-2 text-xs text-gray-400">{(t.inputs?.length ?? 0)} input{(t.inputs?.length ?? 0) === 1 ? '' : 's'}</div>
                 <div className="mt-auto pt-3">
-                  <Button onClick={() => openInstantiate(t)} disabled={!canWrite} className="w-full">
+                  <Button onClick={() => openInstantiate(t)} disabled={!canWrite} title={canWrite ? undefined : 'Requires pipelines:write'} className="w-full">
                     <Sparkles className="w-4 h-4 mr-1.5" /> Use template
                   </Button>
                 </div>
@@ -251,6 +261,14 @@ export default function TemplatesPage() {
             )}
           </div>
         </Modal>
+      )}
+
+      {showCreate && canWrite && (
+        <CreateTemplateModal
+          canPublish={canPublish}
+          onClose={() => setShowCreate(false)}
+          onCreated={fetchAll}
+        />
       )}
     </DashboardLayout>
   );

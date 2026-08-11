@@ -5,6 +5,7 @@ import { Loader2, Save } from 'lucide-react';
 import api from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import type { OrganizationMember } from '@/types';
 import type {
@@ -47,7 +48,7 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
     setWebhookSecret('');
   }, []);
 
-  const fetchAll = useCallback(async () => {
+  const fetchAll = useCallback(async (isCancelled?: () => boolean) => {
     setLoading(true);
     try {
       const orgId = api.getOrganizationId();
@@ -58,15 +59,22 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
         // rather than the default 25.
         orgId ? api.getOrganizationMembers(orgId, { limit: 200 }) : Promise.resolve(null),
       ]);
+      if (isCancelled?.()) return;
       if (memberRes?.data?.members) setMembers(memberRes.data.members.filter((m) => m.isActive));
       if (prefRes.data?.preference) apply(prefRes.data.preference);
     } catch (err) {
+      if (isCancelled?.()) return;
       toast.error(err instanceof Error ? err.message : 'Failed to load notification preferences');
     }
-    setLoading(false);
+    if (!isCancelled?.()) setLoading(false);
   }, [apply, toast]);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  // Guard against a late load response applying after unmount.
+  useEffect(() => {
+    let cancelled = false;
+    fetchAll(() => cancelled);
+    return () => { cancelled = true; };
+  }, [fetchAll]);
 
   const toggleUser = (id: string) => {
     if (readOnly) return;
@@ -217,14 +225,10 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
 
       {!readOnly && (
         <div className="flex justify-end pt-2">
-          <button
-            type="submit"
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm bg-blue-600 text-white rounded disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          <Button type="submit" variant="primary" loading={saving}>
+            {!saving && <Save className="h-4 w-4" />}
             {saving ? 'Saving…' : 'Save preferences'}
-          </button>
+          </Button>
         </div>
       )}
     </form>

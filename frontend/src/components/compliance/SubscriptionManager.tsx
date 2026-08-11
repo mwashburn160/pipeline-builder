@@ -1,11 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { BookOpen, ToggleLeft, ToggleRight, Copy, Pin, PinOff, Loader2, Zap, Eye, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { Button } from '@/components/ui/Button';
+import { useToast } from '@/components/ui/Toast';
+import { formatError } from '@/lib/constants';
 import type { PublishedRuleCatalogEntry, ComplianceRule, ComplianceRuleSubscription, ComplianceCheckResult, RuleTarget, RuleSeverity } from '@/types/compliance';
 import { SEVERITY_BADGE as SEVERITY_COLORS } from '@/lib/compliance-styles';
 
@@ -18,6 +21,7 @@ interface SubscriptionManagerProps {
 }
 
 export default function SubscriptionManager({ readOnly = false }: SubscriptionManagerProps) {
+  const toast = useToast();
   const [tab, setTab] = useState<'subscriptions' | 'catalog'>('subscriptions');
   const [subscriptions, setSubscriptions] = useState<SubscriptionWithRule[]>([]);
   const [catalog, setCatalog] = useState<PublishedRuleCatalogEntry[]>([]);
@@ -39,10 +43,18 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
   const [catalogTarget, setCatalogTarget] = useState<RuleTarget | ''>('');
   const [catalogSeverity, setCatalogSeverity] = useState<RuleSeverity | ''>('');
 
+  // Stale-response guard shared across both fetchers: rapid tab switches or a
+  // filter change while a page fetch is in flight must not let an older
+  // response set `loading`/list state after a newer request. Each fetch takes a
+  // generation number and skips setState if it's no longer the latest.
+  const reqRef = useRef(0);
+
   const fetchSubscriptions = useCallback(async (offset = subsPagination.offset, limit = subsPagination.limit) => {
+    const gen = ++reqRef.current;
     setLoading(true);
     try {
       const res = await api.getComplianceSubscriptions({ limit, offset });
+      if (gen !== reqRef.current) return;
       if (res.success && res.data) {
         setSubscriptions(res.data.subscriptions);
         if (res.data.pagination) {
@@ -50,16 +62,18 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
         }
       }
     } catch { /* handled by loading state */ }
-    setLoading(false);
+    if (gen === reqRef.current) setLoading(false);
   }, [subsPagination.offset, subsPagination.limit]);
 
   const fetchCatalog = useCallback(async (offset = catalogPagination.offset, limit = catalogPagination.limit) => {
+    const gen = ++reqRef.current;
     setLoading(true);
     try {
       const params: Record<string, string | number> = { limit, offset };
       if (catalogTarget) params.target = catalogTarget;
       if (catalogSeverity) params.severity = catalogSeverity;
       const res = await api.getPublishedRules(params);
+      if (gen !== reqRef.current) return;
       if (res.success && res.data) {
         setCatalog(res.data.rules);
         if (res.data.pagination) {
@@ -67,12 +81,15 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
         }
       }
     } catch { /* handled by loading state */ }
-    setLoading(false);
+    if (gen === reqRef.current) setLoading(false);
   }, [catalogPagination.offset, catalogPagination.limit, catalogTarget, catalogSeverity]);
 
   useEffect(() => {
     if (tab === 'subscriptions') fetchSubscriptions();
     else fetchCatalog();
+    // Invalidate any in-flight fetch on unmount / tab switch so a late response
+    // can't clobber the newly-selected tab's state.
+    return () => { reqRef.current++; };
   }, [tab, fetchSubscriptions, fetchCatalog]);
 
   // Reset catalog offset when filters change
@@ -85,48 +102,54 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
   const handleCatalogPageChange = (offset: number) => { fetchCatalog(offset, catalogPagination.limit); };
   const handleCatalogPageSizeChange = (limit: number) => { fetchCatalog(0, limit); };
 
-  const handleToggle = async (ruleId: string, isActive: boolean) => {
-    await api.setSubscriptionActive(ruleId, isActive);
-    fetchSubscriptions();
+  // Route mutation failures to a toast — without this a rejected promise is
+  // unhandled and the user sees nothing happen.
+  const runMutation = async (fn: () => Promise<unknown>, errMsg: string) => {
+    try { await fn(); } catch (err) { toast.error(formatError(err, errMsg)); }
   };
 
-  const handleBulkToggle = async (isActive: boolean) => {
+  const handleToggle = (ruleId: string, isActive: boolean) => runMutation(async () => {
+    await api.setSubscriptionActive(ruleId, isActive);
+    fetchSubscriptions();
+  }, 'Failed to update subscription');
+
+  const handleBulkToggle = (isActive: boolean) => runMutation(async () => {
     if (selectedIds.size === 0) return;
     await api.bulkSetSubscriptionActive([...selectedIds], isActive);
     setSelectedIds(new Set());
     fetchSubscriptions();
-  };
+  }, 'Failed to update subscriptions');
 
-  const handleSubscribe = async (ruleId: string) => {
+  const handleSubscribe = (ruleId: string) => runMutation(async () => {
     await api.subscribeToRule(ruleId);
     fetchCatalog();
-  };
+  }, 'Failed to subscribe to rule');
 
-  const handleAutoSubscribe = async () => {
+  const handleAutoSubscribe = () => runMutation(async () => {
     await api.autoSubscribe();
     fetchSubscriptions();
     fetchCatalog();
-  };
+  }, 'Failed to auto-subscribe');
 
-  const handleClone = async (ruleId: string) => {
+  const handleClone = (ruleId: string) => runMutation(async () => {
     await api.cloneRule(ruleId);
     fetchSubscriptions();
-  };
+  }, 'Failed to clone rule');
 
-  const handlePin = async (ruleId: string) => {
+  const handlePin = (ruleId: string) => runMutation(async () => {
     await api.pinSubscription(ruleId);
     fetchSubscriptions();
-  };
+  }, 'Failed to pin subscription');
 
-  const handleUnpin = async (ruleId: string) => {
+  const handleUnpin = (ruleId: string) => runMutation(async () => {
     await api.unpinSubscription(ruleId);
     fetchSubscriptions();
-  };
+  }, 'Failed to unpin subscription');
 
-  const handleUnsubscribe = async (ruleId: string) => {
+  const handleUnsubscribe = (ruleId: string) => runMutation(async () => {
     await api.unsubscribeFromRule(ruleId);
     fetchSubscriptions();
-  };
+  }, 'Failed to unsubscribe');
 
   const handlePreview = async (ruleId: string) => {
     if (previewId === ruleId) {
@@ -205,33 +228,31 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
           {!readOnly && selectedIds.size > 0 && (
             <div className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
               <span className="text-sm text-blue-700 dark:text-blue-300">{selectedIds.size} selected</span>
-              <button onClick={() => handleBulkToggle(true)} className="px-2 py-1 text-xs bg-green-600 text-white rounded">Activate All</button>
-              <button onClick={() => handleBulkToggle(false)} className="px-2 py-1 text-xs bg-gray-600 text-white rounded">Deactivate All</button>
+              <Button variant="success" size="xs" onClick={() => handleBulkToggle(true)}>Activate All</Button>
+              <Button variant="secondary" size="xs" onClick={() => handleBulkToggle(false)}>Deactivate All</Button>
             </div>
           )}
           {subscriptions.length === 0 ? (
             <div className="text-center py-8 text-gray-500 dark:text-gray-400">
               <p>No subscriptions yet. Browse the catalog to subscribe to published rules.</p>
               {!readOnly && (
-                <button
-                  onClick={handleAutoSubscribe}
-                  className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
+                <Button variant="primary" onClick={handleAutoSubscribe} className="mt-3">
                   <Zap className="h-4 w-4" /> Auto-Subscribe to All
-                </button>
+                </Button>
               )}
             </div>
           ) : (
             <div className="space-y-2">
               {!readOnly && (
                 <div className="flex justify-end">
-                  <button
+                  <Button
+                    variant="primary"
+                    size="xs"
                     onClick={handleAutoSubscribe}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                     title="Subscribe to all published rules not yet subscribed"
                   >
                     <Zap className="h-3 w-3" /> Auto-Subscribe
-                  </button>
+                  </Button>
                 </div>
               )}
               {subscriptions.map(sub => (
@@ -369,6 +390,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
             <select
               value={catalogTarget}
               onChange={(e) => setCatalogTarget(e.target.value as RuleTarget | '')}
+              aria-label="Filter catalog by target"
               className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm"
             >
               <option value="">All targets</option>
@@ -378,6 +400,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
             <select
               value={catalogSeverity}
               onChange={(e) => setCatalogSeverity(e.target.value as RuleSeverity | '')}
+              aria-label="Filter catalog by severity"
               className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm"
             >
               <option value="">All severities</option>
@@ -404,12 +427,9 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                   {rule.subscribed ? (
                     <span className="text-xs text-green-600 dark:text-green-400 font-medium">Subscribed</span>
                   ) : (
-                    <button
-                      onClick={() => handleSubscribe(rule.id)}
-                      className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
+                    <Button variant="primary" size="xs" onClick={() => handleSubscribe(rule.id)}>
                       Subscribe
-                    </button>
+                    </Button>
                   )}
                 </div>
               ))}

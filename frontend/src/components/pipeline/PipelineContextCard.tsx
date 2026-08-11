@@ -12,7 +12,8 @@ import type { BuilderProps, Pipeline } from '@/types';
 import type { ComplianceCheckResult } from '@/types/compliance';
 
 /** Distinct plugin names referenced by a pipeline's synth + stage steps. */
-function pluginsFromProps(props: BuilderProps): string[] {
+function pluginsFromProps(props: BuilderProps | undefined | null): string[] {
+  if (!props) return [];
   const names = new Set<string>();
   const synth = asGeneratedSynth(props.synth || {});
   if (synth?.plugin?.name) names.add(synth.plugin.name);
@@ -38,6 +39,7 @@ export function PipelineContextCard({ pipeline }: { pipeline: Pipeline }) {
   const [checkFailed, setCheckFailed] = useState(false);
 
   useEffect(() => {
+    if (!pipeline.props) { setChecking(false); return; }
     let cancelled = false;
     setChecking(true);
     setCheckFailed(false);

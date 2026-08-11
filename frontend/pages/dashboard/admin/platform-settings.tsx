@@ -49,6 +49,10 @@ interface SettingRow {
   label: string;
   currentValue: React.ReactNode;
   hint: string;
+  /** True when `currentValue` is a built-in default hardcoded here, NOT a value
+   *  read from `/api/admin/summary`. Rendered with a "default" badge so an
+   *  operator never mistakes a static constant for the running deploy's config. */
+  staticDefault?: boolean;
 }
 
 export default function PlatformSettingsPage() {
@@ -103,14 +107,16 @@ export default function PlatformSettingsPage() {
       envVar: 'AUTH_LIMITER_MAX / WINDOWMS',
       label: 'Auth endpoint rate limit',
       currentValue: <code className="text-xs">20 req / 15 min (IP)</code>,
-      hint: 'Defaults; check the platform deploy if you have overrides. The step-up endpoint additionally applies 5 req / 60s per user.',
+      staticDefault: true,
+      hint: 'Built-in default shown for reference — NOT read from the running deploy, so an override in this env var will not be reflected here. The step-up endpoint additionally applies 5 req / 60s per user.',
     },
     {
       icon: Database,
       envVar: 'JWT_EXPIRES_IN',
       label: 'Access token TTL',
       currentValue: <code className="text-xs">tier-dependent</code>,
-      hint: 'Resolution order: per-call override → per-tier override → global default (config.auth.jwt.expiresIn). Compliance-driven tiers can narrow the stolen-token window.',
+      staticDefault: true,
+      hint: 'Built-in default shown for reference — NOT read from the running deploy. Resolution order: per-call override → per-tier override → global default (config.auth.jwt.expiresIn). Compliance-driven tiers can narrow the stolen-token window.',
     },
   ] : [];
 
@@ -187,7 +193,10 @@ export default function PlatformSettingsPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-3 flex-wrap">
                         <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{row.label}</div>
-                        <div className="text-sm">{row.currentValue}</div>
+                        <div className="text-sm flex items-center gap-1.5">
+                          {row.staticDefault && <Badge color="gray">default</Badge>}
+                          {row.currentValue}
+                        </div>
                       </div>
                       <div className="mt-0.5 flex flex-wrap items-baseline gap-2 text-xs text-gray-500 dark:text-gray-400">
                         <code className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{row.envVar}</code>

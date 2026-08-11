@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { CopyButton } from '@/components/ui/CopyButton';
+import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import api from '@/lib/api';
 import { PatSection } from '@/components/settings/PatSection';
@@ -172,6 +173,10 @@ export default function TokensPage() {
   const [revoking, setRevoking] = useState(false);
   const [revokeError, setRevokeError] = useState<string | null>(null);
   const [revokeSuccess, setRevokeSuccess] = useState<string | null>(null);
+  // "Sign out everywhere" kills every other session + all CLI/PAT tokens, so it's
+  // gated behind a step-up password re-verify (not a bare window.confirm). The
+  // step-up token is forwarded to the revoke-all endpoint, which requires it.
+  const [pendingRevokeAll, setPendingRevokeAll] = useState(false);
 
   // Active sessions = tokens that the backend reports as 'active'. The
   // backend's status computation already accounts for revocation
@@ -227,13 +232,12 @@ export default function TokensPage() {
     }
   };
 
-  const handleRevokeAll = async () => {
-    if (!window.confirm('Sign out of every session everywhere? Your current tab will stay logged in with a fresh token, but all other sessions, CLI tokens, and integrations will need to re-authenticate.')) return;
+  const handleRevokeAll = async (stepUpToken: string) => {
     setRevoking(true);
     setRevokeError(null);
     setRevokeSuccess(null);
     try {
-      await api.revokeAllTokens();
+      await api.revokeAllTokens(stepUpToken);
       syncTokens();
       void loadHistory();
       setRevokeSuccess('All previously-issued tokens have been revoked. Your session has been refreshed with a new token.');
@@ -297,7 +301,7 @@ export default function TokensPage() {
             </div>
             <Button
               variant="danger"
-              onClick={handleRevokeAll}
+              onClick={() => setPendingRevokeAll(true)}
               loading={revoking}
               className="flex-shrink-0"
             >
@@ -361,6 +365,14 @@ export default function TokensPage() {
           )}
         </motion.div>
       </div>
+
+      {pendingRevokeAll && (
+        <StepUpModal
+          action="Sign out everywhere — revoke all other sessions, CLI tokens, and integrations (your current tab stays signed in with a fresh token)"
+          onConfirmed={handleRevokeAll}
+          onClose={() => setPendingRevokeAll(false)}
+        />
+      )}
     </DashboardLayout>
   );
 }

@@ -20,7 +20,9 @@ import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Badge } from '@/components/ui/Badge';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { Pagination } from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toast';
 import { ApiError } from '@/lib/api/errors';
 import api from '@/lib/api';
@@ -65,11 +67,16 @@ export default function PromotionsPage() {
     fields: [{ key: 'active', type: 'select', defaultValue: 'all', primary: true }],
     fetcher: async (params) => {
       const activeParam = String(params.active || 'all');
+      // The list endpoint returns the full (≤500) campaign set in one response
+      // with no server-side offset support, so slice to the requested page here
+      // — real pagination over the whole set instead of only ever page 0.
+      const offset = Number(params.offset || 0);
+      const limit = Number(params.limit || 25);
       try {
         const response = await api.listPromotions(activeParam !== 'all' ? { active: activeParam as 'true' | 'false' } : undefined);
         setNotEnabled(false);
-        const data = response.data;
-        return { items: data?.promotions || [], pagination: { total: data?.total || 0, offset: 0 } };
+        const all = response.data?.promotions || [];
+        return { items: all.slice(offset, offset + limit), pagination: { total: all.length, offset } };
       } catch (err) {
         if (err instanceof ApiError && err.statusCode === 404) {
           setNotEnabled(true);
@@ -215,6 +222,32 @@ export default function PromotionsPage() {
     }
   };
 
+  // ── Mass grant / revoke confirmation ────────────────────
+  // Both spend/alter real campaign budget, so neither fires without an explicit
+  // confirm: the fleet-wide grant is a type-to-confirm (destructive + irreversible),
+  // the revoke a standard delete-style confirm.
+  const [activateTarget, setActivateTarget] = useState<Promotion | null>(null);
+  const [activateConfirm, setActivateConfirm] = useState('');
+  const [activating, setActivating] = useState(false);
+  const confirmActivate = async () => {
+    if (!activateTarget) return;
+    setActivating(true);
+    await doActivate(activateTarget);
+    setActivating(false);
+    setActivateTarget(null);
+    setActivateConfirm('');
+  };
+
+  const [revokeTarget, setRevokeTarget] = useState<Promotion | null>(null);
+  const [revokeLoading, setRevokeLoading] = useState(false);
+  const confirmRevoke = async () => {
+    if (!revokeTarget) return;
+    setRevokeLoading(true);
+    await toggleActive(revokeTarget);
+    setRevokeLoading(false);
+    setRevokeTarget(null);
+  };
+
   // Plain per-render const (not useMemo): the row action handlers close over
   // `list`/`toast`, so an empty-dep memo would capture them stale. A small admin
   // table doesn't need the memo, and this keeps the closures fresh.
@@ -252,10 +285,10 @@ export default function PromotionsPage() {
       render: (p) => (
         <div className="flex items-center justify-end gap-1">
           <Button variant="ghost" size="sm" onClick={() => doPreview(p)} title="Preview reach" aria-label="Preview reach"><Eye className="w-4 h-4" /></Button>
-          <Button variant="ghost" size="sm" onClick={() => doActivate(p)} title="Grant to existing eligible base" aria-label="Grant to existing eligible base"><Zap className="w-4 h-4" /></Button>
+          <Button variant="ghost" size="sm" onClick={() => { setActivateTarget(p); setActivateConfirm(''); }} title="Grant to existing eligible base" aria-label="Grant to existing eligible base"><Zap className="w-4 h-4" /></Button>
           <Button variant="ghost" size="sm" onClick={() => doSpend(p)} title="Spend rollup" aria-label="Spend rollup"><BarChart3 className="w-4 h-4" /></Button>
           <Button variant="ghost" size="sm" onClick={() => openGrant(p)} title="Manual grant" aria-label="Manual grant"><Gift className="w-4 h-4" /></Button>
-          <Button variant="ghost" size="sm" onClick={() => toggleActive(p)}>{p.isActive ? 'Revoke' : 'Activate'}</Button>
+          <Button variant="ghost" size="sm" onClick={() => (p.isActive ? setRevokeTarget(p) : toggleActive(p))}>{p.isActive ? 'Revoke' : 'Activate'}</Button>
         </div>
       ),
     },
@@ -312,6 +345,10 @@ export default function PromotionsPage() {
             emptyState={{ icon: Megaphone, title: 'No promotions', description: 'No promotion campaigns have been created yet.' }}
             getRowKey={(p) => p.id}
           />
+
+          {!list.isLoading && list.pagination.total > 0 && (
+            <Pagination pagination={list.pagination} onPageChange={list.handlePageChange} onPageSizeChange={list.handlePageSizeChange} />
+          )}
         </>
       )}
 
@@ -406,6 +443,48 @@ export default function PromotionsPage() {
             <Field label="Target org ID"><Input value={grantOrg} onChange={(e) => setGrantOrg(e.target.value)} placeholder="org id" /></Field>
           </div>
         </Modal>
+      )}
+
+      {/* Mass-grant confirmation — spends real budget across the whole eligible
+          base, so it's gated behind an explicit type-to-confirm. */}
+      {activateTarget && (
+        <Modal
+          title="Grant to eligible base"
+          onClose={() => setActivateTarget(null)}
+          footer={
+            <ModalFooter
+              onCancel={() => setActivateTarget(null)}
+              onConfirm={confirmActivate}
+              confirmLabel="Grant credits"
+              loading={activating}
+              confirmDisabled={activateConfirm.trim().toUpperCase() !== 'GRANT'}
+            />
+          }
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              This immediately grants <strong>{activateTarget.name}</strong> to every currently-eligible
+              organization, spending from its campaign budget
+              {' '}(<span className="font-mono">{formatCents(activateTarget.spentCents)} / {formatCents(activateTarget.budgetCents)}</span> used).
+              It cannot be undone.
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Tip: use the preview (eye) action first to see the projected reach.</p>
+            <Field label={<>Type <span className="font-mono font-semibold">GRANT</span> to confirm</>}>
+              <Input value={activateConfirm} onChange={(e) => setActivateConfirm(e.target.value)} placeholder="GRANT" autoFocus />
+            </Field>
+          </div>
+        </Modal>
+      )}
+
+      {/* Revoke confirmation */}
+      {revokeTarget && (
+        <DeleteConfirmModal
+          title="Revoke Promotion"
+          itemName={revokeTarget.name}
+          loading={revokeLoading}
+          onConfirm={confirmRevoke}
+          onCancel={() => setRevokeTarget(null)}
+        />
       )}
     </DashboardLayout>
   );

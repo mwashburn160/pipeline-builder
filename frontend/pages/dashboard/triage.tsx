@@ -4,9 +4,11 @@
 import { useEffect, useState } from 'react';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { BuildsTabs } from '@/components/ui/BuildsTabs';
-import { LoadingPage } from '@/components/ui/Loading';
+import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { api } from '@/lib/api';
 import { downloadCsv } from '@/lib/csv-export';
@@ -28,15 +30,15 @@ interface TriageGroup {
 }
 
 const CATEGORY_LABELS: Record<string, { label: string; hint: string; color: string }> = {
-  'docker-build': { label: 'Docker Build', hint: 'Dockerfile or image build failed — check Dockerfile syntax / base-image pulls', color: 'bg-red-50 border-red-200 text-red-800' },
-  'template': { label: 'Template Resolution', hint: 'Plugin templates reference missing metadata/vars — run `pipeline-manager template validate`', color: 'bg-amber-50 border-amber-200 text-amber-800' },
-  'quota': { label: 'Quota Exceeded', hint: 'Org hit plugin / build quota — raise limit or reduce concurrency', color: 'bg-purple-50 border-purple-200 text-purple-800' },
-  'timeout': { label: 'Timeout', hint: 'Build exceeded configured timeout — bump timeout in plugin-spec or investigate hangs', color: 'bg-blue-50 border-blue-200 text-blue-800' },
-  'auth-secrets': { label: 'Auth / Secrets', hint: 'Missing or invalid secret — check secrets yaml in plugin-spec and Secrets Manager path', color: 'bg-rose-50 border-rose-200 text-rose-800' },
-  'network': { label: 'Network', hint: 'DNS / connect failure — check platform URL, DNS, outbound egress', color: 'bg-indigo-50 border-indigo-200 text-indigo-800' },
-  'validation': { label: 'Validation', hint: 'Plugin spec failed validation — missing required fields or bad schema', color: 'bg-orange-50 border-orange-200 text-orange-800' },
-  'other': { label: 'Other', hint: 'Uncategorized failure — open a sample for the raw error', color: 'bg-gray-50 border-gray-200 text-gray-800' },
-  'unknown': { label: 'Unknown', hint: 'No error message captured on the job', color: 'bg-gray-50 border-gray-200 text-gray-800' },
+  'docker-build': { label: 'Docker Build', hint: 'Dockerfile or image build failed — check Dockerfile syntax / base-image pulls', color: 'bg-red-50 border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-200' },
+  'template': { label: 'Template Resolution', hint: 'Plugin templates reference missing metadata/vars — run `pipeline-manager template validate`', color: 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-200' },
+  'quota': { label: 'Quota Exceeded', hint: 'Org hit plugin / build quota — raise limit or reduce concurrency', color: 'bg-purple-50 border-purple-200 text-purple-800 dark:bg-purple-900/20 dark:border-purple-800 dark:text-purple-200' },
+  'timeout': { label: 'Timeout', hint: 'Build exceeded configured timeout — bump timeout in plugin-spec or investigate hangs', color: 'bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-200' },
+  'auth-secrets': { label: 'Auth / Secrets', hint: 'Missing or invalid secret — check secrets yaml in plugin-spec and Secrets Manager path', color: 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-900/20 dark:border-rose-800 dark:text-rose-200' },
+  'network': { label: 'Network', hint: 'DNS / connect failure — check platform URL, DNS, outbound egress', color: 'bg-indigo-50 border-indigo-200 text-indigo-800 dark:bg-indigo-900/20 dark:border-indigo-800 dark:text-indigo-200' },
+  'validation': { label: 'Validation', hint: 'Plugin spec failed validation — missing required fields or bad schema', color: 'bg-orange-50 border-orange-200 text-orange-800 dark:bg-orange-900/20 dark:border-orange-800 dark:text-orange-200' },
+  'other': { label: 'Other', hint: 'Uncategorized failure — open a sample for the raw error', color: 'bg-gray-50 border-gray-200 text-gray-800 dark:bg-gray-800/40 dark:border-gray-700 dark:text-gray-200' },
+  'unknown': { label: 'Unknown', hint: 'No error message captured on the job', color: 'bg-gray-50 border-gray-200 text-gray-800 dark:bg-gray-800/40 dark:border-gray-700 dark:text-gray-200' },
 };
 
 export default function TriagePage() {
@@ -159,16 +161,16 @@ export default function TriagePage() {
     >
       <div className="max-w-6xl mx-auto px-4 py-6">
         <BuildsTabs active="failed" />
-        {error && (
-          <div className="mb-4 p-3 rounded bg-red-50 border border-red-200 text-red-800 text-sm">
-            Failed to load triage data: {error}
+        {error && <ErrorAlert message={`Failed to load triage data: ${error}`} className="mb-4" />}
+
+        {loading && groups.length === 0 && !error && (
+          <div className="flex justify-center py-12">
+            <LoadingSpinner />
           </div>
         )}
 
         {!loading && groups.length === 0 && !error && (
-          <div className="p-6 bg-green-50 border border-green-200 rounded text-green-800 text-sm">
-            ✅ No failed builds. Everything's green.
-          </div>
+          <SuccessAlert message="✅ No failed builds. Everything's green." />
         )}
 
         <div className="space-y-3">

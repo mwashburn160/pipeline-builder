@@ -17,13 +17,24 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 
 export default function AdminAlertDestinationsRedirect() {
-  const { isReady, isAuthenticated } = useAuthGuard({ requireSystemAdmin: true });
+  // NOT `requireSystemAdmin` — this is a redirect shim, not the sysadmin surface.
+  // Gating it sysadmin-only stranded non-sysadmins here: the guard's `isReady`
+  // never became true for them, so the `router.replace` below never fired and they
+  // sat on <LoadingPage> until the guard bounced them to /dashboard — losing the
+  // destinations page they can legitimately view. Now everyone is routed onward.
+  const { isReady, isAuthenticated, isSuperAdmin } = useAuthGuard();
   const router = useRouter();
 
   useEffect(() => {
     if (!router.isReady || !isReady || !isAuthenticated) return;
-    void router.replace('/dashboard/observability/alert-destinations?all=1');
-  }, [router, router.isReady, isReady, isAuthenticated]);
+    // Sysadmins land in the cross-tenant "all organizations" mode; everyone else
+    // gets their own org's destinations (the ?all=1 mode is sysadmin-only).
+    void router.replace(
+      isSuperAdmin
+        ? '/dashboard/observability/alert-destinations?all=1'
+        : '/dashboard/observability/alert-destinations',
+    );
+  }, [router, router.isReady, isReady, isAuthenticated, isSuperAdmin]);
 
   return <LoadingPage />;
 }

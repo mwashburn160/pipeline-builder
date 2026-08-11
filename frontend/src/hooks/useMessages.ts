@@ -133,11 +133,16 @@ export function useMessages(orgId?: string | null): UseMessagesReturn {
       const stamp = new Date().toISOString();
       const orgKey = orgId?.toLowerCase();
       if (orgKey) {
-        setMessages(prev => prev.map(m => m.id === id
-          ? { ...m, readBy: { ...m.readBy, [orgKey]: stamp } }
-          : m));
+        let wasUnread = false;
+        setMessages(prev => prev.map(m => {
+          if (m.id !== id) return m;
+          if (!m.readBy?.[orgKey]) wasUnread = true;
+          return { ...m, readBy: { ...m.readBy, [orgKey]: stamp } };
+        }));
+        // Only decrement when this viewer hadn't already read it — decrementing
+        // on an already-read message drifts the badge below the true count.
+        if (wasUnread) setUnreadCount(prev => Math.max(0, prev - 1));
       }
-      setUnreadCount(prev => Math.max(0, prev - 1));
     } catch {
       // Silently fail
     }

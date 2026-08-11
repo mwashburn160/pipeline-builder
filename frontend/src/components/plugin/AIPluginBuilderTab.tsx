@@ -156,7 +156,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
         // Fallback: synchronous response
         setSuccess(`Plugin "${generatedConfig.name}" deployed successfully!`);
         onCreated();
-        setTimeout(() => onClose(), 2000);
+        setTimeout(() => { if (mountedRef.current) onClose(); }, 2000);
       }
     } catch (err: unknown) {
       const message = formatError(err, 'Deployment failed');

@@ -25,12 +25,19 @@ export interface AtRiskDimension {
 export function QuotasReadOnly({
   orgData,
   loading,
+  loadError = null,
+  onRetry,
   activeOrgIsTeam,
   canManageBilling,
   atRisk = [],
 }: {
   orgData: OrgQuotaResponse | null;
   loading: boolean;
+  /** Set when the quota fetch failed — renders a retryable error instead of a
+   *  blank page (previously the non-admin view showed nothing on failure). */
+  loadError?: string | null;
+  /** Re-run the quota fetch. */
+  onRetry?: () => void;
   activeOrgIsTeam: boolean;
   /** Viewer can act on billing (owner/admin or `billing:manage`) → offer the
    *  upgrade path instead of "contact a sysadmin". */
@@ -87,6 +94,14 @@ export function QuotasReadOnly({
             </p>
           </div>
         )}
+        {!loading && loadError && !orgData && (
+          <div className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300" role="alert">
+            <span>{loadError}</span>
+            {onRetry && (
+              <button type="button" onClick={onRetry} className="underline hover:no-underline">Retry</button>
+            )}
+          </div>
+        )}
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[0, 1, 2, 3].map((i) => (
@@ -112,7 +127,7 @@ export function QuotasReadOnly({
             ))}
           </div>
         ) : null}
-        {activeOrgIsTeam ? (
+        {loadError && !orgData ? null : activeOrgIsTeam ? (
           // A team's caps are the root's — the sysadmin/upgrade path lives at the parent.
           <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
             These pooled limits are managed by an admin at the parent organization.

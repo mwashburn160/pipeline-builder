@@ -8,6 +8,7 @@ import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleTa
 import { SEVERITY_CONFIG } from '@/lib/compliance-styles';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { TextEmptyState } from '@/components/ui/EmptyState';
+import { Button } from '@/components/ui/Button';
 
 interface RuleListProps {
   onEdit?: (rule: ComplianceRule) => void;
@@ -103,9 +104,9 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
           </h2>
         </div>
         {onCreateNew && (
-          <button onClick={onCreateNew} className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors">
+          <Button variant="primary" onClick={onCreateNew}>
             <Plus className="h-4 w-4" /> New Rule
-          </button>
+          </Button>
         )}
       </div>
 
@@ -121,23 +122,23 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
             className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 pl-8 pr-3 py-1.5 text-sm"
           />
         </div>
-        <select value={targetFilter} onChange={e => setTargetFilter(e.target.value as RuleTarget | '')} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
+        <select value={targetFilter} onChange={e => setTargetFilter(e.target.value as RuleTarget | '')} aria-label="Filter rules by target" className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
           <option value="">All targets</option>
           <option value="plugin">Plugin</option>
           <option value="pipeline">Pipeline</option>
         </select>
-        <select value={severityFilter} onChange={e => setSeverityFilter(e.target.value as RuleSeverity | '')} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
+        <select value={severityFilter} onChange={e => setSeverityFilter(e.target.value as RuleSeverity | '')} aria-label="Filter rules by severity" className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
           <option value="">All severities</option>
           <option value="critical">Critical</option>
           <option value="error">Error</option>
           <option value="warning">Warning</option>
         </select>
-        <select value={scopeFilter} onChange={e => setScopeFilter(e.target.value as RuleScope | '')} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
+        <select value={scopeFilter} onChange={e => setScopeFilter(e.target.value as RuleScope | '')} aria-label="Filter rules by scope" className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
           <option value="">All scopes</option>
           <option value="org">Org</option>
           <option value="published">Published</option>
         </select>
-        <select value={`${sortBy}-${sortOrder}`} onChange={e => { const [s, o] = e.target.value.split('-'); setSortBy(s as typeof sortBy); setSortOrder(o as typeof sortOrder); }} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
+        <select value={`${sortBy}-${sortOrder}`} onChange={e => { const [s, o] = e.target.value.split('-'); setSortBy(s as typeof sortBy); setSortOrder(o as typeof sortOrder); }} aria-label="Sort rules" className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
           <option value="priority-asc">Priority (low first)</option>
           <option value="priority-desc">Priority (high first)</option>
           <option value="name-asc">Name A-Z</option>

@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useRouter } from 'next/router';
 import { useDebounce } from './useDebounce';
 import { runCancellableFetch } from './internal/fetchCore';
 import { formatError } from '@/lib/constants';
@@ -42,6 +43,13 @@ export interface UseListPageOptions<T> {
    * don't opt into server-side sorting omit this and no sort params are sent.
    */
   initialSort?: { sortBy: string; sortOrder: string };
+  /**
+   * Opt into URL query-string sync: hydrate the initial filter/sort/offset state
+   * from `router.query` on mount, and mirror changes back via a shallow
+   * `router.replace` (debounced with the fetch). Makes the list state survive
+   * refresh and be shareable. Off by default so pages adopt it deliberately.
+   */
+  urlSync?: boolean;
 }
 
 export interface UseListPageResult<T> {
@@ -88,7 +96,11 @@ export interface UseListPageResult<T> {
  * ```
  */
 export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResult<T> {
-  const { fields, fetcher, enabled = true, pageSize = 25, debounceMs = 300, buildParams, initialSort } = options;
+  const { fields, fetcher, enabled = true, pageSize = 25, debounceMs = 300, buildParams, initialSort, urlSync = false } = options;
+  const router = useRouter();
+  // One-shot guard: hydrate from the URL exactly once (before write-back begins),
+  // so the mirror-to-URL effect can't feed back into hydration and loop.
+  const hydratedRef = useRef(false);
 
   // Build initial filter state from field definitions
   const initialFilters: Record<string, string> = {};
@@ -190,6 +202,45 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys is static config; dynamic filter values are spread individually
   }, [enabled, debouncedTextValues, ...selectFieldKeys.map(k => filters[k]), pageState.limit, pageState.offset, sortState.sortBy, sortState.sortOrder, fetchKey]);
+
+  // URL → state (once, when the router is ready). Reads any managed filter keys,
+  // sortBy/sortOrder, and offset from the query so a refresh/shared link restores
+  // the view. Runs before the write-back effect can fire (hydratedRef guard).
+  useEffect(() => {
+    if (!urlSync || !router.isReady || hydratedRef.current) return;
+    hydratedRef.current = true;
+    const q = router.query;
+    const nextFilters: Record<string, string> = { ...initialFilters };
+    let filtersChanged = false;
+    for (const f of fields) {
+      const v = q[f.key];
+      if (typeof v === 'string' && v !== f.defaultValue) { nextFilters[f.key] = v; filtersChanged = true; }
+    }
+    if (filtersChanged) setFilters(nextFilters);
+    const sb = typeof q.sortBy === 'string' ? q.sortBy : '';
+    const so = typeof q.sortOrder === 'string' ? q.sortOrder : '';
+    if (sb || so) setSortState({ sortBy: sb, sortOrder: so });
+    const off = typeof q.offset === 'string' ? parseInt(q.offset, 10) : NaN;
+    if (Number.isFinite(off) && off > 0) setPageState(prev => ({ ...prev, offset: off }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot hydration keyed on router readiness.
+  }, [urlSync, router.isReady]);
+
+  // state → URL (after hydration). Mirrors the settled (debounced) filter/sort/
+  // offset state into a shallow `router.replace`. Deps are the same settled values
+  // the fetch uses, so it writes at most once per settled change — never per keystroke.
+  useEffect(() => {
+    if (!urlSync || !hydratedRef.current) return;
+    const query: Record<string, string> = {};
+    for (const f of fields) {
+      const val = (f.type === 'text' ? debouncedFilters[f.key] : filters[f.key]) ?? '';
+      if (val && val !== f.defaultValue) query[f.key] = val;
+    }
+    if (sortState.sortBy) query.sortBy = sortState.sortBy;
+    if (sortState.sortOrder) query.sortOrder = sortState.sortOrder;
+    if (pageState.offset > 0) query.offset = String(pageState.offset);
+    void router.replace({ pathname: router.pathname, query }, undefined, { shallow: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys static; settled values spread individually.
+  }, [urlSync, debouncedTextValues, ...selectFieldKeys.map(k => filters[k]), sortState.sortBy, sortState.sortOrder, pageState.offset]);
 
   const updateFilter = useCallback((key: string, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }));
