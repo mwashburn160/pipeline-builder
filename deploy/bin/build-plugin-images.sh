@@ -47,14 +47,26 @@ BASES_PREBUILT="${BASES_PREBUILT:-false}"
 CATEGORY_FILTER=""
 MAX_IMAGE_SIZE_MB="${MAX_IMAGE_SIZE_MB:-4096}"
 
-# Platform all plugin/base images are built for. Default linux/amd64 — the
-# CodeBuild runtime that runs them. Override PUBLISH_PLATFORM for an all-Graviton
-# stack (linux/arm64) or your host arch for fast local-only iteration. On an
-# arm64 host (Apple-Silicon dev) docker emulates amd64 via the Docker Desktop
-# qemu binfmt, so the subsequent `docker save | crane push` still uploads an
-# amd64 manifest. The platform is fixed HERE at build time; crane has no
-# per-push platform flag — it pushes the tarball's arch as-is.
-PUBLISH_PLATFORM="${PUBLISH_PLATFORM:-linux/amd64}"
+# Platform all plugin/base images are built for. An explicit PUBLISH_PLATFORM
+# always wins. Otherwise the default depends on where the images RUN:
+#   - local targets (docker/minikube) run them on THIS host, so build for the
+#     host arch. Defaulting to linux/amd64 there forces QEMU emulation on an
+#     Apple-Silicon host, where the Rust toolchain SIGSEGVs building rust-base
+#     (`qemu: uncaught target signal 11`).
+#   - AWS / unknown targets keep linux/amd64 — the CodeBuild x86 runtime. Push a
+#     linux/arm64 build only for an all-Graviton stack (set PUBLISH_PLATFORM).
+# (On an amd64 host the local branch also resolves to linux/amd64 = native.)
+if [ -z "${PUBLISH_PLATFORM:-}" ]; then
+  case "${DEPLOY_TARGET:-}" in
+    docker|minikube)
+      case "$(uname -m)" in
+        arm64|aarch64) PUBLISH_PLATFORM="linux/arm64" ;;
+        *)             PUBLISH_PLATFORM="linux/amd64" ;;
+      esac
+      ;;
+    *) PUBLISH_PLATFORM="linux/amd64" ;;
+  esac
+fi
 
 # Base-image builder. "docker" (default) = `docker build` (needs a Docker daemon, the
 # local/minikube/ec2 path). "buildkit" = build via `buildctl` against BUILDKIT_HOST and
