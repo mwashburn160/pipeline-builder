@@ -3,7 +3,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { UserPlus, CheckCircle, Check, ArrowLeft } from 'lucide-react';
+import { UserPlus, CheckCircle, Check, ArrowLeft, Sparkles, Package, Cloud, Shield, BarChart3 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useFeatures } from '@/hooks/useFeatures';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -17,6 +17,87 @@ import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/li
 
 function formatPrice(cents: number): string {
   return cents === 0 ? 'Free' : `$${(cents / 100).toFixed(2)}/mo`;
+}
+
+/** A selectable tier card — surfaces the plan's description + top limits so a
+ *  new user can actually tell the tiers apart (the old tiles showed only name +
+ *  price). The first few `features` entries are the per-tier quota lines
+ *  (seats / plugins / pipelines / API calls), which is what differentiates them. */
+function PlanCard({ plan, selected, popular, disabled, onSelect }: {
+  plan: Plan; selected: boolean; popular: boolean; disabled: boolean; onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      disabled={disabled}
+      aria-pressed={selected}
+      className={`relative flex flex-col rounded-xl border p-3 text-left transition-all ${
+        selected
+          ? 'border-[var(--pb-brand)] ring-2 ring-[color:var(--pb-brand)] bg-[color:color-mix(in_srgb,var(--pb-brand)_6%,transparent)]'
+          : 'border-[var(--pb-border)] hover:border-[var(--pb-text-muted)]'
+      }`}
+    >
+      {popular && (
+        <span className="absolute -top-2 right-3 rounded-full bg-[var(--pb-brand)] text-white text-[10px] font-semibold px-2 py-0.5">
+          Popular
+        </span>
+      )}
+      <div className="flex items-center justify-between">
+        <span className="font-bold text-sm">{plan.name}</span>
+        {selected && <Check className="w-3.5 h-3.5 text-[var(--pb-brand)] shrink-0" />}
+      </div>
+      <div className="text-[var(--pb-brand)] font-bold text-sm mt-0.5">{formatPrice(plan.prices.monthly)}</div>
+      <p className="text-xs text-[var(--pb-text-muted)] mt-1 leading-snug">{plan.description}</p>
+      <ul className="mt-2 space-y-1">
+        {plan.features.slice(0, 4).map((f) => (
+          <li key={f} className="flex items-start gap-1.5 text-[11px] text-[var(--pb-text-muted)]">
+            <Check className="w-3 h-3 mt-0.5 shrink-0 text-[var(--pb-success)]" strokeWidth={2.5} />
+            <span>{f}</span>
+          </li>
+        ))}
+      </ul>
+    </button>
+  );
+}
+
+/** Value/solution panel shown next to the form when there are no plans to pick —
+ *  i.e. billing is off (the org gets the `unlimited` default: every feature, no
+ *  caps) or the plan catalog didn't load. Keeps the signup from being a bare,
+ *  context-free form by restating what the product actually does. */
+const SOLUTION_POINTS: { icon: typeof Sparkles; text: string }[] = [
+  { icon: Sparkles, text: 'AI turns a Git URL or a prompt into a working pipeline — Anthropic, OpenAI, Google, xAI, or Bedrock.' },
+  { icon: Package, text: '119 plugins across 10 categories — build, test, security scans, and deploys.' },
+  { icon: Cloud, text: 'Deploys as native AWS CodePipeline in your own account — zero lock-in.' },
+  { icon: Shield, text: 'Per-org compliance, role-based access, and a tamper-evident audit trail on every build.' },
+  { icon: BarChart3, text: 'Execution and team analytics, plus DORA delivery metrics.' },
+  { icon: Check, text: 'Build your way — Dashboard, AI prompt, CLI, REST API, or CDK.' },
+];
+
+function SolutionPanel({ billingOff }: { billingOff: boolean }) {
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-wide text-[var(--pb-text-muted)] mb-2">What you get</div>
+      {billingOff && (
+        <div className="mb-4 rounded-xl border border-[var(--pb-border)] bg-[color:color-mix(in_srgb,var(--pb-brand)_6%,transparent)] p-3">
+          <div className="flex items-center gap-1.5 text-sm font-semibold">
+            <Sparkles className="w-4 h-4 text-[var(--pb-brand)]" strokeWidth={2} /> Full platform, unlocked
+          </div>
+          <p className="text-xs text-[var(--pb-text-muted)] mt-1 leading-relaxed">
+            Billing is off on this instance — every feature is enabled with no plan gating and no seat, pipeline, or usage caps.
+          </p>
+        </div>
+      )}
+      <ul className="space-y-3">
+        {SOLUTION_POINTS.map((p) => (
+          <li key={p.text} className="flex items-start gap-2.5">
+            <p.icon className="w-4 h-4 mt-0.5 shrink-0 text-[var(--pb-brand)]" strokeWidth={1.75} />
+            <span className="text-sm text-[var(--pb-text-muted)] leading-relaxed">{p.text}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl>) {
@@ -73,6 +154,8 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
     }
   };
 
+  const hasPlans = plans.length > 0;
+
   if (success) {
     return (
       <div className="min-h-screen flex items-center justify-center px-6">
@@ -102,72 +185,92 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
         <meta name="twitter:image" content={OG_IMAGE} />
       </Head>
       <div className="min-h-screen px-6 py-10">
-        <div className="max-w-sm mx-auto mb-6">
+        <div className="max-w-4xl mx-auto mb-6">
           <Link href="/" className="inline-flex items-center gap-1 text-sm text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] transition-colors">
             <ArrowLeft className="w-3.5 h-3.5" /> Back
           </Link>
         </div>
 
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="max-w-sm mx-auto">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="max-w-4xl mx-auto">
           <h1 className="text-xl font-bold text-center mb-1">Create account</h1>
           <p className="text-sm text-[var(--pb-text-muted)] text-center mb-6">
             Have an account? <Link href="/" className="text-[var(--pb-brand)] hover:underline">Sign in</Link>
           </p>
 
-          <Card className="p-5">
-            <form onSubmit={handleSubmit} className="space-y-3">
-              <ErrorAlert message={error} className="text-sm" />
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
+            {/* Sign-up form */}
+            <Card className="p-5 lg:col-span-2">
+              <form onSubmit={handleSubmit} className="space-y-3">
+                <ErrorAlert message={error} className="text-sm" />
 
-              <div>
-                <Input id="reg-username" type="text" autoComplete="username" required className={fieldErrors.username ? 'input-error' : ''} placeholder="Username" aria-label="Username" value={username} onChange={(e) => setUsername(e.target.value)} onBlur={() => validateField('username', username)} disabled={isLoading} />
-                {fieldErrors.username && <p className="form-error mt-1">{fieldErrors.username}</p>}
-              </div>
-              <div>
-                <Input id="reg-email" type="email" autoComplete="email" required className={fieldErrors.email ? 'input-error' : ''} placeholder="Email" aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => validateField('email', email)} disabled={isLoading} />
-                {fieldErrors.email && <p className="form-error mt-1">{fieldErrors.email}</p>}
-              </div>
-              <Input id="reg-org" type="text" placeholder="Organization (optional)" aria-label="Organization name" value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} disabled={isLoading} />
-              <div>
-                <Input id="reg-password" type="password" autoComplete="new-password" required className={fieldErrors.password ? 'input-error' : ''} placeholder="Password (min 8 chars)" aria-label="Password" value={password} onChange={(e) => setPassword(e.target.value)} onBlur={() => validateField('password', password)} disabled={isLoading} />
-                {fieldErrors.password && <p className="form-error mt-1">{fieldErrors.password}</p>}
-              </div>
-              <div>
-                <Input id="reg-confirm" type="password" autoComplete="new-password" required className={fieldErrors.confirmPassword ? 'input-error' : ''} placeholder="Confirm password" aria-label="Confirm password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onBlur={() => validateField('confirmPassword', confirmPassword)} disabled={isLoading} />
-                {fieldErrors.confirmPassword && <p className="form-error mt-1">{fieldErrors.confirmPassword}</p>}
-              </div>
-
-              {plans.length > 0 && (
-                <div className="grid grid-cols-3 gap-2 pt-1">
-                  {plans.map((plan) => (
-                    <button
-                      key={plan.id}
-                      type="button"
-                      onClick={() => setSelectedPlan(plan.id)}
-                      disabled={isLoading}
-                      className={`rounded-lg border-2 p-2.5 text-left transition-all text-xs ${
-                        selectedPlan === plan.id
-                          ? 'border-[var(--pb-brand)] bg-[var(--pb-surface)]'
-                          : 'border-[var(--pb-border)] hover:border-[var(--pb-text-muted)]'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between">
-                        <p className="font-bold">{plan.name}</p>
-                        {selectedPlan === plan.id && <Check className="w-3 h-3 text-[var(--pb-brand)] shrink-0" />}
-                      </div>
-                      <p className="text-[var(--pb-brand)] font-bold mt-0.5">{formatPrice(plan.prices.monthly)}</p>
-                    </button>
-                  ))}
+                <div>
+                  <Input id="reg-username" type="text" autoComplete="username" required className={fieldErrors.username ? 'input-error' : ''} placeholder="Username" aria-label="Username" value={username} onChange={(e) => setUsername(e.target.value)} onBlur={() => validateField('username', username)} disabled={isLoading} />
+                  {fieldErrors.username && <p className="form-error mt-1">{fieldErrors.username}</p>}
                 </div>
-              )}
+                <div>
+                  <Input id="reg-email" type="email" autoComplete="email" required className={fieldErrors.email ? 'input-error' : ''} placeholder="Email" aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => validateField('email', email)} disabled={isLoading} />
+                  {fieldErrors.email && <p className="form-error mt-1">{fieldErrors.email}</p>}
+                </div>
+                <Input id="reg-org" type="text" placeholder="Organization (optional)" aria-label="Organization name" value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} disabled={isLoading} />
+                <div>
+                  <Input id="reg-password" type="password" autoComplete="new-password" required className={fieldErrors.password ? 'input-error' : ''} placeholder="Password (min 8 chars)" aria-label="Password" value={password} onChange={(e) => setPassword(e.target.value)} onBlur={() => validateField('password', password)} disabled={isLoading} />
+                  {fieldErrors.password && <p className="form-error mt-1">{fieldErrors.password}</p>}
+                </div>
+                <div>
+                  <Input id="reg-confirm" type="password" autoComplete="new-password" required className={fieldErrors.confirmPassword ? 'input-error' : ''} placeholder="Confirm password" aria-label="Confirm password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onBlur={() => validateField('confirmPassword', confirmPassword)} disabled={isLoading} />
+                  {fieldErrors.confirmPassword && <p className="form-error mt-1">{fieldErrors.confirmPassword}</p>}
+                </div>
 
-              <Button type="submit" disabled={isLoading} fullWidth className="text-sm mt-1">
-                {isLoading
-                  ? <><LoadingSpinner size="sm" className="mr-2" /> Creating...</>
-                  : <><UserPlus className="w-4 h-4 mr-1.5" /> Create account</>
-                }
-              </Button>
-            </form>
-          </Card>
+                {hasPlans && (
+                  <p className="text-xs text-[var(--pb-text-muted)] pt-1">
+                    Selected plan: <span className="font-semibold text-[var(--pb-text)]">{plans.find((p) => p.id === selectedPlan)?.name ?? 'Developer'}</span>. Change it anytime — start free, no card required.
+                  </p>
+                )}
+
+                <Button type="submit" disabled={isLoading} fullWidth className="text-sm mt-1">
+                  {isLoading
+                    ? <><LoadingSpinner size="sm" className="mr-2" /> Creating...</>
+                    : <><UserPlus className="w-4 h-4 mr-1.5" /> Create account</>
+                  }
+                </Button>
+              </form>
+            </Card>
+
+            {/* Right column: tier comparison + bundles when billing is on,
+                otherwise a solution/value panel so signup isn't a bare form. */}
+            <div className="lg:col-span-3">
+              {hasPlans ? (
+                <>
+                  <div className="text-[11px] uppercase tracking-wide text-[var(--pb-text-muted)] mb-2">Choose your plan</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {plans.map((plan) => (
+                      <PlanCard
+                        key={plan.id}
+                        plan={plan}
+                        selected={selectedPlan === plan.id}
+                        popular={plan.tier === 'pro'}
+                        disabled={isLoading}
+                        onSelect={() => setSelectedPlan(plan.id)}
+                      />
+                    ))}
+                  </div>
+
+                  <div className="mt-3 rounded-xl border border-[var(--pb-border)] bg-[var(--pb-surface-muted)] p-3">
+                    <div className="flex items-center gap-1.5 text-sm font-semibold mb-1">
+                      <Sparkles className="w-4 h-4 text-[var(--pb-brand)]" strokeWidth={2} /> Scale any plan with add-on packs
+                    </div>
+                    <p className="text-xs text-[var(--pb-text-muted)] leading-relaxed">
+                      Stackable bundles raise your limits without switching tiers — Seat&nbsp;(+5), Pipeline&nbsp;(+10),
+                      Plugin&nbsp;(+100), API&nbsp;(+1M), AI&nbsp;(+5k) &amp; Storage&nbsp;(+50&nbsp;GB) packs — plus SSO, Audit&nbsp;Log,
+                      DORA reporting, and Team&nbsp;Usage&nbsp;Analytics. Add them anytime from Billing.
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <SolutionPanel billingOff={!billingEnabled} />
+              )}
+            </div>
+          </div>
         </motion.div>
       </div>
     </>
