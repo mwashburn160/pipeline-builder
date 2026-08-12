@@ -3,8 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { motion } from 'framer-motion';
 import {
-  Shield, Package, BarChart3,
-  Cloud, Users, Gauge,
+  Shield, BarChart3, Cloud,
   Bot, Globe, Zap, ArrowRight, Check, LogIn, Sparkles,
   Menu, X, Moon, Sun, Eye, EyeOff,
 } from 'lucide-react';
@@ -144,36 +143,58 @@ function Hero() {
       <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-5 gap-10 items-start">
         {/* Left — 3 cols */}
         <div className="lg:col-span-3 pt-2">
-          <motion.h1
-            className="text-3xl sm:text-4xl font-bold leading-tight mb-4"
-            initial={{ opacity: 0, y: 12 }}
+          <motion.div
+            className="inline-flex items-center gap-1.5 mb-4 px-3 py-1 rounded-full text-xs font-medium bg-[var(--pb-surface)] border border-[var(--pb-border)] text-[var(--pb-text-muted)]"
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4 }}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-[var(--pb-brand)]" strokeWidth={2} />
+            Self-service CI/CD for AWS
+          </motion.div>
+          <motion.h1
+            className="text-4xl sm:text-5xl font-bold leading-[1.1] mb-4"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.05 }}
           >
             CI/CD pipelines from code or{' '}
             <span className="text-[var(--pb-brand)]">AI</span>
           </motion.h1>
           <motion.p
-            className="text-[var(--pb-text-muted)] mb-6 leading-relaxed max-w-lg"
+            className="text-[var(--pb-text-muted)] text-base mb-6 leading-relaxed max-w-xl"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.08 }}
+            transition={{ duration: 0.4, delay: 0.1 }}
           >
-            Deploy as native AWS CodePipeline in your account.
-            119 plugins, per-org compliance, zero lock-in.
+            Turn a Git URL or a prompt into a working pipeline — deployed as native
+            AWS CodePipeline in your own account. 119 plugins, per-org compliance,
+            zero lock-in.
           </motion.p>
+
           <motion.div
-            className="flex flex-wrap gap-4 text-sm text-[var(--pb-text-muted)]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ duration: 0.3, delay: 0.15 }}
+            transition={{ duration: 0.3, delay: 0.18 }}
           >
-            {['Dashboard', 'AI Prompt', 'CLI', 'REST API', 'CDK'].map((t) => (
-              <span key={t} className="flex items-center gap-1.5">
-                <Check className="w-3.5 h-3.5 text-[var(--pb-success)]" strokeWidth={2} />
-                {t}
-              </span>
-            ))}
+            <div className="text-[11px] uppercase tracking-wide text-[var(--pb-text-muted)] mb-2">Build it your way</div>
+            <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-[var(--pb-text-muted)] mb-6">
+              {['Dashboard', 'AI Prompt', 'CLI', 'REST API', 'CDK'].map((t) => (
+                <span key={t} className="flex items-center gap-1.5">
+                  <Check className="w-3.5 h-3.5 text-[var(--pb-success)]" strokeWidth={2} />
+                  {t}
+                </span>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Link href="/auth/register" className="btn btn-primary px-5 py-2.5 text-sm">
+                Get started free <ArrowRight className="w-3.5 h-3.5 ml-1.5 inline" />
+              </Link>
+              <a href="#how" className="btn btn-secondary px-5 py-2.5 text-sm">See how it works</a>
+            </div>
+            <p className="text-xs text-[var(--pb-text-muted)] mt-4">
+              Apache-2.0 · Runs in your AWS account · No credit card required
+            </p>
           </motion.div>
         </div>
 
@@ -280,33 +301,44 @@ function Hero() {
 }
 
 // ---------------------------------------------------------------------------
-// Value props — single row
+// Strengths — the three positioning pillars (why this, not a generic CI/CD tool)
 // ---------------------------------------------------------------------------
 
-const highlights = [
-  { icon: Shield, text: 'Per-org compliance' },
-  { icon: Package, text: '119 plugins' },
-  { icon: BarChart3, text: 'Execution analytics' },
-  { icon: Users, text: 'Team analytics' },
-  { icon: Gauge, text: 'DORA reporting' },
+const strengths = [
+  {
+    icon: Cloud,
+    title: 'Own your infrastructure',
+    text: 'Pipelines deploy as native AWS CodePipeline in your own account — standard resources you can inspect, extend, and keep. Zero lock-in.',
+  },
+  {
+    icon: Shield,
+    title: 'Governed by default',
+    text: 'Per-org compliance rules, role-based access, and a tamper-evident audit trail apply to every build — governance without the bottleneck.',
+  },
+  {
+    icon: Sparkles,
+    title: 'Generate, don’t configure',
+    text: 'AI turns a Git URL or a plain-English prompt into a working, plugin-wired pipeline in minutes — no YAML archaeology.',
+  },
 ];
 
-function ValueProps() {
+function Strengths() {
   return (
-    <section className="py-10 px-6 bg-[var(--pb-surface-muted)]">
-      <div className="max-w-3xl mx-auto flex flex-wrap items-center justify-center gap-8">
-        {highlights.map((h, i) => (
+    <section className="py-12 px-6 bg-[var(--pb-surface-muted)]">
+      <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
+        {strengths.map((s, i) => (
           <motion.div
-            key={h.text}
-            className="flex items-center gap-2 text-sm"
+            key={s.title}
+            className="flex flex-col gap-2"
             variants={fadeUp}
             initial="hidden"
             whileInView="visible"
             viewport={{ once: true }}
             custom={i}
           >
-            <h.icon className="w-5 h-5 text-[var(--pb-brand)]" strokeWidth={1.5} />
-            <span className="text-[var(--pb-text-muted)]">{h.text}</span>
+            <s.icon className="w-6 h-6 text-[var(--pb-brand)]" strokeWidth={1.5} />
+            <h3 className="font-semibold text-[var(--pb-text)]">{s.title}</h3>
+            <p className="text-sm text-[var(--pb-text-muted)] leading-relaxed">{s.text}</p>
           </motion.div>
         ))}
       </div>
@@ -328,7 +360,7 @@ const aiProviders = [
 
 function AI() {
   return (
-    <section className="py-14 px-6">
+    <section id="how" className="py-16 px-6 scroll-mt-16">
       <div className="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
         <motion.div
           initial={{ opacity: 0, x: -12 }}
@@ -336,9 +368,11 @@ function AI() {
           viewport={{ once: true }}
           transition={{ duration: 0.4 }}
         >
+          <div className="text-[11px] uppercase tracking-wide text-[var(--pb-brand)] font-semibold mb-2">How it works</div>
           <h2 className="text-2xl font-bold mb-3">Paste a Git URL, get a pipeline</h2>
           <p className="text-sm text-[var(--pb-text-muted)] mb-4 leading-relaxed">
-            AI analyzes your repo and generates stages and plugins automatically.
+            AI reads your repo, picks the right plugins, and wires up build, test, and
+            deploy stages. You review the plan and ship — no YAML to hand-write.
           </p>
           <div className="flex flex-wrap gap-2">
             {aiProviders.map((p) => (
@@ -453,10 +487,12 @@ function CTA() {
   return (
     <section className="py-16 px-6 bg-[var(--pb-surface-muted)]">
       <div className="max-w-md mx-auto text-center">
-        <h2 className="text-2xl font-bold mb-3">Ready to start?</h2>
-        <p className="text-sm text-[var(--pb-text-muted)] mb-5">Build your first pipeline in minutes.</p>
+        <h2 className="text-2xl font-bold mb-3">Ship your first pipeline today</h2>
+        <p className="text-sm text-[var(--pb-text-muted)] mb-5">
+          Generate it from a repo or a prompt — deployed in your own AWS account, governed from day one.
+        </p>
         <Link href="/auth/register" className="btn btn-primary px-6 py-2.5 text-sm">
-          Create Account <ArrowRight className="w-3.5 h-3.5 ml-1.5 inline" />
+          Get started free <ArrowRight className="w-3.5 h-3.5 ml-1.5 inline" />
         </Link>
       </div>
     </section>
@@ -507,7 +543,7 @@ export default function LandingPage() {
     <div className="min-h-screen">
       <NavBar />
       <Hero />
-      <ValueProps />
+      <Strengths />
       <AI />
       <Features />
       <CTA />
