@@ -60,7 +60,20 @@ port_forward() {
 ENV_FILE=""
 [ -f "$DEPLOY_DIR/.env" ] && ENV_FILE="$DEPLOY_DIR/.env"
 [ -z "$ENV_FILE" ] && [ -f "$DEPLOY_DIR/../docker/.env" ] && ENV_FILE="$(cd "$DEPLOY_DIR/../docker" && pwd)/.env"
-[ -z "$ENV_FILE" ] && { echo "ERROR: No .env found" >&2; exit 1; }
+# Auto-seed from the example on first run instead of hard-failing (matches the
+# docker target). The example ships working local defaults; only optional keys
+# (e.g. AI provider keys) need filling in.
+if [ -z "$ENV_FILE" ]; then
+  if [ -f "$DEPLOY_DIR/.env.example" ]; then
+    cp "$DEPLOY_DIR/.env.example" "$DEPLOY_DIR/.env"
+    ENV_FILE="$DEPLOY_DIR/.env"
+    echo "No .env found — created $DEPLOY_DIR/.env from .env.example (local defaults)." >&2
+    echo "  Review it and set any optional keys (e.g. AI provider keys) before relying on those features." >&2
+  else
+    echo "ERROR: No .env found and no .env.example to seed from at $DEPLOY_DIR" >&2
+    exit 1
+  fi
+fi
 
 log "Loading environment from $ENV_FILE"
 set -a; . "$ENV_FILE"; set +a

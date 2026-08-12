@@ -263,10 +263,15 @@ cd "$DEPLOY_DIR"
 # Shared .env secret generator (deploy/bin/gen-env-secrets.sh).
 . "$INSTALL_DIR/deploy/bin/gen-env-secrets.sh"
 
-cp .env.example .env
-
-# Generated secrets common to every target (shared helper); then the ec2-specific keys.
-pb_gen_env_secrets .env "$GHCR_USER"
+# Seed .env from the example + generate secrets ONCE. Guarding this (like the
+# eks target) keeps a re-run of bootstrap from rotating DB passwords out from
+# under existing data. The region/domain/VPC seds below stay unguarded — they're
+# idempotent and keep an existing .env aligned with the instance's parameters.
+if [ ! -f .env ]; then
+  cp .env.example .env
+  # Generated secrets common to every target (shared helper); then the ec2-specific keys.
+  pb_gen_env_secrets .env "$GHCR_USER"
+fi
 
 # Replace domain placeholder. A domain is always set now (the ALB needs an
 # ACM cert for it), so there's no IP fallback.

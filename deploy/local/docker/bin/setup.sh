@@ -40,10 +40,19 @@ if ! command -v yq >/dev/null 2>&1; then
   exit 1
 fi
 
+# Auto-seed .env from the example on first run so the deploy isn't a hard stop.
+# The example ships working local defaults (BILLING_ENABLED=true, dev secrets);
+# only optional keys (e.g. AI provider keys) need filling in for those features.
 if [ ! -f "$DEPLOY_DIR/.env" ]; then
-  echo "ERROR: .env file not found at $DEPLOY_DIR/.env" >&2
-  echo "  Copy .env.example to .env and update with your values" >&2
-  exit 1
+  if [ -f "$DEPLOY_DIR/.env.example" ]; then
+    cp "$DEPLOY_DIR/.env.example" "$DEPLOY_DIR/.env"
+    echo "No .env found — created $DEPLOY_DIR/.env from .env.example (local defaults)." >&2
+    echo "  Review it and set any optional keys (e.g. AI provider keys) before you rely on those features." >&2
+  else
+    echo "ERROR: neither .env nor .env.example found at $DEPLOY_DIR" >&2
+    echo "  Expected $DEPLOY_DIR/.env.example to seed the config." >&2
+    exit 1
+  fi
 fi
 
 # -----------------------------------------------------------------------
