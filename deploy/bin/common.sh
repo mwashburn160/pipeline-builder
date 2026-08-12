@@ -543,6 +543,17 @@ check_docker_image() {
 select_categories() {
   local _plugins_dir="$1"
   local _available
+  # Fail clearly if the plugins tree is absent — otherwise the `cd` below prints
+  # a cryptic "No such file or directory", the category list comes back empty,
+  # and the operator just sees "No valid categories selected" with no cause.
+  # `deploy/plugins/` is tracked in git, so a missing dir means an incomplete
+  # checkout (sparse/partial clone) rather than a config problem.
+  if [ ! -d "$_plugins_dir" ]; then
+    echo "ERROR: plugins directory not found at: $_plugins_dir" >&2
+    echo "  'deploy/plugins/' is tracked in git but missing here — this looks like an incomplete checkout." >&2
+    echo "  Re-clone or sync the repo so deploy/plugins/ is present, then re-run this step." >&2
+    return 1
+  fi
   # cd into plugins dir first so `find` doesn't try (and fail) to restore
   # cwd when called as sudo -u from a directory the new user can't read.
   # Skip `_`-prefixed dirs (build infrastructure like _base — not loadable
