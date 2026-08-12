@@ -67,7 +67,14 @@ if [ -z "$ENV_FILE" ]; then
   if [ -f "$DEPLOY_DIR/.env.example" ]; then
     cp "$DEPLOY_DIR/.env.example" "$DEPLOY_DIR/.env"
     ENV_FILE="$DEPLOY_DIR/.env"
-    echo "No .env found — created $DEPLOY_DIR/.env from .env.example (local defaults)." >&2
+    # Local plugin images run on THIS host, so build for the host arch — the
+    # shipped PUBLISH_PLATFORM default (linux/amd64) forces QEMU emulation on
+    # Apple Silicon, where the Rust toolchain segfaults building the base image.
+    case "$(uname -m)" in
+      arm64|aarch64) echo "PUBLISH_PLATFORM=linux/arm64" >> "$DEPLOY_DIR/.env" ;;
+      *)             echo "PUBLISH_PLATFORM=linux/amd64" >> "$DEPLOY_DIR/.env" ;;
+    esac
+    echo "No .env found — created $DEPLOY_DIR/.env from .env.example (local defaults, PUBLISH_PLATFORM pinned to host arch)." >&2
     echo "  Review it and set any optional keys (e.g. AI provider keys) before relying on those features." >&2
   else
     echo "ERROR: No .env found and no .env.example to seed from at $DEPLOY_DIR" >&2
