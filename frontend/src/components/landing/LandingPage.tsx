@@ -139,12 +139,12 @@ function Hero() {
   };
 
   return (
-    <section id="top" className="pt-24 pb-12 px-6">
+    <section id="top" className="pt-24 pb-10 px-6">
       <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-5 gap-10 items-start">
         {/* Left — 3 cols */}
         <div className="lg:col-span-3 pt-2">
           <motion.div
-            className="inline-flex items-center gap-1.5 mb-4 px-3 py-1 rounded-full text-xs font-medium bg-[var(--pb-surface)] border border-[var(--pb-border)] text-[var(--pb-text-muted)]"
+            className="inline-flex items-center gap-1.5 mb-3 px-3 py-1 rounded-full text-xs font-medium bg-[var(--pb-surface)] border border-[var(--pb-border)] text-[var(--pb-text-muted)]"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4 }}
@@ -153,7 +153,7 @@ function Hero() {
             Self-service CI/CD for AWS
           </motion.div>
           <motion.h1
-            className="text-4xl sm:text-5xl font-bold leading-[1.1] mb-4"
+            className="text-3xl sm:text-4xl font-bold leading-tight mb-3"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.05 }}
@@ -162,7 +162,7 @@ function Hero() {
             <span className="text-[var(--pb-brand)]">AI</span>
           </motion.h1>
           <motion.p
-            className="text-[var(--pb-text-muted)] text-base mb-6 leading-relaxed max-w-xl"
+            className="text-[var(--pb-text-muted)] text-sm mb-4 leading-relaxed max-w-lg"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.1 }}
@@ -177,8 +177,7 @@ function Hero() {
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3, delay: 0.18 }}
           >
-            <div className="text-[11px] uppercase tracking-wide text-[var(--pb-text-muted)] mb-2">Build it your way</div>
-            <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-[var(--pb-text-muted)] mb-6">
+            <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-[var(--pb-text-muted)] mb-5">
               {['Dashboard', 'AI Prompt', 'CLI', 'REST API', 'CDK'].map((t) => (
                 <span key={t} className="flex items-center gap-1.5">
                   <Check className="w-3.5 h-3.5 text-[var(--pb-success)]" strokeWidth={2} />
@@ -187,14 +186,14 @@ function Hero() {
               ))}
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <Link href="/auth/register" className="btn btn-primary px-5 py-2.5 text-sm">
+              <Link href="/auth/register" className="btn btn-primary px-5 py-2 text-sm">
                 Get started free <ArrowRight className="w-3.5 h-3.5 ml-1.5 inline" />
               </Link>
-              <a href="#how" className="btn btn-secondary px-5 py-2.5 text-sm">See how it works</a>
+              <a href="#how" className="btn btn-secondary px-5 py-2 text-sm">See how it works</a>
+              <span className="text-xs text-[var(--pb-text-muted)]">
+                Apache-2.0 · No credit card
+              </span>
             </div>
-            <p className="text-xs text-[var(--pb-text-muted)] mt-4">
-              Apache-2.0 · Runs in your AWS account · No credit card required
-            </p>
           </motion.div>
         </div>
 
