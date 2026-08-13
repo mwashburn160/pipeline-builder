@@ -73,6 +73,10 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 3
+  # Single-writer RWO hostPath PVC: Recreate avoids the RollingUpdate two-pod
+  # attach deadlock (the new pod can't bind the volume the old one still holds).
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: postgres
@@ -163,7 +167,10 @@ metadata:
   labels:
     app: postgres
 spec:
-  minAvailable: 1
+  # Single-replica stateful pod: maxUnavailable so a node drain/upgrade can
+  # evict it (minAvailable: 1 would block the drain forever — the one pod can
+  # never stay "available" while being moved).
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: postgres

@@ -91,6 +91,27 @@ Parameters:
     Default: main
     Description: Git branch to checkout
 
+  GitRef:
+    Type: String
+    Default: ""
+    Description: >
+      Optional git tag, branch, or commit SHA to PIN the checkout to for a
+      reproducible deploy / rollback. Empty (default) tracks the tip of
+      GitBranch (origin/GitBranch), the previous behaviour. When set, the
+      instance checks out exactly this ref instead of resetting to branch HEAD.
+
+  AdminPassword:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: >
+      Initial platform admin password used by AutoInit (identifier
+      admin@internal). Leave EMPTY (default) to have the instance generate a
+      strong RANDOM password on first boot and write it to a root-only file
+      (retrieve via SSM: `sudo cat /opt/pipeline/pipeline-data/.admin-credentials`)
+      — it is never written to the logs. Set a value to choose your own. Change
+      it after first login (especially in public mode).
+
   EmailEnabled:
     Type: String
     Default: "true"
@@ -140,8 +161,10 @@ Parameters:
       build/publish the bootstrap image + load ALL of plugins/compliance/sample-pipelines),
       so no manual on-box step is needed. Set to "false" to skip it and run init-platform
       yourself. Adds ~30-60 min to first boot (plugin image builds); progress is in
-      /var/log/user-data.log. SECURITY: registers the admin with the default password
-      (SecurePassword123!) — change it after first login (especially in public mode).
+      /var/log/user-data.log. SECURITY: the admin (admin@internal) is registered with
+      the AdminPassword parameter when set, otherwise with a RANDOM password written to
+      a root-only file on the instance (see AdminPassword) — never a shared default.
+      Change it after first login (especially in public mode).
 
 # =============================================================================
 # Conditions
@@ -816,6 +839,8 @@ Resources:
             export GHCR_USER="mwashburn160"
             export GIT_REPO="${GitRepo}"
             export GIT_BRANCH="${GitBranch}"
+            # Optional pinned ref (tag/branch/SHA) for a reproducible checkout; empty = track GitBranch.
+            export GIT_REF="${GitRef}"
             # Deploy mode + VPC identity for the instance .env: in private mode the pipeline
             # service builds VPC-attached CodeBuild projects from these, and init-platform's
             # private-mode prerequisite gate validates them. bootstrap.sh writes them into .env.
@@ -824,6 +849,9 @@ Resources:
             export PIPELINE_SUBNET_IDS="${PrivateSubnet},${PrivateSubnet2}"
             # When "true", bootstrap.sh runs init-platform (all loads) after the cluster is up.
             export AUTO_INIT="${AutoInit}"
+            # Initial admin password for AutoInit. Empty => bootstrap.sh generates a strong
+            # random one and writes it to a root-only file (never logged). NoEcho parameter.
+            export ADMIN_PASSWORD="${AdminPassword}"
             # AWS_REGION is the ACTUAL deploy region (the SES identity is regional;
             # bootstrap.sh pins SES_REGION to it instead of the static .env default).
             export AWS_REGION="${AWS::Region}"
@@ -874,13 +902,31 @@ Resources:
             dnf install -y git
             INSTALL_DIR="$PIPELINE_ROOT/pipeline-builder"
             if [ -d "$INSTALL_DIR/.git" ]; then
-              echo "Existing checkout found — fetching $GIT_BRANCH"
-              git -C "$INSTALL_DIR" fetch --all --prune
+              echo "Existing checkout found — fetching"
+              git -C "$INSTALL_DIR" fetch --all --prune --tags
+            else
+              echo "Cloning $GIT_REPO to $INSTALL_DIR"
+              git clone "$GIT_REPO" "$INSTALL_DIR"
+              git -C "$INSTALL_DIR" fetch --tags
+            fi
+            # GIT_REF pins an exact tag/branch/SHA for a reproducible deploy/rollback.
+            # Empty (default) keeps tracking the tip of GIT_BRANCH, as before. Shell vars
+            # use bare $VAR (no braces) so Fn::Sub does not try to resolve them as params.
+            if [ -n "$GIT_REF" ]; then
+              echo "Pinning checkout to GitRef: $GIT_REF"
+              # If GIT_REF names a branch that exists on origin, pin to the REMOTE
+              # tip so a re-used EBS checkout with a stale local branch is brought
+              # forward (a plain `checkout` would leave the old local commit). For a
+              # tag or SHA, origin/$GIT_REF does not exist, so fall back to checking
+              # out the ref directly (detached HEAD) — the reproducible-pin case.
+              if git -C "$INSTALL_DIR" rev-parse --verify --quiet "origin/$GIT_REF" >/dev/null; then
+                git -C "$INSTALL_DIR" checkout --force -B "$GIT_REF" "origin/$GIT_REF"
+              else
+                git -C "$INSTALL_DIR" checkout --force "$GIT_REF"
+              fi
+            else
               git -C "$INSTALL_DIR" checkout "$GIT_BRANCH"
               git -C "$INSTALL_DIR" reset --hard "origin/$GIT_BRANCH"
-            else
-              echo "Cloning $GIT_REPO ($GIT_BRANCH) to $INSTALL_DIR"
-              git clone --branch "$GIT_BRANCH" "$GIT_REPO" "$INSTALL_DIR"
             fi
 
             # Run bootstrap

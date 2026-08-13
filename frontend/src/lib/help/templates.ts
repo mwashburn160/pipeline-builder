@@ -277,5 +277,72 @@ GET /api/pipelines/{id}?resolve=true   # resolved form (for preview)`,
         },
       ],
     },
+    {
+      id: 'golden-pipeline-templates',
+      title: 'Golden pipeline templates',
+      blocks: [
+        {
+          type: 'text',
+          content:
+            'A golden pipeline template is a reusable, governed pipeline config (a BuilderProps with {{ vars.* }} placeholders) plus a set of DECLARED INPUTS. Teams instantiate it — filling the inputs — to spin up a real pipeline in a few fields, instead of hand-building one. The template body and the synth-time {{ … }} engine above are the same mechanism: each declared input becomes a vars.<name> value that is baked in at instantiate time.',
+        },
+        {
+          type: 'text',
+          content:
+            'Create one from an existing pipeline: Dashboard → a pipeline → "Save as template", or Templates → "New template" (pick a source pipeline). Declare inputs (e.g. repoUrl, branch) and parameterize the repository so the same template targets ANY repo — the authoring form swaps the source pipeline\'s concrete repo URL for {{ vars.repoUrl }}. You can also "Import template" on the Templates page by pasting a template JSON.',
+        },
+        {
+          type: 'text',
+          content:
+            'Example template — a Node build → test → CDK-deploy starter, parameterized on the target repository. project/organization come from the Use-template form; repoUrl/branch are declared inputs:',
+        },
+        {
+          type: 'code',
+          language: 'json',
+          content: `{
+  "name": "node-service",
+  "category": "backend",
+  "description": "Golden path: Node build -> tests -> CDK deploy, pointed at any repo.",
+  "inputs": [
+    { "name": "repoUrl", "label": "Repository URL", "type": "string", "required": true },
+    { "name": "branch",  "label": "Branch",         "type": "string", "default": "main" }
+  ],
+  "props": {
+    "synth": {
+      "plugin": { "name": "cdk-synth" },
+      "source": { "repositoryUrl": "{{ vars.repoUrl }}", "branch": "{{ vars.branch }}" }
+    },
+    "stages": [
+      { "stageName": "build",  "steps": [{ "plugin": { "name": "nodejs" } }] },
+      { "stageName": "test",   "steps": [{ "plugin": { "name": "jest" } }] },
+      { "stageName": "deploy", "steps": [{ "plugin": { "name": "cdk-deploy" } }] }
+    ]
+  }
+}`,
+        },
+        {
+          type: 'text',
+          content:
+            'Use it — Templates → "Use template" → enter Project, Target repository (Git URL) and Branch → Create. The instantiate call renders the vars into the props, then creates the pipeline (compliance + quota still apply):',
+        },
+        {
+          type: 'code',
+          language: 'json',
+          content: `POST /api/pipeline-templates/<id>/instantiate
+{
+  "project": "checkout",
+  "organization": "acme",
+  "inputs": { "repoUrl": "https://github.com/acme/checkout", "branch": "main" }
+}
+// -> props.synth.source.repositoryUrl == "https://github.com/acme/checkout"
+//    a new pipeline builds github.com/acme/checkout`,
+        },
+        {
+          type: 'text',
+          content:
+            'Visibility: private templates go to your org catalog; public (needs pipelines:publish) is shared with your org and its teams; the shared SYSTEM catalog across all orgs is a superadmin action from the system org.',
+        },
+      ],
+    },
   ],
 };

@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
-import { LayoutTemplate, RefreshCw, Sparkles } from 'lucide-react';
+import { LayoutTemplate, RefreshCw, Sparkles, Upload } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
@@ -18,6 +18,7 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { ResourceList } from '@/components/ui/ResourceList';
 import { CreateTemplateModal } from '@/components/pipeline/CreateTemplateModal';
+import { ImportTemplateModal } from '@/components/pipeline/ImportTemplateModal';
 import api from '@/lib/api';
 import type { PipelineTemplate, TemplateInput } from '@/types';
 
@@ -42,6 +43,7 @@ export default function TemplatesPage() {
   const canWrite = can('pipelines:write');
   const canPublish = can('pipelines:publish');
   const [showCreate, setShowCreate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   const [templates, setTemplates] = useState<PipelineTemplate[]>([]);
   const [loading, setLoading] = useState(false);
@@ -163,6 +165,11 @@ export default function TemplatesPage() {
       actions={
         <div className="flex items-center gap-2">
           {canWrite && (
+            <Button variant="secondary" onClick={() => setShowImport(true)}>
+              <Upload className="w-4 h-4 mr-1.5" /> Import
+            </Button>
+          )}
+          {canWrite && (
             <Button onClick={() => setShowCreate(true)}>
               <LayoutTemplate className="w-4 h-4 mr-1.5" /> New template
             </Button>
@@ -252,6 +259,7 @@ export default function TemplatesPage() {
                         type={inp.type === 'number' ? 'number' : 'text'}
                         value={String(inputValues[inp.name] ?? '')}
                         onChange={(e) => setInputValues((s) => ({ ...s, [inp.name]: e.target.value }))}
+                        placeholder={/repo|git|url/i.test(inp.name) ? 'https://github.com/owner/repo' : undefined}
                         disabled={submitting}
                       />
                     )}
@@ -268,6 +276,14 @@ export default function TemplatesPage() {
           canPublish={canPublish}
           onClose={() => setShowCreate(false)}
           onCreated={fetchAll}
+        />
+      )}
+
+      {showImport && canWrite && (
+        <ImportTemplateModal
+          canPublish={canPublish}
+          onClose={() => setShowImport(false)}
+          onImported={fetchAll}
         />
       )}
     </DashboardLayout>

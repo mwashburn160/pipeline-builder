@@ -459,5 +459,55 @@ All pipelines continue to work unchanged; when they start supplying metadata key
 
 ---
 
+## Golden pipeline templates
+
+A **golden pipeline template** is a reusable, governed pipeline config — a `BuilderProps` with `{{ vars.* }}` placeholders — plus a set of **declared inputs**. Teams instantiate it (filling the inputs) to spin up a real pipeline in a few fields instead of hand-building one. It's the same `{{ … }}` engine documented above: each declared input becomes a `vars.<name>` value, baked in at instantiate time.
+
+**Create one** from an existing pipeline — *Save as template* (a pipeline's detail page) or *Templates → New template* — or **Import** a template JSON on the Templates page. Declare inputs (e.g. `repoUrl`, `branch`) and **parameterize the repository** so one template targets any repo: the authoring form swaps the source pipeline's concrete repo URL for `{{ vars.repoUrl }}` (the "Parameterize repository" button auto-detects it).
+
+### Example — a Node build → test → deploy starter, parameterized on the target repo
+
+`project` / `organization` come from the Use-template form; `repoUrl` / `branch` are declared inputs:
+
+```json
+{
+  "name": "node-service",
+  "category": "backend",
+  "description": "Golden path: Node build -> tests -> CDK deploy, pointed at any repo.",
+  "inputs": [
+    { "name": "repoUrl", "label": "Repository URL", "type": "string", "required": true },
+    { "name": "branch",  "label": "Branch",         "type": "string", "default": "main" }
+  ],
+  "props": {
+    "synth": {
+      "plugin": { "name": "cdk-synth" },
+      "source": { "repositoryUrl": "{{ vars.repoUrl }}", "branch": "{{ vars.branch }}" }
+    },
+    "stages": [
+      { "stageName": "build",  "steps": [{ "plugin": { "name": "nodejs" } }] },
+      { "stageName": "test",   "steps": [{ "plugin": { "name": "jest" } }] },
+      { "stageName": "deploy", "steps": [{ "plugin": { "name": "cdk-deploy" } }] }
+    ]
+  }
+}
+```
+
+**Use it** — *Templates → Use template* → enter **Project**, **Target repository (Git URL)** and **Branch** → **Create**. The instantiate call renders the vars into the props, then creates the pipeline (compliance + quota still apply):
+
+```json
+POST /api/pipeline-templates/<id>/instantiate
+{
+  "project": "checkout",
+  "organization": "acme",
+  "inputs": { "repoUrl": "https://github.com/acme/checkout", "branch": "main" }
+}
+// -> props.synth.source.repositoryUrl == "https://github.com/acme/checkout"
+//    a new pipeline builds github.com/acme/checkout
+```
+
+**Visibility** — private templates go to your org catalog; public (needs `pipelines:publish`) is shared with your org and its teams; the shared **system catalog** across all orgs is a superadmin action from the system org.
+
+---
+
 **Related docs:** [Metadata Keys](metadata-keys.md) | [CDK Usage](cdk-usage.md) | [Plugin Catalog](plugins/README.md) | [API Reference](api-reference.md)
 {% endraw %}

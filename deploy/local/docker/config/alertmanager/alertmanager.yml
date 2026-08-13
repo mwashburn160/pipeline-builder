@@ -4,10 +4,13 @@
 #   - critical → critical-slack receiver (paging channel)
 #   - warning  → warning-slack receiver (non-paging channel)
 #
-# Webhook URLs are templated from environment variables — the deploy startup
-# script substitutes them via envsubst before Alertmanager loads the file. If
-# SLACK_WEBHOOK_URL is unset, alerts go to the `null` receiver (silently
-# dropped) so the container stays healthy in environments without Slack wired up.
+# Webhook URLs and the relay bearer token are edited into this file DIRECTLY.
+# Alertmanager does NOT expand environment variables in its config, and this
+# deploy runs no envsubst/entrypoint over the file — the ${VAR}-style wiring
+# was removed from docker-compose.yml as dead. The Slack receivers below ship
+# dev-safe placeholder URLs that Slack rejects with 404 (alertmanager logs the
+# rejection and keeps running); replace them with real
+# `https://hooks.slack.com/services/...` URLs to actually deliver.
 #
 # Tunables:
 #   group_wait      — batch alerts that fire within this window into one
@@ -82,12 +85,10 @@ receivers:
         max_alerts: 64
         # NOTE: an earlier design here sent `X-Alertmanager-Instance` as
         # a custom HTTP header so the platform-relay could disambiguate
-        # multiple Alertmanager instances. Alertmanager 0.28's webhook
-        # config supports neither a top-level `http_headers:` field nor
-        # `http_config.headers:` (both raise "field not found"); custom
-        # webhook headers landed in newer Alertmanager releases. For now
-        # the relay authenticates on the Bearer token alone — if/when
-        # we upgrade Alertmanager, restore the header under
+        # multiple Alertmanager instances. We intentionally do NOT set a
+        # custom webhook header: the relay authenticates on the Bearer
+        # token alone, which is sufficient here. If instance
+        # disambiguation is ever needed, add it under the receiver's
         # `http_config.headers:` and have the relay enforce it.
 
   # Slack receivers below carry placeholder webhook URLs so alertmanager

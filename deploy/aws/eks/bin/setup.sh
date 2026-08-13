@@ -64,6 +64,13 @@ done
 [ -n "$DOMAIN" ] || { echo "ERROR: --domain is required" >&2; exit 1; }
 [ -n "$HOSTED_ZONE_ID" ] || { echo "ERROR: --hosted-zone-id is required" >&2; exit 1; }
 case "$DEPLOY_MODE" in public|private) ;; *) echo "ERROR: --deploy-mode must be public|private" >&2; exit 1 ;; esac
+
+# Preflight required external tools before any AWS calls (fail fast, one error).
+# eksctl is intentionally excluded — it's auto-installed below if missing.
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/../../../bin/common.sh"
+preflight aws kubectl openssl jq envsubst
+
 EMAIL_FROM="${EMAIL_FROM:-noreply@$DOMAIN}"
 SES_CONFIGURATION_SET="${CLUSTER_NAME}-email"    # stack-scoped so a 2nd cluster doesn't collide
 # Kubernetes version: a fixed value (e.g. 1.36, the default) is used as-is; the special
@@ -183,7 +190,9 @@ if [ ! -f "$ENV_FILE" ]; then
   # Generated secrets common to every target (shared helper); then the eks-specific keys.
   pb_gen_env_secrets "$ENV_FILE" "$GHCR_USER"
   sed -i.bak "s|YOUR_DOMAIN_HERE|${DOMAIN}|g" "$ENV_FILE"
-  [ -n "$GHCR_TOKEN" ] && sed -i.bak "s|GHCR_TOKEN=|GHCR_TOKEN=${GHCR_TOKEN}|" "$ENV_FILE"
+  # Anchored whole-line replace (matches ec2 bootstrap) so it can't rewrite a
+  # GHCR_TOKEN= substring on another/comment line or double-apply.
+  [ -n "$GHCR_TOKEN" ] && sed -i.bak "s|^GHCR_TOKEN=.*|GHCR_TOKEN=${GHCR_TOKEN}|" "$ENV_FILE"
   # Region is account-specific; SES is regional, so pin both to the deploy region.
   sed -i.bak "s|^AWS_REGION=.*|AWS_REGION=${REGION}|" "$ENV_FILE"
   sed -i.bak "s|^SES_REGION=.*|SES_REGION=${REGION}|" "$ENV_FILE"
@@ -232,6 +241,12 @@ openssl req -x509 -new -key "$CERT_DIR/jwt.key" -days 3650 \
   -subj "/CN=pipeline-image-registry-token-issuer" -out "$CERT_DIR/jwt.crt" >/dev/null 2>&1
 pb_create_registry_secrets "$CERT_DIR/jwt.key" "$CERT_DIR/jwt.crt"
 rm -rf "$CERT_DIR"
+
+# Generate the MongoDB replica-set keyfile per-deploy (idempotent; a fresh
+# checkout no longer ships one). pb_create_config_maps reads it directly.
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/../../../bin/mongo-keyfile.sh"
+pb_ensure_mongo_keyfile "$DEPLOY_DIR/mongodb-keyfile"
 
 # Config-file ConfigMaps + MongoDB keyfile (same set the ec2 manifests expect).
 pb_create_config_maps "$DEPLOY_DIR" "$CONFIG_DIR" "$NGINX_DIR"
@@ -407,6 +422,17 @@ fi
 log "Phase 9: initialize platform (AUTO_INIT=$AUTO_INIT)"
 INIT_PLATFORM="$DEPLOY_DIR/../../bin/init-platform.sh"
 if [ "$AUTO_INIT" = true ]; then
+  # Resolve the initial admin password: use an operator-supplied value
+  # (PLATFORM_PASSWORD / ADMIN_PASSWORD) if present, otherwise generate a strong
+  # RANDOM secret so the shared dev default is NEVER used. Write it to a root-only
+  # creds file for retrieval — the password itself is never echoed.
+  _admin_pw="${PLATFORM_PASSWORD:-${ADMIN_PASSWORD:-}}"
+  if [ -z "$_admin_pw" ]; then
+    _admin_pw="$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-32)"
+    _cred_file="$DEPLOY_DIR/.admin-credentials"
+    ( umask 177; printf 'identifier=%s\npassword=%s\n' "${PLATFORM_IDENTIFIER:-admin@internal}" "$_admin_pw" > "$_cred_file" )
+    echo "  generated a random initial admin password → $_cred_file (chmod 600; not echoed)"
+  fi
   # Force the kubectl port-forward path: `env -u PLATFORM_BASE_URL` strips any value
   # the operator exported (e.g. https://<domain>), which the eks init branch would
   # otherwise honor — and the public URL almost never resolves THIS instant (the Route 53
@@ -415,6 +441,7 @@ if [ "$AUTO_INIT" = true ]; then
   # in both deploy modes (the internal ALB isn't reachable from here in private mode).
   env -u PLATFORM_BASE_URL \
     BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_PIPELINES=y NAMESPACE="$NAMESPACE" \
+    PLATFORM_PASSWORD="$_admin_pw" \
     bash "$INIT_PLATFORM" --continue-on-build-failure eks \
     || echo "  WARNING: auto-init exited non-zero — re-run by hand: env -u PLATFORM_BASE_URL ./deploy/bin/init-platform.sh eks" >&2
 else

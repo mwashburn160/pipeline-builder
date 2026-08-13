@@ -66,6 +66,11 @@ if [ "$(id -u)" = "0" ]; then
   chmod -R o+rX "$DEPLOY_DIR/k8s" "$DEPLOY_DIR/config" "$DEPLOY_DIR/nginx" 2>/dev/null || true
   chmod o-rwx "$DEPLOY_DIR/.env" 2>/dev/null || true
 fi
+# Generate the MongoDB replica-set keyfile per-deploy (idempotent; a fresh
+# checkout no longer ships one). pb_create_config_maps below reads it directly.
+# shellcheck source=/dev/null
+. "$BIN_DIR/mongo-keyfile.sh"
+pb_ensure_mongo_keyfile "$DEPLOY_DIR/mongodb-keyfile"
 [ -f "$DEPLOY_DIR/mongodb-keyfile" ] && chmod 400 "$DEPLOY_DIR/mongodb-keyfile"
 
 # -- Data directories ---------------------------------------------------------
@@ -150,10 +155,16 @@ pb_kube_apply create namespace "$NAMESPACE"
 
 # app-env ConfigMap from .env. The plugin service uses a rootless buildkitd
 # sidecar (single build path — no strategy switch).
-# Use envsubst to safely expand variables without eval
+# Expand ONLY the two intended refs (matches the eks target). An unrestricted
+# envsubst would treat a literal `$` in any secret (bcrypt hash, password) as a
+# variable and silently blank/corrupt it in the ConfigMap. POSIX `[[:space:]]`
+# (not GNU-only `\s`) keeps the filter correct regardless of grep flavor.
 CLEAN_ENV=$(mktemp); trap 'rm -f "$CLEAN_ENV"' EXIT
-grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' | envsubst > "$CLEAN_ENV"
-chmod 644 "$CLEAN_ENV"
+grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | envsubst '${PLATFORM_FRONTEND_URL} ${DOMAIN}' > "$CLEAN_ENV"
+# This temp file holds every secret from .env. `mk kubectl` reads it as the
+# minikube user, so make it readable by that user only — not world (mktemp is 600
+# root, which the minikube-user kubectl couldn't read; 644 would expose secrets).
+chown minikube:minikube "$CLEAN_ENV"; chmod 600 "$CLEAN_ENV"
 pb_app_env_configmap "$CLEAN_ENV"
 rm -f "$CLEAN_ENV"
 

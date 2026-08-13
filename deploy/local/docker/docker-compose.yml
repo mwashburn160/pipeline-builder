@@ -478,7 +478,7 @@ services:
   # buildkitd layer.
   # ---------------------------------------------------------------------------
   buildkitd:
-    # v0.30.0 (was v0.16.0): newer runc reaper avoids the hot
+    # v0.32.1 (was v0.16.0): newer runc reaper avoids the hot
     # "container not running" retry loop on killed build containers.
     image: 'moby/buildkit:v0.32.1-rootless'
     container_name: buildkitd
@@ -490,10 +490,6 @@ services:
       - seccomp:unconfined
       - apparmor:unconfined
     command:
-      # TEMP DIAGNOSTIC: buildkitd execs then exits 1 on the v0.30 bump.
-      # --debug surfaces its full init trace (config parse / cache-dir perms /
-      # cgroup) in `docker logs buildkitd`. Remove once resolved.
-      - --debug
       - --addr
       - tcp://0.0.0.0:1234
       - --oci-worker-no-process-sandbox
@@ -1043,13 +1039,16 @@ services:
           cpus: '0.25'
           memory: 256M
 
-  # Alertmanager: routes Prometheus alerts to Slack (or `null` if Slack
-  # webhooks aren't configured). The alertmanager.yml template references
-  # SLACK_WEBHOOK_URL_CRITICAL / _WARNING which are substituted at deploy
-  # time. Defaults are unset → the YAML literally renders `${VAR}` which
-  # Alertmanager treats as an invalid URL — both Slack receivers no-op
-  # silently. That's the intended degraded behavior; the alerts still
-  # land in Alertmanager's UI / API.
+  # Alertmanager: routes Prometheus alerts to Slack and to the platform relay.
+  # NOTE: Alertmanager does NOT expand environment variables in its config
+  # file, and this image ships no envsubst/entrypoint to do it for us. So
+  # there is deliberately NO `environment:` wiring here — passing
+  # SLACK_WEBHOOK_URL_* / ALERT_WEBHOOK_* would be dead (never read).
+  # config/alertmanager/alertmanager.yml ships dev-safe placeholder Slack URLs
+  # + relay token that no-op silently (Slack returns 404, alertmanager logs +
+  # keeps running); the alerts still land in Alertmanager's UI / API. To
+  # actually deliver, edit that file DIRECTLY with real webhook URLs / bearer
+  # token before deploy (there is no runtime substitution).
   alertmanager:
     image: 'prom/alertmanager:v0.33.1'
     container_name: alertmanager
@@ -1057,16 +1056,6 @@ services:
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
       - '--storage.path=/alertmanager'
-    environment:
-      - SLACK_WEBHOOK_URL_CRITICAL=${SLACK_WEBHOOK_URL_CRITICAL:-}
-      - SLACK_WEBHOOK_URL_WARNING=${SLACK_WEBHOOK_URL_WARNING:-}
-      # Multi-tenant relay: posts org-labeled alerts to the platform service,
-      # which fans out per the org_alert_destinations table. The platform's
-      # ALERT_WEBHOOK_INSTANCES env names the valid instance ids; pick one
-      # here and supply its matching bearer token.
-      - PLATFORM_ALERT_WEBHOOK_URL=${PLATFORM_ALERT_WEBHOOK_URL:-https://nginx:8443/api/observability/alert-webhook}
-      - ALERT_WEBHOOK_INSTANCE_ID=${ALERT_WEBHOOK_INSTANCE_ID:-}
-      - ALERT_WEBHOOK_INSTANCE_TOKEN=${ALERT_WEBHOOK_INSTANCE_TOKEN:-}
     volumes:
       - './config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro'
       - './data/db-data/alertmanager/:/alertmanager:rw'

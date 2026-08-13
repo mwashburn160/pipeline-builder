@@ -92,7 +92,9 @@ metadata:
   labels:
     app: redis
 spec:
-  minAvailable: 1
+  # 1-replica stateful pod: maxUnavailable:1 lets node drains/Karpenter consolidation evict it
+  # (a minAvailable:1 PDB on a single-replica pod would block every drain forever).
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: redis

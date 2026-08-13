@@ -23,10 +23,11 @@
 #   DRY_RUN=1 ./backup.sh                       # prints actions without executing
 #
 # Exit codes:
-#   0  success
+#   0  success (a failed retention prune only WARNs and continues — it does NOT
+#      fail the run, since the dumps already succeeded; an earlier `exit 3` here
+#      caused spurious operator pages and was intentionally removed)
 #   1  required env var missing
 #   2  dump or upload failed
-#   3  retention prune failed (backups did succeed)
 # ============================================================================
 
 set -euo pipefail

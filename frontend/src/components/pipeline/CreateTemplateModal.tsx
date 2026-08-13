@@ -2,18 +2,73 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { LayoutTemplate } from 'lucide-react';
+import { LayoutTemplate, Plus, Trash2, Wand2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { Checkbox } from '@/components/ui/Checkbox';
+import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
-import type { Pipeline } from '@/types';
+import type { Pipeline, BuilderProps, TemplateInput } from '@/types';
+
+/** A row in the inputs editor. `replaces` is the literal value in the source
+ *  pipeline's props to swap for `{{ vars.<name> }}` — that's what turns a fixed
+ *  config into a parameterized template (e.g. the repo URL → vars.repoUrl). */
+interface EditableInput {
+  name: string;
+  label: string;
+  type: 'string' | 'number' | 'boolean';
+  required: boolean;
+  default: string;
+  options: string; // comma-separated
+  replaces: string;
+}
+
+const INPUT_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Find the first git repository URL anywhere in the props JSON, so we can offer
+ *  to parameterize it. Matches https://…git-host…/… and scp-style git@host:… . */
+function detectRepoUrl(props: BuilderProps | undefined | null): string | null {
+  if (!props) return null;
+  const json = JSON.stringify(props);
+  const m = json.match(/https?:\/\/[^\s"']*(?:github|gitlab|bitbucket|dev\.azure|codecommit)[^\s"']*|git@[^\s"':]+:[^\s"']+/i);
+  return m ? m[0].replace(/\.git$/, '') : null;
+}
+
+/** Swap each input's `replaces` literal with `{{ vars.<name> }}` throughout the
+ *  props JSON, so instantiate can bake a user-supplied value back in. Pure. */
+function parameterizeProps(props: BuilderProps, rows: EditableInput[]): BuilderProps {
+  let json = JSON.stringify(props);
+  for (const r of rows) {
+    if (!r.replaces.trim()) continue;
+    json = json.split(r.replaces).join(`{{ vars.${r.name} }}`);
+  }
+  return JSON.parse(json) as BuilderProps;
+}
+
+/** Build the API `inputs` from the editable rows (drops empty rows, parses options/defaults). */
+function toTemplateInputs(rows: EditableInput[]): TemplateInput[] {
+  return rows
+    .filter((r) => r.name.trim())
+    .map((r) => {
+      const opts = r.options.split(',').map((o) => o.trim()).filter(Boolean);
+      const inp: TemplateInput = { name: r.name.trim(), type: r.type };
+      if (r.label.trim()) (inp as { label?: string }).label = r.label.trim();
+      if (r.required) (inp as { required?: boolean }).required = true;
+      if (opts.length) (inp as { options?: string[] }).options = opts;
+      if (r.default.trim()) {
+        const d = r.type === 'number' ? Number(r.default) : r.type === 'boolean' ? r.default === 'true' : r.default;
+        (inp as { default?: unknown }).default = d;
+      }
+      return inp;
+    });
+}
 
 interface CreateTemplateModalProps {
   /** Pre-selected pipeline (the "Save as template" flow). When omitted, the modal
@@ -50,6 +105,20 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   const [description, setDescription] = useState('');
   const [keywords, setKeywords] = useState('');
   const [access, setAccess] = useState<'public' | 'private'>('private');
+  const [inputs, setInputs] = useState<EditableInput[]>([]);
+
+  const addInput = () => setInputs((rows) => [...rows, { name: '', label: '', type: 'string', required: false, default: '', options: '', replaces: '' }]);
+  const updateInput = (i: number, patch: Partial<EditableInput>) => setInputs((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const removeInput = (i: number) => setInputs((rows) => rows.filter((_, idx) => idx !== i));
+
+  // One-click: declare a `repoUrl` input pre-filled with the detected source repo
+  // URL as its `replaces` value, so the template can target ANY repo on instantiate.
+  const parameterizeRepo = () => {
+    const url = detectRepoUrl(source?.props);
+    setInputs((rows) => (rows.some((r) => r.name === 'repoUrl')
+      ? rows
+      : [...rows, { name: 'repoUrl', label: 'Repository URL', type: 'string', required: true, default: '', options: '', replaces: url ?? '' }]));
+  };
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -116,21 +185,30 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   const handleCreate = async () => {
     if (!name.trim()) { setError('Template name is required.'); return; }
     if (!source?.props) { setError('Select a pipeline to base the template on.'); return; }
+    for (const r of inputs) {
+      if (r.name.trim() && !INPUT_NAME_RE.test(r.name.trim())) {
+        setError(`Input name "${r.name}" must be a valid identifier (letters/digits/_, not starting with a digit).`); return;
+      }
+    }
 
     setError(null);
     setSuccess(null);
     setSaving(true);
     try {
+      // Declared inputs → vars.<name>; swap each input's `replaces` literal in the
+      // captured props for `{{ vars.<name> }}` so the template is parameterized
+      // (e.g. the source repo URL becomes vars.repoUrl). A template with no inputs
+      // instantiates as a clone of the source pipeline's config.
+      const templateInputs = toTemplateInputs(inputs);
+      const finalProps = parameterizeProps(source.props, inputs);
       const res = await api.createPipelineTemplate({
         name: name.trim(),
         description: description.trim() || undefined,
         keywords: keywords.trim() ? keywords.split(',').map((k) => k.trim()).filter(Boolean) : undefined,
         category: category.trim() || 'general',
         accessModifier: access,
-        props: source.props,
-        // Parameterization (`{{ vars.* }}` inputs) is a follow-up; a template with
-        // no inputs instantiates as a clone of the source pipeline's config.
-        inputs: [],
+        props: finalProps,
+        inputs: templateInputs,
       });
       if (res.success) {
         setSuccess(`Template "${name.trim()}" published to your ${access === 'public' ? 'shared catalog' : 'org catalog'}.`);
@@ -202,6 +280,54 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
         <FormField label="Keywords" hint="comma-separated (optional)">
           <Input value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="golden-path, backend" disabled={saving} />
         </FormField>
+
+        {/* Inputs (parameters) — declared vars users fill in on instantiate. */}
+        <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Inputs (parameters)</span>
+            <div className="flex items-center gap-3">
+              <Button type="button" variant="link" onClick={parameterizeRepo} disabled={saving || !source?.props} className="text-xs">
+                <Wand2 className="w-3.5 h-3.5 mr-1 inline" /> Parameterize repository
+              </Button>
+              <Button type="button" variant="secondary" size="xs" onClick={addInput} disabled={saving}>
+                <Plus className="w-3.5 h-3.5 mr-1 inline" /> Add input
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+            Each input becomes a <code>{'{{ vars.<name> }}'}</code> value. Set <strong>Replaces</strong> to the current value in this pipeline the input should substitute (e.g. the repo URL) — “Parameterize repository” auto-detects it.
+          </p>
+          {inputs.length === 0 ? (
+            <p className="text-xs text-gray-400">No inputs — the template instantiates as a fixed clone. Add one to let users set the repo, branch, env, etc.</p>
+          ) : (
+            <div className="space-y-2">
+              {inputs.map((row, i) => (
+                <div key={i} className="rounded-lg border border-gray-200 dark:border-gray-700 p-2 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Input value={row.name} onChange={(e) => updateInput(i, { name: e.target.value })} placeholder="name (repoUrl)" aria-label="Input name" disabled={saving} className="text-sm" />
+                    <Input value={row.label} onChange={(e) => updateInput(i, { label: e.target.value })} placeholder="label (Repository URL)" aria-label="Input label" disabled={saving} className="text-sm" />
+                    <Select value={row.type} onChange={(e) => updateInput(i, { type: e.target.value as EditableInput['type'] })} aria-label="Input type" disabled={saving} className="text-sm !w-28">
+                      <option value="string">string</option>
+                      <option value="number">number</option>
+                      <option value="boolean">boolean</option>
+                    </Select>
+                    <Button type="button" variant="ghost" size="xs" onClick={() => removeInput(i)} aria-label="Remove input" disabled={saving} className="text-red-600 shrink-0">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input value={row.default} onChange={(e) => updateInput(i, { default: e.target.value })} placeholder="default (optional)" aria-label="Input default" disabled={saving} className="text-sm" />
+                    <Input value={row.options} onChange={(e) => updateInput(i, { options: e.target.value })} placeholder="options: a,b,c (optional)" aria-label="Input options" disabled={saving} className="text-sm" />
+                    <Input value={row.replaces} onChange={(e) => updateInput(i, { replaces: e.target.value })} placeholder="replaces value in config" aria-label="Value to replace" disabled={saving} className="text-sm" />
+                    <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap shrink-0">
+                      <Checkbox checked={row.required} onChange={(e) => updateInput(i, { required: e.target.checked })} disabled={saving} className="h-4 w-4" /> req
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <FormField
           label="Visibility"

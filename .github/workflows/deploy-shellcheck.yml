@@ -1,0 +1,27 @@
+name: deploy-shellcheck
+
+# Lints the deploy shell tooling (~4.5k LOC of bash across deploy/bin + the four
+# targets' setup/bootstrap scripts). Gated at `-S error` so it catches real
+# breakage (syntax, quoting that WILL misbehave) without failing on the many
+# intentional bash-3.2 / style patterns; tighten to `-S warning` incrementally.
+on:
+  pull_request:
+    paths:
+      - 'deploy/**/*.sh'
+      - '.github/workflows/deploy-shellcheck.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/**/*.sh'
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Lint deploy shell scripts
+        run: |
+          # -x: follow `source`d helpers (common.sh etc.). -S error: real breakage only.
+          find deploy -name '*.sh' -type f -print0 | xargs -0 shellcheck -x -S error

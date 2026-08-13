@@ -1,0 +1,91 @@
+# Nightly DB backup CronJob (Postgres + Mongo → S3).
+#
+# Lives beside the eks target (S3 + SSE-KMS + IRSA/Pod Identity are AWS concerns;
+# the local minikube target has no bucket to write to). It is deliberately kept
+# OUT of k8s/kustomization.yaml — the eks deploy applies `kubectl kustomize k8s/`,
+# which only includes manifests listed in `resources:`, so this template can't
+# break a deploy. Enable it explicitly: `kubectl apply -f backup-cronjob.yaml`.
+#
+# TEMPLATE — closes the "backups never run on the k8s targets" gap once you:
+#   1. Provision an ENCRYPTED, VERSIONED S3 bucket for backups (lifecycle/retention
+#      on the bucket, not a client-side prune; consider Object Lock).
+#   2. Grant the `db-backup` ServiceAccount `s3:PutObject` on it — EKS Auto Mode:
+#      Pod Identity / IRSA. NOTE: the eks setup role currently grants only SES +
+#      CodePipeline, so this grant must be ADDED.
+#   3. Build/point `image:` at a small image that has `pg_dump` (postgres client),
+#      `mongodump` (mongo database tools), and the `aws` CLI.
+#   4. Set BACKUP_BUCKET below, then apply into the namespace.
+#   5. TEST A RESTORE into a scratch namespace (`deploy/bin/restore.sh
+#      --confirm-destructive`) — an untested backup is not a backup.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: db-backup
+  namespace: pipeline-builder
+  # EKS: annotate with the Pod Identity / IRSA role that carries s3:PutObject.
+  # annotations:
+  #   eks.amazonaws.com/role-arn: <backup-role-arn>
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-backup
+  namespace: pipeline-builder
+spec:
+  schedule: "0 3 * * *"            # 03:00 daily (UTC)
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600
+      template:
+        spec:
+          serviceAccountName: db-backup
+          restartPolicy: Never
+          securityContext:
+            # The image must run as a non-root UID. A root-by-default image (e.g.
+            # the official `postgres`) is REJECTED by the kubelet here — pick an
+            # image that runs unprivileged, or match its UID below.
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+          containers:
+            - name: backup
+              image: REPLACE_ME/backup:latest   # must contain pg_dump + mongodump + aws CLI, run as non-root
+              # bash (NOT /bin/sh): `set -o pipefail` is bash-only — under dash it
+              # errors out and, with `set -e`, the job exits non-zero every night
+              # (a backup that "runs" but never writes). pipefail is what makes a
+              # failed pg_dump/mongodump fail the pipe instead of hiding behind
+              # aws's success, so the image MUST ship bash.
+              command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  # Mirror deploy/bin/backup.sh's S3 layout EXACTLY so restore.sh
+                  # (`--date`/`--list`, which grep '^postgres-'/'^mongo-' under
+                  # <env>/<YYYY/MM/DD>/) can actually find these objects.
+                  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+                  date_dir="$(date -u +%Y/%m/%d)"
+                  prefix="s3://$BACKUP_BUCKET/$ENV_NAME/$date_dir"
+                  echo "backup start $ts -> $prefix"
+                  PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h "$DB_HOST" -U "$POSTGRES_USER" "$POSTGRES_DB" \
+                    | gzip | aws s3 cp - "$prefix/postgres-$ts.sql.gz" --sse aws:kms
+                  mongodump --uri "$MONGODB_URI" --archive --gzip \
+                    | aws s3 cp - "$prefix/mongo-$ts.archive.gz" --sse aws:kms
+                  echo "backup ok $ts"
+              envFrom:
+                - configMapRef: { name: app-env }        # DB_HOST, POSTGRES_DB, …
+                - secretRef: { name: postgres-secret }   # POSTGRES_USER/PASSWORD
+                - secretRef: { name: mongodb-secret }    # MONGODB_URI
+              env:
+                - name: BACKUP_BUCKET
+                  value: "REPLACE_ME"
+                - name: ENV_NAME              # environment label in the S3 path; must
+                  value: "prod"              # match ENV_NAME used by backup.sh/restore.sh
+              resources:
+                requests: { cpu: "100m", memory: "128Mi" }
+                limits: { cpu: "500m", memory: "512Mi" }

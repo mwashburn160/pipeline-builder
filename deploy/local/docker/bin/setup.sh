@@ -4,6 +4,20 @@ set -euo pipefail
 # Resolve script directory so this works from any working directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+BIN_DIR="$(cd "$SCRIPT_DIR/../../../bin" && pwd)"   # deploy/bin (shared helpers)
+
+# Shared deploy helpers: common.sh provides preflight(); gen-env-secrets.sh
+# provides pb_gen_env_secrets() (fills the .env CHANGE_ME secret placeholders).
+# NOTE: sourcing common.sh changes cwd to /tmp (its macOS portability
+# workaround), so we cd into DEPLOY_DIR *after* sourcing.
+# shellcheck source=/dev/null
+source "$BIN_DIR/common.sh"
+# shellcheck source=/dev/null
+source "$BIN_DIR/gen-env-secrets.sh"
+
+# Assert the tools the steps below need: docker for the stack, openssl for the
+# .env secret + MongoDB keyfile generation.
+preflight docker openssl
 
 cd "$DEPLOY_DIR"
 
@@ -53,7 +67,12 @@ if [ ! -f "$DEPLOY_DIR/.env" ]; then
       arm64|aarch64) echo "PUBLISH_PLATFORM=linux/arm64" >> "$DEPLOY_DIR/.env" ;;
       *)             echo "PUBLISH_PLATFORM=linux/amd64" >> "$DEPLOY_DIR/.env" ;;
     esac
-    echo "No .env found — created $DEPLOY_DIR/.env from .env.example (local defaults, PUBLISH_PLATFORM pinned to host arch)." >&2
+    # Fill the CHANGE_ME secret placeholders (Postgres/Mongo/JWT/registry) with
+    # fresh random values so local does NOT run with literal CHANGE_ME creds.
+    # Only on this freshly-seeded .env — never rotate an existing one (would
+    # break already-initialized DB volumes whose passwords were baked on init).
+    pb_gen_env_secrets "$DEPLOY_DIR/.env"
+    echo "No .env found — created $DEPLOY_DIR/.env from .env.example (local defaults, secrets generated, PUBLISH_PLATFORM pinned to host arch)." >&2
     echo "  Review it and set any optional keys (e.g. AI provider keys) before you rely on those features." >&2
   else
     echo "ERROR: neither .env nor .env.example found at $DEPLOY_DIR" >&2
@@ -66,7 +85,6 @@ fi
 # Ensure TLS certificates exist
 # -----------------------------------------------------------------------
 CERT_DIR="$DEPLOY_DIR/certs"
-BIN_DIR="$(cd "$SCRIPT_DIR/../../../bin" && pwd)"   # deploy/bin (shared helpers)
 
 # nginx gateway TLS + image-registry token-signing keypair — shared, idempotent
 # generators (see deploy/bin/{nginx-tls,jwt-keys}.sh). Both skip when the files
@@ -84,11 +102,14 @@ bash "$BIN_DIR/jwt-keys.sh" "$CERT_DIR"
 # -----------------------------------------------------------------------
 # Ensure MongoDB keyfile has correct permissions
 # -----------------------------------------------------------------------
+# Replica-set internal-auth keyfile — generated PER DEPLOY via the shared
+# idempotent helper (it is gitignored/not tracked, so a fresh checkout has
+# none). Skips if present; mongod requires 400/600, so tighten to 400 to match
+# the read-only-mounted perms mongod validates.
 KEYFILE="$DEPLOY_DIR/mongodb-keyfile"
-if [ ! -f "$KEYFILE" ]; then
-  echo "=== Generating MongoDB keyfile ==="
-  openssl rand -base64 756 > "$KEYFILE"
-fi
+# shellcheck source=/dev/null
+source "$BIN_DIR/mongo-keyfile.sh"
+pb_ensure_mongo_keyfile "$KEYFILE"
 chmod 400 "$KEYFILE"
 
 # -----------------------------------------------------------------------
@@ -100,6 +121,7 @@ mkdir -p "$DEPLOY_DIR/data/db-data/mongodb" \
          "$DEPLOY_DIR/data/db-data/redis" \
          "$DEPLOY_DIR/data/db-data/loki" \
          "$DEPLOY_DIR/data/db-data/prometheus" \
+         "$DEPLOY_DIR/data/db-data/alertmanager" \
          "$DEPLOY_DIR/data/registry-data" \
          "$DEPLOY_DIR/data/pgadmin-data" \
          "$DEPLOY_DIR/data/uploads" \

@@ -7,9 +7,10 @@
 # with its own pool budget — Developer-tier load can't saturate the pool
 # Pro/Team/Enterprise workers share.
 #
-# Opt-in: not registered in `kustomization.yaml` by default. To enable:
-#   kubectl apply -f pgbouncer.yaml -n pipeline-builder
-# Then repoint services to `DB_HOST=pgbouncer` / `DB_PORT=6432`.
+# Deployed by default (registered in `kustomization.yaml`). pgbouncer is ALWAYS
+# in the path: `.env.example` defaults `DB_HOST=pgbouncer` / `DB_PORT=6432`, which
+# flows into the `app-env` ConfigMap that every deployment consumes — to bypass
+# the pooler, point `DB_HOST` at `postgres` / `5432`.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -19,9 +20,11 @@ data:
   pgbouncer.ini: |
     [databases]
     pipeline_builder = host=postgres port=5432 dbname=pipeline_builder
-    pipeline_builder_developer = host=postgres port=5432 dbname=pipeline_builder pool_size=20
-    pipeline_builder_pro       = host=postgres port=5432 dbname=pipeline_builder pool_size=40
-    pipeline_builder_unlimited = host=postgres port=5432 dbname=pipeline_builder pool_size=80
+    pipeline_builder_developer  = host=postgres port=5432 dbname=pipeline_builder pool_size=20
+    pipeline_builder_pro        = host=postgres port=5432 dbname=pipeline_builder pool_size=40
+    pipeline_builder_team       = host=postgres port=5432 dbname=pipeline_builder pool_size=60
+    pipeline_builder_enterprise = host=postgres port=5432 dbname=pipeline_builder pool_size=80
+    pipeline_builder_unlimited  = host=postgres port=5432 dbname=pipeline_builder pool_size=80
 
     [pgbouncer]
     listen_addr = 0.0.0.0

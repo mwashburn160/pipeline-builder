@@ -4,10 +4,17 @@
 #   - critical → critical-slack receiver (paging channel)
 #   - warning  → warning-slack receiver (non-paging channel)
 #
-# Webhook URLs are templated from environment variables — the deploy startup
-# script substitutes them via envsubst before Alertmanager loads the file. If
-# SLACK_WEBHOOK_URL is unset, alerts go to the `null` receiver (silently
-# dropped) so the container stays healthy in environments without Slack wired up.
+# DELIVERY — be honest about what this actually does on minikube:
+# setup.sh loads this file verbatim into the `alertmanager-config` ConfigMap and
+# does NOT run envsubst over it. The Slack `api_url`s and the platform-relay
+# `credentials` below are HARDCODED dev-safe placeholders, so out of the box
+# Slack/relay delivery no-ops (Slack 404s the placeholder IDs; the relay bearer
+# is a stub) while firing alerts still show in Alertmanager's UI/API. The
+# alertmanager Deployment also injects SLACK_WEBHOOK_URL_* / ALERT_WEBHOOK_* env
+# from the optional `alertmanager-slack` / `alertmanager-relay` Secrets, but this
+# config does not reference those env vars — to actually deliver, replace the
+# placeholders here with real values (or wire envsubst into setup.sh and switch
+# the literals back to ${VAR} references).
 #
 # Tunables:
 #   group_wait      — batch alerts that fire within this window into one
@@ -82,12 +89,10 @@ receivers:
         max_alerts: 64
         # NOTE: an earlier design here sent `X-Alertmanager-Instance` as
         # a custom HTTP header so the platform-relay could disambiguate
-        # multiple Alertmanager instances. Alertmanager 0.28's webhook
-        # config supports neither a top-level `http_headers:` field nor
-        # `http_config.headers:` (both raise "field not found"); custom
-        # webhook headers landed in newer Alertmanager releases. For now
-        # the relay authenticates on the Bearer token alone — if/when
-        # we upgrade Alertmanager, restore the header under
+        # multiple Alertmanager instances. We intentionally do NOT set a
+        # custom webhook header: the relay authenticates on the Bearer
+        # token alone, which is sufficient here. If instance
+        # disambiguation is ever needed, add it under the receiver's
         # `http_config.headers:` and have the relay enforce it.
 
   # Slack receivers below carry placeholder webhook URLs so alertmanager

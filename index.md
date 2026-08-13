@@ -103,6 +103,22 @@ Validate plugins and pipelines **before** they're created — not in a quarterly
 
 A minimal `{{ ... }}` template language for pipeline configs and plugin specs — resolved **once at synthesis time**, with no runtime evaluation, no shell-out, no code execution. Path lookups (`pipeline.*`, `plugin.*`, `env.*`), `| default:` fallbacks, type coercion (`| number`, `| bool`, `| json`), and plugin contracts (`requiredMetadata` / `metadataTypes`) validated at upload. See [Template Syntax]({{ '/docs/templates.html' | relative_url }}).
 
+### Golden-path pipeline templates
+
+Platform teams publish reusable, governed starters; developers instantiate one by filling a few inputs — including the **target repository** — instead of hand-building a pipeline. A template is a `BuilderProps` with placeholder variables plus declared inputs, so **one template targets any repo**:
+
+{% raw %}
+```json
+{
+  "name": "node-service",
+  "inputs": [{ "name": "repoUrl", "label": "Repository URL", "type": "string", "required": true }],
+  "props": { "synth": { "source": { "repositoryUrl": "{{ vars.repoUrl }}" } }, "stages": [] }
+}
+```
+{% endraw %}
+
+Create from an existing pipeline (*Save as template*), author a new one, or **import** a template JSON on the Templates page; then *Use template* → set **Project** + **Target repository** → **Create** (compliance + quota still apply). See [Template Syntax]({{ '/docs/templates.html' | relative_url }}#golden-pipeline-templates).
+
 ### Organizations, teams & analytics
 
 An **organization** is the isolation boundary — every pipeline, plugin, secret, quota, and bill is scoped to it. A **team** is an organization optionally nested one level under a parent org (the org → team hierarchy); nesting is opt-in (orgs are flat roots by default), and a parent-org admin manages its teams while visibility, quotas, compliance, and analytics roll up across them.

@@ -105,6 +105,10 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 3
+  # Single-writer RWO hostPath PVC: Recreate avoids the RollingUpdate two-pod
+  # attach deadlock (the new pod can't bind the volume the old one still holds).
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: prometheus

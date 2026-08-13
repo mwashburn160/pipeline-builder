@@ -36,11 +36,11 @@ deploy/aws/eks/
 ```
 
 > **MongoDB keyfile secret.** `mongodb-keyfile` is the shared secret for the replica set's
-> internal auth. It should be generated per-deploy and rotated per environment (e.g.
-> `openssl rand -base64 756 > mongodb-keyfile`), like `jwt-keys.sh` does for the registry
-> keypair — it is now gitignored. A copy is still tracked in git from before that rule and is
-> read directly by `setup.sh` (`pb_create_config_maps`); replace it with a freshly generated,
-> per-environment keyfile and `git rm --cached` the committed one.
+> internal auth. It is gitignored and generated per-deploy: `setup.sh` calls
+> `pb_ensure_mongo_keyfile` (`deploy/bin/mongo-keyfile.sh`, `openssl rand -base64 756`) before
+> `pb_create_config_maps` reads it, so every environment gets its own. A fresh checkout ships
+> none. Existing environments whose keyfile was ever committed should rotate it (roll the
+> replica set with the new key).
 
 This target is **self-contained** — its own copy of every manifest and config file, so
 it never shares state with ec2/minikube (per project convention). The service *images*

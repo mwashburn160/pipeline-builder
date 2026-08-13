@@ -319,13 +319,14 @@ spec:
   scaleTargetRef:
     name: plugin
   minReplicaCount: 1
-  # Capped at 2: the single minikube node only has CPU headroom for two
-  # plugin pods (each requests 1250m = plugin 750m + buildkitd 500m)
-  # alongside the rest of the namespace. A 3rd replica stays Pending with
-  # "Insufficient cpu", and the unschedulable scale-up churn kills
-  # in-flight builds (BullMQ marks them "stalled more than allowable
-  # limit"). Raise this only after growing the node's CPU
-  # (deploy/local/minikube/bin/setup.sh MK_CPUS).
+  # Base cap is 2, but patches/scaling.yaml overrides this to 4 for minikube
+  # (aligning with EC2/EKS) — the effective max on this target is 4. Each plugin
+  # pod requests 600m CPU (plugin app 300m + buildkitd sidecar 300m), both of
+  # which burst to their 1500m limits during a build. Watch node CPU headroom:
+  # if replicas stay Pending with "Insufficient cpu", the unschedulable scale-up
+  # churn kills in-flight builds (BullMQ marks them "stalled more than allowable
+  # limit"). Grow the node's CPU (deploy/local/minikube/bin/setup.sh MK_CPUS)
+  # before raising the patched cap further.
   maxReplicaCount: 2
   pollingInterval: 15
   cooldownPeriod: 120
@@ -340,7 +341,7 @@ spec:
     # sidecar. buildkitd saturates one core during a build pull/push, so
     # avg crossing 80% means the pod is genuinely loaded and another
     # replica would help. Computed against sum of container requests
-    # (plugin 750m + buildkitd 500m = 1250m): 80% = ~1000m sustained.
+    # (plugin 300m + buildkitd 300m = 600m): 80% = ~480m sustained.
     - type: cpu
       metricType: Utilization
       metadata:

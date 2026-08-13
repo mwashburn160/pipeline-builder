@@ -193,12 +193,16 @@ echo "=== Registering admin user ==="
 # override (always set them on a non-docker/production target).
 PLATFORM_IDENTIFIER="${PLATFORM_IDENTIFIER:-admin@internal}"
 PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-SecurePassword123!}"
-# A non-docker target reaching this with the well-known dev password means an
-# internet-facing platform would ship with a public credential — warn loudly (don't fail,
-# so automated deploys still complete). Set PLATFORM_PASSWORD to silence, or change it post-login.
+# A non-docker target reaching this with the well-known dev password would ship an
+# internet-facing platform with a public credential — refuse (matches
+# common.sh:prompt_credentials, which rejects the dev default off-local). The
+# scripted ec2/eks auto-init paths always inject a random PLATFORM_PASSWORD, so
+# this only trips a manual non-docker run that forgot to set one — fail fast with
+# a clear message rather than register a public admin.
 if [ "$TARGET" != docker ] && [ "$PLATFORM_PASSWORD" = 'SecurePassword123!' ]; then
-  echo "  WARNING: registering the admin with the DEFAULT dev password on target '$TARGET'." >&2
-  echo "           Set PLATFORM_PASSWORD (+ PLATFORM_IDENTIFIER) to a strong secret before exposing the platform, or change it immediately after first login." >&2
+  echo "  ERROR: refusing to register the admin with the DEFAULT dev password on target '$TARGET'." >&2
+  echo "         Set PLATFORM_PASSWORD (+ PLATFORM_IDENTIFIER) to a strong secret and re-run." >&2
+  exit 1
 fi
 # The admin is registered into the reserved 'system' organization (below). The
 # platform only lets an operator whose email is in BOOTSTRAP_SUPERADMIN_EMAILS
@@ -267,8 +271,8 @@ if [ "$FORCE_REBUILD_ALL" = true ]; then
   BOOTSTRAP_ARGS="--force"
   BOOTSTRAP_FORCE_PUSH=true
 fi
+# shellcheck disable=SC2086  # $BOOTSTRAP_ARGS is intentionally word-split (empty or --force)
 case "$BUILD_BOOTSTRAP" in
-  # shellcheck disable=SC2086
   y|Y|yes|true) DEPLOY_TARGET="$TARGET" FORCE_PUSH="$BOOTSTRAP_FORCE_PUSH" "$SCRIPT_DIR/build-codebuild-bootstrap.sh" $BOOTSTRAP_ARGS ;;
   *)            echo "  Skipping CodeBuild bootstrap image." ;;
 esac

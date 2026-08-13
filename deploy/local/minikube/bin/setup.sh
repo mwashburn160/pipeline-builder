@@ -21,6 +21,19 @@ DATA_DIR="$DEPLOY_DIR/data"
 # because that's the canonical EBS mount on a production-style host.
 VM_DATA_DIR="/data"
 
+# -- Shared deploy helpers ----------------------------------------------------
+# Sourced from deploy/bin so every target shares one implementation:
+#   common.sh          → preflight (assert required tools up front)
+#   gen-env-secrets.sh → pb_gen_env_secrets (fill CHANGE_ME secrets in .env)
+#   mongo-keyfile.sh   → pb_ensure_mongo_keyfile (per-deploy replica-set keyfile)
+# common.sh cd's to /tmp on source; every path below is absolute so that's safe.
+. "$BIN_DIR/common.sh"
+. "$BIN_DIR/gen-env-secrets.sh"
+. "$BIN_DIR/mongo-keyfile.sh"
+
+# Fail fast with ONE actionable error if a required CLI tool is missing.
+preflight kubectl minikube openssl envsubst
+
 # -- Helpers ------------------------------------------------------------------
 
 kube() { kubectl "$@" --dry-run=client -o yaml | kubectl apply -f -; }
@@ -67,6 +80,10 @@ if [ -z "$ENV_FILE" ]; then
   if [ -f "$DEPLOY_DIR/.env.example" ]; then
     cp "$DEPLOY_DIR/.env.example" "$DEPLOY_DIR/.env"
     ENV_FILE="$DEPLOY_DIR/.env"
+    # Replace the CHANGE_ME secret placeholders with fresh random values right
+    # away, so local never boots with literal CHANGE_ME credentials. Asserts
+    # none remain (fails loudly if a placeholder drifted from the sed patterns).
+    pb_gen_env_secrets "$DEPLOY_DIR/.env"
     # Local plugin images run on THIS host, so build for the host arch — the
     # shipped PUBLISH_PLATFORM default (linux/amd64) forces QEMU emulation on
     # Apple Silicon, where the Rust toolchain segfaults building the base image.
@@ -89,7 +106,11 @@ set -a; . "$ENV_FILE"; set +a
 # envsubst has no `:-default`, so the fallback lives here.
 : "${BUILDKIT_MEMORY_LIMIT:=3072Mi}"; export BUILDKIT_MEMORY_LIMIT
 
-[ -f "$DEPLOY_DIR/mongodb-keyfile" ] && chmod 400 "$DEPLOY_DIR/mongodb-keyfile"
+# Generate the MongoDB replica-set keyfile per-deploy if absent (idempotent —
+# skips if present). It's no longer committed, so a fresh checkout has none;
+# the mongodb-keyfile Secret below is created from it, and the mongodb pod's
+# init-container tightens perms to 400 at start.
+pb_ensure_mongo_keyfile "$DEPLOY_DIR/mongodb-keyfile"
 mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,loki,prometheus},registry-data,pgadmin-data,tmp} 2>/dev/null || true
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$VM_DATA_DIR/plugins-data/builds}"
 
@@ -224,6 +245,19 @@ secret postgres-secret   --from-literal=POSTGRES_USER="$POSTGRES_USER" --from-li
 secret mongodb-secret    --from-literal=MONGO_INITDB_ROOT_USERNAME="$MONGO_INITDB_ROOT_USERNAME" --from-literal=MONGO_INITDB_ROOT_PASSWORD="$MONGO_INITDB_ROOT_PASSWORD" --from-literal=MONGODB_URI="$MONGODB_URI"
 secret mongo-express-secret --from-literal=ME_CONFIG_BASICAUTH_USERNAME="$ME_CONFIG_BASICAUTH_USERNAME" --from-literal=ME_CONFIG_BASICAUTH_PASSWORD="$ME_CONFIG_BASICAUTH_PASSWORD"
 secret pgadmin-secret    --from-literal=PGADMIN_DEFAULT_EMAIL="$PGADMIN_DEFAULT_EMAIL" --from-literal=PGADMIN_DEFAULT_PASSWORD="$PGADMIN_DEFAULT_PASSWORD"
+
+# Optional alert-delivery secrets — alertmanager.yaml references these with
+# optional:true. Create them (empty by default) so the refs resolve to a real
+# Secret instead of dangling; set SLACK_WEBHOOK_URL_* / ALERT_WEBHOOK_* in .env
+# to populate them. NOTE: the shipped alertmanager.yml hardcodes placeholders
+# and does not read these env vars, so delivery no-ops until that config is
+# updated with real values (see config/alertmanager/alertmanager.yml).
+secret alertmanager-slack \
+  --from-literal=SLACK_WEBHOOK_URL_CRITICAL="${SLACK_WEBHOOK_URL_CRITICAL:-}" \
+  --from-literal=SLACK_WEBHOOK_URL_WARNING="${SLACK_WEBHOOK_URL_WARNING:-}"
+secret alertmanager-relay \
+  --from-literal=ALERT_WEBHOOK_INSTANCE_ID="${ALERT_WEBHOOK_INSTANCE_ID:-}" \
+  --from-literal=ALERT_WEBHOOK_INSTANCE_TOKEN="${ALERT_WEBHOOK_INSTANCE_TOKEN:-}"
 
 # GHCR pull secret
 GHCR_TOKEN="${GHCR_TOKEN:-}"

@@ -106,6 +106,24 @@ require_yq() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# preflight — assert a set of required tools are on PATH before a long-running
+# entrypoint proceeds, so operators get ONE actionable error up front instead of
+# a failure deep into provisioning. Usage: `preflight docker kubectl jq openssl`.
+# ---------------------------------------------------------------------------
+preflight() {
+  local _missing=""
+  local _t
+  for _t in "$@"; do
+    command -v "$_t" >/dev/null 2>&1 || _missing="$_missing $_t"
+  done
+  if [ -n "$_missing" ]; then
+    echo "ERROR: missing required tool(s):$_missing" >&2
+    echo "  Install them and re-run. (macOS: brew install <tool>)" >&2
+    exit 1
+  fi
+}
+
 # yq_buildargs — emit `--build-arg KEY=VALUE` flags for plugin-spec.yaml
 # Outputs nothing if `buildArgs` is absent. Quoting is yq's responsibility.
 yq_buildargs() {

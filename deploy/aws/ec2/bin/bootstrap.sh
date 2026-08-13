@@ -29,6 +29,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 INSTALL_DIR="$(cd "$DEPLOY_DIR/../../.." && pwd)"
 
+# Shared helpers (preflight, mongo-keyfile). Sourcing common.sh cd's to /tmp (a
+# world-readable cwd); harmless here since every path below is absolute.
+# shellcheck source=/dev/null
+. "$INSTALL_DIR/deploy/bin/common.sh"
+# Fail fast on the ONE external tool needed immediately (secret + admin-password
+# generation): openssl, present in the base AMI. docker/kubectl/minikube/yq are
+# installed by this script (Phases 3-4), so they are intentionally NOT preflighted
+# here — asserting them now would fail on a first boot before they're installed.
+preflight openssl
+
 DOMAIN="${DOMAIN:-}"
 # Note: DEPLOY_MODE (public/private) flips the ALB scheme/subnets at the
 # CloudFormation layer; the box runs identical plain-HTTP nginx behind the ALB
@@ -165,8 +175,11 @@ install minikube-linux-amd64 /usr/local/bin/minikube
 rm -f minikube-linux-amd64
 echo "  minikube installed"
 
-# conntrack + socat (required by minikube)
-dnf install -y conntrack-tools socat
+# conntrack + socat (required by minikube). jq is required by the auto-init
+# path (init-platform builds the admin-register payload with it; load-pipelines
+# and load-compliance parse JSON with it) and is NOT in the AL2023 base image, so
+# install it here — otherwise Phase 10's `preflight … jq` would abort auto-init.
+dnf install -y conntrack-tools socat jq
 
 # yq — required by build-plugin-images.sh.
 # Distro repos may have an old python-yq; install mikefarah's Go binary
@@ -368,11 +381,37 @@ if [ "${AUTO_INIT:-false}" = "true" ]; then
   echo "========================================"
   echo "Phase 10: Auto-initialize platform (AUTO_INIT=true)"
   echo "========================================"
+  # These are needed by init-platform (docker for the plugin image build + registry
+  # login; jq for the register payload and the JSON loaders) and are installed by
+  # now — fail fast with one clear error if any is missing. `aws` is intentionally
+  # NOT required: bootstrap passes PLATFORM_BASE_URL explicitly (below), so
+  # init-platform never hits its `aws cloudformation describe-stacks` fallback.
+  preflight docker jq
+
+  # Resolve the initial admin password. Prefer an operator-supplied value
+  # (ADMIN_PASSWORD from the CloudFormation AdminPassword parameter, exported by
+  # UserData); otherwise generate a strong RANDOM secret so the well-known dev
+  # default is NEVER used on a real instance. Persist it to a root-only creds file
+  # for retrieval via SSM — the password itself is never echoed to the logs.
+  ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
+  if [ -z "$ADMIN_PASSWORD" ]; then
+    ADMIN_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-32)"
+    CRED_FILE="$PIPELINE_DATA_DIR/.admin-credentials"
+    ( umask 177; printf 'identifier=%s\npassword=%s\n' "admin@internal" "$ADMIN_PASSWORD" > "$CRED_FILE" )
+    chown minikube:minikube "$CRED_FILE" 2>/dev/null || true
+    echo "  Generated a random initial admin password (identifier admin@internal)."
+    echo "  Retrieve it (not logged): sudo cat $CRED_FILE"
+  else
+    echo "  Using the operator-supplied admin password (AdminPassword parameter)."
+  fi
+
   # init-platform reads DEPLOY_MODE/PIPELINE_VPC_ID/PIPELINE_SUBNET_IDS from the
   # environment (not .env) for its private-mode prerequisite gate — pass them through.
+  # PLATFORM_PASSWORD is passed explicitly (runuser does not carry the exported var).
   runuser -u minikube -- env \
     BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_PIPELINES=y \
     PLATFORM_BASE_URL="https://${DOMAIN}" \
+    PLATFORM_PASSWORD="$ADMIN_PASSWORD" \
     DEPLOY_MODE="${DEPLOY_MODE:-public}" \
     PIPELINE_VPC_ID="${PIPELINE_VPC_ID:-}" \
     PIPELINE_SUBNET_IDS="${PIPELINE_SUBNET_IDS:-}" \

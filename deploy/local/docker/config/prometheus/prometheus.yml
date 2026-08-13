@@ -50,6 +50,14 @@ scrape_configs:
     static_configs:
       - targets: ['compliance:3000']
 
+  # image-registry exposes the same api-server /metrics on :3000 as the other
+  # services. Without this job, alert-rules.yml's RegistryErrorBurst (which
+  # matches http_requests_total{service="image-registry"}) has no series to
+  # evaluate and can never fire.
+  - job_name: 'image-registry'
+    static_configs:
+      - targets: ['image-registry:3000']
+
   - job_name: 'nginx'
     scheme: https
     tls_config:

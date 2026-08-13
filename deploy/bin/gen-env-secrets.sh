@@ -17,11 +17,10 @@
 # chars and embed safely in the s|…| substitutions below. Uses `sed -i.bak` (GNU + BSD/macOS).
 #
 # NOTE: the MongoDB replica-set keyfile (deploy/*/mongodb-keyfile) is ALSO a per-deploy
-# secret and should be generated/rotated alongside these values — like jwt-keys.sh does for
-# the registry keypair. Today it is generated inline by the docker/minikube setup.sh
-# (`openssl rand -base64 756 > mongodb-keyfile`), and a stale copy is still tracked in git
-# (now gitignored). Consider generating it here too so every target rotates it consistently.
-# (Left as a note — this function only rewrites .env placeholders; it does not manage the keyfile.)
+# secret; it is managed separately by deploy/bin/mongo-keyfile.sh (pb_ensure_mongo_keyfile),
+# which every target's setup calls (like jwt-keys.sh does for the registry keypair). It is
+# gitignored and not tracked. This function only rewrites .env placeholders — it does not
+# manage the keyfile.
 
 pb_gen_env_secrets() {
   local env_file="$1" ghcr_user="${2:-mwashburn160}"

@@ -15,9 +15,12 @@ spec:
     # to the kubelet on whatever the laptop actually has.
     #
     # Full stack on this quota:
-    #   - registry + 3 per-tier buildkitd Deployments
+    #   - registry (single replica). buildkitd is NOT a standalone Deployment
+    #     anymore — it runs as an in-pod sidecar of each plugin pod (the old
+    #     per-tier buildkitd Deployments were retired).
     #   - image-registry (HPA → 5 replicas)
-    #   - plugin (HPA → 4 replicas, each with a buildkitd sidecar)
+    #   - plugin (KEDA ScaledObject → 4 replicas via patches/scaling.yaml,
+    #     each with its own buildkitd sidecar)
     #   - quota, platform, pipeline, message, compliance, billing,
     #     reporting, frontend, nginx, postgres, mongo, redis, pgbouncer,
     #     pgadmin, mongo-express, prometheus, loki, alertmanager, promtail

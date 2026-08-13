@@ -130,6 +130,20 @@ commands:
 
 Fully backward-compatible: pipelines and plugins without `{{ ... }}` continue working unchanged. See [Template Syntax](docs/templates.md) for the full grammar, scope reference, and migration guide.
 
+### Golden-Path Pipeline Templates
+
+Platform teams publish reusable, governed starters; developers instantiate one by filling a few inputs — including the **target repository** — instead of hand-building a pipeline. A template is a `BuilderProps` with `{{ vars.* }}` placeholders plus declared inputs, so **one template targets any repo**:
+
+```json
+{
+  "name": "node-service",
+  "inputs": [{ "name": "repoUrl", "label": "Repository URL", "type": "string", "required": true }],
+  "props": { "synth": { "source": { "repositoryUrl": "{{ vars.repoUrl }}" } }, "stages": [] }
+}
+```
+
+Create from an existing pipeline (*Save as template*), author a new one, or **import** a template JSON on the Templates page; then *Use template* → set **Project** + **Target repository** → **Create** (compliance + quota still apply). See [Golden pipeline templates](docs/templates.md#golden-pipeline-templates).
+
 ### Policy-as-Code Compliance Engine
 
 Validate plugins and pipelines **before** they're created — not in a quarterly audit. Each organization owns and enforces its own policy; the platform's system organization publishes a recommended rule catalog that any organization can subscribe to, and a parent organization can push rules down to its child teams.

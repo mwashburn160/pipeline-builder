@@ -2,14 +2,17 @@
 # (.env is also covered by the repo-root `deploy/**/.env` rule.)
 .env
 
+# Generated initial admin credentials (random password written by setup.sh
+# AUTO_INIT when none is supplied). Must NOT be committed.
+.admin-credentials
+
 # Generated certificates
 certs/
 
 # MongoDB replica-set keyfile — should be generated per-deploy (openssl rand)
 # and rotated per environment, like jwt-keys.sh does for the registry keypair.
 # Must NOT be committed.
-# NOTE: a copy is still tracked in git from before this rule; it is left in
-# place because setup.sh (pb_create_config_maps) reads it directly, so removing
-# it would break the deploy. Rotate it and `git rm --cached` once each
-# environment generates its own.
+# Not tracked in git — setup.sh generates it per-deploy via
+# deploy/bin/mongo-keyfile.sh (pb_ensure_mongo_keyfile) before
+# pb_create_config_maps reads it. A fresh checkout ships none.
 mongodb-keyfile
