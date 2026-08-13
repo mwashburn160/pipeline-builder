@@ -195,7 +195,12 @@ validate_spec() {
   # Keywords not empty
   if grep -q "^keywords:" "$specfile" 2>/dev/null; then
     local keyword_count
-    keyword_count=$(grep -A 20 "^keywords:" "$specfile" | grep "^  - " | wc -l | tr -d ' ')
+    # `grep -c … || true`: under `set -euo pipefail`, an inner grep that matches
+    # nothing (inline `keywords: []` or different indentation) exits 1 and the
+    # bare assignment would abort the WHOLE test run mid-plugin instead of just
+    # failing this one check.
+    keyword_count=$(grep -A 20 "^keywords:" "$specfile" | grep -c "^  - " || true)
+    keyword_count=${keyword_count:-0}
     if [ "$keyword_count" -eq 0 ]; then
       log_fail "Empty keywords list" "$fqn"
       all_pass=false

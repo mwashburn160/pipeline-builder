@@ -92,7 +92,9 @@ case "$DEPLOY_TARGET" in
     # inside the cluster, so the registry/realm hostnames it sees are
     # the standard ClusterIP DNS names — same form the in-cluster
     # plugin service uses at runtime.
-    JWT_SECRET="$(kubectl_ctx -n "$NAMESPACE" get secret jwt-secret -o jsonpath='{.data.JWT_SECRET}' 2>/dev/null | base64 -d || true)"
+    # `openssl base64 -d` decodes portably — GNU `base64 -d` vs BSD/macOS `base64 -D`
+    # differ, and this push path may be driven from a Mac.
+    JWT_SECRET="$(kubectl_ctx -n "$NAMESPACE" get secret jwt-secret -o jsonpath='{.data.JWT_SECRET}' 2>/dev/null | openssl base64 -d -A || true)"
     if [ -z "$JWT_SECRET" ]; then
       echo "ERROR: JWT_SECRET not found in Secret 'jwt-secret' (namespace: $NAMESPACE, context: $KUBECTL_CONTEXT)" >&2
       echo "" >&2

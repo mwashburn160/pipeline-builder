@@ -112,7 +112,13 @@ esac
 
 if [ "$needs_rebuild" = true ]; then
   # shellcheck disable=SC2086
-  (cd "$plugin_dir" && zip -q plugin.zip -- $zip_files)
+  # Guard the zip: under `set -e` a failure (disk full, unreadable file) would
+  # abort the worker BEFORE any counter is written — the plugin would then be
+  # tallied in neither succeeded/skipped/failed and the parent's exit gate would
+  # pass green despite the plugin never uploading. Count it failed + exit non-zero.
+  if ! (cd "$plugin_dir" && zip -q plugin.zip -- $zip_files); then
+    echo "  FAIL $label (zip failed)"; _count failed; exit 1
+  fi
 fi
 
 # ---- Dry run ----

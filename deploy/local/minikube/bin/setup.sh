@@ -206,9 +206,15 @@ kube create namespace "$NAMESPACE"
 
 # app-env ConfigMap from .env. The plugin service uses a rootless buildkitd
 # sidecar (single build path — no strategy switch).
-# Use envsubst to safely expand variables without eval
+# RESTRICTED envsubst: expand ONLY ${PLATFORM_FRONTEND_URL} (the sole intentional
+# reference, in OAUTH_CALLBACK_BASE_URL). An unrestricted envsubst would treat a
+# literal `$` in any secret (a bcrypt hash `$2b$10$…`, a password with `$`) as a
+# variable and silently blank/corrupt it — and since the same keys are ALSO
+# written to Secrets from the sourced env, the ConfigMap and Secret copies would
+# then diverge. Mirrors the restricted expansion at the kustomize step below.
+# `grep -E '^[[:space:]]*(#|$)'` is POSIX (BSD/macOS-safe; `\s` is a GNU extension).
 CLEAN_ENV=$(mktemp); trap 'rm -f "$CLEAN_ENV"' EXIT
-grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' | envsubst > "$CLEAN_ENV"
+grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | envsubst '${PLATFORM_FRONTEND_URL}' > "$CLEAN_ENV"
 configmap app-env --from-env-file="$CLEAN_ENV"
 rm -f "$CLEAN_ENV"
 

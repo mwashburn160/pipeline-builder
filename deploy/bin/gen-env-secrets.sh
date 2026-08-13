@@ -47,4 +47,16 @@ pb_gen_env_secrets() {
     -e "s|GHCR_USER=mwashburn160|GHCR_USER=${ghcr_user}|" \
     "$env_file"
   rm -f "$env_file.bak"
+
+  # Guard against a drifted placeholder: if any REQUIRED secret this function
+  # owns still reads CHANGE_ME, a placeholder string in .env.example was renamed
+  # and the sed above silently matched nothing — shipping a literal `CHANGE_ME`
+  # credential (a real security hole that would otherwise pass green). Scoped to
+  # these keys so optional user-supplied CHANGE_ME placeholders aren't flagged.
+  if grep -qE '^(JWT_SECRET|REFRESH_TOKEN_SECRET|POSTGRES_PASSWORD|DB_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_MONGODB_ADMINPASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN)=CHANGE_ME' "$env_file" \
+     || grep -q 'mongodb://mongo:CHANGE_ME@' "$env_file"; then
+    echo "ERROR: gen-env-secrets left an unsubstituted CHANGE_ME in a required secret in $env_file" >&2
+    echo "  — a placeholder in .env.example drifted from this script's sed patterns." >&2
+    return 1
+  fi
 }

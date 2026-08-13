@@ -219,7 +219,9 @@ if [ "$(id -u)" = "0" ]; then
   log "Setting up iptables"
   MINIKUBE_IP=$(mk minikube ip --profile="$PROFILE" 2>/dev/null || true)
   if [ -n "$MINIKUBE_IP" ]; then
-    IF=$(ip -o route get 8.8.8.8 2>/dev/null | sed -n 's/.*dev \([^ ]*\).*/\1/p')
+    # `|| true`: under set -e+pipefail, a failing `ip` makes the pipeline non-zero
+    # and the bare assignment would abort BEFORE the eth0 fallback can engage.
+    IF=$(ip -o route get 8.8.8.8 2>/dev/null | sed -n 's/.*dev \([^ ]*\).*/\1/p' || true)
     IF="${IF:-eth0}"
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 

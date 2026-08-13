@@ -664,6 +664,10 @@ curl_with_retry() {
       *)      echo -e "  ${RED}FAIL${NC} $_label (HTTP $_status)";   return 1 ;;
     esac
   done
+  # Reached only if the loop never ran (UPLOAD_RETRIES < 1 / non-numeric) — treat
+  # as a failure rather than returning the loop condition's spurious exit code.
+  echo -e "  ${RED}FAIL${NC} $_label (no attempts made; check UPLOAD_RETRIES)" >&2
+  return 1
 }
 
 # ---------------------------------------------------------------------------

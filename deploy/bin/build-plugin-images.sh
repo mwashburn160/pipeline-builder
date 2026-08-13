@@ -293,6 +293,14 @@ build_base_images() {
   [ ! -d "$_base_root" ] && return 0
 
   echo "=== Building base images ==="
+  # Register QEMU/binfmt when PUBLISH_PLATFORM differs from the host arch, so a
+  # cross-arch `docker build --platform` doesn't die with `exec format error`.
+  # The local setup.sh scripts already do this, but the AWS/standalone build
+  # paths did not — wire it in here so every path is covered. ensure-binfmt.sh
+  # is idempotent + non-fatal (no-op on same-arch / Docker Desktop).
+  if [ "${BASE_BUILDER:-docker}" = docker ] && [ "$DRY_RUN" != true ]; then
+    bash "$SCRIPT_DIR/ensure-binfmt.sh" "$PUBLISH_PLATFORM" || true
+  fi
   if [ "$DRY_RUN" = true ]; then
     echo "  (dry-run) skipping base builds"
     return 0

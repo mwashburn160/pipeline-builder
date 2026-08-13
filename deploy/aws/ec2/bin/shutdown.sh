@@ -18,7 +18,8 @@ echo "=== Pipeline Builder EC2 Shutdown ==="
 echo ""
 echo "=== Removing iptables rules ==="
 MINIKUBE_IP=$(sudo -u minikube minikube ip --profile="$PROFILE" 2>/dev/null || true)
-IF=$(ip -o route get 8.8.8.8 2>/dev/null | sed -n 's/.*dev \([^ ]*\).*/\1/p')
+# `|| true`: under set -e+pipefail a failing `ip` would abort before the eth0 fallback.
+IF=$(ip -o route get 8.8.8.8 2>/dev/null | sed -n 's/.*dev \([^ ]*\).*/\1/p' || true)
 IF="${IF:-eth0}"
 
 if [ -n "$MINIKUBE_IP" ]; then

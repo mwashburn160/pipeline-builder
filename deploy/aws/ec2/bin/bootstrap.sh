@@ -278,7 +278,13 @@ fi
 sed -i "s|YOUR_DOMAIN_HERE|${DOMAIN}|g" .env
 
 # Inject GHCR token (GHCR_USER is handled by pb_gen_env_secrets).
-sed -i "s|GHCR_TOKEN=|GHCR_TOKEN=${GHCR_TOKEN}|" .env
+# Anchored + guarded on a non-empty value: the unanchored `GHCR_TOKEN=` prefix
+# would DOUBLE an already-present token on a bootstrap re-run (`ghp_xghp_x`),
+# breaking private ghcr.io pulls with a 401. `^GHCR_TOKEN=.*` replaces the whole
+# line so re-runs are idempotent (if/fi, not `&&`, so an empty token can't trip set -e).
+if [ -n "${GHCR_TOKEN:-}" ]; then
+  sed -i "s|^GHCR_TOKEN=.*|GHCR_TOKEN=${GHCR_TOKEN}|" .env
+fi
 
 # Deploy mode + VPC identity (exported by template.yaml UserData). In PRIVATE mode the
 # pipeline service builds VPC-attached CodeBuild projects from PIPELINE_VPC_ID/SUBNET_IDS,

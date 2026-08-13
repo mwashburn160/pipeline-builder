@@ -118,7 +118,14 @@ if [ -z "$EFS_FILESYSTEM_ID" ] || [ "$EFS_FILESYSTEM_ID" = None ]; then
     --encrypted --tags "Key=Name,Value=${CLUSTER_NAME}-efs" "Key=Project,Value=pipeline-builder" \
     --query FileSystemId --output text)
   echo "  created EFS $EFS_FILESYSTEM_ID — waiting for 'available'..."
-  until [ "$(aws efs describe-file-systems --file-system-id "$EFS_FILESYSTEM_ID" --region "$REGION" --query 'FileSystems[0].LifeCycleState' --output text)" = available ]; do sleep 5; done
+  # Bounded wait (~5 min) so a stuck EFS fails the deploy instead of hanging
+  # forever — matches the capped ACM/ALB polls elsewhere in this script.
+  _efs_tries=0
+  until [ "$(aws efs describe-file-systems --file-system-id "$EFS_FILESYSTEM_ID" --region "$REGION" --query 'FileSystems[0].LifeCycleState' --output text)" = available ]; do
+    _efs_tries=$((_efs_tries + 1))
+    [ "$_efs_tries" -ge 60 ] && { echo "ERROR: EFS $EFS_FILESYSTEM_ID did not become 'available' after ~5 min" >&2; exit 1; }
+    sleep 5
+  done
 fi
 export EFS_FILESYSTEM_ID
 # SG allowing NFS (2049) from the cluster nodes (which carry the cluster SG).
@@ -205,7 +212,12 @@ kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -
 # private key can't leak in /tmp if `set -e` aborts between its mktemp and its rm.
 CLEAN_ENV=$(mktemp); CERT_DIR=""
 trap 'rm -f "$CLEAN_ENV"; [ -n "$CERT_DIR" ] && rm -rf "$CERT_DIR"' EXIT
-grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' | envsubst > "$CLEAN_ENV"
+# RESTRICTED envsubst: expand ONLY the two intentional references
+# (OAUTH_CALLBACK_BASE_URL=${PLATFORM_FRONTEND_URL}, IMAGE_REGISTRY_PULL_HOST=${DOMAIN}).
+# An unrestricted envsubst would treat a literal `$` in any secret (bcrypt hash,
+# password) as a variable and silently blank/corrupt it. POSIX grep class
+# `[[:space:]]` (not the GNU-only `\s`) keeps this correct when run from a Mac.
+grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | envsubst '${PLATFORM_FRONTEND_URL} ${DOMAIN}' > "$CLEAN_ENV"
 pb_app_env_configmap "$CLEAN_ENV"
 rm -f "$CLEAN_ENV"
 
@@ -299,7 +311,7 @@ PIPE_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${PIPE_POLICY_NAME}"
 if ! aws iam get-policy --policy-arn "$PIPE_POLICY_ARN" >/dev/null 2>&1; then
   aws iam create-policy --policy-name "$PIPE_POLICY_NAME" \
     --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"CodePipelineExec\",\"Effect\":\"Allow\",\"Action\":[\"codepipeline:StartPipelineExecution\",\"codepipeline:StopPipelineExecution\",\"codepipeline:GetPipelineState\",\"codepipeline:GetPipelineExecution\"],\"Resource\":\"arn:aws:codepipeline:*:${ACCOUNT_ID}:*\"}]}" >/dev/null
-  echo "  created scoped IAM policy $PIPE_POLICY_NAME (codepipeline Start/Stop on account $ACCOUNT_ID)"
+  echo "  created scoped IAM policy $PIPE_POLICY_NAME (codepipeline Start/Stop on this account's pipelines)"
 else
   echo "  reusing IAM policy $PIPE_POLICY_NAME"
 fi

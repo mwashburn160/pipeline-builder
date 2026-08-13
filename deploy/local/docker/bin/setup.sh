@@ -130,7 +130,10 @@ chmod 1777 "$PLUGIN_BUILDS_HOST" "$PLUGIN_UPLOADS_HOST"
 # building linux/amd64 plugin images on an arm64 box) — rootless buildkit can't
 # do it itself. No-op on Docker Desktop (QEMU pre-registered) and on same-arch.
 # PUBLISH_PLATFORM is read from .env (compose's default is linux/amd64).
-PUBLISH_PLATFORM="$(grep -E '^PUBLISH_PLATFORM=' "$DEPLOY_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+# tail -1 (last-wins) matches docker compose's env_file precedence, so if the
+# example's commented PUBLISH_PLATFORM is uncommented AND the seed appends one,
+# ensure-binfmt targets the same arch compose builds for.
+PUBLISH_PLATFORM="$(grep -E '^PUBLISH_PLATFORM=' "$DEPLOY_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
 bash "$BIN_DIR/ensure-binfmt.sh" "${PUBLISH_PLATFORM:-linux/amd64}"
 
 # -----------------------------------------------------------------------

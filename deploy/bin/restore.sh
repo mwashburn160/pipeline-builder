@@ -51,16 +51,19 @@ PG_KEY=""
 MONGO_KEY=""
 
 usage() {
-  grep '^#' "$0" | head -40
+  # Grep the RESOLVED script path (not the possibly-relative/$PATH-based `$0`),
+  # so `--help`/`--list` don't exit non-zero under set -e+pipefail when the grep
+  # can't find the file.
+  grep '^#' "$SCRIPT_DIR/$(basename "$0")" | head -40
   exit "${1:-1}"
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --list) LIST_ONLY=1 ;;
-    --date) DATE="$2"; shift ;;
-    --pg-key) PG_KEY="$2"; shift ;;
-    --mongo-key) MONGO_KEY="$2"; shift ;;
+    --date) [ $# -ge 2 ] || { echo "$1 requires a value" >&2; usage 1; }; DATE="$2"; shift ;;
+    --pg-key) [ $# -ge 2 ] || { echo "$1 requires a value" >&2; usage 1; }; PG_KEY="$2"; shift ;;
+    --mongo-key) [ $# -ge 2 ] || { echo "$1 requires a value" >&2; usage 1; }; MONGO_KEY="$2"; shift ;;
     --pg-only) PG_ONLY=1 ;;
     --mongo-only) MONGO_ONLY=1 ;;
     --confirm-destructive) CONFIRM=1 ;;

@@ -60,7 +60,11 @@ for RULE_DIR in "$RULES_DIR"/*/; do
   [ -f "$RULE_FILE" ] || continue
 
   TOTAL=$((TOTAL + 1))
-  NAME=$(jq -r '.name' "$RULE_FILE")
+  # Guard jq: a single malformed rule.json under `set -e` would abort the whole
+  # compliance load with no failed-count and no summary. Count it + continue.
+  if ! NAME=$(jq -r '.name' "$RULE_FILE" 2>/dev/null); then
+    echo "  FAIL $(basename "$RULE_DIR") (invalid rule.json)"; FAILED=$((FAILED + 1)); continue
+  fi
   post_with_retry "${PLATFORM_BASE_URL}/api/compliance/rules" "$RULE_FILE" "$NAME"
 done
 
@@ -79,7 +83,9 @@ for POLICY_DIR in "$POLICIES_DIR"/*/; do
   [ -f "$POLICY_FILE" ] || continue
 
   TOTAL=$((TOTAL + 1))
-  NAME=$(jq -r '.name' "$POLICY_FILE")
+  if ! NAME=$(jq -r '.name' "$POLICY_FILE" 2>/dev/null); then
+    echo "  FAIL $(basename "$POLICY_DIR") (invalid policy.json)"; FAILED=$((FAILED + 1)); continue
+  fi
   post_with_retry "${PLATFORM_BASE_URL}/api/compliance/policies" "$POLICY_FILE" "$NAME"
 done
 
