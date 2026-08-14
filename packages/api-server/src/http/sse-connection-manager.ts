@@ -197,6 +197,18 @@ export class SSEManager {
   }
 
   /**
+   * Canonical form of an orgId for ownership equality checks: trimmed and
+   * lowercased. The stream PRODUCER (bindStreamOwner) and the ticket-minting
+   * CONSUMER (createTicket) run in different services, so a casing / whitespace
+   * drift between how each renders the same org would otherwise make the owner
+   * comparison in {@link createTicket} false-`forbidden` the real owner.
+   * Normalizing both sides — mirroring {@link normalizeRequestId} — closes that.
+   */
+  private static normalizeOrgId(orgId: string): string {
+    return orgId.trim().toLowerCase();
+  }
+
+  /**
    * Record the org that OWNS a stream subject. The stream PRODUCER calls this
    * when it creates a build-log stream so that ticket minting can assert the
    * caller's org owns the subject (see {@link createTicket}). Backed by the
@@ -206,12 +218,12 @@ export class SSEManager {
    * a ticket for a guessed requestId.
    *
    * @param requestId - The stream subject (format-validated by the caller).
-   * @param orgId - The owning org (already normalized by the caller).
+   * @param orgId - The owning org (normalized internally via normalizeOrgId).
    */
   async bindStreamOwner(requestId: string, orgId: string): Promise<void> {
     await this.ticketStore.bindStreamOwner(
       SSEManager.normalizeRequestId(requestId),
-      orgId,
+      SSEManager.normalizeOrgId(orgId),
       this.streamOwnerTtlMs,
     );
   }
@@ -234,7 +246,7 @@ export class SSEManager {
    * Bounded by `maxTotalTickets` (process-wide) and `maxTicketsPerOrg`
    * (per-tenant). Mirrors the message-service notifications ticket store.
    *
-   * @param orgId - Owning org (already normalized by the caller).
+   * @param orgId - Owning org (normalized internally via normalizeOrgId).
    * @param requestId - The build-log stream subject this ticket authorizes.
    *   The caller must have format-validated it (see {@link SSE_REQUEST_ID_RE}).
    * @returns `{ ok: true, ticket }` on success, or `{ ok: false, reason }`
@@ -242,11 +254,14 @@ export class SSEManager {
    */
   async createTicket(orgId: string, requestId: string): Promise<CreateTicketResult> {
     // Ownership gate first — a cross-tenant mint attempt should never even
-    // consume cap budget. Only enforced when an owner is actually bound.
+    // consume cap budget. Only enforced when an owner is actually bound. Both
+    // sides are org-normalized so a producer/consumer casing drift can't
+    // false-`forbidden` the real owner (mirrors requestId normalization).
     const normalized = SSEManager.normalizeRequestId(requestId);
+    const normalizedOrg = SSEManager.normalizeOrgId(orgId);
     const owner = await this.ticketStore.getStreamOwner(normalized);
-    if (owner && owner !== orgId) {
-      logger.warn(`SSE ticket refused: org ${orgId} does not own stream subject`);
+    if (owner && owner !== normalizedOrg) {
+      logger.warn(`SSE ticket refused: org ${normalizedOrg} does not own stream subject`);
       return { ok: false, reason: 'forbidden' };
     }
 
@@ -256,13 +271,13 @@ export class SSEManager {
       logger.warn(`SSE ticket cap reached (max: ${this.maxTotalTickets}); rejecting ticket request`);
       return { ok: false, reason: 'capacity' };
     }
-    if ((await this.ticketStore.countForOrg(orgId)) >= this.maxTicketsPerOrg) {
-      logger.warn(`Per-org SSE ticket cap reached for ${orgId} (max: ${this.maxTicketsPerOrg})`);
+    if ((await this.ticketStore.countForOrg(normalizedOrg)) >= this.maxTicketsPerOrg) {
+      logger.warn(`Per-org SSE ticket cap reached for ${normalizedOrg} (max: ${this.maxTicketsPerOrg})`);
       return { ok: false, reason: 'org-limit' };
     }
 
     const ticket = randomBytes(24).toString('base64url');
-    await this.ticketStore.put(ticket, { orgId, requestId: normalized }, this.ticketTtlMs);
+    await this.ticketStore.put(ticket, { orgId: normalizedOrg, requestId: normalized }, this.ticketTtlMs);
     return { ok: true, ticket };
   }
 

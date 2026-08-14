@@ -184,6 +184,11 @@ function subDoc(over: Record<string, unknown> = {}) {
  *  (its threshold is ~6 months). */
 const ANNUAL_EXP = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
 
+/** Entitlement expiration ~2 months out → deriveMarketplaceInterval reads 'monthly'
+ *  (below the ~6-month threshold). Simulates an aging annual term whose remaining
+ *  horizon has shrunk into the back half. */
+const SHORT_EXP = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+
 /** SNS envelope with the fields the handler validates present by default. */
 function snsEnvelope(over: Record<string, unknown> = {}) {
   return {
@@ -521,6 +526,29 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
       expect.objectContaining({ provider: 'aws-marketplace', oldInterval: 'monthly', newInterval: 'annual' }),
       'sub-1',
     );
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('keeps an annual sub ANNUAL when the shrinking horizon (<180d) would derive monthly — no re-cadence, no period reset', async () => {
+    // An annual term aging into its back half has exp-now < 180d, so a naive
+    // re-derivation reads 'monthly' and would flip the sub, reset the period, and
+    // mis-price credits. The update path must NOT shorten an existing interval from
+    // the horizon alone.
+    const originalPeriodEnd = new Date('2026-12-01T00:00:00.000Z');
+    const doc = subDoc({ status: 'active', planId: 'team', interval: 'annual', currentPeriodEnd: originalPeriodEnd });
+    mockSubscriptionFindOne.mockReturnValue(query(doc));
+    // Same plan, but a <180d remaining horizon → deriveMarketplaceInterval reads 'monthly'.
+    mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'team', dimension: 'team-dim', expirationDate: SHORT_EXP }]);
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Message: notification('entitlement-updated') }) }, res);
+
+    // Interval unchanged, period untouched, nothing persisted or re-keyed.
+    expect(doc.interval).toBe('annual');
+    expect(doc.currentPeriodEnd).toBe(originalPeriodEnd);
+    expect(doc.save).not.toHaveBeenCalled();
+    expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    // No interval_changed row (or any billing event) for a phantom shortening.
+    expect(mockCreateBillingEvent).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
   });
 

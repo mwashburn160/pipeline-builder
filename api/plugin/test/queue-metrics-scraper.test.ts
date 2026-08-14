@@ -12,6 +12,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { Queue } from 'bullmq';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSetGauge = jest.fn();
@@ -22,7 +23,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-import type { Queue } from 'bullmq';
 const {
   startQueueMetricsScraper,
   stopQueueMetricsScraper,

@@ -67,13 +67,26 @@ export const putOwnOrgIdpConfig = withController('Put own-org IdP config', async
 
   // Body's orgId may be unset — the URL parameter is canonical (a caller can't
   // point the write at another org via the body).
-  const body = { ...(req.body as Record<string, unknown> ?? {}), orgId };
+  const body: Record<string, unknown> = { ...(req.body as Record<string, unknown> ?? {}), orgId };
+
+  // Look up the existing config up front. The IdP form is WRITE-ONLY for the
+  // client secret (it's never sent back on read), so an update that omits the
+  // secret means "keep the stored one" — otherwise editing any other field (or
+  // switching provider) would fail the required-secret validation, or wipe the
+  // secret. Re-inject the stored plaintext before validation; upsert re-encrypts
+  // it and it is never returned to the caller. A fresh create has no stored
+  // secret, so the schema's required-secret rule still applies there.
+  const existing = await orgIdpService.findByOrg(orgId);
+  if (existing && !body.clientSecret) {
+    const login = await orgIdpService.getLoginConfig(orgId);
+    if (login) body.clientSecret = login.clientSecret;
+  }
+
   const parsed = validateBody(orgIdpCreateSchema, body, res);
   if (!parsed) return;
 
   // Reserve the `idpConfigs` slot only on a fresh insert (mirrors the sysadmin
   // path; the per-org unique index caps at one today but the quota is future-proof).
-  const existing = await orgIdpService.findByOrg(orgId);
   let reserved = false;
   if (!existing) {
     const reservation = await reserveFeatureQuota(orgId, 'idpConfigs');

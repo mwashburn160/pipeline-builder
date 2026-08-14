@@ -45,6 +45,28 @@ interface TriageCacheEntry {
  */
 const TRIAGE_CACHE_TTL_MS = intFromEnv('PLUGIN_TRIAGE_CACHE_TTL_MS', 5000);
 
+/**
+ * Hard cap on distinct triage cache keys. Unlike the sysadmin-only read-quotas
+ * cache, `/triage` is org-callable and keyed `all|org:<orgId>:<sampleLimit>`, so
+ * the key space grows with tenant count. Expired entries are only overwritten on
+ * re-access, so an org that polls once and never returns would otherwise leave a
+ * stale entry forever. Sweep expired entries on write and, if still over the
+ * cap, evict the oldest (Map preserves insertion order) to bound memory.
+ */
+const TRIAGE_CACHE_MAX_ENTRIES = intFromEnv('PLUGIN_TRIAGE_CACHE_MAX_ENTRIES', 500);
+
+/** Drop expired entries, then evict oldest keys until at/under the cap. */
+function pruneTriageCache(cache: Map<string, TriageCacheEntry>, now: number): void {
+  for (const [key, entry] of cache) {
+    if (entry.expires <= now) cache.delete(key);
+  }
+  while (cache.size >= TRIAGE_CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
+
 /** Resolve a build job's owning org: the top-level `orgId`, falling back to the
  *  embedded `pluginRecord.orgId` for older jobs that predate the top-level field. */
 const jobOrgId = (data: { orgId?: string; pluginRecord?: { orgId?: string } } | undefined): string | undefined =>
@@ -377,6 +399,9 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       totalFailed: failed.length + dlqJobs.length,
       groups,
     };
+    // Bound the cache before inserting: sweep expired entries + evict oldest
+    // over the cap so the org-keyed map can't grow with tenant count.
+    pruneTriageCache(triageCache, now);
     triageCache.set(cacheKey, { expires: now + TRIAGE_CACHE_TTL_MS, payload });
 
     return sendSuccess(res, 200, payload);

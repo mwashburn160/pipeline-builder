@@ -222,6 +222,23 @@ describe('GET /pipelines (list)', () => {
     );
   });
 
+  it('widens to the parent org when the JWT carries parentOrganizationId', async () => {
+    // Org → team hierarchy: a team caller's JWT carries `parentOrganizationId`,
+    // which the route forwards as findPaginated's 4th arg so the service can also
+    // surface the parent's public pipelines. (Root callers send undefined — the
+    // sibling tests above assert that.)
+    mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+
+    await handler(mockReq({ user: { parentOrganizationId: 'parent-org' } }), mockRes());
+
+    expect(mockFindPaginated).toHaveBeenCalledWith(
+      expect.any(Object),
+      'org-1',
+      expect.any(Object),
+      'parent-org',
+    );
+  });
+
   it('returns 400 when orgId is missing', async () => {
     const req = mockReq({ context: { identity: { orgId: '' }, log: jest.fn() } });
     const res = mockRes();
@@ -292,6 +309,15 @@ describe('GET /pipelines/find', () => {
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
+  it('forwards parentOrganizationId to find (org → team widening)', async () => {
+    mockFind.mockResolvedValue([{ id: '1', pipelineName: 'build' }]);
+
+    await handler(mockReq({ user: { parentOrganizationId: 'parent-org' } }), mockRes());
+
+    // find(filter, orgId, parentOrgId) — 3rd arg is the widening parent.
+    expect(mockFind).toHaveBeenCalledWith(expect.any(Object), 'org-1', 'parent-org');
+  });
+
   it('returns 400 when orgId is missing', async () => {
     const req = mockReq({ context: { identity: { orgId: '' }, log: jest.fn() } });
     const res = mockRes();
@@ -332,6 +358,15 @@ describe('GET /pipelines/:id', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it('forwards parentOrganizationId to findById (org → team widening)', async () => {
+    mockFindById.mockResolvedValue({ id: 'uuid-1', pipelineName: 'build', accessModifier: 'private' });
+
+    await handler(mockReq({ params: { id: 'uuid-1' }, user: { parentOrganizationId: 'parent-org' } }), mockRes());
+
+    // findById(id, orgId, parentOrgId) — 3rd arg is the widening parent.
+    expect(mockFindById).toHaveBeenCalledWith('uuid-1', 'org-1', 'parent-org');
   });
 
   it('lets a non-admin view a visible public/system pipeline (findById enforces visibility; no public-access gate on reads)', async () => {

@@ -10,6 +10,9 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+// Type-only import (erased at compile), safe to sit with the other imports even
+// though it references a mocked module — it has no runtime effect.
+import type { PluginBuildJobData } from '../src/helpers/plugin-helpers.js';
 // `intFromEnv` lives in the dependency-free leaf module env-int.js; import it
 // directly rather than through the plugin-build-queue re-export.
 import { intFromEnv } from '../src/queue/env-int.js';
@@ -191,10 +194,6 @@ function registerMocks() {
 }
 
 registerMocks();
-
-// Import after mocks
-
-import type { PluginBuildJobData } from '../src/helpers/plugin-helpers.js';
 
 // Helpers
 

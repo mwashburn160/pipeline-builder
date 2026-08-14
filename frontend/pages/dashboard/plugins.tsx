@@ -102,10 +102,11 @@ export default function PluginsPage() {
   const canPublish = can('plugins:publish');
   // Batch activate/deactivate/delete is a tier-gated feature: the backend
   // attaches `requireFeature('bulk_operations')` to the bulk routes, so without
-  // the flag every bulk action 403s. Gate the select checkboxes + bulk toolbar
-  // on it so we don't surface controls that are guaranteed to fail.
+  // the flag every bulk action 403s. The backend ALSO gates bulk delete/update
+  // on `plugins:publish`, so a write-but-not-publish member would 403 too —
+  // include `canPublish` so we don't surface controls guaranteed to fail.
   const { isEnabled } = useFeatures();
-  const canBulk = canWrite && isEnabled('bulk_operations');
+  const canBulk = canWrite && canPublish && isEnabled('bulk_operations');
 
   // Mark the "explore plugin catalog" onboarding step as complete on first visit.
   useEffect(() => {

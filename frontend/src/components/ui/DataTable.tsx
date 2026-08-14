@@ -308,9 +308,11 @@ export function DataTable<T>({
               const key = getRowKey ? getRowKey(item, i) : String(i);
 
               // When a row is clickable, expose it to keyboard + assistive tech:
-              // focusable, announced as a button, and activatable with Enter/Space
-              // (mouse-only onClick otherwise strands keyboard users, e.g. the logs
-              // row → detail drawer).
+              // focusable and activatable with Enter/Space (mouse-only onClick
+              // otherwise strands keyboard users, e.g. the logs row → detail
+              // drawer). Keep the native row semantics — a `role="button"` on the
+              // <tr> would override its implicit row role and break table
+              // structure for assistive tech.
               const rowClickProps = onRowClick
                 ? {
                     onClick: () => onRowClick(item, i),
@@ -320,7 +322,6 @@ export function DataTable<T>({
                         onRowClick(item, i);
                       }
                     },
-                    role: 'button' as const,
                     tabIndex: 0,
                     className: 'data-table-row cursor-pointer',
                   }

@@ -60,7 +60,11 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
         clientId: 'ms-client',
         clientSecret: 'ms-secret',
         enabled: true,
-        tenant: 'common',
+        // PINNED tenant: the Microsoft handler refuses the shared `common`/
+        // `organizations`/`consumers` tenants (nOAuth — unverifiable email); a
+        // real deploy pins a directory GUID/verified domain, which is the path
+        // the happy-path test below exercises.
+        tenant: 'contoso.onmicrosoft.com',
         authorizeUrl: 'https://login.microsoft.test/{tenant}/authorize',
         tokenUrl: 'https://login.microsoft.test/{tenant}/token',
         userinfoUrl: 'https://graph.microsoft.test/oidc/userinfo',

@@ -3,6 +3,7 @@
 
 import {
   sendSuccess,
+  sendError,
   sendPaginatedNested,
   sendBadRequest,
   sendEntityNotFound,
@@ -20,6 +21,7 @@ import {
   complianceExemptionService,
   CE_NOT_FOUND,
   CE_SELF_APPROVE,
+  CE_ALREADY_EXISTS,
 } from '../services/compliance-exemption-service.js';
 import { emitComplianceAudit } from '../services/remote-audit-client.js';
 
@@ -86,16 +88,29 @@ export function createExemptionRoutes(): Router {
     });
   }));
 
-  // POST / — request a new exemption
+  // POST / — request a new exemption. Deduped on (org, rule, entity) at the DB
+  // level (same unique index as POST /bulk): a duplicate triple returns a clean
+  // 409 instead of the raw unique-violation 500.
   router.post('/', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, ExemptionCreateSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
-    const exemption = await complianceExemptionService.create(validation.value, orgId, userId);
-    ctx.log('COMPLETED', 'Requested exemption', { id: exemption.id, ruleId: validation.value.ruleId });
-    return sendSuccess(res, 201, { exemption });
+    try {
+      const exemption = await complianceExemptionService.create(validation.value, orgId, userId);
+      ctx.log('COMPLETED', 'Requested exemption', { id: exemption.id, ruleId: validation.value.ruleId });
+      return sendSuccess(res, 201, { exemption });
+    } catch (err) {
+      if (errorMessage(err) === CE_ALREADY_EXISTS) {
+        return sendError(
+          res, 409,
+          'An exemption already exists for this rule and entity.',
+          ErrorCode.CONFLICT,
+        );
+      }
+      throw err;
+    }
   }));
 
   // PUT /:id/review — approve or reject an exemption. Approval is a governance

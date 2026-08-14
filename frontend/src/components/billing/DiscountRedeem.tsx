@@ -168,7 +168,7 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
             Applies as: <span className="font-medium">{preview.applied}</span>
           </p>
           <dl className="mt-2 space-y-1">
-            {preview.priceBreakdown.items.map((item, i) => (
+            {(preview.priceBreakdown.items ?? []).map((item, i) => (
               <div key={i} className="flex items-center justify-between gap-4 text-sm">
                 <dt className="text-gray-500 dark:text-gray-400">{item.label}</dt>
                 <dd className="text-gray-900 dark:text-gray-100 tabular-nums text-right">{formatCents(item.cents)}</dd>

@@ -184,6 +184,13 @@ describe('exchangeAndValidate', () => {
     await expect(exchangeAndValidate(cfg, 'c', 'nonce-1')).rejects.toThrow('OIDC_NO_EMAIL');
   });
 
+  it('REJECTS a verified email whose domain is not in allowedEmailDomains', async () => {
+    // cfg pins allowedEmailDomains:['acme.com']; a broad/shared IdP can still
+    // authenticate a foreign identity, so the domain gate must reject it.
+    stubFetch(signIdToken(goodPem, { email: 'attacker@evil-contractor.com' }));
+    await expect(exchangeAndValidate(cfg, 'c', 'nonce-1')).rejects.toThrow('OIDC_EMAIL_DOMAIN_NOT_ALLOWED');
+  });
+
   it('maps a failed token exchange to OIDC_TOKEN_EXCHANGE_FAILED', async () => {
     stubFetch(signIdToken(goodPem), { tokenOk: false });
     await expect(exchangeAndValidate(cfg, 'bad', 'nonce-1')).rejects.toThrow('OIDC_TOKEN_EXCHANGE_FAILED');

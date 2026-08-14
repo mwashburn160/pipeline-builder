@@ -826,6 +826,22 @@ describe('ReportingService', () => {
 
       expect(result).toEqual(mockRows);
     });
+
+    it('guards the ::int[] version sort against non-numeric versions (no whole-summary throw)', async () => {
+      // A non-numeric-dotted version ('latest', '') must not blow up the org
+      // summary: the ORDER BY only casts numeric-dotted cores and sorts the rest
+      // to the bottom via a sentinel, so the query never throws on bad data.
+      mockExecute.mockResolvedValue({ rows: [] });
+      await service.getPluginVersions('acme');
+
+      const dialect = new PgDialect();
+      const arg = mockExecute.mock.calls[0]?.[0] as SQL;
+      const { sql } = dialect.sqlToQuery(arg);
+      // The cast is gated behind a numeric-dotted regex CASE (not applied to raw).
+      expect(sql).toContain("~ '^[0-9]+([.][0-9]+)*$'");
+      expect(sql).toContain('ELSE ARRAY[-1]');
+      expect(sql).toContain('::int[]');
+    });
   });
 
   describe('getBuildSuccessRate', () => {

@@ -8,6 +8,7 @@ import type { ActiveExemption } from '../engine/rule-engine.js';
 
 export const CE_NOT_FOUND = 'CE_NOT_FOUND';
 export const CE_SELF_APPROVE = 'CE_SELF_APPROVE';
+export const CE_ALREADY_EXISTS = 'CE_ALREADY_EXISTS';
 
 export interface ComplianceExemptionFilter {
   ruleId?: string;
@@ -103,7 +104,16 @@ class ComplianceExemptionService {
     return { exemptions: rows, total };
   }
 
-  /** Create a single pending exemption request. */
+  /**
+   * Create a single pending exemption request.
+   *
+   * Deduped at the DB level like {@link bulkCreate}: the unique index on
+   * (org_id, rule_id, entity_id) (`compliance_exemption_org_rule_entity_unique`)
+   * means a duplicate `(orgId, ruleId, entityId)` triple would otherwise raise a
+   * unique-violation and surface as a 500. `onConflictDoNothing` on that target
+   * turns the collision into an empty `returning()`; we translate that to the
+   * `CE_ALREADY_EXISTS` sentinel so the route can return a clean 409 instead.
+   */
   async create(input: ExemptionInsert, orgId: string, userId: string) {
     const [exemption] = await withTenantTx(async (tx) => tx
       .insert(schema.complianceExemption)
@@ -115,7 +125,15 @@ class ComplianceExemptionService {
         createdBy: userId,
         updatedBy: userId,
       })
+      .onConflictDoNothing({
+        target: [
+          schema.complianceExemption.orgId,
+          schema.complianceExemption.ruleId,
+          schema.complianceExemption.entityId,
+        ],
+      })
       .returning());
+    if (!exemption) throw new Error(CE_ALREADY_EXISTS);
     return exemption;
   }
 

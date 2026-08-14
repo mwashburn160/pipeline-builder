@@ -21,12 +21,16 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { OrgSsoSettings } from '@/components/settings/OrgSsoSettings';
 
 export default function OrgSsoSettingsPage() {
-  const { isReady, user } = useAuthGuard({ requirePermission: 'org:settings' });
+  const { isReady, user, isSuperAdmin } = useAuthGuard({ requirePermission: 'org:settings' });
   const { isEnabled, isLoaded } = useFeatures();
 
   if (!isReady || !user) return <LoadingPage />;
 
-  const ssoEntitled = isEnabled('sso');
+  // Superadmins hold every feature entitlement (mirroring `isNavItemVisible`,
+  // which bypasses `requiredFeature` for them) — so the nav link and this page
+  // agree instead of a superadmin whose own org lacks `sso` seeing the link
+  // then hitting the upsell wall.
+  const ssoEntitled = isEnabled('sso') || isSuperAdmin;
   const orgId = user.organizationId;
 
   return (

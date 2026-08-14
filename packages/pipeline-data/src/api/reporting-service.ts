@@ -1173,8 +1173,16 @@ export class ReportingService {
           -- Highest version by NUMERIC semver core (not lexical: '10.0.0' > '9.0.0').
           -- Strip any -prerelease/+build suffix before the int[] cast so it can't
           -- error on valid semver; keep the original string for display.
+          -- GUARD: a non-numeric-dotted version ('latest', '', 'v1') would make the
+          -- ::int[] cast throw and blow up the WHOLE org summary. Only cast rows
+          -- whose stripped core matches a numeric-dotted shape; sort everything
+          -- else to the bottom via a sentinel ARRAY[-1] so the row still counts.
           (array_agg(${schema.plugin.version}
-             ORDER BY string_to_array(regexp_replace(${schema.plugin.version}, '[-+].*$', ''), '.')::int[] DESC
+             ORDER BY CASE
+               WHEN regexp_replace(${schema.plugin.version}, '[-+].*$', '') ~ '^[0-9]+([.][0-9]+)*$'
+                 THEN string_to_array(regexp_replace(${schema.plugin.version}, '[-+].*$', ''), '.')::int[]
+               ELSE ARRAY[-1]
+             END DESC
           ))[1] AS latest_version,
           bool_or(${schema.plugin.isDefault}) AS has_default
         FROM ${schema.plugin}

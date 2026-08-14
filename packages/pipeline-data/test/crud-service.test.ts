@@ -983,6 +983,39 @@ describe('CrudService', () => {
 
       expect(setSpy.mock.calls[0][0].orgId).toBe('org1');
     });
+
+    // Log-level policy: the ABSENT-orgId stamp is the common normal-write path,
+    // so it must log at debug (not warn) to avoid flooding; a PRESENT-but-
+    // mismatched orgId is an override attempt and stays at warn.
+    it('logs the absent-orgId stamp at DEBUG, not warn (no log flood on normal writes)', async () => {
+      currentTenantContext = { orgId: 'org1', isSuperAdmin: false };
+      captureCreateValues();
+      const logger = (service as unknown as { _logger: { warn: jest.Mock; debug: jest.Mock } })._logger;
+      const warnSpy = jest.spyOn(logger, 'warn');
+      const debugSpy = jest.spyOn(logger, 'debug');
+
+      await service.create({ name: 'no-org' } as unknown as TestInsert, 'user1');
+
+      expect(debugSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+      debugSpy.mockRestore();
+    });
+
+    it('logs a mismatched-orgId override at WARN (real override attempt)', async () => {
+      currentTenantContext = { orgId: 'org1', isSuperAdmin: false };
+      captureCreateValues();
+      const logger = (service as unknown as { _logger: { warn: jest.Mock; debug: jest.Mock } })._logger;
+      const warnSpy = jest.spyOn(logger, 'warn');
+      const debugSpy = jest.spyOn(logger, 'debug');
+
+      await service.create({ name: 'x', orgId: 'attacker-org' }, 'user1');
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(debugSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+      debugSpy.mockRestore();
+    });
   });
 
   // Cursor pagination — the sort column must survive a sparse fieldset so the

@@ -116,6 +116,37 @@ describe('createRedisAuditSpool', () => {
     expect(await spool.recover()).toBe(0);
   });
 
+  it('requeue is at-least-once: a crash between lpush and lrem keeps the event (never lost)', async () => {
+    // Ordering invariant: requeue must lpush to the main list BEFORE lrem-ing
+    // from in-progress, so a crash in the gap leaves the event on BOTH lists
+    // (harmless double-delivery) rather than dropping it. Simulate the crash by
+    // making the FIRST lrem after a successful lpush throw.
+    const redis = fakeRedis();
+    let lpushed = false;
+    const origLpush = redis.lpush.bind(redis);
+    const origLrem = redis.lrem.bind(redis);
+    redis.lpush = async (k: string, ...v: string[]) => { lpushed = true; return origLpush(k, ...v); };
+    redis.lrem = async (k: string, count: number, value: string) => {
+      if (lpushed && k === 'audit:spool:inflight') throw new Error('crash after lpush, before lrem');
+      return origLrem(k, count, value);
+    };
+
+    const spool = createRedisAuditSpool(redis);
+    await spool.enqueue({ event: evt('pipeline.create'), serviceName: 'a' });
+    const [taken] = await spool.take(1);
+    // in-progress holds it; main is empty.
+    expect(redis._list('audit:spool')).toHaveLength(0);
+    expect(redis._list('audit:spool:inflight')).toHaveLength(1);
+
+    await spool.requeue([taken]); // lpush succeeds, then lrem throws (swallowed)
+
+    // The event survived on the MAIN list (re-deliverable). It is ALSO still on
+    // in-progress — that duplicate is reclaimed by recover and deduped downstream,
+    // which is acceptable; LOSING it would not be.
+    expect(redis._list('audit:spool')).toHaveLength(1);
+    expect(redis._list('audit:spool:inflight')).toHaveLength(1);
+  });
+
   it('is fail-safe: a throwing redis never propagates', async () => {
     const boom = {
       rpush: async () => { throw new Error('down'); },

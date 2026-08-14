@@ -375,6 +375,15 @@ describe('SSEManager', () => {
       // No bindStreamOwner call → falls back to binding the ticket to the caller.
       expect((await manager.createTicket('org-x', REQ_B)).ok).toBe(true);
     });
+
+    it('normalizes orgId so a producer/consumer casing drift does not false-forbid the owner', async () => {
+      // Producer binds with one casing; the real owner mints with another. Both
+      // sides normalize (trim+lowercase), so ownership still matches — no
+      // spurious 'forbidden'. A genuinely different org is still refused.
+      await manager.bindStreamOwner(REQ_A, 'Org-A');
+      expect((await manager.createTicket('  org-a  ', REQ_A)).ok).toBe(true);
+      expect(await manager.createTicket('org-b', REQ_A)).toEqual({ ok: false, reason: 'forbidden' });
+    });
   });
 
   describe('middleware ticket gating', () => {

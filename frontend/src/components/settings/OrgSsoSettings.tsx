@@ -97,9 +97,11 @@ export function OrgSsoSettings({ orgId }: { orgId: string }) {
 
     // For cognito the server derives the discovery URL from region + userPoolId,
     // so only send those; other providers send discoveryUrl and never region/pool.
+    // Explicitly null out the inactive provider's fields so a PUT (merge
+    // semantics) can't leave stale values on the server from a prior provider.
     const providerFields = provider === 'cognito'
-      ? { region: region.trim(), userPoolId: userPoolId.trim() }
-      : { discoveryUrl: discoveryUrl || undefined };
+      ? { region: region.trim(), userPoolId: userPoolId.trim(), discoveryUrl: undefined }
+      : { discoveryUrl: discoveryUrl || undefined, region: undefined, userPoolId: undefined };
 
     const payload: Partial<OrgIdpConfigCreate> = {
       provider, clientId, ...providerFields,

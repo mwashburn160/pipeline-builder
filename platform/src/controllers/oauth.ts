@@ -267,11 +267,22 @@ function createMicrosoftProvider(): OAuthProvider {
       const res = await fetch(userinfoUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
       if (!res.ok) throw new Error('Failed to fetch Microsoft user info');
       const data = await res.json() as Record<string, unknown>;
-      // Microsoft Graph's OIDC userinfo returns the verified account email in the
-      // `email` claim; it does not emit `email_verified`. An account with no email
-      // (some personal accounts) yields no `email` claim — reject rather than link
-      // a blank identity onto a pre-existing local account.
-      const email = (data.email ?? data.preferred_username) as string | undefined;
+      // nOAuth mitigation. Microsoft Graph's OIDC `email` claim is a user-MUTABLE,
+      // unverified directory attribute with no `email_verified` signal in userinfo.
+      // In a SHARED tenant (`common`/`organizations`/`consumers`) an attacker can
+      // bring their own Azure AD tenant, set that attribute to a victim's address,
+      // and — because sign-in account-links by email — take over the victim's
+      // account (the published "nOAuth" class). So the email is only trusted when
+      // the operator has PINNED a specific tenant (OAUTH_MICROSOFT_TENANT = a
+      // directory GUID or verified domain), where the tenant admin controls the
+      // directory and cross-tenant injection is impossible. Refuse the shared
+      // tenants rather than link an unverifiable identity. `preferred_username`
+      // is likewise mutable and is never used as a link key.
+      const shared = new Set(['common', 'organizations', 'consumers']);
+      if (shared.has((tenant || 'common').toLowerCase())) {
+        throw new Error('Microsoft SSO requires a pinned OAUTH_MICROSOFT_TENANT (directory GUID or verified domain); the shared "common" tenant is refused because its email claim is unverifiable (nOAuth)');
+      }
+      const email = data.email as string | undefined;
       if (!email) throw new Error('Microsoft did not return an email address');
       return { id: (data.sub ?? data.oid) as string, email, name: data.name as string | undefined, picture: data.picture as string | undefined };
     },

@@ -97,17 +97,28 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
       const idemTtlMs = CoreConstants.IDEMPOTENCY_TTL_MS;
       let idemReserved = false;
       if (idemKey) {
+        // Store THIS request's id in the reservation body at claim time. The
+        // build streams its logs under the winning (original) request's id, so a
+        // later duplicate must return that original id — not its own — or the
+        // retried client would tail an empty stream (the build it "shares" is
+        // keyed on the first requestId).
         const won = await idemStore.reserve(
           idemKey,
-          { statusCode: 202, body: null, pending: true, expiresAt: Date.now() + idemTtlMs },
+          { statusCode: 202, body: { requestId: ctx.requestId }, pending: true, expiresAt: Date.now() + idemTtlMs },
           Math.floor(idemTtlMs / 1000),
         );
         if (!won) {
           // The same key is already in-flight or was recently accepted — the
           // original reserved quota + queued the build, so suppress this duplicate.
+          // Return the ORIGINAL request's id (persisted in the reservation body)
+          // so the caller tails the real build stream; fall back to this
+          // request's id if the record can't be read.
+          const existing = await idemStore.get(idemKey).catch(() => null);
+          const originalRequestId =
+            (existing?.body as { requestId?: string } | null | undefined)?.requestId ?? ctx.requestId;
           ctx.log('INFO', 'Duplicate deploy-generated suppressed by Idempotency-Key', { orgId, pluginName: name, version });
           return sendSuccess(res, 202, {
-            requestId: ctx.requestId,
+            requestId: originalRequestId,
             pluginName: name,
             version,
             idempotent: true,
@@ -126,8 +137,17 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
       };
 
       // Reserve the plugins quota slot atomically. Worker decrements on
-      // permanent failure; success keeps the reservation.
-      const reservation = await reserveQuota(quotaService, orgId, 'plugins', authHeader);
+      // permanent failure; success keeps the reservation. Wrap the await so a
+      // throw (quota service down) also releases the idempotency claim — else it
+      // persists for the TTL and wrongly suppresses a legit retry with a false
+      // 202 + no build (this is the one post-claim await not otherwise covered).
+      let reservation: Awaited<ReturnType<typeof reserveQuota>>;
+      try {
+        reservation = await reserveQuota(quotaService, orgId, 'plugins', authHeader);
+      } catch (err) {
+        releaseIdem();
+        throw err;
+      }
       if (reservation.exceeded) {
         ctx.log('WARN', 'Plugin quota exceeded', { orgId, used: reservation.quota.used, limit: reservation.quota.limit });
         releaseIdem();

@@ -28,7 +28,7 @@ function findItem(href: string): NavItem {
 
 // Mirrors the wiring in Sidebar/CommandPalette: admin flags off, and permission
 // checks delegated to the real `hasPermission(user, ...)`.
-type FakeUser = { permissions?: string[]; isSuperAdmin?: boolean };
+type FakeUser = { permissions?: string[]; isSuperAdmin?: boolean; features?: string[] };
 const ctx = (user: FakeUser | null) => ({
   isAdmin: false,
   isSuperAdmin: !!user?.isSuperAdmin,
@@ -37,6 +37,9 @@ const ctx = (user: FakeUser | null) => ({
   billingEnabled: true,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   hasPermission: (p: string) => hasPermission(user as any, p),
+  // Mirrors `useFeatures().isEnabled` — a per-org entitlement set. Superadmins
+  // bypass this in `isNavItemVisible`, so their features list is irrelevant.
+  isFeatureEnabled: (f: string) => !!user?.features?.includes(f),
 });
 
 describe('nav read-permission gates', () => {
@@ -61,5 +64,34 @@ describe('nav read-permission gates', () => {
     for (const href of Object.keys(GATED)) {
       expect(isNavItemVisible(findItem(href), ctx(user))).toBe(true);
     }
+  });
+});
+
+// The SSO nav item is feature-gated (`requiredFeature: 'sso'`) on TOP of the
+// `org:settings` permission. `isNavItemVisible` bypasses the feature gate for
+// superadmins, matching the page which now treats superadmins as entitled — so
+// nav visibility and page access agree.
+describe('SSO nav feature-entitlement gate', () => {
+  const SSO = '/dashboard/settings/sso';
+
+  it('declares the sso feature + org:settings permission', () => {
+    const item = findItem(SSO);
+    expect(item.requiredFeature).toBe('sso');
+    expect(item.requiredPermission).toBe('org:settings');
+  });
+
+  it('hides SSO from a permitted-but-non-entitled non-superadmin', () => {
+    const user = { permissions: ['org:settings'], features: [] };
+    expect(isNavItemVisible(findItem(SSO), ctx(user))).toBe(false);
+  });
+
+  it('shows SSO once the sso entitlement is present', () => {
+    const user = { permissions: ['org:settings'], features: ['sso'] };
+    expect(isNavItemVisible(findItem(SSO), ctx(user))).toBe(true);
+  });
+
+  it('shows SSO to a superadmin whose org lacks the sso entitlement', () => {
+    const user = { permissions: [], features: [], isSuperAdmin: true };
+    expect(isNavItemVisible(findItem(SSO), ctx(user))).toBe(true);
   });
 });

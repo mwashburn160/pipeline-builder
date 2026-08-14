@@ -52,7 +52,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   buildComplianceExemptionConditions: (f: unknown, o: string) => buildComplianceExemptionConditions(f, o),
 }));
 
-const { complianceExemptionService, CE_NOT_FOUND, CE_SELF_APPROVE } =
+const { complianceExemptionService, CE_NOT_FOUND, CE_SELF_APPROVE, CE_ALREADY_EXISTS } =
   await import('../src/services/compliance-exemption-service.js');
 
 describe('ComplianceExemptionService', () => {
@@ -140,6 +140,30 @@ describe('ComplianceExemptionService', () => {
       await expect(
         complianceExemptionService.review('ex-1', 'org-1', 'approver', 'approved'),
       ).rejects.toThrow(CE_NOT_FOUND);
+    });
+  });
+
+  describe('create (dedup)', () => {
+    const input = {
+      ruleId: 'r1', entityType: 'plugin' as const, entityId: 'a', reason: 'ok',
+    };
+
+    it('inserts a pending exemption with onConflictDoNothing on (orgId, ruleId, entityId)', async () => {
+      returningResults = [[{ id: 'ex-1', status: 'pending' }]];
+      const created = await complianceExemptionService.create(input, 'org-1', 'u-1');
+      expect(created).toMatchObject({ id: 'ex-1', status: 'pending' });
+      // Same conflict target as bulkCreate — the (org, rule, entity) unique index.
+      const insertChain = tx.insert.mock.results[0].value as Record<string, jest.Mock>;
+      expect(insertChain.onConflictDoNothing).toHaveBeenCalledWith({
+        target: ['col_org', 'col_rule', 'col_entity'],
+      });
+    });
+
+    it('throws CE_ALREADY_EXISTS when the triple collides (empty returning → clean 409, not a 500)', async () => {
+      returningResults = [[]]; // ON CONFLICT DO NOTHING skipped the duplicate row
+      await expect(
+        complianceExemptionService.create(input, 'org-1', 'u-1'),
+      ).rejects.toThrow(CE_ALREADY_EXISTS);
     });
   });
 

@@ -456,9 +456,17 @@ export abstract class CrudService<
     const ctx = getTenantContext();
     const d = data as Record<string, unknown>;
     if (ctx && !ctx.isSuperAdmin && ctx.orgId && d.orgId !== ctx.orgId) {
-      this._logger.warn('CrudService: stamping tenant-context org on write', {
-        supplied: 'orgId' in d ? d.orgId : undefined, enforced: ctx.orgId,
-      });
+      // Distinguish the two cases that reach here so the log stays useful and
+      // quiet: a PRESENT-but-mismatched `orgId` is an actual override attempt
+      // (warn), while an ABSENT `orgId` is the common normal-write path that just
+      // needs the default stamp (debug) — logging that at warn floods the log on
+      // every write that omits orgId.
+      const meta = { supplied: 'orgId' in d ? d.orgId : undefined, enforced: ctx.orgId };
+      if ('orgId' in d) {
+        this._logger.warn('CrudService: overriding mismatched org on write', meta);
+      } else {
+        this._logger.debug('CrudService: stamping tenant-context org on write', meta);
+      }
       return { ...d, orgId: ctx.orgId } as TInsert;
     }
     return data;

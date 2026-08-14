@@ -174,10 +174,16 @@ export function createRedisAuditSpool(
         // rough emission order is preserved across the outage — and clear them
         // from the in-progress list so `recover` doesn't double them. Iterate in
         // reverse so lpush restores the batch's original order at the head.
+        //
+        // ORDERING INVARIANT (at-least-once): lpush to the main list FIRST, THEN
+        // lrem from in-progress. A crash between the two leaves the entry on BOTH
+        // lists → harmless double-delivery (deduped downstream by idempotency
+        // reuse), never a LOSS. The reverse order (lrem then lpush) would drop the
+        // event outright on a crash in the gap, which a security log must not do.
         for (let i = entries.length - 1; i >= 0; i--) {
           const raw = rawOf(entries[i]);
-          await redis.lrem(inProgressKey, 1, raw);
           await redis.lpush(key, raw);
+          await redis.lrem(inProgressKey, 1, raw);
           rawByEntry.delete(entries[i]);
         }
       } catch (err) {

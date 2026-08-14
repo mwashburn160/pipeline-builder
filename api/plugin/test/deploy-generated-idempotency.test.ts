@@ -25,6 +25,9 @@ const mockValidatePlugin = jest.fn<(...args: any[]) => any>(() =>
 
 const mockIdemReserve = jest.fn<(...args: any[]) => Promise<boolean>>().mockResolvedValue(true);
 const mockIdemDelete = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
+// Reads back the reservation body on a duplicate to recover the ORIGINAL
+// request's id (the build streams under that id, not the retry's).
+const mockIdemGet = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue(null);
 
 const mockEnqueueBuild = jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined);
 const mockGetOrgTier = jest.fn<(...args: any[]) => any>().mockResolvedValue('developer');
@@ -75,7 +78,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
     const ctx = req.context;
     await handler({ req, res, ctx, orgId: ctx.identity.orgId?.toLowerCase() || '', userId: ctx.identity.userId || '' });
   },
-  getIdempotencyStore: () => ({ reserve: mockIdemReserve, delete: mockIdemDelete, get: jest.fn(), set: jest.fn() }),
+  getIdempotencyStore: () => ({ reserve: mockIdemReserve, delete: mockIdemDelete, get: mockIdemGet, set: jest.fn() }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
@@ -129,6 +132,8 @@ describe('POST /deploy-generated — Idempotency-Key guard', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockIdemReserve.mockResolvedValue(true);
+    mockIdemGet.mockResolvedValue(null);
+    mockEnqueueBuild.mockResolvedValue(undefined);
     mockReserveQuota.mockResolvedValue({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99, resetAt: '2026-08-01T00:00:00Z' } });
     mockValidatePlugin.mockResolvedValue({ blocked: false, violations: [], warnings: [] });
   });
@@ -137,10 +142,12 @@ describe('POST /deploy-generated — Idempotency-Key guard', () => {
     const res = mockRes();
     await handler(mockReq('req-1:my-plugin'), res);
 
-    // Key claimed under the org-namespaced deploy-generated prefix.
+    // Key claimed under the org-namespaced deploy-generated prefix, with THIS
+    // request's id persisted in the reservation body (so a later duplicate can
+    // return the original id and tail the real build stream).
     expect(mockIdemReserve).toHaveBeenCalledWith(
       'plugin:deploy-generated:org-1:req-1:my-plugin',
-      expect.objectContaining({ pending: true }),
+      expect.objectContaining({ pending: true, body: { requestId: 'req-1' } }),
       expect.any(Number),
     );
     // Quota reserved + build enqueued exactly once; reservation kept (not released).
@@ -168,6 +175,39 @@ describe('POST /deploy-generated — Idempotency-Key guard', () => {
     }));
   });
 
+  it('duplicate returns the ORIGINAL request id (from the reservation body), not the retry\'s', async () => {
+    // The winning request queued the build under `original-req-0` and stored
+    // that id in the reservation body. This retry carries its own `req-1`, but
+    // the build streams under the original id — so the route must echo the
+    // stored original or the client tails an empty stream.
+    mockIdemReserve.mockResolvedValueOnce(false);
+    mockIdemGet.mockResolvedValueOnce({
+      statusCode: 202, body: { requestId: 'original-req-0' }, pending: true, expiresAt: Date.now() + 1000,
+    });
+    const res = mockRes();
+    await handler(mockReq('req-1:my-plugin'), res);
+
+    expect(mockIdemGet).toHaveBeenCalledWith('plugin:deploy-generated:org-1:req-1:my-plugin');
+    expect(res.status).toHaveBeenCalledWith(202);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ idempotent: true, requestId: 'original-req-0' }),
+    }));
+  });
+
+  it('duplicate falls back to this request id when the reservation record can\'t be read', async () => {
+    // Redis hiccup on the read-back — degrade to the caller's own id rather than
+    // erroring the benign duplicate.
+    mockIdemReserve.mockResolvedValueOnce(false);
+    mockIdemGet.mockRejectedValueOnce(new Error('redis down'));
+    const res = mockRes();
+    await handler(mockReq('req-1:my-plugin'), res);
+
+    expect(res.status).toHaveBeenCalledWith(202);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ idempotent: true, requestId: 'req-1' }),
+    }));
+  });
+
   it('releases the key when quota is exceeded (so a legit retry can proceed)', async () => {
     mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'plugins', limit: 1, used: 1, remaining: 0, resetAt: '2026-08-01T00:00:00Z' } });
     const res = mockRes();
@@ -186,6 +226,40 @@ describe('POST /deploy-generated — Idempotency-Key guard', () => {
     expect(mockIdemDelete).toHaveBeenCalledWith('plugin:deploy-generated:org-1:req-1:my-plugin');
     expect(mockEnqueueBuild).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(403);
+  });
+
+  it('releases the key when reserveQuota throws (quota service down)', async () => {
+    // The reserveQuota await is the one post-claim await that used to sit outside
+    // any releaseIdem path: a throw left the claim to persist for its TTL and
+    // wrongly suppressed a legit retry. It must now release before rethrowing.
+    mockReserveQuota.mockRejectedValueOnce(new Error('quota service unavailable'));
+    const res = mockRes();
+    await expect(handler(mockReq('req-1:my-plugin'), res)).rejects.toThrow('quota service unavailable');
+
+    expect(mockIdemDelete).toHaveBeenCalledWith('plugin:deploy-generated:org-1:req-1:my-plugin');
+    expect(mockEnqueueBuild).not.toHaveBeenCalled();
+  });
+
+  it('releases the key when compliance is unreachable (503 fail-closed)', async () => {
+    mockValidatePlugin.mockRejectedValueOnce(new Error('compliance unreachable'));
+    const res = mockRes();
+    await handler(mockReq('req-1:my-plugin'), res);
+
+    expect(mockIdemDelete).toHaveBeenCalledWith('plugin:deploy-generated:org-1:req-1:my-plugin');
+    // Slot rolled back and nothing queued.
+    expect(mockDecrementQuota).toHaveBeenCalled();
+    expect(mockEnqueueBuild).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(503);
+  });
+
+  it('releases the key when enqueue throws (build never queued → retry allowed)', async () => {
+    mockEnqueueBuild.mockRejectedValueOnce(new Error('queue down'));
+    const res = mockRes();
+    await expect(handler(mockReq('req-1:my-plugin'), res)).rejects.toThrow('queue down');
+
+    // Rollback try releases the idem key AND refunds the reserved slot.
+    expect(mockIdemDelete).toHaveBeenCalledWith('plugin:deploy-generated:org-1:req-1:my-plugin');
+    expect(mockDecrementQuota).toHaveBeenCalled();
   });
 
   it('is a no-op guard when no Idempotency-Key header is present', async () => {

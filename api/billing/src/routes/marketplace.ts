@@ -220,8 +220,21 @@ async function handleEntitlementUpdate(customerIdentifier: string): Promise<void
   // the interval stays stale after such a move and every downstream period key
   // (periodKeyFor / periodBounds) + interval-priced credit (priceForInterval)
   // mis-keys against the old cadence.
+  //
+  // BUT the horizon SHRINKS as a term ages: an annual sub sitting in the back half
+  // of its term has `exp - now < 180d`, so deriveMarketplaceInterval would read
+  // 'monthly' and — on this UPDATE path — flip the sub to monthly, reset the period,
+  // and mis-price credits purely because time passed. AWS exposes no authoritative
+  // cadence field to disambiguate, so we only ADOPT a horizon-derived interval when
+  // it LENGTHENS the term (monthly→annual). An existing annual interval is never
+  // shortened from the horizon alone; a genuine annual→monthly downgrade arrives as
+  // a plan/dimension change and re-cadences through the plan-change path below.
   const now = new Date();
-  const newInterval = deriveMarketplaceInterval(activeEntitlement, now);
+  const derivedInterval = deriveMarketplaceInterval(activeEntitlement, now);
+  const newInterval: BillingInterval =
+    subscription.interval === 'monthly' && derivedInterval === 'annual'
+      ? 'annual'
+      : subscription.interval;
   const intervalChanged = newInterval !== subscription.interval;
 
   // Nothing to do only when BOTH the plan AND the cadence are unchanged — an

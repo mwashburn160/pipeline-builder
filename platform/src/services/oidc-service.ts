@@ -28,7 +28,7 @@
  */
 
 import crypto from 'crypto';
-import { createLogger } from '@pipeline-builder/api-core';
+import { assertSafeUrl, createLogger, isRefusedRedirect, SSRF_FETCH_INIT } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import { config } from '../config/index.js';
 
@@ -60,6 +60,7 @@ export const OIDC_ERROR_MAP = {
   OIDC_TOKEN_EXCHANGE_FAILED: { status: 502, message: 'Failed to exchange the authorization code' },
   OIDC_INVALID_ID_TOKEN: { status: 401, message: 'The identity provider returned an invalid token' },
   OIDC_NO_EMAIL: { status: 400, message: 'The identity provider did not return a verified email address' },
+  OIDC_EMAIL_DOMAIN_NOT_ALLOWED: { status: 403, message: 'Your email domain is not permitted to sign in to this organization' },
 } as const;
 
 // Discovery + JWKS
@@ -112,12 +113,17 @@ async function fetchDiscovery(discoveryUrl: string): Promise<DiscoveryDoc> {
 
   let res: Response;
   try {
-    res = await fetch(url, { headers: { Accept: 'application/json' } });
+    // SSRF guard: `discoveryUrl` is admin-supplied, so an org-admin/superadmin
+    // could otherwise point it at 169.254.169.254 or an internal service. Reject
+    // non-https / private / loopback / link-local hosts, and pin redirects so the
+    // fetch can't pivot to an unvalidated host.
+    await assertSafeUrl(url);
+    res = await fetch(url, { headers: { Accept: 'application/json' }, ...SSRF_FETCH_INIT });
   } catch (err) {
     logger.warn('OIDC discovery fetch failed', { url, error: err instanceof Error ? err.message : String(err) });
     throw new Error('OIDC_DISCOVERY_FAILED');
   }
-  if (!res.ok) throw new Error('OIDC_DISCOVERY_FAILED');
+  if (!res.ok || isRefusedRedirect(res)) throw new Error('OIDC_DISCOVERY_FAILED');
   const doc = await res.json() as Partial<DiscoveryDoc>;
   if (!doc.issuer || !doc.authorization_endpoint || !doc.token_endpoint || !doc.jwks_uri) {
     throw new Error('OIDC_DISCOVERY_FAILED');
@@ -133,12 +139,15 @@ async function fetchJwks(jwksUri: string, force = false): Promise<Jwk[]> {
 
   let res: Response;
   try {
-    res = await fetch(jwksUri, { headers: { Accept: 'application/json' } });
+    // The jwks_uri comes from the (admin-supplied) discovery document, so it is
+    // equally untrusted — SSRF-guard it too.
+    await assertSafeUrl(jwksUri);
+    res = await fetch(jwksUri, { headers: { Accept: 'application/json' }, ...SSRF_FETCH_INIT });
   } catch (err) {
     logger.warn('OIDC JWKS fetch failed', { jwksUri, error: err instanceof Error ? err.message : String(err) });
     throw new Error('OIDC_DISCOVERY_FAILED');
   }
-  if (!res.ok) throw new Error('OIDC_DISCOVERY_FAILED');
+  if (!res.ok || isRefusedRedirect(res)) throw new Error('OIDC_DISCOVERY_FAILED');
   const body = await res.json() as { keys?: Jwk[] };
   const keys = Array.isArray(body.keys) ? body.keys : [];
   jwksCache.set(jwksUri, { value: keys, fetchedAt: Date.now() });
@@ -271,8 +280,12 @@ export async function exchangeAndValidate(
   const discovery = await fetchDiscovery(discoveryUrlFor(cfg));
 
   // 1. Authorization-code → token exchange (confidential client, secret in body).
+  //    token_endpoint comes from the admin-supplied discovery doc, so SSRF-guard
+  //    it (blocks pointing the secret-bearing POST at an internal/metadata host)
+  //    and pin redirects.
   let tokenRes: Response;
   try {
+    await assertSafeUrl(discovery.token_endpoint);
     tokenRes = await fetch(discovery.token_endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
@@ -283,13 +296,14 @@ export async function exchangeAndValidate(
         client_id: cfg.clientId,
         client_secret: cfg.clientSecret,
       }).toString(),
+      ...SSRF_FETCH_INIT,
     });
   } catch (err) {
     logger.warn('OIDC token exchange request failed', { orgId: cfg.orgId, error: err instanceof Error ? err.message : String(err) });
     throw new Error('OIDC_TOKEN_EXCHANGE_FAILED');
   }
   const tokenBody = await tokenRes.json().catch(() => ({})) as { id_token?: string };
-  if (!tokenRes.ok || !tokenBody.id_token) throw new Error('OIDC_TOKEN_EXCHANGE_FAILED');
+  if (!tokenRes.ok || isRefusedRedirect(tokenRes) || !tokenBody.id_token) throw new Error('OIDC_TOKEN_EXCHANGE_FAILED');
 
   // 2. Validate the id_token: alg allow-list → JWKS signature → iss/aud/exp → nonce.
   const decoded = jwt.decode(tokenBody.id_token, { complete: true });
@@ -322,9 +336,24 @@ export async function exchangeAndValidate(
   if (!claims.email || !emailVerified) throw new Error('OIDC_NO_EMAIL');
   if (!claims.sub) throw new Error('OIDC_INVALID_ID_TOKEN');
 
+  const email = claims.email.toLowerCase();
+
+  // 5. Enforce the org's `allowedEmailDomains` (when configured). The IdP may
+  //    authenticate identities OUTSIDE the org's domains — a broad `google`
+  //    config, or a shared corporate Okta/Cognito pool — so the pinned domain
+  //    list is the control that keeps a foreign (e.g. `@gmail.com` or
+  //    `@evil-contractor.com`) identity from federating into this org. Empty
+  //    list = no restriction (the documented default). Without this the field
+  //    the model advertises as an access control would be inert.
+  if (cfg.allowedEmailDomains.length > 0) {
+    const domain = email.split('@').pop() ?? '';
+    const allowed = cfg.allowedEmailDomains.map(d => d.toLowerCase().trim().replace(/^@/, ''));
+    if (!domain || !allowed.includes(domain)) throw new Error('OIDC_EMAIL_DOMAIN_NOT_ALLOWED');
+  }
+
   return {
     subject: claims.sub,
-    email: claims.email.toLowerCase(),
+    email,
     name: claims.name,
   };
 }
