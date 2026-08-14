@@ -275,4 +275,34 @@ describe('pipeline-events handler', () => {
     expect(body.events[0].durationMs).toBeUndefined();
     expect(body.events[0].completedAt).toBeUndefined();
   });
+
+  describe('idempotency key (D3 — SQS at-least-once dedupe)', () => {
+    it('attaches a stable sha256 idempotencyKey to every event', async () => {
+      await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+      const body = lastEventsBody();
+      expect(body.events[0].idempotencyKey).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it('derives the SAME key for a redelivered (identical) event', async () => {
+      await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+      const first = lastEventsBody().events[0].idempotencyKey;
+      jest.clearAllMocks();
+      mockTagsSend.mockImplementation(tagResolver);
+      mockFetch.mockImplementation((url: string) => url.includes('/api/reports/events')
+        ? Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) })
+        : Promise.resolve({ ok: false, text: () => Promise.resolve('nf') }));
+      await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+      const second = lastEventsBody().events[0].idempotencyKey;
+      expect(second).toBe(first);
+    });
+
+    it('derives DIFFERENT keys for events that differ in state', async () => {
+      await handler(createSQSEvent([
+        MOCK_CODEPIPELINE_EVENT,
+        { ...MOCK_CODEPIPELINE_EVENT, detail: { ...MOCK_CODEPIPELINE_EVENT.detail, state: 'FAILED' } },
+      ]));
+      const body = lastEventsBody();
+      expect(body.events[0].idempotencyKey).not.toBe(body.events[1].idempotencyKey);
+    });
+  });
 });

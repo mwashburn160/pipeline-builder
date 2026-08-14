@@ -54,8 +54,18 @@ export type Permission =
   // Registry
   | 'registry:read'
   | 'registry:write'
-  // Organization settings (IdP, KMS, AI config, general settings)
-  | 'org:settings';
+  // Organization settings.
+  //  - `org:settings` — general org settings + AI config.
+  //  - `org:idp`      — SSO / IdP configuration (sensitive: controls login).
+  //  - `org:kms`      — customer-managed KMS key configuration (sensitive:
+  //                     controls encryption of org data).
+  // `org:idp`/`org:kms` were split OUT of `org:settings` so a custom role can
+  // grant general settings WITHOUT the two sensitive surfaces. Both remain
+  // org-assignable and are seeded into the admin/owner bundles (via
+  // ORG_ASSIGNABLE_PERMISSIONS) so existing admins keep full access.
+  | 'org:settings'
+  | 'org:idp'
+  | 'org:kms';
 
 /** All valid permissions (order determines display order in the picker). */
 export const ALL_PERMISSIONS: readonly Permission[] = [
@@ -70,7 +80,7 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   'billing:read', 'billing:manage',
   'quotas:read',
   'registry:read', 'registry:write',
-  'org:settings',
+  'org:settings', 'org:idp', 'org:kms',
 ];
 
 /** Check whether a string is a valid Permission. */

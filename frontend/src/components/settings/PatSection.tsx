@@ -10,6 +10,7 @@ import { FormField } from '@/components/ui/FormField';
 import { Badge } from '@/components/ui/Badge';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { formatError } from '@/lib/constants';
@@ -31,6 +32,9 @@ export function PatSection() {
   const toast = useToast();
   const [pats, setPats] = useState<PatMeta[]>([]);
   const [loading, setLoading] = useState(false);
+  // A load failure must NOT render as "no tokens yet" — on a security surface a
+  // false-empty could imply the account has no live credentials when it may.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [days, setDays] = useState(90);
   const [creating, setCreating] = useState(false);
@@ -42,11 +46,15 @@ export function PatSection() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await api.listPats();
       if (res.success && res.data) setPats(res.data.pats);
+      else setLoadError('Failed to load tokens');
     } catch (err) {
-      toast.error(formatError(err, 'Failed to load tokens'));
+      const msg = formatError(err, 'Failed to load tokens');
+      setLoadError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -98,6 +106,41 @@ export function PatSection() {
     }
   };
 
+  const columns: Column<PatMeta>[] = [
+    {
+      id: 'name',
+      header: 'Name',
+      cellClassName: 'font-medium text-gray-900 dark:text-gray-100',
+      render: (p) => (
+        <>{p.name}{p.scope ? <span className="ml-1 text-xs text-gray-400">({p.scope})</span> : null}</>
+      ),
+    },
+    { id: 'status', header: 'Status', render: (p) => <Badge color={STATUS_COLOR[p.status]}>{p.status}</Badge> },
+    { id: 'created', header: 'Created', render: (p) => <RelativeTime value={p.createdAt} /> },
+    { id: 'expires', header: 'Expires', render: (p) => <RelativeTime value={p.expiresAt} /> },
+    {
+      id: 'lastUsed',
+      header: 'Last used',
+      render: (p) => (p.lastUsedAt ? <RelativeTime value={p.lastUsedAt} /> : <span className="text-gray-400">never</span>),
+    },
+    {
+      id: 'actions',
+      header: '',
+      cellClassName: 'text-right',
+      render: (p) => (!p.revoked && p.status !== 'expired' ? (
+        <Button
+          variant="ghost"
+          size="xs"
+          onClick={() => handleRevoke(p.jti)}
+          disabled={revoking === p.jti}
+          className="gap-1 text-red-600 hover:text-red-700"
+        >
+          <Trash2 className="w-3.5 h-3.5" /> Revoke
+        </Button>
+      ) : null),
+    },
+  ];
+
   return (
     <Card>
       <div className="flex items-center gap-2 mb-2">
@@ -138,48 +181,23 @@ export function PatSection() {
 
       {loading && pats.length === 0 ? (
         <p className="text-sm text-gray-400">Loading…</p>
+      ) : loadError && pats.length === 0 ? (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300" role="alert">
+          <span>{loadError}</span>
+          <button type="button" onClick={() => void load()} className="underline hover:no-underline shrink-0">Retry</button>
+        </div>
       ) : pats.length === 0 ? (
         <p className="text-sm text-gray-400">No personal access tokens yet.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
-                <th className="py-2 pr-4 font-medium">Name</th>
-                <th className="py-2 pr-4 font-medium">Status</th>
-                <th className="py-2 pr-4 font-medium">Created</th>
-                <th className="py-2 pr-4 font-medium">Expires</th>
-                <th className="py-2 pr-4 font-medium">Last used</th>
-                <th className="py-2 font-medium" />
-              </tr>
-            </thead>
-            <tbody>
-              {pats.map((p) => (
-                <tr key={p.jti} className="border-b border-gray-100 dark:border-gray-800">
-                  <td className="py-2 pr-4 font-medium text-gray-900 dark:text-gray-100">
-                    {p.name}{p.scope ? <span className="ml-1 text-xs text-gray-400">({p.scope})</span> : null}
-                  </td>
-                  <td className="py-2 pr-4"><Badge color={STATUS_COLOR[p.status]}>{p.status}</Badge></td>
-                  <td className="py-2 pr-4"><RelativeTime value={p.createdAt} /></td>
-                  <td className="py-2 pr-4"><RelativeTime value={p.expiresAt} /></td>
-                  <td className="py-2 pr-4">{p.lastUsedAt ? <RelativeTime value={p.lastUsedAt} /> : <span className="text-gray-400">never</span>}</td>
-                  <td className="py-2 text-right">
-                    {!p.revoked && p.status !== 'expired' && (
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        onClick={() => handleRevoke(p.jti)}
-                        disabled={revoking === p.jti}
-                        className="gap-1 text-red-600 hover:text-red-700"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" /> Revoke
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable
+            data={pats}
+            columns={columns}
+            isLoading={false}
+            animated={false}
+            getRowKey={(p) => p.jti}
+            emptyState={{ icon: KeyRound, title: 'No personal access tokens yet', description: 'Create a token above for CLI and automation.' }}
+          />
         </div>
       )}
     </Card>

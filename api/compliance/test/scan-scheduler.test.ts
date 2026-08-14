@@ -6,13 +6,12 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // createScheduler is exercised in api-core's own tests; here stub it to a
 // no-op start/stop so the lifecycle wrappers are safe + idempotent to call.
+// `createEnvRedisLock` returns null (no Redis in tests) so the scheduler is built
+// lock-free; `createScheduler` is stubbed to a no-op start/stop so the lifecycle
+// wrappers are safe + idempotent to call.
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createScheduler: () => ({ start: jest.fn(), stop: jest.fn() }),
-}));
-
-// Stub the BullMQ-backed lock client so importing the scheduler doesn't connect to Redis.
-jest.unstable_mockModule('../src/queue/compliance-event-queue.js', () => ({
-  getLockRedis: jest.fn(async () => ({})),
+  createEnvRedisLock: () => null,
 }));
 
 // Provide minimal Config + db + schema so the module loads.

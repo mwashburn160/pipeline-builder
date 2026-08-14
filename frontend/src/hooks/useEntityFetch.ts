@@ -15,7 +15,7 @@ import { runCancellableFetch } from './internal/fetchCore';
  * (e.g. after an in-place edit-save on a detail page).
  *
  * @example
- * const { entity, fetching, reload } = useEntityFetch(plugin.id, (id) => api.getPlugin(id));
+ * const { entity, fetching, reload } = useEntityFetch(plugin.id, (id) => api.getPluginById(id));
  */
 export function useEntityFetch<T>(
   id: string | null | undefined,

@@ -24,7 +24,7 @@ import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
-import { getAvailableProviders, getFilteredPlugins, generatePipelineConfig, streamPipelineConfig } from '../services/ai-generation-service.js';
+import { getAvailableProviders, getFilteredPlugins, generatePipelineConfig, streamPipelineConfig, AIEmptyOutputError } from '../services/ai-generation-service.js';
 import { parseGitUrl, analyzeRepository, buildEnhancedPrompt } from '../services/git-analysis-service.js';
 import { findExistingPluginNames } from '../services/plugin-lookup-service.js';
 
@@ -167,8 +167,13 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
       } catch (error) {
         const message = errorMessage(error);
         logger.error('AI pipeline generation failed', { requestId: ctx.requestId, error: message });
-        // Roll back the reserved slot — the LLM call never produced output.
-        decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+        // Keep-on-provider-contact policy (unified with the streaming path): an
+        // empty/unparseable output AFTER the provider round-trip completed still
+        // incurred the external $ cost, so the reserved aiCalls slot is KEPT.
+        // Only pre-provider failures (model resolution, connectivity) refund.
+        if (!(error instanceof AIEmptyOutputError)) {
+          decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+        }
         handleAIError(res, message, 'Failed to generate pipeline configuration');
       }
     }),

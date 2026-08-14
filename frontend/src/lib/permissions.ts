@@ -43,7 +43,9 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
   { id: 'quotas:read', label: 'View quotas', description: 'View organization quotas and usage', category: 'Billing & Quotas' },
   { id: 'registry:read', label: 'View registry', description: 'View the container image registry', category: 'Registry' },
   { id: 'registry:write', label: 'Manage registry', description: 'Delete and copy container images', category: 'Registry' },
-  { id: 'org:settings', label: 'Organization settings', description: 'Manage org settings (SSO/IdP, KMS, AI config)', category: 'Organization' },
+  { id: 'org:settings', label: 'Organization settings', description: 'Manage general org settings and AI config', category: 'Organization' },
+  { id: 'org:idp', label: 'Manage SSO/IdP', description: 'Configure single sign-on and identity providers', category: 'Organization' },
+  { id: 'org:kms', label: 'Manage encryption keys', description: 'Configure customer-managed KMS encryption keys', category: 'Organization' },
 ];
 
 /** Group a flat permission list into categories, preserving catalog order. */

@@ -49,11 +49,13 @@ export function hasPermission(user: User | null, permission: string): boolean {
  * The catalog is coarse `resource:action` (see api-core `types/permissions.ts`):
  * `:read` (and `:rollup`, a read-visibility scope) are reads; `:write`,
  * `:manage` (members/roles/invitations/billing), and `:publish` (making an
- * entity public) are writes, and `org:settings` is a write surface too. Used to
- * blanket-disable write affordances during read-only impersonation, where the
- * backend rejects every non-GET request — so surfacing an enabled write control
- * just produces a 403 dead-end.
+ * entity public) are writes, and the org-config surfaces `org:settings`,
+ * `org:idp` (SSO/IdP), and `org:kms` (customer-managed encryption keys) are
+ * write surfaces too. Used to blanket-disable write affordances during read-only
+ * impersonation, where the backend rejects every non-GET request — so surfacing
+ * an enabled write control just produces a 403 dead-end.
  */
+const ORG_CONFIG_MUTATIONS = new Set(['org:settings', 'org:idp', 'org:kms']);
 export function isMutationPermission(permission: string): boolean {
-  return /:(write|manage|publish)$/.test(permission) || permission === 'org:settings';
+  return /:(write|manage|publish)$/.test(permission) || ORG_CONFIG_MUTATIONS.has(permission);
 }

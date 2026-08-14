@@ -488,6 +488,14 @@ export abstract class CrudService<
         target: this.conflictTarget as any,
         set: {
           ...safeData,
+          // RESURRECT on re-create: `delete` soft-deletes (isActive=false + deletedAt/
+          // deletedBy set), but the unique constraint keeps the tombstoned row, so a
+          // re-create with the same conflict key lands here. Without resetting these,
+          // the row's body updates but it stays soft-deleted and never reappears
+          // (reads default to isActive=true). Matches the pipeline/plugin overrides.
+          isActive: true,
+          deletedAt: null,
+          deletedBy: null,
           updatedAt: new Date(),
           updatedBy: userId || 'system',
         } as any,
@@ -706,6 +714,13 @@ export abstract class CrudService<
       if (key === 'updatedBy') { set[key] = user; continue; }
       set[key] = sql`excluded.${sql.identifier(name)}`;
     }
+    // RESURRECT on bulk re-create (matches the single-row create): reset the
+    // soft-delete columns explicitly rather than rely on `excluded.*` + column
+    // defaults, so a re-created same-key row is always reactivated, not left
+    // tombstoned. All CrudService entities carry these (delete() sets all three).
+    set.isActive = true;
+    set.deletedAt = null;
+    set.deletedBy = null;
     return set;
   }
 

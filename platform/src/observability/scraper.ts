@@ -13,11 +13,16 @@
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { setGauge } from './metrics.js';
 import { User, Organization, UserOrganization } from '../models/index.js';
+import { runWithLeaderLock } from '../utils/leader-lock.js';
 
 const logger = createLogger('platform-scraper');
 /** How often to scrape org/user counts for the Prom gauges. Sized for the Prom
  *  scrape budget — anything under 30s isn't useful since Prom polls every 15s. */
 const INTERVAL_MS = parseInt(process.env.PLATFORM_SCRAPER_INTERVAL_MS || '60000', 10);
+
+/** Cross-pod leader-lock key so only ONE replica pays the Mongo count round-trips
+ *  per window; the gauges are fleet-wide totals, so a single scraper suffices. */
+const LOCK_KEY = 'platform:leader:metrics-scraper';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -66,8 +71,10 @@ async function scrapeOnce(): Promise<void> {
  */
 export function startPlatformMetricsScraper(intervalMs: number = INTERVAL_MS): () => void {
   if (timer) return stopPlatformMetricsScraper;
-  timer = setInterval(() => void scrapeOnce(), intervalMs);
-  void scrapeOnce(); // immediate first sample
+  const lockTtlMs = Math.max(intervalMs, 60_000);
+  const runLocked = () => void runWithLeaderLock(LOCK_KEY, lockTtlMs, async () => { await scrapeOnce(); });
+  timer = setInterval(runLocked, intervalMs);
+  runLocked(); // immediate first sample (leader-locked)
   logger.info('Platform metrics scraper started', { intervalMs });
   return stopPlatformMetricsScraper;
 }

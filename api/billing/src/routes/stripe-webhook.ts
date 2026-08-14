@@ -21,7 +21,7 @@ import { clawbackRecentPromotions, grantRecurringPromotions, qualifyReferral, re
 import { findSubscriptionByCustomerId, findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers.js';
 import { Plan } from '../models/plan.js';
 import type { SubscriptionDocument } from '../models/subscription.js';
-import { claimWebhookEvent, releaseWebhookEvent } from '../models/webhook-dedupe.js';
+import { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent } from '../models/webhook-dedupe.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 import { StripeProvider } from '../providers/stripe-provider.js';
 
@@ -111,9 +111,13 @@ export function createStripeWebhookRoutes(): Router {
         'invoice.marked_uncollectible': (data) => handleInvoiceReversal(data as Stripe.Invoice, 'invoice_uncollectible'),
       };
 
-      // Idempotency guard: Stripe retries the same event.id on transient
-      // failures. Claim the ID before processing — duplicate deliveries
-      // short-circuit with 200 (so Stripe stops retrying) and skip side-effects.
+      // Two-phase idempotency guard (crash-durable): Stripe retries the same
+      // event.id on transient failures. Take a SHORT-LIVED in-progress claim
+      // before processing — a duplicate/concurrent delivery short-circuits with
+      // 200 (so Stripe stops retrying) and skips side-effects. The durable
+      // done-marker is written only AFTER the handler succeeds, so a mid-process
+      // crash lets the claim expire and Stripe's retry re-runs the event instead
+      // of it being stranded as "processed" for 30d.
       const isFirstDelivery = await claimWebhookEvent('stripe', event.id);
       if (!isFirstDelivery) {
         logger.info('Skipping duplicate Stripe delivery', { eventId: event.id, type: event.type });
@@ -128,6 +132,9 @@ export function createStripeWebhookRoutes(): Router {
           logger.debug('Unhandled Stripe event type', { type: event.type });
         }
 
+        // Side-effects succeeded — promote the in-progress claim to the durable
+        // done-marker so retries are deduped (but a crash before this re-runs).
+        await markWebhookEventDone('stripe', event.id);
         return sendSuccess(res, 200, { received: true });
       } catch (error) {
         // Release the idempotency claim so Stripe's retry reprocesses this

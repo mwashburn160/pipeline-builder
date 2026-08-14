@@ -149,25 +149,28 @@ router.get('/:id/feature-entitlements', requireAuth, getOrganizationFeatureEntit
 
 /*
  * Per-org SSO / IdP self-service (customer org-admin manages THEIR OWN org's
- * SSO). `requirePermission('org:settings')` is the capability gate (the same
- * org-assignable permission that governs IdP/KMS/AI/general settings); the
- * controllers add the tenancy gate (`requireOrgScope`: own org / managed team)
- * AND an `sso`-entitlement check. Secret-bearing writes are step-up gated, just
- * like the superadmin `/admin/org-idp/*` fleet routes. The two-segment `/:id/idp`
- * path never collides with the single-segment `GET /:id` read above.
+ * SSO). `requirePermission('org:idp')` is the capability gate — the sensitive
+ * SSO/IdP capability that was split OUT of `org:settings` so a custom role can
+ * grant general settings WITHOUT the login-controlling IdP config (it stays in
+ * the admin/owner bundles, so existing admins are unaffected; superadmins bypass
+ * via `hasPermission`). The controllers add the tenancy gate (`requireOrgScope`:
+ * own org / managed team) AND an `sso`-entitlement check. Secret-bearing writes
+ * are step-up gated, just like the superadmin `/admin/org-idp/*` fleet routes.
+ * The two-segment `/:id/idp` path never collides with the single-segment
+ * `GET /:id` read above.
  */
 
 /** GET /organization/:id/idp - Read own-org IdP config (config: null if unset) */
-router.get('/:id/idp', requireAuth, requirePermission('org:settings'), getOwnOrgIdpConfig);
+router.get('/:id/idp', requireAuth, requirePermission('org:idp'), getOwnOrgIdpConfig);
 
 /** PUT /organization/:id/idp - Upsert own-org IdP config (step-up: secret-bearing) */
-router.put('/:id/idp', requireAuth, requirePermission('org:settings'), requireStepUp, putOwnOrgIdpConfig);
+router.put('/:id/idp', requireAuth, requirePermission('org:idp'), requireStepUp, putOwnOrgIdpConfig);
 
 /** PATCH /organization/:id/idp - Partial update of own-org IdP config (step-up) */
-router.patch('/:id/idp', requireAuth, requirePermission('org:settings'), requireStepUp, patchOwnOrgIdpConfig);
+router.patch('/:id/idp', requireAuth, requirePermission('org:idp'), requireStepUp, patchOwnOrgIdpConfig);
 
 /** DELETE /organization/:id/idp - Remove own-org IdP config (step-up) */
-router.delete('/:id/idp', requireAuth, requirePermission('org:settings'), requireStepUp, deleteOwnOrgIdpConfig);
+router.delete('/:id/idp', requireAuth, requirePermission('org:idp'), requireStepUp, deleteOwnOrgIdpConfig);
 
 /*
  * Organization Members (admin can manage any org)

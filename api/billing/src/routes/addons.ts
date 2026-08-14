@@ -32,6 +32,7 @@ import {
 import { activeComboCredits, comboBasisCents, getComboDiscounts } from '../helpers/combo-pricing.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
+import type { SubscriptionDocument } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 import { getAuditClient } from '../services/audit.js';
 import { AddonMutateSchema } from '../validation/schemas.js';
@@ -46,6 +47,29 @@ function applyAddon(addons: Addon[], bundleId: string, quantity: number): Addon[
   const rest = addons.filter((a) => a.bundleId !== bundleId);
   if (quantity > 0) rest.push({ bundleId, quantity });
   return rest;
+}
+
+/**
+ * Stamp the durable `metadata.providerAddonSyncPending` marker IN MEMORY so it
+ * persists in the SAME `save()` that writes the new add-on set (crash-durability).
+ *
+ * Without this the marker was only set INSIDE `syncProviderAddons` on its failure
+ * path — so a crash in the window between the add-on save and that call left the
+ * account entitled-but-mis-billed (a purchased bundle unbilled, or a removed
+ * bundle still billed) with NO marker for the lifecycle reconciler to recover.
+ * Stamping it transactionally with the save closes that window: a subsequent
+ * successful `syncProviderAddons` clears it, and a crash before that leaves the
+ * marker for `reconcileFailedProviderAddonSyncs` to re-drive.
+ *
+ * Only meaningful when there's a provider subscription line item to reconcile
+ * (`externalId`) — `syncProviderAddons` no-ops (and never clears) without one, so
+ * stamping there would strand the marker forever.
+ */
+function stampProviderSyncPending(subscription: SubscriptionDocument): void {
+  if (!subscription.externalId) return;
+  subscription.metadata = { ...(subscription.metadata ?? {}), providerAddonSyncPending: true };
+  // metadata is a Mixed path — mark it modified so the nested change is persisted.
+  subscription.markModified('metadata');
 }
 
 /** Catalog-time combo savings (`min-composition basket − combined price`, ≥ 0) for
@@ -273,6 +297,10 @@ export function createAddonRoutes(): Router {
     }
 
     subscription.addons = next;
+    // Stamp the provider-sync-pending marker in the SAME save so a crash between
+    // here and syncProviderAddons still leaves a durable marker the reconciler
+    // recovers (syncProviderAddons clears it on success below).
+    stampProviderSyncPending(subscription);
     await subscription.save();
 
     // Recompute + push EFFECTIVE entitlements (tier + all add-ons) to both
@@ -342,6 +370,10 @@ export function createAddonRoutes(): Router {
     }
 
     subscription.addons = next;
+    // Same crash-durability stamp as the add path: a removal that crashes before
+    // syncProviderAddons would otherwise keep billing the removed bundle with no
+    // marker — the reconciler re-drives the provider removal from this marker.
+    stampProviderSyncPending(subscription);
     await subscription.save();
 
     const serviceAuth = billingServiceAuth(orgId);

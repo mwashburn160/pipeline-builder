@@ -41,6 +41,26 @@ jest.unstable_mockModule('dns/promises', () => ({
   lookup: jest.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
 }));
 
+// The webhook channel sends via the https module with the vetted IP pinned into
+// the socket (undici isn't a dependency), so drive delivery through a synthetic
+// https.request that records the options + body and returns a configurable status.
+const httpsCtl: { status: number; options: Record<string, unknown> | null; body?: string; calls: number } =
+  { status: 200, options: null, calls: 0 };
+jest.unstable_mockModule('https', () => ({
+  request: (options: Record<string, unknown>, cb: (res: unknown) => void) => {
+    httpsCtl.calls += 1;
+    httpsCtl.options = options;
+    const res = {
+      statusCode: httpsCtl.status,
+      resume: () => {},
+      on: (evt: string, h: (...a: unknown[]) => void) => { if (evt === 'end') h(); return res; },
+    };
+    queueMicrotask(() => cb(res));
+    const req = { on: () => req, end: (body?: unknown) => { httpsCtl.body = body as string; } };
+    return req;
+  },
+}));
+
 import type { Violation } from '../src/engine/rule-engine.js';
 const { notifyComplianceBlock, notifyComplianceWarnings } = await import('../src/helpers/compliance-notifier.js');
 
@@ -175,40 +195,37 @@ describe('notifyComplianceBlock — preference gating', () => {
 });
 
 describe('notifyComplianceBlock — webhook channel', () => {
-  const fetchMock = jest.fn<typeof fetch>();
   beforeEach(() => {
     mockPost.mockReset(); mockPost.mockResolvedValue(undefined);
     mockGetPreference.mockReset();
     mockRecordLog.mockReset(); mockRecordLog.mockResolvedValue(undefined);
-    fetchMock.mockReset(); fetchMock.mockResolvedValue({ ok: true, status: 200 } as Response);
-    global.fetch = fetchMock as unknown as typeof fetch;
+    httpsCtl.status = 200; httpsCtl.options = null; httpsCtl.body = undefined; httpsCtl.calls = 0;
   });
 
-  it('POSTs the structured payload to the org webhook and logs it', async () => {
+  it('POSTs the structured payload to the org webhook (pinned host/path) and logs it', async () => {
     mockGetPreference.mockResolvedValue({ notifyOnBlock: true, webhookUrl: 'https://hook.example/c', webhookSecret: null });
     await notifyComplianceBlock('org-1', 'plugin', 'p', [makeViolation()]);
 
     expect(mockPost).toHaveBeenCalledTimes(1); // in-app still fires
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://hook.example/c');
-    const payload = JSON.parse((init as RequestInit).body as string);
+    expect(httpsCtl.calls).toBe(1);
+    expect(httpsCtl.options?.hostname).toBe('hook.example');
+    expect(httpsCtl.options?.path).toBe('/c');
+    const payload = JSON.parse(httpsCtl.body as string);
     expect(payload.event).toBe('compliance.block');
     expect(payload.violations[0].ruleName).toBe('rule-1');
-    expect((init as RequestInit).headers as Record<string, string>).not.toHaveProperty('X-PB-Signature');
+    expect(httpsCtl.options?.headers as Record<string, string>).not.toHaveProperty('X-PB-Signature');
     expect(mockRecordLog).toHaveBeenCalledWith(expect.objectContaining({ channel: 'webhook', status: 'sent', webhookResponseCode: 200 }));
   });
 
   it('HMAC-signs the webhook body when a secret is configured', async () => {
     mockGetPreference.mockResolvedValue({ notifyOnBlock: true, webhookUrl: 'https://hook.example/c', webhookSecret: 's3cr3t' });
     await notifyComplianceBlock('org-1', 'plugin', 'p', [makeViolation()]);
-    const init = fetchMock.mock.calls[0][1] as RequestInit;
-    const expected = `sha256=${createHmac('sha256', 's3cr3t').update(init.body as string).digest('hex')}`;
-    expect((init.headers as Record<string, string>)['X-PB-Signature']).toBe(expected);
+    const expected = `sha256=${createHmac('sha256', 's3cr3t').update(httpsCtl.body as string).digest('hex')}`;
+    expect((httpsCtl.options?.headers as Record<string, string>)['X-PB-Signature']).toBe(expected);
   });
 
   it('logs a failed webhook on non-2xx without affecting in-app', async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 503 } as Response);
+    httpsCtl.status = 503;
     mockGetPreference.mockResolvedValue({ notifyOnBlock: true, webhookUrl: 'https://hook.example/c', webhookSecret: null });
     await notifyComplianceBlock('org-1', 'plugin', 'p', [makeViolation()]);
     expect(mockRecordLog).toHaveBeenCalledWith(expect.objectContaining({ channel: 'webhook', status: 'failed', webhookResponseCode: 503 }));

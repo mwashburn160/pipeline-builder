@@ -413,6 +413,22 @@ For `BILLING_PROVIDER=aws-marketplace`: add-on charges are reported as metered u
 
 ---
 
+## Scaling & multi-replica (Optional)
+
+All optional (defaults shown). They tune behavior that matters only under horizontal scaling (>1 replica) or high load.
+
+> **Redis is required for multi-replica correctness.** OAuth/SSO login CSRF `state` + nonce, SSE build-log delivery, step-up single-use tokens, and the background sweep leader locks (org-purge, invitation-reaper, billing-reconcile, registry GC) all use the shared Redis when running with more than one replica. Without Redis they degrade to **per-pod** behavior, which is correct only on a single replica — e.g. round-robin between replicas would fail OAuth/SSO logins (`state`/`nonce` minted on one pod, validated on another) and drop live build-log lines.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PIPELINE_EXEC_IDEMPOTENCY_WINDOW_SECONDS` | `60` | Window for the execution-trigger idempotency guard — a duplicate `POST /pipelines/:id/executions` within it is a no-op, not a second CodePipeline run |
+| `BILLING_WEBHOOK_INPROGRESS_TTL_SECONDS` | `300` | Webhook in-progress lock TTL — a crash mid-processing releases the claim after this so the provider's retry re-runs the event's side-effects (not dropped as a duplicate) |
+| `COMPLIANCE_VALIDATE_TIMEOUT_MS` | `4000` | Per-attempt timeout for the fail-closed compliance validate call (now retried, so a transient blip doesn't reject a legit upload/create) |
+| `HTTP_CLIENT_MAX_SOCKETS` | `64` | Max sockets per internal HTTP keep-alive agent (was unbounded) |
+| `REGISTRY_GC_LOCK_TTL_MS` | `900000` | Image-registry GC leader-lock TTL (ms); only one replica runs the destructive GC sweep at a time |
+
+---
+
 ## Timeouts
 
 | Variable | Default | Description |

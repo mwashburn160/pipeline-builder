@@ -1,5 +1,6 @@
 'use client';
 
+import { Select } from '@/components/ui/Select';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { BookOpen, ToggleLeft, ToggleRight, Copy, Pin, PinOff, Loader2, Zap, Eye, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import api from '@/lib/api';
@@ -390,7 +391,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
         <div className="space-y-3">
           {/* Catalog filters */}
           <div className="flex gap-3">
-            <select
+            <Select
               value={catalogTarget}
               onChange={(e) => setCatalogTarget(e.target.value as RuleTarget | '')}
               aria-label="Filter catalog by target"
@@ -399,8 +400,8 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
               <option value="">All targets</option>
               <option value="plugin">Plugin</option>
               <option value="pipeline">Pipeline</option>
-            </select>
-            <select
+            </Select>
+            <Select
               value={catalogSeverity}
               onChange={(e) => setCatalogSeverity(e.target.value as RuleSeverity | '')}
               aria-label="Filter catalog by severity"
@@ -410,7 +411,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
               <option value="critical">Critical</option>
               <option value="error">Error</option>
               <option value="warning">Warning</option>
-            </select>
+            </Select>
           </div>
 
           {catalog.length === 0 ? (

@@ -460,6 +460,7 @@ async function initDependencies(): Promise<void> {
   // developer-tier with no bill. No-ops when billing is disabled. Idempotent.
   if (config.billing.enabled) {
     const { reconcilePendingBillingSubscriptions } = await import('./services/billing-provision.js');
+    const { runWithLeaderLock } = await import('./utils/leader-lock.js');
     void reconcilePendingBillingSubscriptions().catch((err) => {
       logger.error('Billing reconcile (boot drain) failed (service will still come ready)', {
         error: err instanceof Error ? err.message : String(err),
@@ -467,8 +468,14 @@ async function initDependencies(): Promise<void> {
     });
     const intervalMs = config.billing.reconcileIntervalMs;
     if (intervalMs > 0) {
+      // Cross-pod leader lock so only ONE replica runs the reconcile pass per
+      // window (otherwise every replica scans + provisions the same pending
+      // orgs in parallel). TTL floored to comfortably exceed one pass.
+      const lockTtlMs = Math.max(intervalMs, 60_000);
       setInterval(() => {
-        void reconcilePendingBillingSubscriptions().catch((err) => {
+        void runWithLeaderLock('platform:leader:billing-reconcile', lockTtlMs, async () => {
+          await reconcilePendingBillingSubscriptions();
+        }).catch((err) => {
           logger.error('Billing reconcile (interval) failed', {
             error: err instanceof Error ? err.message : String(err),
           });

@@ -1,12 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendSuccess, sendEntityNotFound, validateBody, PipelineUpdateSchema, pickDefined, normalizeArrayFields } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendError, sendSuccess, sendEntityNotFound, validateBody, PipelineUpdateSchema, pickDefined, normalizeArrayFields, createComplianceClient, getServiceAuthHeader, errorMessage } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator.js';
 import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineService } from '../services/pipeline-service.js';
+
+const complianceClient = createComplianceClient();
 
 /**
  * Register the UPDATE route on a router.
@@ -71,6 +73,37 @@ export function createUpdatePipelineRoutes(): Router {
       updatedAt: new Date(),
       updatedBy: userId || 'system',
     };
+
+    // -- Compliance re-check on UPDATE (fail-closed) ------------------------
+    // An update that changes the pipeline's config or visibility must not be
+    // allowed to turn a compliant pipeline non-compliant (create already gates
+    // this; without it, edits were a detective-only hole). Only re-validate when
+    // a compliance-relevant field changed (props / accessModifier) — a metadata-
+    // or name-only edit doesn't alter the compliance posture, so we don't make
+    // those pay a compliance round-trip or get blocked by a compliance outage.
+    if (body.props !== undefined || body.accessModifier !== undefined) {
+      const serviceAuth = getServiceAuthHeader({ serviceName: 'pipeline', orgId, role: 'member' });
+      const resolvedName = (updateData.pipelineName ?? existing.pipelineName) as string | undefined;
+      try {
+        const complianceResult = await complianceClient.validatePipeline(orgId, {
+          project: existing.project,
+          organization: existing.organization,
+          pipelineName: resolvedName,
+          props: updateData.props ?? existing.props,
+          accessModifier: updateData.accessModifier ?? existing.accessModifier,
+        }, serviceAuth, existing.id, resolvedName, 'update');
+
+        if (complianceResult.blocked) {
+          ctx.log('WARN', 'Pipeline update blocked by compliance', { id, violations: complianceResult.violations.length });
+          return sendError(res, 403, 'Pipeline update blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
+            violations: complianceResult.violations,
+          });
+        }
+      } catch (err) {
+        ctx.log('ERROR', 'Compliance service unavailable — pipeline update rejected', { error: errorMessage(err) });
+        return sendError(res, 503, 'Compliance service unavailable — pipeline update rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
+      }
+    }
 
     let updated;
     if (body.isDefault === true) {

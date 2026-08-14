@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createQuotaService, createRedisTokenRevocationStore, registerComplianceQueueBackend, requirePermission, wireAuthzDenialAuditor, setTokenRevocationStore } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, createEnvRedisTokenRevocationStore, requirePermission, wireAuthzDenialAuditor, setTokenRevocationStore } from '@pipeline-builder/api-core';
 import {
   createApp,
   runServer,
@@ -9,16 +9,11 @@ import {
   createProtectedRoute,
   createAuthenticatedWithOrgRoute,
   postgresHealthCheck,
-  redisHealthCheck,
-  combineHealthChecks,
 } from '@pipeline-builder/api-server';
-import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { startAuditPruneCron } from './helpers/compliance-check-log.js';
 import { startDigestScheduler, stopDigestScheduler } from './helpers/digest-scheduler.js';
-import { evaluateEntityEvent } from './helpers/entity-event-handler.js';
 import { startScanScheduler, stopScanScheduler } from './helpers/scan-scheduler.js';
-import { enqueue, startComplianceWorker, stopComplianceWorker, getQueueRedis, getRevocationRedis } from './queue/compliance-event-queue.js';
 import { createAuditRoutes } from './routes/audit.js';
 import { createCreatePolicyRoutes } from './routes/create-policies.js';
 import { createCreateRuleRoutes } from './routes/create-rules.js';
@@ -41,12 +36,11 @@ import { getAuditClient } from './services/remote-audit-client.js';
 const logger = createLogger('compliance');
 const quotaService = createQuotaService();
 const { app, sseManager } = createApp({
-  // Compliance depends on BOTH postgres and redis (the BullMQ event queue) —
-  // probe each in parallel.
-  checkDependencies: combineHealthChecks(
-    () => postgresHealthCheck(),
-    redisHealthCheck(() => getQueueRedis()),
-  ),
+  // Compliance's hard dependency is postgres. Redis is only used fail-open now
+  // (token-revocation reader + scheduler leader locks via the shared env-Redis
+  // client), so it must NOT gate readiness — a Redis outage degrades gracefully
+  // rather than pulling the service out of the load balancer.
+  checkDependencies: postgresHealthCheck,
 });
 
 // Attach request context to all requests
@@ -122,41 +116,15 @@ logger.info('All /compliance routes registered');
 // as best-effort `authz.denied` failure records. Registered once at boot.
 wireAuthzDenialAuditor('compliance', getAuditClient);
 
-// Token-revocation reader (session-invalidation option b). Reuse the single
-// redis connection BullMQ already maintains so the shared `requireAuth` can
-// reject a token whose `tokenVersion` is behind the version the platform
-// published on a privilege change. Fail-open by contract: a Redis miss/outage
-// yields null and auth degrades to natural token expiry, never a lockout.
-setTokenRevocationStore(createRedisTokenRevocationStore(getRevocationRedis()));
-
-// Register BullMQ as the compliance event queue backend (used by plugin/pipeline services)
-registerComplianceQueueBackend(enqueue);
-
-// Start the compliance event worker (processes async re-validation events).
-// Each job carries its own orgId; establish the tenant scope per-job so any
-// `withTenantTx` inside `evaluateEntityEvent` runs with the right RLS GUCs.
-// Without this wrap the worker would silently hit FORCE'd tables with an
-// empty org_id and either get zero rows or "permission denied."
-startComplianceWorker(async (event) => {
-  const result = await runWithTenantContext({ orgId: event.orgId, isSuperAdmin: false }, () =>
-    evaluateEntityEvent({
-      entityId: event.entityId,
-      orgId: event.orgId,
-      parentOrgId: event.parentOrgId,
-      target: event.target,
-      eventType: event.eventType,
-      userId: event.userId,
-      attributes: event.attributes,
-    }),
-  );
-  // `evaluateEntityEvent` returns `{ error: true }` (rather than throwing) on an
-  // evaluation failure so the HTTP path can reply 500. The BullMQ worker must
-  // THROW on that flag, else the job resolves "completed" and never retries —
-  // fail-open, letting a non-compliant entity slip through on the async path.
-  if (result.error) {
-    throw new Error(`Compliance evaluation failed for ${event.target} ${event.entityId}; retrying`);
-  }
-});
+// Token-revocation reader (session-invalidation option b). Uses the shared
+// env-configured Redis client (lazily built, fully fail-open) so the shared
+// `requireAuth` can reject a token whose `tokenVersion` is behind the version
+// the platform published on a privilege change. Fail-open by contract: no Redis
+// / a miss / an outage yields null and auth degrades to natural token expiry,
+// never a lockout. (Previously borrowed the BullMQ queue's connection; the dead
+// async-re-validation queue was removed — post-mutation eval rides the HTTP
+// entity-event subscriber, and the fail-closed live validate path is primary.)
+setTokenRevocationStore(createEnvRedisTokenRevocationStore());
 
 // Daily prune of compliance_audit_log (default 180 days, override via
 // COMPLIANCE_AUDIT_RETENTION_DAYS). The handle is captured for graceful
@@ -170,7 +138,6 @@ void runServer(app, {
     stopScanScheduler();
     stopDigestScheduler();
     auditPrune.stop();
-    await stopComplianceWorker();
   },
 });
 

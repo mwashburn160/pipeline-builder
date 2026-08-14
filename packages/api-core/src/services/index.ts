@@ -24,4 +24,3 @@ export * from './remote-audit-client.js';
 export * from './audit-spool.js';
 export * from './env-redis.js';
 export * from './token-revocation.js';
-export { enqueueComplianceEvent, registerComplianceQueueBackend, type ComplianceEvent } from './compliance-queue.js';

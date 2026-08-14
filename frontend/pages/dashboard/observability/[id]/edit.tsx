@@ -360,6 +360,7 @@ export default function DashboardEditPage() {
                         type="text"
                         value={panels[i].title}
                         onChange={(e) => setPanels(prev => prev.map((q, j) => j === i ? { ...q, title: e.target.value } : q))}
+                        aria-label={`Panel ${i + 1} title`}
                         className="flex-1 px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800"
                       />
                       <IconButton
@@ -373,16 +374,17 @@ export default function DashboardEditPage() {
                     <div className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate">
                       {panels[i].queryKey} · {panels[i].vizKind}
                     </div>
-                    <select
+                    <Select
                       value={panels[i].vizKind}
                       onChange={(e) => setPanels(prev => prev.map((q, j) => j === i ? { ...q, vizKind: e.target.value } : q))}
+                      aria-label={`Panel ${i + 1} visualization type`}
                       className="px-2 py-0.5 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800"
                     >
                       <option value="stat">stat</option>
                       <option value="line">line</option>
                       <option value="table">table</option>
                       <option value="stacked-bar">stacked-bar</option>
-                    </select>
+                    </Select>
                   </div>
                 )}
               />
@@ -414,29 +416,32 @@ export default function DashboardEditPage() {
                       type="text"
                       value={p.title}
                       onChange={(e) => setPanels(prev => prev.map((q, j) => j === i ? {...q, title: e.target.value }: q))}
+                      aria-label={`Panel ${i + 1} title`}
                       className="w-full px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                     />
                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 font-mono">
                       {p.queryKey} · {p.vizKind} · span={p.span}
                     </div>
                   </div>
-                  <select
+                  <Select
                     value={p.vizKind}
                     onChange={(e) => setPanels(prev => prev.map((q, j) => j === i ? {...q, vizKind: e.target.value }: q))}
+                    aria-label={`Panel ${i + 1} visualization type`}
                     className="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800"
                   >
                     <option value="stat">stat</option>
                     <option value="line">line</option>
                     <option value="table">table</option>
                     <option value="stacked-bar">stacked-bar</option>
-                  </select>
-                  <select
+                  </Select>
+                  <Select
                     value={p.span}
                     onChange={(e) => setPanels(prev => prev.map((q, j) => j === i ? {...q, span: parseInt(e.target.value, 10) }: q))}
+                    aria-label={`Panel ${i + 1} column span`}
                     className="px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800"
                   >
                     {[3, 4, 6, 8, 9, 12].map(s => <option key={s} value={s}>span {s}</option>)}
-                  </select>
+                  </Select>
                   <IconButton
                     onClick={() => removePanel(i)}
                     tone="danger"

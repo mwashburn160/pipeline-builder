@@ -47,7 +47,7 @@ interface KmsStatus { configured: boolean; keyId?: string }
 export default function OrgDetailPage() {
   const router = useRouter();
   const orgId = String(router.query.orgId || '');
-  const { isReady, user } = useAuthGuard({ requireSystemAdmin: true });
+  const { isReady, user, can } = useAuthGuard({ requireSystemAdmin: true });
   const toast = useToast();
 
   const [org, setOrg] = useState<Organization | null>(null);
@@ -383,9 +383,11 @@ export default function OrgDetailPage() {
                 <KeyRound className="w-5 h-5 text-gray-500" />
                 <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Per-org KMS</h3>
               </div>
-              <button onClick={() => setShowKms(true)} className="action-link text-sm">
-                {kms?.configured ? 'Rotate / clear' : 'Configure'}
-              </button>
+              {can('org:kms') && (
+                <button onClick={() => setShowKms(true)} className="action-link text-sm">
+                  {kms?.configured ? 'Rotate / clear' : 'Configure'}
+                </button>
+              )}
             </div>
             {kms?.configured ? (
               <div className="text-sm">
@@ -409,9 +411,11 @@ export default function OrgDetailPage() {
                 <ShieldCheck className="w-5 h-5 text-gray-500" />
                 <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">SSO / IdP</h3>
               </div>
-              <button onClick={() => setShowIdp(true)} className="action-link text-sm">
-                {idp ? 'Edit / remove' : 'Configure'}
-              </button>
+              {can('org:idp') && (
+                <button onClick={() => setShowIdp(true)} className="action-link text-sm">
+                  {idp ? 'Edit / remove' : 'Configure'}
+                </button>
+              )}
             </div>
             {idp ? (
               <dl className="text-sm space-y-1.5">

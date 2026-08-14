@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { RefreshCw, ChevronRight, ShieldOff } from 'lucide-react';
+import { RefreshCw, ChevronRight, ShieldOff, KeyRound } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -12,6 +12,7 @@ import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import api from '@/lib/api';
 import { PatSection } from '@/components/settings/PatSection';
 import { decodeJwt, formatTimestamp, isExpired, expiresIn } from '@/lib/jwt';
@@ -248,6 +249,19 @@ export default function TokensPage() {
     }
   };
 
+  const tokenHistoryColumns: Column<TokenHistoryEntry>[] = [
+    { id: 'id', header: 'ID', cellClassName: 'font-mono text-xs text-gray-500 dark:text-gray-500', render: (t) => t.id },
+    { id: 'created', header: 'Created', cellClassName: 'text-gray-700 dark:text-gray-300', render: (t) => <RelativeTime value={t.createdAt} /> },
+    { id: 'expires', header: 'Expires', cellClassName: 'text-gray-700 dark:text-gray-300', render: (t) => <RelativeTime value={t.expiresAt} /> },
+    {
+      id: 'status',
+      header: 'Status',
+      render: (t) => (
+        <Badge color={t.status === 'active' ? 'green' : t.status === 'expired' ? 'gray' : 'red'}>{t.status}</Badge>
+      ),
+    },
+  ];
+
   if (!isReady || !user) return <LoadingPage />;
 
   return (
@@ -335,32 +349,18 @@ export default function TokensPage() {
                 );
               })}
             </div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                  <th className="py-2 pr-4">ID</th>
-                  <th className="py-2 pr-4">Created</th>
-                  <th className="py-2 pr-4">Expires</th>
-                  <th className="py-2">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredHistory.length === 0 ? (
-                  <tr><td colSpan={4} className="py-3 text-sm text-gray-500 dark:text-gray-400 italic">No {statusFilter} tokens.</td></tr>
-                ) : filteredHistory.map((t) => (
-                  <tr key={t.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
-                    <td className="py-2 pr-4 font-mono text-xs text-gray-500 dark:text-gray-500">{t.id}</td>
-                    <td className="py-2 pr-4 text-gray-700 dark:text-gray-300"><RelativeTime value={t.createdAt} /></td>
-                    <td className="py-2 pr-4 text-gray-700 dark:text-gray-300"><RelativeTime value={t.expiresAt} /></td>
-                    <td className="py-2">
-                      <Badge color={t.status === 'active' ? 'green' : t.status === 'expired' ? 'gray' : 'red'}>
-                        {t.status}
-                      </Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable
+              data={filteredHistory}
+              columns={tokenHistoryColumns}
+              isLoading={false}
+              animated={false}
+              getRowKey={(t) => t.id}
+              emptyState={{
+                icon: KeyRound,
+                title: statusFilter === 'all' ? 'No tokens' : `No ${statusFilter} tokens`,
+                description: 'No tokens match the selected status filter.',
+              }}
+            />
             </>
           )}
         </motion.div>

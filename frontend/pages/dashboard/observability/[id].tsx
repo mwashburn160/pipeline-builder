@@ -14,6 +14,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Button } from '@/components/ui/Button';
 import { LinkButton } from '@/components/ui/LinkButton';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { LinePanel } from '@/components/observability/LinePanel';
 import { StackedBarPanel } from '@/components/observability/StackedBarPanel';
 import { StatPanel } from '@/components/observability/StatPanel';
@@ -132,6 +133,9 @@ export default function DashboardPage() {
   // viewport + sidebar toggles without polling.
   const gridContainerRef = useRef<HTMLDivElement | null>(null);
   const [gridWidth, setGridWidth] = useState(960);
+  // Delete confirmation (in-app modal, replacing the native confirm()).
+  const [pendingDelete, setPendingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const { data: dashboard, loading, error } = useFetch<DashboardWithPanels | null>(
     async () => (ready ? (await api.getDashboard(id)).data?.dashboard ?? null : null),
@@ -166,15 +170,17 @@ export default function DashboardPage() {
     }
   };
 
-  const onDelete = async () => {
+  const executeDelete = async () => {
     if (!dashboard) return;
-    if (!confirm(`Delete "${dashboard.name}"? This cannot be undone.`)) return;
+    setDeleting(true);
     try {
       await api.deleteDashboard(dashboard.id);
       toast.success('Dashboard deleted');
       void router.push('/dashboard/observability');
     } catch (err) {
       toast.error(getErrorMessage(err));
+      setDeleting(false);
+      setPendingDelete(false);
     }
   };
 
@@ -239,7 +245,7 @@ export default function DashboardPage() {
             <Button
               variant="danger-outline"
               size="xs"
-              onClick={() => void onDelete()}
+              onClick={() => setPendingDelete(true)}
               className="gap-1"
             >
               <Trash2 className="w-3.5 h-3.5" /> Delete
@@ -285,6 +291,16 @@ export default function DashboardPage() {
             readOnly
           />
         </div>
+      )}
+
+      {pendingDelete && (
+        <DeleteConfirmModal
+          title="Delete dashboard"
+          itemName={dashboard.name}
+          loading={deleting}
+          onConfirm={() => void executeDelete()}
+          onCancel={() => setPendingDelete(false)}
+        />
       )}
     </DashboardLayout>
   );

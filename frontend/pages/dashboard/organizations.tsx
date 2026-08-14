@@ -34,7 +34,7 @@ import type { OrganizationListItem } from '@/lib/api/domains/organizations';
 
 /** Organization management page (system admin only). Lists all organizations with delete capability. */
 export default function OrganizationsPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  const { user, isReady, isAuthenticated, isSuperAdmin, can } = useAuthGuard({ requireSystemAdmin: true });
 
   const list = useListPage<OrganizationListItem>({
     fields: [
@@ -289,20 +289,24 @@ export default function OrganizationsPage() {
             >
               <ExternalLink className="w-3.5 h-3.5" /> Details
             </Link>
-            <button
-              onClick={() => setKmsOrg(org)}
-              className="action-link inline-flex items-center gap-1"
-              title="Manage per-org KMS config"
-            >
-              <KeyRound className="w-3.5 h-3.5" /> KMS
-            </button>
-            <button
-              onClick={() => setIdpOrg(org)}
-              className="action-link inline-flex items-center gap-1"
-              title="Manage SSO / IdP config"
-            >
-              <ShieldCheck className="w-3.5 h-3.5" /> IdP
-            </button>
+            {can('org:kms') && (
+              <button
+                onClick={() => setKmsOrg(org)}
+                className="action-link inline-flex items-center gap-1"
+                title="Manage per-org KMS config"
+              >
+                <KeyRound className="w-3.5 h-3.5" /> KMS
+              </button>
+            )}
+            {can('org:idp') && (
+              <button
+                onClick={() => setIdpOrg(org)}
+                className="action-link inline-flex items-center gap-1"
+                title="Manage SSO / IdP config"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" /> IdP
+              </button>
+            )}
             <button
               onClick={() => openTier(org)}
               className="action-link inline-flex items-center gap-1"

@@ -98,6 +98,16 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
 
+// handleCallback now runs the SSO-enforcement gate; default to no enforcement so
+// the GitHub link/create happy path proceeds. Force the state store's in-memory
+// fallback (Redis unset) so getAuthUrl→handleCallback state round-trips locally.
+jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
+  rejectIfSsoEnforced: jest.fn(async () => false),
+}));
+jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
+  getRedisClient: jest.fn(async () => undefined),
+}));
+
 jest.unstable_mockModule('../src/utils/token.js', () => ({
   signPersonalAccessToken: jest.fn(),
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),

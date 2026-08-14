@@ -46,7 +46,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { billing: billingConfig },
+  config: { billing: billingConfig, audit: { retentionDays: 90 } },
 }));
 
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({
@@ -60,6 +60,8 @@ jest.unstable_mockModule('../src/services/auth-service.js', () => ({
     listPendingBillingOrgs: (...a: unknown[]) => mockListPending(...a),
   },
 }));
+
+jest.unstable_mockModule('../src/utils/leader-lock.js', () => ({ runWithLeaderLock: (_key, _ttlMs, fn) => fn().then(() => true) }));
 
 const { provisionBillingSubscription, reconcilePendingBillingSubscriptions } =
   await import('../src/services/billing-provision.js');

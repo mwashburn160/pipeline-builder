@@ -104,6 +104,7 @@ export default function ObservabilityIndexPage() {
           <input
             type="text"
             placeholder="Search dashboards..."
+            aria-label="Search dashboards"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="filter-input"

@@ -68,6 +68,12 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { find: () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) }) },
 }));
 
+// consumed-jti reaches for Redis; force the in-memory fallback (Redis unset) so
+// these assertions exercise the process-local single-use path deterministically.
+jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
+  getRedisClient: jest.fn(async () => undefined),
+}));
+
 const { _resetConsumedJtiForTests, consumeJti } = await import('../src/middleware/consumed-jti.js');
 const { requireStepUp } = await import('../src/middleware/step-up.js');
 const { issueStepUpToken, verifyStepUpToken } = await import('../src/utils/token.js');
@@ -94,21 +100,21 @@ beforeEach(() => {
 });
 
 describe('consumeJti', () => {
-  it('returns true on first use, false on replay', () => {
+  it('returns true on first use, false on replay', async () => {
     const exp = Math.floor(Date.now() / 1000) + 60;
-    expect(consumeJti('jti-1', exp)).toBe(true);
-    expect(consumeJti('jti-1', exp)).toBe(false);
+    expect(await consumeJti('jti-1', exp)).toBe(true);
+    expect(await consumeJti('jti-1', exp)).toBe(false);
   });
 
-  it('rejects already-expired tokens', () => {
+  it('rejects already-expired tokens', async () => {
     const expiredExp = Math.floor(Date.now() / 1000) - 1;
-    expect(consumeJti('jti-stale', expiredExp)).toBe(false);
+    expect(await consumeJti('jti-stale', expiredExp)).toBe(false);
   });
 
-  it('allows different jtis from the same user concurrently', () => {
+  it('allows different jtis from the same user concurrently', async () => {
     const exp = Math.floor(Date.now() / 1000) + 60;
-    expect(consumeJti('jti-a', exp)).toBe(true);
-    expect(consumeJti('jti-b', exp)).toBe(true);
+    expect(await consumeJti('jti-a', exp)).toBe(true);
+    expect(await consumeJti('jti-b', exp)).toBe(true);
   });
 });
 
@@ -144,70 +150,70 @@ describe('issueStepUpToken / verifyStepUpToken', () => {
 });
 
 describe('requireStepUp middleware', () => {
-  it('rejects unauthenticated callers (no req.user)', () => {
+  it('rejects unauthenticated callers (no req.user)', async () => {
     const res = mockRes();
     const next = jest.fn();
-    requireStepUp(mockReq({}), res, next);
+    await requireStepUp(mockReq({}), res, next);
     expect(res.status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('rejects when the X-Step-Up-Token header is missing — code STEP_UP_REQUIRED', () => {
+  it('rejects when the X-Step-Up-Token header is missing — code STEP_UP_REQUIRED', async () => {
     const res = mockRes();
     const next = jest.fn();
-    requireStepUp(mockReq({ userId: 'u1' }), res, next);
+    await requireStepUp(mockReq({ userId: 'u1' }), res, next);
     expect(res.status).toHaveBeenCalledWith(401);
     const body = (res.json as jest.Mock).mock.calls[0][0];
     expect(body.code).toBe('STEP_UP_REQUIRED');
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('rejects an invalid/expired token — code STEP_UP_INVALID', () => {
+  it('rejects an invalid/expired token — code STEP_UP_INVALID', async () => {
     const res = mockRes();
     const next = jest.fn();
-    requireStepUp(mockReq({ userId: 'u1', token: 'not.a.real.jwt' }), res, next);
+    await requireStepUp(mockReq({ userId: 'u1', token: 'not.a.real.jwt' }), res, next);
     expect(res.status).toHaveBeenCalledWith(401);
     expect((res.json as jest.Mock).mock.calls[0][0].code).toBe('STEP_UP_INVALID');
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('rejects a token whose sub != req.user.sub — code STEP_UP_MISMATCH', () => {
+  it('rejects a token whose sub != req.user.sub — code STEP_UP_MISMATCH', async () => {
     // Issued for u-other; replayed by u1's session.
     const { token } = issueStepUpToken('u-other');
     const res = mockRes();
     const next = jest.fn();
-    requireStepUp(mockReq({ userId: 'u1', token }), res, next);
+    await requireStepUp(mockReq({ userId: 'u1', token }), res, next);
     expect(res.status).toHaveBeenCalledWith(401);
     expect((res.json as jest.Mock).mock.calls[0][0].code).toBe('STEP_UP_MISMATCH');
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('calls next() when token is valid for the caller', () => {
+  it('calls next() when token is valid for the caller', async () => {
     const { token } = issueStepUpToken('u1');
     const res = mockRes();
     const next = jest.fn();
-    requireStepUp(mockReq({ userId: 'u1', token }), res, next);
+    await requireStepUp(mockReq({ userId: 'u1', token }), res, next);
     expect(next).toHaveBeenCalledTimes(1);
     expect(res.status).not.toHaveBeenCalled();
   });
 
-  it('rejects a second use of the same token — code STEP_UP_REPLAY', () => {
+  it('rejects a second use of the same token — code STEP_UP_REPLAY', async () => {
     const { token } = issueStepUpToken('u1');
     const next1 = jest.fn();
     const res1 = mockRes();
-    requireStepUp(mockReq({ userId: 'u1', token }), res1, next1);
+    await requireStepUp(mockReq({ userId: 'u1', token }), res1, next1);
     expect(next1).toHaveBeenCalled();
 
     // Same token replayed → consumed-jti rejects.
     const next2 = jest.fn();
     const res2 = mockRes();
-    requireStepUp(mockReq({ userId: 'u1', token }), res2, next2);
+    await requireStepUp(mockReq({ userId: 'u1', token }), res2, next2);
     expect(res2.status).toHaveBeenCalledWith(401);
     expect((res2.json as jest.Mock).mock.calls[0][0].code).toBe('STEP_UP_REPLAY');
     expect(next2).not.toHaveBeenCalled();
   });
 
-  it('rejects an expired token via the standard INVALID path', () => {
+  it('rejects an expired token via the standard INVALID path', async () => {
     // Sign a token with exp in the past so jwt.verify throws TokenExpiredError.
     const expired = jwt.sign(
       { type: 'step-up', sub: 'u1', jti: 'xx', iat: Math.floor(Date.now() / 1000) - 120 },
@@ -216,7 +222,7 @@ describe('requireStepUp middleware', () => {
     );
     const res = mockRes();
     const next = jest.fn();
-    requireStepUp(mockReq({ userId: 'u1', token: expired }), res, next);
+    await requireStepUp(mockReq({ userId: 'u1', token: expired }), res, next);
     expect((res.json as jest.Mock).mock.calls[0][0].code).toBe('STEP_UP_INVALID');
     expect(next).not.toHaveBeenCalled();
   });

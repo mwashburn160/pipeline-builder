@@ -22,6 +22,26 @@ function createMockChild(exitCode = 0): any {
   return child;
 }
 
+/**
+ * Child that emits the given stdout (and optional stderr) lines as 'data' events
+ * before closing with `exitCode`. Used to exercise the line pipe / masking /
+ * SSE streaming and the failure-summary tail capture.
+ */
+function createMockChildWithOutput(stdoutLines: string[], exitCode = 0, stderrLines: string[] = []): any {
+  const child = new EventEmitter();
+  const stdout = new EventEmitter();
+  const stderr = new EventEmitter();
+  (child as any).stdout = stdout;
+  (child as any).stderr = stderr;
+  (child as any).kill = () => {};
+  process.nextTick(() => {
+    for (const line of stdoutLines) stdout.emit('data', Buffer.from(line + '\n'));
+    for (const line of stderrLines) stderr.emit('data', Buffer.from(line + '\n'));
+    child.emit('close', exitCode);
+  });
+  return child;
+}
+
 const mockSpawn = jest.fn<(cmd: string, args: string[], opts?: any) => any>(() => createMockChild(0));
 
 jest.unstable_mockModule('child_process', () => ({ spawn: mockSpawn }));
@@ -76,6 +96,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
 const {
   buildAndPush,
   loadAndPush,
+  BuildProcessError,
 } = await import('../src/helpers/docker-build.js');
 type BuildRequest = import('../src/helpers/docker-build.js').BuildRequest;
 type RegistryInfo = import('../src/helpers/docker-build.js').RegistryInfo;
@@ -249,6 +270,69 @@ describe('buildAndPush', () => {
   it('throws when buildctl exits non-zero', async () => {
     mockSpawn.mockImplementation(() => createMockChild(1));
     await expect(buildAndPush(makeRequest())).rejects.toThrow(/exit code 1/);
+  });
+});
+
+// F8 — build log streaming + failure summary.
+describe('build log streaming + failure summary', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockReadFileSync.mockReturnValue('FROM node:24-slim\nRUN echo hello');
+    mockExistsSync.mockReturnValue(true);
+  });
+
+  it('streams each MASKED build line to the onLine sink', async () => {
+    mockSpawn.mockImplementation(() => createMockChildWithOutput([
+      '#1 building',
+      'TOKEN=supersecretvalue123',
+      '#2 exporting',
+    ], 0));
+
+    const lines: Array<{ line: string; stream: string }> = [];
+    await buildAndPush(makeRequest(), { onLine: (line, stream) => lines.push({ line, stream }) });
+
+    const joined = lines.map((l) => l.line).join('\n');
+    expect(joined).toContain('#1 building');
+    expect(joined).toContain('#2 exporting');
+    // The secret value is masked before it reaches the SSE sink.
+    expect(joined).toContain('TOKEN=***');
+    expect(joined).not.toContain('supersecretvalue123');
+    expect(lines.every((l) => l.stream === 'stdout')).toBe(true);
+  });
+
+  it('a streaming-sink error never fails the build', async () => {
+    mockSpawn.mockImplementation(() => createMockChildWithOutput(['#1 building'], 0));
+    await expect(buildAndPush(makeRequest(), {
+      onLine: () => { throw new Error('sse down'); },
+    })).resolves.toBeDefined();
+  });
+
+  it('throws a BuildProcessError carrying the masked failure tail on non-zero exit', async () => {
+    mockSpawn.mockImplementation(() => createMockChildWithOutput([
+      'step 1 ok',
+      'ERROR: something broke',
+      'AUTH=leakedtokenvalue999',
+    ], 1));
+
+    const err = await buildAndPush(makeRequest()).catch((e) => e);
+    expect(err).toBeInstanceOf(BuildProcessError);
+    expect(err.exitCode).toBe(1);
+    expect(err.timedOut).toBe(false);
+    expect(err.tail.join('\n')).toContain('ERROR: something broke');
+    // Tail lines are masked — no secret leaks into the failure summary.
+    expect(err.tail.join('\n')).toContain('AUTH=***');
+    expect(err.tail.join('\n')).not.toContain('leakedtokenvalue999');
+  });
+
+  it('bounds the failure tail to the last N lines', async () => {
+    const many = Array.from({ length: 60 }, (_, i) => `line ${i}`);
+    mockSpawn.mockImplementation(() => createMockChildWithOutput(many, 1));
+
+    const err = await buildAndPush(makeRequest()).catch((e) => e);
+    expect(err).toBeInstanceOf(BuildProcessError);
+    // Ring buffer keeps only the most recent lines (BUILD_LOG_TAIL_LINES = 25).
+    expect(err.tail.length).toBeLessThanOrEqual(25);
+    expect(err.tail[err.tail.length - 1]).toBe('line 59');
   });
 });
 

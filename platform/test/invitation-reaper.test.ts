@@ -12,7 +12,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { invitation: { sweepIntervalMs: 1000 } },
+  config: { invitation: { sweepIntervalMs: 1000 }, audit: { retentionDays: 90 } },
 }));
 
 const mockUpdateMany = jest.fn<(...a: unknown[]) => Promise<{ modifiedCount: number }>>();
@@ -22,6 +22,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserPreferences: {},
   Invitation: { updateMany: (...a: unknown[]) => mockUpdateMany(...a) },
 }));
+
+jest.unstable_mockModule('../src/utils/leader-lock.js', () => ({ runWithLeaderLock: (_key, _ttlMs, fn) => fn().then(() => true) }));
 
 const { sweepExpiredInvitations, startInvitationReaper, stopInvitationReaper } =
   await import('../src/services/invitation-reaper.js');

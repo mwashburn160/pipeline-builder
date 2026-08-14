@@ -54,6 +54,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   createAuthenticatedWithOrgRoute: () => [],
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), requestId: 'test-req' };

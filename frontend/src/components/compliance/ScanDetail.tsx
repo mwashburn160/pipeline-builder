@@ -7,6 +7,7 @@ import { Pagination } from '@/components/ui/Pagination';
 import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/components/ui/Toast';
 import { StatusPill } from '@/components/ui/StatusPill';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
@@ -43,6 +44,8 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
   const [scanLoading, setScanLoading] = useState(true);
   const [scanError, setScanError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  // Cancel-scan confirmation (in-app modal, replacing the native confirm()).
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   // Exemption request modal, opened from a violating row.
   const [exemptTarget, setExemptTarget] = useState<ExemptTarget | null>(null);
@@ -98,13 +101,17 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
   const handleAuditPageSizeChange = (_limit: number) => { setAuditOffset(0); };
 
   // Cancel a running scan (mirrors ScanManager's cancel + confirm, then refetches).
-  const handleCancel = async () => {
-    if (!scan || !window.confirm('Cancel this running scan? Entities not yet processed will be skipped.')) return;
+  // A scan cancel is NOT a delete (the record persists as `cancelled`), so this
+  // uses the generic in-app Modal below rather than DeleteConfirmModal, whose
+  // fixed "delete … cannot be undone" copy would misdescribe the action.
+  const executeCancel = async () => {
+    if (!scan) return;
     setCancelling(true);
     try {
       const res = await api.cancelScan(scan.id);
       if (res.success) {
         toast.success('Scan cancelled');
+        setConfirmCancel(false);
         await fetchScan();
       } else {
         toast.error(res.message || 'Failed to cancel scan');
@@ -180,6 +187,42 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
   const StatusIcon = cfg.icon;
   const progress = scan.totalEntities > 0 ? Math.round((scan.processedEntities / scan.totalEntities) * 100) : 0;
 
+  const auditColumns: Column<ComplianceAuditEntry>[] = [
+    {
+      id: 'result',
+      header: 'Result',
+      render: (entry) => {
+        const r = RESULT_STYLES[entry.result] || RESULT_STYLES.pass;
+        return <StatusPill className={`${r.bg} ${r.text}`}>{r.label}</StatusPill>;
+      },
+    },
+    { id: 'entity', header: 'Entity', cellClassName: 'text-sm text-gray-900 dark:text-white', render: (entry) => entry.entityName || entry.entityId || '-' },
+    { id: 'target', header: 'Target', cellClassName: 'text-xs text-gray-500', render: (entry) => entry.target },
+    { id: 'rules', header: 'Rules', cellClassName: 'text-sm text-gray-600 dark:text-gray-400', render: (entry) => entry.ruleCount },
+    { id: 'violations', header: 'Violations', cellClassName: 'text-sm text-gray-600 dark:text-gray-400', render: (entry) => entry.violations?.length || 0 },
+    { id: 'time', header: 'Time', cellClassName: 'text-xs text-gray-500', render: (entry) => new Date(entry.createdAt).toLocaleTimeString() },
+    {
+      id: 'actions',
+      header: 'Actions',
+      headerClassName: 'text-right',
+      cellClassName: 'text-right',
+      render: (entry) => {
+        const canExempt = (entry.result === 'block' || entry.result === 'warn')
+          && !!entry.entityId
+          && violatedRules(entry).length > 0;
+        return canExempt ? (
+          <button
+            onClick={() => openExempt(entry)}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-orange-700 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors"
+            title="Request an exemption for this violation"
+          >
+            <ShieldOff className="h-3.5 w-3.5" /> Exempt
+          </button>
+        ) : null;
+      },
+    },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
@@ -191,7 +234,7 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
           <Button
             variant="danger"
             size="sm"
-            onClick={handleCancel}
+            onClick={() => setConfirmCancel(true)}
             disabled={cancelling}
             className="ml-auto gap-1.5"
           >
@@ -252,51 +295,13 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                <thead className="bg-gray-50 dark:bg-gray-800">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Result</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entity</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rules</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Violations</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
-                  {auditEntries.map(entry => {
-                    const r = RESULT_STYLES[entry.result] || RESULT_STYLES.pass;
-                    // Only block/warn rows with an entity + a violated rule can be exempted.
-                    const canExempt = (entry.result === 'block' || entry.result === 'warn')
-                      && !!entry.entityId
-                      && violatedRules(entry).length > 0;
-                    return (
-                      <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                        <td className="px-4 py-3">
-                          <StatusPill className={`${r.bg} ${r.text}`}>{r.label}</StatusPill>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{entry.entityName || entry.entityId || '-'}</td>
-                        <td className="px-4 py-3 text-xs text-gray-500">{entry.target}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{entry.ruleCount}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{entry.violations?.length || 0}</td>
-                        <td className="px-4 py-3 text-xs text-gray-500">{new Date(entry.createdAt).toLocaleTimeString()}</td>
-                        <td className="px-4 py-3 text-right">
-                          {canExempt && (
-                            <button
-                              onClick={() => openExempt(entry)}
-                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-orange-700 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors"
-                              title="Request an exemption for this violation"
-                            >
-                              <ShieldOff className="h-3.5 w-3.5" /> Exempt
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <DataTable
+                data={auditEntries}
+                columns={auditColumns}
+                isLoading={false}
+                getRowKey={(entry) => entry.id}
+                emptyState={{ icon: ShieldOff, title: 'No audit entries', description: 'No audit entries for this scan.' }}
+              />
             </div>
             {auditPagination.total > auditPagination.limit && (
               <Pagination
@@ -371,6 +376,28 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
               />
             </div>
           </div>
+        </Modal>
+      )}
+
+      {confirmCancel && (
+        <Modal
+          title="Cancel scan"
+          onClose={() => !cancelling && setConfirmCancel(false)}
+          maxWidth="max-w-md"
+          footer={
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setConfirmCancel(false)} disabled={cancelling}>
+                Keep running
+              </Button>
+              <Button variant="danger" size="sm" onClick={() => void executeCancel()} disabled={cancelling}>
+                {cancelling ? 'Cancelling...' : 'Cancel scan'}
+              </Button>
+            </div>
+          }
+        >
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            Cancel this running scan? Entities not yet processed will be skipped. The scan record is kept and marked cancelled.
+          </p>
         </Modal>
       )}
     </div>

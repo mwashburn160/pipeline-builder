@@ -8,6 +8,7 @@ import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleTa
 import { SEVERITY_CONFIG } from '@/lib/compliance-styles';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { TextEmptyState } from '@/components/ui/EmptyState';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { FilterInput } from '@/components/ui/FilterInput';
@@ -95,6 +96,108 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
     return <ErrorAlert message={error.message} />;
   }
 
+  const columns: Column<ComplianceRule>[] = [
+    {
+      id: 'name',
+      header: 'Name',
+      render: (rule) => (
+        <>
+          <div className="text-sm font-medium text-gray-900 dark:text-white">{rule.name}</div>
+          {rule.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs">{rule.description}</div>}
+          {rule.tags?.length > 0 && (
+            <div className="flex gap-1 mt-1">
+              {rule.tags.slice(0, 3).map(tag => (
+                <span key={tag} className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-500 rounded px-1.5 py-0.5">{tag}</span>
+              ))}
+              {rule.tags.length > 3 && <span className="text-[10px] text-gray-400">+{rule.tags.length - 3}</span>}
+            </div>
+          )}
+        </>
+      ),
+    },
+    {
+      id: 'target',
+      header: 'Target',
+      render: (rule) => <StatusPill className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{rule.target}</StatusPill>,
+    },
+    {
+      id: 'severity',
+      header: 'Severity',
+      render: (rule) => {
+        const sev = SEVERITY_CONFIG[rule.severity];
+        const SevIcon = sev.icon;
+        return (
+          <StatusPill gap className={`${sev.bg} ${sev.color}`}>
+            <SevIcon className="h-3 w-3" /> {rule.severity}
+          </StatusPill>
+        );
+      },
+    },
+    {
+      id: 'field',
+      header: 'Field',
+      cellClassName: 'text-sm text-gray-600 dark:text-gray-400 font-mono',
+      render: (rule) => rule.field || (rule.conditions ? `${rule.conditions.length} conditions` : '-'),
+    },
+    {
+      id: 'scope',
+      header: 'Scope',
+      render: (rule) => (
+        <span className={`text-xs font-medium ${rule.scope === 'published' ? 'text-purple-600 dark:text-purple-400' : 'text-gray-600 dark:text-gray-400'}`}>{rule.scope}</span>
+      ),
+    },
+    {
+      id: 'priority',
+      header: 'Priority',
+      cellClassName: 'text-sm text-gray-600 dark:text-gray-400',
+      render: (rule) => rule.priority,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      render: (rule) => (
+        <StatusPill className={rule.isActive ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-500'}>
+          {rule.isActive ? 'Active' : 'Inactive'}
+        </StatusPill>
+      ),
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      headerClassName: 'text-right',
+      cellClassName: 'text-right',
+      render: (rule) => (
+        <div className="flex items-center justify-end gap-1">
+          {onEdit && (
+            <IconButton
+              restTone={rule.isActive ? 'success' : 'default'}
+              onClick={() => updateRule(rule.id, { isActive: !rule.isActive })}
+              title={rule.isActive ? 'Deactivate' : 'Activate'}
+              aria-label={rule.isActive ? 'Deactivate rule' : 'Activate rule'}
+            >
+              {rule.isActive ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
+            </IconButton>
+          )}
+          {onViewHistory && (
+            <IconButton tone="indigo" onClick={() => onViewHistory(rule)} title="View history" aria-label="View history">
+              <History className="h-4 w-4" />
+            </IconButton>
+          )}
+          {onEdit && (
+            <IconButton tone="primary" onClick={() => onEdit(rule)} title="Edit" aria-label="Edit rule">
+              <Pencil className="h-4 w-4" />
+            </IconButton>
+          )}
+          {onEdit && (
+            <IconButton tone="danger" onClick={() => deleteRule(rule.id)} title="Delete" aria-label="Delete rule">
+              <Trash2 className="h-4 w-4" />
+            </IconButton>
+          )}
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -156,91 +259,13 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
         </TextEmptyState>
       ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Target</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Severity</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Field</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Scope</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Priority</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
-              {filteredRules.map((rule) => {
-                const sev = SEVERITY_CONFIG[rule.severity];
-                const SevIcon = sev.icon;
-                return (
-                  <tr key={rule.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-gray-900 dark:text-white">{rule.name}</div>
-                      {rule.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs">{rule.description}</div>}
-                      {rule.tags?.length > 0 && (
-                        <div className="flex gap-1 mt-1">
-                          {rule.tags.slice(0, 3).map(tag => (
-                            <span key={tag} className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-500 rounded px-1.5 py-0.5">{tag}</span>
-                          ))}
-                          {rule.tags.length > 3 && <span className="text-[10px] text-gray-400">+{rule.tags.length - 3}</span>}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusPill className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{rule.target}</StatusPill>
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusPill gap className={`${sev.bg} ${sev.color}`}>
-                        <SevIcon className="h-3 w-3" /> {rule.severity}
-                      </StatusPill>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 font-mono">
-                      {rule.field || (rule.conditions ? `${rule.conditions.length} conditions` : '-')}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs font-medium ${rule.scope === 'published' ? 'text-purple-600 dark:text-purple-400' : 'text-gray-600 dark:text-gray-400'}`}>{rule.scope}</span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{rule.priority}</td>
-                    <td className="px-4 py-3">
-                      <StatusPill className={
-                        rule.isActive ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-500'
-                      }>{rule.isActive ? 'Active' : 'Inactive'}</StatusPill>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        {onEdit && (
-                          <IconButton
-                            restTone={rule.isActive ? 'success' : 'default'}
-                            onClick={() => updateRule(rule.id, { isActive: !rule.isActive })}
-                            title={rule.isActive ? 'Deactivate' : 'Activate'}
-                            aria-label={rule.isActive ? 'Deactivate rule' : 'Activate rule'}
-                          >
-                            {rule.isActive ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
-                          </IconButton>
-                        )}
-                        {onViewHistory && (
-                          <IconButton tone="indigo" onClick={() => onViewHistory(rule)} title="View history" aria-label="View history">
-                            <History className="h-4 w-4" />
-                          </IconButton>
-                        )}
-                        {onEdit && (
-                          <IconButton tone="primary" onClick={() => onEdit(rule)} title="Edit" aria-label="Edit rule">
-                            <Pencil className="h-4 w-4" />
-                          </IconButton>
-                        )}
-                        {onEdit && (
-                          <IconButton tone="danger" onClick={() => deleteRule(rule.id)} title="Delete" aria-label="Delete rule">
-                            <Trash2 className="h-4 w-4" />
-                          </IconButton>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <DataTable
+            data={filteredRules}
+            columns={columns}
+            isLoading={false}
+            getRowKey={(rule) => rule.id}
+            emptyState={{ icon: Shield, title: 'No compliance rules', description: 'Create one to get started.' }}
+          />
         </div>
       )}
     </div>

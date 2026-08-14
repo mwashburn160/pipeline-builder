@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Badge } from '@/components/ui/Badge';
 import { CopyableId } from '@/components/ui/CopyableId';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Modal } from '@/components/ui/Modal';
@@ -202,6 +203,40 @@ export default function PipelineDetailPage() {
 
   if (!isReady || !user) return <LoadingPage />;
 
+  const execColumns: Column<PipelineExecution>[] = [
+    { id: 'status', header: 'Status', render: (ex) => <Badge color={statusColor(ex.status)}>{ex.status}</Badge> },
+    { id: 'started', header: 'Started', render: (ex) => (ex.started_at ? <RelativeTime value={ex.started_at} /> : <span className="text-gray-400">—</span>) },
+    { id: 'duration', header: 'Duration', cellClassName: 'font-mono text-xs', render: (ex) => formatDuration(ex.duration_ms) },
+    {
+      id: 'failing',
+      header: 'Failing step',
+      render: (ex) => (ex.failing_stage || ex.failing_action
+        ? <span className="text-red-600 dark:text-red-400">{ex.failing_stage || ex.failing_action}</span>
+        : <span className="text-gray-400">—</span>),
+    },
+    { id: 'execution', header: 'Execution', render: (ex) => <CopyableId value={ex.execution_id} size="sm" /> },
+    {
+      id: 'actions',
+      header: 'Actions',
+      headerClassName: 'text-right',
+      cellClassName: 'text-right',
+      render: (ex) => (ex.status === 'in-progress' ? (
+        <Button
+          variant="secondary"
+          onClick={() => setCancelTarget(ex.execution_id)}
+          disabled={!canEdit || (canceling && cancelTarget === ex.execution_id)}
+          className="inline-flex items-center gap-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+          title={canEdit ? 'Cancel this execution' : 'Read-only (public catalog entry)'}
+        >
+          {canceling && cancelTarget === ex.execution_id ? <LoadingSpinner size="sm" /> : <Ban className="w-3.5 h-3.5" />}
+          Cancel
+        </Button>
+      ) : (
+        <span className="text-gray-400">—</span>
+      )),
+    },
+  ];
+
   // Write controls (run / cancel / edit / delete) require BOTH the
   // `pipelines:write` capability and ownership of the resource — the backend
   // gates every pipeline mutation on `pipelines:write`, so a read-only member
@@ -371,55 +406,14 @@ export default function PipelineDetailPage() {
             )}
             {!execError && executions && executions.length > 0 && (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
-                      <th className="py-2 pr-4 font-medium">Status</th>
-                      <th className="py-2 pr-4 font-medium">Started</th>
-                      <th className="py-2 pr-4 font-medium">Duration</th>
-                      <th className="py-2 pr-4 font-medium">Failing step</th>
-                      <th className="py-2 pr-4 font-medium">Execution</th>
-                      <th className="py-2 font-medium text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {executions.map((ex) => (
-                      <tr key={ex.execution_id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
-                        <td className="py-2 pr-4">
-                          <Badge color={statusColor(ex.status)}>{ex.status}</Badge>
-                        </td>
-                        <td className="py-2 pr-4">
-                          {ex.started_at ? <RelativeTime value={ex.started_at} /> : <span className="text-gray-400">—</span>}
-                        </td>
-                        <td className="py-2 pr-4 font-mono text-xs">{formatDuration(ex.duration_ms)}</td>
-                        <td className="py-2 pr-4">
-                          {ex.failing_stage || ex.failing_action
-                            ? <span className="text-red-600 dark:text-red-400">{ex.failing_stage || ex.failing_action}</span>
-                            : <span className="text-gray-400">—</span>}
-                        </td>
-                        <td className="py-2 pr-4"><CopyableId value={ex.execution_id} size="sm" /></td>
-                        <td className="py-2 text-right">
-                          {ex.status === 'in-progress' ? (
-                            <Button
-                              variant="secondary"
-                              onClick={() => setCancelTarget(ex.execution_id)}
-                              disabled={!canEdit || (canceling && cancelTarget === ex.execution_id)}
-                              className="inline-flex items-center gap-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                              title={canEdit ? 'Cancel this execution' : 'Read-only (public catalog entry)'}
-                            >
-                              {canceling && cancelTarget === ex.execution_id
-                                ? <LoadingSpinner size="sm" />
-                                : <Ban className="w-3.5 h-3.5" />}
-                              Cancel
-                            </Button>
-                          ) : (
-                            <span className="text-gray-400">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <DataTable
+                  data={executions}
+                  columns={execColumns}
+                  isLoading={false}
+                  animated={false}
+                  getRowKey={(ex) => ex.execution_id}
+                  emptyState={{ icon: Play, title: 'No executions', description: 'No executions recorded yet.' }}
+                />
               </div>
             )}
           </Card>

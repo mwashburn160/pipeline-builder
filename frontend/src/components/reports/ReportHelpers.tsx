@@ -6,6 +6,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { FEATURE_METADATA } from '@/lib/feature-flags';
 import type { DoraLevel, DoraTrendPoint } from '@/lib/api/domains/reporting';
 import { StatCard } from './StatCard';
@@ -352,18 +353,18 @@ export function DoraScopeControls({
   return (
     <div className="flex flex-wrap items-center gap-2 mb-3">
       <label className="sr-only" htmlFor="dora-pipeline">Filter DORA by pipeline</label>
-      <select
+      <FilterSelect
         id="dora-pipeline"
         value={pipelineId}
         onChange={(e) => onPipelineChange(e.target.value)}
-        className="filter-select text-xs"
+        className="text-xs"
         title="Scope DORA metrics to a single pipeline"
       >
         <option value="">All pipelines</option>
         {pipelines.map((p) => (
           <option key={p.id} value={p.id}>{p.name}</option>
         ))}
-      </select>
+      </FilterSelect>
       {/* Debounced/committed value: typing only updates the controlled input;
           the fetch is triggered on blur or Enter (plus a page-level debounce)
           so a per-keystroke request storm is avoided. */}

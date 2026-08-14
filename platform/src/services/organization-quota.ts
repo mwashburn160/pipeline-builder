@@ -533,26 +533,29 @@ export async function updateQuotas(id: string, quotaLimits: QuotaLimitsInput, au
 
   const serviceUpdated = await updateQuotaLimits(id, quotaLimits, authHeader);
 
-  if (!serviceUpdated) {
-    // Quota service unreachable  write to the org doc directly so the cap
-    // is at least enforceable on the next request via the fallback path.
-    if (!org.quotas) {
-      // Same lockstep rationale as setTier above — spread the full
-      // QuotaTierLimits shape so we don't drop newer fields.
-      const tierKey = (org.tier as QuotaTier | undefined) ?? 'developer';
-      org.quotas = { ...QUOTA_TIERS[tierKey].limits };
-    }
-    for (const [key, value] of Object.entries(quotaLimits)) {
-      if (value !== undefined) {
-        org.quotas[key as keyof typeof org.quotas] = value;
-      }
-    }
-    await org.save();
-    logger.info(`Organization ${id} quotas updated directly (service unavailable)`);
-  } else {
-    await org.save();
-    logger.info(`Organization ${id} quotas updated via service`);
+  // Apply the new limits to `org.quotas` in BOTH branches. Previously only the
+  // service-UNREACHABLE branch mutated the doc; the success branch saved without
+  // updating it, so the returned limits (and the service-down fallback report in
+  // getQuotas) reflected the STALE pre-update caps. The quota service is the
+  // source of truth on the success path, but keeping the org-doc mirror in sync
+  // is what makes the response + the fallback read correct.
+  if (!org.quotas) {
+    // Same lockstep rationale as setTier — spread the full QuotaTierLimits shape
+    // so we don't drop newer fields.
+    const tierKey = (org.tier as QuotaTier | undefined) ?? 'developer';
+    org.quotas = { ...QUOTA_TIERS[tierKey].limits };
   }
+  for (const [key, value] of Object.entries(quotaLimits)) {
+    if (value !== undefined) {
+      org.quotas[key as keyof typeof org.quotas] = value;
+    }
+  }
+  await org.save();
+  logger.info(
+    serviceUpdated
+      ? `Organization ${id} quotas updated via service`
+      : `Organization ${id} quotas updated directly (service unavailable)`,
+  );
 
   // `org.quotas` is the in-memory post-save state — no need to re-fetch.
   const finalQuotas = org.quotas;

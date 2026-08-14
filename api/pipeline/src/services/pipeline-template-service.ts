@@ -73,7 +73,12 @@ export class PipelineTemplateService extends CrudService<
       .values({ ...safeData, createdBy: user, updatedBy: user } as any)
       .onConflictDoUpdate({
         target: [schema.pipelineTemplate.name, schema.pipelineTemplate.orgId],
-        set: { ...mutable, updatedAt: new Date(), updatedBy: user } as any,
+        // RESURRECT on re-create: delete soft-deletes (isActive=false, deletedAt set),
+        // but the (name, orgId) unique index still holds the tombstoned row. Without
+        // resetting isActive/deletedAt here, re-creating a same-named template updates
+        // its body but leaves it soft-deleted — so it never reappears in the catalog
+        // (reads default to isActive=true). Reactivate it so delete→re-create works.
+        set: { ...mutable, isActive: true, deletedAt: null, deletedBy: null, updatedAt: new Date(), updatedBy: user } as any,
       })
       .returning());
     return rows[0] as unknown as PipelineTemplate;

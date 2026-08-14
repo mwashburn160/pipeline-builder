@@ -9,6 +9,7 @@
  * these configs lands in a follow-up gated on the customer's IdP choice.
  */
 
+import { requirePermission } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   deleteOrgIdpConfig,
@@ -21,12 +22,17 @@ import { requireAuth, requireStepUp } from '../middleware/index.js';
 
 const router: Router = Router();
 
-router.get('/', requireAuth, listOrgIdpConfigs);
-router.get('/:orgId', requireAuth, getOrgIdpConfig);
+// `requirePermission('org:idp')` is the capability gate for the sensitive SSO/
+// IdP surface (split out of `org:settings`); the controllers additionally
+// enforce `requireSystemAdmin`, so this fleet stays superadmin-only in practice
+// while the capability check documents + future-proofs the IdP authority.
+// Superadmins bypass `requirePermission` via `hasPermission`.
+router.get('/', requireAuth, requirePermission('org:idp'), listOrgIdpConfigs);
+router.get('/:orgId', requireAuth, requirePermission('org:idp'), getOrgIdpConfig);
 // Mutations persist the org's IdP `clientSecret` — gate on step-up so a
 // stolen session can't write SSO credentials (mirrors org-kms-config).
-router.put('/:orgId', requireAuth, requireStepUp, putOrgIdpConfig);
-router.patch('/:orgId', requireAuth, requireStepUp, patchOrgIdpConfig);
-router.delete('/:orgId', requireAuth, requireStepUp, deleteOrgIdpConfig);
+router.put('/:orgId', requireAuth, requirePermission('org:idp'), requireStepUp, putOrgIdpConfig);
+router.patch('/:orgId', requireAuth, requirePermission('org:idp'), requireStepUp, patchOrgIdpConfig);
+router.delete('/:orgId', requireAuth, requirePermission('org:idp'), requireStepUp, deleteOrgIdpConfig);
 
 export default router;

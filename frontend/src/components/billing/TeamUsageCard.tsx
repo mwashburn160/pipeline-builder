@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { Users } from 'lucide-react';
 import api from '@/lib/api';
 import { Card } from '@/components/ui/Card';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useFeatures } from '@/hooks/useFeatures';
 import { fmtNum, formatBytes } from '@/lib/format';
+import { formatError } from '@/lib/constants';
 import { FEATURE_METADATA } from '@/lib/feature-flags';
 import type { TeamUsageRow } from '@/lib/api/domains/billing';
 
@@ -17,6 +20,18 @@ const DIMENSIONS: { key: string; label: string; fmt: (n: number) => string }[] =
 
 const cell = (v: number | null | undefined, fmt: (n: number) => string) => (v == null ? '—' : fmt(v));
 
+const TEAM_USAGE_COLUMNS: Column<TeamUsageRow>[] = [
+  { id: 'team', header: 'Team', cellClassName: 'text-gray-600 dark:text-gray-300', render: (t) => t.name ?? t.orgId },
+  { id: 'seats', header: 'Seats', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (t) => cell(t.seats, fmtNum) },
+  ...DIMENSIONS.map((d): Column<TeamUsageRow> => ({
+    id: d.key,
+    header: d.label,
+    headerClassName: 'text-right',
+    cellClassName: 'text-right tabular-nums text-gray-600 dark:text-gray-300',
+    render: (t) => cell(t.usage[d.key], d.fmt),
+  })),
+];
+
 /**
  * Per-team usage breakdown (feature `team_usage_analytics`). Shows each team's
  * CURRENT-period usage across quota dimensions + seats — usage only, since
@@ -27,15 +42,36 @@ export function TeamUsageCard() {
   const enabled = useFeatures().isEnabled('team_usage_analytics');
   const [teams, setTeams] = useState<TeamUsageRow[]>([]);
   const [loading, setLoading] = useState(true);
+  // Distinguish a genuine "no teams" from a failed load — otherwise a fetch
+  // error renders the empty hint and hides the failure.
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await api.getTeamUsage({ includeDescendants: true });
+      setTeams(r?.data?.teams ?? []);
+    } catch (e) {
+      setError(formatError(e, 'Failed to load team usage.'));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!enabled) { setLoading(false); return; }
     let active = true;
     (async () => {
-      const r = await api.getTeamUsage({ includeDescendants: true }).catch(() => null);
-      if (!active) return;
-      if (r?.data) setTeams(r.data.teams);
-      setLoading(false);
+      setError(null);
+      try {
+        const r = await api.getTeamUsage({ includeDescendants: true });
+        if (active && r?.data) setTeams(r.data.teams);
+      } catch (e) {
+        if (active) setError(formatError(e, 'Failed to load team usage.'));
+      } finally {
+        if (active) setLoading(false);
+      }
     })();
     return () => { active = false; };
   }, [enabled]);
@@ -51,6 +87,20 @@ export function TeamUsageCard() {
   }
 
   if (loading) return null;
+
+  if (error) {
+    return (
+      <Card>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Team usage</h3>
+            <p className="text-sm text-red-600 dark:text-red-400 mt-1" role="alert">{error}</p>
+          </div>
+          <button type="button" onClick={() => void reload()} className="action-link text-sm shrink-0">Retry</button>
+        </div>
+      </Card>
+    );
+  }
 
   // Entitled but a single-org account (no teams) — nothing to break down yet.
   if (teams.length <= 1) {
@@ -68,24 +118,14 @@ export function TeamUsageCard() {
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Team usage</h3>
         <span className="text-xs text-gray-400 dark:text-gray-500">Current period · usage only (limits are account-wide)</span>
       </div>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-xs text-gray-400 dark:text-gray-500 text-left">
-            <th className="py-1.5 pr-4 font-medium">Team</th>
-            <th className="py-1.5 pr-4 font-medium text-right">Seats</th>
-            {DIMENSIONS.map((d) => <th key={d.key} className="py-1.5 pr-4 font-medium text-right">{d.label}</th>)}
-          </tr>
-        </thead>
-        <tbody className="tabular-nums">
-          {teams.map((t) => (
-            <tr key={t.orgId} className="border-t border-gray-100 dark:border-gray-800">
-              <td className="py-1.5 pr-4 text-gray-600 dark:text-gray-300">{t.name ?? t.orgId}</td>
-              <td className="py-1.5 pr-4 text-right">{cell(t.seats, fmtNum)}</td>
-              {DIMENSIONS.map((d) => <td key={d.key} className="py-1.5 pr-4 text-right text-gray-600 dark:text-gray-300">{cell(t.usage[d.key], d.fmt)}</td>)}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DataTable
+        data={teams}
+        columns={TEAM_USAGE_COLUMNS}
+        isLoading={false}
+        animated={false}
+        getRowKey={(t) => t.orgId}
+        emptyState={{ icon: Users, title: 'No teams', description: 'No per-team usage to display.' }}
+      />
     </Card>
   );
 }

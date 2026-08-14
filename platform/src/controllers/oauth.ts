@@ -6,6 +6,8 @@ import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builde
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
+import { createPendingStateStore } from '../helpers/pending-state-store.js';
+import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
 import { authService } from '../services/index.js';
 import { type OAuthProviderName } from '../types/oauth-provider.js';
@@ -16,21 +18,21 @@ const logger = createLogger('oauth-controller');
 
 // OAuth State (CSRF protection)
 
-/** Cap on in-memory OAuth state map. Each entry is ~80 bytes; default 1000
- *  caps memory at ~80 KB. Override via `OAUTH_MAX_PENDING_STATES`. */
+/** Cap on the in-memory OAuth state fallback. Each entry is ~80 bytes; default
+ *  1000 caps memory at ~80 KB. Override via `OAUTH_MAX_PENDING_STATES`. */
 const MAX_PENDING_STATES = parseInt(process.env.OAUTH_MAX_PENDING_STATES || '1000', 10);
-// Bind each state to the provider that minted it so a state issued for one
-// provider can't be replayed on another provider's callback.
-const pendingOAuthStates = new Map<string, { provider: string; createdAt: number }>();
 
-// `.unref()` so this background sweep doesn't keep Node alive in tests
-// or worker scripts that import this module without starting the server.
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, { createdAt }] of pendingOAuthStates) {
-    if (now - createdAt > config.oauth.stateTtlMs) pendingOAuthStates.delete(key);
-  }
-}, config.oauth.cleanupIntervalMs).unref();
+// Cross-pod pending-state store (env Redis; process-local Map fallback). Each
+// state is bound to the provider that minted it so a state issued for one
+// provider can't be replayed on another provider's callback. Backing this with
+// Redis is what lets the initiate + callback land on different replicas — with
+// the old process-local Map, login failed ~80% of the time at maxReplicas: 5.
+const pendingOAuthStates = createPendingStateStore<{ provider: string; createdAt: number }>({
+  prefix: 'oauth:state:',
+  ttlMs: config.oauth.stateTtlMs,
+  cleanupIntervalMs: config.oauth.cleanupIntervalMs,
+  maxEntries: MAX_PENDING_STATES,
+});
 
 // Types
 
@@ -449,8 +451,9 @@ export async function verifyOAuthCode(providerName: string, code: string, state:
   if (!provider) throw new Error('OAUTH_UNSUPPORTED_PROVIDER');
   if (!provider.enabled) throw new Error('OAUTH_PROVIDER_DISABLED');
 
-  const pending = pendingOAuthStates.get(state);
-  pendingOAuthStates.delete(state);
+  // Consume-once: the store deletes the entry on lookup (valid or mismatched)
+  // to prevent probing/replay — same semantics as the old in-memory map.
+  const pending = await pendingOAuthStates.consume(state);
   if (!pending || pending.provider !== providerName) throw new Error('OAUTH_INVALID_STATE');
 
   const accessToken = await provider.exchangeCode(code);
@@ -468,18 +471,8 @@ export const getAuthUrl = withController('Get OAuth URL', async (req, res) => {
   if (!provider) return sendError(res, 400, `Unsupported OAuth provider: ${providerName}`);
   if (!provider.enabled) return sendError(res, 400, `${providerName} OAuth is not configured`);
 
-  if (pendingOAuthStates.size >= MAX_PENDING_STATES) {
-    // Evict oldest entries to make room
-    const entriesToEvict = Math.max(1, Math.floor(MAX_PENDING_STATES * 0.1));
-    const iterator = pendingOAuthStates.keys();
-    for (let i = 0; i < entriesToEvict; i++) {
-      const key = iterator.next().value;
-      if (key) pendingOAuthStates.delete(key);
-    }
-  }
-
   const state = crypto.randomBytes(32).toString('hex');
-  pendingOAuthStates.set(state, { provider: providerName, createdAt: Date.now() });
+  await pendingOAuthStates.put(state, { provider: providerName, createdAt: Date.now() });
 
   sendSuccess(res, 200, { url: provider.buildAuthorizeUrl(state), state });
 });
@@ -503,6 +496,13 @@ export const handleCallback = withController('OAuth callback', async (req, res) 
     incCounter('platform_logins_failed_total');
     throw err;
   }
+
+  // Close the social-login SSO bypass: a user whose email domain is covered by
+  // an ENABLED + `sso`-entitled org IdP MUST authenticate through that IdP, so a
+  // social OAuth grant for that address is a bypass of the org's enforced SSO.
+  // Mirror the password-login gate (controllers/auth.ts) — reject with the same
+  // typed SSO_REQUIRED + {orgId, provider} so the UI can route into SSO.
+  if (await rejectIfSsoEnforced(res, userInfo.email)) return;
 
   const user = await authService.findOrCreateOAuthUser(providerName, userInfo);
   const tokens = await issueTokens(user, user.lastActiveOrgId?.toString());

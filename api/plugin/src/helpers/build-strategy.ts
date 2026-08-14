@@ -25,7 +25,7 @@ import { ValidationError } from '@pipeline-builder/api-core';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
 
 import { buildAndPush, loadAndPush } from './docker-build.js';
-import type { BuildRequest, BuildResult, BuildType } from './docker-build.js';
+import type { BuildRequest, BuildResult, BuildType, BuildLineSink } from './docker-build.js';
 import type { PluginConfig } from './plugin-helpers.js';
 import { validateSafePath } from './safe-path.js';
 
@@ -49,6 +49,11 @@ export interface BuildDeps {
    * awaits it, so prebuilt (a crane push) never pays for the tier/quota-service lookup.
    */
   getBuildkitAddr(): Promise<string>;
+  /**
+   * Optional live sink for masked build log lines. Wired to the owner-bound SSE
+   * stream by the worker so the user sees build progress, not just a final status.
+   */
+  onLine?: BuildLineSink;
 }
 
 interface BaseBuildStrategy {
@@ -102,7 +107,7 @@ const buildImageStrategy: ImageBuildStrategy = {
   },
   async produceImage(req, deps) {
     const buildkitAddr = await deps.getBuildkitAddr();
-    return buildAndPush(req, { buildkitAddr });
+    return buildAndPush(req, { buildkitAddr, onLine: deps.onLine });
   },
 };
 
@@ -116,12 +121,12 @@ const prebuiltStrategy: ImageBuildStrategy = {
     }
     return { dockerfile: '', dockerfileContent: null };
   },
-  async produceImage(req) {
+  async produceImage(req, deps) {
     const tarPath = path.join(req.contextDir, 'image.tar');
     if (!existsSync(tarPath)) {
       throw new Error('Prebuilt plugin is missing image.tar in ZIP archive');
     }
-    return loadAndPush(tarPath, req.name, req.version, req.registry, req.orgId);
+    return loadAndPush(tarPath, req.name, req.version, req.registry, req.orgId, { onLine: deps.onLine });
   },
 };
 

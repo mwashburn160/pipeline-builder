@@ -11,10 +11,12 @@ import {
   getParam,
   validateBody,
 } from '@pipeline-builder/api-core';
-import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
+import type { QuotaService } from '@pipeline-builder/api-core';
+import { createAuthenticatedWithOrgRoute, withRoute, checkQuota, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { emitPipelineAudit } from '../services/audit.js';
+import { executionIdempotency } from '../services/execution-idempotency.js';
 import {
   pipelineExecutionService,
   PipelineExecutionError,
@@ -48,49 +50,71 @@ function awsDetail(err: unknown): Record<string, unknown> | undefined {
  * Each route owns its auth + orgId + `pipelines:write` guard chain so the parent
  * can mount this router plainly on the shared '/pipelines' prefix without the
  * write permission leaking onto sibling reads.
+ *
+ * The trigger route is additionally metered on the org's `apiCalls` quota (there
+ * is no dedicated `executions` quota in the `QuotaType` union) and protected by a
+ * short per-(org,pipeline) idempotency window so a double-submit can't launch two
+ * CodePipeline runs.
  */
-export function createExecutionRoutes(): Router {
+export function createExecutionRoutes(quotaService: QuotaService): Router {
   const router = Router();
 
   // Auth + orgId, then require the write permission. Shared by both POST routes.
   const writeGuards = [...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write')];
 
-  router.post('/:pipelineId/executions', ...writeGuards, withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const pipelineId = getParam(req.params, 'pipelineId');
-    if (!pipelineId) return sendBadRequest(res, 'Pipeline id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
+  router.post(
+    '/:pipelineId/executions',
+    ...writeGuards,
+    // Meter the trigger like the other quota'd routes: 429 when the org is over
+    // its apiCalls budget BEFORE any AWS call. Increment happens on success below.
+    checkQuota(quotaService, 'apiCalls'),
+    withRoute(async ({ req, res, ctx, orgId, userId }) => {
+      const pipelineId = getParam(req.params, 'pipelineId');
+      if (!pipelineId) return sendBadRequest(res, 'Pipeline id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    try {
-      const { executionId } = await pipelineExecutionService.triggerExecution(pipelineId, orgId);
-      ctx.log('COMPLETED', 'Triggered pipeline execution', { pipelineId, executionId });
+      // Short idempotency window: refuse a duplicate trigger for the same
+      // (org, pipeline) within the window rather than starting a second run.
+      // Fails open when Redis is unavailable (single-replica / outage).
+      if (!(await executionIdempotency.claim(orgId, pipelineId))) {
+        ctx.log('WARN', 'Duplicate pipeline execution trigger suppressed', { pipelineId });
+        return sendError(res, 409, 'A pipeline execution was just triggered; please wait a moment before retrying', ErrorCode.CONFLICT);
+      }
 
-      // Best-effort attributed audit — the AWS CodePipeline start succeeded.
-      emitPipelineAudit({
-        action: 'pipeline.execution.start',
-        actorId: req.user?.sub ?? userId ?? 'system',
-        orgId,
-        targetType: 'pipeline',
-        targetId: pipelineId,
-        details: { executionId },
-      });
+      try {
+        const { executionId } = await pipelineExecutionService.triggerExecution(pipelineId, orgId);
+        ctx.log('COMPLETED', 'Triggered pipeline execution', { pipelineId, executionId });
 
-      return sendSuccess(res, 202, { executionId });
-    } catch (err) {
-      const code = errorMessage(err);
-      if (code === PE_PIPELINE_NOT_REGISTERED) {
-        return sendError(res, 404, 'Pipeline is not deployed/registered', ErrorCode.NOT_FOUND);
+        // Meter the successful trigger against the org's apiCalls budget.
+        incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+
+        // Best-effort attributed audit — the AWS CodePipeline start succeeded.
+        emitPipelineAudit({
+          action: 'pipeline.execution.start',
+          actorId: req.user?.sub ?? userId ?? 'system',
+          orgId,
+          targetType: 'pipeline',
+          targetId: pipelineId,
+          details: { executionId },
+        });
+
+        return sendSuccess(res, 202, { executionId });
+      } catch (err) {
+        const code = errorMessage(err);
+        if (code === PE_PIPELINE_NOT_REGISTERED) {
+          return sendError(res, 404, 'Pipeline is not deployed/registered', ErrorCode.NOT_FOUND);
+        }
+        if (code === PE_AWS_PIPELINE_NOT_FOUND) {
+          ctx.log('ERROR', 'CodePipeline not found for registered pipeline (stale registry)', { pipelineId, ...awsDetail(err) });
+          return sendError(res, 404, 'Pipeline not found in AWS', ErrorCode.NOT_FOUND);
+        }
+        if (code === PE_AWS_ERROR) {
+          ctx.log('ERROR', 'Upstream AWS error triggering pipeline', { pipelineId, ...awsDetail(err) });
+          return sendError(res, 502, 'Upstream AWS error', ErrorCode.INTERNAL_ERROR, awsDetail(err));
+        }
+        ctx.log('ERROR', 'Failed to trigger pipeline execution', { pipelineId });
+        return sendError(res, 500, 'Failed to trigger pipeline execution', ErrorCode.INTERNAL_ERROR);
       }
-      if (code === PE_AWS_PIPELINE_NOT_FOUND) {
-        ctx.log('ERROR', 'CodePipeline not found for registered pipeline (stale registry)', { pipelineId, ...awsDetail(err) });
-        return sendError(res, 404, 'Pipeline not found in AWS', ErrorCode.NOT_FOUND);
-      }
-      if (code === PE_AWS_ERROR) {
-        ctx.log('ERROR', 'Upstream AWS error triggering pipeline', { pipelineId, ...awsDetail(err) });
-        return sendError(res, 502, 'Upstream AWS error', ErrorCode.INTERNAL_ERROR, awsDetail(err));
-      }
-      ctx.log('ERROR', 'Failed to trigger pipeline execution', { pipelineId });
-      return sendError(res, 500, 'Failed to trigger pipeline execution', ErrorCode.INTERNAL_ERROR);
-    }
-  }));
+    }));
 
   router.post('/:pipelineId/executions/:executionId/stop', ...writeGuards, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const pipelineId = getParam(req.params, 'pipelineId');

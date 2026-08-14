@@ -16,7 +16,7 @@
  * downgraded org from silently locking every user out.
  */
 
-import { resolveUserFeatures } from '@pipeline-builder/api-core';
+import { resolveUserFeatures, sendError } from '@pipeline-builder/api-core';
 import { resolveOrgLineage } from './org-hierarchy.js';
 import { toOrgId } from './org-id.js';
 import { Organization } from '../models/index.js';
@@ -94,4 +94,31 @@ export async function findSsoEnforcementForEmail(
     }
   }
   return null;
+}
+
+/**
+ * Reject a login when `email`'s domain is covered by an ENABLED + `sso`-entitled
+ * org IdP — those users MUST authenticate through SSO, so ANY non-SSO login
+ * (password OR social OAuth) is a bypass. Returns `true` when it handled
+ * (rejected) the request; the caller must then return without issuing a session.
+ *
+ * `details.orgId`/`provider` let the frontend route the user straight into the
+ * SSO initiate flow. A disabled/unentitled config never matches, so this is a
+ * no-op until an admin enables SSO. Shared by the password-login controller
+ * (controllers/auth.ts) and the social-OAuth callback (controllers/oauth.ts) so
+ * both close the same bypass identically.
+ */
+export async function rejectIfSsoEnforced(
+  res: Parameters<typeof sendError>[0],
+  email: string,
+): Promise<boolean> {
+  const enforcement = await findSsoEnforcementForEmail(email);
+  if (!enforcement) return false;
+  sendError(
+    res, 403,
+    'This account must sign in with single sign-on (SSO).',
+    'SSO_REQUIRED',
+    { orgId: enforcement.orgId, provider: enforcement.provider },
+  );
+  return true;
 }

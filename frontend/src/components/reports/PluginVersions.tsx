@@ -1,9 +1,25 @@
 import { Puzzle, AlertTriangle } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Card } from '@/components/ui/Card';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SectionHeading, SectionCardSkeleton, ExportCSVButton } from './ReportHelpers';
 import { MAX_VERSION_ROWS } from './constants';
 import type { PluginVersion } from './types';
+
+const VERSION_COLUMNS: Column<PluginVersion>[] = [
+  { id: 'name', header: 'Plugin', cellClassName: 'text-gray-900 dark:text-gray-100', render: (v) => v.name },
+  { id: 'versions', header: 'Versions', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (v) => v.version_count },
+  { id: 'latest', header: 'Latest', headerClassName: 'text-right', cellClassName: 'text-right font-mono text-xs', render: (v) => v.latest_version },
+  {
+    id: 'default',
+    header: 'Default',
+    headerClassName: 'text-center',
+    cellClassName: 'text-center',
+    render: (v) => (v.has_default
+      ? <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
+      : <span className="inline-block w-2 h-2 rounded-full bg-amber-400" title="No default set" />),
+  },
+];
 
 interface PluginVersionsProps {
   loading: boolean;
@@ -37,7 +53,14 @@ export function PluginVersions({ loading, pluginVersions }: PluginVersionsProps)
           <SectionHeading>Plugin Versions</SectionHeading>
           <ExportCSVButton data={pluginVersions.map(v => ({ name: v.name, versions: v.version_count, latest: v.latest_version, has_default: v.has_default }))} filename="plugin-versions" />
         </div>
-        <table className="w-full text-sm"><thead><tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700"><th className="pb-2 font-medium">Plugin</th><th className="pb-2 font-medium text-right">Versions</th><th className="pb-2 font-medium text-right">Latest</th><th className="pb-2 font-medium text-center">Default</th></tr></thead><tbody className="divide-y divide-gray-100 dark:divide-gray-800">{pluginVersions.slice(0, MAX_VERSION_ROWS).map((v) => (<tr key={v.name}><td className="py-1.5 text-gray-900 dark:text-gray-100">{v.name}</td><td className="py-1.5 text-right tabular-nums">{v.version_count}</td><td className="py-1.5 text-right font-mono text-xs">{v.latest_version}</td><td className="py-1.5 text-center">{v.has_default ? <span className="inline-block w-2 h-2 rounded-full bg-green-500" /> : <span className="inline-block w-2 h-2 rounded-full bg-amber-400" title="No default set" />}</td></tr>))}</tbody></table>
+        <DataTable
+          data={pluginVersions.slice(0, MAX_VERSION_ROWS)}
+          columns={VERSION_COLUMNS}
+          isLoading={false}
+          animated={false}
+          getRowKey={(v) => v.name}
+          emptyState={{ icon: Puzzle, title: 'No versions', description: 'No plugin version data yet.' }}
+        />
       </Card>
     </>
   );

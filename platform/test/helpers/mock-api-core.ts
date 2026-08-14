@@ -223,6 +223,11 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // don't exercise the guard aren't forced to mock DNS; a suite testing the
     // guarded webhook path overrides `assertSafeUrl` to reject. `isRefusedRedirect`
     // + `SSRF_FETCH_INIT` mirror api-core so the redirect handling behaves for real.
+    // Leader-lock (services/leader-lock). Platform's background sweeps (org-purge,
+    // invitation-reaper, billing-reconcile, scraper) now run under it. Default:
+    // ALWAYS the leader — run the callback and report acquired, so a suite's sweep
+    // logic executes; a suite testing the lock itself overrides this.
+    withLeaderLock: async (_redis: unknown, _key: string, _ttlMs: number, fn: () => Promise<void>) => { await fn(); return true; },
     assertSafeUrl: async () => undefined,
     isRefusedRedirect: (resp: { type?: string; status: number }) =>
       resp?.type === 'opaqueredirect' || (resp?.status >= 300 && resp?.status < 400),

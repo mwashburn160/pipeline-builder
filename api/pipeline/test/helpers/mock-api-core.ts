@@ -60,6 +60,12 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // S2S token minter — routes forward a service token (not the user bearer)
     // to quota/compliance. Suites that assert on the forwarded auth override this.
     getServiceAuthHeader: () => 'Bearer service-token',
+    // Compliance client — create AND update routes gate on it (fail-closed).
+    // Default is non-blocking; a suite testing a compliance block overrides it.
+    createComplianceClient: () => ({
+      validatePipeline: async () => ({ blocked: false, violations: [] }),
+      validatePlugin: async () => ({ blocked: false, violations: [] }),
+    }),
     // Remote audit client factory — the pipeline routes' audit wiring
     // (src/services/audit.ts) links against this. Default returns a no-op
     // recorder; suites asserting on emitted audit events mock the audit module
@@ -110,6 +116,9 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
       invalidatePattern: () => Promise.resolve(0),
     }),
+    // Env Redis client factory — returns null (no Redis) so consumers like the
+    // execution-idempotency guard fail open in suites. Override for redis tests.
+    createEnvRedisClient: () => null,
     ...overrides,
   };
 }

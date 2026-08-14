@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { FilterSelect } from './FilterSelect';
 
 export interface PaginationState {
   limit: number;
@@ -54,16 +55,16 @@ export function Pagination({
       </div>
 
       <div className="flex items-center gap-2">
-        <select
+        <FilterSelect
           value={limit}
           onChange={(e) => onPageSizeChange(Number(e.target.value))}
-          className="filter-select text-xs !py-1.5 !pl-2 !pr-7"
+          className="text-xs !py-1.5 !pl-2 !pr-7"
           aria-label="Page size"
         >
           {pageSizeOptions.map((size) => (
             <option key={size} value={size}>{size} / page</option>
           ))}
-        </select>
+        </FilterSelect>
 
         <nav className="flex items-center gap-0.5" aria-label="Pagination">
           <PageButton onClick={() => goToPage(1)} disabled={currentPage === 1} aria-label="First page">

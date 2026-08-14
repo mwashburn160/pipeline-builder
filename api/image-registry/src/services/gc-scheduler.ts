@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage, createScheduler, type Scheduler } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, createScheduler, createEnvRedisLock, type Scheduler } from '@pipeline-builder/api-core';
 import { listRepositoriesUnderPrefix } from './registry-client.js';
 import { runRegistryGc } from './registry-gc.js';
 import { invalidateStorageCache } from './storage-usage.js';
@@ -9,6 +9,15 @@ import { invalidateStorageCache } from './storage-usage.js';
 const logger = createLogger('gc-scheduler');
 
 const ORG_PREFIX = 'org-';
+
+// Cross-pod leader-lock key + TTL. Without a lock every replica with
+// REGISTRY_GC_ENABLED=true runs the DESTRUCTIVE sweep, so N pods redundantly
+// walk the catalog and issue deletes at once. The lock makes exactly one pod
+// sweep per window; absent Redis it degrades to no-op (runs on every pod — the
+// per-manifest deletes are 404-tolerant, so that stays safe, just wasteful).
+// The TTL must comfortably outlast one sweep (a sweep GCs every org namespace
+// sequentially) yet stay well under the interval so the next cycle re-acquires.
+const LOCK_KEY = 'image-registry:gc-scheduler:leader';
 
 let scheduler: Scheduler | null = null;
 
@@ -21,6 +30,8 @@ interface SchedulerOptions {
   maxAgeDays: number;
   /** Run on startup at `startupDelayMs`, then every `intervalMs`. */
   startupDelayMs: number;
+  /** Leader-lock TTL (ms). Must outlast one sweep; under `intervalMs`. */
+  lockTtlMs: number;
 }
 
 /**
@@ -32,6 +43,8 @@ interface SchedulerOptions {
  *   REGISTRY_GC_MAX_AGE_DAYS    (default 30)
  *   REGISTRY_GC_STARTUP_DELAY_MS (default 300000 — 5 min, gives the registry
  *                                  time to settle before we hammer it)
+ *   REGISTRY_GC_LOCK_TTL_MS     (default 900000 — 15 min; leader-lock TTL,
+ *                                  generous so a long sweep doesn't lapse it)
  */
 function readConfig(): SchedulerOptions {
   return {
@@ -39,6 +52,7 @@ function readConfig(): SchedulerOptions {
     intervalMs: parseInt(process.env.REGISTRY_GC_INTERVAL_HOURS ?? '24', 10) * 60 * 60 * 1000,
     maxAgeDays: parseInt(process.env.REGISTRY_GC_MAX_AGE_DAYS ?? '30', 10),
     startupDelayMs: parseInt(process.env.REGISTRY_GC_STARTUP_DELAY_MS ?? '300000', 10),
+    lockTtlMs: parseInt(process.env.REGISTRY_GC_LOCK_TTL_MS ?? '900000', 10),
   };
 }
 
@@ -115,10 +129,17 @@ export function startGcScheduler(): void {
   }
   if (scheduler) return;
 
+  // Cross-pod single-runner lock so only ONE replica runs the destructive sweep
+  // per window (like the marketplace-metering / compliance-scan crons). Null when
+  // Redis is unconfigured — then the scheduler runs on every pod (still safe: the
+  // per-manifest deletes tolerate 404s), matching the pre-lock behavior.
+  const lockClient = createEnvRedisLock();
+
   logger.info('Registry GC scheduler starting', {
     intervalHours: cfg.intervalMs / 3_600_000,
     maxAgeDays: cfg.maxAgeDays,
     startupDelayMs: cfg.startupDelayMs,
+    locked: !!lockClient,
   });
 
   // First sweep after a short delay so the registry has had time to start
@@ -128,6 +149,7 @@ export function startGcScheduler(): void {
     intervalMs: cfg.intervalMs,
     startupDelayMs: cfg.startupDelayMs,
     run: () => sweepOnce(cfg.maxAgeDays),
+    ...(lockClient ? { lock: { redis: () => lockClient, key: LOCK_KEY, ttlMs: cfg.lockTtlMs } } : {}),
   });
   scheduler.start();
 

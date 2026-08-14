@@ -10,6 +10,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
+import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Input } from '@/components/ui/Input';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
@@ -111,15 +112,13 @@ export default function RegistryPage() {
   const [gcPrefix, setGcPrefix] = useState('');
   const [gcDryRun, setGcDryRun] = useState(true);
   const [gcRunning, setGcRunning] = useState(false);
+  // Real-run confirmation (in-app modal, replacing the native confirm()).
+  const [confirmGc, setConfirmGc] = useState(false);
 
-  const handleRunGc = useCallback(async () => {
+  const executeGc = useCallback(async () => {
     const prefix = gcPrefix.trim();
     if (!prefix) return;
-    // Real runs delete manifests — gate behind an explicit confirm. Dry-runs
-    // only walk + count, so they skip the confirm.
-    if (!gcDryRun && !window.confirm(
-      `Run garbage collection under "${prefix}" and DELETE manifests older than the retention window? This cannot be undone.`,
-    )) return;
+    setConfirmGc(false);
     setGcRunning(true);
     try {
       const res = await api.runRegistryGc({ prefix, dryRun: gcDryRun });
@@ -142,6 +141,14 @@ export default function RegistryPage() {
       setGcRunning(false);
     }
   }, [gcPrefix, gcDryRun, toast, refresh]);
+
+  // Real runs delete manifests — gate behind an explicit in-app confirm. Dry-runs
+  // only walk + count, so they run immediately without the confirm step.
+  const handleRunGc = useCallback(() => {
+    if (!gcPrefix.trim()) return;
+    if (gcDryRun) void executeGc();
+    else setConfirmGc(true);
+  }, [gcPrefix, gcDryRun, executeGc]);
 
   // Storage-usage inspector (sysadmin ops). Rolls up per-namespace byte
   // consumption to inform GC decisions — which prefix is heavy enough to be
@@ -586,6 +593,16 @@ export default function RegistryPage() {
             </label>
           </div>
         </Modal>
+      )}
+
+      {confirmGc && (
+        <DeleteConfirmModal
+          title="Run registry garbage collection"
+          itemName={`manifests older than the retention window under "${gcPrefix.trim()}"`}
+          loading={gcRunning}
+          onConfirm={() => void executeGc()}
+          onCancel={() => setConfirmGc(false)}
+        />
       )}
 
       {storageOpen && (

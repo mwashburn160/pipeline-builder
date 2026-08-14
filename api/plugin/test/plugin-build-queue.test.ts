@@ -47,6 +47,21 @@ const mockUtimesSync = jest.fn();
 
 const mockBuildAndPush = jest.fn<(...args: any[]) => any>();
 
+/** Mirror of the real docker-build BuildProcessError (carries the masked tail +
+ *  exit reason) so the failed-handler summary logic can be exercised. */
+class MockBuildProcessError extends Error {
+  tail: string[];
+  exitCode: number | null;
+  timedOut: boolean;
+  constructor(message: string, opts: { tail: string[]; exitCode: number | null; timedOut: boolean }) {
+    super(message);
+    this.name = 'BuildProcessError';
+    this.tail = opts.tail;
+    this.exitCode = opts.exitCode;
+    this.timedOut = opts.timedOut;
+  }
+}
+
 const mockDeployVersion = jest.fn<(...args: any[]) => any>();
 
 // Shared remote-audit `record` spy. services/audit.ts caches a single
@@ -128,6 +143,9 @@ function registerMocks() {
     loadAndPush: jest.fn(),
     BUILD_TEMP_ROOT: '/tmp',
     getBuildkitAddrForTier: jest.fn(() => 'tcp://buildkitd:1234'),
+    // maskSecrets identity here — real masking is covered by docker-build.test.ts.
+    maskSecrets: (s: string) => s,
+    BuildProcessError: MockBuildProcessError,
   }));
 
   jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
@@ -503,11 +521,39 @@ describe('plugin-build-queue', () => {
 
       failedHandler(job, error);
 
-      expect(sse.send).toHaveBeenCalledWith('req-123', 'ERROR', 'Build failed: an error occurred during the build process', expect.objectContaining({
+      // F8: the generic message is replaced by a bounded reason/summary. A plain
+      // error (no build tail) degrades to the masked message + reason.
+      expect(sse.send).toHaveBeenCalledWith('req-123', 'ERROR', 'Build failed (timed out): Build timeout', expect.objectContaining({
         jobId: 'job-1',
         attemptsMade: 1,
         maxAttempts: 2,
+        reason: 'timed out',
+        tail: [],
       }));
+    });
+
+    it('surfaces the exit reason + masked build tail from a BuildProcessError', () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+
+      queueModule.startWorker(sse, quota);
+
+      const failedCalls = mockWorkerOn.mock.calls.filter((c: any) => c[0] === 'failed');
+      const failedHandler = failedCalls[0][1];
+
+      const job = makeJob(makeJobData());
+      const tail = ['#4 RUN npm ci', 'npm ERR! code E404', 'Build failed with exit code 1'];
+      const error = new MockBuildProcessError('Build failed with exit code 1', { tail, exitCode: 1, timedOut: false });
+
+      failedHandler(job, error);
+
+      const errCall = (sse.send as jest.Mock).mock.calls.find((c: any[]) => c[1] === 'ERROR');
+      expect(errCall).toBeDefined();
+      // Message carries the exit reason + the last N build lines.
+      expect(errCall?.[2]).toContain('Build failed (exit code 1)');
+      expect(errCall?.[2]).toContain('npm ERR! code E404');
+      // The full tail is also attached in the event data for the UI.
+      expect(errCall?.[3]).toEqual(expect.objectContaining({ reason: 'exit code 1', tail }));
     });
 
     it('handles null job gracefully', () => {

@@ -21,6 +21,15 @@ const logger = createLogger('http-client');
  */
 const DEFAULT_TIMEOUT = parseInt(process.env.HTTP_CLIENT_TIMEOUT || '5000', 10);
 
+/**
+ * Default cap on concurrent keep-alive sockets per client agent
+ * (env: `HTTP_CLIENT_MAX_SOCKETS`). Node's default is `Infinity`, which lets a
+ * burst of concurrent calls open unbounded sockets against a downstream service
+ * (fd exhaustion + connection-storm on the callee). 64 is ample for
+ * service-to-service fan-out while staying bounded.
+ */
+const DEFAULT_MAX_SOCKETS = parseInt(process.env.HTTP_CLIENT_MAX_SOCKETS || '64', 10);
+
 // HTTP methods that are idempotent by definition — safe to auto-retry on a
 // 5xx/connection/timeout without risking a duplicate side effect.
 const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -77,22 +86,56 @@ export interface HttpClientResponse<T = unknown> {
  * const result = await client.post('/org123/increment', { quotaType: 'apiCalls' });
  * ```
  */
+/**
+ * Options controlling the client's connection pool.
+ */
+export interface HttpClientOptions {
+  /**
+   * A shared `http.Agent` to reuse across clients (pools sockets to the same
+   * host). When supplied, the client does NOT own it — {@link InternalHttpClient.destroy}
+   * leaves a borrowed agent untouched so other clients keep working.
+   */
+  agent?: http.Agent;
+  /** Cap on concurrent keep-alive sockets when minting an agent (default 64). */
+  maxSockets?: number;
+}
+
 export class InternalHttpClient {
   private config: Required<ServiceConfig>;
   private agent: http.Agent;
+  /** True only when this client MINTED its agent (so destroy() may tear it down). */
+  private readonly ownsAgent: boolean;
 
   /**
    * Create a new HTTP client instance.
    *
    * @param config - Service configuration
+   * @param options - Optional connection-pool controls (shared agent / socket cap)
    */
-  constructor(config: ServiceConfig) {
+  constructor(config: ServiceConfig, options?: HttpClientOptions) {
     this.config = {
       host: config.host,
       port: config.port,
       timeout: config.timeout ?? DEFAULT_TIMEOUT,
     };
-    this.agent = new http.Agent({ keepAlive: true });
+    if (options?.agent) {
+      // Borrowed, caller-owned agent — pooled across clients, not ours to destroy.
+      this.agent = options.agent;
+      this.ownsAgent = false;
+    } else {
+      // Own a keep-alive agent with a BOUNDED socket pool (no more Infinity).
+      this.agent = new http.Agent({ keepAlive: true, maxSockets: options?.maxSockets ?? DEFAULT_MAX_SOCKETS });
+      this.ownsAgent = true;
+    }
+  }
+
+  /**
+   * Release the keep-alive socket pool. Idempotent and safe to call on shutdown.
+   * A borrowed (caller-supplied) agent is left intact — only an agent this client
+   * created is destroyed, so tearing down one client can't sever another's pool.
+   */
+  destroy(): void {
+    if (this.ownsAgent) this.agent.destroy();
   }
 
   /**
@@ -315,10 +358,15 @@ export class InternalHttpClient {
  * @param config - Service configuration
  * @returns Client wrapper with safe methods
  */
-export function createSafeClient(config: ServiceConfig) {
-  const client = new InternalHttpClient(config);
+export function createSafeClient(config: ServiceConfig, options?: HttpClientOptions) {
+  const client = new InternalHttpClient(config, options);
 
   return {
+    /** Release the underlying keep-alive socket pool (no-op on a borrowed agent). */
+    destroy(): void {
+      client.destroy();
+    },
+
     /**
      * Safe GET request - returns null on error.
      */

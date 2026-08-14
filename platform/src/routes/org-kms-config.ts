@@ -10,6 +10,7 @@
  * without shelling into Mongo.
  */
 
+import { requirePermission } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   deleteOrgKmsConfig,
@@ -21,14 +22,19 @@ import { requireAuth, requireStepUp } from '../middleware/index.js';
 
 const router: Router = Router({ mergeParams: true });
 
-router.get('/', requireAuth, getOrgKmsConfig);
+// `requirePermission('org:kms')` is the capability gate for the sensitive
+// customer-managed-KMS surface (split out of `org:settings`); the controllers
+// additionally enforce `requireSystemAdmin`, so this fleet stays superadmin-only
+// in practice while the capability check documents + future-proofs the KMS
+// authority. Superadmins bypass `requirePermission` via `hasPermission`.
+router.get('/', requireAuth, requirePermission('org:kms'), getOrgKmsConfig);
 // Mutations re-encrypt every per-org secret under a new CMK — gate on
 // step-up so a stolen session can't rotate the wrapping key.
-router.put('/', requireAuth, requireStepUp, putOrgKmsConfig);
-router.delete('/', requireAuth, requireStepUp, deleteOrgKmsConfig);
+router.put('/', requireAuth, requirePermission('org:kms'), requireStepUp, putOrgKmsConfig);
+router.delete('/', requireAuth, requirePermission('org:kms'), requireStepUp, deleteOrgKmsConfig);
 // POST /test — dry-run the proposed config without touching Mongo.
 // Read-only; no step-up needed (and we want operators to be able to
 // validate a CMK without having to re-prompt every time).
-router.post('/test', requireAuth, testOrgKmsConfig);
+router.post('/test', requireAuth, requirePermission('org:kms'), testOrgKmsConfig);
 
 export default router;

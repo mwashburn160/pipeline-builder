@@ -66,7 +66,7 @@ const mockChargesRetrieve = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 class MockStripeProvider { getStripeClient() { return { charges: { retrieve: (...a: unknown[]) => mockChargesRetrieve(...a) } }; } }
 jest.unstable_mockModule('../src/config.js', () => ({ config: { paymentGracePeriodDays: 7, stripe: { priceToPlanMap: {} } } }));
 jest.unstable_mockModule('../src/models/plan.js', () => ({ Plan: { findById: jest.fn(), findOne: jest.fn() } }));
-jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({ claimWebhookEvent: jest.fn(), releaseWebhookEvent: jest.fn() }));
+jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({ claimWebhookEvent: jest.fn(), markWebhookEventDone: jest.fn(), releaseWebhookEvent: jest.fn() }));
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({ getPaymentProvider: () => new MockStripeProvider() }));
 jest.unstable_mockModule('../src/providers/stripe-provider.js', () => ({ StripeProvider: MockStripeProvider }));
 

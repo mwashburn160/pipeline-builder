@@ -10,6 +10,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { Pagination } from '@/components/ui/Pagination';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
@@ -46,6 +47,17 @@ interface DlqJob extends FailedJob {
 
 type SortField = 'pluginName' | 'attemptsMade' | 'failedAt' | 'error';
 type SortDir = 'asc' | 'desc';
+
+interface TierRow { tier: string; waiting: number; active: number; completed: number; failed: number; delayed: number }
+
+const TIER_COLUMNS: Column<TierRow>[] = [
+  { id: 'tier', header: 'Tier', cellClassName: 'font-mono text-xs', render: (r) => r.tier },
+  { id: 'waiting', header: 'Waiting', render: (r) => r.waiting },
+  { id: 'active', header: 'Active', render: (r) => r.active },
+  { id: 'completed', header: 'Completed', render: (r) => r.completed },
+  { id: 'failed', header: 'Failed', render: (r) => <span className={r.failed > 0 ? 'text-red-600 dark:text-red-400 font-medium' : ''}>{r.failed}</span> },
+  { id: 'delayed', header: 'Delayed', render: (r) => r.delayed },
+];
 
 // ---------------------------------------------------------------------------
 // Stat card
@@ -549,30 +561,14 @@ export default function BuildQueuePage() {
             <span className="text-xs text-gray-500 dark:text-gray-400">One BullMQ queue per pricing tier</span>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase text-gray-500 dark:text-gray-400">
-                  <th className="py-1.5 pr-4">Tier</th>
-                  <th className="py-1.5 pr-4">Waiting</th>
-                  <th className="py-1.5 pr-4">Active</th>
-                  <th className="py-1.5 pr-4">Completed</th>
-                  <th className="py-1.5 pr-4">Failed</th>
-                  <th className="py-1.5 pr-4">Delayed</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {Object.entries(status.tiers).map(([tier, counts]) => (
-                  <tr key={tier}>
-                    <td className="py-1.5 pr-4 font-mono text-xs">{tier}</td>
-                    <td className="py-1.5 pr-4">{counts.waiting}</td>
-                    <td className="py-1.5 pr-4">{counts.active}</td>
-                    <td className="py-1.5 pr-4">{counts.completed}</td>
-                    <td className={`py-1.5 pr-4 ${counts.failed > 0 ? 'text-red-600 dark:text-red-400 font-medium' : ''}`}>{counts.failed}</td>
-                    <td className="py-1.5 pr-4">{counts.delayed}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable
+              data={Object.entries(status.tiers).map(([tier, counts]) => ({ tier, ...counts }))}
+              columns={TIER_COLUMNS}
+              isLoading={false}
+              animated={false}
+              getRowKey={(r) => r.tier}
+              emptyState={{ icon: Inbox, title: 'No tiers', description: 'No per-tier breakdown available.' }}
+            />
           </div>
         </Card>
       )}

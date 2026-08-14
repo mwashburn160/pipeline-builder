@@ -85,6 +85,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 const mockCtxLog = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   createAuthenticatedWithOrgRoute: () => [],
   incrementQuotaFromCtx: jest.fn(),
   withRoute: (handler: Function) => async (req: any, res: any) => {
@@ -208,11 +209,24 @@ jest.unstable_mockModule('../src/services/git-analysis-service.js', () => ({
   buildEnhancedPrompt: mockBuildEnhancedPrompt,
 }));
 
+const mockGeneratePipelineConfig = jest.fn<(...args: any[]) => any>();
+
+/** Mirrors the real service's provider-contacted sentinel — the route branches on
+ *  `instanceof AIEmptyOutputError` to KEEP (not refund) the aiCalls slot. */
+class AIEmptyOutputError extends Error {
+  readonly providerContacted = true;
+  constructor(message = 'AI did not produce a pipeline configuration') {
+    super(message);
+    this.name = 'AIEmptyOutputError';
+  }
+}
+
 jest.unstable_mockModule('../src/services/ai-generation-service.js', () => ({
   getAvailableProviders: mockGetAvailableProviders,
   getFilteredPlugins: jest.fn<(...args: any[]) => any>().mockResolvedValue([]),
   streamPipelineConfig: mockStreamPipelineConfig,
-  generatePipelineConfig: jest.fn(),
+  generatePipelineConfig: mockGeneratePipelineConfig,
+  AIEmptyOutputError,
 }));
 
 // Imports  after mocks
@@ -1278,5 +1292,62 @@ describe('POST /generate/from-url/stream', () => {
     expect(requestLog).toBeDefined();
     expect(requestLog?.[2]).toEqual(expect.objectContaining({ host: 'github.com', owner: 'test', repo: 'app' }));
     expect(requestLog?.[2]).not.toHaveProperty('gitUrl');
+  });
+});
+
+// F2 — unify the aiCalls refund policy on keep-on-provider-contact for the
+// NON-streaming /generate route (the streaming path already keeps the slot once
+// the provider was contacted). An empty/unparseable output AFTER a completed
+// provider round-trip (AIEmptyOutputError) must NOT refund; a pre-provider
+// failure (model resolution, connectivity) must refund.
+describe('POST /generate (aiCalls refund policy)', () => {
+  const handler = getHandler('post', '/generate');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockValidateBody.mockReturnValue({
+      ok: true,
+      value: { prompt: 'build a node app', provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
+    });
+    mockReserveQuota.mockResolvedValue({ exceeded: false, quota: { type: 'aiCalls', limit: 1000, used: 1, remaining: 999, resetAt: '2026-01-01T00:00:00Z' } });
+  });
+
+  it('KEEPS the reserved aiCalls slot when the provider round-trip completed but returned no usable output', async () => {
+    mockGeneratePipelineConfig.mockRejectedValue(new AIEmptyOutputError());
+
+    const req = mockReq({ body: {} });
+    const res = mockSseRes();
+    await handler(req, res);
+
+    // Provider was contacted → no refund (matches the streaming path).
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+  });
+
+  it('REFUNDS the reserved aiCalls slot on a pre-provider failure (model resolution / connectivity)', async () => {
+    mockGeneratePipelineConfig.mockRejectedValue(new Error('AI provider "anthropic" is not configured'));
+
+    const req = mockReq({ body: {} });
+    const res = mockSseRes();
+    await handler(req, res);
+
+    // Provider never produced a round-trip → slot returned.
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not refund on a successful generation', async () => {
+    mockGeneratePipelineConfig.mockResolvedValue({
+      props: { project: 'app', organization: 'test' },
+      description: 'desc',
+      keywords: ['node'],
+      servedBy: { provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
+      promptVersion: '2.0',
+    });
+
+    const req = mockReq({ body: {} });
+    const res = mockSseRes();
+    await handler(req, res);
+
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+    expect(mockSendSuccess).toHaveBeenCalled();
   });
 });

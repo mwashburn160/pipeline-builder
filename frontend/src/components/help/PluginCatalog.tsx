@@ -1,9 +1,27 @@
 import { useState, useMemo } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Puzzle } from 'lucide-react';
 import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { PLUGIN_CATALOG, PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
 import type { PluginCategory } from '@/lib/help';
+
+type CatalogEntry = typeof PLUGIN_CATALOG[number];
+
+const CATALOG_COLUMNS: Column<CatalogEntry>[] = [
+  { id: 'name', header: 'Name', cellClassName: 'text-gray-900 dark:text-gray-100 font-mono text-xs', render: (p) => p.name },
+  {
+    id: 'category',
+    header: 'Category',
+    render: (p) => (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+        {CATEGORY_DISPLAY_NAMES[p.category as PluginCategory] || p.category}
+      </span>
+    ),
+  },
+  { id: 'description', header: 'Description', headerClassName: 'hidden sm:table-cell', cellClassName: 'hidden sm:table-cell text-gray-600 dark:text-gray-400', render: (p) => p.description },
+  { id: 'secrets', header: 'Secrets', cellClassName: 'text-gray-500 dark:text-gray-400 font-mono text-xs', render: (p) => (p.secrets.length > 0 ? p.secrets.join(', ') : '—') },
+];
 
 /** Searchable, filterable plugin catalog table. */
 export function PluginCatalog() {
@@ -53,39 +71,14 @@ export function PluginCatalog() {
 
       {/* Table */}
       <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50 dark:bg-gray-800/50">
-              <th className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Name</th>
-              <th className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Category</th>
-              <th className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300 hidden sm:table-cell">Description</th>
-              <th className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Secrets</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-            {filtered.map((plugin) => (
-              <tr key={plugin.name} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
-                <td className="px-4 py-2 text-gray-900 dark:text-gray-100 font-mono text-xs">{plugin.name}</td>
-                <td className="px-4 py-2">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                    {CATEGORY_DISPLAY_NAMES[plugin.category as PluginCategory] || plugin.category}
-                  </span>
-                </td>
-                <td className="px-4 py-2 text-gray-600 dark:text-gray-400 hidden sm:table-cell">{plugin.description}</td>
-                <td className="px-4 py-2 text-gray-500 dark:text-gray-400 font-mono text-xs">
-                  {plugin.secrets.length > 0 ? plugin.secrets.join(', ') : '—'}
-                </td>
-              </tr>
-            ))}
-            {filtered.length === 0 && (
-              <tr key="empty-state">
-                <td colSpan={4} className="px-4 py-8 text-center text-gray-400 dark:text-gray-500">
-                  No plugins match your search.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <DataTable
+          data={filtered}
+          columns={CATALOG_COLUMNS}
+          isLoading={false}
+          animated={false}
+          getRowKey={(plugin) => plugin.name}
+          emptyState={{ icon: Puzzle, title: 'No plugins', description: 'No plugins match your search.' }}
+        />
       </div>
     </div>
   );

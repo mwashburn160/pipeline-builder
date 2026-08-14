@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Receipt, Users } from 'lucide-react';
 import api from '@/lib/api';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { StatCard } from '@/components/reports/StatCard';
 import { formatCents as money } from '@/lib/format';
 import type { BillingSummary, BillingInvoiceRow, BillingAllocation } from '@/lib/api/domains/billing';
+
+type AllocationRow = BillingAllocation['rows'][number];
 
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 
@@ -15,6 +19,16 @@ const STATUS_COLOR: Record<string, string> = {
   void: 'text-gray-400 dark:text-gray-500',
   uncollectible: 'text-red-600 dark:text-red-400',
 };
+
+const INVOICE_COLUMNS: Column<BillingInvoiceRow>[] = [
+  { id: 'period', header: 'Period', cellClassName: 'text-gray-600 dark:text-gray-300', render: (r) => fmtDate(r.periodStart) },
+  { id: 'gross', header: 'Gross', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => money(r.grossCents) },
+  { id: 'discount', header: 'Discount', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-gray-500 dark:text-gray-400', render: (r) => (r.discountCents ? `−${money(r.discountCents)}` : '—') },
+  { id: 'credit', header: 'Credit', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-gray-500 dark:text-gray-400', render: (r) => (r.creditCents ? `−${money(r.creditCents)}` : '—') },
+  { id: 'tax', header: 'Tax', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-gray-500 dark:text-gray-400', render: (r) => (r.taxCents ? money(r.taxCents) : '—') },
+  { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums font-medium text-gray-900 dark:text-gray-100', render: (r) => money(r.netCents) },
+  { id: 'status', header: 'Status', cellClassName: 'capitalize', render: (r) => <span className={STATUS_COLOR[r.status] ?? ''}>{r.status}</span> },
+];
 
 /**
  * Billing dashboard — historical actuals from the ledger: gross billed →
@@ -120,6 +134,14 @@ export function BillingDashboard() {
   const t = summary.totals;
   const maxGross = Math.max(1, ...summary.timeline.map((p) => p.grossCents));
 
+  const allocationColumns: Column<AllocationRow>[] = [
+    { id: 'team', header: 'Team', cellClassName: 'text-gray-600 dark:text-gray-300 font-mono text-xs', render: (r) => r.orgId },
+    { id: 'units', header: allocation?.driver ?? 'Units', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => r.driverUnits },
+    { id: 'share', header: 'Share', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-gray-500 dark:text-gray-400', render: (r) => `${r.sharePct}%` },
+    { id: 'credits', header: 'Credits', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-gray-500 dark:text-gray-400', render: (r) => (r.creditCents ? `−${money(r.creditCents)}` : '—') },
+    { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums font-medium text-gray-900 dark:text-gray-100', render: (r) => money(r.netCents) },
+  ];
+
   return (
     <div className="space-y-4">
       {rangeToolbar}
@@ -160,32 +182,14 @@ export function BillingDashboard() {
 
       <Card className="overflow-x-auto">
         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Invoices</h3>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-xs text-gray-400 dark:text-gray-500 text-left">
-              <th className="py-1.5 pr-4 font-medium">Period</th>
-              <th className="py-1.5 pr-4 font-medium text-right">Gross</th>
-              <th className="py-1.5 pr-4 font-medium text-right">Discount</th>
-              <th className="py-1.5 pr-4 font-medium text-right">Credit</th>
-              <th className="py-1.5 pr-4 font-medium text-right">Tax</th>
-              <th className="py-1.5 pr-4 font-medium text-right">Net</th>
-              <th className="py-1.5 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody className="tabular-nums">
-            {invoices.map((r) => (
-              <tr key={`${r.periodStart}|${r.periodEnd}|${r.status}`} className="border-t border-gray-100 dark:border-gray-800">
-                <td className="py-1.5 pr-4 text-gray-600 dark:text-gray-300">{fmtDate(r.periodStart)}</td>
-                <td className="py-1.5 pr-4 text-right">{money(r.grossCents)}</td>
-                <td className="py-1.5 pr-4 text-right text-gray-500 dark:text-gray-400">{r.discountCents ? `−${money(r.discountCents)}` : '—'}</td>
-                <td className="py-1.5 pr-4 text-right text-gray-500 dark:text-gray-400">{r.creditCents ? `−${money(r.creditCents)}` : '—'}</td>
-                <td className="py-1.5 pr-4 text-right text-gray-500 dark:text-gray-400">{r.taxCents ? money(r.taxCents) : '—'}</td>
-                <td className="py-1.5 pr-4 text-right font-medium text-gray-900 dark:text-gray-100">{money(r.netCents)}</td>
-                <td className={`py-1.5 capitalize ${STATUS_COLOR[r.status] ?? ''}`}>{r.status}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <DataTable
+          data={invoices}
+          columns={INVOICE_COLUMNS}
+          isLoading={false}
+          animated={false}
+          getRowKey={(r) => `${r.periodStart}|${r.periodEnd}|${r.status}`}
+          emptyState={{ icon: Receipt, title: 'No invoices', description: 'No invoices in the selected range.' }}
+        />
       </Card>
 
       {allocation && allocation.rows.length > 1 && (
@@ -194,28 +198,14 @@ export function BillingDashboard() {
             <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Cost by team</h3>
             <span className="text-xs text-gray-400 dark:text-gray-500">Estimated allocation · by {allocation.driver}</span>
           </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs text-gray-400 dark:text-gray-500 text-left">
-                <th className="py-1.5 pr-4 font-medium">Team</th>
-                <th className="py-1.5 pr-4 font-medium text-right">{allocation.driver}</th>
-                <th className="py-1.5 pr-4 font-medium text-right">Share</th>
-                <th className="py-1.5 pr-4 font-medium text-right">Credits</th>
-                <th className="py-1.5 font-medium text-right">Net</th>
-              </tr>
-            </thead>
-            <tbody className="tabular-nums">
-              {allocation.rows.map((r) => (
-                <tr key={r.orgId} className="border-t border-gray-100 dark:border-gray-800">
-                  <td className="py-1.5 pr-4 text-gray-600 dark:text-gray-300 font-mono text-xs">{r.orgId}</td>
-                  <td className="py-1.5 pr-4 text-right">{r.driverUnits}</td>
-                  <td className="py-1.5 pr-4 text-right text-gray-500 dark:text-gray-400">{r.sharePct}%</td>
-                  <td className="py-1.5 pr-4 text-right text-gray-500 dark:text-gray-400">{r.creditCents ? `−${money(r.creditCents)}` : '—'}</td>
-                  <td className="py-1.5 text-right font-medium text-gray-900 dark:text-gray-100">{money(r.netCents)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable
+            data={allocation.rows}
+            columns={allocationColumns}
+            isLoading={false}
+            animated={false}
+            getRowKey={(r) => r.orgId}
+            emptyState={{ icon: Users, title: 'No allocation', description: 'No cost allocation for the selected range.' }}
+          />
         </Card>
       )}
     </div>

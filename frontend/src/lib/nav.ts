@@ -201,9 +201,10 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Settings',
     items: [
       { title: 'Profile', href: '/dashboard/settings', icon: Settings },
-      // Org owner/admin SSO self-service. Gated by the `org:settings` permission
-      // AND the `sso` tier entitlement; the page + backend re-enforce both.
-      { title: 'Single Sign-On', href: '/dashboard/settings/sso', icon: Fingerprint, requiredPermission: 'org:settings', requiredFeature: 'sso' },
+      // Org owner/admin SSO self-service. Gated by the dedicated `org:idp`
+      // permission (split out of `org:settings`) AND the `sso` tier entitlement;
+      // the page + backend re-enforce both.
+      { title: 'Single Sign-On', href: '/dashboard/settings/sso', icon: Fingerprint, requiredPermission: 'org:idp', requiredFeature: 'sso' },
       { title: 'Notifications', href: '/dashboard/notifications', icon: Bell },
       { title: 'API Tokens', href: '/dashboard/tokens', icon: KeyRound },
       { title: 'API Catalog', href: '/dashboard/api-catalog', icon: Code },

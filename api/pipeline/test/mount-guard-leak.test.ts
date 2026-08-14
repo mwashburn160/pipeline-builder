@@ -94,6 +94,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   // Return the real Express app so index.ts assembles production wiring onto it.
   createApp: () => ({ app: capturedApp, sseManager: {} }),
   runServer: jest.fn(),
@@ -188,6 +189,7 @@ jest.unstable_mockModule('../src/services/pipeline-execution-service.js', () => 
   PE_AWS_ERROR: 'PE_AWS_ERROR',
 }));
 jest.unstable_mockModule('../src/services/ai-generation-service.js', () => ({
+  AIEmptyOutputError: class AIEmptyOutputError extends Error {},
   getAvailableProviders: jest.fn(() => []),
   getFilteredPlugins: jest.fn(async () => []),
   generatePipelineConfig: jest.fn(),

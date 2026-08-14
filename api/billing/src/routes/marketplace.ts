@@ -30,7 +30,7 @@ import {
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 import type { BillingInterval } from '../models/subscription.js';
-import { claimWebhookEvent, releaseWebhookEvent } from '../models/webhook-dedupe.js';
+import { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent } from '../models/webhook-dedupe.js';
 import { AWSMarketplaceProvider, type EntitlementResult } from '../providers/aws-marketplace-provider.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 
@@ -529,9 +529,13 @@ export function createMarketplaceRoutes(): Router {
           return sendError(res, 403, 'Unexpected SNS topic', ErrorCode.INSUFFICIENT_PERMISSIONS);
         }
 
-        // Idempotency guard: SNS retries the same MessageId on transient
-        // failures. Claim the ID before processing — duplicate deliveries
-        // short-circuit with 200 (so SNS stops retrying) but skip side-effects.
+        // Two-phase idempotency guard (crash-durable): SNS retries the same
+        // MessageId on transient failures. Take a SHORT-LIVED in-progress claim
+        // before processing — a duplicate/concurrent delivery short-circuits with
+        // 200 (so SNS stops retrying) but skips side-effects. The durable
+        // done-marker is written only AFTER processing succeeds (below), so a
+        // mid-process crash lets the claim expire and SNS's retry re-runs the
+        // event instead of it being stranded as "processed" for 30d.
         const isFirstDelivery = await claimWebhookEvent('sns', snsMessage.MessageId);
         if (!isFirstDelivery) {
           logger.info('Skipping duplicate SNS delivery', { messageId: snsMessage.MessageId, type: snsMessage.Type });
@@ -539,30 +543,42 @@ export function createMarketplaceRoutes(): Router {
         }
         claimedMessageId = snsMessage.MessageId;
 
+        // Do the work, capturing the success message — the done-marker is written
+        // after the switch so EVERY successful branch promotes the claim exactly
+        // once (and a throw skips it → the catch releases / the lease expires).
+        let responseMessage: string;
         switch (snsMessage.Type) {
           case 'SubscriptionConfirmation': {
             if (snsMessage.SubscribeURL) {
               await confirmSNSSubscription(snsMessage.SubscribeURL);
               logger.info('SNS subscription confirmed', { topicArn: snsMessage.TopicArn });
             }
-            return sendSuccess(res, 200, { message: 'Subscription confirmed' });
+            responseMessage = 'Subscription confirmed';
+            break;
           }
 
           case 'UnsubscribeConfirmation': {
             logger.info('SNS unsubscribe confirmation received', { topicArn: snsMessage.TopicArn });
-            return sendSuccess(res, 200, { message: 'Unsubscribe acknowledged' });
+            responseMessage = 'Unsubscribe acknowledged';
+            break;
           }
 
           case 'Notification': {
             const notification: MarketplaceNotification = JSON.parse(snsMessage.Message);
             await processMarketplaceNotification(notification);
-            return sendSuccess(res, 200, { message: 'Notification processed' });
+            responseMessage = 'Notification processed';
+            break;
           }
 
           default:
             logger.warn('Unknown SNS message type', { type: snsMessage.Type });
-            return sendSuccess(res, 200, { message: 'Unknown type acknowledged' });
+            responseMessage = 'Unknown type acknowledged';
         }
+
+        // Processing succeeded — promote the in-progress claim to the durable
+        // done-marker so a redelivery is deduped (a crash before this re-runs).
+        await markWebhookEventDone('sns', snsMessage.MessageId);
+        return sendSuccess(res, 200, { message: responseMessage });
       } catch (error) {
         logger.error('Failed to process SNS notification', { error: errorMessage(error) });
         // Release the idempotency claim so SNS's retry of this MessageId

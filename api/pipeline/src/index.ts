@@ -56,7 +56,7 @@ app.use('/pipelines', createBulkPipelineRoutes(quotaService));
 //    pipelines:write gate (see executions.ts), so the write permission can't
 //    leak onto sibling reads. Paths (`/:pipelineId/executions` and
 //    `.../:executionId/stop`) won't collide with the read GET `/:id`.
-app.use('/pipelines', createExecutionRoutes());
+app.use('/pipelines', createExecutionRoutes(quotaService));
 
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
 app.use('/pipelines', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPipelineRoutes(quotaService));

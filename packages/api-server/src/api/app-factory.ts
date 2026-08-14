@@ -17,6 +17,7 @@ import { createEnvRedisIdempotencyStore, setIdempotencyStore, type IdempotencySt
 import { metricsMiddleware, metricsHandler, incCounter } from './metrics.js';
 import { readinessGuard } from './readiness.js';
 import { SSEManager, SSE_REQUEST_ID_RE } from '../http/sse-connection-manager.js';
+import { createEnvRedisSSERelay } from '../http/sse-relay.js';
 import { createEnvRedisTicketStore } from '../http/sse-ticket-store.js';
 
 // Wire api-core's counter shim to the real prom-client registry. This is
@@ -123,7 +124,10 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     // when Redis is configured (multi-pod correctness + cross-service stream
     // ownership), else the in-memory default. A caller-supplied `sseManager`
     // skips this entirely.
-    sseManager = new SSEManager({ ticketStore: createEnvRedisTicketStore() ?? undefined }),
+    sseManager = new SSEManager({
+      ticketStore: createEnvRedisTicketStore() ?? undefined,
+      relay: createEnvRedisSSERelay() ?? undefined,
+    }),
     checkDependencies,
     enableOpenApi = true,
     openApiOptions,

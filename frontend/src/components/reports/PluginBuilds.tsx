@@ -2,9 +2,17 @@ import { Puzzle } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Card } from '@/components/ui/Card';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { fmtMs, fmtDate, ReportEmpty, SectionHeading, StackedTimelineBar, TwoColumnSkeleton, ExportCSVButton } from './ReportHelpers';
 import { MAX_TABLE_ROWS, MAX_BUILD_FAILURE_ROWS } from './constants';
 import type { BuildSuccessEntry, BuildDurationStat, BuildFailure } from './types';
+
+const BUILD_DURATION_COLUMNS: Column<BuildDurationStat>[] = [
+  { id: 'plugin', header: 'Plugin', cellClassName: 'text-gray-900 dark:text-gray-100 truncate max-w-[200px]', render: (d) => d.plugin_name },
+  { id: 'avg', header: 'Avg', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (d) => fmtMs(d.avg_ms) },
+  { id: 'max', header: 'Max', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (d) => fmtMs(d.max_ms) },
+  { id: 'builds', header: 'Builds', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (d) => d.builds },
+];
 
 interface PluginBuildsProps {
   loading: boolean;
@@ -40,7 +48,14 @@ export function PluginBuilds({ loading, buildTimeline, buildDurations, buildFail
             <ExportCSVButton data={buildDurations.map(d => ({ plugin: d.plugin_name, avg_ms: d.avg_ms, max_ms: d.max_ms, builds: d.builds }))} filename="build-duration" />
           </div>
           {buildDurations.length > 0 ? (
-            <table className="w-full text-sm"><thead><tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700"><th className="pb-2 font-medium">Plugin</th><th className="pb-2 font-medium text-right">Avg</th><th className="pb-2 font-medium text-right">Max</th><th className="pb-2 font-medium text-right">Builds</th></tr></thead><tbody className="divide-y divide-gray-100 dark:divide-gray-800">{buildDurations.slice(0, MAX_TABLE_ROWS).map((d) => (<tr key={d.plugin_name}><td className="py-1.5 text-gray-900 dark:text-gray-100 truncate max-w-[200px]">{d.plugin_name}</td><td className="py-1.5 text-right tabular-nums">{fmtMs(d.avg_ms)}</td><td className="py-1.5 text-right tabular-nums">{fmtMs(d.max_ms)}</td><td className="py-1.5 text-right tabular-nums">{d.builds}</td></tr>))}</tbody></table>
+            <DataTable
+              data={buildDurations.slice(0, MAX_TABLE_ROWS)}
+              columns={BUILD_DURATION_COLUMNS}
+              isLoading={false}
+              animated={false}
+              getRowKey={(d) => d.plugin_name}
+              emptyState={{ icon: Puzzle, title: 'No data', description: 'No build duration data yet.' }}
+            />
           ) : <ReportEmpty text="No build duration data yet" />}
         </Card>
         <Card>

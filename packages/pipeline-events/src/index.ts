@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { createHash } from 'node:crypto';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
 
@@ -181,6 +182,15 @@ interface ParsedEvent {
   eventSource: string;
   eventType: string;
   status: string;
+  /**
+   * Stable, deterministic per-event dedupe key. SQS delivers at-least-once, so a
+   * redelivered batch re-POSTs already-ingested events; without a key the
+   * reporting ingest double-counts DORA metrics (deploy frequency, MTTR). The key
+   * is derived from the event's own immutable identity (see {@link eventKey}), so
+   * the SAME CodePipeline event always maps to the SAME key across redeliveries.
+   * The reporting ingest MUST upsert/dedupe on it (see FLAG in eventKey docs).
+   */
+  idempotencyKey: string;
   executionId?: string;
   stageName?: string;
   actionName?: string;
@@ -245,6 +255,46 @@ function extractCommit(detail: Record<string, unknown>): { commitSha?: string; c
   );
 
   return { ...(commitSha && { commitSha }), ...(commitRef && { commitRef }) };
+}
+
+/**
+ * Derive a STABLE idempotency key for a parsed event from its immutable identity.
+ *
+ * SQS is at-least-once: the same CodePipeline event can arrive in more than one
+ * batch (visibility-timeout expiry, partial-batch retry). Every component below
+ * is fixed for a given real-world event occurrence — `time` is the EventBridge
+ * event timestamp (NOT ingest time), executionId/stage/action/status identify the
+ * exact state transition — so a redelivery hashes to the identical key. We
+ * sha256 the composite to keep the key bounded (64 hex chars) and free of
+ * delimiters/PII. No AWS account id is included (pipelineId is the platform id;
+ * executionId is a CodePipeline GUID).
+ *
+ * FLAG — reporting ingest (api/reporting, OUT of this package): `POST
+ * /api/reports/events` must treat this `idempotencyKey` as a UNIQUE key and
+ * dedupe on it (unique index + insert-or-ignore / upsert), so a redelivered
+ * event is a no-op rather than a second row. The producer side (this file)
+ * attaches the key unconditionally; the dedupe MUST be added on the ingest side
+ * to actually stop the double-count.
+ */
+function eventKey(parts: {
+  pipelineId: string;
+  eventType: string;
+  executionId?: string;
+  stageName?: string;
+  actionName?: string;
+  status?: string;
+  time: string;
+}): string {
+  const composite = [
+    parts.pipelineId,
+    parts.eventType,
+    parts.executionId ?? '',
+    parts.stageName ?? '',
+    parts.actionName ?? '',
+    parts.status ?? '',
+    parts.time,
+  ].join('|');
+  return createHash('sha256').update(composite).digest('hex');
 }
 
 function classifyEvent(detailType: string): { eventType: string; eventSource: string } {
@@ -333,14 +383,21 @@ async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null> {
   // the event/pipeline doesn't carry them, so legacy pipelines report as before.
   const { commitSha, commitRef } = extractCommit(detail);
 
+  const executionId = detail['execution-id'] as string | undefined;
+  const stageName = detail.stage as string | undefined;
+  const actionName = detail.action as string | undefined;
+
   return {
     pipelineId,
     eventSource,
     eventType,
     status: state,
-    executionId: detail['execution-id'] as string | undefined,
-    stageName: detail.stage as string | undefined,
-    actionName: detail.action as string | undefined,
+    // At-least-once SQS redelivery would double-count DORA metrics; this stable
+    // key lets the reporting ingest dedupe (see eventKey docs for the ingest FLAG).
+    idempotencyKey: eventKey({ pipelineId, eventType, executionId, stageName, actionName, status: state, time: event.time }),
+    executionId,
+    stageName,
+    actionName,
     errorMessage,
     startedAt,
     completedAt,

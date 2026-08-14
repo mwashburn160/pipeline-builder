@@ -5,6 +5,7 @@ import { Shield, CheckCircle, AlertTriangle, XCircle, Activity, Clock, BookOpen,
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { StatusPill } from '@/components/ui/StatusPill';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { formatRelativeTime } from '@/lib/relative-time';
 import type { ComplianceAuditEntry, ComplianceRule } from '@/types/compliance';
 import { RESULT_STYLES } from '@/lib/compliance-styles';
@@ -297,27 +298,25 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
           </h3>
           <div className="flex flex-wrap items-center gap-2">
             <Filter className="h-3.5 w-3.5 text-gray-400" />
-            <select
+            <FilterSelect
               value={auditTarget}
               onChange={e => onTargetChange(e.target.value)}
               aria-label="Filter audit log by target"
-              className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs"
             >
               <option value="">All targets</option>
               <option value="plugin">Plugin</option>
               <option value="pipeline">Pipeline</option>
-            </select>
-            <select
+            </FilterSelect>
+            <FilterSelect
               value={auditResult}
               onChange={e => onResultChange(e.target.value)}
               aria-label="Filter audit log by result"
-              className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs"
             >
               <option value="">All results</option>
               <option value="pass">Pass</option>
               <option value="warn">Warn</option>
               <option value="block">Block</option>
-            </select>
+            </FilterSelect>
             {/* Date-range scope (empty = unbounded). */}
             <input
               type="date"

@@ -97,6 +97,20 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
 
+// SSO enforcement gate (controllers/oauth.ts handleCallback calls this to close
+// the social-login SSO bypass). Default: no enforcement — the happy paths pass
+// straight through. Tests that exercise the bypass override the mock.
+const mockRejectIfSsoEnforced = jest.fn<(...a: unknown[]) => Promise<boolean>>();
+jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
+  rejectIfSsoEnforced: (...a: unknown[]) => mockRejectIfSsoEnforced(...a),
+}));
+
+// The pending-state store reaches for Redis; force the in-memory fallback path
+// (Redis unset) so getAuthUrl→verifyOAuthCode state round-trips within-process.
+jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
+  getRedisClient: jest.fn(async () => undefined),
+}));
+
 jest.unstable_mockModule('../src/utils/token.js', () => ({
   signPersonalAccessToken: jest.fn(),
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
@@ -150,6 +164,7 @@ const realFetch = global.fetch;
 beforeEach(() => {
   jest.clearAllMocks();
   mockIssueTokens.mockResolvedValue({ accessToken: 'a', refreshToken: 'r' });
+  mockRejectIfSsoEnforced.mockResolvedValue(false); // default: not SSO-enforced
 });
 afterEach(() => { global.fetch = realFetch; });
 
@@ -284,5 +299,27 @@ describe('handleCallback (OAUTH_ERROR_MAP wiring)', () => {
     );
     expect(mockAudit.mock.calls.some((c) => c[1] === 'user.login.failed')).toBe(false);
     expect(mockIncCounter).toHaveBeenCalledWith('platform_logins_total');
+  });
+
+  it('C1: rejects a social login when the email domain is SSO-enforced (no bypass)', async () => {
+    const state = await mintState('google');
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockResolvedValueOnce(okJson({ id: 'g-9', email: 'user@sso-org.com', email_verified: true })) as any;
+    // The org's IdP forces SSO for this domain: the gate handles the response.
+    mockRejectIfSsoEnforced.mockImplementation(async (res: any) => {
+      res.status(403).json({ success: false, code: 'SSO_REQUIRED' });
+      return true;
+    });
+
+    const res = makeRes();
+    await (handleCallback as any)({ params: { provider: 'google' }, body: { code: 'c', state } }, res);
+
+    // Verified the identity (email extracted) THEN blocked before session issuance.
+    expect(mockRejectIfSsoEnforced).toHaveBeenCalledWith(expect.anything(), 'user@sso-org.com');
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockFindOrCreate).not.toHaveBeenCalled();
+    expect(mockIssueTokens).not.toHaveBeenCalled();
+    expect(mockAudit.mock.calls.some((c) => c[1] === 'user.login')).toBe(false);
   });
 });

@@ -10,7 +10,7 @@ import {
   streamText,
   Output,
 } from '@pipeline-builder/ai-core';
-import { createLogger, ValidationError } from '@pipeline-builder/api-core';
+import { createLogger } from '@pipeline-builder/api-core';
 
 import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and } from 'drizzle-orm';
@@ -20,6 +20,22 @@ import { availablePluginConditions } from './plugin-lookup-service.js';
 export { getAvailableProviders, getProviderModels };
 
 const logger = createLogger('ai-generation');
+
+/**
+ * The provider round-trip completed but produced no usable output. Distinct from
+ * pre-provider failures (model resolution, connectivity) so callers can apply the
+ * keep-on-provider-contact quota policy: the external $ cost was already incurred,
+ * so the reserved `aiCalls` slot is NOT refunded (matching the streaming path,
+ * which keeps the slot once the provider was contacted).
+ */
+export class AIEmptyOutputError extends Error {
+  /** Marker: the AI provider WAS contacted before this failure. */
+  readonly providerContacted = true;
+  constructor(message = 'AI did not produce a pipeline configuration') {
+    super(message);
+    this.name = 'AIEmptyOutputError';
+  }
+}
 
 // -- Prompt versioning --------------------------------------------------------
 
@@ -328,6 +344,12 @@ function resolveModelWithFallback(
       : resolveModel(provider, model);
     return { model: resolved, provider, model_id: model };
   } catch (primaryError) {
+    // BYO key: NEVER fall back to a platform-configured provider. The fallback
+    // path below resolves models from the platform's env-configured keys
+    // (`resolveModel`), which would silently spend the platform's AI budget on a
+    // request the caller intended to bill to their own key. A BYO failure is
+    // terminal — surface it rather than quietly switching to a platform key.
+    if (apiKey) throw primaryError;
     if (!fallbacks?.length) throw primaryError;
 
     // Try fallback providers with their default model
@@ -425,7 +447,9 @@ export async function generatePipelineConfig(request: GenerationRequest): Promis
   });
 
   if (!result.output) {
-    throw new ValidationError('AI did not produce a pipeline configuration');
+    // Provider round-trip completed but returned nothing usable. Signal
+    // provider-contact so the route keeps (does not refund) the aiCalls slot.
+    throw new AIEmptyOutputError();
   }
 
   const { description, keywords, ...props } = result.output;

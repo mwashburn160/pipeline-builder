@@ -6,8 +6,9 @@
  *
  * The org-facing counterpart to the sysadmin IdP roster + per-org modal: an
  * owner/admin configures their OWN org's identity provider here, backed by
- * `GET/PUT /api/organization/:id/idp`. Guarded by the `org:settings` permission
- * (superadmins bypass) and additionally gated on the `sso` feature entitlement —
+ * `GET/PUT /api/organization/:id/idp`. Guarded by the `org:idp` permission
+ * (the dedicated SSO/IdP capability split out of `org:settings`; superadmins
+ * bypass) and additionally gated on the `sso` feature entitlement —
  * unentitled orgs see an upsell notice instead of the form. The backend
  * independently enforces both the permission (own-org only) and the entitlement.
  */
@@ -21,7 +22,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { OrgSsoSettings } from '@/components/settings/OrgSsoSettings';
 
 export default function OrgSsoSettingsPage() {
-  const { isReady, user, isSuperAdmin } = useAuthGuard({ requirePermission: 'org:settings' });
+  const { isReady, user, isSuperAdmin } = useAuthGuard({ requirePermission: 'org:idp' });
   const { isEnabled, isLoaded } = useFeatures();
 
   if (!isReady || !user) return <LoadingPage />;

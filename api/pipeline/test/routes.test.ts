@@ -81,6 +81,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   getContext: (req: any) => mockGetContext(req),
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = mockGetContext(req);

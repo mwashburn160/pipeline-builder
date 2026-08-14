@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
+import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import type { Organization, OrgIdpConfigDto } from '@/types';
 
 interface Props {
@@ -47,6 +48,8 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
   const [allowedEmailDomains, setAllowedEmailDomains] = useState('');
   const [enabled, setEnabled] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  // Remove-config confirmation (in-app modal, replacing the native confirm()).
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,7 +136,6 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
   }, [org.id, provider, clientId, clientSecret, discoveryUrl, region, userPoolId, allowedEmailDomains, enabled, existing, onSaved, onClose]);
 
   const handleDelete = useCallback(async () => {
-    if (!window.confirm(`Remove IdP config for "${org.name}"? SSO will be disabled for this org.`)) return;
     setSubmitting(true);
     try {
       const res = await api.deleteOrgIdpConfig(org.id);
@@ -142,12 +144,13 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
       setSubmitting(false);
+      setConfirmRemove(false);
     }
-  }, [org.id, org.name, onSaved, onClose]);
+  }, [org.id, onSaved, onClose]);
 
   return (
+    <>
     <Modal
       title={`IdP Config — ${org.name}`}
       titleIcon={<ShieldCheck className="w-5 h-5 shrink-0" />}
@@ -156,7 +159,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
       footer={
         <div className="flex items-center justify-end gap-2">
           {existing && (
-            <Button variant="danger-outline" onClick={handleDelete} disabled={submitting}>
+            <Button variant="danger-outline" onClick={() => setConfirmRemove(true)} disabled={submitting}>
               Remove
             </Button>
           )}
@@ -302,5 +305,16 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
 
         </div>
       </Modal>
+
+      {confirmRemove && (
+        <DeleteConfirmModal
+          title="Remove SSO / IdP config"
+          itemName={`the IdP config for "${org.name}"`}
+          loading={submitting}
+          onConfirm={() => void handleDelete()}
+          onCancel={() => setConfirmRemove(false)}
+        />
+      )}
+    </>
   );
 }

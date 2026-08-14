@@ -16,7 +16,7 @@ import type { OrgIdpConfigDto, OrgIdpConfigCreate, IdpProvider } from '@/types';
 /**
  * Org owner/admin self-service SSO / IdP editor (the org-facing counterpart to
  * the sysadmin {@link OrgIdpConfigModal}). Reads/writes the caller's OWN org via
- * `GET/PUT /api/organization/:id/idp` — gated on the `org:settings` permission
+ * `GET/PUT /api/organization/:id/idp` — gated on the `org:idp` permission
  * and own-org only, with the `sso` entitlement enforced server-side.
  *
  * `clientSecret` is write-only: the server returns `hasClientSecret` and never

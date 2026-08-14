@@ -81,6 +81,11 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // option b) — stubbed so suites that transitively load the boot module link.
     setTokenRevocationStore: () => {},
     createRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
+    // Env-configured Redis helpers used by the boot module + schedulers after the
+    // dead BullMQ compliance queue was removed. Default to no-Redis (fail-open):
+    // the revocation reader returns null, the leader lock is absent (run-on-every-pod).
+    createEnvRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
+    createEnvRedisLock: () => null,
     NotFoundError,
     createCacheService: () => ({
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),

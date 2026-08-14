@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { FileText, Plus, Pencil, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { TextEmptyState } from '@/components/ui/EmptyState';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
@@ -85,6 +86,54 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
     return <ErrorAlert message={error.message} />;
   }
 
+  const columns: Column<CompliancePolicy>[] = [
+    {
+      id: 'name',
+      header: 'Name',
+      render: (policy) => (
+        <>
+          <div className="text-sm font-medium text-gray-900 dark:text-white">{policy.name}</div>
+          {policy.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs">{policy.description}</div>}
+        </>
+      ),
+    },
+    { id: 'version', header: 'Version', render: (policy) => <span className="text-sm text-gray-600 dark:text-gray-400 font-mono">{policy.version}</span> },
+    {
+      id: 'status',
+      header: 'Status',
+      render: (policy) => (
+        <StatusPill className={policy.isActive ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-500'}>
+          {policy.isActive ? 'Active' : 'Inactive'}
+        </StatusPill>
+      ),
+    },
+    { id: 'created', header: 'Created', cellClassName: 'text-xs text-gray-500', render: (policy) => new Date(policy.createdAt).toLocaleDateString() },
+    {
+      id: 'actions',
+      header: 'Actions',
+      headerClassName: 'text-right',
+      cellClassName: 'text-right',
+      render: (policy) => (!readOnly ? (
+        <div className="flex items-center justify-end gap-1">
+          <IconButton
+            restTone={policy.isActive ? 'success' : 'default'}
+            onClick={() => updatePolicy(policy.id, { isActive: !policy.isActive })}
+            title={policy.isActive ? 'Deactivate' : 'Activate'}
+            aria-label={policy.isActive ? 'Deactivate policy' : 'Activate policy'}
+          >
+            {policy.isActive ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
+          </IconButton>
+          <IconButton tone="primary" onClick={() => handleEdit(policy)} aria-label="Edit policy">
+            <Pencil className="h-4 w-4" />
+          </IconButton>
+          <IconButton tone="danger" onClick={() => deletePolicy(policy.id)} aria-label="Delete policy">
+            <Trash2 className="h-4 w-4" />
+          </IconButton>
+        </div>
+      ) : null),
+    },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -143,70 +192,13 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
         </TextEmptyState>
       ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Version</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Created</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
-              {policies.map((policy) => (
-                <tr key={policy.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                  <td className="px-4 py-3">
-                    <div className="text-sm font-medium text-gray-900 dark:text-white">{policy.name}</div>
-                    {policy.description && (
-                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs">{policy.description}</div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-sm text-gray-600 dark:text-gray-400 font-mono">{policy.version}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusPill className={
-                      policy.isActive
-                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-500'
-                    }>
-                      {policy.isActive ? 'Active' : 'Inactive'}
-                    </StatusPill>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-gray-500">{new Date(policy.createdAt).toLocaleDateString()}</td>
-                  <td className="px-4 py-3 text-right">
-                    {!readOnly && (
-                      <div className="flex items-center justify-end gap-1">
-                        <IconButton
-                          restTone={policy.isActive ? 'success' : 'default'}
-                          onClick={() => updatePolicy(policy.id, { isActive: !policy.isActive })}
-                          title={policy.isActive ? 'Deactivate' : 'Activate'}
-                          aria-label={policy.isActive ? 'Deactivate policy' : 'Activate policy'}
-                        >
-                          {policy.isActive ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
-                        </IconButton>
-                        <IconButton
-                          tone="primary"
-                          onClick={() => handleEdit(policy)}
-                          aria-label="Edit policy"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </IconButton>
-                        <IconButton
-                          tone="danger"
-                          onClick={() => deletePolicy(policy.id)}
-                          aria-label="Delete policy"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </IconButton>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable
+            data={policies}
+            columns={columns}
+            isLoading={false}
+            getRowKey={(policy) => policy.id}
+            emptyState={{ icon: FileText, title: 'No compliance policies', description: 'Create one to group and manage rules.' }}
+          />
         </div>
       )}
     </div>

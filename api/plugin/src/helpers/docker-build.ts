@@ -67,6 +67,37 @@ export interface BuildResult {
   fullImage: string;
 }
 
+/** Receives each MASKED build output line as it is produced (for live SSE). */
+export type BuildLineSink = (line: string, stream: 'stdout' | 'stderr') => void;
+
+export interface BuildStreamOptions {
+  /** Optional live sink for masked build log lines (owner-bound SSE stream). */
+  onLine?: BuildLineSink;
+}
+
+/** Last-N masked build lines retained for a bounded failure summary. */
+export const BUILD_LOG_TAIL_LINES = 25;
+/** Hard cap per streamed/summarized line so a pathological line can't bloat SSE. */
+export const BUILD_LOG_MAX_LINE_CHARS = 2000;
+
+/**
+ * A build subprocess exited non-zero or timed out. Carries a bounded tail of the
+ * last masked output lines + the exit reason so the worker can surface a useful
+ * failure summary on the user's SSE stream instead of a generic "Build failed".
+ */
+export class BuildProcessError extends Error {
+  readonly tail: string[];
+  readonly exitCode: number | null;
+  readonly timedOut: boolean;
+  constructor(message: string, opts: { tail: string[]; exitCode: number | null; timedOut: boolean }) {
+    super(message);
+    this.name = 'BuildProcessError';
+    this.tail = opts.tail;
+    this.exitCode = opts.exitCode;
+    this.timedOut = opts.timedOut;
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Config
 // -----------------------------------------------------------------------------
@@ -95,7 +126,7 @@ export function getBuildkitAddrForTier(tier: string | undefined): string {
 // Public API
 // -----------------------------------------------------------------------------
 
-export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: string }): Promise<BuildResult> {
+export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: string } & BuildStreamOptions): Promise<BuildResult> {
   validate(req);
   const cfg = getConfig();
   const image = resolveImage(req.name, req.version, req.registry, req.orgId);
@@ -128,7 +159,7 @@ export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: st
       '--opt', `platform=${PUBLISH_PLATFORM}`,
       ...flagBuildArgs(req.buildArgs),
       '--output', outputSpec(image, req.registry),
-    ], cfg.timeoutMs, { DOCKER_CONFIG: dockerConfigDir });
+    ], cfg.timeoutMs, { DOCKER_CONFIG: dockerConfigDir }, { onLine: opts?.onLine });
   } finally {
     fs.rmSync(dockerConfigDir, { recursive: true, force: true });
   }
@@ -141,6 +172,7 @@ export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: st
  * Uses `crane`  buildctl can build but cannot push a pre-existing tarball.
  */
 export async function loadAndPush( tarPath: string, name: string, version: string, registry: RegistryInfo, orgId: string,
+  opts?: BuildStreamOptions,
 ): Promise<BuildResult> {
   validateRegistryAndName(name, registry);
   if (!fs.existsSync(tarPath)) {
@@ -160,7 +192,7 @@ export async function loadAndPush( tarPath: string, name: string, version: strin
     await run('crane', [
       ...(registry.http ? ['--insecure']: []),
       'push', tarPath, image,
-    ], cfg.pushTimeoutMs, { DOCKER_CONFIG: dockerConfigDir });
+    ], cfg.pushTimeoutMs, { DOCKER_CONFIG: dockerConfigDir }, { onLine: opts?.onLine });
   } finally {
     fs.rmSync(dockerConfigDir, { recursive: true, force: true });
   }
@@ -315,7 +347,7 @@ const BEARER_RE = /\b(BEARER)\s+(\S+)/gi;
 const JWT_RE = /\beyJ[\w-]+\.[\w-]+\.[\w-]+/g;
 const LONG_B64_RE = /\b[A-Za-z0-9+/]{32,}={0,2}\b/g;
 
-function maskSecrets(line: string): string {
+export function maskSecrets(line: string): string {
   return line
     .replace(SECRET_RE, '$1$2***')
     .replace(BEARER_RE, '$1 ***')
@@ -327,7 +359,7 @@ function maskSecrets(line: string): string {
 // Process runner
 // -----------------------------------------------------------------------------
 
-function run(binary: string, args: string[], timeoutMs: number, env?: NodeJS.ProcessEnv): Promise<void> {
+function run(binary: string, args: string[], timeoutMs: number, env?: NodeJS.ProcessEnv, opts?: BuildStreamOptions): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -336,6 +368,20 @@ function run(binary: string, args: string[], timeoutMs: number, env?: NodeJS.Pro
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
 
+    // Bounded ring buffer of the last N MASKED lines — the failure summary the
+    // worker surfaces on the user's SSE stream instead of a generic message.
+    const tail: string[] = [];
+    /** Record + (optionally) live-stream one already-masked output line. */
+    const emit = (masked: string, stream: 'stdout' | 'stderr'): void => {
+      logger.info(masked, { stream });
+      tail.push(masked);
+      if (tail.length > BUILD_LOG_TAIL_LINES) tail.shift();
+      if (opts?.onLine) {
+        // A streaming-sink failure must NEVER fail the build (SSE is best-effort).
+        try { opts.onLine(masked.slice(0, BUILD_LOG_MAX_LINE_CHARS), stream); } catch { /* ignore */ }
+      }
+    };
+
     // Per-stream line buffer so a chunked JWT (split mid-token across two data
     // events) still resolves to a single line before masking runs.
     const buffers = { stdout: '', stderr: '' };
@@ -343,7 +389,7 @@ function run(binary: string, args: string[], timeoutMs: number, env?: NodeJS.Pro
       buffers[stream] += data.toString();
       const lines = buffers[stream].split('\n');
       buffers[stream] = lines.pop() ?? '';
-      for (const line of lines) if (line) logger.info(maskSecrets(line), { stream });
+      for (const line of lines) if (line) emit(maskSecrets(line), stream);
     };
     child.stdout.on('data', pipe('stdout'));
     child.stderr.on('data', pipe('stderr'));
@@ -351,10 +397,10 @@ function run(binary: string, args: string[], timeoutMs: number, env?: NodeJS.Pro
     child.on('close', (code) => {
       clearTimeout(timer);
       for (const stream of ['stdout', 'stderr'] as const) {
-        if (buffers[stream]) logger.info(maskSecrets(buffers[stream]), { stream });
+        if (buffers[stream]) emit(maskSecrets(buffers[stream]), stream);
       }
-      if (timedOut) reject(new Error(`Build timed out after ${timeoutMs}ms`));
-      else if (code !== 0) reject(new Error(`Build failed with exit code ${code}`));
+      if (timedOut) reject(new BuildProcessError(`Build timed out after ${timeoutMs}ms`, { tail: [...tail], exitCode: code, timedOut: true }));
+      else if (code !== 0) reject(new BuildProcessError(`Build failed with exit code ${code}`, { tail: [...tail], exitCode: code, timedOut: false }));
       else resolve();
     });
     child.on('error', (err) => { clearTimeout(timer); reject(err); });

@@ -16,6 +16,7 @@
  * right scope.
  */
 
+import { Select } from '@/components/ui/Select';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
@@ -263,7 +264,7 @@ export default function AuditPage() {
           value={requestId}
           onChange={(e) => { setRequestId(e.target.value); setOffset(0); }}
         />
-        <select
+        <Select
           aria-label="Filter by outcome"
           value={outcome}
           onChange={(e) => { setOutcome(e.target.value as '' | 'success' | 'failure'); setOffset(0); }}
@@ -272,8 +273,8 @@ export default function AuditPage() {
           <option value="">All outcomes</option>
           <option value="success">Success</option>
           <option value="failure">Failure</option>
-        </select>
-        <select
+        </Select>
+        <Select
           aria-label="Filter by target type"
           value={targetType}
           onChange={(e) => { setTargetType(e.target.value); setOffset(0); }}
@@ -289,7 +290,7 @@ export default function AuditPage() {
           <option value="policy">Policy</option>
           <option value="rule">Rule</option>
           <option value="dashboard">Dashboard</option>
-        </select>
+        </Select>
         <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           <span className="shrink-0">From</span>
           <FilterInput

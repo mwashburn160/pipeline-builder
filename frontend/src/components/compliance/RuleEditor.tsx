@@ -390,10 +390,10 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <label className="text-xs font-medium text-gray-500">Match:</label>
-                <select value={form.conditionMode} onChange={e => set('conditionMode', e.target.value as RuleConditionMode)} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm">
+                <Select value={form.conditionMode} onChange={e => set('conditionMode', e.target.value as RuleConditionMode)} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm">
                   <option value="all">ALL conditions (AND)</option>
                   <option value="any">ANY condition (OR)</option>
-                </select>
+                </Select>
                 <Button variant="primary" size="xs" onClick={addCondition}>
                   <Plus className="h-3 w-3" /> Add Condition
                 </Button>
@@ -410,14 +410,14 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                     className="flex-1"
                     placeholder="Field"
                   />
-                  <select
+                  <Select
                     value={cond.operator}
                     onChange={e => updateCondition(idx, { operator: e.target.value as RuleOperator })}
                     aria-label={`Condition ${idx + 1} operator`}
                     className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm"
                   >
                     {OPERATORS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
+                  </Select>
                   {!NO_VALUE_OPS.has(cond.operator) && (
                     <Input
                       value={cond.value}

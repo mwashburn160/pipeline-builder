@@ -7,13 +7,16 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
+import { DataTable, type Column } from '@/components/ui/DataTable';
+
+interface ServiceRow { name: string; purpose: string; prefixes: string[] }
 
 /**
  * Services exposed through the gateway, with the browser-reachable `/api/*`
  * prefix each one serves. Sourced from the nginx gateway route table — these are
  * the paths the SPA (and any developer's tooling) can call from the app origin.
  */
-const SERVICES: Array<{ name: string; purpose: string; prefixes: string[] }> = [
+const SERVICES: ServiceRow[] = [
   { name: 'Platform', purpose: 'Auth, users, organizations, invitations, RBAC, audit, config', prefixes: ['/api/auth', '/api/user', '/api/users', '/api/organization', '/api/invitation', '/api/audit', '/api/admin', '/api/config'] },
   { name: 'Pipeline', purpose: 'Pipeline CRUD, AI generation, templates, scorecard, registry', prefixes: ['/api/pipeline', '/api/pipelines', '/api/pipeline-templates'] },
   { name: 'Plugin', purpose: 'Plugin CRUD, upload, build queue, AI generation', prefixes: ['/api/plugin', '/api/plugins'] },
@@ -32,6 +35,23 @@ const SERVICES: Array<{ name: string; purpose: string; prefixes: string[] }> = [
  * endpoint-level reference lives in the in-app API Reference help topic and the
  * generated OpenAPI spec each service serves at `/docs/openapi.json`.
  */
+const SERVICE_COLUMNS: Column<ServiceRow>[] = [
+  { id: 'name', header: 'Service', cellClassName: 'font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap align-top', render: (svc) => svc.name },
+  { id: 'purpose', header: 'Purpose', cellClassName: 'text-gray-600 dark:text-gray-300 align-top', render: (svc) => svc.purpose },
+  {
+    id: 'routes',
+    header: 'Gateway routes',
+    cellClassName: 'align-top',
+    render: (svc) => (
+      <div className="flex flex-wrap gap-1">
+        {svc.prefixes.map((p) => (
+          <code key={p} className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-300">{p}</code>
+        ))}
+      </div>
+    ),
+  },
+];
+
 export default function ApiCatalogPage() {
   const { user, isReady } = useAuthGuard();
   if (!isReady || !user) return <LoadingPage />;
@@ -61,30 +81,14 @@ x-org-id: <your-organization-id>`}</pre>
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Services</h3>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
-                  <th className="py-2 pr-4 font-medium">Service</th>
-                  <th className="py-2 pr-4 font-medium">Purpose</th>
-                  <th className="py-2 font-medium">Gateway routes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {SERVICES.map((svc) => (
-                  <tr key={svc.name} className="border-b border-gray-100 dark:border-gray-800 align-top">
-                    <td className="py-2 pr-4 font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap">{svc.name}</td>
-                    <td className="py-2 pr-4 text-gray-600 dark:text-gray-300">{svc.purpose}</td>
-                    <td className="py-2">
-                      <div className="flex flex-wrap gap-1">
-                        {svc.prefixes.map((p) => (
-                          <code key={p} className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-300">{p}</code>
-                        ))}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable
+              data={SERVICES}
+              columns={SERVICE_COLUMNS}
+              isLoading={false}
+              animated={false}
+              getRowKey={(svc) => svc.name}
+              emptyState={{ icon: Code, title: 'No services', description: 'No gateway services are configured.' }}
+            />
           </div>
         </Card>
 

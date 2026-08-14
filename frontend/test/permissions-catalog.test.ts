@@ -47,6 +47,8 @@ const KNOWN_IDS = [
   'registry:read',
   'registry:write',
   'org:settings',
+  'org:idp',
+  'org:kms',
 ] as const;
 
 describe('PERMISSION_CATALOG parity', () => {

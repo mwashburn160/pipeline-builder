@@ -16,9 +16,12 @@
  *   - `advanced_reporting`/`team_usage_analytics` → gate the DORA scorecard and
  *                           per-team usage card respectively.
  *   - `ai_generation`     → SERVER-enforced on the AI generate routes
- *                           (`requireFeature('ai_generation')`); the create
- *                           surfaces don't pre-hide, so a non-entitled org sees a
- *                           403 on submit rather than a hidden tab (see report FLAG).
+ *                           (`requireFeature('ai_generation')`); the create modal
+ *                           now ALSO pre-gates the two AI tabs (Git URL / From
+ *                           prompt) with an upsell (see CreatePipelineModal
+ *                           `AiUpsell`) so a non-entitled org sees why instead of a
+ *                           403 dead-end on submit. The server gate stays the
+ *                           source of truth.
  *   - `priority_support` / `custom_integrations` / `audit_log` → account-level
  *                           ENTITLEMENTS with no per-page render gate. They are NOT
  *                           dead: they drive the per-org override editor
@@ -35,6 +38,8 @@ export type FeatureFlag =
   | 'ai_generation'
   | 'bulk_operations'
   | 'audit_log'
+  // Single sign-on / external IdP configs (INCLUDED in Team, add-on for others).
+  | 'sso'
   // DORA / advanced delivery analytics (paid tiers only).
   | 'advanced_reporting'
   // Per-team usage breakdown (Enterprise-included; add-on for Pro/Team).
@@ -46,6 +51,7 @@ export const ALL_FEATURE_FLAGS: ReadonlyArray<FeatureFlag> = [
   'bulk_operations',
   'custom_integrations',
   'audit_log',
+  'sso',
   'advanced_reporting',
   'team_usage_analytics',
 ];
@@ -56,6 +62,7 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
   bulk_operations: { label: 'Bulk Operations', description: 'Batch create, update, and delete for pipelines and plugins' },
   custom_integrations: { label: 'Custom Integrations', description: 'Connect to external services and custom webhook endpoints' },
   audit_log: { label: 'Audit Log', description: 'Detailed audit trail of all user and system actions' },
+  sso: { label: 'SSO / IdP', description: 'Single sign-on and external identity-provider configurations' },
   advanced_reporting: { label: 'Advanced Reporting', description: 'DORA / advanced delivery analytics' },
   team_usage_analytics: { label: 'Team Usage Analytics', description: 'Per-team usage breakdown across the org → team subtree' },
 };

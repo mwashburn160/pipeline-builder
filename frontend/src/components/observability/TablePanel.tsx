@@ -1,10 +1,28 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { List } from 'lucide-react';
 import { useObservabilityLogs } from '@/hooks/useObservabilityLogs';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import type { RangeKey } from '@/types/observability';
 import type { DataSeries, ObservabilityLogEntry } from '@/types/observability';
 import { Panel } from './Panel';
+
+const LOGS_COLUMNS: Column<ObservabilityLogEntry>[] = [
+  {
+    id: 'time',
+    header: 'Time',
+    cellClassName: 'whitespace-nowrap text-gray-500',
+    render: (e) => {
+      // Loki time is in nanoseconds (string). Convert to JS Date via ms.
+      const ms = Math.floor(Number(e.time) / 1_000_000);
+      return <span title={new Date(ms).toLocaleString([], { hour12: false })}>{new Date(ms).toLocaleTimeString([], { hour12: false })}</span>;
+    },
+  },
+  { id: 'event', header: 'Event', cellClassName: 'whitespace-nowrap font-mono', render: (e) => e.labels.event ?? '—' },
+  { id: 'actor', header: 'Actor', cellClassName: 'whitespace-nowrap font-mono', render: (e) => e.labels.actor ?? '—' },
+  { id: 'message', header: 'Message', cellClassName: 'font-mono break-all', render: (e) => e.line },
+];
 
 interface TablePanelProps {
   queryKey: string;
@@ -37,62 +55,44 @@ export function TablePanel({ queryKey, title, range, span = 6, mode, logOpts = {
     return <Panel title={title} span={span} loading={loading} error={error} empty={empty}>{null}</Panel>;
   }
 
+  const topkColumns: Column<DataSeries>[] = [
+    { id: 'label', header: <span className="capitalize">{topkLabel}</span>, cellClassName: 'font-mono', render: (s) => s.labels[topkLabel] ?? '—' },
+    {
+      id: 'count',
+      header: 'Count',
+      headerClassName: 'text-right',
+      cellClassName: 'text-right tabular-nums',
+      render: (s) => {
+        // For a topk series the values array is the (timestamp, count) tuple at
+        // the latest sample; take the last value as the displayed count.
+        const last = s.values[s.values.length - 1];
+        return (last ? parseFloat(last.value) : 0).toFixed(0);
+      },
+    },
+  ];
+
   return (
     <Panel title={title} span={span} loading={false} error={null} empty={false}>
-      <div className="max-h-72 overflow-auto -mx-2">
-        <table className="w-full text-xs">
-          {mode === 'logs' ? (
-            <>
-              <thead className="sticky top-0 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400">
-                <tr>
-                  <th className="px-2 py-1 text-left font-medium">Time</th>
-                  <th className="px-2 py-1 text-left font-medium">Event</th>
-                  <th className="px-2 py-1 text-left font-medium">Actor</th>
-                  <th className="px-2 py-1 text-left font-medium">Message</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map((e) => {
-                  // Loki time is in nanoseconds (string). Convert to JS Date via ms.
-                  const ms = Math.floor(Number(e.time) / 1_000_000);
-                  return (
-                    <tr key={`${e.time}-${e.line}`} className="border-t border-gray-100 dark:border-gray-800 align-top">
-                      <td className="px-2 py-1 whitespace-nowrap text-gray-500" title={new Date(ms).toLocaleString([], { hour12: false })}>
-                        {new Date(ms).toLocaleTimeString([], { hour12: false })}
-                      </td>
-                      <td className="px-2 py-1 whitespace-nowrap font-mono">{e.labels.event ?? '—'}</td>
-                      <td className="px-2 py-1 whitespace-nowrap font-mono">{e.labels.actor ?? '—'}</td>
-                      <td className="px-2 py-1 font-mono break-all">{e.line}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </>
-          ) : (
-            <>
-              <thead className="sticky top-0 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400">
-                <tr>
-                  <th className="px-2 py-1 text-left font-medium capitalize">{topkLabel}</th>
-                  <th className="px-2 py-1 text-right font-medium">Count</th>
-                </tr>
-              </thead>
-              <tbody>
-                {series.map((s, i) => {
-                  // For a topk series the values array is the (timestamp, count) tuple
-                  // at the latest sample; take the last value as the displayed count.
-                  const last = s.values[s.values.length - 1];
-                  const count = last ? parseFloat(last.value) : 0;
-                  return (
-                    <tr key={s.labels[topkLabel] ?? `row-${i}`} className="border-t border-gray-100 dark:border-gray-800">
-                      <td className="px-2 py-1 font-mono">{s.labels[topkLabel] ?? '—'}</td>
-                      <td className="px-2 py-1 text-right tabular-nums">{count.toFixed(0)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </>
-          )}
-        </table>
+      <div className="max-h-72 overflow-auto -mx-2 text-xs">
+        {mode === 'logs' ? (
+          <DataTable
+            data={entries}
+            columns={LOGS_COLUMNS}
+            isLoading={false}
+            animated={false}
+            getRowKey={(e) => `${e.time}-${e.line}`}
+            emptyState={{ icon: List, title: 'No events', description: 'No recent events in range.' }}
+          />
+        ) : (
+          <DataTable
+            data={series}
+            columns={topkColumns}
+            isLoading={false}
+            animated={false}
+            getRowKey={(s, i) => s.labels[topkLabel] ?? `row-${i}`}
+            emptyState={{ icon: List, title: 'No data', description: 'No ranked results in range.' }}
+          />
+        )}
       </div>
     </Panel>
   );

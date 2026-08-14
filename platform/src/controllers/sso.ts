@@ -6,11 +6,11 @@
  *
  *   GET  /auth/sso/:orgId/authorize  → { url, state }  (initiate — redirect to IdP)
  *   POST /auth/sso/:orgId/callback   → tokens          (exchange code + validate id_token)
- *   POST /auth/sso/discover          → { sso, orgId? }  (is this email forced through SSO?)
+ *   POST /auth/sso/discover          → { sso }          (is this email forced through SSO?)
  *
  * Mirrors the OAuth controller (controllers/oauth.ts): a one-time CSRF `state`
- * bound to the org that minted it, an in-memory pending-state map with a TTL
- * sweep, the verified identity fed into the SAME `findOrCreateOAuthUser` +
+ * bound to the org that minted it, a cross-pod (env Redis) pending-state store,
+ * the verified identity fed into the SAME `findOrCreateOAuthUser` +
  * `issueTokens` session issuance the password/OAuth logins use.
  *
  * Enforcement (enabled + `sso`-entitled) is resolved in helpers/sso-enforcement;
@@ -23,6 +23,7 @@ import { createLogger, getParam, sendSuccess } from '@pipeline-builder/api-core'
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
+import { createPendingStateStore } from '../helpers/pending-state-store.js';
 import { findSsoEnforcementForEmail, getEnforcedLoginConfig } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
 import { authService } from '../services/index.js';
@@ -38,29 +39,20 @@ const logger = createLogger('sso-controller');
 
 // Pending SSO state (CSRF + nonce binding)
 
-/** Cap on the in-memory pending-state map (same default + override knob as the
- *  OAuth surface). Each entry is ~120 bytes. */
+/** Cap on the in-memory pending-state fallback (same default + override knob as
+ *  the OAuth surface). Each entry is ~120 bytes. */
 const MAX_PENDING_STATES = parseInt(process.env.OAUTH_MAX_PENDING_STATES || '1000', 10);
 
-/** state → { orgId it was minted for, the nonce echoed in the id_token }. */
-const pendingSsoStates = new Map<string, { orgId: string; nonce: string; createdAt: number }>();
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, { createdAt }] of pendingSsoStates) {
-    if (now - createdAt > config.oauth.stateTtlMs) pendingSsoStates.delete(key);
-  }
-}, config.oauth.cleanupIntervalMs).unref();
-
-function evictOldestIfFull(): void {
-  if (pendingSsoStates.size < MAX_PENDING_STATES) return;
-  const toEvict = Math.max(1, Math.floor(MAX_PENDING_STATES * 0.1));
-  const it = pendingSsoStates.keys();
-  for (let i = 0; i < toEvict; i++) {
-    const key = it.next().value;
-    if (key) pendingSsoStates.delete(key);
-  }
-}
+/** Cross-pod pending-state store (env Redis; process-local Map fallback):
+ *  state → { orgId it was minted for, the nonce echoed in the id_token }.
+ *  Backing this with Redis is what lets the SSO initiate + callback land on
+ *  different replicas without the callback losing the state. */
+const pendingSsoStates = createPendingStateStore<{ orgId: string; nonce: string; createdAt: number }>({
+  prefix: 'sso:state:',
+  ttlMs: config.oauth.stateTtlMs,
+  cleanupIntervalMs: config.oauth.cleanupIntervalMs,
+  maxEntries: MAX_PENDING_STATES,
+});
 
 // Route handlers
 
@@ -78,8 +70,7 @@ export const getSsoAuthUrl = withController('Get SSO URL', async (req, res) => {
   const nonce = crypto.randomBytes(16).toString('hex');
   const url = await buildAuthorizeUrl(cfg, state, nonce);
 
-  evictOldestIfFull();
-  pendingSsoStates.set(state, { orgId, nonce, createdAt: Date.now() });
+  await pendingSsoStates.put(state, { orgId, nonce, createdAt: Date.now() });
 
   sendSuccess(res, 200, { url, state });
 }, OIDC_ERROR_MAP);
@@ -98,8 +89,7 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
 
   // Consume the state on any lookup (valid or mismatched) to prevent replay /
   // probing — same one-time semantics as the OAuth flow.
-  const pending = pendingSsoStates.get(body.state);
-  pendingSsoStates.delete(body.state);
+  const pending = await pendingSsoStates.consume(body.state);
 
   let identity;
   let provider: string;
@@ -139,17 +129,23 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
 }, OIDC_ERROR_MAP);
 
 /**
- * POST /auth/sso/discover — public helper for the login page. Given an email,
- * report whether an enabled + entitled org IdP FORCES that user through SSO
- * (and, if so, which org to initiate against). Password login for a covered
- * domain is separately rejected server-side (controllers/auth.ts) — this just
- * lets the UI route the user to SSO before they type a password.
+ * POST /auth/sso/discover — public (UNAUTHENTICATED) helper for the login page.
+ * Given an email, report ONLY whether an enabled + entitled org IdP FORCES that
+ * user through SSO — a bare `{ sso: boolean }`.
+ *
+ * It deliberately does NOT leak the internal `orgId` or IdP `provider`: this
+ * endpoint is anonymous, so returning those turned it into an enumeration oracle
+ * (any caller could probe which domains are SSO-enforced AND harvest internal
+ * org identifiers). The org handle the initiate flow needs is delivered ONLY
+ * through the authenticated-attempt path: a covered account's login is rejected
+ * with `SSO_REQUIRED` + `{ orgId, provider }` (controllers/auth.ts +
+ * controllers/oauth.ts), which is where the UI picks up the org to initiate
+ * against. No current caller consumes discover's org fields.
  */
 export const discoverSso = withController('Discover SSO', async (req, res) => {
   const body = validateBody(ssoDiscoverSchema, req.body, res);
   if (!body) return;
 
   const enforcement = await findSsoEnforcementForEmail(body.email);
-  if (!enforcement) return sendSuccess(res, 200, { sso: false });
-  sendSuccess(res, 200, { sso: true, orgId: enforcement.orgId, provider: enforcement.provider });
+  sendSuccess(res, 200, { sso: !!enforcement });
 });

@@ -76,6 +76,7 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
 
 jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({
   claimWebhookEvent: jest.fn(),
+  markWebhookEventDone: jest.fn(),
   releaseWebhookEvent: jest.fn(),
 }));
 

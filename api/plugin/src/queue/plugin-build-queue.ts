@@ -27,7 +27,7 @@ import {
 import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metrics-scraper.js';
 import { ORG_SLOT_DELAY_MS, tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots } from './slot-manager.js';
 import { getBuildStrategy } from '../helpers/build-strategy.js';
-import { getBuildkitAddrForTier, BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
+import { getBuildkitAddrForTier, BUILD_TEMP_ROOT, BuildProcessError, maskSecrets } from '../helpers/docker-build.js';
 import type { FailureCategory, PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { getAuditClient } from '../services/audit.js';
 import { pluginService } from '../services/plugin-service.js';
@@ -337,6 +337,27 @@ export async function retryFailedJob(jobId: string, quotaService: QuotaService):
 // Failure classification
 // ---------------------------------------------------------------------------
 
+/**
+ * Build a bounded, secret-masked failure summary for the user's SSE stream.
+ * A {@link BuildProcessError} carries the exit reason + a tail of the last N
+ * masked build lines; any other failure (deploy, compliance, validation) degrades
+ * to the masked error message. Never includes unbounded output.
+ */
+export function summarizeBuildFailure(error: Error, isTimeout: boolean): { message: string; reason: string; tail: string[] } {
+  if (error instanceof BuildProcessError) {
+    const reason = error.timedOut || isTimeout
+      ? 'timed out'
+      : (error.exitCode != null ? `exit code ${error.exitCode}` : 'error');
+    const tail = error.tail ?? [];
+    const tailBlock = tail.length > 0 ? `\nLast ${tail.length} log line(s):\n${tail.join('\n')}` : '';
+    return { message: `Build failed (${reason})${tailBlock}`, reason, tail };
+  }
+  const reason = isTimeout ? 'timed out' : 'error';
+  // Mask the fallback message defensively — a deploy/compliance error string
+  // could conceivably echo a token; the build tail is already masked at source.
+  return { message: `Build failed (${reason}): ${maskSecrets(error.message)}`, reason, tail: [] };
+}
+
 function classifyFailure(error: Error): FailureCategory {
   const msg = error.message;
   const dbCode = extractDbError(error)?.dbCode;
@@ -565,6 +586,10 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
             // Lazy: only build_image awaits this, so prebuilt skips the tier/quota lookup.
             getBuildkitAddr: async () => getBuildkitAddrForTier(
               await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }))),
+            // Stream masked build lines to the owner-bound SSE stream so the user
+            // sees live build output. Best-effort — a send failure never fails the
+            // build (the sink is already try/guarded inside the process runner).
+            onLine: (line, stream) => { sseManager.send(requestId, 'MESSAGE', line, { stream, log: true }); },
           });
           fullImage = result.fullImage;
           sseManager.send(requestId, 'INFO', 'Image pushed', { fullImage });
@@ -660,10 +685,17 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         ...extractDbError(error),
       });
 
-      sseManager.send(requestId, 'ERROR', 'Build failed: an error occurred during the build process', {
+      // Surface a bounded failure summary (exit reason + last N masked build
+      // lines) on the SSE stream instead of a generic "Build failed". A
+      // BuildProcessError carries the captured tail; other failures (deploy,
+      // compliance) fall back to the masked error message.
+      const failureSummary = summarizeBuildFailure(error, isTimeout);
+      sseManager.send(requestId, 'ERROR', failureSummary.message, {
         jobId: job.id,
         attemptsMade: job.attemptsMade,
         maxAttempts,
+        reason: failureSummary.reason,
+        tail: failureSummary.tail,
       });
 
       const action = isTimeout ? 'plugin.build.timeout' : 'plugin.build.failed';

@@ -95,9 +95,11 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
 }));
 
 const mockClaimWebhookEvent = jest.fn<(...a: unknown[]) => Promise<boolean>>();
+const mockMarkWebhookEventDone = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockReleaseWebhookEvent = jest.fn<(...a: unknown[]) => Promise<void>>();
 jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({
   claimWebhookEvent: (...a: unknown[]) => mockClaimWebhookEvent(...a),
+  markWebhookEventDone: (...a: unknown[]) => mockMarkWebhookEventDone(...a),
   releaseWebhookEvent: (...a: unknown[]) => mockReleaseWebhookEvent(...a),
 }));
 
@@ -219,6 +221,7 @@ beforeEach(() => {
   mockVerifySNSSignature.mockResolvedValue(true);
   mockConfirmSNSSubscription.mockResolvedValue(undefined);
   mockClaimWebhookEvent.mockResolvedValue(true); // first delivery by default
+  mockMarkWebhookEventDone.mockResolvedValue(undefined);
   mockReleaseWebhookEvent.mockResolvedValue(undefined);
   mockSubscriptionFindOne.mockReturnValue(query(subDoc()));
   mockPlanFindOne.mockResolvedValue({ _id: 'team', tier: 'team', name: 'Team', isActive: true });
@@ -291,9 +294,21 @@ describe('POST /marketplace/sns — idempotency', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     const [, , data] = mockSendSuccess.mock.calls[0];
     expect((data as any).message).toBe('Duplicate message acknowledged');
-    // No processing occurred.
+    // No processing occurred — and no marker is (re)written for a duplicate.
     expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
     expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    expect(mockReleaseWebhookEvent).not.toHaveBeenCalled();
+    expect(mockMarkWebhookEventDone).not.toHaveBeenCalled();
+  });
+
+  it('writes the durable done-marker only AFTER a delivery is processed', async () => {
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Type: 'Notification', Message: notification('unsubscribe-success') }) }, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    // Two-phase: claim first, then promote to the durable marker post-processing.
+    expect(mockClaimWebhookEvent).toHaveBeenCalledWith('sns', 'msg-1');
+    expect(mockMarkWebhookEventDone).toHaveBeenCalledWith('sns', 'msg-1');
     expect(mockReleaseWebhookEvent).not.toHaveBeenCalled();
   });
 
@@ -304,8 +319,10 @@ describe('POST /marketplace/sns — idempotency', () => {
 
     expect(mockClaimWebhookEvent).toHaveBeenCalledWith('sns', 'msg-1');
     // The claim is released so SNS's retry re-processes rather than being
-    // dropped as a duplicate.
+    // dropped as a duplicate — and the done-marker is NOT written on failure
+    // (a mid-process crash instead relies on the in-progress lease expiring).
     expect(mockReleaseWebhookEvent).toHaveBeenCalledWith('sns', 'msg-1');
+    expect(mockMarkWebhookEventDone).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(500);
   });
 });

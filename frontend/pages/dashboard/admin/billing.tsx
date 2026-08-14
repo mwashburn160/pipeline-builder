@@ -36,6 +36,17 @@ const STATUS_OPTIONS = ['active', 'canceled', 'past_due', 'trialing', 'incomplet
 type EditableStatus = typeof STATUS_OPTIONS[number];
 const INTERVAL_OPTIONS: BillingInterval[] = ['monthly', 'annual'];
 
+type ByOrgRow = AdminBillingSummary['byOrg'][number];
+
+const BY_ORG_COLUMNS: Column<ByOrgRow>[] = [
+  { id: 'account', header: 'Account', cellClassName: 'font-mono text-xs text-gray-800 dark:text-gray-200 break-all', render: (o) => o.orgId },
+  { id: 'gross', header: 'Gross', headerClassName: 'text-right', cellClassName: 'text-right text-gray-700 dark:text-gray-300', render: (o) => formatCents(o.grossBilledCents) },
+  { id: 'discounts', header: 'Discounts', headerClassName: 'text-right', cellClassName: 'text-right text-gray-500 dark:text-gray-400', render: (o) => formatCents(o.discountsCents) },
+  { id: 'credits', header: 'Credits', headerClassName: 'text-right', cellClassName: 'text-right text-gray-500 dark:text-gray-400', render: (o) => formatCents(o.creditsCents) },
+  { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right font-medium text-gray-900 dark:text-gray-100', render: (o) => formatCents(o.netBilledCents) },
+  { id: 'invoices', header: 'Invoices', headerClassName: 'text-right', cellClassName: 'text-right text-gray-500 dark:text-gray-400', render: (o) => o.invoiceCount },
+];
+
 /** Badge color per subscription status. */
 function statusColor(status: string): 'green' | 'gray' | 'yellow' | 'red' | 'blue' {
   switch (status) {
@@ -343,30 +354,14 @@ export default function BillingAdminPage() {
 
                 {summary.byOrg.length > 0 && (
                   <div className="mt-4 overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
-                          <th className="py-2 pr-4">Account</th>
-                          <th className="py-2 pr-4 text-right">Gross</th>
-                          <th className="py-2 pr-4 text-right">Discounts</th>
-                          <th className="py-2 pr-4 text-right">Credits</th>
-                          <th className="py-2 pr-4 text-right">Net</th>
-                          <th className="py-2 pr-4 text-right">Invoices</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {summary.byOrg.map((o) => (
-                          <tr key={o.orgId} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
-                            <td className="py-2 pr-4 font-mono text-xs text-gray-800 dark:text-gray-200 break-all">{o.orgId}</td>
-                            <td className="py-2 pr-4 text-right text-gray-700 dark:text-gray-300">{formatCents(o.grossBilledCents)}</td>
-                            <td className="py-2 pr-4 text-right text-gray-500 dark:text-gray-400">{formatCents(o.discountsCents)}</td>
-                            <td className="py-2 pr-4 text-right text-gray-500 dark:text-gray-400">{formatCents(o.creditsCents)}</td>
-                            <td className="py-2 pr-4 text-right font-medium text-gray-900 dark:text-gray-100">{formatCents(o.netBilledCents)}</td>
-                            <td className="py-2 pr-4 text-right text-gray-500 dark:text-gray-400">{o.invoiceCount}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <DataTable
+                      data={summary.byOrg}
+                      columns={BY_ORG_COLUMNS}
+                      isLoading={false}
+                      animated={false}
+                      getRowKey={(o) => o.orgId}
+                      emptyState={{ icon: CreditCard, title: 'No accounts', description: 'No billing activity for any account.' }}
+                    />
                   </div>
                 )}
               </>

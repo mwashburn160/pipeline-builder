@@ -13,11 +13,9 @@
  *   4. This middleware verifies signature + expiry + that `sub` matches
  *      `req.user.sub`, then lets the handler run.
  *
- * Single-use is enforced via a process-local jti consumption Map (see
- * `consumed-jti.ts`). Multi-instance deployments lose strict single-use
- * across instances but keep it within each — acceptable for the 60s
- * window; swap to a Redis-backed consumption store when running at
- * scale.
+ * Single-use is enforced via the jti consumption store (see `consumed-jti.ts`),
+ * which is backed by the shared env Redis when configured (single-use across
+ * replicas) and degrades to a process-local Map otherwise.
  */
 
 import { sendError } from '@pipeline-builder/api-core';
@@ -27,7 +25,7 @@ import { verifyStepUpToken } from '../utils/token.js';
 
 const HEADER = 'x-step-up-token';
 
-export function requireStepUp(req: Request, res: Response, next: NextFunction): void {
+export async function requireStepUp(req: Request, res: Response, next: NextFunction): Promise<void> {
   const userId = req.user?.sub;
   if (!userId) {
     sendError(res, 401, 'Authentication required');
@@ -50,7 +48,7 @@ export function requireStepUp(req: Request, res: Response, next: NextFunction): 
     // Single-use enforcement: reject replays within the token's TTL.
     // We do this AFTER the sub check so a replay attempt against a
     // different user still reports MISMATCH (the more informative error).
-    if (!consumeJti(payload.jti, payload.exp)) {
+    if (!(await consumeJti(payload.jti, payload.exp))) {
       sendError(res, 401, 'Step-up token already used or expired', 'STEP_UP_REPLAY');
       return;
     }

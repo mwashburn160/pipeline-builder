@@ -60,15 +60,29 @@ jest.unstable_mockModule('../src/services/audit.js', () => ({
   getAuditClient: () => ({ record: jest.fn() }),
 }));
 
+// Execution idempotency guard — controls the short double-submit window. Default
+// (set in beforeEach) claims successfully; a test overrides it to simulate a
+// duplicate trigger arriving inside the window.
+const mockClaim = jest.fn<(orgId: string, pipelineId: string) => Promise<boolean>>();
+jest.unstable_mockModule('../src/services/execution-idempotency.js', () => ({
+  executionIdempotency: { claim: mockClaim },
+}));
+
 // Shared ctx.log spy so tests can assert on what the handler logs (e.g. that an
 // AWS account id never reaches a log sink). Cleared by jest.clearAllMocks().
 const mockCtxLog = jest.fn();
 
+// apiCalls quota metering added to the trigger route (D1). checkQuota is a
+// middleware factory (no-op here — the suite drives the handler directly);
+// incrementQuotaFromCtx is asserted on to prove the successful trigger is metered.
+const mockIncrementQuotaFromCtx = jest.fn();
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   // Auth + orgId chain the execution routes now spread in per-route (the write
   // permission guard moved off the shared '/pipelines' mount). No-op here — the
   // suite drives the withRoute handler directly.
   createAuthenticatedWithOrgRoute: () => [],
+  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
+  incrementQuotaFromCtx: mockIncrementQuotaFromCtx,
   withRoute: (handler: any) => async (req: any, res: any) => {
     const ctx = { log: mockCtxLog, identity: { orgId: 'acme', userId: 'user-1' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
@@ -87,9 +101,12 @@ function awsError(name: string, message = name): Error {
 describe('pipeline execution write routes', () => {
   let router: any;
 
+  const quotaServiceStub = {} as any;
+
   beforeEach(() => {
     jest.clearAllMocks();
-    router = createExecutionRoutes();
+    mockClaim.mockResolvedValue(true); // idempotency window free by default
+    router = createExecutionRoutes(quotaServiceStub);
     mockFindByPipelineId.mockResolvedValue({ pipelineName: 'acme-pipe', region: 'us-east-1' });
   });
 
@@ -123,6 +140,44 @@ describe('pipeline execution write routes', () => {
     expect(cmd).toBeInstanceOf(StartPipelineExecutionCommand);
     expect(cmd.input.name).toBe('acme-pipe');
     expect(sendSuccess).toHaveBeenCalledWith(res, 202, { executionId: 'exec-123' });
+  });
+
+  it('trigger: meters a successful trigger against the apiCalls quota', async () => {
+    mockSend.mockResolvedValue({ pipelineExecutionId: 'exec-123' });
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
+
+    expect(mockIncrementQuotaFromCtx).toHaveBeenCalledTimes(1);
+    expect(mockIncrementQuotaFromCtx).toHaveBeenCalledWith(
+      quotaServiceStub, expect.objectContaining({ orgId: 'acme' }), 'apiCalls',
+    );
+  });
+
+  it('trigger: claims the idempotency window keyed on (orgId, pipelineId)', async () => {
+    mockSend.mockResolvedValue({ pipelineExecutionId: 'exec-123' });
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
+
+    expect(mockClaim).toHaveBeenCalledWith('acme', 'p-1');
+  });
+
+  it('trigger: duplicate submit inside the window → 409 and NO AWS call / audit / quota spend', async () => {
+    mockClaim.mockResolvedValue(false); // window already claimed by a prior trigger
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
+
+    expect(sendError).toHaveBeenCalledWith(res, 409, expect.stringMatching(/just triggered/), expect.any(String));
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(emitPipelineAudit).not.toHaveBeenCalled();
+    expect(mockIncrementQuotaFromCtx).not.toHaveBeenCalled();
+  });
+
+  it('trigger: does NOT meter the quota when the AWS start fails', async () => {
+    mockSend.mockRejectedValue(awsError('ThrottlingException', 'Rate exceeded'));
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
+
+    expect(mockIncrementQuotaFromCtx).not.toHaveBeenCalled();
   });
 
   it('trigger: emits an attributed pipeline.execution.start audit event on success', async () => {

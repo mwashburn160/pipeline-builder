@@ -23,7 +23,13 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ALL_PERMISSIONS, SUPERADMIN_ONLY_PERMISSIONS, ORG_ASSIGNABLE_PERMISSIONS } from '../src/types/permissions.js';
+import {
+  ALL_PERMISSIONS,
+  SUPERADMIN_ONLY_PERMISSIONS,
+  ORG_ASSIGNABLE_PERMISSIONS,
+  ROLE_PERMISSIONS,
+  isOrgAssignablePermission,
+} from '../src/types/permissions.js';
 
 // Locate frontend/src/lib/permissions.ts relative to this test file.
 const here = dirname(fileURLToPath(import.meta.url));
@@ -106,5 +112,34 @@ describe('frontend ↔ api-core permission catalog parity', () => {
 
   it('the picker offers none of the superadmin-only ids', () => {
     expect(frontendPickerIds.filter((id) => superadminOnlySet.has(id))).toEqual([]);
+  });
+});
+
+describe('org:settings split → org:idp / org:kms (C3)', () => {
+  const SPLIT: ReadonlyArray<'org:idp' | 'org:kms'> = ['org:idp', 'org:kms'];
+
+  it('adds org:idp and org:kms to the canonical catalog', () => {
+    for (const p of SPLIT) expect(ALL_PERMISSIONS).toContain(p);
+    // The original general-settings capability is retained (not renamed).
+    expect(ALL_PERMISSIONS).toContain('org:settings');
+  });
+
+  it('both new caps are org-assignable (not superadmin-only)', () => {
+    for (const p of SPLIT) {
+      expect(SUPERADMIN_ONLY_PERMISSIONS).not.toContain(p);
+      expect(ORG_ASSIGNABLE_PERMISSIONS).toContain(p);
+      expect(isOrgAssignablePermission(p)).toBe(true);
+    }
+  });
+
+  it('seeds org:idp and org:kms into the admin and owner bundles (no admin lockout)', () => {
+    for (const p of SPLIT) {
+      expect(ROLE_PERMISSIONS.admin).toContain(p);
+      expect(ROLE_PERMISSIONS.owner).toContain(p);
+    }
+  });
+
+  it('does NOT grant the sensitive caps to the member bundle', () => {
+    for (const p of SPLIT) expect(ROLE_PERMISSIONS.member).not.toContain(p);
   });
 });

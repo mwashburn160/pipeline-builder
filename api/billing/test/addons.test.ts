@@ -169,6 +169,10 @@ function makeSubscription(overrides: Record<string, unknown> = {}) {
     interval: 'monthly',
     externalId: 'ext-sub-1',
     addons: [] as Array<{ bundleId: string; quantity: number }>,
+    metadata: {} as Record<string, unknown>,
+    // Mixed-path markModified stub — the routes call it when stamping the durable
+    // providerAddonSyncPending marker transactionally with the add-on save.
+    markModified: jest.fn(),
     save: jest.fn().mockResolvedValue(undefined),
     ...overrides,
   };
@@ -372,6 +376,31 @@ describe('POST /subscriptions/:id/addons (add)', () => {
     expect(status).toBe(200);
     expect(payload.addons).toEqual([{ bundleId: 'seat_pack', quantity: 3 }]);
     expect(payload.priceBreakdown.totalCents).toBe(4000 + 1000 * 3); // Pro base + 3× seat pack
+  });
+
+  it('stamps providerAddonSyncPending transactionally with the add-on save (crash-durability)', async () => {
+    // Capture metadata AT save() time to prove the marker is persisted in the
+    // SAME write as the add-on change — so a crash before syncProviderAddons
+    // still leaves a durable marker for the lifecycle reconciler.
+    let metaAtSave: Record<string, unknown> | undefined;
+    const sub = withActiveSub(makeSubscription({
+      save: jest.fn(function (this: any) { metaAtSave = { ...this.metadata }; return Promise.resolve(); }),
+    }));
+    await handler(mockReq({ body: { bundleId: 'seat_pack', quantity: 2 } }), mockRes());
+    expect(metaAtSave).toMatchObject({ providerAddonSyncPending: true });
+    expect(sub.markModified).toHaveBeenCalledWith('metadata');
+  });
+
+  it('does NOT stamp the marker when there is no provider subscription (no externalId)', async () => {
+    // No externalId ⇒ syncProviderAddons is a no-op that never clears the marker,
+    // so stamping it would strand it forever. It must be skipped.
+    let metaAtSave: Record<string, unknown> | undefined;
+    withActiveSub(makeSubscription({
+      externalId: undefined,
+      save: jest.fn(function (this: any) { metaAtSave = { ...this.metadata }; return Promise.resolve(); }),
+    }));
+    await handler(mockReq({ body: { bundleId: 'seat_pack', quantity: 2 } }), mockRes());
+    expect(metaAtSave?.providerAddonSyncPending).toBeUndefined();
   });
 
   it('coerces a stackable quantity to at least 1', async () => {

@@ -23,6 +23,7 @@ import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { CopyableId } from '@/components/ui/CopyableId';
+import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { api, getErrorMessage } from '@/lib/api';
 import type { AlertDestination, AlertDestinationWrite } from '@/types/observability';
 
@@ -77,14 +78,21 @@ export default function AlertDestinationsPage() {
   const destinations: AlertDestination[] = data ?? [];
   const refresh = async () => { refetch(); };
 
-  const onDelete = async (d: AlertDestination) => {
-    if (!confirm(`Delete destination "${d.label}"?`)) return;
+  // Delete confirmation (in-app modal, replacing the native confirm()).
+  const [pendingDelete, setPendingDelete] = useState<AlertDestination | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const onDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
     try {
-      await api.deleteAlertDestination(d.id);
+      await api.deleteAlertDestination(pendingDelete.id);
       toast.success('Destination deleted');
       await refresh();
+      setPendingDelete(null);
     } catch (err) {
       toast.error(getErrorMessage(err));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -270,7 +278,7 @@ export default function AlertDestinationsPage() {
                       <Edit2 className="w-4 h-4" />
                     </IconButton>
                     <IconButton
-                      onClick={() => void onDelete(d)}
+                      onClick={() => setPendingDelete(d)}
                       tone="danger"
                       aria-label="Delete destination"
                     >
@@ -289,6 +297,16 @@ export default function AlertDestinationsPage() {
           existing={editing}
           onClose={() => { setCreating(false); setEditing(null); }}
           onSaved={async () => { await refresh(); setCreating(false); setEditing(null); }}
+        />
+      )}
+
+      {pendingDelete && (
+        <DeleteConfirmModal
+          title="Delete destination"
+          itemName={pendingDelete.label}
+          loading={deleting}
+          onConfirm={() => void onDelete()}
+          onCancel={() => setPendingDelete(null)}
         />
       )}
     </DashboardLayout>
@@ -363,7 +381,11 @@ function DestinationModal(props: {
             <option value="slack">Slack incoming webhook</option>
             <option value="webhook">Generic HTTPS webhook</option>
             <option value="email">Email recipient</option>
-            <option value="in-app">In-app message (deferred — logs only for now)</option>
+            {/* In-app delivery has no real delivery path yet (the relay only logs
+                it), so don't offer a silently-nonfunctional channel. Kept in the
+                list — disabled — so an existing in-app destination still labels
+                correctly on edit (channel is immutable there anyway). */}
+            <option value="in-app" disabled>In-app message (coming soon — not yet delivered)</option>
           </Select>
         </div>
         <div>

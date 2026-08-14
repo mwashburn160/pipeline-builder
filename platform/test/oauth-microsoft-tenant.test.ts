@@ -58,6 +58,10 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { findOrCreateOAuthUser: jest.fn() },
 }));
+// oauth.ts now imports rejectIfSsoEnforced (social-OAuth honors per-org SSO
+// enforcement); mock it so the real sso-enforcement→models→audit-event chain
+// (which reads config.audit at load) isn't pulled in. Mirrors the sibling oauth tests.
+jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ rejectIfSsoEnforced: async () => false }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn() }));

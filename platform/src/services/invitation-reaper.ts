@@ -22,8 +22,14 @@
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { Invitation } from '../models/index.js';
+import { runWithLeaderLock } from '../utils/leader-lock.js';
 
 const logger = createLogger('invitation-reaper');
+
+/** Cross-pod leader-lock key for the reaper so only one replica flips stale
+ *  invites per window (the updateMany is idempotent, so this is a de-dup, not a
+ *  correctness gate). */
+const LOCK_KEY = 'platform:leader:invitation-reaper';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -59,8 +65,10 @@ export async function sweepExpiredInvitations(): Promise<number> {
  */
 export function startInvitationReaper(intervalMs: number = config.invitation.sweepIntervalMs): () => void {
   if (timer) return stopInvitationReaper;
-  timer = setInterval(() => void sweepExpiredInvitations(), intervalMs).unref();
-  void sweepExpiredInvitations(); // immediate first sweep
+  const lockTtlMs = Math.max(intervalMs, 60_000);
+  const runLocked = () => void runWithLeaderLock(LOCK_KEY, lockTtlMs, async () => { await sweepExpiredInvitations(); });
+  timer = setInterval(runLocked, intervalMs).unref();
+  runLocked(); // immediate first sweep (leader-locked)
   logger.info('Invitation reaper started', { intervalMs });
   return stopInvitationReaper;
 }

@@ -28,8 +28,15 @@ import { cascadeDeleteOrg, type CascadeReport } from './org-cascade-service.js';
 import { organizationService } from './organization-service.js';
 import { config } from '../config/index.js';
 import { Organization } from '../models/index.js';
+import { runWithLeaderLock } from '../utils/leader-lock.js';
 
 const logger = createLogger('org-purge');
+
+/** Cross-pod leader-lock key + TTL for the DESTRUCTIVE purge sweep. Only one
+ *  replica may run the cascade per window (otherwise N pods run it in parallel,
+ *  racing the same fail-closed teardown). TTL floored so a tiny test interval
+ *  can't create a near-zero lock lifetime. */
+const LOCK_KEY = 'platform:leader:org-purge';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -155,8 +162,12 @@ export async function purgeExpiredOrgs(): Promise<PurgeSweepResult> {
  */
 export function startOrgPurgeSweep(intervalMs: number = config.organization.purgeSweepIntervalMs): () => void {
   if (timer) return stopOrgPurgeSweep;
-  timer = setInterval(() => void purgeExpiredOrgs(), intervalMs).unref();
-  void purgeExpiredOrgs(); // immediate first sweep
+  // TTL comfortably exceeds one sweep; floored so a small interval can't make it
+  // near-zero. Cross-pod lock so only ONE replica runs the destructive cascade.
+  const lockTtlMs = Math.max(intervalMs, 60_000);
+  const runLocked = () => void runWithLeaderLock(LOCK_KEY, lockTtlMs, async () => { await purgeExpiredOrgs(); });
+  timer = setInterval(runLocked, intervalMs).unref();
+  runLocked(); // immediate first sweep (leader-locked)
   logger.info('Org purge sweep started', { intervalMs });
   return stopOrgPurgeSweep;
 }

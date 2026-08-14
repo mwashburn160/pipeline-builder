@@ -121,9 +121,22 @@ stored as an `OrgIdpConfig` (one config per org).
   downgraded org never locks its users out.
 
 The login-page endpoint `POST /auth/sso/discover` tells the client whether a
-given email is forced through SSO; `GET /auth/sso/:orgId/authorize` returns the
-IdP redirect URL; `POST /auth/sso/:orgId/callback` exchanges the code and
+given email is forced through SSO — it returns only `{ sso: boolean }` and
+deliberately does **not** leak the internal `orgId` or provider (it is
+unauthenticated, so returning those would make it a tenant-enumeration oracle);
+the org handle needed to initiate is delivered through the authenticated
+`SSO_REQUIRED` login rejection instead. `GET /auth/sso/:orgId/authorize` returns
+the IdP redirect URL; `POST /auth/sso/:orgId/callback` exchanges the code and
 validates the `id_token`.
+
+**Social login also honors SSO enforcement.** A user in an SSO-enforced domain
+cannot bypass their org's IdP by using "Sign in with Google/GitHub/…" — the
+OAuth callback runs the same enforcement check as password login and rejects
+with `SSO_REQUIRED`.
+
+> **Multi-replica:** the OAuth/SSO CSRF `state` + OIDC `nonce` are held in the
+> shared Redis, so the `authorize` and `callback` requests can land on different
+> replicas. Without Redis they fall back to per-pod memory (single-replica only).
 
 ### Supported IdP providers
 
@@ -148,7 +161,7 @@ The same `OrgIdpConfig` is manageable from two places, which stay in lockstep
 | Surface | Who | Where |
 |---------|-----|-------|
 | **Superadmin / fleet** | Platform operators (Super Admin) | `/admin/org-idp` — register or edit SSO for **any** org on their behalf (the "IdP / SSO" dashboard page). |
-| **Org-admin self-service** | An org's own admin | Managed under the org's settings, gated on the `org:settings` capability — the customer's admin configures their own org's SSO without an operator (`GET`/`PUT`/`PATCH`/`DELETE /organization/:id/idp`). |
+| **Org-admin self-service** | An org's own admin | Managed under the org's settings, gated on the `org:idp` capability — the customer's admin configures their own org's SSO without an operator (`GET`/`PUT`/`PATCH`/`DELETE /organization/:id/idp`). |
 
 Both surfaces gate the secret-bearing writes behind step-up re-authentication,
 and the self-service surface additionally requires the org to be `sso`-entitled
@@ -161,6 +174,6 @@ create / update / delete is recorded in the [audit trail](audit-events.md)
 ## See also
 
 - [Environment Variables → Authentication](environment-variables.md#authentication) — every `OAUTH_*` variable.
-- [Roles & Permissions](permissions.md) — the `org:settings` capability, sessions, and `tokenVersion` invalidation.
+- [Roles & Permissions](permissions.md) — the `org:idp`/`org:kms` capabilities, sessions, and `tokenVersion` invalidation.
 - [Billing Add-on Bundles](billing-bundles.md) — the `sso` add-on bundle and feature entitlements.
 - [Audit Events](audit-events.md) — SSO/IdP config change actions.

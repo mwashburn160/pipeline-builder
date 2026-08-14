@@ -10,6 +10,7 @@ import { FilterSelect } from '@/components/ui/FilterSelect';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { useToast } from '@/components/ui/Toast';
 import { TextEmptyState } from '@/components/ui/EmptyState';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import type { ScanSchedule } from '@/types/compliance';
 
 interface ScanScheduleFormData {
@@ -121,6 +122,52 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
     setDeletingId(null);
   };
 
+  const columns: Column<ScanSchedule>[] = [
+    { id: 'target', header: 'Target', cellClassName: 'text-sm text-gray-600 dark:text-gray-400 capitalize', render: (s) => s.target },
+    {
+      id: 'cron',
+      header: 'Cron Expression',
+      render: (s) => (
+        <code className="text-sm bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-gray-800 dark:text-gray-200">{s.cronExpression}</code>
+      ),
+    },
+    {
+      id: 'active',
+      header: 'Active',
+      render: (s) => (
+        <button
+          onClick={() => handleToggle(s)}
+          disabled={readOnly || togglingId === s.id}
+          className="focus:outline-none disabled:opacity-50"
+          title={s.isActive ? 'Deactivate' : 'Activate'}
+          aria-label={s.isActive ? 'Deactivate schedule' : 'Activate schedule'}
+        >
+          {togglingId === s.id
+            ? <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+            : <Badge color={s.isActive ? 'green' : 'gray'}>{s.isActive ? 'Active' : 'Inactive'}</Badge>}
+        </button>
+      ),
+    },
+    { id: 'lastRun', header: 'Last Run', cellClassName: 'text-xs text-gray-500', render: (s) => (s.lastRunAt ? new Date(s.lastRunAt).toLocaleString() : '--') },
+    { id: 'nextRun', header: 'Next Run', cellClassName: 'text-xs text-gray-500', render: (s) => (s.nextRunAt ? new Date(s.nextRunAt).toLocaleString() : '--') },
+    {
+      id: 'actions',
+      header: 'Actions',
+      headerClassName: 'text-right',
+      cellClassName: 'text-right',
+      render: (s) => (!readOnly ? (
+        <div className="flex items-center justify-end gap-1">
+          <Button variant="ghost" size="xs" onClick={() => openEdit(s)} title="Edit schedule" aria-label="Edit schedule">
+            <Pencil className="w-4 h-4" />
+          </Button>
+          <Button variant="danger" size="xs" onClick={() => setConfirmDelete(s)} disabled={deletingId === s.id} title="Delete schedule" aria-label="Delete schedule">
+            {deletingId === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+          </Button>
+        </div>
+      ) : null),
+    },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -160,12 +207,14 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
               </FilterSelect>
             </div>
             <div className="flex-[2]">
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Cron Expression</label>
+              <label htmlFor="scan-schedule-cron" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Cron Expression</label>
               <Input
+                id="scan-schedule-cron"
                 type="text"
                 value={formData.cronExpression}
                 onChange={e => setFormData(prev => ({ ...prev, cronExpression: e.target.value }))}
                 placeholder="0 0 * * *"
+                aria-label="Cron expression"
                 required
               />
             </div>
@@ -188,82 +237,13 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
         <TextEmptyState>No scan schedules found.</TextEmptyState>
       ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-800/50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cron Expression</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Active</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Run</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Next Run</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
-              {schedules.map(schedule => (
-                <tr key={schedule.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 capitalize">{schedule.target}</td>
-                  <td className="px-4 py-3">
-                    <code className="text-sm bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-gray-800 dark:text-gray-200">
-                      {schedule.cronExpression}
-                    </code>
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => handleToggle(schedule)}
-                      disabled={readOnly || togglingId === schedule.id}
-                      className="focus:outline-none disabled:opacity-50"
-                      title={schedule.isActive ? 'Deactivate' : 'Activate'}
-                      aria-label={schedule.isActive ? 'Deactivate schedule' : 'Activate schedule'}
-                    >
-                      {togglingId === schedule.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-                      ) : (
-                        <Badge color={schedule.isActive ? 'green' : 'gray'}>
-                          {schedule.isActive ? 'Active' : 'Inactive'}
-                        </Badge>
-                      )}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-gray-500">
-                    {schedule.lastRunAt ? new Date(schedule.lastRunAt).toLocaleString() : '--'}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-gray-500">
-                    {schedule.nextRunAt ? new Date(schedule.nextRunAt).toLocaleString() : '--'}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {!readOnly && (
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          onClick={() => openEdit(schedule)}
-                          title="Edit schedule"
-                          aria-label="Edit schedule"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="danger"
-                          size="xs"
-                          onClick={() => setConfirmDelete(schedule)}
-                          disabled={deletingId === schedule.id}
-                          title="Delete schedule"
-                          aria-label="Delete schedule"
-                        >
-                          {deletingId === schedule.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="w-4 h-4" />
-                          )}
-                        </Button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable
+            data={schedules}
+            columns={columns}
+            isLoading={false}
+            getRowKey={(s) => s.id}
+            emptyState={{ icon: CalendarClock, title: 'No scan schedules', description: 'Create one to run scans automatically.' }}
+          />
         </div>
       )}
       {confirmDelete && (

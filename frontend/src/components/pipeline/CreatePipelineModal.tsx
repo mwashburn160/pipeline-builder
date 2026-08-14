@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { Plus, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, ShieldCheck, Sparkles, Lock } from 'lucide-react';
+import { useFeatures } from '@/hooks/useFeatures';
 import { BuilderProps } from '@/types';
 import type { ComplianceCheckResult } from '@/types/compliance';
 import { Badge } from '@/components/ui/Badge';
@@ -50,6 +51,10 @@ export default function CreatePipelineModal({
   createLoading, createError, createSuccess, canCreatePublic, initialGitUrl,
 }: CreatePipelineModalProps) {
   const [activeTab, setActiveTab] = useState<'upload' | 'form' | 'ai' | 'prompt'>('ai');
+  // AI generation is a paid feature. The two AI tabs (Git URL, From prompt) hit a
+  // server-side `requireFeature('ai_generation')` gate — pre-gate them with an
+  // upsell so an unentitled org sees why, instead of a 403 dead-end on submit.
+  const aiEnabled = useFeatures().isEnabled('ai_generation');
   const [createAccess, setCreateAccess] = useState<'public' | 'private'>('private');
   const [showPreview, setShowPreview] = useState(false);
   const [previewJson, setPreviewJson] = useState<string | null>(null);
@@ -196,7 +201,10 @@ export default function CreatePipelineModal({
     }
   };
 
-  const isSubmitDisabled = createLoading;
+  // AI tab selected without the entitlement — show the upsell, block submit/preview
+  // (they would 403 server-side), and skip the AI tab's generation calls.
+  const aiGated = (activeTab === 'ai' || activeTab === 'prompt') && !aiEnabled;
+  const isSubmitDisabled = createLoading || aiGated;
   const isWizardTab = activeTab === 'form';
   const isLastStep = currentStep === WIZARD_STEPS.length - 1;
 
@@ -261,14 +269,14 @@ export default function CreatePipelineModal({
         <Button
           variant="secondary"
           onClick={handlePreview}
-          disabled={createLoading}
+          disabled={createLoading || aiGated}
         >
           Preview JSON
         </Button>
         <Button
           variant="secondary"
           onClick={handleComplianceCheck}
-          disabled={createLoading || complianceLoading}
+          disabled={createLoading || complianceLoading || aiGated}
         >
           {complianceLoading ? <LoadingSpinner size="sm" className="mr-1" /> : <ShieldCheck className="w-4 h-4 mr-1" />}
           Preview Compliance
@@ -333,7 +341,9 @@ export default function CreatePipelineModal({
       <SuccessAlert message={createSuccess} className="mb-4" />
 
 
-      {activeTab === 'upload' ? (
+      {aiGated ? (
+        <AiUpsell />
+      ) : activeTab === 'upload' ? (
         <UploadConfigTab ref={uploadRef} disabled={createLoading} />
       ) : activeTab === 'ai' ? (
         <GitUrlTab ref={aiRef} disabled={createLoading} initialUrl={initialGitUrl} autoGenerate={!!initialGitUrl} />
@@ -382,5 +392,30 @@ export default function CreatePipelineModal({
         </div>
       )}
     </Modal>
+  );
+}
+
+/**
+ * Upsell shown in place of the AI generation tabs when the org lacks the
+ * `ai_generation` entitlement — mirrors the DORA/advanced_reporting gate so the
+ * user sees why the feature is unavailable instead of a 403 on submit. The other
+ * create modes (Upload, Wizard) stay available on their own tabs.
+ */
+function AiUpsell() {
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200">
+      <Lock className="w-5 h-5 shrink-0 mt-0.5" />
+      <div>
+        <div className="flex items-center gap-1.5 font-medium">
+          <Sparkles className="w-4 h-4" /> AI generation isn&apos;t included in your current plan
+        </div>
+        <p className="mt-1 text-amber-800 dark:text-amber-300">
+          Generating a pipeline from a Git URL or a prompt needs the AI Generation feature, available on the Pro,
+          Team, and Enterprise tiers (or as an add-on). Upgrade your plan to unlock it — or use the
+          <span className="font-medium"> Upload</span> or <span className="font-medium">Wizard</span> tabs to build a
+          pipeline without AI.
+        </p>
+      </div>
+    </div>
   );
 }

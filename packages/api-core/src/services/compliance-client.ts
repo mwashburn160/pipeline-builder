@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { InternalHttpClient } from './http-client.js';
+import { InternalHttpClient, type RequestOptions } from './http-client.js';
 import type { ServiceConfig } from '../types/common.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -12,6 +12,14 @@ const logger = createLogger('compliance-client');
  * (fail-open). Default is fail-closed (errors propagate and block the operation).
  */
 const COMPLIANCE_BYPASS = process.env.COMPLIANCE_BYPASS === 'true';
+
+/**
+ * Per-attempt timeout for a validation POST (env: `COMPLIANCE_VALIDATE_TIMEOUT_MS`).
+ * Deliberately TIGHTER than the 5s client default so the enforced retries (below)
+ * fit inside a bounded total budget rather than stacking three 5s stalls onto a
+ * single interactive request.
+ */
+const VALIDATE_TIMEOUT_MS = parseInt(process.env.COMPLIANCE_VALIDATE_TIMEOUT_MS ?? '4000', 10);
 
 /**
  * Result of a compliance validation check.
@@ -110,6 +118,26 @@ function buildHeaders(orgId: string, authHeader: string): Record<string, string>
 }
 
 /**
+ * Request options for a compliance validation POST.
+ *
+ * These calls are side-effect-free (they evaluate rules and return a verdict;
+ * any audit/notification the compliance service writes is derived, not a mutation
+ * the caller depends on being once-only), so they are marked `idempotent: true`.
+ * That lets the HTTP client auto-retry a transient 503 / connection reset /
+ * timeout instead of surfacing it as a hard failure — which, under the
+ * fail-closed default, would wrongly REJECT a legitimate plugin upload / pipeline
+ * create just because compliance briefly stalled. Paired with the tighter
+ * per-attempt timeout so the retries stay within a bounded total budget.
+ */
+function validateOptions(orgId: string, authHeader: string): RequestOptions {
+  return {
+    headers: buildHeaders(orgId, authHeader),
+    idempotent: true,
+    timeout: VALIDATE_TIMEOUT_MS,
+  };
+}
+
+/**
  * Create a compliance client.
  *
  * IMPORTANT: This client is fail-closed — if the compliance service is
@@ -152,7 +180,7 @@ export function createComplianceClient(config?: Partial<ServiceConfig>): Complia
         const response = await client.post<{ success: boolean; data: ComplianceCheckResult; message?: string }>(
           '/compliance/validate/plugin',
           { attributes, entityId, entityName, action: action ?? 'upload' },
-          { headers: buildHeaders(orgId, authHeader) },
+          validateOptions(orgId, authHeader),
         );
         return unwrap(response, 'validatePlugin');
       } catch (error) {
@@ -166,7 +194,7 @@ export function createComplianceClient(config?: Partial<ServiceConfig>): Complia
         const response = await client.post<{ success: boolean; data: ComplianceCheckResult; message?: string }>(
           '/compliance/validate/pipeline',
           { attributes, entityId, entityName, action: action ?? 'create' },
-          { headers: buildHeaders(orgId, authHeader) },
+          validateOptions(orgId, authHeader),
         );
         return unwrap(response, 'validatePipeline');
       } catch (error) {
@@ -180,7 +208,7 @@ export function createComplianceClient(config?: Partial<ServiceConfig>): Complia
         const response = await client.post<{ success: boolean; data: ComplianceCheckResult; message?: string }>(
           '/compliance/validate/plugin/dry-run',
           { attributes },
-          { headers: buildHeaders(orgId, authHeader) },
+          validateOptions(orgId, authHeader),
         );
         return unwrap(response, 'dryRunPlugin');
       } catch (error) {
@@ -194,7 +222,7 @@ export function createComplianceClient(config?: Partial<ServiceConfig>): Complia
         const response = await client.post<{ success: boolean; data: ComplianceCheckResult; message?: string }>(
           '/compliance/validate/pipeline/dry-run',
           { attributes },
-          { headers: buildHeaders(orgId, authHeader) },
+          validateOptions(orgId, authHeader),
         );
         return unwrap(response, 'dryRunPipeline');
       } catch (error) {

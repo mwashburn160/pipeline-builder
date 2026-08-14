@@ -184,32 +184,76 @@ function windowFilter(orgId: string, from?: Date, to?: Date): Record<string, unk
   return filter;
 }
 
+/** Zeroed totals accumulator shared by both summary shapes. */
+function zeroTotals(): BillingSummary['totals'] {
+  return { grossBilledCents: 0, discountsCents: 0, creditsCents: 0, taxCents: 0, netBilledCents: 0, amountPaidCents: 0 };
+}
+
+/** The per-`$group` sum accumulators mapping ledger columns → summary totals. */
+const TOTALS_ACCUMULATORS = {
+  grossBilledCents: { $sum: '$subtotalCents' },
+  discountsCents: { $sum: '$discountCents' },
+  creditsCents: { $sum: '$creditCents' },
+  taxCents: { $sum: '$taxCents' },
+  netBilledCents: { $sum: '$totalCents' },
+  amountPaidCents: { $sum: '$amountPaidCents' },
+  invoiceCount: { $sum: 1 },
+} as const;
+
+/** Fold a `$group` totals row (or nothing) into the plain totals + count shape. */
+function readTotals(row: (BillingSummary['totals'] & { invoiceCount?: number }) | undefined): { totals: BillingSummary['totals']; invoiceCount: number } {
+  const totals = zeroTotals();
+  if (!row) return { totals, invoiceCount: 0 };
+  totals.grossBilledCents = row.grossBilledCents ?? 0;
+  totals.discountsCents = row.discountsCents ?? 0;
+  totals.creditsCents = row.creditsCents ?? 0;
+  totals.taxCents = row.taxCents ?? 0;
+  totals.netBilledCents = row.netBilledCents ?? 0;
+  totals.amountPaidCents = row.amountPaidCents ?? 0;
+  return { totals, invoiceCount: row.invoiceCount ?? 0 };
+}
+
 /**
  * Aggregate the root org's ledger into dashboard totals + a per-period timeline.
  * The root org IS the whole account (billing is root-scoped), so this is the
  * consolidated account total — no subtree traversal needed.
+ *
+ * Totals are summed by a Mongo `$group` (not by loading every invoice document
+ * into JS); the timeline is a projection of the (bounded, one-per-invoice-period)
+ * rows. A single `$facet` runs both branches over one `$match`+`$sort` scan.
  */
 export async function getBillingSummary(orgId: string, from?: Date, to?: Date): Promise<BillingSummary> {
-  const rows = await BillingInvoice.find(windowFilter(orgId, from, to)).sort({ periodStart: 1 });
-  const totals = {
-    grossBilledCents: 0, discountsCents: 0, creditsCents: 0, taxCents: 0, netBilledCents: 0, amountPaidCents: 0,
-  };
-  const timeline = rows.map((r) => {
-    totals.grossBilledCents += r.subtotalCents;
-    totals.discountsCents += r.discountCents;
-    totals.creditsCents += r.creditCents;
-    totals.taxCents += r.taxCents;
-    totals.netBilledCents += r.totalCents;
-    totals.amountPaidCents += r.amountPaidCents;
-    return {
-      periodStart: r.periodStart.toISOString(),
-      grossCents: r.subtotalCents,
-      discountCents: r.discountCents,
-      creditCents: r.creditCents,
-      netCents: r.totalCents,
-    };
-  });
-  return { scope: 'account', totals, timeline, invoiceCount: rows.length };
+  const [facet] = await BillingInvoice.aggregate<{
+    totals: Array<BillingSummary['totals'] & { invoiceCount: number }>;
+    timeline: Array<{ periodStart: Date; grossCents: number; discountCents: number; creditCents: number; netCents: number }>;
+  }>([
+    { $match: windowFilter(orgId, from, to) },
+    { $sort: { periodStart: 1 } },
+    {
+      $facet: {
+        totals: [{ $group: { _id: null, ...TOTALS_ACCUMULATORS } }],
+        timeline: [{
+          $project: {
+            _id: 0,
+            periodStart: 1,
+            grossCents: '$subtotalCents',
+            discountCents: '$discountCents',
+            creditCents: '$creditCents',
+            netCents: '$totalCents',
+          },
+        }],
+      },
+    },
+  ]);
+  const { totals, invoiceCount } = readTotals(facet?.totals?.[0]);
+  const timeline = (facet?.timeline ?? []).map((r) => ({
+    periodStart: new Date(r.periodStart).toISOString(),
+    grossCents: r.grossCents,
+    discountCents: r.discountCents,
+    creditCents: r.creditCents,
+    netCents: r.netCents,
+  }));
+  return { scope: 'account', totals, timeline, invoiceCount };
 }
 
 export interface AdminBillingSummary {
@@ -233,26 +277,44 @@ export async function getAdminBillingSummary(from?: Date, to?: Date, orgId?: str
     if (to) range.$lte = to;
     filter.periodStart = range;
   }
-  const rows = await BillingInvoice.find(filter).sort({ periodStart: 1 });
-  const totals = { grossBilledCents: 0, discountsCents: 0, creditsCents: 0, taxCents: 0, netBilledCents: 0, amountPaidCents: 0 };
-  const byOrgMap = new Map<string, AdminBillingSummary['byOrg'][number]>();
-  for (const r of rows) {
-    totals.grossBilledCents += r.subtotalCents;
-    totals.discountsCents += r.discountCents;
-    totals.creditsCents += r.creditCents;
-    totals.taxCents += r.taxCents;
-    totals.netBilledCents += r.totalCents;
-    totals.amountPaidCents += r.amountPaidCents;
-    const o = byOrgMap.get(r.orgId) ?? { orgId: r.orgId, grossBilledCents: 0, creditsCents: 0, discountsCents: 0, netBilledCents: 0, invoiceCount: 0 };
-    o.grossBilledCents += r.subtotalCents;
-    o.creditsCents += r.creditCents;
-    o.discountsCents += r.discountCents;
-    o.netBilledCents += r.totalCents;
-    o.invoiceCount += 1;
-    byOrgMap.set(r.orgId, o);
-  }
-  const byOrg = [...byOrgMap.values()].sort((a, b) => b.netBilledCents - a.netBilledCents);
-  return { totals, byOrg, invoiceCount: rows.length };
+  // Sum ENTIRELY in Mongo — a `$facet` computes the grand totals and the per-org
+  // breakdown in one pass. The old `.find()` streamed every invoice across ALL
+  // accounts into JS (an OOM risk on the unscoped admin view); nothing but the
+  // aggregated rows crosses the wire now.
+  const [facet] = await BillingInvoice.aggregate<{
+    totals: Array<BillingSummary['totals'] & { invoiceCount: number }>;
+    byOrg: Array<{ _id: string; grossBilledCents: number; creditsCents: number; discountsCents: number; netBilledCents: number; invoiceCount: number }>;
+  }>([
+    { $match: filter },
+    {
+      $facet: {
+        totals: [{ $group: { _id: null, ...TOTALS_ACCUMULATORS } }],
+        byOrg: [
+          {
+            $group: {
+              _id: '$orgId',
+              grossBilledCents: { $sum: '$subtotalCents' },
+              creditsCents: { $sum: '$creditCents' },
+              discountsCents: { $sum: '$discountCents' },
+              netBilledCents: { $sum: '$totalCents' },
+              invoiceCount: { $sum: 1 },
+            },
+          },
+          { $sort: { netBilledCents: -1 } },
+        ],
+      },
+    },
+  ]);
+  const { totals, invoiceCount } = readTotals(facet?.totals?.[0]);
+  const byOrg = (facet?.byOrg ?? []).map((o) => ({
+    orgId: o._id,
+    grossBilledCents: o.grossBilledCents,
+    creditsCents: o.creditsCents,
+    discountsCents: o.discountsCents,
+    netBilledCents: o.netBilledCents,
+    invoiceCount: o.invoiceCount,
+  }));
+  return { totals, byOrg, invoiceCount };
 }
 
 /**

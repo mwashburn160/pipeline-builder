@@ -56,7 +56,9 @@ This reference documents Pipeline Builder's per-org, permission-based access con
 | Messaging | `messages:read`, `messages:write` | |
 | Billing & quotas | `billing:read`, `billing:manage`, `quotas:read` | |
 | Registry | `registry:read`, `registry:write` | **Super Admin only** — never grantable to a custom Role |
-| Org settings | `org:settings` | SSO/IdP, KMS, AI config, general settings |
+| Org settings | `org:settings` | General org settings + AI provider config |
+| SSO / IdP | `org:idp` | Per-org SSO/IdP (OIDC) configuration — **sensitive** (controls login); split out of `org:settings` |
+| KMS | `org:kms` | Customer-managed KMS key configuration — **sensitive** (controls encryption); split out of `org:settings` |
 
 **`:read` permissions are enforced.** Withholding `quotas:read` / `reports:read` /
 `billing:read` / `messages:read` from a custom Role actually blocks that read

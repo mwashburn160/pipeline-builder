@@ -28,7 +28,7 @@ interface PaginatedResult<T> {
  * @example
  * const { items, pagination, loading, error, setOffset, refetch } =
  *   useServerPagination(
- *     ({ offset, limit, filters }) => api.listExemptions({ offset, limit, ...filters }),
+ *     ({ offset, limit, filters }) => api.getExemptions({ offset, limit, ...filters }),
  *     { target, result },
  *     20,
  *   );

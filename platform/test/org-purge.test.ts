@@ -13,7 +13,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { organization: { purgeSweepIntervalMs: 1000 } },
+  config: { organization: { purgeSweepIntervalMs: 1000 }, audit: { retentionDays: 90 } },
 }));
 
 const mockOrgFind = jest.fn();
@@ -36,6 +36,8 @@ jest.unstable_mockModule('../src/services/organization-service.js', () => ({
 jest.unstable_mockModule('../src/services/audit-service.js', () => ({
   auditService: { createEvent: (...a: unknown[]) => mockCreateEvent(...a) },
 }));
+
+jest.unstable_mockModule('../src/utils/leader-lock.js', () => ({ runWithLeaderLock: (_key, _ttlMs, fn) => fn().then(() => true) }));
 
 const { purgeExpiredOrgs, startOrgPurgeSweep, stopOrgPurgeSweep } = await import('../src/services/org-purge.js');
 

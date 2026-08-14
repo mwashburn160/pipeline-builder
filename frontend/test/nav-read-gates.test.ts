@@ -74,19 +74,19 @@ describe('nav read-permission gates', () => {
 describe('SSO nav feature-entitlement gate', () => {
   const SSO = '/dashboard/settings/sso';
 
-  it('declares the sso feature + org:settings permission', () => {
+  it('declares the sso feature + org:idp permission', () => {
     const item = findItem(SSO);
     expect(item.requiredFeature).toBe('sso');
-    expect(item.requiredPermission).toBe('org:settings');
+    expect(item.requiredPermission).toBe('org:idp');
   });
 
   it('hides SSO from a permitted-but-non-entitled non-superadmin', () => {
-    const user = { permissions: ['org:settings'], features: [] };
+    const user = { permissions: ['org:idp'], features: [] };
     expect(isNavItemVisible(findItem(SSO), ctx(user))).toBe(false);
   });
 
   it('shows SSO once the sso entitlement is present', () => {
-    const user = { permissions: ['org:settings'], features: ['sso'] };
+    const user = { permissions: ['org:idp'], features: ['sso'] };
     expect(isNavItemVisible(findItem(SSO), ctx(user))).toBe(true);
   });
 

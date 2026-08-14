@@ -1,3 +1,4 @@
+import { Select } from '@/components/ui/Select';
 import { useCallback, useRef } from 'react';
 import { MetadataEntry } from '@/types/form-types';
 import { Button } from '@/components/ui/Button';
@@ -198,7 +199,7 @@ export default function MetadataEditor({ value, onChange, disabled, label }: Met
               onSelectPredefined={(opt) => handleSelectPredefined(idx, opt)}
               disabled={disabled}
             />
-            <select
+            <Select
               value={entry.type}
               onChange={(e) => handleChange(idx, 'type', e.target.value)}
               disabled={disabled}
@@ -207,9 +208,9 @@ export default function MetadataEditor({ value, onChange, disabled, label }: Met
               <option value="string">String</option>
               <option value="number">Number</option>
               <option value="boolean">Boolean</option>
-            </select>
+            </Select>
             {entry.type === 'boolean' ? (
-              <select
+              <Select
                 value={entry.value}
                 onChange={(e) => handleChange(idx, 'value', e.target.value)}
                 disabled={disabled}
@@ -217,7 +218,7 @@ export default function MetadataEditor({ value, onChange, disabled, label }: Met
               >
                 <option value="true">true</option>
                 <option value="false">false</option>
-              </select>
+              </Select>
             ) : (
               <MetadataValueInput
                 entry={entry}

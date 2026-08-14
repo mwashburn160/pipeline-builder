@@ -6,6 +6,7 @@ import { createLogger, SSE_TICKET_TTL_MS } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import type { Response } from 'express';
 import { v7 as uuid } from 'uuid';
+import type { SSERelay, SSERelayMessage } from './sse-relay.js';
 import { createMemoryTicketStore, type SSETicketStore } from './sse-ticket-store.js';
 
 const logger = createLogger('sse-manager');
@@ -95,6 +96,14 @@ export interface SSEManagerOptions {
    * 1h). Long enough to outlive a build; the producer re-binds as needed.
    */
   streamOwnerTtlMs?: number;
+  /**
+   * Cross-pod fan-out bus for `send()`/`broadcast()`. Optional — when omitted,
+   * delivery is LOCAL-ONLY (correct single-replica; today's behavior). Inject
+   * `createEnvRedisSSERelay()` so a frame produced on one pod reaches an
+   * EventSource attached on a DIFFERENT pod. Degrades to local-only automatically
+   * when Redis is unset (the factory returns null) or during a Redis outage.
+   */
+  relay?: SSERelay;
 }
 
 /**
@@ -158,6 +167,10 @@ export class SSEManager {
   private readonly streamOwnerTtlMs: number;
   private readonly clientTimeoutMs: number;
   private cleanupInterval: NodeJS.Timeout | null = null;
+  /** Cross-pod fan-out bus (undefined ⇒ local-only delivery). */
+  private readonly relay?: SSERelay;
+  /** This manager instance's id — tags relayed frames so we ignore our own echo. */
+  private readonly nodeId = randomBytes(8).toString('hex');
 
   constructor(options: SSEManagerOptions = {}) {
     this.maxClientsPerRequest = options.maxClientsPerRequest ?? parseInt(process.env.SSE_MAX_CLIENTS_PER_REQUEST || '10', 10);
@@ -172,6 +185,28 @@ export class SSEManager {
 
     const cleanupIntervalMs = options.cleanupIntervalMs ?? parseInt(process.env.SSE_CLEANUP_INTERVAL_MS || '300000', 10); // 5 minutes
     this.startCleanupInterval(cleanupIntervalMs);
+
+    // Wire the cross-pod relay: subscribe once on startup so frames PUBLISHED by
+    // any other pod are re-emitted to THIS pod's local clients. Frames we
+    // published ourselves are ignored (origin === nodeId) — we already wrote them
+    // locally. Fail-safe: no relay ⇒ local-only delivery (single-replica default).
+    this.relay = options.relay;
+    this.relay?.subscribe((msg) => this.onRelayMessage(msg));
+  }
+
+  /**
+   * Handle a frame received from another pod via the relay. We already delivered
+   * our OWN frames to local clients before publishing, so ignore our echo. A
+   * `send` re-emits to the subject's local clients; a `broadcast` to all of them.
+   * Purely local — never re-publishes, so there is no fan-out loop.
+   */
+  private onRelayMessage(msg: SSERelayMessage): void {
+    if (!msg || msg.origin === this.nodeId) return;
+    if (msg.kind === 'broadcast') {
+      this.broadcastLocal(msg.payload);
+    } else if (msg.requestId) {
+      this.sendLocal(msg.requestId, msg.payload);
+    }
   }
 
   /** Total open connections across all requests. */
@@ -439,6 +474,21 @@ export class SSEManager {
       data,
     };
 
+    // Deliver to LOCAL clients first, then relay the SAME payload to other pods
+    // so an EventSource attached on a different replica also receives it. The
+    // relay is fire-and-forget and fail-safe: no relay / Redis down ⇒ local-only.
+    const sentCount = this.sendLocal(requestId, payload);
+    this.publishRelay({ origin: this.nodeId, kind: 'send', requestId, payload });
+    return sentCount;
+  }
+
+  /**
+   * Write a pre-built payload to this pod's LOCAL clients for `requestId`. Shared
+   * by {@link send} (local half) and the relay re-emit path ({@link onRelayMessage}),
+   * so a relayed frame reuses the producer's original `ts` rather than a new one.
+   * Never relays — callers decide whether to publish.
+   */
+  private sendLocal(requestId: string, payload: SSEPayload): number {
     const clients = [...(this.clients.get(requestId) || [])];
     let sentCount = 0;
     const serialized = `data: ${JSON.stringify(payload)}\n\n`;
@@ -482,11 +532,32 @@ export class SSEManager {
    * @returns Total number of clients the message was sent to
    */
   broadcast(type: SSEEventType, message: string, data?: unknown): number {
+    const payload: SSEPayload = {
+      ts: new Date().toISOString(),
+      type,
+      message,
+      data,
+    };
+    // Deliver to local clients, then relay a single broadcast frame so EVERY pod
+    // re-emits to ALL of its own clients — a per-requestId relay would miss
+    // subjects that only exist on other replicas.
+    const totalSent = this.broadcastLocal(payload);
+    this.publishRelay({ origin: this.nodeId, kind: 'broadcast', payload });
+    return totalSent;
+  }
+
+  /** Write a pre-built payload to all LOCAL clients across every request. */
+  private broadcastLocal(payload: SSEPayload): number {
     let totalSent = 0;
-    for (const requestId of this.clients.keys()) {
-      totalSent += this.send(requestId, type, message, data);
+    for (const requestId of [...this.clients.keys()]) {
+      totalSent += this.sendLocal(requestId, payload);
     }
     return totalSent;
+  }
+
+  /** Fire-and-forget relay publish. No-op (local-only) when no relay is wired. */
+  private publishRelay(msg: SSERelayMessage): void {
+    this.relay?.publish(msg);
   }
 
   /**
@@ -712,6 +783,9 @@ export class SSEManager {
     for (const requestId of [...this.clients.keys()]) {
       this.closeRequest(requestId, 'Server shutting down');
     }
+
+    // Tear down the relay's Redis connections (best-effort; never throws).
+    void this.relay?.close().catch(() => { /* already closing */ });
 
     logger.info('SSE Manager shut down');
   }
