@@ -71,7 +71,18 @@ fi
 # shellcheck source=/dev/null
 . "$BIN_DIR/mongo-keyfile.sh"
 pb_ensure_mongo_keyfile "$DEPLOY_DIR/mongodb-keyfile"
-[ -f "$DEPLOY_DIR/mongodb-keyfile" ] && chmod 400 "$DEPLOY_DIR/mongodb-keyfile"
+if [ -f "$DEPLOY_DIR/mongodb-keyfile" ]; then
+  chmod 400 "$DEPLOY_DIR/mongodb-keyfile"
+  # pb_create_config_maps slurps this file into the `mongodb-keyfile` Secret by
+  # running kubectl AS the minikube user (mk = `sudo -u minikube`). A root-owned
+  # 0400 keyfile is unreadable by minikube → "open …: permission denied" → the
+  # secret gets no input ("no objects passed to apply"). Hand the file to
+  # minikube so its owner-only read still applies to the kubectl reader. The
+  # keyfile stays 0400 (never loosened to 0644 like the TLS/JWT keys), and the
+  # container's mounted copy is independently chmod 400 + chown 999 in
+  # mongodb.yaml, so host ownership doesn't weaken Mongo's keyfile security.
+  [ "$(id -u)" = "0" ] && chown minikube "$DEPLOY_DIR/mongodb-keyfile" 2>/dev/null || true
+fi
 
 # -- Data directories ---------------------------------------------------------
 
