@@ -4,7 +4,7 @@
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
 import type { ApiResponse } from '@/types';
-import type { CompliancePolicy, ComplianceRule, ComplianceRuleHistoryEntry, ComplianceCheckResult, ComplianceRuleCreate, ComplianceRuleUpdate, ComplianceAuditEntry, ComplianceRuleSubscription, PublishedRuleCatalogEntry, ComplianceExemption, ComplianceScan, RuleTemplate, ExemptionCreate } from '@/types/compliance';
+import type { CompliancePolicy, ComplianceRule, ComplianceRuleHistoryEntry, ComplianceCheckResult, ComplianceRuleCreate, ComplianceRuleUpdate, ComplianceAuditEntry, ComplianceRuleSubscription, PublishedRuleCatalogEntry, ComplianceExemption, ComplianceScan, RuleTemplate, ExemptionCreate, ScanSchedule } from '@/types/compliance';
 
 export function complianceApi(core: ApiCore) {
   return {
@@ -300,12 +300,12 @@ export function complianceApi(core: ApiCore) {
 
     /** List scan schedules */
     getScanSchedules: async (params?: Record<string, string>) => {
-      return core.request<ApiResponse<{ schedules: Record<string, unknown>[] }>>(`/api/compliance/scan-schedules${buildQuery(params)}`);
+      return core.request<ApiResponse<{ schedules: ScanSchedule[] }>>(`/api/compliance/scan-schedules${buildQuery(params)}`);
     },
 
     /** Create a scan schedule */
     createScanSchedule: async (data: { target: string; cronExpression: string }) => {
-      return core.request<ApiResponse<{ schedule: Record<string, unknown> }>>('/api/compliance/scan-schedules', {
+      return core.request<ApiResponse<{ schedule: ScanSchedule }>>('/api/compliance/scan-schedules', {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -313,7 +313,7 @@ export function complianceApi(core: ApiCore) {
 
     /** Update a scan schedule */
     updateScanSchedule: async (id: string, data: { target?: string; cronExpression?: string }) => {
-      return core.request<ApiResponse<{ schedule: Record<string, unknown> }>>(`/api/compliance/scan-schedules/${id}`, {
+      return core.request<ApiResponse<{ schedule: ScanSchedule }>>(`/api/compliance/scan-schedules/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       });
@@ -321,7 +321,7 @@ export function complianceApi(core: ApiCore) {
 
     /** Toggle scan schedule active state */
     toggleScanScheduleActive: async (id: string, isActive: boolean) => {
-      return core.request<ApiResponse<{ schedule: Record<string, unknown> }>>(`/api/compliance/scan-schedules/${id}/active`, {
+      return core.request<ApiResponse<{ schedule: ScanSchedule }>>(`/api/compliance/scan-schedules/${id}/active`, {
         method: 'PATCH',
         body: JSON.stringify({ isActive }),
       });

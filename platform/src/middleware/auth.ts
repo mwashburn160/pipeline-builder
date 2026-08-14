@@ -192,6 +192,17 @@ export async function requireAuth(
         if (!membership) {
           return sendError(res, 401, 'Token authority revoked');
         }
+        //  - the org the token is scoped to must still exist and NOT be
+        //    soft-deleted. `softDeleteOrg` bumps tokenVersion to cut interactive
+        //    sessions, but a PAT's authority is decoupled from tokenVersion, so
+        //    without this read-path guard an automation PAT keeps read+write on a
+        //    tombstoned org until purge. (softDeleteOrg ALSO revokes members' PATs
+        //    in its tombstone txn; this covers a PAT that raced the delete and any
+        //    org whose revocation write was missed.)
+        const org = await Organization.findById(toOrgId(decoded.organizationId)).select('deletedAt').lean();
+        if (!org || (org as { deletedAt?: Date | null }).deletedAt) {
+          return sendError(res, 401, 'Token authority revoked');
+        }
       }
       // Throttle the lastUsedAt stamp to at most once/minute so a busy CI/poller
       // doesn't turn every request into a Mongo write on the auth hot path.

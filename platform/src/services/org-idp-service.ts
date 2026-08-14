@@ -13,8 +13,9 @@
  */
 
 import { createLogger } from '@pipeline-builder/api-core';
+import type { OidcLoginConfig } from './oidc-service.js';
 import OrgIdpConfig, { type IdpProvider, type OrgIdpConfigDocument } from '../models/org-idp-config.js';
-import { wrapEncrypted } from '../utils/secret-blob.js';
+import { unwrapEncrypted, wrapEncrypted } from '../utils/secret-blob.js';
 
 const logger = createLogger('org-idp-service');
 
@@ -26,6 +27,10 @@ export interface OrgIdpConfigDto {
   /** True if a secret is on file; false otherwise. The actual value never crosses the wire. */
   hasClientSecret: boolean;
   discoveryUrl?: string;
+  /** AWS Cognito region — present only for `provider: 'cognito'`. */
+  region?: string;
+  /** AWS Cognito user-pool id — present only for `provider: 'cognito'`. */
+  userPoolId?: string;
   allowedEmailDomains: string[];
   enabled: boolean;
   updatedAt: string;
@@ -37,6 +42,8 @@ export interface OrgIdpConfigCreate {
   clientId: string;
   clientSecret: string;
   discoveryUrl?: string;
+  region?: string;
+  userPoolId?: string;
   allowedEmailDomains?: string[];
   enabled?: boolean;
 }
@@ -47,8 +54,17 @@ export interface OrgIdpConfigUpdate {
   /** Only updated when supplied; an empty body leaves the secret untouched. */
   clientSecret?: string;
   discoveryUrl?: string;
+  region?: string;
+  userPoolId?: string;
   allowedEmailDomains?: string[];
   enabled?: boolean;
+}
+
+/** Normalize email domains to lowercase so the login-time domain gate (which
+ *  lowercases the caller's email domain) matches regardless of the case an
+ *  admin typed. Trims blanks defensively. */
+function normalizeDomains(domains?: string[]): string[] {
+  return (domains ?? []).map((d) => d.trim().toLowerCase()).filter((d) => d.length > 0);
 }
 
 function toDto(doc: OrgIdpConfigDocument): OrgIdpConfigDto {
@@ -58,6 +74,8 @@ function toDto(doc: OrgIdpConfigDocument): OrgIdpConfigDto {
     clientId: doc.clientId,
     hasClientSecret: !!doc.clientSecretEncrypted,
     discoveryUrl: doc.discoveryUrl,
+    region: doc.region,
+    userPoolId: doc.userPoolId,
     allowedEmailDomains: doc.allowedEmailDomains,
     enabled: doc.enabled,
     updatedAt: doc.updatedAt.toISOString(),
@@ -85,7 +103,9 @@ export class OrgIdpService {
       existing.clientId = input.clientId;
       existing.clientSecretEncrypted = wrapEncrypted(input.clientSecret, input.orgId);
       existing.discoveryUrl = input.discoveryUrl;
-      existing.allowedEmailDomains = input.allowedEmailDomains ?? [];
+      existing.region = input.region;
+      existing.userPoolId = input.userPoolId;
+      existing.allowedEmailDomains = normalizeDomains(input.allowedEmailDomains);
       existing.enabled = input.enabled ?? true;
       existing.updatedBy = actor;
       await existing.save();
@@ -98,7 +118,9 @@ export class OrgIdpService {
       clientId: input.clientId,
       clientSecretEncrypted: wrapEncrypted(input.clientSecret, input.orgId),
       discoveryUrl: input.discoveryUrl,
-      allowedEmailDomains: input.allowedEmailDomains ?? [],
+      region: input.region,
+      userPoolId: input.userPoolId,
+      allowedEmailDomains: normalizeDomains(input.allowedEmailDomains),
       enabled: input.enabled ?? true,
       createdBy: actor,
       updatedBy: actor,
@@ -119,7 +141,9 @@ export class OrgIdpService {
       existing.clientSecretEncrypted = wrapEncrypted(input.clientSecret, orgId);
     }
     if (input.discoveryUrl !== undefined) existing.discoveryUrl = input.discoveryUrl;
-    if (input.allowedEmailDomains !== undefined) existing.allowedEmailDomains = input.allowedEmailDomains;
+    if (input.region !== undefined) existing.region = input.region;
+    if (input.userPoolId !== undefined) existing.userPoolId = input.userPoolId;
+    if (input.allowedEmailDomains !== undefined) existing.allowedEmailDomains = normalizeDomains(input.allowedEmailDomains);
     if (input.enabled !== undefined) existing.enabled = input.enabled;
     existing.updatedBy = actor;
     await existing.save();
@@ -132,6 +156,46 @@ export class OrgIdpService {
   async delete(orgId: string): Promise<boolean> {
     const res = await OrgIdpConfig.deleteOne({ orgId });
     return (res.deletedCount ?? 0) > 0;
+  }
+
+  /**
+   * INTERNAL LOGIN PATH ONLY — full config including the DECRYPTED
+   * `clientSecret`. This is the one place the plaintext is materialized, for
+   * the server-side OIDC token exchange; it is NEVER returned through any CRUD
+   * DTO (which expose only `hasClientSecret`) and the secret is never logged.
+   * Returns `enabled` so the enforcement layer decides whether to honor it.
+   * Returns null when the org has no config.
+   */
+  async getLoginConfig(orgId: string): Promise<(OidcLoginConfig & { enabled: boolean }) | null> {
+    const doc = await OrgIdpConfig.findOne({ orgId });
+    if (!doc) return null;
+    const clientSecret = unwrapEncrypted(doc.clientSecretEncrypted, doc.orgId, 'org-idp.clientSecret');
+    return {
+      orgId: doc.orgId,
+      provider: doc.provider,
+      clientId: doc.clientId,
+      clientSecret,
+      discoveryUrl: doc.discoveryUrl ?? '',
+      region: doc.region,
+      userPoolId: doc.userPoolId,
+      allowedEmailDomains: doc.allowedEmailDomains ?? [],
+      enabled: doc.enabled,
+    };
+  }
+
+  /**
+   * Enabled configs whose `allowedEmailDomains` cover `domain` (matched
+   * case-insensitively). Used by password-login domain gating to force covered
+   * users through SSO. Returns only the orgIds — the enforcement layer resolves
+   * the login config + verifies the `sso` entitlement per candidate.
+   */
+  async findEnabledOrgIdsByDomain(domain: string): Promise<string[]> {
+    const needle = domain.toLowerCase();
+    const docs = await OrgIdpConfig.find({
+      enabled: true,
+      allowedEmailDomains: needle,
+    }).select('orgId').lean();
+    return docs.map((d) => String(d.orgId));
   }
 
 }

@@ -8,6 +8,7 @@ import { Search, Puzzle, Plus, Trash2, X, Upload, Star, Boxes } from 'lucide-rea
 import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
 import type { PluginCategory } from '@/lib/help';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFeatures } from '@/hooks/useFeatures';
 import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -94,6 +95,17 @@ export default function PluginsPage() {
   // unlock on `plugins:write`, not org-admin role, so a custom-group member
   // granted the capability gets them too. Role-admins hold it in their bundle.
   const canWrite = can('plugins:write');
+  // Publishing (making a plugin PUBLIC) is a distinct capability the backend
+  // gates upload/update/delete/bulk on — mirror the pipelines pattern
+  // (`can('pipelines:publish')`) instead of the old `isSuperAdmin` proxy, so a
+  // custom-group member granted `plugins:publish` can publish. Superadmins bypass.
+  const canPublish = can('plugins:publish');
+  // Batch activate/deactivate/delete is a tier-gated feature: the backend
+  // attaches `requireFeature('bulk_operations')` to the bulk routes, so without
+  // the flag every bulk action 403s. Gate the select checkboxes + bulk toolbar
+  // on it so we don't surface controls that are guaranteed to fail.
+  const { isEnabled } = useFeatures();
+  const canBulk = canWrite && isEnabled('bulk_operations');
 
   // Mark the "explore plugin catalog" onboarding step as complete on first visit.
   useEffect(() => {
@@ -296,7 +308,7 @@ export default function PluginsPage() {
   // ── Columns ──
 
   const pluginColumns: Column<Plugin>[] = useMemo(() => [
-    ...(canWrite ? [{
+    ...(canBulk ? [{
       id: 'select',
       header: '',
       locked: true,
@@ -500,7 +512,7 @@ export default function PluginsPage() {
         );
       },
     },
-  ], [isSuperAdmin, canWrite, selectedIds, toggleSelect, favorites, handleToggleFavorite, pluginUsage]);
+  ], [isSuperAdmin, canWrite, canBulk, selectedIds, toggleSelect, favorites, handleToggleFavorite, pluginUsage]);
 
   // ── Render ──
 
@@ -610,7 +622,7 @@ export default function PluginsPage() {
         </div>
 
         {/* Spacer when sticky bulk bar is visible */}
-        {canWrite && selectedIds.size > 0 && <div className="h-16" />}
+        {canBulk && selectedIds.size > 0 && <div className="h-16" />}
 
         {/* ResourceList owns: error+retry, refresh button, empty state, and
             offset Pagination. Body is custom so we preserve DataTable's
@@ -661,7 +673,7 @@ export default function PluginsPage() {
 
       {createInitialTab && (
         <CreatePluginModal
-          canUploadPublic={isSuperAdmin}
+          canUploadPublic={canPublish}
           initialTab={createInitialTab}
           onClose={() => setCreateInitialTab(null)}
           onCreated={list.refresh}
@@ -683,7 +695,7 @@ export default function PluginsPage() {
       )}
 
       {editPlugin && (
-        <EditPluginModal plugin={editPlugin} isSuperAdmin={isSuperAdmin} onClose={() => setEditPlugin(null)} onSaved={list.refresh} />
+        <EditPluginModal plugin={editPlugin} canPublish={canPublish} onClose={() => setEditPlugin(null)} onSaved={list.refresh} />
       )}
 
       {viewPlugin && (
@@ -742,7 +754,7 @@ export default function PluginsPage() {
       )}
 
       {/* Sticky bottom bulk actions bar */}
-      {canWrite && selectedIds.size > 0 && (
+      {canBulk && selectedIds.size > 0 && (
         <div className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg">
           <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-3">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">

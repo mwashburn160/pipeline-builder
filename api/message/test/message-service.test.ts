@@ -6,8 +6,15 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mock external dependencies — must be set up before importing the service
 const mockFind = jest.fn<(...args: unknown[]) => unknown>();
+const mockFindPaginated = jest.fn<(...args: unknown[]) => unknown>();
 const mockDbUpdate = jest.fn<(...args: unknown[]) => unknown>();
 const mockDbSelect = jest.fn<(...args: unknown[]) => unknown>();
+// Shared spy for the centralized participant/visibility builder. markAsRead,
+// markThreadAsRead and getUnreadCount now route their WHERE through
+// `buildMessageConditions` (via CrudService.buildConditions) instead of an inline
+// or(orgId,recipientOrgId,'*') — tests assert the builder is invoked with the
+// right filter, which is where the system-org "sees all" carve-out lives.
+const mockBuildMessageConditions = jest.fn((_filter: unknown, _orgId: string): unknown[] => []);
 
 // The real `@pipeline-builder/api-core` barrel only re-exports a stale built
 // `createCacheService`; mock it with a pass-through cache so reads still hit the
@@ -26,12 +33,13 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
   class MockCrudService {
     find = mockFind;
+    findPaginated = mockFindPaginated;
   }
 
   return {
     CrudService: MockCrudService,
     CoreConstants: { CACHE_TTL_MESSAGE: 300 },
-    buildMessageConditions: jest.fn(() => []),
+    buildMessageConditions: (f: unknown, o: string) => mockBuildMessageConditions(f, o),
     // message-service.{markAsRead,markThreadAsRead,getUnreadCount,deleteThread}
     // were migrated to withTenantTx — pass through the same spies the test
     // already tracks (mockDbUpdate / mockDbSelect).
@@ -63,12 +71,13 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   class MockCrudService {
     find = mockFind;
+    findPaginated = mockFindPaginated;
   }
 
   return {
     CrudService: MockCrudService,
     CoreConstants: { CACHE_TTL_MESSAGE: 300 },
-    buildMessageConditions: jest.fn(() => []),
+    buildMessageConditions: (f: unknown, o: string) => mockBuildMessageConditions(f, o),
     // message-service.{markAsRead,markThreadAsRead,getUnreadCount,deleteThread}
     // were migrated to withTenantTx — pass through the same spies the test
     // already tracks (mockDbUpdate / mockDbSelect).
@@ -147,69 +156,69 @@ describe('MessageService', () => {
     });
   });
 
-  describe('findInbox', () => {
-    it('should pass threadId: null for SQL-level root message filtering', async () => {
-      const rootMessages = [
-        { id: '1', threadId: null, subject: 'Root message' },
-        { id: '3', threadId: null, subject: 'Another root' },
-      ];
-      mockFind.mockResolvedValueOnce(rootMessages);
+  // findInboxPaginated / findAnnouncements / findConversations are now PAGINATED
+  // and hard-capped: they route through findPaginated (which clamps limit to
+  // MAX_PAGE_LIMIT), replacing the old unbounded find(...) that cached whole sets.
+  const paginated = (data: unknown[], over: Record<string, unknown> = {}) =>
+    ({ data, limit: 25, offset: 0, hasMore: false, ...over });
 
-      const result = await service.findInbox('org-1');
+  describe('findInboxPaginated', () => {
+    it('delegates to findPaginated with threadId:null + messageType + options', async () => {
+      const page = paginated([{ id: '1', threadId: null, subject: 'Root message' }]);
+      mockFindPaginated.mockResolvedValueOnce(page);
 
-      expect(mockFind).toHaveBeenCalledWith(
-        { isActive: true, threadId: null },
-        'org-1',
-      );
-      expect(result).toEqual(rootMessages);
-    });
+      const result = await service.findInboxPaginated('org-1', 'announcement', { limit: 25, offset: 0, sortBy: 'createdAt', sortOrder: 'desc' });
 
-    it('should pass messageType filter when provided', async () => {
-      mockFind.mockResolvedValueOnce([]);
-
-      await service.findInbox('org-1', 'announcement');
-
-      expect(mockFind).toHaveBeenCalledWith(
+      expect(mockFindPaginated).toHaveBeenCalledWith(
         { isActive: true, threadId: null, messageType: 'announcement' },
         'org-1',
+        { limit: 25, offset: 0, sortBy: 'createdAt', sortOrder: 'desc' },
       );
+      expect(result).toEqual(page);
     });
 
-    it('should not include messageType filter when not provided', async () => {
-      mockFind.mockResolvedValueOnce([]);
+    it('threads conversation type through', async () => {
+      mockFindPaginated.mockResolvedValueOnce(paginated([]));
 
-      await service.findInbox('org-1');
+      await service.findInboxPaginated('org-1', 'conversation', {});
 
-      expect(mockFind).toHaveBeenCalledWith(
-        { isActive: true, threadId: null },
+      expect(mockFindPaginated).toHaveBeenCalledWith(
+        { isActive: true, threadId: null, messageType: 'conversation' },
         'org-1',
+        {},
       );
     });
   });
 
   describe('findAnnouncements', () => {
-    it('should call findInbox with announcement type', async () => {
-      mockFind.mockResolvedValueOnce([]);
+    it('returns a paginated page of announcements via findPaginated', async () => {
+      const page = paginated([{ id: 'a1', messageType: 'announcement' }]);
+      mockFindPaginated.mockResolvedValueOnce(page);
 
-      await service.findAnnouncements('org-1');
+      const result = await service.findAnnouncements('org-1', { limit: 25, offset: 0 });
 
-      expect(mockFind).toHaveBeenCalledWith(
+      expect(mockFindPaginated).toHaveBeenCalledWith(
         { isActive: true, threadId: null, messageType: 'announcement' },
         'org-1',
+        { limit: 25, offset: 0 },
       );
+      expect(result).toEqual(page);
     });
   });
 
   describe('findConversations', () => {
-    it('should call findInbox with conversation type', async () => {
-      mockFind.mockResolvedValueOnce([]);
+    it('returns a paginated page of conversations via findPaginated', async () => {
+      const page = paginated([{ id: 'c1', messageType: 'conversation' }]);
+      mockFindPaginated.mockResolvedValueOnce(page);
 
-      await service.findConversations('org-1');
+      const result = await service.findConversations('org-1', { limit: 25, offset: 0 });
 
-      expect(mockFind).toHaveBeenCalledWith(
+      expect(mockFindPaginated).toHaveBeenCalledWith(
         { isActive: true, threadId: null, messageType: 'conversation' },
         'org-1',
+        { limit: 25, offset: 0 },
       );
+      expect(result).toEqual(page);
     });
   });
 
@@ -268,19 +277,24 @@ describe('MessageService', () => {
     });
 
     // A soft-deleted (isActive=false) message must not be mutable or returnable
-    // via markAsRead — the update predicate AND the fallback existence select
-    // both filter on isActive=true (parity with markThreadAsRead/getUnreadCount).
-    it('filters on isActive=true in the update predicate', async () => {
+    // via markAsRead. The participant + isActive + id predicate now comes from the
+    // SHARED buildMessageConditions (via buildConditions) — the same builder the
+    // read paths use, so system-org "sees all" applies consistently. We assert the
+    // builder is invoked with {id, isActive:true} rather than an inline isActive eq.
+    it('routes the update predicate through buildMessageConditions with {id, isActive:true}', async () => {
       const returningFn = jest.fn<() => Promise<unknown>>().mockResolvedValue([{ id: 'msg-1' }]);
       const whereFn = jest.fn().mockReturnValue({ returning: returningFn });
       mockDbUpdate.mockReturnValue({ set: jest.fn().mockReturnValue({ where: whereFn }) });
 
       await service.markAsRead('msg-1', 'org-1', 'user-1');
 
-      expect(whereFn.mock.calls[0][0]).toContainEqual({ col: 'isActive', val: true, op: 'eq' });
+      expect(mockBuildMessageConditions).toHaveBeenCalledWith(
+        { id: 'msg-1', isActive: true },
+        'org-1',
+      );
     });
 
-    it('filters on isActive=true in the fallback existence select', async () => {
+    it('routes the fallback existence select through buildMessageConditions with {id, isActive:true}', async () => {
       const returningFn = jest.fn<() => Promise<unknown>>().mockResolvedValue([]); // update matched nothing
       mockDbUpdate.mockReturnValue({
         set: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ returning: returningFn }) }),
@@ -292,7 +306,13 @@ describe('MessageService', () => {
 
       await service.markAsRead('msg-1', 'org-1', 'user-1');
 
-      expect(selectWhere.mock.calls[0][0]).toContainEqual({ col: 'isActive', val: true, op: 'eq' });
+      // Called for both the update predicate and the fallback existence select,
+      // each with the shared {id, isActive:true} filter.
+      expect(mockBuildMessageConditions).toHaveBeenCalledWith(
+        { id: 'msg-1', isActive: true },
+        'org-1',
+      );
+      expect(mockBuildMessageConditions).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -314,6 +334,11 @@ describe('MessageService', () => {
         updatedBy: 'user-1',
       }));
       expect(result).toEqual(updated);
+      // Participant predicate centralized through the shared builder (thread-scoped).
+      expect(mockBuildMessageConditions).toHaveBeenCalledWith(
+        { threadId: 'root-1', isActive: true },
+        'org-1',
+      );
     });
   });
 
@@ -327,6 +352,12 @@ describe('MessageService', () => {
 
       expect(mockDbSelect).toHaveBeenCalled();
       expect(result).toBe(5);
+      // Participant predicate centralized through the shared builder — so the
+      // unread count can't diverge from what the org can actually read.
+      expect(mockBuildMessageConditions).toHaveBeenCalledWith(
+        { isActive: true },
+        'org-1',
+      );
     });
 
     it('should return 0 when no unread messages', async () => {

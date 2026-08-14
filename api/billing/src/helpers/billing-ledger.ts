@@ -33,9 +33,12 @@ export interface StripeInvoiceLike {
   lines?: { data?: Array<{ period?: { start?: number | null; end?: number | null } | null }> };
 }
 
-type LedgerStatus = 'paid' | 'open' | 'void' | 'uncollectible';
+type LedgerStatus = 'paid' | 'open' | 'void' | 'uncollectible' | 'refunded' | 'disputed';
 
-/** Map a Stripe invoice status to the ledger's coarser set (draft → open). */
+/** Map a Stripe invoice status to the ledger's coarser set (draft → open). The
+ *  `void`/`uncollectible` branches are driven live by the invoice.voided /
+ *  invoice.marked_uncollectible webhooks (which re-ingest the reversed invoice);
+ *  `refunded`/`disputed` are set separately by {@link reverseLedgerInvoice}. */
 function mapInvoiceStatus(status?: string | null): LedgerStatus {
   switch (status) {
     case 'paid': return 'paid';
@@ -43,6 +46,38 @@ function mapInvoiceStatus(status?: string | null): LedgerStatus {
     case 'uncollectible': return 'uncollectible';
     default: return 'open';
   }
+}
+
+/**
+ * Reverse an already-ingested invoice row in the ledger — the charge-level
+ * counterpart to {@link ingestStripeInvoice}. Sets the row's `status`
+ * (`refunded`/`disputed`) and, when given, OVERWRITES `amountPaidCents` with the
+ * net still-collected amount (Stripe sends the cumulative refunded/disputed total
+ * on each event, so an absolute set is idempotent under redelivery/partial
+ * refunds). No-op (returns null) when no row exists for the invoice — a charge
+ * with no ingested invoice has nothing to reverse. Returns the row's `orgId` on
+ * success. Best-effort: never computes money independently, only reflects the
+ * provider's reversal.
+ */
+export async function reverseLedgerInvoice(
+  invoiceId: string,
+  status: LedgerStatus,
+  netAmountPaidCents?: number,
+): Promise<string | null> {
+  const set: Record<string, unknown> = { status };
+  if (netAmountPaidCents !== undefined) set.amountPaidCents = Math.max(0, netAmountPaidCents);
+  const row = await BillingInvoice.findOneAndUpdate(
+    { externalInvoiceId: invoiceId },
+    { $set: set },
+    { new: true },
+  );
+  if (!row) {
+    logger.debug('No ledger row to reverse', { invoiceId, status });
+    return null;
+  }
+  incCounter('billing_invoice_reversed_total', { source: 'stripe', status });
+  logger.info('Billing invoice reversed in ledger', { orgId: row.orgId, invoiceId, status });
+  return row.orgId;
 }
 
 /**

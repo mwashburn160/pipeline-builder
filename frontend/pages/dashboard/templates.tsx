@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
-import { LayoutTemplate, RefreshCw, Sparkles, Upload } from 'lucide-react';
+import { LayoutTemplate, RefreshCw, Sparkles, Upload, Trash2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
@@ -16,6 +16,7 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
+import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { ResourceList } from '@/components/ui/ResourceList';
 import { CreateTemplateModal } from '@/components/pipeline/CreateTemplateModal';
 import { ImportTemplateModal } from '@/components/pipeline/ImportTemplateModal';
@@ -44,6 +45,17 @@ export default function TemplatesPage() {
   const canPublish = can('pipelines:publish');
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
+
+  // Delete state
+  const [deleteTarget, setDeleteTarget] = useState<PipelineTemplate | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Deleting a PUBLIC (shared) template needs pipelines:publish; a private one
+  // needs pipelines:write — mirrors the backend gate on DELETE /pipeline-templates/:id.
+  const canDelete = useCallback(
+    (t: PipelineTemplate) => (t.accessModifier === 'public' ? canPublish : canWrite),
+    [canPublish, canWrite],
+  );
 
   const [templates, setTemplates] = useState<PipelineTemplate[]>([]);
   const [loading, setLoading] = useState(false);
@@ -147,6 +159,26 @@ export default function TemplatesPage() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await api.deletePipelineTemplate(deleteTarget.id);
+      if (res.success) {
+        toast.success('Template deleted');
+        setDeleteTarget(null);
+        void fetchAll();
+      } else {
+        // Surface the real reason (permission / not found), not a generic message.
+        toast.error((res as { message?: string }).message || 'Failed to delete template');
+      }
+    } catch (err) {
+      toast.error(formatError(err, 'Failed to delete template'));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const modalFooter = (
     <div className="flex items-center justify-end gap-3">
       <Button variant="secondary" onClick={() => setSelected(null)} disabled={submitting}>Cancel</Button>
@@ -198,7 +230,19 @@ export default function TemplatesPage() {
               <Card key={t.id} className="flex flex-col p-4">
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="font-semibold text-gray-900 dark:text-gray-100">{t.name}</h3>
-                  <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300">{t.category}</span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300">{t.category}</span>
+                    {canDelete(t) && (
+                      <IconButton
+                        onClick={() => setDeleteTarget(t)}
+                        title="Delete template"
+                        aria-label={`Delete template ${t.name}`}
+                        tone="danger"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </IconButton>
+                    )}
+                  </div>
                 </div>
                 {t.description && <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 line-clamp-3">{t.description}</p>}
                 <div className="mt-2 text-xs text-gray-400">{(t.inputs?.length ?? 0)} input{(t.inputs?.length ?? 0) === 1 ? '' : 's'}</div>
@@ -284,6 +328,16 @@ export default function TemplatesPage() {
           canPublish={canPublish}
           onClose={() => setShowImport(false)}
           onImported={fetchAll}
+        />
+      )}
+
+      {deleteTarget && (
+        <DeleteConfirmModal
+          title="Delete template"
+          itemName={deleteTarget.name}
+          loading={deleting}
+          onConfirm={handleDelete}
+          onCancel={() => (deleting ? undefined : setDeleteTarget(null))}
         />
       )}
     </DashboardLayout>

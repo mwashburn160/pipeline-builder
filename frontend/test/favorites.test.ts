@@ -22,7 +22,10 @@ const store = new Map<string, string>();
   get length() { return store.size; },
 } as Storage;
 
-import { loadFavorites, isFavorite, toggleFavorite } from '../src/lib/favorites';
+import { loadFavorites, toggleFavorite } from '../src/lib/favorites';
+
+/** Local helper (the module no longer exports `isFavorite` — it was app-dead). */
+const isFavorite = (orgId: string, pluginId: string) => loadFavorites(orgId).has(pluginId);
 
 beforeEach(() => {
   store.clear();

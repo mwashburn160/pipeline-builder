@@ -19,8 +19,10 @@ import { Plugin } from '@/types';
 interface EditPluginModalProps {
   /** The plugin to edit; used as initial form state and fallback if fetch fails. */
   plugin: Plugin;
-  /** Whether the current user is a system admin (controls access-level editing). */
-  isSuperAdmin: boolean;
+  /** Whether the current user may PUBLISH (make a plugin public) — gates the
+   *  access-modifier control. Sourced from `can('plugins:publish')` (superadmins
+   *  bypass), matching the backend gate, not the org-admin role. */
+  canPublish: boolean;
   /** Callback to close the modal. */
   onClose: () => void;
   /** Callback when the plugin is successfully saved. */
@@ -28,7 +30,7 @@ interface EditPluginModalProps {
 }
 
 /** Modal for editing plugin metadata, configuration, and access settings. */
-export default function EditPluginModal({ plugin, isSuperAdmin, onClose, onSaved }: EditPluginModalProps) {
+export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }: EditPluginModalProps) {
   const [name, setName] = useState(plugin.name);
   const [description, setDescription] = useState(plugin.description || '');
   const [keywords, setKeywords] = useState(plugin.keywords?.join(', ') || '');
@@ -286,8 +288,8 @@ export default function EditPluginModal({ plugin, isSuperAdmin, onClose, onSaved
           <div>
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Access & Status</h3>
             <div className="grid grid-cols-2 gap-4 mb-3">
-              <FormField label="Access Modifier" hint={!isSuperAdmin ? 'Only system admins can change access level' : undefined}>
-                <Select value={accessModifier} onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')} className="disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500" disabled={loading || !isSuperAdmin}>
+              <FormField label="Access Modifier" hint={!canPublish ? 'Changing access level requires the plugins:publish permission' : undefined}>
+                <Select value={accessModifier} onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')} className="disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500" disabled={loading || !canPublish}>
                   <option value="private">Private</option>
                   <option value="public">Public</option>
                 </Select>

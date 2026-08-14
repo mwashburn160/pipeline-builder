@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getIdentity, createLogger, type RequestIdentity, type HttpRequest } from '@pipeline-builder/api-core';
+import { getIdentity, createLogger, redactSensitive, type RequestIdentity, type HttpRequest } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 import { v7 as uuid } from 'uuid';
 import { SSEManager, type SSEEventType } from '../http/sse-connection-manager.js';
@@ -86,7 +86,12 @@ export function createRequestContext(
         logger.info(message, meta);
         break;
     }
-    sseManager.send(requestId, type, message, data);
+    // The Winston call above is redacted by the logger's `redactFormat`, but the
+    // SSE frame bypasses the logger entirely — apply the SAME key-pattern
+    // redaction to `data` before it's pushed to the client so a secret in the
+    // log payload (e.g. an accidental `token`/`password` field) isn't streamed
+    // out over the build-log SSE channel.
+    sseManager.send(requestId, type, message, redactSensitive(data));
   };
 
   return {

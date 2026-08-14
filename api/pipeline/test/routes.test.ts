@@ -198,10 +198,13 @@ describe('GET /pipelines (list)', () => {
 
     await handler(mockReq(), mockRes());
 
+    // 4th arg is parentOrgId (org → team hierarchy widening); undefined for a
+    // root-org caller (no `parentOrganizationId` claim).
     expect(mockFindPaginated).toHaveBeenCalledWith(
       expect.not.objectContaining({ accessModifier: 'private' }),
       'org-1',
       expect.any(Object),
+      undefined,
     );
   });
 
@@ -215,6 +218,7 @@ describe('GET /pipelines (list)', () => {
       expect.not.objectContaining({ accessModifier: 'private' }),
       'org-1',
       expect.any(Object),
+      undefined,
     );
   });
 

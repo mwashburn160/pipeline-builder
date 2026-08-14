@@ -41,10 +41,6 @@ export function loadFavorites(orgId: string): Set<string> {
   return read(orgId);
 }
 
-export function isFavorite(orgId: string, pluginId: string): boolean {
-  return read(orgId).has(pluginId);
-}
-
 export function toggleFavorite(orgId: string, pluginId: string): boolean {
   const current = read(orgId);
   if (current.has(pluginId)) {

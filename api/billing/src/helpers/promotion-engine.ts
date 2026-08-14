@@ -30,6 +30,7 @@ import { randomUUID } from 'node:crypto';
 import { createLogger, emitCounter } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { createBillingEvent } from './billing-helpers.js';
+import { compactCreditLedger } from './credit-ledger-compaction.js';
 import { Plan } from '../models/plan.js';
 import { Promotion } from '../models/promotion.js';
 import type { PromotionDocument, PromotionEvent, PromotionConditions } from '../models/promotion.js';
@@ -357,7 +358,10 @@ export async function reconcilePromotionSpend(
   const agg = await Subscription.aggregate([
     { $unwind: '$creditLedger' },
     { $match: { 'creditLedger.discountId': `promo:${promo._id}` } },
-    { $group: { _id: null, cents: { $sum: '$creditLedger.cents' }, grants: { $sum: 1 } } },
+    // Count a compaction carry row (credit-ledger-compaction) as the grants it
+    // folded (`grantCount`), and an ordinary row as 1 — so a bounded ledger still
+    // reconciles to the true spend + grant count.
+    { $group: { _id: null, cents: { $sum: '$creditLedger.cents' }, grants: { $sum: { $ifNull: ['$creditLedger.grantCount', 1] } } } },
   ]);
   const cents = agg[0]?.cents ?? 0;
   const grants = agg[0]?.grants ?? 0;
@@ -446,6 +450,14 @@ export async function grantRecurringPromotions(subscription: SubscriptionDocumen
     subscription.creditLedger.push({ discountId: ledgerId(promo._id), cents, appliedAt: new Date(), fulfillmentRef: ref, dedupeKey });
     await createBillingEvent(subscription.orgId, 'promotion_granted', { promotionId: promo._id, cents, campaign: promo.campaign, periodKey }, subscription._id.toString());
   }
+
+  // Bound the ledger's growth: fold old per-period promo rows into per-family carry
+  // rows (which preserve the summed cents + grantCount so reconcilePromotionSpend
+  // stays exact). Recent-period rows — including any just granted above — are kept,
+  // so per-period idempotency holds. Only reassign when a fold shrank the array. In
+  // memory; the periodic caller saves.
+  const compacted = compactCreditLedger(subscription.creditLedger);
+  if (compacted.length !== subscription.creditLedger.length) subscription.creditLedger = compacted;
 }
 
 /** Build the trigger context (tier / interval / plan price) for an existing subscription. */

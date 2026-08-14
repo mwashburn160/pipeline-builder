@@ -6,6 +6,7 @@ import { createLogger, SSE_TICKET_TTL_MS } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import type { Response } from 'express';
 import { v7 as uuid } from 'uuid';
+import { createMemoryTicketStore, type SSETicketStore } from './sse-ticket-store.js';
 
 const logger = createLogger('sse-manager');
 
@@ -81,6 +82,19 @@ export interface SSEManagerOptions {
   maxTicketsPerOrg?: number;
   /** Ticket TTL in ms (default: `SSE_TICKET_TTL_MS` from api-core). */
   ticketTtlMs?: number;
+  /**
+   * Ticket + stream-ownership backend. Defaults to an in-memory store (correct
+   * single-replica only). Inject `createEnvRedisTicketStore()` (or a bespoke
+   * `SSETicketStore`) so ticket mint/redeem AND stream ownership work across
+   * horizontally-scaled pods and — critically — so the platform stream producer
+   * (a different service) can bind ownership that this service reads.
+   */
+  ticketStore?: SSETicketStore;
+  /**
+   * TTL for a stream-ownership binding (default: `SSE_STREAM_OWNER_TTL_MS` env or
+   * 1h). Long enough to outlive a build; the producer re-binds as needed.
+   */
+  streamOwnerTtlMs?: number;
 }
 
 /**
@@ -93,25 +107,10 @@ export interface SSEManagerOptions {
  */
 export const SSE_REQUEST_ID_RE = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
 
-/** A minted SSE ticket — single-use, org-bound, subject-bound, short-lived. */
-interface SSETicket {
-  orgId: string;
-  /**
-   * The build-log stream subject this ticket authorizes. A ticket may ONLY be
-   * consumed to open the stream for this exact requestId. Binds the single-use
-   * ticket to a specific subject so an authenticated org can't attach to a
-   * stream it was never issued for (previously the `:requestId` was only
-   * format-validated, so any org could subscribe to any subject it could
-   * guess). Stored normalized (dashes stripped, lowercased) for comparison.
-   */
-  requestId: string;
-  expiresAt: number;
-}
-
 /** Result of {@link SSEManager.createTicket}. */
 export type CreateTicketResult =
   | { ok: true; ticket: string }
-  | { ok: false; reason: 'org-limit' | 'capacity' };
+  | { ok: false; reason: 'org-limit' | 'capacity' | 'forbidden' };
 
 /**
  * SSE Manager statistics
@@ -146,16 +145,17 @@ export class SSEManager {
    *  map mirrors `clients[].orgId` counts at all times. Orgs reach zero are
    *  deleted to keep the map bounded. */
   private orgClientCounts = new Map<string, number>();
-  /** Single-use SSE tickets, keyed by opaque ticket id. Bounded by
-   *  `maxTotalTickets` / `maxTicketsPerOrg`; swept on the cleanup interval and
-   *  validated (expiry) at consume time. */
-  private tickets = new Map<string, SSETicket>();
+  /** Ticket + stream-ownership backend (in-memory default; Redis for multi-pod).
+   *  Bounded by `maxTotalTickets` / `maxTicketsPerOrg`, enforced in createTicket;
+   *  expiry is validated at consume time and swept on the cleanup interval. */
+  private readonly ticketStore: SSETicketStore;
   private readonly maxClientsPerRequest: number;
   private readonly maxTotalClients: number;
   private readonly maxClientsPerOrg: number;
   private readonly maxTotalTickets: number;
   private readonly maxTicketsPerOrg: number;
   private readonly ticketTtlMs: number;
+  private readonly streamOwnerTtlMs: number;
   private readonly clientTimeoutMs: number;
   private cleanupInterval: NodeJS.Timeout | null = null;
 
@@ -166,6 +166,8 @@ export class SSEManager {
     this.maxTotalTickets = options.maxTotalTickets ?? parseInt(process.env.SSE_MAX_TOTAL_TICKETS || '1000', 10);
     this.maxTicketsPerOrg = options.maxTicketsPerOrg ?? parseInt(process.env.SSE_MAX_TICKETS_PER_ORG || '10', 10);
     this.ticketTtlMs = options.ticketTtlMs ?? SSE_TICKET_TTL_MS;
+    this.streamOwnerTtlMs = options.streamOwnerTtlMs ?? parseInt(process.env.SSE_STREAM_OWNER_TTL_MS || '3600000', 10); // 1 hour
+    this.ticketStore = options.ticketStore ?? createMemoryTicketStore();
     this.clientTimeoutMs = options.clientTimeoutMs ?? parseInt(process.env.SSE_CLIENT_TIMEOUT_MS || '1800000', 10); // 30 minutes
 
     const cleanupIntervalMs = options.cleanupIntervalMs ?? parseInt(process.env.SSE_CLEANUP_INTERVAL_MS || '300000', 10); // 5 minutes
@@ -194,13 +196,24 @@ export class SSEManager {
     return requestId.replace(/-/g, '').toLowerCase();
   }
 
-  /** Count of live (unexpired) tickets currently held for an org. */
-  private countLiveTicketsForOrg(orgId: string, now: number): number {
-    let count = 0;
-    for (const ticket of this.tickets.values()) {
-      if (ticket.orgId === orgId && ticket.expiresAt > now) count++;
-    }
-    return count;
+  /**
+   * Record the org that OWNS a stream subject. The stream PRODUCER calls this
+   * when it creates a build-log stream so that ticket minting can assert the
+   * caller's org owns the subject (see {@link createTicket}). Backed by the
+   * injected ticket store, so when a Redis store is wired the platform producer
+   * (a different service sharing the same Redis) can bind ownership that this
+   * service reads — closing the cross-tenant attach gap where any org could mint
+   * a ticket for a guessed requestId.
+   *
+   * @param requestId - The stream subject (format-validated by the caller).
+   * @param orgId - The owning org (already normalized by the caller).
+   */
+  async bindStreamOwner(requestId: string, orgId: string): Promise<void> {
+    await this.ticketStore.bindStreamOwner(
+      SSEManager.normalizeRequestId(requestId),
+      orgId,
+      this.streamOwnerTtlMs,
+    );
   }
 
   /**
@@ -211,6 +224,13 @@ export class SSEManager {
    * ticket can then only be consumed to open that one subject's stream — see
    * {@link consumeTicket} — which is what enforces per-subject authorization.
    *
+   * ORG-OWNERSHIP: if a stream owner has been bound for this subject (via
+   * {@link bindStreamOwner}) and it is a DIFFERENT org, minting is refused
+   * (`reason: 'forbidden'`) — an org cannot mint a ticket for another org's
+   * stream even if it guesses the requestId. When no owner is bound (producer
+   * wiring not yet present), minting falls back to binding the ticket to the
+   * caller's own org, preserving current behavior.
+   *
    * Bounded by `maxTotalTickets` (process-wide) and `maxTicketsPerOrg`
    * (per-tenant). Mirrors the message-service notifications ticket store.
    *
@@ -218,27 +238,31 @@ export class SSEManager {
    * @param requestId - The build-log stream subject this ticket authorizes.
    *   The caller must have format-validated it (see {@link SSE_REQUEST_ID_RE}).
    * @returns `{ ok: true, ticket }` on success, or `{ ok: false, reason }`
-   *   where reason is `'org-limit'` (per-org cap) or `'capacity'` (total cap).
+   *   where reason is `'org-limit'`, `'capacity'`, or `'forbidden'`.
    */
-  createTicket(orgId: string, requestId: string): CreateTicketResult {
-    const now = Date.now();
-    // Total cap first — protects process memory even when a single org is
+  async createTicket(orgId: string, requestId: string): Promise<CreateTicketResult> {
+    // Ownership gate first — a cross-tenant mint attempt should never even
+    // consume cap budget. Only enforced when an owner is actually bound.
+    const normalized = SSEManager.normalizeRequestId(requestId);
+    const owner = await this.ticketStore.getStreamOwner(normalized);
+    if (owner && owner !== orgId) {
+      logger.warn(`SSE ticket refused: org ${orgId} does not own stream subject`);
+      return { ok: false, reason: 'forbidden' };
+    }
+
+    // Total cap next — protects process memory even when a single org is
     // the offender. Then the per-org cap for fair-share.
-    if (this.tickets.size >= this.maxTotalTickets) {
+    if ((await this.ticketStore.total()) >= this.maxTotalTickets) {
       logger.warn(`SSE ticket cap reached (max: ${this.maxTotalTickets}); rejecting ticket request`);
       return { ok: false, reason: 'capacity' };
     }
-    if (this.countLiveTicketsForOrg(orgId, now) >= this.maxTicketsPerOrg) {
+    if ((await this.ticketStore.countForOrg(orgId)) >= this.maxTicketsPerOrg) {
       logger.warn(`Per-org SSE ticket cap reached for ${orgId} (max: ${this.maxTicketsPerOrg})`);
       return { ok: false, reason: 'org-limit' };
     }
 
     const ticket = randomBytes(24).toString('base64url');
-    this.tickets.set(ticket, {
-      orgId,
-      requestId: SSEManager.normalizeRequestId(requestId),
-      expiresAt: now + this.ticketTtlMs,
-    });
+    await this.ticketStore.put(ticket, { orgId, requestId: normalized }, this.ticketTtlMs);
     return { ok: true, ticket };
   }
 
@@ -260,10 +284,9 @@ export class SSEManager {
    * @param requestId - The stream subject from the URL path (`:requestId`),
    *   already format-validated by the caller.
    */
-  consumeTicket(ticketId: string, requestId: string): { orgId: string } | null {
-    const ticket = this.tickets.get(ticketId);
-    this.tickets.delete(ticketId); // single-use — consume immediately
-    if (!ticket || Date.now() > ticket.expiresAt) return null;
+  async consumeTicket(ticketId: string, requestId: string): Promise<{ orgId: string } | null> {
+    const ticket = await this.ticketStore.consume(ticketId); // single-use
+    if (!ticket) return null;
     // Subject binding — reject a ticket presented for a subject it was not
     // minted for. Both sides are normalized so dashed/undashed forms match.
     if (ticket.requestId !== SSEManager.normalizeRequestId(requestId)) return null;
@@ -535,7 +558,7 @@ export class SSEManager {
    * ```
    */
   middleware() {
-    return (req: { params: { requestId: string }; query?: { ticket?: unknown } }, res: Response) => {
+    return async (req: { params: { requestId: string }; query?: { ticket?: unknown } }, res: Response) => {
       const { requestId } = req.params;
 
       if (!SSE_REQUEST_ID_RE.test(requestId)) {
@@ -554,7 +577,7 @@ export class SSEManager {
         res.status(401).end('Missing ticket');
         return;
       }
-      const consumed = this.consumeTicket(ticketId, requestId);
+      const consumed = await this.consumeTicket(ticketId, requestId);
       if (!consumed) {
         res.status(401).end('Invalid or expired ticket');
         return;
@@ -620,12 +643,11 @@ export class SSEManager {
     const now = Date.now();
     let cleaned = 0;
 
-    // Sweep expired tickets so the store stays bounded even when tickets are
-    // minted but never consumed (client closed the tab before connecting).
-    // Consume-time still re-checks expiry, so this is memory hygiene only.
-    for (const [id, ticket] of this.tickets) {
-      if (now > ticket.expiresAt) this.tickets.delete(id);
-    }
+    // Sweep expired tickets/owners so an in-memory store stays bounded even when
+    // tickets are minted but never consumed (client closed the tab before
+    // connecting). Consume-time still re-checks expiry, so this is memory
+    // hygiene only; the Redis store relies on native key TTL (sweep is a no-op).
+    void this.ticketStore.sweep?.();
 
     for (const [requestId, clients] of this.clients.entries()) {
       const stale: SSEClient[] = [];

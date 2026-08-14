@@ -214,8 +214,37 @@ async function handleEntitlementUpdate(customerIdentifier: string): Promise<void
   const activeEntitlement = entitlements.find((e) => e.isEntitled);
   const newPlanId = activeEntitlement?.planId || 'developer';
 
-  if (newPlanId === subscription.planId) {
-    logger.debug('Entitlement unchanged', { customerIdentifier, planId: newPlanId });
+  // Re-derive the billing cadence from the (possibly new) entitlement term. AWS
+  // does not surface cadence directly, so a monthly↔annual MOVE only shows up as a
+  // changed ExpirationDate horizon (see deriveMarketplaceInterval). Without this
+  // the interval stays stale after such a move and every downstream period key
+  // (periodKeyFor / periodBounds) + interval-priced credit (priceForInterval)
+  // mis-keys against the old cadence.
+  const now = new Date();
+  const newInterval = deriveMarketplaceInterval(activeEntitlement, now);
+  const intervalChanged = newInterval !== subscription.interval;
+
+  // Nothing to do only when BOTH the plan AND the cadence are unchanged — an
+  // interval-only move (same plan, monthly→annual) must still re-cadence.
+  if (newPlanId === subscription.planId && !intervalChanged) {
+    logger.debug('Entitlement unchanged', { customerIdentifier, planId: newPlanId, interval: newInterval });
+    return;
+  }
+
+  // An interval-only move (same plan) still needs the period re-cadenced +
+  // interval_changed recorded, but there is no tier/entitlement change to sync.
+  if (newPlanId === subscription.planId && intervalChanged) {
+    const oldInterval = subscription.interval;
+    subscription.interval = newInterval;
+    subscription.currentPeriodStart = now;
+    subscription.currentPeriodEnd = calculatePeriodEnd(now, newInterval);
+    await subscription.save();
+    await createBillingEvent(subscription.orgId, 'interval_changed', {
+      provider: 'aws-marketplace', customerIdentifier, oldInterval, newInterval,
+    }, subscription._id.toString());
+    logger.info('Marketplace interval re-cadenced from entitlement change', {
+      customerIdentifier, orgId: subscription.orgId, oldInterval, newInterval,
+    });
     return;
   }
 
@@ -226,7 +255,16 @@ async function handleEntitlementUpdate(customerIdentifier: string): Promise<void
   }
 
   const oldPlanId = subscription.planId;
+  const oldInterval = subscription.interval;
   subscription.planId = newPlanId;
+  // Re-cadence alongside the plan change so credit-period math tracks the current
+  // term — mirrors the resolve path (which sets interval + period from the same
+  // entitlement). A no-op when the cadence is unchanged.
+  if (intervalChanged) {
+    subscription.interval = newInterval;
+    subscription.currentPeriodStart = now;
+    subscription.currentPeriodEnd = calculatePeriodEnd(now, newInterval);
+  }
 
   // Prune any PURE-FEATURE add-on the new tier now bundles in (double-billing
   // fix) so a marketplace tier upgrade also drops the redundant paid bundle.
@@ -249,17 +287,28 @@ async function handleEntitlementUpdate(customerIdentifier: string): Promise<void
     pruned,
     authHeader: '',
     source: 'marketplace_plan_change',
-    eventDetails: { provider: 'aws-marketplace', customerIdentifier, dimension: activeEntitlement?.dimension },
+    eventDetails: { provider: 'aws-marketplace', customerIdentifier, dimension: activeEntitlement?.dimension, interval: subscription.interval },
   });
 
   await subscription.save();
   await runSideEffects();
+
+  // A plan change that ALSO moved the cadence records a distinct interval_changed
+  // row (the plan_changed row above only carries the interval as a detail) so the
+  // move is visible in the billing timeline.
+  if (intervalChanged) {
+    await createBillingEvent(subscription.orgId, 'interval_changed', {
+      provider: 'aws-marketplace', customerIdentifier, oldInterval, newInterval,
+    }, subscriptionId);
+  }
 
   logger.info('Plan updated from entitlement change', {
     customerIdentifier,
     oldPlanId,
     newPlanId,
     orgId: subscription.orgId,
+    interval: subscription.interval,
+    intervalChanged,
   });
 }
 

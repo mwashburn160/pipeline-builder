@@ -547,6 +547,10 @@ export function requireFeature(feature: string) {
     if (req.user.isSuperAdmin === true) return next();
 
     if (!req.user.features?.includes(feature)) {
+      // Route feature-gate denials through the same audit sink as
+      // requirePermission / requireSystemAdmin so a probe for an
+      // unentitled capability leaves a trail (state-changing methods only).
+      auditAuthzDenial(req, `feature:${feature}`);
       return sendError(
         res, HttpStatus.FORBIDDEN,
         `This feature requires a higher plan (${feature})`,

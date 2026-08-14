@@ -18,7 +18,7 @@
  * an out-of-sync entry can never grant anything unknown, but it can silently
  * fail to gate UI, which is what this test catches.
  */
-import { PERMISSION_CATALOG, PERMISSION_CATEGORIES, permissionLabel } from '../src/lib/permissions';
+import { PERMISSION_CATALOG, ORG_ASSIGNABLE_CATEGORIES, isOrgAssignablePermission, permissionLabel } from '../src/lib/permissions';
 
 // The canonical id set. Kept in sync with api-core's PERMISSION_CATALOG.
 const KNOWN_IDS = [
@@ -77,9 +77,15 @@ describe('PERMISSION_CATALOG parity', () => {
     }
   });
 
-  it('groups every catalog entry into exactly one category (no loss)', () => {
-    const grouped = PERMISSION_CATEGORIES.flatMap((c) => c.permissions.map((p) => p.id));
-    expect([...grouped].sort()).toEqual([...ids].sort());
+  it('groups every org-assignable entry into exactly one category (no loss)', () => {
+    // ORG_ASSIGNABLE_CATEGORIES is the live grouping export (drives the custom-Role
+    // authoring picker). It must cover every org-assignable catalog id exactly once,
+    // with the superadmin-only registry perms dropped.
+    const grouped = ORG_ASSIGNABLE_CATEGORIES.flatMap((c) => c.permissions.map((p) => p.id));
+    const assignable = ids.filter(isOrgAssignablePermission);
+    expect([...grouped].sort()).toEqual([...assignable].sort());
+    expect(grouped).not.toContain('registry:read');
+    expect(grouped).not.toContain('registry:write');
   });
 
   it('permissionLabel resolves known ids and falls back to the raw id', () => {

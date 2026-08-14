@@ -1,49 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createHash } from 'crypto';
 import { sendError, ErrorCode, createLogger } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { config } from '../config/index.js';
 import { resolveIdentity } from '../services/auth-resolver.js';
+import { checkTokenRateLimit, rateLimitKey } from '../services/token-rate-limiter.js';
 import { authorizeAndIssue, parseScope, type RequestedScope } from '../services/token-service.js';
 
 const logger = createLogger('token-route');
-
-/**
- * Per-identity in-process rate limit on `/token`. Distribution clients fetch
- * a token per push/pull op, so the cap is generous; the goal is just to keep
- * a runaway client from spinning RS256 signatures unbounded. Bucket key is
- * SHA-256(username + ':' + password) so the password never sits in memory.
- *
- * Defaults: 60 requests / 60s. Override via env.
- */
-const RATE_LIMIT_WINDOW_MS = parseInt(process.env.REGISTRY_TOKEN_RATE_LIMIT_WINDOW_MS || '60000', 10);
-const RATE_LIMIT_MAX = parseInt(process.env.REGISTRY_TOKEN_RATE_LIMIT_MAX || '60', 10);
-const rateBuckets = new Map<string, { count: number; resetAt: number }>();
-
-function rateLimitKey(username: string, password: string): string {
-  return createHash('sha256').update(`${username}:${password}`).digest('hex');
-}
-
-/** Returns true when the request is allowed; false when over the cap. */
-function checkRateLimit(key: string): boolean {
-  const now = Date.now();
-  const bucket = rateBuckets.get(key);
-  if (!bucket || bucket.resetAt <= now) {
-    rateBuckets.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    // Opportunistic GC: prune one expired bucket per call so the map can't
-    // grow unbounded for short-lived identities.
-    for (const [k, v] of rateBuckets) {
-      if (v.resetAt <= now) { rateBuckets.delete(k); break; }
-    }
-    return true;
-  }
-  if (bucket.count >= RATE_LIMIT_MAX) return false;
-  bucket.count++;
-  return true;
-}
 
 /** Parse `scope` query — can be string, array, or absent. */
 function collectScopes(raw: unknown): RequestedScope[] {
@@ -90,7 +56,13 @@ export function createTokenRoute(): Router {
       return;
     }
 
-    if (!checkRateLimit(rateLimitKey(basic.username, basic.password))) {
+    // Rate-limit on a COARSE (source-ip, username) key — never the password —
+    // so a credential-stuffing client that varies the password shares ONE
+    // bucket and the cap actually engages. `req.ip` may be undefined behind a
+    // misconfigured proxy; fall back to a constant so those requests still
+    // share a (username-scoped) bucket rather than each getting a fresh one.
+    const sourceIp = req.ip || 'unknown';
+    if (!(await checkTokenRateLimit(rateLimitKey(sourceIp, basic.username)))) {
       sendError(res, 429, 'Too many token requests; slow down.', ErrorCode.RATE_LIMIT_EXCEEDED);
       return;
     }

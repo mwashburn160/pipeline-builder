@@ -77,10 +77,9 @@ function getPluginClient(): ReturnType<typeof createSafeClient> {
 /**
  * Create and register AI pipeline generation routes.
  *
- * AI calls consume the org's `apiCalls` quota — until a dedicated `aiCalls`
- * quota type is added, AI usage is bounded by the same per-org budget that
- * gates regular API calls. This prevents an org from spamming the platform
- * AI provider key beyond their tier.
+ * AI calls consume the org's dedicated `aiCalls` quota (reserved atomically
+ * per generate below), bounding AI usage by the per-org, per-tier budget so an
+ * org can't spam the platform AI provider key beyond their tier.
  *
  * @returns Express Router with AI generation endpoints
  */

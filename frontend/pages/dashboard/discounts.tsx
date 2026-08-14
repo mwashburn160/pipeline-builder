@@ -46,23 +46,28 @@ function formatDiscount(d: Discount): string {
   return `${amount} ${kindLabel}`;
 }
 
-/** Render a provider-dependent price-breakdown object as generic key/value rows.
- *  The shape varies by provider, so this stays deliberately schema-agnostic. */
+/** Render the itemized discount price breakdown: one row per line item plus the
+ *  period total, all money in cents formatted with `formatCents`. */
 function PriceBreakdown({ breakdown }: { breakdown: DiscountPriceBreakdown }) {
-  const entries = Object.entries(breakdown ?? {});
-  if (entries.length === 0) return null;
+  if (!breakdown?.items?.length) return null;
   return (
     <dl className="mt-2 space-y-1">
-      {entries.map(([key, value]) => (
-        <div key={key} className="flex items-center justify-between gap-3 text-xs">
-          <dt className="text-gray-500 dark:text-gray-400">{key}</dt>
-          <dd className="font-mono text-gray-700 dark:text-gray-300 text-right break-all">
-            {typeof value === 'number'
-              ? /cents/i.test(key) ? formatCents(value) : value.toLocaleString()
-              : typeof value === 'object' ? JSON.stringify(value) : String(value)}
-          </dd>
+      {breakdown.items.map((item, i) => (
+        <div key={i} className="flex items-center justify-between gap-3 text-xs">
+          <dt className="text-gray-500 dark:text-gray-400">{item.label}</dt>
+          <dd className="font-mono text-gray-700 dark:text-gray-300 text-right tabular-nums">{formatCents(item.cents)}</dd>
         </div>
       ))}
+      <div className="flex items-center justify-between gap-3 text-xs border-t border-gray-200 dark:border-gray-700 pt-1 mt-1 font-medium">
+        <dt className="text-gray-600 dark:text-gray-300">Total ({breakdown.interval})</dt>
+        <dd className="font-mono text-gray-900 dark:text-gray-100 text-right tabular-nums">{formatCents(breakdown.totalCents)}</dd>
+      </div>
+      {breakdown.creditRemainingCents > 0 && (
+        <div className="flex items-center justify-between gap-3 text-xs text-gray-500 dark:text-gray-400">
+          <dt>Credit remaining</dt>
+          <dd className="font-mono text-right tabular-nums">{formatCents(breakdown.creditRemainingCents)}</dd>
+        </div>
+      )}
     </dl>
   );
 }

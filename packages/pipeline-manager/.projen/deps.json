@@ -104,6 +104,11 @@
       "type": "runtime"
     },
     {
+      "name": "@pipeline-builder/api-core",
+      "version": "workspace:*",
+      "type": "runtime"
+    },
+    {
       "name": "@pipeline-builder/pipeline-core",
       "version": "workspace:*",
       "type": "runtime"

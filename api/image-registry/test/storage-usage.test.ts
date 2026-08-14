@@ -85,3 +85,43 @@ describe('computeStorageUsage — multi-arch recursion', () => {
     expect(usage.incomplete).toBe(true); // so the push-gate fails closed
   });
 });
+
+describe('computeStorageUsage — blob HEAD 404 handling', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('re-resolves a blob against another referencing repo when the first repo 404s', async () => {
+    // Two repos reference the SAME blobs; a HEAD 404 against the first must fall
+    // through to the second rather than silently dropping the bytes (undercount).
+    listRepositoriesUnderPrefix.mockResolvedValue(['org/a', 'org/b']);
+    listTags.mockResolvedValue({ tags: ['v1'] });
+    getManifest.mockResolvedValue({
+      body: { config: { digest: 'sha256:cfg' }, layers: [{ digest: 'sha256:L' }] },
+      digest: 'sha256:m',
+      mediaType: MANIFEST,
+    });
+    headBlob.mockImplementation(async (repo: string) => {
+      if (repo === 'org/a') throw { statusCode: 404 }; // not present here
+      return { contentLength: 100 }; // present in org/b
+    });
+
+    const usage = await computeStorageUsage('org', { force: true });
+    expect(usage.incomplete).toBe(false); // fully resolved via the second repo
+    expect(usage.bytes).toBe(200); // cfg + L, counted once each
+  });
+
+  it('marks the rollup incomplete when EVERY referencing repo 404s a blob', async () => {
+    // A referenced blob that 404s everywhere means the total under-counts, so the
+    // fail-closed push-gate must treat it as inconclusive, not "under budget".
+    listRepositoriesUnderPrefix.mockResolvedValue(['org/a']);
+    listTags.mockResolvedValue({ tags: ['v1'] });
+    getManifest.mockResolvedValue({
+      body: { config: { digest: 'sha256:cfg' }, layers: [] },
+      digest: 'sha256:m',
+      mediaType: MANIFEST,
+    });
+    headBlob.mockRejectedValue({ statusCode: 404 });
+
+    const usage = await computeStorageUsage('org', { force: true });
+    expect(usage.incomplete).toBe(true);
+  });
+});

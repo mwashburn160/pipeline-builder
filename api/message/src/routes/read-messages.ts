@@ -74,26 +74,38 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     });
   }));
 
-  // GET /messages/announcements — List announcements
+  // GET /messages/announcements — List announcements (paginated + hard-capped,
+  // mirroring the `/` inbox — the service clamps limit to MAX_PAGE_LIMIT so this
+  // can never fetch/cache an unbounded set).
   router.get('/announcements', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+    const { limit, offset, sortBy, sortOrder } = parsePaginationParams(req.query);
     ctx.log('INFO', 'Fetching announcements', { orgId });
-    const announcements = await messageService.findAnnouncements(orgId);
+    const result = await messageService.findAnnouncements(orgId, {
+      limit, offset, sortBy: sortBy || 'createdAt', sortOrder: sortOrder || 'desc',
+    });
 
-    ctx.log('COMPLETED', 'Announcements fetched', { count: announcements.length });
+    ctx.log('COMPLETED', 'Announcements fetched', { count: result.data.length });
     incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
-    return sendSuccess(res, 200, { messages: announcements });
+    return sendPaginatedNested(res, 'messages', result.data, {
+      total: result.total, limit: result.limit, offset: result.offset, hasMore: result.hasMore,
+    });
   }));
 
-  // GET /messages/conversations — List conversations
+  // GET /messages/conversations — List conversations (paginated + hard-capped).
   router.get('/conversations', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+    const { limit, offset, sortBy, sortOrder } = parsePaginationParams(req.query);
     ctx.log('INFO', 'Fetching conversations', { orgId });
-    const conversations = await messageService.findConversations(orgId);
+    const result = await messageService.findConversations(orgId, {
+      limit, offset, sortBy: sortBy || 'createdAt', sortOrder: sortOrder || 'desc',
+    });
 
-    ctx.log('COMPLETED', 'Conversations fetched', { count: conversations.length });
+    ctx.log('COMPLETED', 'Conversations fetched', { count: result.data.length });
     incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
-    return sendSuccess(res, 200, { messages: conversations });
+    return sendPaginatedNested(res, 'messages', result.data, {
+      total: result.total, limit: result.limit, offset: result.offset, hasMore: result.hasMore,
+    });
   }));
 
   // GET /messages/unread/count — Get unread count

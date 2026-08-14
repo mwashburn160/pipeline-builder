@@ -84,9 +84,17 @@ export default function NotificationsPage() {
           doesn't sync across devices. Mute is a UI-level filter — the
           underlying alerts still fire on the platform side. */}
       <Card className="mb-4">
-        <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">In-app preferences</h2>
+        <div className="flex items-center gap-2 mb-1">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">In-app preferences</h2>
+          {/* These prefs live only in this browser's localStorage — no backend
+              user-preferences endpoint exists yet, so make the scope explicit
+              rather than implying they follow the user across devices. */}
+          <span className="inline-flex items-center rounded-full bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-500 dark:text-gray-400">
+            This browser only
+          </span>
+        </div>
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          Mute toggles hide banners in your browser. They don&apos;t stop org-level Slack / webhook delivery.
+          Saved in this browser only — they don&apos;t sync across devices, and they don&apos;t stop org-level Slack / webhook delivery.
         </p>
         <ul className="space-y-2 text-sm">
           {[

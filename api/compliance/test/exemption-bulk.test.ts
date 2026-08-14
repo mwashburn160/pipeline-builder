@@ -46,6 +46,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   const insertChain = {
     values: () => insertChain,
+    onConflictDoNothing: () => insertChain,
     returning: () => Promise.resolve(insertedRowsRef.value),
   };
   const tx = {
@@ -126,6 +127,23 @@ describe('POST /exemptions/bulk', () => {
     expect(payload.data.created).toBe(2);
     expect(payload.data.skipped).toBe(0);
     expect(payload.data.ids).toEqual(['e1', 'e2']);
+  });
+
+  it('reports skipped when a duplicate is deduped away (onConflictDoNothing returns fewer ids)', async () => {
+    // Two rows submitted, but one collides with an existing pending exemption
+    // and is skipped by the service's ON CONFLICT DO NOTHING → one id back.
+    insertedRowsRef.value = [{ id: 'e1' }];
+    const handler = getHandler();
+    const { res, json } = makeRes();
+    await handler({
+      __orgId: 'org-a',
+      body: { exemptions: [validRow(), validRow()] }, // same key twice
+    } as any, res);
+
+    const payload = json.mock.calls[0][0];
+    expect(payload.data.created).toBe(1);
+    expect(payload.data.skipped).toBe(1);
+    expect(payload.data.ids).toEqual(['e1']);
   });
 
   it('reports skipped when some rows did not insert (DB returned fewer than requested)', async () => {

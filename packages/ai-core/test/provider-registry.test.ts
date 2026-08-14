@@ -360,13 +360,37 @@ describe('ai-core provider-registry', () => {
       expect(createXai).toHaveBeenCalledWith({ apiKey: 'custom-key' });
     });
 
-    it('should create a model for Amazon Bedrock (no custom key needed)', async () => {
+    it('should create a model for Amazon Bedrock when an AWS region is configured (custom key ignored)', async () => {
+      // Bedrock authenticates via the IAM role — an AWS region is the "usable" signal.
+      process.env.AWS_REGION = 'us-east-1';
+
       const { createModelWithKey } = await freshImport();
 
       const model = createModelWithKey('amazon-bedrock', 'anthropic.claude-3-5-sonnet-20241022-v2:0', 'key');
 
       expect(model).toBeDefined();
-      expect(createAmazonBedrock).toHaveBeenCalled();
+      // The supplied key is dropped: the Bedrock factory is called with no key.
+      expect(createAmazonBedrock).toHaveBeenCalledWith();
+    });
+
+    it('throws at config time for Bedrock when no AWS region is configured (no silent key drop)', async () => {
+      // beforeEach clears AWS_REGION/AWS_DEFAULT_REGION — keyless auth is unavailable.
+      const { createModelWithKey } = await freshImport();
+
+      expect(() =>
+        createModelWithKey('amazon-bedrock', 'anthropic.claude-3-5-sonnet-20241022-v2:0', 'key'),
+      ).toThrow('authenticates via the AWS IAM role');
+      expect(createAmazonBedrock).not.toHaveBeenCalled();
+    });
+
+    it('accepts AWS_DEFAULT_REGION as the Bedrock availability signal', async () => {
+      process.env.AWS_DEFAULT_REGION = 'eu-west-1';
+
+      const { createModelWithKey } = await freshImport();
+
+      const model = createModelWithKey('amazon-bedrock', 'us.amazon.nova-pro-v1:0', 'key');
+      expect(model).toBeDefined();
+      expect(createAmazonBedrock).toHaveBeenCalledWith();
     });
 
     it('should not affect the registry (uses ephemeral provider instances)', async () => {

@@ -175,12 +175,15 @@ export async function replayDlqJob(jobId: string, quotaService: QuotaService): P
   // successful replay deploys a plugin the org's usage never counts. If the org
   // is at its plugin cap we still replay (an admin action) but the job carries
   // no slot to release, keeping accounting balanced (no double-credit).
-  const quotaReleased = await reserveReplaySlot(quotaService, orgId, authHeader, jobId);
+  const { quotaReleased, reservedResetAt } = await reserveReplaySlot(quotaService, orgId, authHeader, jobId);
 
   const freshData: PluginBuildJobData = {
     ...dlqJob.data,
     totalAttempts: 0,
     quotaReleased,
+    // Fresh period snapshot for the newly reserved slot (undefined when none was
+    // reserved) so this replay's own terminal release is period-safe.
+    reservedResetAt,
   };
   delete (freshData as { lastError?: string }).lastError;
   delete (freshData as { failureCategory?: string }).failureCategory;

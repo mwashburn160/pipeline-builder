@@ -95,6 +95,10 @@ export const REMOTE_AUDIT_ACTIONS = [
   // sweeps and explicit image/tag deletes (previously only a log line).
   'registry.gc',
   'registry.image.delete',
+  // Cross-repo tag/image copy (api/image-registry POST /api/images/copy). A
+  // cross-tenant copy moves data across customer boundaries, so it needs the
+  // durable, tamper-evident trail — not just the Loki operator line.
+  'registry.image.copy',
   // Messaging (api/message) — admin BROADCAST announcements + destructive
   // deletes. 1:1 user messages are intentionally NOT audited (noise + they would
   // pull private content into the trail). `details` carry metadata only
@@ -291,18 +295,24 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
       for (;;) {
         const batch = await spool.take(drainBatchSize);
         if (batch.length === 0) return;
+        const delivered: AuditSpoolEntry[] = [];
         const failed: AuditSpoolEntry[] = [];
         let platformDown = false;
         for (const entry of batch) {
           if (platformDown) { failed.push(entry); continue; }
           const ok = await deliver(entry.event, entry.serviceName);
           if (ok) {
+            delivered.push(entry);
             emitCounter('audit_spool_redelivered_total', { service: entry.serviceName });
           } else {
             platformDown = true;
             failed.push(entry);
           }
         }
+        // Acknowledge the delivered prefix so it clears the in-progress list; the
+        // reliable take() moved the whole batch there, so unacked survivors are
+        // reclaimed by recover() after a crash rather than being silently lost.
+        if (delivered.length > 0) await spool.ack(delivered);
         if (failed.length > 0) {
           await spool.requeue(failed);
           return; // still down — try again on the next tick
@@ -317,6 +327,9 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
 
   let drainTimer: ReturnType<typeof setInterval> | undefined;
   if (spool) {
+    // Reclaim any batch stranded on the in-progress list by a prior crash, then
+    // attempt to flush it. Both are best-effort (the spool swallows its errors).
+    void spool.recover().then(() => drain());
     drainTimer = setInterval(() => { void drain(); }, config.drainIntervalMs ?? 30_000);
     // Don't let the drain timer keep the process alive on shutdown.
     (drainTimer as unknown as { unref?: () => void }).unref?.();

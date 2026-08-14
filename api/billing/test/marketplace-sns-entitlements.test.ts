@@ -167,6 +167,10 @@ function subDoc(over: Record<string, unknown> = {}) {
     orgId: 'org-1',
     planId: 'developer',
     status: 'active',
+    // Real subscriptions always carry an interval (schema default 'monthly'); the
+    // entitlement-update path re-derives it from the entitlement term, so the
+    // fixture must set it or an interval-drift re-cadence would spuriously fire.
+    interval: 'monthly',
     cancelAtPeriodEnd: false,
     currentPeriodEnd: new Date('2026-08-01T00:00:00.000Z'),
     addons: [],
@@ -175,6 +179,10 @@ function subDoc(over: Record<string, unknown> = {}) {
     ...over,
   };
 }
+
+/** Entitlement expiration ~1 year out → deriveMarketplaceInterval reads 'annual'
+ *  (its threshold is ~6 months). */
+const ANNUAL_EXP = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
 
 /** SNS envelope with the fields the handler validates present by default. */
 function snsEnvelope(over: Record<string, unknown> = {}) {
@@ -480,9 +488,10 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
-  it('is a no-op when the entitled plan is unchanged (no save/sync/event)', async () => {
-    const doc = subDoc({ status: 'active', planId: 'team' });
+  it('is a no-op when the entitled plan AND cadence are unchanged (no save/sync/event)', async () => {
+    const doc = subDoc({ status: 'active', planId: 'team', interval: 'monthly' });
     mockSubscriptionFindOne.mockReturnValue(query(doc));
+    // No expirationDate → deriveMarketplaceInterval reads 'monthly' = current cadence.
     mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'team', dimension: 'team-dim' }]);
     const res = mockRes();
     await handler({ body: snsEnvelope({ Message: notification('entitlement-updated') }) }, res);
@@ -490,6 +499,53 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
     expect(doc.save).not.toHaveBeenCalled();
     expect(mockSyncEntitlements).not.toHaveBeenCalled();
     expect(mockCreateBillingEvent).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('re-cadences interval + period on an interval-ONLY move (same plan, monthly→annual)', async () => {
+    const doc = subDoc({ status: 'active', planId: 'team', interval: 'monthly' });
+    mockSubscriptionFindOne.mockReturnValue(query(doc));
+    // Same plan, but a ~1yr term → annual cadence.
+    mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'team', dimension: 'team-dim', expirationDate: ANNUAL_EXP }]);
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Message: notification('entitlement-updated') }) }, res);
+
+    // Cadence re-derived + period advanced; persisted.
+    expect(doc.interval).toBe('annual');
+    expect(doc.currentPeriodEnd).toEqual(new Date('2026-08-01T00:00:00.000Z')); // from mockCalculatePeriodEnd
+    expect(doc.save).toHaveBeenCalledTimes(1);
+    // No tier change → no entitlement sync, but an interval_changed row is recorded.
+    expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      'org-1', 'interval_changed',
+      expect.objectContaining({ provider: 'aws-marketplace', oldInterval: 'monthly', newInterval: 'annual' }),
+      'sub-1',
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('re-cadences interval AND syncs the new tier when a plan change also moves the cadence', async () => {
+    const doc = subDoc({ status: 'active', planId: 'developer', interval: 'monthly' });
+    mockSubscriptionFindOne.mockReturnValue(query(doc));
+    mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'team', dimension: 'team-dim', expirationDate: ANNUAL_EXP }]);
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Message: notification('entitlement-updated') }) }, res);
+
+    expect(doc.planId).toBe('team');
+    expect(doc.interval).toBe('annual');
+    expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'team', '', 'sub-1', []);
+    // plan_changed carries the new interval as a detail...
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      'org-1', 'plan_changed',
+      expect.objectContaining({ oldPlanId: 'developer', newPlanId: 'team', interval: 'annual' }),
+      'sub-1', undefined,
+    );
+    // ...and a distinct interval_changed row records the cadence move.
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      'org-1', 'interval_changed',
+      expect.objectContaining({ oldInterval: 'monthly', newInterval: 'annual' }),
+      'sub-1',
+    );
     expect(res.status).toHaveBeenCalledWith(200);
   });
 

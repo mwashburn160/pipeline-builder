@@ -23,6 +23,7 @@ const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
 const mockOrgCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockOrgUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockOrgFind = jest.fn<(...a: unknown[]) => unknown>();
+const mockOrgFindById = jest.fn<(...a: unknown[]) => unknown>();
 const mockUserOrgCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUserOrgFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const mockSeedDefaultGroups = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -86,6 +87,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     create: (...a: unknown[]) => mockOrgCreate(...a),
     updateOne: (...a: unknown[]) => mockOrgUpdateOne(...a),
     find: (...a: unknown[]) => mockOrgFind(...a),
+    findById: (...a: unknown[]) => mockOrgFindById(...a),
   },
   UserOrganization: {
     create: (...a: unknown[]) => mockUserOrgCreate(...a),
@@ -271,15 +273,19 @@ describe('AuthService pending-billing marker (paid-signup fail-open)', () => {
     expect(update).toEqual({ $unset: { pendingBillingPlanId: '', pendingBillingSince: '' } });
   });
 
-  it('listPendingBillingOrgs returns {orgId, planId} for every marked org', async () => {
-    mockOrgFind.mockReturnValue({
-      select: () => ({
-        lean: () => Promise.resolve([
-          { _id: { toString: () => 'org-a' }, pendingBillingPlanId: 'pro' },
-          { _id: { toString: () => 'org-b' }, pendingBillingPlanId: 'team' },
-        ]),
-      }),
-    });
+  it('listPendingBillingOrgs returns {orgId, planId} for every marked org (oldest-first, unbounded)', async () => {
+    const sortSpy = jest.fn();
+    const limitSpy = jest.fn();
+    const query: any = {
+      select: () => query,
+      sort: (...a: unknown[]) => { sortSpy(...a); return query; },
+      limit: (...a: unknown[]) => { limitSpy(...a); return query; },
+      lean: () => Promise.resolve([
+        { _id: { toString: () => 'org-a' }, pendingBillingPlanId: 'pro' },
+        { _id: { toString: () => 'org-b' }, pendingBillingPlanId: 'team' },
+      ]),
+    };
+    mockOrgFind.mockReturnValue(query);
 
     const result = await authService.listPendingBillingOrgs();
 
@@ -287,17 +293,37 @@ describe('AuthService pending-billing marker (paid-signup fail-open)', () => {
     expect((mockOrgFind.mock.calls[0] as any)[0]).toEqual({
       pendingBillingPlanId: { $exists: true, $ne: null },
     });
+    // Oldest marker first so leftovers roll deterministically to the next pass.
+    expect(sortSpy).toHaveBeenCalledWith({ pendingBillingSince: 1 });
+    // No cap requested → no `.limit()` applied.
+    expect(limitSpy).not.toHaveBeenCalled();
     expect(result).toEqual([
       { orgId: 'org-a', planId: 'pro' },
       { orgId: 'org-b', planId: 'team' },
     ]);
   });
+
+  it('listPendingBillingOrgs bounds the scan with `.limit(n)` when a batch size is given', async () => {
+    const limitSpy = jest.fn();
+    const query: any = {
+      select: () => query,
+      sort: () => query,
+      limit: (...a: unknown[]) => { limitSpy(...a); return query; },
+      lean: () => Promise.resolve([]),
+    };
+    mockOrgFind.mockReturnValue(query);
+
+    await authService.listPendingBillingOrgs(25);
+
+    expect(limitSpy).toHaveBeenCalledWith(25);
+  });
 });
 
 describe('AuthService.switchActiveOrg', () => {
-  it('re-issues (returns the user) only after confirming an ACTIVE membership', async () => {
+  it('re-issues (returns the user) only after confirming an ACTIVE membership in a LIVE org', async () => {
     const userDoc = { _id: 'user-1', isSuperAdmin: true };
     mockUserOrgFindOne.mockReturnValue({ lean: () => Promise.resolve({ _id: 'm1', isActive: true }) });
+    mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ deletedAt: null }) }) });
     mockUserFindById.mockReturnValue({ select: () => Promise.resolve(userDoc) });
 
     const result = await authService.switchActiveOrg('user-1', 'org-9');
@@ -319,6 +345,20 @@ describe('AuthService.switchActiveOrg', () => {
     mockUserOrgFindOne.mockReturnValue({ lean: () => Promise.resolve(null) });
 
     const result = await authService.switchActiveOrg('user-1', 'org-forbidden');
+
+    expect(result).toBeNull();
+    expect(mockUserUpdateOne).not.toHaveBeenCalled();
+    expect(mockUserFindById).not.toHaveBeenCalled();
+  });
+
+  it('returns null and never mutates lastActiveOrgId when the target org is SOFT-DELETED', async () => {
+    // Active membership, but the org is tombstoned (deletedAt set) — mirrors the
+    // token chokepoint (`resolveMembership`), which won't scope a token to a dying
+    // org. Setting lastActiveOrgId to it would leave a dangling pointer.
+    mockUserOrgFindOne.mockReturnValue({ lean: () => Promise.resolve({ _id: 'm1', isActive: true }) });
+    mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ deletedAt: new Date() }) }) });
+
+    const result = await authService.switchActiveOrg('user-1', 'org-dead');
 
     expect(result).toBeNull();
     expect(mockUserUpdateOne).not.toHaveBeenCalled();

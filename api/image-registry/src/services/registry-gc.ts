@@ -4,6 +4,7 @@
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { emitImageRegistryAudit } from './audit.js';
+import { INDEX_MEDIA_TYPES, isIndex } from './manifest.js';
 import {
   listRepositoriesUnderPrefix,
   listTags,
@@ -34,21 +35,12 @@ function protectedTagNames(): Set<string> {
   return new Set(names.map((n) => n.toLowerCase()));
 }
 
-const INDEX_MEDIA_TYPES = new Set([
-  'application/vnd.docker.distribution.manifest.list.v2+json',
-  'application/vnd.oci.image.index.v1+json',
-]);
-
 interface ManifestBody {
   created?: string;
   annotations?: Record<string, string>;
   config?: { digest?: string };
   /** Present on a multi-arch index / manifest list — child references by digest. */
   manifests?: Array<{ digest?: string; mediaType?: string }>;
-}
-
-function isIndex(mediaType: string | undefined, body: ManifestBody | undefined): boolean {
-  return (mediaType !== undefined && INDEX_MEDIA_TYPES.has(mediaType)) || Array.isArray(body?.manifests);
 }
 
 export interface GcOptions {
@@ -160,6 +152,17 @@ async function resolveCreated(
  * A digest is deleted at most once even when several stale tags share it.
  * (Genuinely stale single immutable version tags past the cutoff are still
  * pruned; only mutation-prone / shared / index-referenced digests are spared.)
+ *
+ * KNOWN GAP (not fixable from this service): a single immutable version tag that
+ * is OLD but still PINNED by an active plugin record is currently eligible for
+ * age-deletion — the plugin registry (which maps `org-<id>/<name>:<version>` →
+ * an active plugin row) lives in the plugins Postgres table and is NOT reachable
+ * from image-registry (no pipeline-data dependency, no plugin-service endpoint
+ * exposing active image references). Closing it requires a cross-service
+ * integration: either (a) an authenticated api/plugin endpoint returning the set
+ * of active `(repo, version)` references for a namespace prefix that this GC
+ * consults before deleting, or (b) a "last-resolved" signal persisted per image
+ * tag. Both are out of scope for this service's boundary — see the agent report.
  *
  * NOTE: This deletes the *manifest reference*. The underlying registry's
  * blob garbage-collector (`registry garbage-collect`) is what frees the

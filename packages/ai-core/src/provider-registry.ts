@@ -132,6 +132,19 @@ export function createModelWithKey(providerId: string, modelId: string, apiKey: 
 
   const factory = PROVIDER_FACTORIES[providerId];
   if (!factory) throw new Error(`Unsupported AI provider "${providerId}"`);
-  // Keyless providers (Bedrock) ignore the key and use the IAM role.
+
+  // Keyless providers (Bedrock) authenticate via the runtime IAM role and IGNORE a
+  // supplied key. Silently dropping the key and returning a model would defer the
+  // failure to model-call time when the IAM role/region isn't configured; guard it
+  // here so the failure is clear at config time (mirrors resolveModel's gate).
+  if (KEYLESS_PROVIDERS.has(providerId)) {
+    if (!keylessProviderAvailable()) {
+      throw new Error(
+        `AI provider "${providerId}" authenticates via the AWS IAM role (the API key is ignored); ` +
+          'set AWS_REGION (or AWS_DEFAULT_REGION) so the runtime credentials can be resolved.',
+      );
+    }
+    return factory()(modelId);
+  }
   return factory(apiKey)(modelId);
 }

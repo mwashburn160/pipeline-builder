@@ -87,6 +87,16 @@ async function verifyPlatformJwt(token: string): Promise<Identity | null> {
       ...(config.platformJwt.audience && { audience: config.platformJwt.audience }),
     }) as PlatformJwtPayload;
 
+    // Defense-in-depth: only an ACCESS token may mint registry credentials.
+    // Reject a refresh/step-up/other-typed token that carries a `type` claim
+    // naming something other than 'access'. A token with no `type` is accepted
+    // for backward-compat (older mints omit it); split signing secrets make
+    // this non-exploitable today, but the assertion closes the gap if a future
+    // non-access token is ever signed with the same secret.
+    if (decoded.type && decoded.type !== 'access') {
+      logger.warn('Rejecting non-access platform JWT on /token mint path', { sub: decoded.sub, type: decoded.type });
+      return null;
+    }
     if (!decoded.organizationId) {
       // JWT verified but no orgId — token without org context can't be scoped.
       logger.warn('JWT verified but missing organizationId claim', { sub: decoded.sub });

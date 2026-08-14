@@ -14,7 +14,12 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   },
 }));
 
-const { idempotencyMiddleware } = await import('../src/api/idempotency-middleware.js');
+const {
+  idempotencyMiddleware,
+  createRedisIdempotencyStore,
+  setIdempotencyStore,
+  createMemoryStore,
+} = await import('../src/api/idempotency-middleware.js');
 
 function mockReq(overrides: Record<string, unknown> = {}): any {
   return {
@@ -352,5 +357,74 @@ describe('idempotencyMiddleware', () => {
     middleware(req, res, next);
     await flush();
     expect(next).toHaveBeenCalled();
+  });
+
+  it('uses the process-wide store set via setIdempotencyStore when no explicit store is passed', async () => {
+    // Track that the injected default store is the one actually consulted.
+    const calls: string[] = [];
+    const injected = {
+      get: async () => { calls.push('get'); return null; },
+      set: async () => { calls.push('set'); },
+      reserve: async () => { calls.push('reserve'); return true; },
+      delete: async () => { calls.push('delete'); },
+    };
+    setIdempotencyStore(injected);
+    try {
+      const middleware = idempotencyMiddleware(); // no explicit store
+      const req = mockReq({ headers: { 'idempotency-key': 'default-store-key' }, path: '/inj' });
+      const res = mockRes();
+      middleware(req, res, jest.fn());
+      await flush();
+      expect(calls).toContain('get');
+      expect(calls).toContain('reserve');
+    } finally {
+      setIdempotencyStore(createMemoryStore()); // restore isolation for other suites
+    }
+  });
+});
+
+describe('createRedisIdempotencyStore', () => {
+  /** Minimal in-memory stand-in for the ioredis SET/GET/DEL surface with NX/EX. */
+  function fakeRedis() {
+    const map = new Map<string, string>();
+    return {
+      map,
+      async get(k: string) { return map.has(k) ? (map.get(k) as string) : null; },
+      async set(k: string, v: string, ...args: (string | number)[]) {
+        const nx = args.includes('NX');
+        if (nx && map.has(k)) return null; // NX refused — key already present
+        map.set(k, v);
+        return 'OK';
+      },
+      async del(k: string) { return map.delete(k) ? 1 : 0; },
+    };
+  }
+
+  const entry = { statusCode: 201, body: { id: 'x' }, expiresAt: Date.now() + 60000 };
+
+  it('reserve claims a key once (SET NX); a second reserve loses', async () => {
+    const store = createRedisIdempotencyStore(fakeRedis());
+    expect(await store.reserve('k1', entry, 60)).toBe(true);
+    expect(await store.reserve('k1', entry, 60)).toBe(false);
+  });
+
+  it('set then get round-trips the cached entry', async () => {
+    const store = createRedisIdempotencyStore(fakeRedis());
+    await store.set('k2', entry, 60);
+    expect(await store.get('k2')).toEqual(entry);
+  });
+
+  it('delete releases a reservation so a later reserve wins again', async () => {
+    const store = createRedisIdempotencyStore(fakeRedis());
+    expect(await store.reserve('k3', entry, 60)).toBe(true);
+    await store.delete('k3');
+    expect(await store.reserve('k3', entry, 60)).toBe(true);
+  });
+
+  it('get returns null for a corrupt (non-JSON) entry rather than throwing', async () => {
+    const redis = fakeRedis();
+    redis.map.set('idem:k4', '{not json');
+    const store = createRedisIdempotencyStore(redis);
+    expect(await store.get('k4')).toBeNull();
   });
 });

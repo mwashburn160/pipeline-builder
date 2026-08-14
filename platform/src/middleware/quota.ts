@@ -4,6 +4,7 @@
 import { createQuotaService, getServiceAuthHeader, reserveQuota, decrementQuota } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaCheckResult } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
+import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
 
 export type { QuotaType };
 
@@ -20,23 +21,43 @@ const quotaService = createQuotaService({
  * so the caller can branch on `exceeded`. Mints a service-token auth header
  * because these are internal platform → quota calls (the user's JWT is also
  * valid but a service token avoids token-forwarding concerns).
+ *
+ * Reserves against the resolved ACCOUNT ROOT, never the caller org. Teams are
+ * seeded with `-1` local feature limits so "only the root's pooled cap binds"
+ * (org-service seeds teams to -1); reserving against the team id would let the
+ * quota service's atomic per-doc guard pass unconditionally (its own limit is
+ * unlimited) and only the non-atomic shared-cap PRE-check would stand between a
+ * team and unbounded dashboards/alertRules/alertDestinations/idpConfigs.
+ * Targeting the root turns enforcement into a single atomic compare-and-
+ * increment on the root doc (which holds the real tier cap) — the same pooled
+ * total `checkTierOvercap` READS. Flat orgs resolve to themselves
+ * (`rootOrgId === orgId`), so this is a no-op there.
  */
 export async function reserveFeatureQuota(
   orgId: string,
   quotaType: QuotaType,
 ): Promise<{ exceeded: boolean; quota: { type: QuotaType; limit: number; used: number; remaining: number; resetAt?: string } }> {
-  const auth = getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'member' });
-  return reserveQuota(quotaService, orgId, quotaType, auth);
+  const { rootOrgId } = await resolveOrgLineage(orgId);
+  const auth = getServiceAuthHeader({ serviceName: 'platform', orgId: rootOrgId, role: 'member' });
+  return reserveQuota(quotaService, rootOrgId, quotaType, auth);
 }
 
-/** Roll back a previously reserved feature-quota slot. Fire-and-forget. */
+/** Roll back a previously reserved feature-quota slot. Fire-and-forget.
+ *  Rolls back against the SAME resolved root the reservation targeted
+ *  (see {@link reserveFeatureQuota}) — never the team's `-1` counter. */
 export function releaseFeatureQuota(
   orgId: string,
   quotaType: QuotaType,
   logWarn: (msg: string, data?: unknown) => void,
 ): void {
-  const auth = getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'member' });
-  decrementQuota(quotaService, orgId, quotaType, auth, logWarn);
+  void resolveOrgLineage(orgId)
+    .then(({ rootOrgId }) => {
+      const auth = getServiceAuthHeader({ serviceName: 'platform', orgId: rootOrgId, role: 'member' });
+      decrementQuota(quotaService, rootOrgId, quotaType, auth, logWarn);
+    })
+    .catch((err: unknown) => logWarn('Feature-quota release skipped (root resolution failed)', {
+      error: err instanceof Error ? err.message : String(err),
+    }));
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useState, useMemo, type ReactNode } from 'react';
+import { useState, useMemo, type KeyboardEvent, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowUp, ArrowDown, ArrowUpDown, Columns3 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -307,8 +307,23 @@ export function DataTable<T>({
 
               const key = getRowKey ? getRowKey(item, i) : String(i);
 
+              // When a row is clickable, expose it to keyboard + assistive tech:
+              // focusable, announced as a button, and activatable with Enter/Space
+              // (mouse-only onClick otherwise strands keyboard users, e.g. the logs
+              // row → detail drawer).
               const rowClickProps = onRowClick
-                ? { onClick: () => onRowClick(item, i), className: 'data-table-row cursor-pointer' }
+                ? {
+                    onClick: () => onRowClick(item, i),
+                    onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onRowClick(item, i);
+                      }
+                    },
+                    role: 'button' as const,
+                    tabIndex: 0,
+                    className: 'data-table-row cursor-pointer',
+                  }
                 : { className: 'data-table-row' };
 
               return animated ? (

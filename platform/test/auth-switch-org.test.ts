@@ -24,6 +24,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { billing: { enabled: false }, compliance: { enabled: false } } }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
+// controllers/auth now imports SSO login enforcement, which pulls in the org-idp /
+// secret-blob / entitlement chain. This suite tests switchOrg, not SSO — mock the
+// helper so that chain isn't loaded (avoids needing its transitive api-core exports).
+jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ findSsoEnforcementForEmail: async () => null }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
 }));

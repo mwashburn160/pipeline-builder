@@ -9,6 +9,7 @@ import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
 import { formatCents } from '@/lib/format';
 import api, { ApiError } from '@/lib/api';
+import type { DiscountPriceBreakdown } from '@/lib/api/domains/billing';
 import type { Subscription } from '@/types';
 
 interface DiscountRedeemProps {
@@ -25,29 +26,6 @@ function isNotAvailable(err: unknown): boolean {
   return err instanceof ApiError && err.statusCode === 404;
 }
 
-/** Humanize a priceBreakdown key: `totalCents` → "Total cents". */
-function humanizeKey(key: string): string {
-  return key
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/[_-]+/g, ' ')
-    .replace(/^./, (c) => c.toUpperCase());
-}
-
-/** Render a single priceBreakdown value generically. Cents-looking numbers get
- *  the money formatter; nested objects/arrays fall back to compact JSON. */
-function renderValue(key: string, value: unknown): string {
-  if (value === null || value === undefined) return '—';
-  if (typeof value === 'number') {
-    return /cents/i.test(key) ? formatCents(value) : value.toLocaleString();
-  }
-  if (typeof value === 'boolean' || typeof value === 'string') return String(value);
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
 /** Self-service discount-code redemption for the active subscription. Preview is
  *  a dry-run (billing:read); apply/remove mutate (billing:manage). Fails soft to
  *  nothing when the feature is disabled (endpoints 404). */
@@ -55,7 +33,7 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
   const toast = useToast();
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
-  const [preview, setPreview] = useState<{ applied: string; priceBreakdown: Record<string, unknown> } | null>(null);
+  const [preview, setPreview] = useState<{ applied: string; priceBreakdown: DiscountPriceBreakdown } | null>(null);
   // Set when an endpoint 404s (discounts disabled in this deployment) → hide.
   const [unavailable, setUnavailable] = useState(false);
 
@@ -70,7 +48,7 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
     try {
       const res = await api.previewDiscountCode(subscription.id, trimmed);
       if (res.success && res.data) {
-        setPreview({ applied: res.data.applied, priceBreakdown: res.data.priceBreakdown ?? {} });
+        setPreview({ applied: res.data.applied, priceBreakdown: res.data.priceBreakdown });
       }
     } catch (err) {
       if (isNotAvailable(err)) { setUnavailable(true); return; }
@@ -189,18 +167,24 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
           <p className="text-sm text-gray-700 dark:text-gray-300">
             Applies as: <span className="font-medium">{preview.applied}</span>
           </p>
-          {Object.keys(preview.priceBreakdown).length > 0 && (
-            <dl className="mt-2 space-y-1">
-              {Object.entries(preview.priceBreakdown).map(([key, value]) => (
-                <div key={key} className="flex items-center justify-between gap-4 text-sm">
-                  <dt className="text-gray-500 dark:text-gray-400">{humanizeKey(key)}</dt>
-                  <dd className="text-gray-900 dark:text-gray-100 tabular-nums text-right">
-                    {renderValue(key, value)}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          )}
+          <dl className="mt-2 space-y-1">
+            {preview.priceBreakdown.items.map((item, i) => (
+              <div key={i} className="flex items-center justify-between gap-4 text-sm">
+                <dt className="text-gray-500 dark:text-gray-400">{item.label}</dt>
+                <dd className="text-gray-900 dark:text-gray-100 tabular-nums text-right">{formatCents(item.cents)}</dd>
+              </div>
+            ))}
+            <div className="flex items-center justify-between gap-4 text-sm border-t border-gray-200 dark:border-gray-700 pt-1 mt-1 font-medium">
+              <dt className="text-gray-700 dark:text-gray-200">Total ({preview.priceBreakdown.interval})</dt>
+              <dd className="text-gray-900 dark:text-gray-100 tabular-nums text-right">{formatCents(preview.priceBreakdown.totalCents)}</dd>
+            </div>
+            {preview.priceBreakdown.creditRemainingCents > 0 && (
+              <div className="flex items-center justify-between gap-4 text-xs text-gray-500 dark:text-gray-400">
+                <dt>Credit remaining</dt>
+                <dd className="tabular-nums text-right">{formatCents(preview.priceBreakdown.creditRemainingCents)}</dd>
+              </div>
+            )}
+          </dl>
         </div>
       )}
 

@@ -16,9 +16,21 @@
  * - Fire-and-forget: emit() never throws, subscriber errors are logged
  * - In-process only: no network, no Redis, no infrastructure
  * - Subscribers run async: never block the original request
+ *
+ * Durability contract (deliberately BEST-EFFORT):
+ * - The post-mutation compliance evaluation this feeds is NOT the enforcement
+ *   gate — LIVE validation on the mutation path already enforces compliance
+ *   before the write commits. This async fan-out is a convenience/reporting
+ *   signal, so a lost delivery (subscriber throw, process crash mid-callback)
+ *   downgrades timeliness, not correctness. Backing it with the durable Redis
+ *   spool would pull network/infra into a module whose whole point is to have
+ *   none, for no enforcement benefit — so instead a dropped delivery is made
+ *   OBSERVABLE via the `entity_event_subscriber_failed_total` counter (alert on
+ *   a sustained rate) rather than silently swallowed at debug level.
  */
 
 import { createLogger } from '../utils/logger.js';
+import { emitCounter } from '../utils/metric-emitter.js';
 
 const logger = createLogger('entity-events');
 
@@ -74,6 +86,13 @@ class EntityEventEmitter {
   emit(event: EntityEvent): void {
     for (const subscriber of this.subscribers) {
       subscriber.onEntityEvent(event).catch((err) => {
+        // Make the drop observable — a lost async compliance eval is best-effort
+        // (live validation already enforced), but a sustained failure rate is an
+        // operational signal, not something to bury at debug level.
+        emitCounter('entity_event_subscriber_failed_total', {
+          target: event.target,
+          eventType: event.eventType,
+        });
         logger.debug('Entity event subscriber failed', {
           target: event.target,
           eventType: event.eventType,

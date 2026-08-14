@@ -43,6 +43,7 @@ const mockOrgUpdateOne = jest.fn();
 const mockSnapshotCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUserOrgFind = jest.fn();
 const mockUserUpdateMany = jest.fn();
+const mockPatUpdateMany = jest.fn();
 
 jest.unstable_mockModule('../src/models/audit-event.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: jest.fn(() => ({ lean: () => [] })), create: jest.fn() } }));
 jest.unstable_mockModule('../src/models/invitation.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: jest.fn(() => ({ lean: () => [] })) } }));
@@ -54,6 +55,7 @@ jest.unstable_mockModule('../src/models/organization.js', () => ({
 jest.unstable_mockModule('../src/models/deleted-org-snapshot.js', () => ({ __esModule: true, default: { create: (...a: unknown[]) => mockSnapshotCreate(...a) } }));
 jest.unstable_mockModule('../src/models/user.js', () => ({ __esModule: true, default: { updateMany: (...a: unknown[]) => mockUserUpdateMany(...a) } }));
 jest.unstable_mockModule('../src/models/user-organization.js', () => ({ __esModule: true, default: { find: (...a: unknown[]) => mockUserOrgFind(...a) } }));
+jest.unstable_mockModule('../src/models/personal-access-token.js', () => ({ __esModule: true, default: { updateMany: (...a: unknown[]) => mockPatUpdateMany(...a) } }));
 
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => Promise<unknown>) => fn({ /* fake session */ }),
@@ -75,6 +77,7 @@ beforeEach(() => {
   mockSnapshotCreate.mockResolvedValue({ _id: 'snap-1' });
   mockUserOrgFind.mockReturnValue({ select: () => ({ session: () => ({ lean: () => Promise.resolve([{ userId: 'u1' }, { userId: 'u2' }]) }) }) });
   mockUserUpdateMany.mockReturnValue({ session: () => Promise.resolve({}) });
+  mockPatUpdateMany.mockReturnValue({ session: () => Promise.resolve({}) });
 });
 
 describe('softDeleteOrg', () => {
@@ -101,6 +104,24 @@ describe('softDeleteOrg', () => {
     expect(result.membersInvalidated).toBe(2);
     expect(result.snapshotId).toBe('snap-1');
     expect(result.purgeAfter).toBeInstanceOf(Date);
+
+    // Members' PATs SCOPED TO THIS ORG are revoked in the same txn — a PAT's
+    // authority is decoupled from tokenVersion, so the bump above wouldn't reach
+    // it. Scoped by organizationId so PATs for other (live) orgs are untouched.
+    const [patFilter, patUpdate] = mockPatUpdateMany.mock.calls[0] as [any, any];
+    expect(patFilter).toEqual({ userId: { $in: ['u1', 'u2'] }, organizationId: 'org-acme', revoked: false });
+    expect(patUpdate.$set.revoked).toBe(true);
+    expect(patUpdate.$set.revokedAt).toBeInstanceOf(Date);
+  });
+
+  it('does NOT revoke PATs when the org has no active members', async () => {
+    mockUserOrgFind.mockReturnValue({ select: () => ({ session: () => ({ lean: () => Promise.resolve([]) }) }) });
+
+    const result = await softDeleteOrg('org-acme', SYSTEM_ORG_ID, 'admin-1');
+
+    expect(result.membersInvalidated).toBe(0);
+    expect(mockUserUpdateMany).not.toHaveBeenCalled();
+    expect(mockPatUpdateMany).not.toHaveBeenCalled();
   });
 
   it('ABORTS (throws ORG_SNAPSHOT_FAILED) and does NOT tombstone when the snapshot cannot be persisted', async () => {

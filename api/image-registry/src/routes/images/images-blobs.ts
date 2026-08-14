@@ -11,6 +11,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
+import { canReadRepo } from './repo-access.js';
 import {
   headBlob,
   getBlobStream,
@@ -34,6 +35,9 @@ export function registerBlobRoutes(router: Router): void {
     const name = getParam(req.params, 'name');
     const digest = getParam(req.params, 'digest');
     if (!name || !digest) return sendBadRequest(res, 'name and digest are required', ErrorCode.MISSING_REQUIRED_FIELD);
+    if (!canReadRepo(req.user, name)) {
+      return sendError(res, 403, `Forbidden: repo "${name}" is outside your organization.`, ErrorCode.ORG_MISMATCH, { reason: 'repo-not-owned', repo: name, access: 'read' });
+    }
 
     // Fast path: HEAD first to reject oversize before opening the stream.
     // Fail closed when the upstream omits Content-Length — without a known

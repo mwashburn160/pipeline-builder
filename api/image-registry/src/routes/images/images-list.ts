@@ -4,6 +4,7 @@
 import {
   sendSuccess,
   sendBadRequest,
+  sendError,
   sendEntityNotFound,
   ErrorCode,
   getParam,
@@ -13,6 +14,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
+import { canReadRepo } from './repo-access.js';
 import { COPY_PARALLEL_BLOBS } from './shared.js';
 import {
   listRepositories,
@@ -43,7 +45,11 @@ export function registerListRoutes(router: Router): void {
     const nonEmpty = req.query.nonEmpty === 'true' || req.query.nonEmpty === '1';
 
     const result = await listRepositories({ n: limit, last });
-    let repositories = result.repositories;
+    // Per-repo org-ownership filter (independent of the registry:read perm):
+    // a non-superadmin caller only sees repos its org owns plus the shared
+    // system/library base namespaces — so the catalog can't leak another
+    // tenant's repo names even if registry:read is later wired to an org role.
+    let repositories = result.repositories.filter((r) => canReadRepo(req.user, r));
 
     if (nonEmpty && repositories.length > 0) {
       const withTags = new Set<string>();
@@ -71,6 +77,9 @@ export function registerListRoutes(router: Router): void {
   router.get('/:name/tags', read, withRoute(async ({ req, res, ctx }) => {
     const name = getParam(req.params, 'name');
     if (!name) return sendBadRequest(res, 'Image name is required', ErrorCode.MISSING_REQUIRED_FIELD);
+    if (!canReadRepo(req.user, name)) {
+      return sendError(res, 403, `Forbidden: repo "${name}" is outside your organization.`, ErrorCode.ORG_MISMATCH, { reason: 'repo-not-owned', repo: name, access: 'read' });
+    }
 
     // A missing repo makes the registry 404 on tags/list. Map it to a clean
     // 404 (like the sibling manifest route below) rather than letting the raw
@@ -90,6 +99,9 @@ export function registerListRoutes(router: Router): void {
     const name = getParam(req.params, 'name');
     const reference = getParam(req.params, 'reference');
     if (!name || !reference) return sendBadRequest(res, 'name and reference are required', ErrorCode.MISSING_REQUIRED_FIELD);
+    if (!canReadRepo(req.user, name)) {
+      return sendError(res, 403, `Forbidden: repo "${name}" is outside your organization.`, ErrorCode.ORG_MISMATCH, { reason: 'repo-not-owned', repo: name, access: 'read' });
+    }
 
     try {
       const result = await getManifest(name, reference);

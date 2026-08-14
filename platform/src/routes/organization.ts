@@ -38,6 +38,12 @@ import {
   addRoleMember,
   removeRoleMember,
 } from '../controllers/index.js';
+import {
+  getOwnOrgIdpConfig,
+  putOwnOrgIdpConfig,
+  patchOwnOrgIdpConfig,
+  deleteOwnOrgIdpConfig,
+} from '../controllers/org-idp-self.js';
 import { requireAuth, requireSystemAdmin, requireStepUp } from '../middleware/index.js';
 
 const router: Router = Router();
@@ -140,6 +146,28 @@ router.get('/:id/seat-usage', requireAuth, getOrganizationSeatUsage);
  *  read for billing's entitlement-drift reconciler. Same gate as seat-usage:
  *  service-principal or organization-admin (checked in controller). */
 router.get('/:id/feature-entitlements', requireAuth, getOrganizationFeatureEntitlements);
+
+/*
+ * Per-org SSO / IdP self-service (customer org-admin manages THEIR OWN org's
+ * SSO). `requirePermission('org:settings')` is the capability gate (the same
+ * org-assignable permission that governs IdP/KMS/AI/general settings); the
+ * controllers add the tenancy gate (`requireOrgScope`: own org / managed team)
+ * AND an `sso`-entitlement check. Secret-bearing writes are step-up gated, just
+ * like the superadmin `/admin/org-idp/*` fleet routes. The two-segment `/:id/idp`
+ * path never collides with the single-segment `GET /:id` read above.
+ */
+
+/** GET /organization/:id/idp - Read own-org IdP config (config: null if unset) */
+router.get('/:id/idp', requireAuth, requirePermission('org:settings'), getOwnOrgIdpConfig);
+
+/** PUT /organization/:id/idp - Upsert own-org IdP config (step-up: secret-bearing) */
+router.put('/:id/idp', requireAuth, requirePermission('org:settings'), requireStepUp, putOwnOrgIdpConfig);
+
+/** PATCH /organization/:id/idp - Partial update of own-org IdP config (step-up) */
+router.patch('/:id/idp', requireAuth, requirePermission('org:settings'), requireStepUp, patchOwnOrgIdpConfig);
+
+/** DELETE /organization/:id/idp - Remove own-org IdP config (step-up) */
+router.delete('/:id/idp', requireAuth, requirePermission('org:settings'), requireStepUp, deleteOwnOrgIdpConfig);
 
 /*
  * Organization Members (admin can manage any org)

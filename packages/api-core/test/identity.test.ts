@@ -79,6 +79,23 @@ describe('getIdentity', () => {
     expect(identity.requestId).toBe('trace-456');
   });
 
+  it('normalizes orgId to trimmed lowercase (single source of truth for RLS)', () => {
+    // Mixed-case + surrounding whitespace from a JWT claim must be canonicalized
+    // ONCE here so the RLS GUC and the app-layer WHERE clause always agree.
+    const req = mockRequest({ user: { organizationId: '  ACME-Org  ' } });
+    expect(getIdentity(req).orgId).toBe('acme-org');
+  });
+
+  it('normalizes a header-sourced orgId too', () => {
+    const req = mockRequest({ headers: { 'x-org-id': 'Header-ORG' } });
+    expect(getIdentity(req).orgId).toBe('header-org');
+  });
+
+  it('collapses an empty/whitespace-only orgId to undefined', () => {
+    const req = mockRequest({ user: { organizationId: '   ' } });
+    expect(getIdentity(req).orgId).toBeUndefined();
+  });
+
   it('should return undefined for missing fields', () => {
     const req = mockRequest();
     const identity = getIdentity(req);

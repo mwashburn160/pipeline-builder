@@ -76,6 +76,20 @@ function redactDeep(value: unknown, depth = 0): unknown {
   return out;
 }
 
+/**
+ * Redact sensitive values from an ARBITRARY payload using the same key-pattern
+ * rules the Winston `redactFormat` applies to log metadata. Use this for
+ * payloads that reach an output channel OUTSIDE the logger — e.g. an SSE frame
+ * pushed straight to a client — so a `password`/`token`/`secret` field is
+ * masked there too. A top-level sensitive key is masked; nested objects/arrays
+ * are walked (depth-capped) exactly as in the logger. Returns a redacted COPY;
+ * primitives pass through unchanged.
+ */
+export function redactSensitive(value: unknown): unknown {
+  if (value == null || typeof value !== 'object') return value;
+  return redactDeep(value);
+}
+
 /** Winston format that masks values for sensitive-looking keys (PII / secrets).
  * Mutates `info` in place so winston's internal Symbol-keyed properties
  * (`Symbol.for('level')`, `Symbol.for('message')`, `Symbol.for('splat')`) survive

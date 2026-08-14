@@ -134,6 +134,10 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   // Monotonic token guarding selectPipeline's async fetch: rapid re-selection
   // (or unmount) must not let an older response overwrite the current source.
   const selectGenRef = useRef(0);
+  // Which source we've already auto-parameterized the repo for. Keyed by id so
+  // (a) we add the repoUrl input at most once per source and (b) removing it
+  // doesn't get undone, while selecting a DIFFERENT pipeline re-triggers.
+  const autoRepoRef = useRef<string | null>(null);
 
   // Load the pipeline list for the picker (New-template flow only).
   const loadPipelines = useCallback(async () => {
@@ -158,6 +162,22 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
     if (preselected && pipeline && !pipeline.props) void selectPipeline(pipeline.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once for the preselected pipeline.
   }, [preselected]);
+
+  // Auto-parameterize the repository: once a source pipeline's props are loaded,
+  // if a repo URL is detected, pre-add the `repoUrl` input by default so the
+  // template targets ANY repo on instantiate (repo-parameterized is the default,
+  // not an opt-in click). Runs at most once per source (autoRepoRef), so removing
+  // the input is respected; picking a different pipeline re-triggers. The
+  // "Parameterize repository" button remains for the no-detected-URL / re-add case.
+  useEffect(() => {
+    if (!source?.props || autoRepoRef.current === source.id) return;
+    autoRepoRef.current = source.id;
+    const url = detectRepoUrl(source.props);
+    if (!url) return;
+    setInputs((rows) => (rows.some((r) => r.name === 'repoUrl')
+      ? rows
+      : [...rows, { name: 'repoUrl', label: 'Repository URL', type: 'string', required: true, default: '', options: '', replaces: url }]));
+  }, [source]);
 
   // Fetch the full pipeline (with props) when one is selected.
   const selectPipeline = async (id: string) => {

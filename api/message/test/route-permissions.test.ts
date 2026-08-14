@@ -240,8 +240,9 @@ describe.each([
   beforeEach(() => {
     jest.clearAllMocks();
     mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
-    mockFindAnnouncements.mockResolvedValue([]);
-    mockFindConversations.mockResolvedValue([]);
+    // Announcements/conversations are now paginated (return a PaginatedResult, not a bare array).
+    mockFindAnnouncements.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+    mockFindConversations.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
     mockGetUnreadCount.mockResolvedValue(0);
     mockFindById.mockResolvedValue({ id: 'msg-1', createdAt: '2026-07-01T00:00:00.000Z' });
     mockFindThreadMessages.mockResolvedValue([]);

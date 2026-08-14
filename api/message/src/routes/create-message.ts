@@ -74,6 +74,18 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       return sendBadRequest(res, 'recipientOrgId is required for conversations', ErrorCode.VALIDATION_ERROR);
     }
 
+    // Converse of the announcement guard: '*' is a BROADCAST recipient and is
+    // reserved for announcements. A conversation must never target '*' — for
+    // ALL callers, including sysadmins/service-principals (who bypass the
+    // reachability gate below). Without this, a '*'-recipient conversation would
+    // land in every org's inbox (buildMessageConditions surfaces recipient='*'
+    // to everyone) — an un-audited broadcast masquerading as a 1:1 message. The
+    // reachability gate never catches it because '*' short-circuits reachability
+    // and sysadmins/service-principals skip the gate entirely.
+    if (messageType === 'conversation' && recipientOrgId === '*') {
+      return sendBadRequest(res, 'Conversations cannot use "*" as recipientOrgId; "*" is reserved for announcement broadcasts', ErrorCode.VALIDATION_ERROR);
+    }
+
     // Cross-tenant send gate. A non-sysadmin member may only start a
     // conversation with an org they could also RECEIVE from — mirroring the
     // read-visibility model in `buildMessageConditions`. Reachable recipients:
@@ -218,11 +230,18 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       replyRecipientOrgId = isSender ? rootMessage.recipientOrgId : rootMessage.orgId;
     }
 
+    // A reply is ALWAYS a conversation, never an announcement — even when the
+    // root is an announcement (a member replying to a broadcast opens a 1:1
+    // support thread to the system org). Copying rootMessage.messageType here
+    // persisted `announcement`-typed rows authored by non-sysadmins, polluting
+    // messageType filters and the announcements feed. Pin replies to conversation.
+    const replyMessageType = 'conversation' as const;
+
     const replyData: MessageInsert = {
       orgId,
       threadId: id,
       recipientOrgId: replyRecipientOrgId,
-      messageType: rootMessage.messageType,
+      messageType: replyMessageType,
       // Replies inherit the root message's channel so the thread stays
       // in one bucket — system-org filtering by channel sees the whole
       // conversation, not just the first message.
@@ -247,7 +266,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
         threadId: id,
         subject: rootMessage.subject,
         senderOrgId: orgId,
-        messageType: rootMessage.messageType,
+        messageType: replyMessageType,
       });
     } catch (err) {
       ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });

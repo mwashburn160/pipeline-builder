@@ -190,6 +190,11 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // controller needs the export to link + behave for real.
     ALL_FEATURE_FLAGS,
     isValidFeatureFlag: (v: string) => ALL_FEATURE_FLAGS.includes(v),
+    // Resolve a tier + account-feature entitlements → feature list (sync). Pulled
+    // in via helpers/sso-enforcement (loaded transitively by controllers/auth).
+    // Default: no extra features (not SSO-forced); a suite testing entitlement
+    // gating overrides this to include e.g. 'sso'.
+    resolveUserFeatures: (_tier?: unknown, _opts?: { accountFeatures?: string[] }) => (_opts?.accountFeatures ?? []),
     // Org-hierarchy traversal primitives — platform's helpers/org-hierarchy.js
     // (loaded transitively by organization-service / seats.js) imports these.
     // Default to a FLAT resolution: root = self, subtree = [self]. A suite can
@@ -206,6 +211,14 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     ErrorCode,
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
     NotFoundError,
+    // Per-org secret encryption (utils/secret-encryption). Pulled in transitively
+    // via services/org-idp-service → utils/secret-blob (e.g. any suite importing
+    // controllers/auth, which now wires SSO enforcement). Reversible base64
+    // round-trip so a suite that DOES exercise IdP secrets still behaves; one
+    // testing real crypto overrides them.
+    encryptSecret: (plaintext: string, orgId: string) => ({ v: 1, orgId, data: Buffer.from(String(plaintext)).toString('base64') }),
+    decryptSecret: (blob: { data?: string }) => Buffer.from(String(blob?.data ?? ''), 'base64').toString('utf8'),
+    isEncryptedBlob: (v: unknown) => !!v && typeof v === 'object' && 'data' in (v as object),
     // SSRF guard (utils/ssrf). Default is PERMISSIVE (resolves) so suites that
     // don't exercise the guard aren't forced to mock DNS; a suite testing the
     // guarded webhook path overrides `assertSafeUrl` to reject. `isRefusedRedirect`

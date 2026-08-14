@@ -48,6 +48,40 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
         tokenUrl: 'https://github.test/token',
         userinfoUrl: 'https://api.github.test/user',
       },
+      facebook: {
+        clientId: '',
+        clientSecret: '',
+        enabled: false,
+        authorizeUrl: 'https://facebook.test/dialog/oauth',
+        tokenUrl: 'https://graph.facebook.test/oauth/access_token',
+        userinfoUrl: 'https://graph.facebook.test/me',
+      },
+      microsoft: {
+        clientId: 'ms-client',
+        clientSecret: 'ms-secret',
+        enabled: true,
+        tenant: 'common',
+        authorizeUrl: 'https://login.microsoft.test/{tenant}/authorize',
+        tokenUrl: 'https://login.microsoft.test/{tenant}/token',
+        userinfoUrl: 'https://graph.microsoft.test/oidc/userinfo',
+      },
+      gitlab: {
+        clientId: 'gl-client',
+        clientSecret: 'gl-secret',
+        enabled: true,
+        baseUrl: 'https://gitlab.test',
+        authorizeUrl: '',
+        tokenUrl: '',
+        userinfoUrl: '',
+      },
+      linkedin: {
+        clientId: 'li-client',
+        clientSecret: 'li-secret',
+        enabled: true,
+        authorizeUrl: 'https://linkedin.test/oauth/authorization',
+        tokenUrl: 'https://linkedin.test/oauth/accessToken',
+        userinfoUrl: 'https://api.linkedin.test/userinfo',
+      },
     },
   },
 }));
@@ -117,7 +151,7 @@ afterEach(() => { global.fetch = realFetch; });
 
 describe('verifyOAuthCode', () => {
   it('throws OAUTH_UNSUPPORTED_PROVIDER for an unknown provider', async () => {
-    await expect(verifyOAuthCode('facebook', 'c', 's')).rejects.toThrow('OAUTH_UNSUPPORTED_PROVIDER');
+    await expect(verifyOAuthCode('twitter', 'c', 's')).rejects.toThrow('OAUTH_UNSUPPORTED_PROVIDER');
   });
 
   it('throws OAUTH_PROVIDER_DISABLED for a configured-but-disabled provider', async () => {
@@ -153,6 +187,46 @@ describe('verifyOAuthCode', () => {
     global.fetch = jest.fn().mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'invalid_grant' }) }) as any;
 
     await expect(verifyOAuthCode('google', 'bad-code', state)).rejects.toThrow('TOKEN_EXCHANGE_FAILED');
+  });
+
+  it('returns the Microsoft identity from the OIDC userinfo email claim', async () => {
+    const state = await mintState('microsoft');
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockResolvedValueOnce(okJson({ sub: 'ms-1', email: 'ms@x.com', name: 'MS User' })) as any;
+
+    const identity = await verifyOAuthCode('microsoft', 'auth-code', state);
+    expect(identity).toMatchObject({ id: 'ms-1', email: 'ms@x.com' });
+  });
+
+  it('returns the GitLab identity only when email_verified is true', async () => {
+    const state = await mintState('gitlab');
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockResolvedValueOnce(okJson({ sub: 'gl-1', email: 'gl@x.com', email_verified: true, name: 'GL User' })) as any;
+
+    const identity = await verifyOAuthCode('gitlab', 'auth-code', state);
+    expect(identity).toMatchObject({ id: 'gl-1', email: 'gl@x.com' });
+  });
+
+  it('rejects a GitLab identity whose email is not verified', async () => {
+    const state = await mintState('gitlab');
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockResolvedValueOnce(okJson({ sub: 'gl-2', email: 'gl@x.com', email_verified: false })) as any;
+
+    await expect(verifyOAuthCode('gitlab', 'auth-code', state))
+      .rejects.toThrow('GitLab did not return a verified email address');
+  });
+
+  it('returns the LinkedIn identity from the OIDC userinfo email claim', async () => {
+    const state = await mintState('linkedin');
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockResolvedValueOnce(okJson({ sub: 'li-1', email: 'li@x.com', email_verified: true, name: 'LI User' })) as any;
+
+    const identity = await verifyOAuthCode('linkedin', 'auth-code', state);
+    expect(identity).toMatchObject({ id: 'li-1', email: 'li@x.com' });
   });
 });
 

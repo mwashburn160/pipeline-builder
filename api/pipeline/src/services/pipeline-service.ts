@@ -91,8 +91,14 @@ export class PipelineService extends CrudService<
     return schema.pipeline as PgTable;
   }
 
-  protected buildConditions(filter: Partial<PipelineFilter>, orgId?: string): SQL[] {
-    return buildPipelineConditions(filter, orgId);
+  protected buildConditions(filter: Partial<PipelineFilter>, orgId?: string, parentOrgId?: string): SQL[] {
+    // Thread `parentOrgId` so a team org's reads are widened to its parent's
+    // public pipelines (org → team hierarchy), matching the plugin/template
+    // builders. Dropping it here meant the base CrudService's
+    // find/findPaginated/findById calls silently lost the widening (and a read
+    // passed parentOrgId flipped to sysadmin RLS bypass while the WHERE ignored
+    // the widen). No-op for root orgs (claim absent).
+    return buildPipelineConditions(filter, orgId, parentOrgId);
   }
 
   protected getSortColumn(sortBy: string): AnyColumn | null {
@@ -128,14 +134,16 @@ export class PipelineService extends CrudService<
 
   // -- Cached reads -----------------------------------------------------------
 
-  /** findById with server-side cache (keyed by orgId:id). */
-  async findById(id: string, orgId?: string): Promise<Pipeline | null> {
+  /** findById with server-side cache (keyed by orgId[:p:parentOrgId]:id). The
+   *  parent segment keeps a team's parent-widened read from colliding with the
+   *  own-org-only read under the same orgId (mirrors plugin-service). */
+  async findById(id: string, orgId?: string, parentOrgId?: string): Promise<Pipeline | null> {
     // Skip caching for anonymous reads: cached entries from an authed caller
     // could leak across a visibility flip (private → public or vice versa),
     // and the anon path bypasses the orgId scoping the cache key relies on.
-    if (!orgId) return super.findById(id, orgId);
-    const cacheKey = `${orgId}:id:${id}`;
-    return pipelineCache.getOrSet(cacheKey, () => super.findById(id, orgId));
+    if (!orgId) return super.findById(id, orgId, parentOrgId);
+    const cacheKey = `${orgId}${parentOrgId ? `:p:${parentOrgId}` : ''}:id:${id}`;
+    return pipelineCache.getOrSet(cacheKey, () => super.findById(id, orgId, parentOrgId));
   }
 
   /**
@@ -145,9 +153,9 @@ export class PipelineService extends CrudService<
    * read would thrash the per-id cache; returns only the rows visible to `orgId`
    * (own org + public), soft-deleted rows excluded, matching findById.
    */
-  async findByIds(ids: string[], orgId?: string): Promise<Pipeline[]> {
+  async findByIds(ids: string[], orgId?: string, parentOrgId?: string): Promise<Pipeline[]> {
     if (ids.length === 0) return [];
-    const conditions = this.buildConditions({} as Partial<PipelineFilter>, orgId);
+    const conditions = this.buildConditions({} as Partial<PipelineFilter>, orgId, parentOrgId);
     return withTenantTx(async (tx) => tx
       .select()
       .from(schema.pipeline)

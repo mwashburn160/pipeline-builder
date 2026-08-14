@@ -204,12 +204,17 @@ export interface OrgAIConfig {
  * Per-org IdP config DTO. Mirrors the platform service's OrgIdpConfigDto —
  * the client secret never crosses the wire; UI shows `hasClientSecret`.
  */
+export type IdpProvider = 'generic-oidc' | 'cognito' | 'google' | 'github';
+
 export interface OrgIdpConfigDto {
   orgId: string;
-  provider: 'generic-oidc' | 'google' | 'github';
+  provider: IdpProvider;
   clientId: string;
   hasClientSecret: boolean;
   discoveryUrl?: string;
+  /** Cognito only: the discovery URL is derived server-side from these. */
+  region?: string;
+  userPoolId?: string;
   allowedEmailDomains: string[];
   enabled: boolean;
   updatedAt: string;
@@ -218,10 +223,13 @@ export interface OrgIdpConfigDto {
 /** Create-IdP payload. `clientSecret` is required on create. */
 export interface OrgIdpConfigCreate {
   orgId?: string;
-  provider: 'generic-oidc' | 'google' | 'github';
+  provider: IdpProvider;
   clientId: string;
   clientSecret: string;
   discoveryUrl?: string;
+  /** Cognito only: server derives the discovery URL from region + userPoolId. */
+  region?: string;
+  userPoolId?: string;
   allowedEmailDomains?: string[];
   enabled?: boolean;
 }

@@ -3,8 +3,8 @@ import { useRouter } from 'next/router';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Search, Sun, Moon, GitBranch, Puzzle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useFeatures } from '@/hooks/useFeatures';
 import { useAuth } from '@/hooks/useAuth';
+import { useFeatures } from '@/hooks/useFeatures';
 import { hasPermission, isMutationPermission } from '@/lib/auth-helpers';
 import { NAV_SECTIONS, QUICK_ACTIONS, isNavItemVisible } from '@/lib/nav';
 import api from '@/lib/api';
@@ -56,8 +56,8 @@ export function CommandPalette({
     runAndClose(() => router.push(path));
   }, [router, runAndClose]);
 
-  const features = useFeatures();
   const { user, isReadOnly } = useAuth();
+  const { isEnabled: isFeatureEnabled } = useFeatures();
 
   const commands: CommandItem[] = useMemo(() => {
     // Quick actions first — these are the primary "start something" flows
@@ -84,7 +84,7 @@ export function CommandPalette({
     // every admin page) so users can find a page by area, not just name.
     const navItems: CommandItem[] = NAV_SECTIONS.flatMap((section) =>
       section.items
-        .filter((item) => isNavItemVisible(item, { isAdmin, isSuperAdmin, isFeatureEnabled: (n) => features.isEnabled(n), hasPermission: (p) => hasPermission(user, p) }))
+        .filter((item) => isNavItemVisible(item, { isAdmin, isSuperAdmin, hasPermission: (p) => hasPermission(user, p), isFeatureEnabled }))
         .map((item) => ({
           id: item.href,
           label: `Go to ${item.title}`,
@@ -100,7 +100,7 @@ export function CommandPalette({
       ...navItems,
       { id: 'toggle-dark', label: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode', icon: isDark ? Sun : Moon, section: 'Settings', keywords: 'theme', action: () => runAndClose(onToggleDark) },
     ];
-  }, [navigate, isSuperAdmin, isAdmin, isDark, onToggleDark, runAndClose, features, user, isReadOnly]);
+  }, [navigate, isSuperAdmin, isAdmin, isDark, onToggleDark, runAndClose, user, isReadOnly, isFeatureEnabled]);
 
   // Cross-resource catalog search: when the palette opens, lazily load a page of
   // the org's pipelines and plugins so ⌘K can find actual RESOURCES by name — not

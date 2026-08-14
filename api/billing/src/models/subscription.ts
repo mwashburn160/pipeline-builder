@@ -47,8 +47,12 @@ export interface SubscriptionDocument extends Document {
   creditBalanceCents: number;
   /** Provenance of every granted usage credit (which discount, how much, ref).
    *  `dedupeKey` is set on per-period recurring re-grants so a redelivered
-   *  invoice webhook doesn't append a duplicate ledger row. */
-  creditLedger: Array<{ discountId: string; cents: number; appliedAt: Date; fulfillmentRef?: { kind: string; ref: string }; dedupeKey?: string }>;
+   *  invoice webhook doesn't append a duplicate ledger row. `grantCount` is set
+   *  only on a COMPACTION carry row (see compactCreditLedger): it folds N old
+   *  periodic rows into one, carrying their summed `cents` + grant count so the
+   *  promotion-spend reconcile stays exact while the array stays bounded. Absent
+   *  on ordinary rows (counted as 1). */
+  creditLedger: Array<{ discountId: string; cents: number; appliedAt: Date; fulfillmentRef?: { kind: string; ref: string }; dedupeKey?: string; grantCount?: number }>;
   metadata: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
@@ -105,6 +109,12 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
         // one-time grant. Must be in the schema or strict mode strips it and the
         // idempotency guard silently double-grants.
         dedupeKey: { type: String, default: undefined },
+        // Set only on a compaction carry row (compactCreditLedger): how many
+        // folded periodic grants it represents, so the ledger-sourced promotion
+        // spend reconcile still counts them. Must be in the schema or strict
+        // mode strips it and the reconciled grantsCount would drift low. Absent
+        // on ordinary rows (each counts as 1).
+        grantCount: { type: Number, default: undefined },
       }],
       default: [],
     },

@@ -198,6 +198,7 @@ export type AuditAction =
   // image/tag deletes.
   | 'registry.gc'
   | 'registry.image.delete'
+  | 'registry.image.copy'
   // Messaging (api/message) — admin broadcast announcements + destructive
   // deletes (metadata only, never message body content).
   | 'message.announcement.create'
@@ -348,6 +349,7 @@ export const ALL_AUDIT_ACTIONS = [
   'compliance.scan.cancel',
   'registry.gc',
   'registry.image.delete',
+  'registry.image.copy',
   'message.announcement.create',
   'message.delete',
   'billing.subscription.cancel',

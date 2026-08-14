@@ -144,6 +144,19 @@ export interface ComplianceScan {
   createdAt: string;
 }
 
+/** A recurring compliance-scan schedule (cron-driven). Mirrors the row the
+ *  compliance service returns from `/compliance/scan-schedules`. */
+export interface ScanSchedule {
+  id: string;
+  target: 'plugin' | 'pipeline' | 'all';
+  cronExpression: string;
+  isActive: boolean;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ComplianceRuleCreate {
   name: string;
   description?: string;

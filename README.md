@@ -168,6 +168,14 @@ A **team** is an organization nested one level under a parent organization (the 
 - **Public + private plugins** — publish a plugin to the shared catalog (visible to every organization) or keep it private to yours; a parent's private plugins are visible to its teams
 - **Isolated secrets** — AWS Secrets Manager path `pipeline-builder/{orgId}/{secretName}` (per organization), injected at build time, never stored in images
 
+### Authentication & SSO
+
+Sign in with email + password, a social provider, or corporate SSO — side by side. See [Authentication & SSO](docs/authentication.md).
+
+- **OAuth social login** (platform-wide) — "Sign in with" **Google, GitHub, Facebook, Microsoft, GitLab, LinkedIn**. Each is enabled the moment its `OAUTH_<P>_CLIENT_ID` / `_SECRET` env is set (fail-soft — unconfigured providers are simply hidden), and the login page renders its buttons data-driven from the enabled set. One app registration per provider, global to the deployment. See [Environment Variables → OAuth / social login](docs/environment-variables.md#authentication)
+- **Per-org enterprise SSO** (OIDC) — an organization registers its **own** identity provider (`OrgIdpConfig`): **generic OIDC** for Okta, Microsoft Entra ID, Auth0, Ping, OneLogin, Keycloak, or AWS IAM Identity Center, plus a named **AWS Cognito** provider (region + userPoolId → derived discovery). The login flow validates the IdP's `id_token` against its JWKS; `allowedEmailDomains` gates a domain and **forces its users through SSO**. Gated on the `sso` tier/bundle entitlement, and configurable both by a platform operator (`/admin/org-idp`) and by an org's own admin via **self-service** (gated on `org:settings`)
+- **Other providers** — Apple, X, Amazon, and Discord are reachable today via generic OIDC where OIDC-compliant; a native **Sign in with Apple** button is a planned addition (needs a signed-JWT client secret + `form_post`)
+
 ### Execution Analytics
 
 Every CodePipeline and CodeBuild state change flows through EventBridge into the reporting service.
@@ -315,6 +323,7 @@ catalog; see [Post-Deploy: Initialize Platform](docs/README.md#post-deploy-initi
 | [API Reference](docs/api-reference.md) | REST endpoints, query params, curl examples |
 | [Developer Portal](docs/developer-portal.md) | Catalog ownership & My Services, golden-path templates, per-pipeline maturity scorecards |
 | [Roles & Permissions](docs/permissions.md) | Permission catalog, built-in Roles, `requirePermission` enforcement, session invalidation |
+| [Authentication & SSO](docs/authentication.md) | OAuth social login (Google/GitHub/Facebook/Microsoft/GitLab/LinkedIn) + per-org enterprise SSO (OIDC, AWS Cognito) |
 | [CDK Usage](docs/cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Metadata Keys](docs/metadata-keys.md) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Template Syntax](docs/templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |

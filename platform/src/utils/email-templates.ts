@@ -112,6 +112,10 @@ function renderTextTemplate(name: string, vars: Record<string, string>): string 
 const providerLabels: Record<InvitationOAuthProvider, string> = {
   google: 'Google',
   github: 'GitHub',
+  facebook: 'Facebook',
+  microsoft: 'Microsoft',
+  gitlab: 'GitLab',
+  linkedin: 'LinkedIn',
 };
 
 function labelFor(p: InvitationOAuthProvider): string {

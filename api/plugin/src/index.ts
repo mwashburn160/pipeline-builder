@@ -47,7 +47,7 @@ app.use(attachRequestContext(sseManager));
 // -- Upload route FIRST — manages its own middleware (multer → auth → plugins quota).
 //    Must be registered before other /plugins routes so that their auth/quota
 //    middleware does not run on multipart uploads before multer can parse the body.
-app.use('/plugins', createUploadPluginRoutes(quotaService));
+app.use('/plugins', createUploadPluginRoutes(quotaService, sseManager));
 
 // -- Queue status route (MUST be before read routes to avoid /:id catching "queue")
 app.use('/plugins/queue', ...createAuthenticatedWithOrgRoute(), createQueueStatusRoutes(quotaService));
@@ -59,7 +59,7 @@ app.use('/plugins/queue', ...createAuthenticatedWithOrgRoute(), createQueueStatu
 app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createGeneratePluginRoutes(quotaService));
 
 // -- Deploy AI-generated plugin — manages its own admin + quota middleware
-app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createDeployGeneratedPluginRoutes(quotaService));
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createDeployGeneratedPluginRoutes(quotaService, sseManager));
 
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
 app.use('/plugins', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPluginRoutes(quotaService));

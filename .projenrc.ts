@@ -476,6 +476,7 @@ const manager = new ManagerProject({
   outdir: './packages/pipeline-manager',
   bin: { 'pipeline-manager': './dist/cli.js' },
   deps: [
+    `@pipeline-builder/api-core@${pkg.apiCore}`,
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     `@pipeline-builder/ai-core@${pkg.aiCore}`,
     `typescript@${typescriptVersion}`, `aws-cdk-lib@${cdkVersion}`,

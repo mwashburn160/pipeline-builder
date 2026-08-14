@@ -10,17 +10,7 @@ import { FilterSelect } from '@/components/ui/FilterSelect';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { useToast } from '@/components/ui/Toast';
 import { TextEmptyState } from '@/components/ui/EmptyState';
-
-interface ScanSchedule {
-  id: string;
-  target: string;
-  cronExpression: string;
-  isActive: boolean;
-  lastRunAt: string | null;
-  nextRunAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
+import type { ScanSchedule } from '@/types/compliance';
 
 interface ScanScheduleFormData {
   target: string;
@@ -56,7 +46,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
       const res = await api.getScanSchedules();
       if (gen !== genRef.current) return;
       if (res.success && res.data) {
-        setSchedules(res.data.schedules as unknown as ScanSchedule[]);
+        setSchedules(res.data.schedules);
       }
     } catch (err) {
       if (gen !== genRef.current) return;

@@ -646,6 +646,18 @@ describe('requireFeature', () => {
     expect(next).not.toHaveBeenCalled();
     expect(res._status).toBe(401);
   });
+
+  it('routes a denial through the authz-denial auditor (state-changing method)', () => {
+    const seen: AuthzDenialInfo[] = [];
+    setAuthzDenialAuditor((i) => seen.push(i));
+    const res = createMockRes(); const next = jest.fn();
+    const postReq = { method: 'POST', originalUrl: '/reports/x', user: { sub: 'u', features: [] } } as unknown as Request;
+    requireFeature('advanced_reporting')(postReq, res, next);
+    expect(res._status).toBe(403);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].required).toBe('feature:advanced_reporting');
+    setAuthzDenialAuditor(undefined);
+  });
 });
 
 // signServiceToken hardening

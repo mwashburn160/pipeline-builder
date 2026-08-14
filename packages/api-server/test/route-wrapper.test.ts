@@ -83,8 +83,11 @@ describe('withRoute', () => {
     expect(routeCtx.userId).toBe('user-1');
   });
 
-  it('lowercases orgId from context', async () => {
-    const ctx = mockContext('ORG-UPPER', 'user-1');
+  it('passes through the already-normalized orgId from context', async () => {
+    // orgId is now normalized ONCE at identity resolution (api-core getIdentity),
+    // so context.identity.orgId is already trimmed + lowercased by the time it
+    // reaches withRoute — the wrapper no longer re-lowercases it.
+    const ctx = mockContext('org-lower', 'user-1');
     (getContext as jest.Mock).mockReturnValue(ctx);
 
     const handler = jest.fn().mockResolvedValue(undefined);
@@ -93,7 +96,7 @@ describe('withRoute', () => {
     await middleware(mockReq(), mockRes(), jest.fn());
 
     const routeCtx = handler.mock.calls[0][0];
-    expect(routeCtx.orgId).toBe('org-upper');
+    expect(routeCtx.orgId).toBe('org-lower');
   });
 
   it('defaults userId to empty string when missing', async () => {

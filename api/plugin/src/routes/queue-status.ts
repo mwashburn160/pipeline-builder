@@ -4,10 +4,46 @@
 import { ErrorCode, getParam, isSystemAdmin, parseQueryInt, requirePermission, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
+import type { Job } from 'bullmq';
 import { Router } from 'express';
 
+import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
+import { intFromEnv } from '../queue/env-int.js';
 import { findFailedJob, getAllTierQueues, getDeadLetterQueue, purgeDlq, replayDlqJob, retryFailedJob } from '../queue/plugin-build-queue.js';
 import { emitPluginAudit } from '../services/audit.js';
+
+/** Shape returned by GET /triage — failed-build summary grouped by category. */
+interface TriageSample {
+  id: string | number | undefined;
+  pluginName: string | null;
+  version: string | null;
+  error: string | null;
+  failedAt: string | null;
+  source: 'queue' | 'dlq';
+}
+interface TriageGroup {
+  category: string;
+  count: number;
+  pluginNames: string[];
+  samples: TriageSample[];
+}
+interface TriagePayload {
+  totalFailed: number;
+  groups: TriageGroup[];
+}
+interface TriageCacheEntry {
+  expires: number;
+  payload: TriagePayload;
+}
+
+/**
+ * TTL (ms) for the GET /triage aggregate memo. The triage scan pulls up to
+ * ~1200 job payloads (200 per tier queue × 4 tiers + 200 DLQ) and buckets them
+ * in-memory on EVERY request; a short-TTL memo collapses a dashboard's repeated
+ * polls into one scan without letting the summary go meaningfully stale. Mirrors
+ * the read-quotas at-risk cache pattern.
+ */
+const TRIAGE_CACHE_TTL_MS = intFromEnv('PLUGIN_TRIAGE_CACHE_TTL_MS', 5000);
 
 /** Resolve a build job's owning org: the top-level `orgId`, falling back to the
  *  embedded `pluginRecord.orgId` for older jobs that predate the top-level field. */
@@ -31,6 +67,12 @@ const jobBelongsToOrg = (
  */
 export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
+
+  // Per-router memo for GET /triage so each app/test gets its own cache. Keyed by
+  // visibility scope (`all` for system admins vs the caller's own org) + the
+  // requested sample count, so a sysadmin's cross-org summary is never served to
+  // an org-scoped caller and vice-versa.
+  const triageCache = new Map<string, TriageCacheEntry>();
 
   router.get('/status', withRoute(async ({ req, res }) => {
     if (!isSystemAdmin(req)) {
@@ -245,6 +287,17 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     const isSuperAdmin = isSystemAdmin(req);
 
     const sampleLimit = Math.min(parseQueryInt(req.query.samples, 5), 20);
+
+    // Short-TTL memo (see TRIAGE_CACHE_TTL_MS): collapse a dashboard's repeated
+    // polls into one ~1200-payload scan. Scope the key by visibility so a
+    // sysadmin's cross-org view can't leak to an org-scoped caller.
+    const cacheKey = `${isSuperAdmin ? 'all' : `org:${orgId}`}:${sampleLimit}`;
+    const now = Date.now();
+    const cached = triageCache.get(cacheKey);
+    if (cached && cached.expires > now) {
+      return sendSuccess(res, 200, cached.payload);
+    }
+
     // failed jobs sit in the per-tier queue that ran them; union.
     const dlq = getDeadLetterQueue();
     const tierQueueHandles = getAllTierQueues();
@@ -255,7 +308,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     const failedAll = tierFailedLists.flat();
 
     // Filter to caller's org for non-system admins (tenant isolation).
-    const ownsJob = (job: { data?: { orgId?: string; pluginRecord?: { orgId?: string } } }): boolean =>
+    const ownsJob = (job: Job<PluginBuildJobData>): boolean =>
       isSuperAdmin || jobBelongsToOrg(job.data, orgId);
     const failed = failedAll.filter(ownsJob);
     const dlqJobs = dlqAll.filter(ownsJob);
@@ -264,14 +317,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       category: string;
       count: number;
       pluginNames: Set<string>;
-      samples: Array<{
-        id: string | number | undefined;
-        pluginName: string | null;
-        version: string | null;
-        error: string | null;
-        failedAt: string | null;
-        source: 'queue' | 'dlq';
-      }>;
+      samples: TriageSample[];
     }
 
     const buckets = new Map<string, Bucket>();
@@ -296,7 +342,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       return 'other';
     };
 
-    const ingest = (job: { id?: string | number; data?: Record<string, any>; failedReason?: string; finishedOn?: number }, source: 'queue' | 'dlq') => {
+    const ingest = (job: Job<PluginBuildJobData>, source: 'queue' | 'dlq') => {
       const err = job.data?.lastError ?? job.failedReason ?? null;
       const category = job.data?.failureCategory ?? classify(err);
       const bucket = bucketFor(category);
@@ -318,7 +364,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     for (const j of failed) ingest(j, 'queue');
     for (const j of dlqJobs) ingest(j, 'dlq');
 
-    const groups = Array.from(buckets.values())
+    const groups: TriageGroup[] = Array.from(buckets.values())
       .map(b => ({
         category: b.category,
         count: b.count,
@@ -327,10 +373,13 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       }))
       .sort((a, b) => b.count - a.count);
 
-    return sendSuccess(res, 200, {
+    const payload: TriagePayload = {
       totalFailed: failed.length + dlqJobs.length,
       groups,
-    });
+    };
+    triageCache.set(cacheKey, { expires: now + TRIAGE_CACHE_TTL_MS, payload });
+
+    return sendSuccess(res, 200, payload);
   }));
 
   return router;

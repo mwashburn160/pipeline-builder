@@ -75,8 +75,10 @@ const { mapStripeStatus: realMapStripeStatus } = await import('../src/helpers/st
 
 // Mock stripe-helpers
 const mockFindByStripeId = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockFindByCustomerId = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/helpers/stripe-helpers.js', () => ({
   findSubscriptionByStripeId: (...args: unknown[]) => mockFindByStripeId(...args),
+  findSubscriptionByCustomerId: (...args: unknown[]) => mockFindByCustomerId(...args),
   mapStripeStatus: realMapStripeStatus,
 }));
 

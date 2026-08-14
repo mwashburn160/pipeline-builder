@@ -79,15 +79,25 @@ export async function computeStorageUsage(
   // Walk the registry catalog and collect every repo whose name starts with `prefix`.
   const reposBeingScanned = await listRepositoriesUnderPrefix(prefix);
 
-  // Map each unique blob digest → a repo known to reference it. Docker
+  // Map each unique blob digest → EVERY repo known to reference it. Docker
   // Distribution scopes blob access per-repo (`/v2/<repo>/blobs/<digest>`), so a
   // blob must be HEAD'd against a repo that actually has it; HEADing every digest
   // against a single repo 404s (and silently drops) blobs that live elsewhere,
-  // systematically undercounting multi-repo orgs.
+  // systematically undercounting multi-repo orgs. We keep ALL referencing repos
+  // (not just the first) so a blob HEAD that 404s on one repo can be re-resolved
+  // against another referencing repo before the byte is written off.
   // Any non-404 failure below means a repo/manifest/blob couldn't be read, so
   // the byte total under-counts — track that so the push-gate can fail closed.
   let incomplete = false;
-  const blobRepo = new Map<string, string>();
+  const blobRepos = new Map<string, string[]>();
+  const addBlobRepo = (digest: string, repo: string): void => {
+    const repos = blobRepos.get(digest);
+    if (repos) {
+      if (!repos.includes(repo)) repos.push(repo);
+    } else {
+      blobRepos.set(digest, [repo]);
+    }
+  };
   for (const repo of reposBeingScanned) {
     try {
       const { tags } = await listTags(repo);
@@ -115,7 +125,7 @@ export async function computeStorageUsage(
               }
             }
           }
-          for (const d of digests) if (!blobRepo.has(d)) blobRepo.set(d, repo);
+          for (const d of digests) addBlobRepo(d, repo);
         } catch (err) {
           if (!isNotFound(err)) {
             incomplete = true;
@@ -137,17 +147,37 @@ export async function computeStorageUsage(
   // HEAD is cheap (no body transfer), but with hundreds of unique layers per org
   // this can take a few seconds; the cache amortizes that across subsequent calls.
   let totalBytes = 0;
-  for (const [digest, repo] of blobRepo) {
-    try {
-      const head = await headBlob(repo, digest);
-      if (typeof head.contentLength === 'number') totalBytes += head.contentLength;
-    } catch (err) {
-      if (!isNotFound(err)) {
+  for (const [digest, repos] of blobRepos) {
+    let counted = false;
+    for (const repo of repos) {
+      try {
+        const head = await headBlob(repo, digest);
+        if (typeof head.contentLength === 'number') totalBytes += head.contentLength;
+        counted = true;
+        break; // measured once against a repo that has it
+      } catch (err) {
+        if (isNotFound(err)) {
+          // This repo doesn't have the blob — try the next referencing repo
+          // rather than silently dropping the bytes (the old undercount bug).
+          continue;
+        }
+        // A non-404 error means the registry couldn't answer; we can't prove the
+        // byte total is complete → fail closed.
         incomplete = true;
         logger.warn('Blob HEAD failed during storage rollup', {
           digest, repo, error: err instanceof Error ? err.message : String(err),
         });
+        break;
       }
+    }
+    // Every referencing repo 404'd (blob genuinely unresolvable) or a non-404
+    // error stopped us: the total now under-counts, so mark the rollup
+    // incomplete and let the fail-closed push-gate treat it as inconclusive.
+    if (!counted) {
+      incomplete = true;
+      logger.warn('Blob unmeasurable during storage rollup (all referencing repos 404 or errored)', {
+        digest, repos,
+      });
     }
   }
 
@@ -158,7 +188,7 @@ export async function computeStorageUsage(
     cache.set(prefix, {
       bytes: totalBytes,
       repos: reposBeingScanned.length,
-      blobs: blobRepo.size,
+      blobs: blobRepos.size,
       computedAt: now,
     });
   }
@@ -166,7 +196,7 @@ export async function computeStorageUsage(
     prefix,
     bytes: totalBytes,
     repos: reposBeingScanned.length,
-    blobs: blobRepo.size,
+    blobs: blobRepos.size,
     computedAt: now,
     incomplete,
   };

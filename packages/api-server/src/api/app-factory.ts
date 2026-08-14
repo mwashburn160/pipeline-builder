@@ -13,9 +13,11 @@ import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 import { v7 as uuid } from 'uuid';
 import { etagMiddleware } from './etag-middleware.js';
+import { createEnvRedisIdempotencyStore, setIdempotencyStore, type IdempotencyStore } from './idempotency-middleware.js';
 import { metricsMiddleware, metricsHandler, incCounter } from './metrics.js';
 import { readinessGuard } from './readiness.js';
 import { SSEManager, SSE_REQUEST_ID_RE } from '../http/sse-connection-manager.js';
+import { createEnvRedisTicketStore } from '../http/sse-ticket-store.js';
 
 // Wire api-core's counter shim to the real prom-client registry. This is
 // a no-op until incCounter is called for the first time (lazy registration
@@ -53,6 +55,14 @@ export interface CreateAppOptions {
   openApiOptions?: OpenApiSpecOptions;
   /** Enable gzip/deflate response compression (default: true) */
   enableCompression?: boolean;
+  /**
+   * Idempotency replay-cache backend for keyed mutation retries. When omitted,
+   * createApp auto-wires the shared env Redis store (multi-replica dedup) if
+   * Redis is configured, else keeps the in-memory default (single-replica).
+   * Pass an explicit store to inject a bespoke backend (e.g. a service's own
+   * ioredis connection).
+   */
+  idempotencyStore?: IdempotencyStore;
   /**
    * Extra warmup callbacks invoked by `GET /warmup` in addition to the
    * default Postgres ping. Use for services that depend on Mongo, Redis,
@@ -109,17 +119,32 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     jsonLimit = '1mb',
     enableUrlEncoded = true,
     urlEncodedLimit = '1mb',
-    sseManager = new SSEManager(),
+    // Default SSE manager wired to the shared env Redis ticket/ownership store
+    // when Redis is configured (multi-pod correctness + cross-service stream
+    // ownership), else the in-memory default. A caller-supplied `sseManager`
+    // skips this entirely.
+    sseManager = new SSEManager({ ticketStore: createEnvRedisTicketStore() ?? undefined }),
     checkDependencies,
     enableOpenApi = true,
     openApiOptions,
     enableCompression = true,
     warmupHooks = [],
+    idempotencyStore,
   } = options;
 
   // Fail fast if JWT_SECRET is not configured — prevents silent auth failures at runtime
   if (!process.env.JWT_SECRET) {
     throw new Error('JWT_SECRET environment variable is required. Set it before starting the server.');
+  }
+
+  // Wire the idempotency replay-cache backend used by the post-auth route
+  // factories (createProtectedRoute / createAuthenticatedWithOrgRoute). Prefer
+  // an explicitly injected store; otherwise auto-construct from the shared env
+  // Redis so keyed mutation retries dedupe across replicas. Falls back to the
+  // in-memory default when no Redis is configured (single-replica correctness).
+  const resolvedIdempotencyStore = idempotencyStore ?? createEnvRedisIdempotencyStore();
+  if (resolvedIdempotencyStore) {
+    setIdempotencyStore(resolvedIdempotencyStore);
   }
 
   // OpenTelemetry is NOT initialized here: by the time createApp runs, express
@@ -348,7 +373,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   // the JWT out of query strings / access logs while enforcing org ownership,
   // per-subject authorization, and the per-org connection cap on the stream.
   // Mirrors the message-service notifications SSE ticket exchange.
-  app.post('/logs/ticket', requireAuth, (req: Request, res: Response) => {
+  app.post('/logs/ticket', requireAuth, async (req: Request, res: Response) => {
     const orgId = req.user?.organizationId?.toLowerCase();
     if (!orgId) {
       sendError(res, 400, 'Token missing organization', ErrorCode.VALIDATION_ERROR);
@@ -363,9 +388,13 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
       sendError(res, 400, 'Missing or invalid requestId', ErrorCode.VALIDATION_ERROR);
       return;
     }
-    const result = sseManager.createTicket(orgId, requestId);
+    const result = await sseManager.createTicket(orgId, requestId);
     if (!result.ok) {
-      if (result.reason === 'org-limit') {
+      if (result.reason === 'forbidden') {
+        // The subject is owned by another org — do not confirm it exists; a plain
+        // 403 is enough and leaks nothing about which requestIds are live.
+        sendError(res, 403, 'Not authorized for this log stream', ErrorCode.INSUFFICIENT_PERMISSIONS);
+      } else if (result.reason === 'org-limit') {
         sendError(res, 429, 'Too many log stream tickets issued', ErrorCode.QUOTA_EXCEEDED);
       } else {
         sendError(res, 503, 'Log streaming subsystem at capacity', ErrorCode.QUOTA_EXCEEDED);

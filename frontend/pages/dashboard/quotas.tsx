@@ -33,6 +33,10 @@ export default function QuotasPage() {
   const canManageBilling = (isAdmin || can('billing:manage')) && !activeOrgIsTeam;
 
   const [platformOrgs, setPlatformOrgs] = useState<{ id: string; name: string; slug?: string }[]>([]);
+  // Total org count reported by the server (may exceed the page we hold). Drives
+  // the "showing X of Y — refine" hint so a sysadmin knows the picker is capped
+  // and that typing in the filter re-queries the server for the rest.
+  const [orgTotal, setOrgTotal] = useState(0);
   // Mirror of `platformOrgs` for reads inside `fetchOrg` — keeps that callback
   // from depending on `platformOrgs`, which would re-create it every time the
   // org list loads and re-run the selected-org fetch (a redundant double fetch).
@@ -89,16 +93,19 @@ export default function QuotasPage() {
   }, [canViewOwnAtRisk, user?.organizationId]);
   useEffect(() => { fetchOwnAtRisk(); }, [fetchOwnAtRisk]);
 
-  const fetchAllOrgs = useCallback(async () => {
+  const fetchAllOrgs = useCallback(async (search?: string) => {
     if (!isSuperAdmin) return;
     try {
-      // Explicit high limit — the server default page size is ~10, and this admin
-      // picker has no pagination, so without it a sysadmin could only reach the
-      // first page of orgs. Matches the create/idp org-picker pattern.
-      const res = await api.listOrganizations({ limit: 200 });
+      // Page size is capped (the server default is ~10). We hold one page and
+      // surface the total via `orgTotal`; a `search` term re-queries the server
+      // so orgs beyond the held page stay reachable by name — not just the ones
+      // that happened to land in the first page.
+      const q = (search ?? '').trim();
+      const res = await api.listOrganizations({ limit: 200, ...(q ? { search: q } : {}) });
       const raw = res.data?.organizations || [];
       const orgs = raw.map((o) => ({ id: o.id, name: o.name, slug: o.slug }));
       setPlatformOrgs(orgs);
+      setOrgTotal(res.data?.pagination?.total ?? orgs.length);
       // Seed the default selection with a functional updater so this callback
       // need not depend on `selectedOrgId` — otherwise picking a different org in
       // the sidebar would re-create fetchAllOrgs and refetch the whole org list.
@@ -107,8 +114,10 @@ export default function QuotasPage() {
       try {
         const res = await api.getAllOrgQuotas();
         const quotaOrgs = (res.data?.organizations || []) as OrgQuotaResponse[];
-        setPlatformOrgs(quotaOrgs.map((o) => ({ id: o.orgId, name: o.name, slug: o.slug })));
-        if (quotaOrgs.length > 0) setSelectedOrgId((cur) => cur || quotaOrgs[0].orgId);
+        const orgs = quotaOrgs.map((o) => ({ id: o.orgId, name: o.name, slug: o.slug }));
+        setPlatformOrgs(orgs);
+        setOrgTotal(orgs.length);
+        if (orgs.length > 0) setSelectedOrgId((cur) => cur || orgs[0].id);
       } catch {
         // Both unavailable
       }
@@ -160,11 +169,18 @@ export default function QuotasPage() {
   }
 
   useEffect(() => {
-    if (isSuperAdmin) {
-      fetchAllOrgs();
-      fetchAtRisk();
-    }
-  }, [fetchAllOrgs, fetchAtRisk, isSuperAdmin]);
+    if (isSuperAdmin) fetchAtRisk();
+  }, [fetchAtRisk, isSuperAdmin]);
+
+  // Debounced org fetch: the empty-term run on mount does the initial load; a
+  // typed term re-queries the server (300ms debounce) so orgs past the held page
+  // are reachable by name instead of silently truncated at the cap.
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    const delay = searchFilter ? 300 : 0;
+    const t = setTimeout(() => { fetchAllOrgs(searchFilter); }, delay);
+    return () => clearTimeout(t);
+  }, [searchFilter, isSuperAdmin, fetchAllOrgs]);
 
   useEffect(() => {
     const orgId = isSuperAdmin ? selectedOrgId : user?.organizationId;
@@ -273,6 +289,7 @@ export default function QuotasPage() {
       saving={saving}
       platformOrgs={platformOrgs}
       filteredOrgs={filteredOrgs}
+      orgTotal={orgTotal}
       searchFilter={searchFilter}
       selectedOrgId={selectedOrgId}
       orgHealthColors={orgHealthColors}

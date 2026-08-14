@@ -732,6 +732,54 @@ describe('ReportingService', () => {
     });
   });
 
+  // Subtree validation for the multi-org rollup. The rollup read runs under
+  // sysadmin context (RLS OFF), so `orgIds` is the ONLY tenancy gate. orgScope
+  // validates defensively that the requesting (anchor) org is present in the
+  // resolved set before honoring the bypass — a set that omits the caller's own
+  // org is a malformed/spoofed rollup and collapses to the safe single-org scope
+  // rather than reading arbitrary orgs under sysadmin.
+  describe('report-rollup subtree validation', () => {
+    const dialect = new PgDialect();
+    function rendered(callIndex = 0): { sql: string; params: unknown[] } {
+      const arg = mockExecute.mock.calls[callIndex]?.[0] as SQL | undefined;
+      if (!arg) throw new Error('tx.execute was not called');
+      return dialect.sqlToQuery(arg);
+    }
+
+    it('honors the rollup when the anchor org IS present in the subtree', async () => {
+      mockExecute.mockResolvedValue({ rows: [] });
+      await service.getErrors('acme', '2026-01-01', '2026-03-15', 10, ['acme', 'team-child']);
+      const { sql, params } = rendered();
+      expect(sql).toMatch(/p\.org_id in \(/i);
+      expect(params).toContain('acme');
+      expect(params).toContain('team-child');
+    });
+
+    it('drops a subtree that OMITS the anchor org and falls back to single-org `= $anchor`', async () => {
+      mockExecute.mockResolvedValue({ rows: [] });
+      // A subtree that does not include the requesting org ('acme') — e.g. a
+      // spoofed/miscomputed set naming only foreign orgs — must NOT be trusted
+      // under the sysadmin bypass.
+      await service.getErrors('acme', '2026-01-01', '2026-03-15', 10, ['victim-org', 'other-org']);
+      const { sql, params } = rendered();
+      expect(sql).toContain('p.org_id = ');
+      expect(sql).not.toMatch(/p\.org_id in \(/i);
+      expect(params).toContain('acme');
+      // The foreign ids never reach the query.
+      expect(params).not.toContain('victim-org');
+      expect(params).not.toContain('other-org');
+    });
+
+    it('matches the anchor case-insensitively (org id casing does not break the guard)', async () => {
+      mockExecute.mockResolvedValue({ rows: [] });
+      await service.getErrors('ACME', '2026-01-01', '2026-03-15', 10, ['acme', 'team-child']);
+      const { sql, params } = rendered();
+      // Anchor present (case-insensitively) ⇒ rollup honored.
+      expect(sql).toMatch(/p\.org_id in \(/i);
+      expect(params).toContain('team-child');
+    });
+  });
+
   // Category 2: Plugin Inventory & Builds
 
   describe('getPluginSummary', () => {

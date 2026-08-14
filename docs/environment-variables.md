@@ -105,22 +105,43 @@ AI provider keys and IdP client secrets are encrypted at rest. `SECRET_ENCRYPTIO
 | `ALERT_WEBHOOK_INSTANCE_ID` | — | (Alertmanager side) The id of this Alertmanager's entry. |
 | `ALERT_WEBHOOK_INSTANCE_TOKEN` | — | (Alertmanager side) The matching token. |
 
-### Google OAuth (Optional)
+### OAuth / social login (Optional)
+
+Platform-wide "Sign in with…" providers. A provider is **enabled iff its
+`OAUTH_<P>_CLIENT_ID` is set** (fail-soft — an unconfigured provider is hidden,
+never an error); the login page renders its buttons data-driven from the enabled
+set. Credentials are **global / one app registration per provider** for the whole
+deployment. The redirect URI to register in each provider's console is
+`<OAUTH_CALLBACK_BASE_URL>/auth/callback/<provider>`. Per-org enterprise SSO
+(OIDC / Cognito) is configured **in the app**, not here — see
+[Authentication & SSO](authentication.md).
+
+**Shared:**
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OAUTH_GOOGLE_CLIENT_ID` | — | Client ID (empty = disabled) |
-| `OAUTH_GOOGLE_CLIENT_SECRET` | — | Client Secret |
-| `OAUTH_CALLBACK_BASE_URL` | `${PLATFORM_FRONTEND_URL}` | OAuth redirect origin |
-| `OAUTH_STATE_TTL_MS` | `600000` | OAuth state token TTL (10 min) |
+| `OAUTH_CALLBACK_BASE_URL` | `${PLATFORM_FRONTEND_URL}` | OAuth redirect origin (each handler appends `/auth/callback/<provider>`) |
+| `OAUTH_STATE_TTL_MS` | `600000` | OAuth state (CSRF) token TTL (10 min) |
 | `OAUTH_CLEANUP_INTERVAL_MS` | `60000` | Stale state cleanup interval |
 
-### GitHub OAuth (Optional)
+**Per provider** (`CLIENT_ID` empty = disabled):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OAUTH_GITHUB_CLIENT_ID` | — | Client ID (empty = disabled) |
-| `OAUTH_GITHUB_CLIENT_SECRET` | — | Client Secret |
+| `OAUTH_GOOGLE_CLIENT_ID` | — | Google client ID ([Google Cloud Console](https://console.cloud.google.com/apis/credentials)) |
+| `OAUTH_GOOGLE_CLIENT_SECRET` | — | Google client secret |
+| `OAUTH_GITHUB_CLIENT_ID` | — | GitHub client ID ([GitHub OAuth Apps](https://github.com/settings/developers)) |
+| `OAUTH_GITHUB_CLIENT_SECRET` | — | GitHub client secret |
+| `OAUTH_FACEBOOK_CLIENT_ID` | — | Facebook app ID ([Meta for Developers](https://developers.facebook.com/apps)) |
+| `OAUTH_FACEBOOK_CLIENT_SECRET` | — | Facebook app secret |
+| `OAUTH_MICROSOFT_CLIENT_ID` | — | Microsoft/Entra client ID ([Entra admin center](https://entra.microsoft.com) → App registrations) |
+| `OAUTH_MICROSOFT_CLIENT_SECRET` | — | Microsoft/Entra client secret |
+| `OAUTH_MICROSOFT_TENANT` | `common` | Entra tenant: `common` (any account) or a specific tenant id/domain |
+| `OAUTH_GITLAB_CLIENT_ID` | — | GitLab application ID ([GitLab Applications](https://gitlab.com/-/profile/applications)) |
+| `OAUTH_GITLAB_CLIENT_SECRET` | — | GitLab application secret |
+| `OAUTH_GITLAB_BASE_URL` | `https://gitlab.com` | GitLab base URL (point at a self-hosted instance to use it) |
+| `OAUTH_LINKEDIN_CLIENT_ID` | — | LinkedIn client ID ([LinkedIn Developers](https://www.linkedin.com/developers/apps), "Sign in with LinkedIn using OpenID Connect") |
+| `OAUTH_LINKEDIN_CLIENT_SECRET` | — | LinkedIn client secret |
 
 ---
 

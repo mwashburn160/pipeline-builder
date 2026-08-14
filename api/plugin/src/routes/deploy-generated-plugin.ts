@@ -21,8 +21,8 @@ import {
   PluginDeployGeneratedSchema,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
-import { Config } from '@pipeline-builder/pipeline-core';
+import { getIdempotencyStore, withRoute, type SSEManager } from '@pipeline-builder/api-server';
+import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { v7 as uuid } from 'uuid';
@@ -46,6 +46,7 @@ const complianceClient = createComplianceClient();
  * Requires admin permissions. Validated with {@link PluginDeployGeneratedSchema}.
  */
 export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
+  sseManager: SSEManager,
 ): Router {
   const router: Router = Router();
 
@@ -79,11 +80,57 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
       // Validate buildArgs (throws ValidationError → handled by withRoute)
       validateBuildArgs(buildArgs);
 
+      // -- Idempotency guard (Wave-1 Redis IdempotencyStore) ----------------
+      // The auto-plugin-creation path sends `Idempotency-Key: <requestId>:<name>`
+      // (generate-pipeline.ts) so a client retrying a failed SSE generate doesn't
+      // enqueue duplicate buildkit builds + double the `plugins` quota. Claim the
+      // key BEFORE reserving quota / enqueuing. This is a defense-in-depth
+      // complement to the generic response-replay middleware: keyed on the HEADER
+      // ALONE (not the body), it also suppresses a retry whose body drifted
+      // slightly (a differing body would mint a fresh response-cache key and slip
+      // past the middleware). Uses the process-wide store createApp wired to the
+      // shared env Redis (SET…NX across replicas); falls back to the in-memory
+      // store single-replica when Redis isn't configured.
+      const idempotencyKey = req.headers['idempotency-key'] as string | undefined;
+      const idemKey = idempotencyKey ? `plugin:deploy-generated:${orgId}:${idempotencyKey}` : undefined;
+      const idemStore = getIdempotencyStore();
+      const idemTtlMs = CoreConstants.IDEMPOTENCY_TTL_MS;
+      let idemReserved = false;
+      if (idemKey) {
+        const won = await idemStore.reserve(
+          idemKey,
+          { statusCode: 202, body: null, pending: true, expiresAt: Date.now() + idemTtlMs },
+          Math.floor(idemTtlMs / 1000),
+        );
+        if (!won) {
+          // The same key is already in-flight or was recently accepted — the
+          // original reserved quota + queued the build, so suppress this duplicate.
+          ctx.log('INFO', 'Duplicate deploy-generated suppressed by Idempotency-Key', { orgId, pluginName: name, version });
+          return sendSuccess(res, 202, {
+            requestId: ctx.requestId,
+            pluginName: name,
+            version,
+            idempotent: true,
+          }, 'Plugin build already queued');
+        }
+        idemReserved = true;
+      }
+      // Release the idempotency reservation on any pre-enqueue failure so a
+      // legitimate retry can proceed (nothing durable happened). Only a
+      // successfully-queued build KEEPS the key, deduping retries for its TTL.
+      const releaseIdem = (): void => {
+        if (!idemReserved || !idemKey) return;
+        idemReserved = false;
+        void idemStore.delete(idemKey).catch((err) =>
+          ctx.log('WARN', 'Idempotency reservation release failed', { error: errorMessage(err) }));
+      };
+
       // Reserve the plugins quota slot atomically. Worker decrements on
       // permanent failure; success keeps the reservation.
       const reservation = await reserveQuota(quotaService, orgId, 'plugins', authHeader);
       if (reservation.exceeded) {
         ctx.log('WARN', 'Plugin quota exceeded', { orgId, used: reservation.quota.used, limit: reservation.quota.limit });
+        releaseIdem();
         return sendQuotaExceeded(res, 'plugins', reservation.quota, reservation.quota.resetAt);
       }
       let reserved = true;
@@ -114,6 +161,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
           });
           decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
+          releaseIdem();
           return sendError(res, 403, 'Plugin deploy blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
             violations: complianceResult.violations,
           });
@@ -130,6 +178,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
         ctx.log('ERROR', 'Compliance service unavailable', { error: errorMessage(err) });
         decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
         reserved = false;
+        releaseIdem();
         return sendError(res, 503, 'Compliance service unavailable — plugin deploy rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
       }
 
@@ -150,6 +199,9 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
           requestId: ctx.requestId,
           orgId,
           userId: userId || 'system',
+          // Period snapshot for the reserved slot so a DLQ retry spanning a
+          // quota reset refunds the correct period (see releasePluginQuota).
+          reservedResetAt: reservation.quota.resetAt,
           buildRequest: {
             contextDir: tempDir,
             dockerfile: 'Dockerfile',
@@ -178,6 +230,14 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
             buildType: 'build_image',
           },
         });
+
+        // Bind the build-log stream's owner BEFORE the requestId is returned to
+        // the caller (F3): a client can mint a ticket as soon as it has the
+        // requestId, so the owner must be recorded first or a tenant could mint a
+        // ticket for another tenant's guessed stream. Best-effort — a Redis hiccup
+        // must not fail an accepted deploy; the worker re-binds as a backstop.
+        await sseManager.bindStreamOwner(ctx.requestId, orgId).catch((bindErr) =>
+          ctx.log('WARN', 'Stream-owner bind failed (non-fatal)', { error: errorMessage(bindErr) }));
 
         // route to the org's per-tier queue.
         const tier = await getOrgTier(quotaService, orgId, authHeader);
@@ -212,11 +272,14 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
         }, 'Plugin build queued');
       } catch (err) {
         // Roll back the reserved slot if anything between reserve and the
-        // successful queue.add throws (fs operations, queue down).
+        // successful queue.add throws (fs operations, queue down). Release the
+        // idempotency key too so the client's retry isn't wrongly suppressed —
+        // the build was never queued.
         if (reserved) {
           decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
         }
+        releaseIdem();
         throw err;
       }
     }),

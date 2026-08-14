@@ -54,11 +54,16 @@ export interface NavItem {
    *  Superadmins bypass. Preferred over `adminOnly` for capability-specific
    *  items so custom-group grants reveal the right nav. */
   requiredPermission?: string;
+  /** Show only when this feature entitlement is enabled for the current user
+   *  (per-user/tier feature flag, e.g. `sso`). Sourced from the FeaturesProvider
+   *  (`useFeatures().isEnabled`). Superadmins get all features, so they always
+   *  pass. Distinct from `requiresBillingEnabled` (deployment config) — this is a
+   *  per-org tier entitlement. */
   requiredFeature?: string;
   /** Hide unless the billing SERVICE is enabled in this deployment
    *  (`BILLING_ENABLED`), so the Billing link doesn't show when it would only
-   *  dead-end at a 503. Distinct from `requiredFeature` (a per-user feature flag);
-   *  this is deployment config sourced from `/api/billing/config`. */
+   *  dead-end at a 503. This is deployment config sourced from
+   *  `/api/billing/config`, not a per-user feature flag. */
   requiresBillingEnabled?: boolean;
   /** Extra path prefixes that should also mark this item active (e.g. a sibling
    *  route folded into the same nav entry, like /triage under "Builds"). */
@@ -160,9 +165,8 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: 'Quotas', href: '/dashboard/quotas', icon: Gauge, requiredPermission: 'quotas:read' },
       // Gated by the `billing:read` permission AND by whether the billing SERVICE
       // is enabled in this deployment (`requiresBillingEnabled` → /api/billing/config).
-      // NOT a feature flag — `'billing'` isn't a FeatureFlag, so the old
-      // `requiredFeature: 'billing'` made `isFeatureEnabled('billing')` always
-      // false and hid the item for everyone.
+      // Deliberately NOT a per-user feature-flag gate — billing visibility is a
+      // deployment/permission concern, not a tier entitlement.
       { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, requiredPermission: 'billing:read', requiresBillingEnabled: true },
     ],
   },
@@ -197,6 +201,9 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Settings',
     items: [
       { title: 'Profile', href: '/dashboard/settings', icon: Settings },
+      // Org owner/admin SSO self-service. Gated by the `org:settings` permission
+      // AND the `sso` tier entitlement; the page + backend re-enforce both.
+      { title: 'Single Sign-On', href: '/dashboard/settings/sso', icon: Fingerprint, requiredPermission: 'org:settings', requiredFeature: 'sso' },
       { title: 'Notifications', href: '/dashboard/notifications', icon: Bell },
       { title: 'API Tokens', href: '/dashboard/tokens', icon: KeyRound },
       { title: 'API Catalog', href: '/dashboard/api-catalog', icon: Code },
@@ -212,12 +219,21 @@ export const NAV_SECTIONS: NavSection[] = [
  */
 export function isNavItemVisible(
   item: NavItem,
-  ctx: { isAdmin: boolean; isSuperAdmin: boolean; isFeatureEnabled: (name: string) => boolean; hasPermission: (perm: string) => boolean; billingEnabled?: boolean },
+  ctx: {
+    isAdmin: boolean;
+    isSuperAdmin: boolean;
+    hasPermission: (perm: string) => boolean;
+    billingEnabled?: boolean;
+    /** Feature-entitlement check (useFeatures().isEnabled). Superadmins get all
+     *  features, so this may be omitted for them and `requiredFeature` still passes. */
+    isFeatureEnabled?: (feature: string) => boolean;
+  },
 ): boolean {
   if (item.systemAdminOnly && !ctx.isSuperAdmin) return false;
   if (item.adminOnly && !ctx.isAdmin) return false;
   if (item.requiredPermission && !ctx.hasPermission(item.requiredPermission)) return false;
-  if (item.requiredFeature && !ctx.isFeatureEnabled(item.requiredFeature)) return false;
   if (item.requiresBillingEnabled && !ctx.billingEnabled) return false;
+  // Superadmins hold every feature; only enforce the gate for everyone else.
+  if (item.requiredFeature && !ctx.isSuperAdmin && !(ctx.isFeatureEnabled?.(item.requiredFeature) ?? false)) return false;
   return true;
 }

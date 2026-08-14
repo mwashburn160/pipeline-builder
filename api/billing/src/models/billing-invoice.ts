@@ -32,7 +32,10 @@ export interface BillingInvoiceDocument extends Document {
   totalCents: number;
   amountPaidCents: number;
   currency: string;
-  status: 'paid' | 'open' | 'void' | 'uncollectible';
+  /** `refunded`/`disputed` are REVERSAL states set from charge webhooks
+   *  (charge.refunded / charge.dispute.created); `void`/`uncollectible` come from
+   *  the invoice lifecycle. */
+  status: 'paid' | 'open' | 'void' | 'uncollectible' | 'refunded' | 'disputed';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -53,7 +56,7 @@ const billingInvoiceSchema = new Schema<BillingInvoiceDocument>(
     totalCents: { type: Number, default: 0 },
     amountPaidCents: { type: Number, default: 0 },
     currency: { type: String, default: 'usd' },
-    status: { type: String, enum: ['paid', 'open', 'void', 'uncollectible'], default: 'paid' },
+    status: { type: String, enum: ['paid', 'open', 'void', 'uncollectible', 'refunded', 'disputed'], default: 'paid' },
   },
   {
     collection: 'billing_invoices',

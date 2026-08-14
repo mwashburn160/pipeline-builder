@@ -82,10 +82,16 @@ export const refreshSchema = z.object({
 
 // OAuth Schemas
 
-/** OAuth callback request body schema (authorization code + CSRF state). */
+/** OAuth callback request body schema (authorization code + CSRF state).
+ *  Also reused verbatim by the SSO/OIDC callback (controllers/sso.ts). */
 export const oauthCallbackSchema = z.object({
   code: z.string().min(1, 'Authorization code is required'),
   state: z.string().min(1, 'State parameter is required'),
+});
+
+/** SSO discovery request: is this email forced through SSO? */
+export const ssoDiscoverSchema = z.object({
+  email: z.string().min(3).max(320),
 });
 
 // User Schemas
@@ -254,23 +260,35 @@ export const updateQuotasSchema = z.object({
 
 // Org IdP (per-org SSO) Schemas
 
-/** Supported IdP providers. Mirrors `IdpProvider` in models/org-idp-config.ts
- *  (`generic-oidc` + the named OAuth providers). */
-const idpProviderSchema = z.enum(['generic-oidc', 'google', 'github']);
+/** Supported IdP (SSO) providers. Mirrors `IdpProvider` in
+ *  models/org-idp-config.ts — the OIDC-capable set. `facebook` is deliberately
+ *  ABSENT: it is an OAuth2 social login (no OIDC id_token), not an SSO IdP. */
+const idpProviderSchema = z.enum(['generic-oidc', 'cognito', 'google', 'github']);
 
-/** Create/upsert an org IdP config. All four core fields are required
- *  non-empty strings; `generic-oidc` additionally requires a discoveryUrl. */
+/** AWS Cognito user-pool id, e.g. `us-east-1_Ab12Cd34`. NOT an AWS account id. */
+const userPoolIdSchema = z.string().regex(/^[\w-]+_[A-Za-z0-9]+$/, 'Invalid Cognito userPoolId');
+/** AWS region, e.g. `us-east-1`. */
+const awsRegionSchema = z.string().regex(/^[a-z]{2}-[a-z]+-\d$/, 'Invalid AWS region');
+
+/** Create/upsert an org IdP config. Core credentials are required non-empty
+ *  strings; `generic-oidc` additionally requires a discoveryUrl, and `cognito`
+ *  requires region + userPoolId (from which the discovery URL is derived). */
 export const orgIdpCreateSchema = z.object({
   orgId: z.string().min(1),
   provider: idpProviderSchema,
   clientId: z.string().min(1),
   clientSecret: z.string().min(1),
   discoveryUrl: z.string().optional(),
+  region: awsRegionSchema.optional(),
+  userPoolId: userPoolIdSchema.optional(),
   allowedEmailDomains: z.array(z.string()).optional(),
   enabled: z.boolean().optional(),
 }).refine(
   data => data.provider !== 'generic-oidc' || !!data.discoveryUrl,
   { message: 'discoveryUrl is required for generic-oidc provider', path: ['discoveryUrl'] },
+).refine(
+  data => data.provider !== 'cognito' || (!!data.region && !!data.userPoolId),
+  { message: 'region and userPoolId are required for cognito provider', path: ['userPoolId'] },
 );
 
 /** Partial update of an org IdP config. Every field optional; unset fields
@@ -280,6 +298,8 @@ export const orgIdpPatchSchema = z.object({
   clientId: z.string().optional(),
   clientSecret: z.string().optional(),
   discoveryUrl: z.string().optional(),
+  region: awsRegionSchema.optional(),
+  userPoolId: userPoolIdSchema.optional(),
   allowedEmailDomains: z.array(z.string()).optional(),
   enabled: z.boolean().optional(),
 });

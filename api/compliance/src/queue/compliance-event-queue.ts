@@ -3,16 +3,19 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import type { ComplianceEvent, LockRedis, RedisCacheClient } from '@pipeline-builder/api-core';
+import { Config } from '@pipeline-builder/pipeline-core';
 import { Queue, Worker } from 'bullmq';
 
 const logger = createLogger('compliance-event-queue');
 
 const QUEUE_NAME = 'compliance-events';
 const DLQ_NAME = `${QUEUE_NAME}-dlq`;
-const REDIS_HOST = process.env.REDIS_HOST || 'redis';
-const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379', 10);
 
-const connection = { host: REDIS_HOST, port: REDIS_PORT };
+// Redis connection resolved through the shared Config (env REDIS_HOST/PORT with
+// the same defaults every other service uses) rather than reading process.env
+// directly here — one source of truth for the redis endpoint across the fleet.
+const { host, port } = Config.get('redis');
+const connection = { host, port };
 
 const queue = new Queue<ComplianceEvent>(QUEUE_NAME, {
   connection,

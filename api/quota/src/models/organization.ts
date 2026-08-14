@@ -67,6 +67,31 @@ export interface OrganizationDocument extends Document {
 }
 
 // Schema
+//
+// SCOPE — this is a SECONDARY Mongoose view over the platform-owned
+// `organizations` collection (same `collection: 'organizations'` below). The
+// PLATFORM service is the sole authority for org lifecycle: it CREATES every
+// real org document and seeds each org's `quotas` limits from its tier at
+// creation time. This schema (and the `config.quota.defaults` / `QUOTA_DEFAULT_*`
+// env it sources its field defaults from) is therefore consulted for enforcement
+// ONLY via the stored `quotas` values platform wrote — the Mongoose-level
+// `default:` on each `quotas.*`/`usage.*` field below is DEAD for real orgs (they
+// always arrive already-populated) and matters solely for two paths:
+//   1. `buildDefaultOrgQuotaResponse` — the unprovisioned-org fallback READ in
+//      quota-service.findByOrgId (org absent → synthesize a developer-tier
+//      response so the dashboard renders). This never writes a document.
+//   2. A brand-new field platform hasn't backfilled yet (schema-migration seam).
+// It does NOT drive quota ENFORCEMENT: `incrementUsage` reserves against the
+// STORED `quotas.<type>` platform seeded, and on a missing org it throws
+// `OrgNotFoundError` rather than inserting defaults. So `QUOTA_DEFAULT_*` govern
+// the fallback read only, not the cap an org is actually held to.
+//
+// INDEXES — declared to mirror the platform-authoritative model
+// (platform/src/models/organization.ts): `parentOrgId` (descendant lookups) is
+// indexed in both; `name` is indexed here for this service's admin list sort
+// (findAll `.sort({ name: 1 })`). Uniqueness constraints platform owns (e.g.
+// `slug` unique) are deliberately NOT redeclared here — a secondary model must
+// not fight the authoritative model over the shared collection's unique indexes.
 
 const quotaUsageSchema = new Schema<QuotaUsage>( {
   used: { type: Number, default: 0 },

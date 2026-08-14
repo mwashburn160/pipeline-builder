@@ -14,12 +14,15 @@ import {
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
 import { z } from 'zod';
+import { canReadRepo, canWriteRepo } from './repo-access.js';
 import {
   logger,
   RegistryMetrics,
   COPY_PARALLEL_CHILDREN,
   COPY_PARALLEL_BLOBS,
 } from './shared.js';
+import { emitImageRegistryAudit } from '../../services/audit.js';
+import { isIndex } from '../../services/manifest.js';
 import {
   getManifest,
   putManifest,
@@ -27,12 +30,6 @@ import {
   mountBlob,
   isNotFound,
 } from '../../services/registry-client.js';
-
-// Index media types — anything matching here triggers multi-arch dispatch.
-const INDEX_MEDIA_TYPES = new Set([
-  'application/vnd.oci.image.index.v1+json',
-  'application/vnd.docker.distribution.manifest.list.v2+json',
-]);
 
 const CopyImageSchema = z.object({
   source: z.string().regex(/^[a-z0-9][a-z0-9._/-]*:[A-Za-z0-9_.-]+$/, 'Invalid source — expected "<repo>:<ref>"'),
@@ -92,6 +89,28 @@ export function registerCopyRoutes(router: Router): void {
     const { repo: sourceRepo, ref: sourceRef } = parseRepoRef(source);
     const { repo: targetRepo, ref: targetRef } = parseRepoRef(target);
 
+    // Per-repo org-ownership gate (independent of the registry:read/write perm).
+    // Copy READS the source and WRITES the target, so the caller must own (or be
+    // superadmin for) BOTH. This is the tenant boundary — it holds even if
+    // registry:* is later wired to an org role, so a copy can't be used to read
+    // or poison another tenant's repos.
+    if (!canReadRepo(req.user, sourceRepo)) {
+      return sendError(
+        res, 403,
+        `Forbidden: source repo "${sourceRepo}" is outside your organization.`,
+        ErrorCode.ORG_MISMATCH,
+        { reason: 'repo-not-owned', repo: sourceRepo, access: 'read' },
+      );
+    }
+    if (!canWriteRepo(req.user, targetRepo)) {
+      return sendError(
+        res, 403,
+        `Forbidden: target repo "${targetRepo}" is outside your organization.`,
+        ErrorCode.ORG_MISMATCH,
+        { reason: 'repo-not-owned', repo: targetRepo, access: 'write' },
+      );
+    }
+
     // Cross-tenant guard: copying between two distinct `org-*` namespaces
     // moves data across customer boundaries. Require an explicit opt-in so
     // operators can't do it by accident. Promotions to `system/` or copies
@@ -146,6 +165,12 @@ export function registerCopyRoutes(router: Router): void {
       mountedBlobs = counts.blobs;
       mountedManifests = counts.manifests;
     } catch (err) {
+      // A copy that throws mid-tree may have already mounted some blobs / PUT
+      // some child manifests — those are now orphaned in the target repo (the
+      // registry's own GC eventually reclaims unreferenced blobs). Emit a
+      // partial-failure metric so operators can spot copies that need a rerun
+      // (idempotent) or cleanup, regardless of which failure class it was.
+      incCounter(RegistryMetrics.TAG_COPY_PARTIAL);
       if (err instanceof SourceIncompleteError) {
         return sendError(
           res, 409,
@@ -173,6 +198,12 @@ export function registerCopyRoutes(router: Router): void {
       mountedBlobs,
     });
 
+    // Intentional dual-emit (NOT an accidental duplication): the Loki line
+    // (`emitAudit` → winston) feeds the short-retention operator dashboard; the
+    // `emitImageRegistryAudit` call feeds the tamper-evident Mongo hash-chain
+    // durable compliance record. A cross-tenant copy moves data across customer
+    // boundaries, so it MUST land in the durable trail too (the sibling deletes
+    // already dual-emit).
     emitAudit(logger, {
       event: 'registry.tag.copy',
       actor: req.user?.sub ?? 'unknown',
@@ -182,6 +213,35 @@ export function registerCopyRoutes(router: Router): void {
       targetDigest: sourceManifest.digest,
       isPromotionToSystem: targetRepo.startsWith('system/'),
       mounted: { manifests: mountedManifests, blobs: mountedBlobs },
+    });
+    // Durable audit trail for the copy, emitted only AFTER the manifest(s) land.
+    // Fire-and-forget; never blocks/throws. Records the tenant boundary crossing
+    // (crossTenant) so cross-org promotions are auditable long after request logs
+    // lapse. Details carry no secrets / AWS account ids.
+    //
+    // NB: the `registry.image.copy` action must be present in api-core's
+    // REMOTE_AUDIT_ACTIONS allow-list (packages/api-core/src/services/
+    // remote-audit-client.ts) — the ingest side rejects any action not on it,
+    // and RemoteAuditEvent.action is typed to that union. `registry.gc` and
+    // `registry.image.delete` are already registered; `registry.image.copy` is
+    // the one-line addition this call depends on.
+    emitImageRegistryAudit({
+      action: 'registry.image.copy',
+      actorId: req.user?.sub ?? 'system',
+      ...(req.user?.email && { actorEmail: req.user.email }),
+      ...(req.user?.organizationId && { orgId: req.user.organizationId }),
+      outcome: 'success',
+      targetType: 'registry-image',
+      targetId: target,
+      details: {
+        source,
+        target,
+        sourceDigest: sourceManifest.digest,
+        crossTenant: sourceTenant !== null && targetTenant !== null && sourceTenant !== targetTenant,
+        isPromotionToSystem: targetRepo.startsWith('system/'),
+        mountedManifests,
+        mountedBlobs,
+      },
     });
     // Two counters: total copies + a separate counter for system-promotions
     // so the dashboard can show promotion velocity without dividing series.
@@ -242,9 +302,10 @@ async function copyManifestTree(
   targetRef: string,
 ): Promise<{ manifests: number; blobs: number }> {
   const body = sourceManifest.body as Record<string, unknown>;
-  const isIndex = INDEX_MEDIA_TYPES.has(sourceManifest.mediaType);
-
-  if (isIndex) {
+  // Detect multi-arch by media type OR body shape (shared with the GC path) so a
+  // mis-typed / Content-Type-less index isn't silently single-arch-copied,
+  // dropping its child manifests.
+  if (isIndex(sourceManifest.mediaType, body)) {
     const children = (body.manifests as Array<{ digest: string }> | undefined) ?? [];
     // Collect unique blob digests across all child manifests so duplicates
     // (shared base layers across platforms) get mounted once.

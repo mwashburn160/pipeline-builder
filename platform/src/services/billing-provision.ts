@@ -141,6 +141,15 @@ export async function provisionBillingSubscription(orgId: string, planId: string
  * marker, clearing the marker on success. Runs at boot + on a guarded interval
  * (index.ts). Idempotent + cheap on the common no-op (no marked orgs).
  *
+ * BOUNDED + jittered so a pass can't overlap the next interval:
+ *  - process at most `reconcileBatchSize` orgs (oldest marker first); leftovers
+ *    roll to the next pass;
+ *  - a SINGLE billing POST attempt per org per pass — the interval IS the retry
+ *    loop, so the old in-loop backoff sleeps (which serialized the whole batch)
+ *    are gone;
+ *  - small random per-org jitter to avoid a synchronized retry thundering-herd
+ *    against a billing service recovering from a fleet-wide outage.
+ *
  * No-ops when billing is disabled (nothing to reconcile to).
  */
 export async function reconcilePendingBillingSubscriptions(): Promise<BillingReconcileSummary> {
@@ -148,14 +157,30 @@ export async function reconcilePendingBillingSubscriptions(): Promise<BillingRec
     return { scanned: 0, reconciled: 0, stillPending: 0 };
   }
 
-  const pending = await authService.listPendingBillingOrgs();
+  const pending = await authService.listPendingBillingOrgs(config.billing.reconcileBatchSize);
   if (pending.length === 0) {
     return { scanned: 0, reconciled: 0, stillPending: 0 };
   }
 
+  const jitterMax = Math.max(0, config.billing.reconcileJitterMs);
   let reconciled = 0;
   for (const { orgId, planId } of pending) {
-    const ok = await attemptWithRetry(orgId, planId);
+    // Single attempt per org per pass: the periodic interval is the retry loop,
+    // so we do NOT sleep/backoff inside the pass (that serialized the batch and
+    // let a pass overlap the next interval). A jittered pause de-synchronizes the
+    // per-org POSTs so a recovering billing service isn't hit by a thundering herd.
+    if (jitterMax > 0) await sleep(Math.floor(Math.random() * jitterMax));
+
+    let ok = false;
+    try {
+      await postSubscription(orgId, planId);
+      ok = true;
+    } catch (error) {
+      logger.warn('Billing reconcile attempt failed', {
+        orgId, planId, error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     if (ok) {
       await authService.clearPendingBillingPlan(orgId);
       reconciled += 1;

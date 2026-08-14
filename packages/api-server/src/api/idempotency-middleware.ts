@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createHash } from 'crypto';
-import { createLogger, sendError, ErrorCode } from '@pipeline-builder/api-core';
+import { createLogger, sendError, ErrorCode, createEnvRedisClient } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import type { Request, Response, NextFunction } from 'express';
 
@@ -124,11 +124,91 @@ export function createMemoryStore(): IdempotencyStore {
   };
 }
 
+/**
+ * Minimal Redis surface the idempotency store needs (an ioredis subset).
+ * `set` supports the variadic option tail: `SET key val EX <ttl> [NX]`, which
+ * returns `'OK'` on success and `null` when an `NX` set was refused.
+ */
+export interface RedisIdempotencyClient {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string, ...args: (string | number)[]): Promise<string | null>;
+  del(key: string): Promise<number>;
+}
+
+const REDIS_KEY_PREFIX = 'idem:';
+
+/**
+ * Redis-backed {@link IdempotencyStore} for correct deduplication across
+ * horizontally-scaled replicas. `reserve` maps to an atomic `SET … NX` so two
+ * pods behind a load-balancer can't both win a first-time request sharing an
+ * Idempotency-Key; a retry landing on ANY pod sees the same committed response.
+ * Redis TTL owns expiry (the `CachedEntry.expiresAt` field is carried only for
+ * API-shape parity with the memory store).
+ */
+export function createRedisIdempotencyStore(redis: RedisIdempotencyClient): IdempotencyStore {
+  const k = (key: string): string => `${REDIS_KEY_PREFIX}${key}`;
+  return {
+    async get(key) {
+      const raw = await redis.get(k(key));
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw) as CachedEntry;
+      } catch {
+        // Corrupt entry → treat as absent so the request proceeds fresh.
+        return null;
+      }
+    },
+    async set(key, entry, ttlSeconds) {
+      await redis.set(k(key), JSON.stringify(entry), 'EX', Math.max(1, ttlSeconds));
+    },
+    async reserve(key, entry, ttlSeconds) {
+      // Atomic claim: SET key val EX ttl NX → 'OK' only if the key was absent.
+      const res = await redis.set(k(key), JSON.stringify(entry), 'EX', Math.max(1, ttlSeconds), 'NX');
+      return res === 'OK';
+    },
+    async delete(key) {
+      await redis.del(k(key));
+    },
+  };
+}
+
+/**
+ * Build a Redis-backed idempotency store from the shared env Redis (the same
+ * `REDIS_URL` / `REDIS_HOST` wiring the rate-limiter and audit-spool use).
+ * Returns `null` when Redis isn't configured/available so the caller keeps the
+ * in-memory default (single-replica correctness). Never throws.
+ */
+export function createEnvRedisIdempotencyStore(): IdempotencyStore | null {
+  const client = createEnvRedisClient<RedisIdempotencyClient>('idempotency');
+  if (!client) return null;
+  logger.info('Redis idempotency store initialized');
+  return createRedisIdempotencyStore(client);
+}
+
 const memoryStore = createMemoryStore();
 
+/**
+ * Process-wide default store used by `idempotencyMiddleware()` when no explicit
+ * `store` is passed. Defaults to the in-memory store; `createApp` promotes it to
+ * the shared env-Redis store (multi-replica dedup) at startup via
+ * {@link setIdempotencyStore}. The route factories keep calling
+ * `idempotencyMiddleware()` with no args and transparently pick this up.
+ */
+let defaultStore: IdempotencyStore = memoryStore;
+
+/** Inject the process-wide idempotency store (e.g. a Redis-backed one). */
+export function setIdempotencyStore(store: IdempotencyStore): void {
+  defaultStore = store;
+}
+
+/** The current process-wide default store (in-memory unless overridden). */
+export function getIdempotencyStore(): IdempotencyStore {
+  return defaultStore;
+}
+
 export interface IdempotencyMiddlewareOptions {
-  /** Custom store backend (default: in-memory). Pass a Redis-backed store
-   *  for multi-replica deployments. */
+  /** Custom store backend. Defaults to the process-wide store set via
+   *  {@link setIdempotencyStore} (in-memory until `createApp` wires Redis). */
   store?: IdempotencyStore;
 }
 
@@ -144,11 +224,15 @@ export interface IdempotencyMiddlewareOptions {
  * replicas.
  */
 export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}) {
-  const store = options.store ?? memoryStore;
+  // Resolve the store PER REQUEST (not at factory time) so a store injected by
+  // createApp AFTER the route chains are built still takes effect. An explicit
+  // `options.store` always wins.
+  const explicitStore = options.store;
   const ttlMs = CoreConstants.IDEMPOTENCY_TTL_MS;
   const ttlSec = Math.floor(ttlMs / 1000);
 
   return (req: Request, res: Response, next: NextFunction) => {
+    const store = explicitStore ?? defaultStore;
     const key = req.headers['idempotency-key'] as string | undefined;
     if (!key) return next();
 

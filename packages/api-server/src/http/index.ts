@@ -2,3 +2,4 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export * from './sse-connection-manager.js';
+export * from './sse-ticket-store.js';

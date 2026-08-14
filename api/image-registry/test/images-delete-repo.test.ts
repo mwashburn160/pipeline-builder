@@ -87,6 +87,13 @@ let baseUrl: string;
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
+  // Stand-in for requireAuth (which always runs before these routes in prod):
+  // seed a superadmin req.user so the per-repo org-ownership gate passes and the
+  // suite can focus on the prune handler's own logic.
+  app.use((req, _res, next) => {
+    (req as { user?: unknown }).user = { isSuperAdmin: true, sub: 'admin', organizationId: '000000000000000000000001' };
+    next();
+  });
   app.use('/api/images', createImageRoutes());
   await new Promise<void>((resolve) => { server = app.listen(0, resolve); });
   const { port } = server.address() as AddressInfo;

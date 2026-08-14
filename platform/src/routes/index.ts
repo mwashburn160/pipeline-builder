@@ -3,6 +3,7 @@
 
 export { default as authRoutes } from './auth.js';
 export { default as oauthRoutes } from './oauth.js';
+export { default as ssoRoutes } from './sso.js';
 export { default as userRoutes } from './user.js';
 export { default as usersRoutes } from './users.js';
 export { default as organizationRoutes } from './organization.js';

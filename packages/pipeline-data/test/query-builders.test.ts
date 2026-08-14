@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect } from '@jest/globals';
+import { and } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
@@ -57,6 +59,22 @@ describe('buildPipelineConditions', () => {
       return chunks.some((chunk) => chunk && typeof chunk === 'object' && chunk.name === 'pipeline_name');
     });
     expect(refsPipelineName).toBe(true);
+  });
+
+  it('widens the access-control clause to the parent org (team → parent parity)', () => {
+    // Regression: the pipeline builder ignored parentOrgId (plugins/templates
+    // honored it), so a team never saw its parent's public pipelines AND a read
+    // passed parentOrgId flipped to the sysadmin RLS bypass while the WHERE kept
+    // the narrower own-org clause. The parent org id must now be bound into the
+    // access-control conditions, exactly like buildPluginConditions.
+    const dialect = new PgDialect();
+    const paramsFor = (parentOrgId?: string): unknown[] =>
+      dialect.sqlToQuery(and(...buildPipelineConditions({}, 'org-1', parentOrgId))!).params;
+
+    // With a parentOrgId the parent org is one of the bound access-control params.
+    expect(paramsFor('parent-1')).toContain('parent-1');
+    // Sanity: without parentOrgId the value is absent (own-org + system only).
+    expect(paramsFor(undefined)).not.toContain('parent-1');
   });
 });
 

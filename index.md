@@ -132,6 +132,14 @@ An **organization** is the isolation boundary — every pipeline, plugin, secret
 - **Tamper-evident audit trail** — every privileged action hash-chained per tenant with a sysadmin `/audit/verify`, forgery-locked service ingest, and a durable spool so the security log survives an outage (see [Audit Events]({{ '/docs/audit-events.html' | relative_url }}))
 - **Built for production** — zero-trust internal JWT auth, Kubernetes `health` / `ready` / `warmup` / `metrics` endpoints, graceful degradation
 
+### Authentication & SSO
+
+Sign in with email + password, a social provider, or corporate SSO — side by side. See [Authentication & SSO]({{ '/docs/authentication.html' | relative_url }}).
+
+- **OAuth social login** (platform-wide) — "Sign in with" **Google, GitHub, Facebook, Microsoft, GitLab, LinkedIn**. Each provider turns on when its `OAUTH_<P>_CLIENT_ID` / `_SECRET` env is set (fail-soft — unconfigured providers are hidden), and the login page renders its buttons data-driven from the enabled set; one app registration per provider, global to the deployment
+- **Per-org enterprise SSO** (OIDC) — an organization registers its own IdP (`OrgIdpConfig`): **generic OIDC** (Okta, Microsoft Entra ID, Auth0, Ping, OneLogin, Keycloak, AWS IAM Identity Center) plus a named **AWS Cognito** provider (region + userPoolId → derived discovery). The IdP's `id_token` is JWKS-validated; `allowedEmailDomains` gates a domain and **forces its users through SSO**. Gated on the `sso` tier/bundle entitlement and configurable by a platform operator (`/admin/org-idp`) or by an org's own admin via self-service (gated on `org:settings`)
+- **Other providers** — Apple, X, Amazon, and Discord are reachable via generic OIDC where OIDC-compliant; a native **Sign in with Apple** button is a planned addition (signed-JWT client secret + `form_post`)
+
 ---
 
 ## Architecture
@@ -250,6 +258,7 @@ Browse the full docs at **[{{ '/docs/' | relative_url }}]({{ '/docs/' | relative
 | [API Reference]({{ '/docs/api-reference.html' | relative_url }}) | REST endpoints for pipelines, plugins, compliance, reporting, and AI |
 | [Developer Portal]({{ '/docs/developer-portal.html' | relative_url }}) | Catalog ownership & My Services, golden-path templates, per-pipeline maturity scorecards |
 | [Roles & Permissions]({{ '/docs/permissions.html' | relative_url }}) | Permission catalog, built-in Roles, enforcement, session invalidation |
+| [Authentication & SSO]({{ '/docs/authentication.html' | relative_url }}) | OAuth social login (Google/GitHub/Facebook/Microsoft/GitLab/LinkedIn) + per-org enterprise SSO (OIDC, AWS Cognito) |
 | [CDK Usage]({{ '/docs/cdk-usage.html' | relative_url }}) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Metadata Keys]({{ '/docs/metadata-keys.html' | relative_url }}) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Template Syntax]({{ '/docs/templates.html' | relative_url }}) | Synth-time interpolation for pipeline configs and plugin specs |

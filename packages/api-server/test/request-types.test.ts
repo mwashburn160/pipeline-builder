@@ -8,6 +8,16 @@ const mockGetIdentity = jest.fn();
 const mockLoggerInfo = jest.fn();
 const mockLoggerWarn = jest.fn();
 const mockLoggerError = jest.fn();
+// Real-ish redactor so the SSE-redaction test can assert masking without the
+// full winston format: mask a top-level `token`/`password`/`secret` key.
+const mockRedactSensitive = jest.fn((v: unknown) => {
+  if (v == null || typeof v !== 'object') return v;
+  const out: Record<string, unknown> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    out[k] = /password|secret|token/i.test(k) ? '[REDACTED]' : val;
+  }
+  return out;
+});
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getIdentity: mockGetIdentity,
@@ -19,6 +29,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }),
   createCacheService: () => ({}),
   errorMessage: (e: unknown) => String(e),
+  redactSensitive: mockRedactSensitive,
 }));
 
 jest.unstable_mockModule('uuid', () => ({
@@ -90,5 +101,17 @@ describe('createRequestContext', () => {
     const ctx = createRequestContext(mockReq(), sse);
     ctx.log('INFO', 'hello');
     expect(mockLoggerInfo).toHaveBeenCalledWith('hello', expect.any(Object));
+  });
+
+  it('redacts sensitive fields in the SSE payload before send', () => {
+    mockGetIdentity.mockReturnValue({});
+    const sse = fakeSse();
+    const ctx = createRequestContext(mockReq(), sse);
+    ctx.log('INFO', 'creds', { token: 'sk-secret', user: 'alice' });
+    // The SSE frame must carry the masked payload, not the raw secret.
+    expect(sse.send).toHaveBeenCalledWith('generated-uuid', 'INFO', 'creds', {
+      token: '[REDACTED]',
+      user: 'alice',
+    });
   });
 });

@@ -300,8 +300,12 @@ export abstract class CrudService<
     // between them. When widening to a parent org, the whole read runs under
     // sysadmin context (see runRead) so the access-control WHERE is the gate.
     return this.runRead(parentOrgId, () => withTenantTx(async (tx) => {
-      // Build SELECT — sparse fieldset when fields are specified
-      const selectSpec = fields ? this.buildFieldSelect(fields) : undefined;
+      // Build SELECT — sparse fieldset when fields are specified. The sortBy
+      // column MUST be part of the projection whenever sorting is active: the
+      // next cursor is derived from `lastItem[sortBy]` below, so a fields set
+      // that omits sortBy would leave the cursor undefined and stall the client
+      // on page 1. buildFieldSelect always adds it back (like `id`).
+      const selectSpec = fields ? this.buildFieldSelect(fields, sortBy) : undefined;
       let query = selectSpec
         ? tx.select(selectSpec as any).from(this.schema).where(and(...conditions))
         : tx.select().from(this.schema).where(and(...conditions));
@@ -351,8 +355,13 @@ export abstract class CrudService<
   /**
    * Build a column selection map for sparse fieldsets.
    * Falls back to full select if no matching columns found.
+   *
+   * `sortBy` (when set) is always folded into the projection even if the caller's
+   * `fields` omits it — cursor pagination reads the next cursor from the sort
+   * column's value on the last row, so dropping it from the SELECT would yield an
+   * undefined cursor and stall paging. Included the same way `id` always is.
    */
-  private buildFieldSelect(fields: string[]): Record<string, unknown> | undefined {
+  private buildFieldSelect(fields: string[], sortBy?: string): Record<string, unknown> | undefined {
     if (fields.length === 0) return undefined;
 
     const columns: Record<string, unknown> = {};
@@ -363,6 +372,13 @@ export abstract class CrudService<
       if (field === 'id') continue; // Already included
       const col = this.cols[field];
       if (col) columns[field] = col;
+    }
+
+    // Guarantee the sort column is selectable so the next cursor can be read
+    // from the last row (see findPaginated). No-op if already added or unknown.
+    if (sortBy && sortBy !== 'id' && !(sortBy in columns)) {
+      const sortCol = this.cols[sortBy];
+      if (sortCol) columns[sortBy] = sortCol;
     }
 
     // At minimum we'll have { id }, which is valid
@@ -423,17 +439,25 @@ export abstract class CrudService<
   /**
    * Defense-in-depth tenant stamp. RLS is in owner-bypass mode, so the app layer
    * is the only tenant gate on writes. A NON-sysadmin caller may only write into
-   * its OWN org, so overwrite any caller-supplied `orgId` with the trusted
-   * tenant-context org — a route that forwards a forged `data.orgId` then can't
-   * cross tenants. Sysadmin (and out-of-context worker/system paths) keep the
-   * supplied org, matching the RLS policy `current_is_sysadmin() OR org_id = current_org_id()`.
+   * its OWN org, so pin the row to the trusted tenant-context org.
+   *
+   * The stamp fires whenever the payload's `orgId` differs from the context org —
+   * which covers BOTH a forged/mismatched `data.orgId` AND an ABSENT one. The
+   * absent case is the important tenant-boundary fix: the `org_id` column DEFAULTs
+   * to `SYSTEM_ORG_ID` (schema/pipeline.ts, schema/plugin.ts), so an insert that
+   * omits `orgId` would otherwise land the tenant's row in the public system
+   * catalog — a cross-tenant fail-open. Always injecting `ctx.orgId` closes it.
+   *
+   * Sysadmin (and out-of-context worker/system paths, where `getTenantContext()`
+   * is undefined) keep the supplied org, matching the RLS policy
+   * `current_is_sysadmin() OR org_id = current_org_id()`.
    */
   protected enforceOrgId(data: TInsert): TInsert {
     const ctx = getTenantContext();
     const d = data as Record<string, unknown>;
-    if (ctx && !ctx.isSuperAdmin && ctx.orgId && 'orgId' in d && d.orgId !== ctx.orgId) {
-      this._logger.warn('CrudService: overriding caller orgId with tenant-context org', {
-        supplied: d.orgId, enforced: ctx.orgId,
+    if (ctx && !ctx.isSuperAdmin && ctx.orgId && d.orgId !== ctx.orgId) {
+      this._logger.warn('CrudService: stamping tenant-context org on write', {
+        supplied: 'orgId' in d ? d.orgId : undefined, enforced: ctx.orgId,
       });
       return { ...d, orgId: ctx.orgId } as TInsert;
     }
@@ -589,7 +613,12 @@ export abstract class CrudService<
         } as any)
         .where(and(...scopeConditions));
 
-      // Set the specified entity as default
+      // Set the specified entity as default. Guard against promoting a
+      // soft-deleted row (isActive = true) — a deleted entity must never become
+      // the active default — and pin the id with the same lowercased
+      // exactIdCondition the mutation paths use (the raw `eq(cols.id, id)` here
+      // skipped the lower-casing that `buildIdFilter`/`writeConditions` apply,
+      // so a mixed-case id could miss its row). A non-match → NotFoundError below.
       const [updated] = await tx
         .update(this.schema)
         .set({
@@ -599,8 +628,9 @@ export abstract class CrudService<
         } as any)
         .where(
           and(
-            eq(this.cols.id, id),
+            this.exactIdCondition(id),
             eq(orgColumn, org),
+            eq(this.cols.isActive, true),
           ),
         )
         .returning().then(r => drizzleRows<TEntity>(r));

@@ -58,6 +58,12 @@ jest.unstable_mockModule('bullmq', () => ({
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
+// The queue now resolves its redis endpoint through the shared Config
+// (`Config.get('redis')`) instead of reading process.env directly.
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+  Config: { get: () => ({ host: 'redis', port: 6379 }) },
+}));
+
 const { enqueue, startComplianceWorker, stopComplianceWorker } = await import('../src/queue/compliance-event-queue.js');
 
 const sampleEvent = {

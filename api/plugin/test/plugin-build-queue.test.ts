@@ -199,7 +199,7 @@ import type { PluginBuildJobData } from '../src/helpers/plugin-helpers.js';
 // Helpers
 
 function makeSseManager() {
-  return { send: jest.fn() } as any;
+  return { send: jest.fn(), bindStreamOwner: jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined) } as any;
 }
 
 function makeQuotaService() {
@@ -421,6 +421,22 @@ describe('plugin-build-queue', () => {
       expect(result).toEqual({ pluginId: 'plugin-1', fullImage: 'registry:5000/plugin:p-test-abc123' });
     });
 
+    it('binds the build-log stream owner (requestId, orgId) before the first SSE send (F3 backstop)', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+
+      queueModule.startWorker(sse, quota);
+
+      mockBuildAndPush.mockResolvedValue({ fullImage: 'img' });
+      mockDeployVersion.mockResolvedValue({ id: 'p1', name: 'my-plugin', version: '1.0.0' });
+
+      await getMainProcessor()(makeJob(makeJobData()));
+
+      // Owner bound for the job's requestId + orgId — a cross-org ticket mint for
+      // this build-log stream is then refused by the ticket store.
+      expect(sse.bindStreamOwner).toHaveBeenCalledWith('req-123', 'org-1');
+    });
+
     it('cleans up temp directory after success', async () => {
       const sse = makeSseManager();
       const quota = makeQuotaService();
@@ -629,6 +645,80 @@ describe('plugin-build-queue', () => {
       expect(result).toBeNull();
       expect(mockQueueAdd).not.toHaveBeenCalled();
       expect(mockReserveQuota).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Period-safe plugin-quota refund (#36: reservedResetAt snapshot)
+  // ---------------------------------------------------------------------------
+  //
+  // A DLQ retry can span a quota-period reset. The reserve-time `resetAt`
+  // snapshot must be threaded into the terminal decrement so a refund on the OLD
+  // period (already reset to 0) is a no-op instead of stealing from the NEW one.
+  describe('period-safe quota refund (reservedResetAt)', () => {
+    it('releasePluginQuota passes the job’s reservedResetAt as the decrement snapshot', () => {
+      const quota = makeQuotaService();
+      const job = makeJob(makeJobData({ reservedResetAt: '2026-02-01T00:00:00.000Z' }));
+
+      queueModule.releasePluginQuota(job, quota);
+
+      // decrementQuota (aliased to mockIncrementQuota) is called with amount=1
+      // and the reservedResetAt snapshot as the 7th arg.
+      expect(mockIncrementQuota).toHaveBeenCalledWith(
+        quota, 'org-1', 'plugins', expect.any(String), expect.any(Function), 1, '2026-02-01T00:00:00.000Z',
+      );
+    });
+
+    it('releasePluginQuota is a no-op once the slot was already released (no double refund)', () => {
+      const quota = makeQuotaService();
+      const job = makeJob(makeJobData({ reservedResetAt: '2026-02-01T00:00:00.000Z', quotaReleased: true }));
+
+      queueModule.releasePluginQuota(job, quota);
+
+      expect(mockIncrementQuota).not.toHaveBeenCalled();
+    });
+
+    it('retryFailedJob threads the FRESH reserved resetAt onto the re-enqueued job', async () => {
+      const quota = makeQuotaService();
+      const failedJob = {
+        id: 'failed-1',
+        name: 'build-plugin',
+        data: makeJobData({ reservedResetAt: 'OLD-PERIOD' }),
+        isFailed: jest.fn<() => Promise<boolean>>().mockResolvedValue(true),
+        remove: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      };
+      // Tier lookup resolves the failed job; the DLQ-twin lookup must be undefined.
+      mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
+      // Fresh reservation lands in the CURRENT period (new resetAt).
+      mockReserveQuota.mockResolvedValueOnce({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99, resetAt: 'NEW-PERIOD' } });
+      mockQueueAdd.mockResolvedValueOnce({ id: 'new-job' });
+
+      await queueModule.retryFailedJob('failed-1', quota);
+
+      const enqueuedData = mockQueueAdd.mock.calls[0][1] as PluginBuildJobData;
+      expect(enqueuedData.reservedResetAt).toBe('NEW-PERIOD');
+      expect(enqueuedData.quotaReleased).toBe(false);
+    });
+
+    it('retryFailedJob carries no reserved resetAt when the org is at cap (no slot reserved)', async () => {
+      const quota = makeQuotaService();
+      const failedJob = {
+        id: 'failed-2',
+        name: 'build-plugin',
+        data: makeJobData({ reservedResetAt: 'OLD-PERIOD' }),
+        isFailed: jest.fn<() => Promise<boolean>>().mockResolvedValue(true),
+        remove: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      };
+      mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
+      // Org at cap → no slot reserved → reservedResetAt undefined, quotaReleased true.
+      mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'plugins', limit: 1, used: 1, remaining: 0 } });
+      mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-2' });
+
+      await queueModule.retryFailedJob('failed-2', quota);
+
+      const enqueuedData = mockQueueAdd.mock.calls[0][1] as PluginBuildJobData;
+      expect(enqueuedData.reservedResetAt).toBeUndefined();
+      expect(enqueuedData.quotaReleased).toBe(true);
     });
   });
 

@@ -47,6 +47,12 @@ export const config: AppConfig = {
     uri: process.env.MONGODB_URI,
   },
   quota: {
+    // `defaults` (and the `QUOTA_DEFAULT_*` overrides) govern the
+    // UNPROVISIONED-ORG FALLBACK READ only (buildDefaultOrgQuotaResponse /
+    // Mongoose field defaults) — see models/organization.ts. Real orgs are
+    // created + seeded by the platform service, and enforcement reserves against
+    // those STORED limits, so changing these does NOT change the cap an existing
+    // org is held to; it only changes what a not-yet-provisioned org reads back.
     defaults: {
       plugins: parseInt(process.env.QUOTA_DEFAULT_PLUGINS || `${DEV.plugins}`, 10),
       pipelines: parseInt(process.env.QUOTA_DEFAULT_PIPELINES || `${DEV.pipelines}`, 10),

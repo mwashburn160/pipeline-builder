@@ -120,9 +120,16 @@ class ComplianceExemptionService {
   }
 
   /**
-   * Bulk insert exemptions; returns count + ids. The schema lacks a unique
-   * constraint to dedupe (ruleId, entityType, entityId, status='pending'),
-   * so callers should be prepared for duplicates if double-submitted.
+   * Bulk insert exemptions; returns the ids that were actually inserted.
+   *
+   * Deduped at the DB level: the table carries a unique index on
+   * (org_id, rule_id, entity_id) (`compliance_exemption_org_rule_entity_unique`),
+   * so `onConflictDoNothing` on that target silently SKIPS any row that collides
+   * with an existing exemption — or with an earlier row in the same batch (the
+   * index entry for row N is visible to row N+1 within the statement). Without
+   * this, a double-submit (or a batch containing the same entity twice) raised a
+   * unique-violation and failed the whole insert with a 500. Skipped rows are not
+   * returned, so the route derives `skipped = requested - created` from the gap.
    */
   async bulkCreate(inputs: ExemptionInsert[], orgId: string, userId: string) {
     const rows = inputs.map(e => ({
@@ -137,6 +144,13 @@ class ComplianceExemptionService {
     const inserted = await withTenantTx(async (tx) => tx
       .insert(schema.complianceExemption)
       .values(rows)
+      .onConflictDoNothing({
+        target: [
+          schema.complianceExemption.orgId,
+          schema.complianceExemption.ruleId,
+          schema.complianceExemption.entityId,
+        ],
+      })
       .returning({ id: schema.complianceExemption.id }));
 
     return inserted.map(r => r.id);

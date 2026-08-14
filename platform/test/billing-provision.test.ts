@@ -36,6 +36,8 @@ const billingConfig = {
   provisionRetryAttempts: 3,
   provisionRetryBaseMs: 0, // 0 → retries don't actually sleep in tests
   reconcileIntervalMs: 300000,
+  reconcileBatchSize: 50,
+  reconcileJitterMs: 0, // 0 → reconcile jitter doesn't actually sleep in tests
 };
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -67,6 +69,8 @@ beforeEach(() => {
   billingConfig.enabled = true;
   billingConfig.provisionRetryAttempts = 3;
   billingConfig.provisionRetryBaseMs = 0;
+  billingConfig.reconcileBatchSize = 50;
+  billingConfig.reconcileJitterMs = 0;
   mockSetPending.mockResolvedValue(undefined);
   mockClearPending.mockResolvedValue(undefined);
   mockListPending.mockResolvedValue([]);
@@ -161,5 +165,31 @@ describe('reconcilePendingBillingSubscriptions', () => {
 
     expect(mockPost).not.toHaveBeenCalled();
     expect(summary).toEqual({ scanned: 0, reconciled: 0, stillPending: 0 });
+  });
+
+  it('bounds the pass by requesting only reconcileBatchSize orgs (oldest-first)', async () => {
+    billingConfig.reconcileBatchSize = 25;
+    mockListPending.mockResolvedValue([]);
+
+    await reconcilePendingBillingSubscriptions();
+
+    // The batch cap is threaded into the (ordered, limited) marker query so a
+    // single pass can't walk an unbounded backlog and overlap the next interval.
+    expect(mockListPending).toHaveBeenCalledWith(25);
+  });
+
+  it('makes a SINGLE billing attempt per org per pass (the interval is the retry loop)', async () => {
+    // Even with 3 provision retries configured, a FAILED reconcile attempt must
+    // not retry/backoff inside the pass — that serialized the batch and let a
+    // pass overlap the next interval. One POST, then leave the marker.
+    billingConfig.provisionRetryAttempts = 3;
+    mockListPending.mockResolvedValue([{ orgId: 'org-7', planId: 'pro' }]);
+    mockPost.mockRejectedValue(new Error('billing down'));
+
+    const summary = await reconcilePendingBillingSubscriptions();
+
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    expect(mockClearPending).not.toHaveBeenCalled();
+    expect(summary).toEqual({ scanned: 1, reconciled: 0, stillPending: 1 });
   });
 });

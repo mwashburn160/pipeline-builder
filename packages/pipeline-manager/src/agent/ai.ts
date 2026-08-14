@@ -13,6 +13,7 @@
  * the deterministic path instead of erroring.
  */
 
+import { AI_PROVIDER_ENV_VARS } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 
 export interface AiOptions {
@@ -20,21 +21,21 @@ export interface AiOptions {
   readonly model?: string;
 }
 
-// Keyed by the CANONICAL provider id used by @pipeline-builder/ai-core's
-// registry (e.g. 'amazon-bedrock', not 'bedrock').
-const PROVIDER_KEY_ENV: Record<string, string> = {
-  'anthropic': 'ANTHROPIC_API_KEY',
-  'openai': 'OPENAI_API_KEY',
-  'google': 'GOOGLE_GENERATIVE_AI_API_KEY',
-  'xai': 'XAI_API_KEY',
-  'amazon-bedrock': 'AWS_ACCESS_KEY_ID',
-};
-
 // Friendly aliases → canonical ids. Without this, --ai-provider bedrock (which
 // the docs advertise) resolves to no models in ai-core and silently degrades.
+// The provider→key-env map itself is the shared catalog (AI_PROVIDER_ENV_VARS in
+// api-core) that ai-core's registry uses — importing it keeps the two in lockstep
+// instead of maintaining a second, drift-prone copy here.
 const PROVIDER_ALIASES: Record<string, string> = {
   bedrock: 'amazon-bedrock',
 };
+
+/**
+ * Providers that authenticate WITHOUT an API key (Bedrock uses the runtime IAM
+ * role). Mirrors ai-core's provider-registry so the CLI's "is AI usable?" gate
+ * agrees with what the registry will actually register.
+ */
+const KEYLESS_PROVIDERS = new Set(['amazon-bedrock']);
 
 /** Resolve the canonical provider id from options/env, defaulting to anthropic. */
 function providerId(opts: AiOptions): string {
@@ -42,10 +43,28 @@ function providerId(opts: AiOptions): string {
   return PROVIDER_ALIASES[raw] ?? raw;
 }
 
-/** True when an API key for the selected provider is present. */
+/**
+ * Whether a keyless provider (Bedrock) is available. It auths via the runtime IAM
+ * role (no API key), so an AWS region — set by every AWS runtime — is the "running
+ * in / configured for AWS" signal. Gating it on AWS_ACCESS_KEY_ID (which it never
+ * uses) left it permanently unavailable on instance-role EC2/EKS despite valid IAM
+ * creds. Mirrors ai-core `provider-registry.ts` `keylessProviderAvailable()`.
+ */
+function keylessProviderAvailable(): boolean {
+  return !!(process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION);
+}
+
+/**
+ * True when the selected provider can be used: a key-based provider needs its API
+ * key, a keyless provider (Bedrock) needs either static AWS creds or an AWS region
+ * (the IAM-role signal). Kept in lockstep with ai-core's registry gating.
+ */
 export function isAiConfigured(opts: AiOptions = {}): boolean {
-  const env = PROVIDER_KEY_ENV[providerId(opts)];
-  return !!(env && process.env[env]);
+  const id = providerId(opts);
+  const env = AI_PROVIDER_ENV_VARS[id];
+  const hasKey = !!(env && process.env[env]);
+  if (KEYLESS_PROVIDERS.has(id)) return hasKey || keylessProviderAvailable();
+  return hasKey;
 }
 
 /** Dynamically load ai-core; null if it can't be imported (e.g. not installed). */

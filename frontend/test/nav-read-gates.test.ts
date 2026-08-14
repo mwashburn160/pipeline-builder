@@ -26,13 +26,12 @@ function findItem(href: string): NavItem {
   return item;
 }
 
-// Mirrors the wiring in Sidebar/CommandPalette: features on, admin flags off,
-// and permission checks delegated to the real `hasPermission(user, ...)`.
+// Mirrors the wiring in Sidebar/CommandPalette: admin flags off, and permission
+// checks delegated to the real `hasPermission(user, ...)`.
 type FakeUser = { permissions?: string[]; isSuperAdmin?: boolean };
 const ctx = (user: FakeUser | null) => ({
   isAdmin: false,
   isSuperAdmin: !!user?.isSuperAdmin,
-  isFeatureEnabled: () => true,
   // Billing SERVICE is enabled in this deployment, so the `requiresBillingEnabled`
   // gate is satisfied and these tests exercise the permission gate in isolation.
   billingEnabled: true,

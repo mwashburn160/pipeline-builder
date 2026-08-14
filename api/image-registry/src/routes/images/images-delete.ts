@@ -4,6 +4,7 @@
 import {
   sendSuccess,
   sendBadRequest,
+  sendError,
   sendEntityNotFound,
   ErrorCode,
   getParam,
@@ -13,6 +14,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
+import { canWriteRepo } from './repo-access.js';
 import { logger, RegistryMetrics, COPY_PARALLEL_BLOBS } from './shared.js';
 import { emitImageRegistryAudit } from '../../services/audit.js';
 import {
@@ -38,6 +40,9 @@ export function registerDeleteRoutes(router: Router): void {
     const name = getParam(req.params, 'name');
     const reference = getParam(req.params, 'reference');
     if (!name || !reference) return sendBadRequest(res, 'name and reference are required', ErrorCode.MISSING_REQUIRED_FIELD);
+    if (!canWriteRepo(req.user, name)) {
+      return sendError(res, 403, `Forbidden: repo "${name}" is outside your organization.`, ErrorCode.ORG_MISMATCH, { reason: 'repo-not-owned', repo: name, access: 'write' });
+    }
 
     try {
       // Distribution requires DELETE by digest, not tag. Resolve first.
@@ -86,6 +91,9 @@ export function registerDeleteRoutes(router: Router): void {
   router.delete('/:name', write, withRoute(async ({ req, res, ctx }) => {
     const name = getParam(req.params, 'name');
     if (!name) return sendBadRequest(res, 'Image name is required', ErrorCode.MISSING_REQUIRED_FIELD);
+    if (!canWriteRepo(req.user, name)) {
+      return sendError(res, 403, `Forbidden: repo "${name}" is outside your organization.`, ErrorCode.ORG_MISMATCH, { reason: 'repo-not-owned', repo: name, access: 'write' });
+    }
 
     let tags: string[];
     try {

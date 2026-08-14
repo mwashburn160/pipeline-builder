@@ -5,6 +5,19 @@ import type { Request } from 'express';
 import { getHeaderString } from './headers.js';
 
 /**
+ * Shape convention for the inline parse-guard helpers below.
+ *
+ * These return a lightweight `{ value } | { error }` (narrowed with
+ * `'error' in result`) — deliberately DISTINCT from the schema-validation
+ * `ValidationResult<T>` (`{ ok, value } | { ok, error }`) in
+ * `validation/middleware.ts`. Zod schema parsing uses the `ok`-discriminated
+ * shape; these ad-hoc request-parameter guards use `'error' in`. The split is
+ * intentional and documented (see the note on `ValidationResult`): converging
+ * them would churn every `'error' in result` call site across the downstream
+ * services with no behavioural change, so it's left as a documented convention.
+ */
+
+/**
  * Express 5 parameter type.
  */
 type ParamValue = string | string[] | undefined;

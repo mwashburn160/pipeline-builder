@@ -5,7 +5,23 @@ import type { Request } from 'express';
 import { ZodError, type ZodSchema } from 'zod';
 
 /**
- * Result type for validation operations
+ * Result type for validation operations.
+ *
+ * CANONICAL validation-result shape for the api-core public surface: a boolean-
+ * discriminated union (`if (!result.ok) …`). Use THIS for anything that parses
+ * against a Zod schema — `validate` / `validateBody` / `validateQuery`. The
+ * `ok` discriminant also carries the optional `zodError` for callers that want
+ * field-level detail.
+ *
+ * Note the deliberately-lighter sibling shape in `utils/params.ts`
+ * (`{ value } | { error }`, narrowed with `'error' in result`). That one is for
+ * simple inline request-parsing guards (`validateBulkArray`, `parseDateRange`,
+ * `parseReportInterval`) — NOT schema validation. The two are kept distinct on
+ * purpose: unifying `utils/params.ts` onto `{ ok }` would touch every
+ * `'error' in result` call site across the downstream services (pipeline,
+ * plugin, reporting, compliance, …) for no behavioural gain, so the convention
+ * is documented rather than force-migrated. Rule of thumb: Zod schema →
+ * `ValidationResult` (`ok`); ad-hoc parse guard → params.ts (`'error' in`).
  */
 export type ValidationResult<T> =
   | { ok: true; value: T }

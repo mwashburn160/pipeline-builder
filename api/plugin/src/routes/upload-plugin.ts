@@ -5,7 +5,7 @@ import * as fs from 'fs';
 
 import { ErrorCode, createLogger, errorMessage, getServiceAuthHeader, requirePermission, reserveQuota, decrementQuota, resolveAccessModifier, sendBadRequest, sendError, sendQuotaExceeded, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { requireAuth, requireOrgId, withRoute, withTenantContext } from '@pipeline-builder/api-server';
+import { requireAuth, requireOrgId, withRoute, withTenantContext, type SSEManager } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request, type Response, type RequestHandler, type ErrorRequestHandler } from 'express';
 import multer from 'multer';
@@ -52,6 +52,7 @@ const upload = multer({
  * then `plugins` quota check).
  */
 export function createUploadPluginRoutes( quotaService: QuotaService,
+  sseManager: SSEManager,
 ): Router {
   const router: Router = Router();
 
@@ -254,6 +255,9 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           requestId: ctx.requestId,
           orgId,
           userId: userId || 'system',
+          // Period snapshot for the reserved slot so a DLQ retry spanning a
+          // quota reset refunds the correct period (see releasePluginQuota).
+          reservedResetAt,
           buildRequest: {
             contextDir: plugin.extractDir,
             dockerfile: plugin.dockerfile,
@@ -266,6 +270,14 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           },
           pluginRecord,
         });
+
+        // Bind the build-log stream's owner BEFORE the requestId is returned to
+        // the caller (F3): a client can mint a ticket as soon as it has the
+        // requestId, so the owner must be recorded first or a tenant could mint a
+        // ticket for another tenant's guessed stream. Best-effort — a Redis hiccup
+        // must not fail an accepted upload; the worker re-binds as a backstop.
+        await sseManager.bindStreamOwner(ctx.requestId, orgId).catch((bindErr) =>
+          ctx.log('WARN', 'Stream-owner bind failed (non-fatal)', { error: errorMessage(bindErr) }));
 
         try {
           // route to the org's per-tier queue. Tier lookup is cached

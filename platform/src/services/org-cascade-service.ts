@@ -34,6 +34,7 @@ import DeletedOrgSnapshot from '../models/deleted-org-snapshot.js';
 import Invitation from '../models/invitation.js';
 import OrgIdpConfig from '../models/org-idp-config.js';
 import Organization from '../models/organization.js';
+import PersonalAccessToken from '../models/personal-access-token.js';
 import UserOrganization from '../models/user-organization.js';
 import User from '../models/user.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
@@ -444,6 +445,18 @@ export async function softDeleteOrg(
       await User.updateMany(
         { _id: { $in: bumpedMemberIds } },
         { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } },
+      ).session(session);
+
+      // Revoke every member's PAT scoped to THIS org. A PAT's authority is
+      // decoupled from tokenVersion (a session logout must not kill a durable CI
+      // credential), so the tokenVersion bump above does NOT reach it — an
+      // automation PAT would otherwise keep read+write on the tombstoned org
+      // until purge. Scope the revoke to `organizationId === orgId` so a member's
+      // PATs for OTHER (still-live) orgs are untouched. requireAuth also read-
+      // guards this on `org.deletedAt`, so the two together fail closed.
+      await PersonalAccessToken.updateMany(
+        { userId: { $in: bumpedMemberIds }, organizationId: orgId, revoked: false },
+        { $set: { revoked: true, revokedAt: now } },
       ).session(session);
     }
     return bumpedMemberIds.length;

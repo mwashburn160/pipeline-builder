@@ -20,6 +20,9 @@ export type TenantScopeResolver = (req: Request) => TenantContext;
  *  the active-org parent (org → team hierarchy) so downstream side-effects can
  *  reach it without a request. */
 const identityScope: TenantScopeResolver = (req) => ({
+  // `identity.orgId` is already normalized (trimmed + lowercased) once at
+  // resolution in api-core's `getIdentity`, so the GUC set here matches the
+  // app-layer WHERE clauses exactly — no ad-hoc re-normalization needed.
   orgId: getContext(req).identity.orgId,
   isSuperAdmin: isSystemAdmin(req),
   parentOrgId: req.user?.parentOrganizationId,

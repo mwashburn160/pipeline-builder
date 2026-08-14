@@ -14,10 +14,6 @@ export function pipelineTemplatesApi(core: ApiCore) {
       );
     },
 
-    getPipelineTemplateById: async (id: string) => {
-      return core.request<ApiResponse<{ template: PipelineTemplate }>>(`/api/pipeline-templates/${id}`);
-    },
-
     /**
      * Render a template into a concrete pipeline `props` by supplying its declared
      * inputs. The returned props flow straight into `createPipeline` (the normal

@@ -15,11 +15,12 @@ import type Stripe from 'stripe';
 import { config } from '../config.js';
 import { applyPlanTierChange, applyTierIncludedAddonPrune, createBillingEvent, calculatePeriodEnd, syncEntitlements } from '../helpers/billing-helpers.js';
 import type { PrunedAddon } from '../helpers/billing-helpers.js';
-import { ingestStripeInvoice } from '../helpers/billing-ledger.js';
+import { ingestStripeInvoice, reverseLedgerInvoice } from '../helpers/billing-ledger.js';
 import { clearDiscountsOnCancel, reconcileDiscountsOnInvoice } from '../helpers/discount-helpers.js';
-import { grantRecurringPromotions, qualifyReferral, recurringPeriodKey } from '../helpers/promotion-engine.js';
-import { findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers.js';
+import { clawbackRecentPromotions, grantRecurringPromotions, qualifyReferral, recurringPeriodKey } from '../helpers/promotion-engine.js';
+import { findSubscriptionByCustomerId, findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers.js';
 import { Plan } from '../models/plan.js';
+import type { SubscriptionDocument } from '../models/subscription.js';
 import { claimWebhookEvent, releaseWebhookEvent } from '../models/webhook-dedupe.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 import { StripeProvider } from '../providers/stripe-provider.js';
@@ -102,6 +103,12 @@ export function createStripeWebhookRoutes(): Router {
         'invoice.payment_succeeded': (data) => handlePaymentSucceeded(data as Stripe.Invoice),
         'invoice.payment_failed': (data) => handlePaymentFailed(data as Stripe.Invoice),
         'invoice.upcoming': (data) => handleInvoiceUpcoming(data as Stripe.Invoice),
+        // Reversals: reverse the ledger row + claw back credits granted inside the
+        // clawback window (defuses subscribe-grab-refund/chargeback abuse).
+        'charge.refunded': (data) => handleChargeRefunded(data as Stripe.Charge),
+        'charge.dispute.created': (data) => handleChargeDisputeCreated(data as Stripe.Dispute),
+        'invoice.voided': (data) => handleInvoiceReversal(data as Stripe.Invoice, 'invoice_voided'),
+        'invoice.marked_uncollectible': (data) => handleInvoiceReversal(data as Stripe.Invoice, 'invoice_uncollectible'),
       };
 
       // Idempotency guard: Stripe retries the same event.id on transient
@@ -550,3 +557,149 @@ async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
     gracePeriodDays: config.paymentGracePeriodDays,
   });
 }
+
+// Reversals (refund / dispute / void / uncollectible)
+
+/**
+ * Recover the invoice/customer id from a Stripe object field that may be a bare
+ * id string or an expanded object. Stripe delivers unexpanded ids on webhooks, but
+ * a retrieved (expanded) object carries the nested resource.
+ */
+function idOf(ref: unknown): string | undefined {
+  if (typeof ref === 'string') return ref;
+  if (ref && typeof ref === 'object' && typeof (ref as { id?: unknown }).id === 'string') {
+    return (ref as { id: string }).id;
+  }
+  return undefined;
+}
+
+/**
+ * Shared reversal tail: claw back promotion credits granted inside the clawback
+ * window (the subscribe-grab-refund defense) and record a `subscription_updated`
+ * row tagging the reversal reason. `clawbackRecentPromotions` reverses via atomic
+ * `$pull`/`$inc` (no `subscription.save()` — a save here would re-add the pulled
+ * rows), so this NEVER saves the subscription. Fail-soft: a clawback error must not
+ * fail the webhook (the ledger reversal already recorded the money movement).
+ */
+async function clawbackAndRecordReversal(
+  subscription: SubscriptionDocument,
+  reason: string,
+  details: Record<string, unknown>,
+): Promise<void> {
+  let clawedPromotions = 0;
+  try {
+    clawedPromotions = await clawbackRecentPromotions(subscription);
+  } catch (err) {
+    logger.warn('Promotion clawback failed during reversal', {
+      orgId: subscription.orgId, reason, error: errorMessage(err),
+    });
+  }
+  await createBillingEvent(subscription.orgId, 'subscription_updated', {
+    provider: 'stripe', reason, clawedPromotions, ...details,
+  }, subscription._id.toString());
+}
+
+/**
+ * Apply a charge-level reversal (refund or dispute): reverse the ledger row for the
+ * charge's invoice and claw back recently-granted promotion credits. The
+ * subscription is resolved from the charge's CUSTOMER (a Charge/Dispute has no
+ * subscription field); the ledger row is reversed by the charge's INVOICE id.
+ * Both are independent — a charge with no invoice (non-subscription charge) skips
+ * the ledger reversal; a charge with no matched local subscription skips clawback.
+ */
+async function applyChargeReversal(
+  charge: Stripe.Charge,
+  ledgerStatus: 'refunded' | 'disputed',
+  reason: string,
+  netAmountPaidCents: number,
+  details: Record<string, unknown>,
+): Promise<void> {
+  // `invoice` is present on a subscription Charge at runtime but isn't declared on
+  // Stripe's Charge type in this SDK version — read it structurally.
+  const invoiceId = idOf((charge as { invoice?: unknown }).invoice);
+  const customerId = idOf(charge.customer);
+
+  if (invoiceId) {
+    await reverseLedgerInvoice(invoiceId, ledgerStatus, netAmountPaidCents);
+  }
+
+  const subscription = customerId ? await findSubscriptionByCustomerId(customerId) : null;
+  if (!subscription) {
+    logger.warn('Charge reversal without a matching local subscription — ledger reversed, no clawback', {
+      reason, chargeId: charge.id, invoiceId, customerId,
+    });
+    return;
+  }
+  await clawbackAndRecordReversal(subscription, reason, { ...details, invoiceId });
+  logger.info('Stripe charge reversal processed', { orgId: subscription.orgId, reason, chargeId: charge.id, invoiceId });
+}
+
+/**
+ * `charge.refunded` — a (possibly partial) refund settled. Stripe sends the
+ * cumulative `amount_refunded` each time, so the net still-paid amount is
+ * `amount − amount_refunded` (idempotent absolute).
+ */
+async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
+  const netPaidCents = Math.max(0, (charge.amount ?? 0) - (charge.amount_refunded ?? 0));
+  await applyChargeReversal(charge, 'refunded', 'invoice_refunded', netPaidCents, {
+    refundedCents: charge.amount_refunded ?? 0,
+    fullyRefunded: charge.refunded === true,
+  });
+}
+
+/**
+ * `charge.dispute.created` — a chargeback opened. The Dispute event carries only
+ * the charge id, so we re-fetch the Charge (for its invoice + customer). The
+ * disputed funds are withdrawn, so net still-paid = `charge.amount − dispute.amount`.
+ */
+async function handleChargeDisputeCreated(dispute: Stripe.Dispute): Promise<void> {
+  const chargeId = idOf(dispute.charge);
+  if (!chargeId) {
+    logger.warn('Stripe dispute without a charge id — cannot reverse', { disputeId: dispute.id });
+    return;
+  }
+  const active = getPaymentProvider();
+  const stripe = active instanceof StripeProvider ? active.getStripeClient() : null;
+  if (!stripe) {
+    logger.warn('Stripe client unavailable — cannot resolve disputed charge', { disputeId: dispute.id, chargeId });
+    return;
+  }
+  const charge = await stripe.charges.retrieve(chargeId);
+  const netPaidCents = Math.max(0, (charge.amount ?? 0) - (dispute.amount ?? 0));
+  await applyChargeReversal(charge, 'disputed', 'invoice_disputed', netPaidCents, {
+    disputedCents: dispute.amount ?? 0,
+    disputeStatus: dispute.status,
+  });
+}
+
+/**
+ * `invoice.voided` / `invoice.marked_uncollectible` — an invoice reversed at the
+ * invoice level. Re-ingest so the ledger row flips to `void`/`uncollectible` via
+ * `mapInvoiceStatus` (making those branches live) with the invoice's current
+ * amounts, then claw back recently-granted promotion credits.
+ */
+async function handleInvoiceReversal(invoice: Stripe.Invoice, reason: string): Promise<void> {
+  const stripeSubscriptionId = invoiceSubscriptionId(invoice);
+  const subscription = stripeSubscriptionId ? await findSubscriptionByStripeId(stripeSubscriptionId) : null;
+
+  if (subscription) {
+    // Re-ingest reflects Stripe's current (void/uncollectible) invoice state onto
+    // the row — mapInvoiceStatus maps the status. Best-effort (a ledger hiccup must
+    // not fail the webhook / block the clawback).
+    await ingestStripeInvoice(subscription.orgId, invoice as unknown as Parameters<typeof ingestStripeInvoice>[1]).catch((err) => {
+      logger.warn('Ledger reverse-ingest failed', { orgId: subscription.orgId, invoiceId: invoice.id, reason, error: errorMessage(err) });
+    });
+    await clawbackAndRecordReversal(subscription, reason, { invoiceId: invoice.id, status: invoice.status });
+    logger.info('Stripe invoice reversal processed', { orgId: subscription.orgId, reason, invoiceId: invoice.id });
+    return;
+  }
+
+  // No local subscription (e.g. an out-of-band invoice): still flip an existing
+  // ledger row's status so the dashboard reflects the reversal.
+  if (invoice.id) {
+    await reverseLedgerInvoice(invoice.id, invoice.status === 'uncollectible' ? 'uncollectible' : 'void', 0);
+  }
+  logger.warn('Invoice reversal without a matching local subscription', { reason, invoiceId: invoice.id, stripeSubscriptionId });
+}
+
+export { handleChargeRefunded, handleChargeDisputeCreated, handleInvoiceReversal };

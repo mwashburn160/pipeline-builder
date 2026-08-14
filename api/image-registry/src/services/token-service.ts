@@ -103,13 +103,17 @@ export function authorizeScope(identity: Identity, requested: RequestedScope): s
   }
 
   // The system org OWNS the `system/*` namespace — the un-prefixed analog of
-  // `org-{orgId}/*`. A token scoped to the system org may pull+push there (this
-  // is how system sample plugins are built and published; see docker-build.ts).
-  // Evaluated before the generic `system/*` pull-only rule below so the push
-  // isn't downgraded. NOT a cross-org grant: a tenant token carries its real
+  // `org-{orgId}/*`. A token scoped to the system org may pull there always, and
+  // PUSH only with plugins:write (or admin, who holds it implicitly) — mirroring
+  // the org-namespace rule below so a plain system-org member can't overwrite a
+  // published system image. The legit sample-plugin build token is minted with
+  // role:'owner' (see api/plugin docker-build.ts) → canWritePlugins, so it keeps
+  // push. Evaluated before the generic `system/*` pull-only rule so an authorized
+  // push isn't downgraded. NOT a cross-org grant: a tenant token carries its real
   // orgId, so it never matches here and still only owns its own `org-{id}/*`.
   if (identity.orgId === SYSTEM_ORG_ID && requested.name.startsWith(SYSTEM_NAMESPACE_PREFIX)) {
-    return requested.actions.filter((a) => ['pull', 'push'].includes(a));
+    const allowed = identity.canWritePlugins ? ['pull', 'push'] : ['pull'];
+    return requested.actions.filter((a) => allowed.includes(a));
   }
 
   // Anyone authenticated can pull system images

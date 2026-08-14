@@ -38,10 +38,16 @@ export function createReadPipelineRoutes(
     const cursor = req.query.cursor as string | undefined;
     const fields = req.query.fields ? (req.query.fields as string).split(',') : undefined;
 
+    // Org → team hierarchy: a team org also sees its parent's public pipelines.
+    // `parentOrganizationId` rides in the JWT (absent for root orgs), so this is
+    // a no-op for non-team callers. Mirrors the plugin/template read routes.
+    const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+
     const result = await pipelineService.findPaginated(
       filter.value,
       orgId,
       { limit, offset, sortBy, sortOrder, includeTotal, cursor, fields },
+      parentOrgId,
     );
 
     ctx.log('COMPLETED', 'Listed pipelines', { count: result.data.length, ...(result.total !== undefined && { total: result.total }) });
@@ -59,7 +65,10 @@ export function createReadPipelineRoutes(
     const filter = validateQuery(req, PipelineFilterSchema);
     if (!filter.ok) return sendBadRequest(res, filter.error);
 
-    const pipelines = await pipelineService.find(filter.value, orgId);
+    // Org → team hierarchy: also match the parent's public pipelines (mirrors
+    // the list path). No-op for root orgs (claim absent).
+    const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+    const pipelines = await pipelineService.find(filter.value, orgId, parentOrgId);
     const result = pipelines[0];
 
     if (!result) return sendEntityNotFound(res, 'Pipeline');
@@ -83,7 +92,10 @@ export function createReadPipelineRoutes(
     // samples), so no extra public-access gate is needed here — and adding one
     // would 403 non-sysadmins on the system-org sample pipelines that list
     // returns (system-org content is visible from any org).
-    const result = await pipelineService.findById(id, orgId);
+    // Org → team hierarchy: also fetch the parent's public pipelines by id
+    // (mirrors the list path). No-op for root orgs (claim absent).
+    const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+    const result = await pipelineService.findById(id, orgId, parentOrgId);
 
     if (!result) return sendEntityNotFound(res, 'Pipeline');
 

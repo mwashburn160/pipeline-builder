@@ -4,6 +4,7 @@
 import { jest, describe, it, expect, afterEach } from '@jest/globals';
 
 import { entityEvents, type EntityEvent, type EntityEventSubscriber } from '../src/services/entity-events.js';
+import { setCounterEmitter, resetCounterEmitter } from '../src/utils/metric-emitter.js';
 
 function makeEvent(overrides: Partial<EntityEvent> = {}): EntityEvent {
   return {
@@ -88,6 +89,22 @@ describe('entityEvents', () => {
 
     expect(() => entityEvents.emit(makeEvent())).not.toThrow();
     await new Promise((r) => setTimeout(r, 10));
+  });
+
+  it('emits a drop metric when a subscriber throws (observable best-effort)', async () => {
+    const counts: Array<{ name: string; labels?: Record<string, string> }> = [];
+    setCounterEmitter((name, labels) => { counts.push({ name, labels }); });
+    try {
+      addSubscriber(jest.fn().mockRejectedValue(new Error('boom')) as ReturnType<typeof jest.fn>);
+      entityEvents.emit(makeEvent({ target: 'pipeline', eventType: 'updated' }));
+      await new Promise((r) => setTimeout(r, 10));
+
+      const drop = counts.find((c) => c.name === 'entity_event_subscriber_failed_total');
+      expect(drop).toBeDefined();
+      expect(drop?.labels).toEqual({ target: 'pipeline', eventType: 'updated' });
+    } finally {
+      resetCounterEmitter();
+    }
   });
 
   it('healthy subscriber still called when another subscriber throws', async () => {

@@ -32,6 +32,7 @@ export function QuotasAdmin({
   saving,
   platformOrgs,
   filteredOrgs,
+  orgTotal,
   searchFilter,
   selectedOrgId,
   orgHealthColors,
@@ -57,6 +58,8 @@ export function QuotasAdmin({
   saving: boolean;
   platformOrgs: { id: string; name: string; slug?: string }[];
   filteredOrgs: { id: string; name: string; slug?: string }[];
+  /** Total org count on the server (>= platformOrgs.length when the picker is capped). */
+  orgTotal: number;
   searchFilter: string;
   selectedOrgId: string | null;
   orgHealthColors: Record<string, string>;
@@ -152,7 +155,9 @@ export function QuotasAdmin({
                 className="!py-1.5 text-xs"
               />
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-                {platformOrgs.length} org{platformOrgs.length !== 1 ? 's' : ''}
+                {orgTotal > platformOrgs.length
+                  ? `Showing ${platformOrgs.length} of ${orgTotal} — type to search all`
+                  : `${platformOrgs.length} org${platformOrgs.length !== 1 ? 's' : ''}`}
               </p>
             </div>
             <div className="flex-1 overflow-y-auto">

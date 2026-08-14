@@ -49,8 +49,17 @@ export function getIdentity(req: HttpRequest): RequestIdentity {
   // JWT (e.g. requestId). The JWT payload uses `sub` for the user id per
   // OIDC convention; that's our authoritative source.
   const user = req.user;
+  // Canonical orgId normalization — the SINGLE source of truth. Lowercasing
+  // (and trimming) ONCE here guarantees the RLS GUC (`identityScope` reads this
+  // raw `identity.orgId`) and the app-layer WHERE clauses (route-wrapper /
+  // app-factory, which historically re-lowercased) always agree on tenant. A
+  // mismatch — GUC set to `Acme` while WHERE queries `acme` — would, under
+  // owner-bypass RLS, silently scope reads to the wrong (or no) tenant. Empty /
+  // whitespace-only collapses to undefined so "missing org" stays falsy.
+  const rawOrgId = user?.organizationId || getHeaderString(req.headers['x-org-id']);
+  const orgId = rawOrgId?.trim().toLowerCase() || undefined;
   return {
-    orgId: user?.organizationId || getHeaderString(req.headers['x-org-id']),
+    orgId,
     userId: user?.sub || getHeaderString(req.headers['x-user-id']),
     requestId: getHeaderString(req.headers['x-request-id']),
     role: user?.role || getHeaderString(req.headers['x-user-role']),

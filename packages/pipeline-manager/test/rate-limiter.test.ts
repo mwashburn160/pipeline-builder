@@ -9,15 +9,15 @@ import { describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 import { checkAuthRateLimit, recordAuthFailure, recordAuthSuccess } from '../src/utils/rate-limiter.js';
 
 const STATE_FILE = path.join(os.tmpdir(), '.pipeline-manager-auth-state.json');
+const LOCK_DIR = `${STATE_FILE}.lock`;
 
-beforeEach(() => {
-  // Clean state between tests
+function cleanup() {
   try { fs.unlinkSync(STATE_FILE); } catch { /* ignore */ }
-});
+  try { fs.rmdirSync(LOCK_DIR); } catch { /* ignore */ }
+}
 
-afterAll(() => {
-  try { fs.unlinkSync(STATE_FILE); } catch { /* ignore */ }
-});
+beforeEach(cleanup);
+afterAll(cleanup);
 
 describe('rate-limiter', () => {
   describe('checkAuthRateLimit', () => {
@@ -72,6 +72,38 @@ describe('rate-limiter', () => {
       for (let i = 0; i < 5; i++) recordAuthFailure('alice@example.com', 'https://x');
       expect(checkAuthRateLimit('alice@example.com', 'https://x')).not.toBeNull();
       expect(checkAuthRateLimit('bob@example.com', 'https://x')).toBeNull();
+    });
+  });
+
+  describe('concurrency-safe read-modify-write', () => {
+    it('releases the lock after a successful update (no leaked lock dir)', () => {
+      recordAuthFailure();
+      recordAuthSuccess();
+      expect(fs.existsSync(LOCK_DIR)).toBe(false);
+    });
+
+    it('writes valid, non-torn JSON via atomic rename', () => {
+      for (let i = 0; i < 3; i++) recordAuthFailure();
+      // A completed write must always be parseable (rename is atomic).
+      const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
+      expect(state._default.failures).toBe(3);
+      // No temp files left behind.
+      const strays = fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('.pipeline-manager-auth-state.json.') && f.endsWith('.tmp'));
+      expect(strays).toEqual([]);
+    });
+
+    it('reclaims a stale lock left by a crashed process', () => {
+      // Simulate a crashed owner: create the lock dir and back-date its mtime past
+      // the stale threshold so the next writer reclaims it instead of hanging.
+      fs.mkdirSync(LOCK_DIR);
+      const past = new Date(Date.now() - 60_000);
+      fs.utimesSync(LOCK_DIR, past, past);
+
+      recordAuthFailure();
+
+      const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
+      expect(state._default.failures).toBe(1);
+      expect(fs.existsSync(LOCK_DIR)).toBe(false);
     });
   });
 });

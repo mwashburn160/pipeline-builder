@@ -2,18 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- *  Per-org IdP configuration (scaffolding).
+ *  Per-org IdP configuration.
  *
- * Stores the per-org SSO/IdP settings a sysadmin registers on a customer's
- * behalf. THIS MODEL IS FOUNDATION ONLY  the auth middleware that dispatches
- * by org is intentionally not shipped here because the user/role provisioning
- * policy is customer-driven (JIT user creation? Role mapping from which
- * claim? Account-link existing users by email?).
- *
- * Activation runbook: when a customer asks for SSO, the auth flow that
- * reads from this collection lands in a follow-up. The data layer + CRUD
- * surface here lets a sysadmin pre-register IdP credentials so the cutover
- * is a code-only deploy, not a code+data migration.
+ * Stores the per-org SSO/IdP settings for a customer's identity provider. The
+ * OIDC enforcement runtime that reads this collection IS shipped:
+ * `services/oidc-service.ts` (discovery + JWKS-validated id_token),
+ * `helpers/sso-enforcement.ts` (entitlement + `allowedEmailDomains` domain
+ * gating), `controllers/sso.ts` + `routes/sso.ts` (the `/auth/sso/*` login
+ * flow). Config is managed from two surfaces: the superadmin fleet routes
+ * (`/admin/org-idp`) and org-admin self-service (`controllers/org-idp-self.ts`,
+ * gated on `org:settings`). Users are account-linked by verified email
+ * (JIT-created if absent), mirroring the OAuth social-login path.
  *
  * Secrets * - `clientSecret` is encrypted at write via the encryption primitive
  * (HKDF-derived per-org key + AES-256-GCM). Stored as the JSON-stringified
@@ -24,18 +23,25 @@
  */
 
 import { Schema, model, Document } from 'mongoose';
-import { type OAuthProviderName, OAUTH_PROVIDER_NAMES } from '../types/oauth-provider.js';
 
-/** Supported IdP providers. `generic-oidc` is the broad case — any OIDC-compliant
- * IdP with discovery URL works (Okta, Auth0, Keycloak, AWS Cognito, Azure AD).
- * The named providers (`google` / `github`) come from the shared
- * `OAuthProviderName` union because they have wired-up OAuth flows in
- * `controllers/oauth.ts` that the follow-on dispatcher will re-use rather
- * than duplicate. */
-export type IdpProvider = 'generic-oidc' | OAuthProviderName;
+/** Supported IdP (SSO) providers — the OIDC-capable set. This is DELIBERATELY
+ * NOT derived from `OAuthProviderName`: that union carries OAuth2 social logins
+ * (e.g. `facebook`) that are NOT standards-OIDC and therefore can't drive the
+ * per-org SSO id_token flow.
+ *
+ * - `generic-oidc` — the broad case: any OIDC issuer with a discovery URL
+ *   (Okta, Auth0, Keycloak, Azure AD).
+ * - `cognito`      — AWS Cognito, a NAMED OIDC provider: the admin supplies
+ *   `region` + `userPoolId` and the discovery URL is DERIVED
+ *   (`https://cognito-idp.<region>.amazonaws.com/<userPoolId>/.well-known/openid-configuration`),
+ *   so no hand-entered URL. A user-pool id is NOT an AWS account id — safe to store.
+ * - `google`       — OIDC-compliant; discovery is well-known.
+ * - `github`       — present for parity with the OAuth handlers, but GitHub is
+ *   NOT an OpenID provider (no id_token); the OIDC engine rejects it. */
+export type IdpProvider = 'generic-oidc' | 'cognito' | 'google' | 'github';
 
 /** Runtime list of `IdpProvider` values for Mongoose enum / Zod schemas. */
-const IDP_PROVIDERS: readonly IdpProvider[] = ['generic-oidc', ...OAUTH_PROVIDER_NAMES];
+const IDP_PROVIDERS: readonly IdpProvider[] = ['generic-oidc', 'cognito', 'google', 'github'];
 
 export interface OrgIdpConfigDocument extends Document {
   /** Org this config applies to. One config per org max  enforced by unique index. */
@@ -49,8 +55,17 @@ export interface OrgIdpConfigDocument extends Document {
   clientSecretEncrypted: string;
 
   /** OIDC discovery URL (https://issuer/.well-known/openid-configuration).
-   * Required for `generic-oidc`; ignored for the named providers. */
+   * Required for `generic-oidc`. For `cognito` it is DERIVED from region +
+   * userPoolId; for `google` it is well-known. */
   discoveryUrl?: string;
+
+  /** AWS Cognito region (e.g. `us-east-1`). Required for `provider: 'cognito'`;
+   *  used to derive the discovery URL. Not persisted for other providers. */
+  region?: string;
+
+  /** AWS Cognito user-pool id (e.g. `us-east-1_abc123`). Required for
+   *  `provider: 'cognito'`. NOT an AWS account id — safe to store. */
+  userPoolId?: string;
 
   /**
    * If set, only IdP users whose email matches one of these domains are
@@ -81,6 +96,8 @@ const orgIdpConfigSchema = new Schema<OrgIdpConfigDocument>( {
   clientId: { type: String, required: true },
   clientSecretEncrypted: { type: String, required: true },
   discoveryUrl: { type: String },
+  region: { type: String },
+  userPoolId: { type: String },
   allowedEmailDomains: { type: [String], default: [] },
   enabled: { type: Boolean, default: true },
   createdBy: { type: String, required: true },

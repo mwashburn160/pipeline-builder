@@ -44,3 +44,17 @@ export async function findSubscriptionByStripeId(stripeSubscriptionId: string) {
     'metadata.provider': 'stripe',
   });
 }
+
+/**
+ * Find the account's newest Stripe subscription by its external customer id — the
+ * lookup the charge-level reversal webhooks (charge.refunded /
+ * charge.dispute.created) use, since a Charge/Dispute carries the customer but not
+ * the subscription. Newest-first so a cancel→resubscribe (multiple rows sharing a
+ * customer) resolves to the current subscription, not a stale canceled one.
+ */
+export async function findSubscriptionByCustomerId(externalCustomerId: string) {
+  return Subscription.findOne({
+    'externalCustomerId': externalCustomerId,
+    'metadata.provider': 'stripe',
+  }).sort({ createdAt: -1 });
+}

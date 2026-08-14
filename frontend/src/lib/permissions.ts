@@ -58,15 +58,6 @@ function groupByCategory(perms: PermissionMeta[]): { category: string; permissio
 }
 
 /**
- * Category → permissions, in catalog order. This is the full DISPLAY catalog
- * (used by nav and read-only role permission lists — it must show every id,
- * including `registry:*`, so a built-in/superadmin role renders correctly).
- * The authoring picker uses {@link ORG_ASSIGNABLE_CATEGORIES} instead.
- */
-export const PERMISSION_CATEGORIES: { category: string; permissions: PermissionMeta[] }[] =
-  groupByCategory(PERMISSION_CATALOG);
-
-/**
  * Local mirror of api-core's `SUPERADMIN_ONLY_PERMISSIONS`
  * (`src/types/permissions.ts`). These gate the platform-operator image registry
  * and are NOT assignable through a user-authored custom Role — the backend

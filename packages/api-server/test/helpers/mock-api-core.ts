@@ -118,6 +118,12 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       res.status(statusCode).json(body);
     },
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    // SSE payload redactor — passthrough by default; suites that assert on the
+    // redaction (request-types) override with a spy.
+    redactSensitive: (v: unknown) => v,
+    // Shared env-Redis client factory → null (no Redis) so idempotency /
+    // SSE-ticket stores fall back to their in-memory defaults in tests.
+    createEnvRedisClient: () => null,
     // Sanitized DB-error extractor: tests don't surface pg metadata, so default to {}.
     extractDbError: () => ({}),
     NotFoundError,

@@ -598,7 +598,24 @@ export class ReportingService {
    * cache key.
    */
   private orgScope(orgId: string, orgIds?: string[]) {
-    const ids = orgIds && orgIds.length > 0 ? orgIds : [orgId];
+    // Defense-in-depth: the multi-org rollup runs under sysadmin context (RLS
+    // OFF, see runReport), so `orgIds` is the ONLY tenancy gate on the read. The
+    // route resolves it from the platform's authoritative descendants endpoint as
+    // `[self, ...descendants]`, but validate the subtree defensively here before
+    // the bypass: the requesting (anchor) org MUST appear in the set. A set that
+    // omits the caller's own org is a malformed/spoofed rollup — collapse to the
+    // safe single-org scope rather than reading an arbitrary org under sysadmin.
+    // (Full descendant-membership validation needs the org tree, which this
+    // service does not hold — see the report FLAG.)
+    const anchor = orgId.toLowerCase();
+    const provided = (orgIds ?? []).filter((id) => typeof id === 'string' && id.length > 0);
+    const anchored = provided.some((id) => id.toLowerCase() === anchor);
+    if (provided.length > 0 && !anchored) {
+      logger.warn('Reporting rollup rejected: requesting org absent from resolved subtree; using single-org scope', {
+        orgId: anchor, subtreeSize: provided.length,
+      });
+    }
+    const ids = provided.length > 0 && anchored ? provided : [orgId];
     const multi = ids.length > 1;
     const pred = multi
       ? sql`IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})`

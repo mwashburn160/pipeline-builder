@@ -211,23 +211,26 @@ export async function enqueueBuild(tier: QuotaTier, jobName: string, jobData: Pl
  * failed-build retry). The source job already RELEASED its slot on terminal
  * failure, so a re-run must re-reserve one and hand ownership to the new job.
  *
- * Returns the `quotaReleased` flag for the NEW job: `false` when a slot was
- * reserved (new job owns it and will release it on its own terminal), `true`
- * when the org is at its plugin cap or the reservation call failed (the job
- * carries no slot, keeping accounting balanced with no double-credit). The
- * re-enqueue always proceeds — it's an explicit admin action.
+ * Returns `{ quotaReleased, reservedResetAt }` for the NEW job:
+ * - `quotaReleased:false` + `reservedResetAt` set when a slot was reserved (new
+ *   job owns it, releases it on its own terminal, and carries the fresh
+ *   period snapshot so that release is period-safe).
+ * - `quotaReleased:true` (no `reservedResetAt`) when the org is at its plugin
+ *   cap or the reservation call failed (the job carries no slot, keeping
+ *   accounting balanced with no double-credit).
+ * The re-enqueue always proceeds — it's an explicit admin action.
  */
-export async function reserveReplaySlot(quotaService: QuotaService, orgId: string, authHeader: string, jobId: string): Promise<boolean> {
+export async function reserveReplaySlot(quotaService: QuotaService, orgId: string, authHeader: string, jobId: string): Promise<{ quotaReleased: boolean; reservedResetAt?: string }> {
   try {
     const reservation = await reserveQuota(quotaService, orgId, 'plugins', authHeader);
     if (reservation.exceeded) {
       logger.warn('Re-enqueue proceeding without a plugin-quota slot (org at cap)', { jobId, orgId });
-      return true;
+      return { quotaReleased: true };
     }
-    return false;
+    return { quotaReleased: false, reservedResetAt: reservation.quota.resetAt };
   } catch (err) {
     logger.warn('Re-enqueue quota reservation failed; proceeding without slot', { jobId, orgId, error: errorMessage(err) });
-    return true;
+    return { quotaReleased: true };
   }
 }
 
@@ -275,12 +278,15 @@ export async function retryFailedJob(jobId: string, quotaService: QuotaService):
 
   const { orgId } = failedJob.data;
   const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
-  const quotaReleased = await reserveReplaySlot(quotaService, orgId, authHeader, jobId);
+  const { quotaReleased, reservedResetAt } = await reserveReplaySlot(quotaService, orgId, authHeader, jobId);
 
   const freshData: PluginBuildJobData = {
     ...failedJob.data,
     totalAttempts: 0,
     quotaReleased,
+    // Fresh period snapshot for the newly reserved slot (undefined when none was
+    // reserved) so this retry's own terminal release is period-safe.
+    reservedResetAt,
   };
   delete (freshData as { lastError?: string }).lastError;
   delete (freshData as { failureCategory?: string }).failureCategory;
@@ -483,10 +489,15 @@ async function getProtectedContextDirs(): Promise<Set<string>> {
  */
 export function releasePluginQuota(job: Job<PluginBuildJobData>, quotaService: QuotaService): void {
   if (job.data.quotaReleased) return;
-  const { orgId } = job.data;
+  const { orgId, reservedResetAt } = job.data;
+  // Pass the reserve-time `resetAt` snapshot so a refund on a job whose retries
+  // spanned a quota-period reset is a no-op (the old period already reset to 0)
+  // rather than stealing capacity from the NEW period. Older jobs without the
+  // field decrement unconditionally, preserving prior behaviour.
   decrementQuota(quotaService, orgId, 'plugins',
     getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }),
     logger.warn.bind(logger),
+    1, reservedResetAt,
   );
   job.data.quotaReleased = true;
   void job.updateData(job.data).catch((err) =>
@@ -528,6 +539,14 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         if (job.timestamp) {
           observe('plugin_job_wait_seconds', {}, (Date.now() - job.timestamp) / 1000);
         }
+
+        // Ensure/refresh the build-log stream's owner binding (F3 backstop) so a
+        // cross-tenant ticket mint for this requestId is refused — covers a retry/
+        // replay whose original route-time binding TTL lapsed, and any producer
+        // that didn't bind at enqueue. Best-effort: a Redis hiccup here must not
+        // fail the build (ticket minting simply falls back to caller-org binding).
+        await sseManager.bindStreamOwner(requestId, orgId).catch((err) =>
+          logger.debug('Stream-owner bind failed (non-fatal)', { requestId, error: errorMessage(err) }));
 
         sseManager.send(requestId, 'INFO', 'Build started', {
           jobId: job.id,

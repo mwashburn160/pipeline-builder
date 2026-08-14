@@ -9,6 +9,8 @@ export const logger = createLogger('image-routes');
 export const RegistryMetrics = {
   TAG_DELETE: 'registry_tag_delete_total',
   TAG_COPY: 'registry_tag_copy_total',
+  /** A copy that threw mid-tree (may have left orphan blobs in the target). */
+  TAG_COPY_PARTIAL: 'registry_tag_copy_partial_failure_total',
   TAG_PROMOTE: 'registry_tag_promote_total',
   REPO_DELETE: 'registry_repo_delete_total',
 } as const;

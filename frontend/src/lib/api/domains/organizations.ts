@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery, API_URL } from '../util';
-import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, OrgIdpConfigDto } from '@/types';
+import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, OrgIdpConfigDto, OrgIdpConfigCreate } from '@/types';
 
 /** An org row from the sysadmin list, extended with soft-delete state. The list
  *  endpoint returns soft-deleted orgs inline (NOT filtered out), flagged with
@@ -356,6 +356,26 @@ export function organizationsApi(core: ApiCore) {
      *  IdP editor; this is the read-only fleet view of who has SSO configured. */
     listOrgIdpConfigs: async () => {
       return core.request<ApiResponse<{ configs: OrgIdpConfigDto[] }>>('/api/admin/org-idp');
+    },
+
+    // ============================================
+    // Own-org IdP / SSO self-service (org owner/admin)
+    // ============================================
+
+    /** GET /organization/:id/idp — the caller's own org IdP config. Gated on the
+     *  `org:settings` permission and own-org only; `sso` entitlement enforced
+     *  server-side. `config` is null when no IdP is configured (a normal 200). */
+    getOwnOrgIdpConfig: async (orgId: string) => {
+      return core.request<ApiResponse<{ config: OrgIdpConfigDto | null }>>(`/api/organization/${orgId}/idp`);
+    },
+
+    /** PUT /organization/:id/idp — upsert the caller's own org IdP config. On
+     *  update, omitting `clientSecret` keeps the existing secret (write-only). */
+    putOwnOrgIdpConfig: async (orgId: string, data: Partial<OrgIdpConfigCreate>) => {
+      return core.request<ApiResponse<{ config: OrgIdpConfigDto }>>(`/api/organization/${orgId}/idp`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
     },
   };
 }

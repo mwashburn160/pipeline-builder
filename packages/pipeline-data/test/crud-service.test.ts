@@ -39,6 +39,14 @@ jest.unstable_mockModule('../src/database/postgres-connection.js', () => ({
 const mockExecute = jest.fn().mockResolvedValue(undefined);
 const mockDelete = jest.fn();
 
+// Tenant context is mockable per-test: enforceOrgId / setDefault read it to pin
+// writes to the caller's org. Default is `undefined` (out-of-context / worker
+// path — enforceOrgId is a no-op) as before; individual tests set a real
+// non-sysadmin (or sysadmin) context to exercise the tenant-stamp behavior.
+interface FakeTenantContext { orgId?: string; isSuperAdmin: boolean }
+let currentTenantContext: FakeTenantContext | undefined;
+const mockGetTenantContext = jest.fn<() => FakeTenantContext | undefined>(() => currentTenantContext);
+
 jest.unstable_mockModule('../src/database/tenancy.js', () => ({
   withTenantTx: (fn: (tx: unknown) => unknown) => fn({
     select: mockSelect,
@@ -48,7 +56,7 @@ jest.unstable_mockModule('../src/database/tenancy.js', () => ({
     execute: mockExecute,
   }),
   runWithTenantContext: <T>(_ctx: unknown, fn: () => T) => fn(),
-  getTenantContext: () => undefined,
+  getTenantContext: () => mockGetTenantContext(),
   tenantContext: { run: <T>(_ctx: unknown, fn: () => T) => fn(), getStore: () => undefined },
 }));
 
@@ -83,7 +91,7 @@ interface TestUpdate {
 // `id` is a (fake) column so writeConditions/findById can build the exact-id
 // equality that neutralizes prefix matching on the single-entity paths — same
 // empty-object column stand-in used for mockOrgColumn.
-const mockSchema = { id: {} } as unknown as PgTable;
+const mockSchema = { id: {}, name: {}, isActive: {}, isDefault: {} } as unknown as PgTable;
 const mockProjectColumn = {} as AnyColumn;
 const mockOrgColumn = {} as AnyColumn;
 const mockConflictTarget = [{} as AnyColumn, {} as AnyColumn];
@@ -123,6 +131,8 @@ describe('CrudService', () => {
   beforeEach(() => {
     service = new TestService();
     jest.clearAllMocks();
+    // Default: no tenant scope (out-of-context path) unless a test opts in.
+    currentTenantContext = undefined;
   });
 
   // findById
@@ -877,6 +887,192 @@ describe('CrudService', () => {
 
       expect(total).toBe(2);
       expect(svc.calls).toEqual([{ orgId: 'org1', parentOrgId: undefined }]);
+    });
+  });
+
+  // enforceOrgId — tenant-write stamp (the fail-open fix).
+  //
+  // These run with a REAL non-sysadmin tenant context (the default mock returns
+  // undefined, which makes enforceOrgId a no-op). A non-sysadmin write MUST land
+  // in the caller's own org: the org_id column DEFAULTs to SYSTEM_ORG_ID, so an
+  // insert that omits orgId would otherwise drop the tenant's row into the public
+  // system catalog — a cross-tenant fail-open. enforceOrgId always stamps
+  // ctx.orgId (absent → inject, mismatch → override); sysadmin/out-of-context
+  // callers pass through untouched.
+
+  describe('enforceOrgId tenant stamp', () => {
+    const created: TestEntity = {
+      id: 'created-id',
+      orgId: 'org1',
+      name: 'X',
+      isDefault: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      createdBy: 'user1',
+      updatedBy: 'user1',
+    };
+
+    /** Wire create()'s insert chain and return the spy on `.values()`. */
+    function captureCreateValues() {
+      const valuesSpy = jest.fn().mockReturnValue({
+        onConflictDoUpdate: jest.fn().mockReturnValue({
+          returning: jest.fn().mockResolvedValue([created]),
+        }),
+      });
+      mockInsert.mockReturnValue({ values: valuesSpy });
+      return valuesSpy;
+    }
+
+    it('injects ctx.orgId when the insert OMITS orgId (fail-open fix)', async () => {
+      currentTenantContext = { orgId: 'org1', isSuperAdmin: false };
+      const valuesSpy = captureCreateValues();
+
+      await service.create({ name: 'no-org' } as unknown as TestInsert, 'user1');
+
+      // Without the stamp this row would default to SYSTEM_ORG_ID.
+      expect(valuesSpy.mock.calls[0][0].orgId).toBe('org1');
+    });
+
+    it('overrides a mismatched caller-supplied orgId', async () => {
+      currentTenantContext = { orgId: 'org1', isSuperAdmin: false };
+      const valuesSpy = captureCreateValues();
+
+      await service.create({ name: 'x', orgId: 'attacker-org' }, 'user1');
+
+      expect(valuesSpy.mock.calls[0][0].orgId).toBe('org1');
+    });
+
+    it('leaves a matching orgId unchanged', async () => {
+      currentTenantContext = { orgId: 'org1', isSuperAdmin: false };
+      const valuesSpy = captureCreateValues();
+
+      await service.create({ name: 'x', orgId: 'org1' }, 'user1');
+
+      expect(valuesSpy.mock.calls[0][0].orgId).toBe('org1');
+    });
+
+    it('passes a sysadmin context through untouched', async () => {
+      currentTenantContext = { orgId: 'system', isSuperAdmin: true };
+      const valuesSpy = captureCreateValues();
+
+      await service.create({ name: 'x', orgId: 'some-other-org' }, 'user1');
+
+      // Sysadmin may write into any org — the supplied org survives.
+      expect(valuesSpy.mock.calls[0][0].orgId).toBe('some-other-org');
+    });
+
+    it('passes through when there is no tenant scope (worker/system path)', async () => {
+      currentTenantContext = undefined;
+      const valuesSpy = captureCreateValues();
+
+      await service.create({ name: 'x', orgId: 'explicit-org' }, 'user1');
+
+      expect(valuesSpy.mock.calls[0][0].orgId).toBe('explicit-org');
+    });
+
+    it('also stamps the tenant org on update payloads (re-home prevention)', async () => {
+      currentTenantContext = { orgId: 'org1', isSuperAdmin: false };
+      const setSpy = jest.fn().mockReturnValue({
+        where: jest.fn().mockReturnValue({
+          returning: jest.fn().mockResolvedValue([created]),
+        }),
+      });
+      mockUpdate.mockReturnValue({ set: setSpy });
+
+      await service.update('id1', { orgId: 'attacker-org', name: 'x' } as any, 'org1', 'user1');
+
+      expect(setSpy.mock.calls[0][0].orgId).toBe('org1');
+    });
+  });
+
+  // Cursor pagination — the sort column must survive a sparse fieldset so the
+  // next cursor (lastItem[sortBy]) resolves; otherwise the client stalls on
+  // page 1. Regression guard for buildFieldSelect(fields, sortBy).
+
+  describe('cursor pagination sortBy inclusion', () => {
+    const row: TestEntity = {
+      id: 'last-id',
+      orgId: 'org1',
+      name: 'Z',
+      isDefault: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      createdBy: 'u',
+      updatedBy: 'u',
+    };
+
+    it('adds the sortBy column to the projection even when fields omit it', async () => {
+      const offset = jest.fn().mockResolvedValue([row]);
+      const limit = jest.fn().mockReturnValue({ offset });
+      const orderBy = jest.fn().mockReturnValue({ limit });
+      const where = jest.fn().mockReturnValue({ orderBy, limit });
+      const from = jest.fn().mockReturnValue({ where });
+      mockSelect.mockReturnValueOnce({ from } as unknown as ReturnType<typeof mockSelect>);
+
+      const result = await service.findPaginated({}, 'org1', {
+        fields: ['id'], // caller omits the sort column
+        sortBy: 'name',
+        cursor: 'prev-cursor', // activates cursor pagination
+      });
+
+      // The projection passed to tx.select(...) must include the sort column.
+      const spec = mockSelect.mock.calls[0][0] as Record<string, unknown>;
+      expect(spec).toHaveProperty('name');
+      expect(spec).toHaveProperty('id');
+      // And the next cursor is produced from that column's value.
+      expect(result.nextCursor).toBe('Z');
+    });
+  });
+
+  // setDefault cleanup — must not promote a soft-deleted row, and must pin the
+  // target with the lowercased exact-id predicate the mutation paths use.
+
+  describe('setDefault cleanup (isActive guard + exact id)', () => {
+    /** Recursively scan a drizzle SQL node for a specific column reference. */
+    function sqlContains(node: unknown, target: unknown): boolean {
+      if (node === target) return true;
+      if (node && typeof node === 'object') {
+        const chunks = (node as { queryChunks?: unknown[] }).queryChunks;
+        if (Array.isArray(chunks)) return chunks.some((c) => sqlContains(c, target));
+        return Object.values(node as Record<string, unknown>).some((v) => sqlContains(v, target));
+      }
+      return false;
+    }
+
+    const updated: TestEntity = {
+      id: 'target-id',
+      orgId: 'org1',
+      name: 'Default',
+      isDefault: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      createdBy: 'user1',
+      updatedBy: 'user1',
+    };
+
+    it('promotes only an active row via the lowercased exactIdCondition', async () => {
+      mockExecute.mockResolvedValueOnce([]);
+      const exactSpy = jest.spyOn(service as unknown as { exactIdCondition: (id: string) => SQL }, 'exactIdCondition');
+
+      const clearWhere = jest.fn().mockReturnValue(undefined);
+      const targetWhere = jest.fn().mockReturnValue({
+        returning: jest.fn().mockResolvedValue([updated]),
+      });
+      mockUpdate
+        .mockReturnValueOnce({ set: jest.fn().mockReturnValue({ where: clearWhere }) })
+        .mockReturnValueOnce({ set: jest.fn().mockReturnValue({ where: targetWhere }) });
+
+      const result = await service.setDefault('proj', 'org1', 'TARGET-ID', 'user1');
+      expect(result).toEqual(updated);
+
+      // exactId cleanup: the target row is pinned with the lowercased exact-id
+      // predicate (was a raw eq(cols.id, id) that skipped the lower-casing).
+      expect(exactSpy).toHaveBeenCalledWith('TARGET-ID');
+
+      // isActive guard: the target UPDATE's WHERE must reference the isActive
+      // column so a soft-deleted row can never be promoted to default.
+      const targetWhereArg = targetWhere.mock.calls[0][0];
+      expect(sqlContains(targetWhereArg, (mockSchema as unknown as { isActive: unknown }).isActive)).toBe(true);
     });
   });
 });

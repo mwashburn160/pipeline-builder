@@ -140,8 +140,12 @@ describe('remote-audit spool integration', () => {
     const buf: any[] = [];
     return {
       enqueue: async (e: any) => { buf.push(e); },
+      // take() removes from the buffer in this simple model, so ack() is a no-op
+      // and recover() has nothing to reclaim; requeue() puts failures back.
       take: async (n: number) => buf.splice(0, n),
+      ack: async () => undefined,
       requeue: async (es: any[]) => { buf.unshift(...es); },
+      recover: async () => 0,
       depth: async () => buf.length,
     };
   }

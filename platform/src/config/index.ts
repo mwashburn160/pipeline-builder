@@ -329,6 +329,51 @@ export const config = {
       tokenUrl: process.env.GITHUB_TOKEN_URL || 'https://github.com/login/oauth/access_token',
       userinfoUrl: process.env.GITHUB_USERINFO_URL || 'https://api.github.com/user',
     },
+    facebook: {
+      clientId: process.env.OAUTH_FACEBOOK_CLIENT_ID || '',
+      clientSecret: process.env.OAUTH_FACEBOOK_CLIENT_SECRET || '',
+      enabled: !!process.env.OAUTH_FACEBOOK_CLIENT_ID,
+      // Facebook Login is OAuth2 (NOT standards-OIDC): authorize on facebook.com,
+      // token + Graph userinfo on graph.facebook.com. The Graph version is pinned
+      // and overridable so a Facebook API deprecation is a config change, not a deploy.
+      authorizeUrl: process.env.FACEBOOK_AUTHORIZE_URL || 'https://www.facebook.com/v19.0/dialog/oauth',
+      tokenUrl: process.env.FACEBOOK_TOKEN_URL || 'https://graph.facebook.com/v19.0/oauth/access_token',
+      userinfoUrl: process.env.FACEBOOK_USERINFO_URL || 'https://graph.facebook.com/v19.0/me',
+    },
+    microsoft: {
+      clientId: process.env.OAUTH_MICROSOFT_CLIENT_ID || '',
+      clientSecret: process.env.OAUTH_MICROSOFT_CLIENT_SECRET || '',
+      enabled: !!process.env.OAUTH_MICROSOFT_CLIENT_ID,
+      // Entra/Azure AD v2 (OIDC). `tenant` scopes the authority: `common` (any
+      // Microsoft account — default), `organizations`, `consumers`, or a specific
+      // tenant id/domain. The authorize/token URLs interpolate the tenant at
+      // provider-construction time; userinfo is the tenant-agnostic Graph endpoint.
+      tenant: process.env.OAUTH_MICROSOFT_TENANT || 'common',
+      authorizeUrl: process.env.MICROSOFT_AUTHORIZE_URL || 'https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize',
+      tokenUrl: process.env.MICROSOFT_TOKEN_URL || 'https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token',
+      userinfoUrl: process.env.MICROSOFT_USERINFO_URL || 'https://graph.microsoft.com/oidc/userinfo',
+    },
+    gitlab: {
+      clientId: process.env.OAUTH_GITLAB_CLIENT_ID || '',
+      clientSecret: process.env.OAUTH_GITLAB_CLIENT_SECRET || '',
+      enabled: !!process.env.OAUTH_GITLAB_CLIENT_ID,
+      // GitLab OIDC. `baseUrl` points at gitlab.com by default but can target a
+      // self-hosted instance; the authorize/token/userinfo endpoints are derived
+      // from it at provider-construction time (overridable individually if needed).
+      baseUrl: process.env.OAUTH_GITLAB_BASE_URL || 'https://gitlab.com',
+      authorizeUrl: process.env.GITLAB_AUTHORIZE_URL || '',
+      tokenUrl: process.env.GITLAB_TOKEN_URL || '',
+      userinfoUrl: process.env.GITLAB_USERINFO_URL || '',
+    },
+    linkedin: {
+      clientId: process.env.OAUTH_LINKEDIN_CLIENT_ID || '',
+      clientSecret: process.env.OAUTH_LINKEDIN_CLIENT_SECRET || '',
+      enabled: !!process.env.OAUTH_LINKEDIN_CLIENT_ID,
+      // "Sign in with LinkedIn using OpenID Connect" (OIDC).
+      authorizeUrl: process.env.LINKEDIN_AUTHORIZE_URL || 'https://www.linkedin.com/oauth/v2/authorization',
+      tokenUrl: process.env.LINKEDIN_TOKEN_URL || 'https://www.linkedin.com/oauth/v2/accessToken',
+      userinfoUrl: process.env.LINKEDIN_USERINFO_URL || 'https://api.linkedin.com/v2/userinfo',
+    },
   },
 
   audit: {
@@ -383,6 +428,13 @@ export const config = {
     // Reconcile cadence for orgs whose signup billing bootstrap failed
     // (pendingBillingPlanId marker). 0 disables the periodic pass (boot drain still runs).
     reconcileIntervalMs: parseInt(process.env.BILLING_RECONCILE_INTERVAL_MS || '300000', 10), // 5 min
+    // Max orgs a single reconcile pass processes (oldest-marked first). Bounds
+    // pass duration so it can't overlap the next interval; leftovers roll to the
+    // following pass. The interval itself IS the retry loop.
+    reconcileBatchSize: parseInt(process.env.BILLING_RECONCILE_BATCH_SIZE || '50', 10),
+    // Max random per-org jitter (ms) inside a reconcile pass, so a fleet-wide
+    // billing outage doesn't produce a synchronized retry thundering-herd.
+    reconcileJitterMs: parseInt(process.env.BILLING_RECONCILE_JITTER_MS || '250', 10),
   },
 
   compliance: {

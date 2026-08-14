@@ -8,6 +8,25 @@
  * don't want bundled), so we restate the catalog here. Adding a flag
  * means updating both files — the backend validator will reject an
  * unknown override key, so a missed update fails loudly in the UI.
+ *
+ * How the catalog is consumed in the UI:
+ *   - `bulk_operations`   → gates the bulk-select toolbar on the pipelines &
+ *                           plugins pages (backend attaches
+ *                           `requireFeature('bulk_operations')` to the bulk routes).
+ *   - `advanced_reporting`/`team_usage_analytics` → gate the DORA scorecard and
+ *                           per-team usage card respectively.
+ *   - `ai_generation`     → SERVER-enforced on the AI generate routes
+ *                           (`requireFeature('ai_generation')`); the create
+ *                           surfaces don't pre-hide, so a non-entitled org sees a
+ *                           403 on submit rather than a hidden tab (see report FLAG).
+ *   - `priority_support` / `custom_integrations` / `audit_log` → account-level
+ *                           ENTITLEMENTS with no per-page render gate. They are NOT
+ *                           dead: they drive the per-org override editor
+ *                           (FeatureOverridesEditor) and the billing add-on labels
+ *                           (AddonGrid), and are enforced server-side where they
+ *                           apply. They are kept in the catalog because it must
+ *                           mirror api-core exactly (removing one drifts the mirror
+ *                           and breaks the override editor / add-on labels).
  */
 
 export type FeatureFlag =

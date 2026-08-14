@@ -3,7 +3,7 @@
 
 import { createCacheService } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
-import { CrudService, schema, withTenantTx, buildMessageConditions, type MessageFilter } from '@pipeline-builder/pipeline-data';
+import { CrudService, schema, withTenantTx, buildMessageConditions, type MessageFilter, type PaginatedResult, type QueryOptions } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, or, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -69,7 +69,11 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
     const patterns = new Set<string>();
     if (orgId) patterns.add(`${orgId}:*`);
     if (recipientOrgId && recipientOrgId !== '*') patterns.add(`${recipientOrgId}:*`);
-    if (recipientOrgId === '*') patterns.add('*:announcements');
+    // Broadcast: drop EVERY org's cached announcement pages. The trailing `*`
+    // matches the per-page key suffix (`:limit:offset:sortBy:sortOrder`) added
+    // when these views were paginated — `*:announcements` (no trailing glob)
+    // would miss the paginated keys and serve a stale announcements feed.
+    if (recipientOrgId === '*') patterns.add('*:announcements*');
     await Promise.all([...patterns].map((p) => messageCache.invalidatePattern(p)));
   }
 
@@ -100,44 +104,64 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
   }
 
   /**
-   * Get inbox: root messages (threadId is null) where org is sender or recipient.
+   * Get inbox: root messages (threadId is null) of a given type, PAGINATED and
+   * hard-capped. Delegates to `findPaginated`, which clamps `limit` to
+   * MAX_PAGE_LIMIT — so the announcements/conversations views can never fetch (or
+   * cache) an unbounded result set the way the previous `find(...)` did.
    *
-   * Announcements (recipientOrgId='*') are surfaced to every org and are
-   * counted in the unified inbox total — we intentionally do NOT split inbox
-   * vs broadcasts because the UI treats them as a single feed; consumers that
-   * need a typed view filter with `messageType`.
+   * Announcements (recipientOrgId='*') are surfaced to every org; the shared
+   * `buildMessageConditions` (via buildConditions) applies the sender/recipient/
+   * broadcast + system-org visibility, so callers filter only by `messageType`.
    *
    * @param orgId - Organization ID for access control
-   * @param messageType - Optional filter for announcement or conversation
-   * @returns Array of root messages sorted by most recent
+   * @param messageType - announcement or conversation
+   * @param options - Pagination + sort (limit clamped to MAX_PAGE_LIMIT)
+   * @returns Paginated page of root messages
    */
-  async findInbox(orgId: string, messageType?: 'announcement' | 'conversation'): Promise<Message[]> {
+  async findInboxPaginated(
+    orgId: string,
+    messageType: 'announcement' | 'conversation',
+    options: QueryOptions = {},
+  ): Promise<PaginatedResult<Message>> {
     const filter: Partial<MessageFilter> = {
       isActive: true,
       threadId: null, // SQL-level IS NULL — root messages only
-      ...(messageType ? { messageType } : {}),
+      messageType,
     };
-    return this.find(filter, orgId);
+    return this.findPaginated(filter, orgId, options);
+  }
+
+  /** Per-page cache key so distinct pages/sorts don't collide or over-cache. */
+  private inboxCacheKey(orgId: string, view: 'announcements' | 'conversations', o: QueryOptions): string {
+    return `${orgId}:${view}:${o.limit ?? ''}:${o.offset ?? ''}:${o.sortBy ?? ''}:${o.sortOrder ?? ''}`;
   }
 
   /**
-   * Get announcements visible to an org.
+   * Get announcements visible to an org (paginated + hard-capped, per-page cached).
    *
    * @param orgId - Organization ID for access control
-   * @returns Array of announcement root messages
+   * @param options - Pagination + sort options
+   * @returns Paginated page of announcement root messages
    */
-  async findAnnouncements(orgId: string): Promise<Message[]> {
-    return messageCache.getOrSet(`${orgId}:announcements`, () => this.findInbox(orgId, 'announcement'));
+  async findAnnouncements(orgId: string, options: QueryOptions = {}): Promise<PaginatedResult<Message>> {
+    return messageCache.getOrSet(
+      this.inboxCacheKey(orgId, 'announcements', options),
+      () => this.findInboxPaginated(orgId, 'announcement', options),
+    );
   }
 
   /**
-   * Get conversations for an org.
+   * Get conversations for an org (paginated + hard-capped, per-page cached).
    *
    * @param orgId - Organization ID for access control
-   * @returns Array of conversation root messages
+   * @param options - Pagination + sort options
+   * @returns Paginated page of conversation root messages
    */
-  async findConversations(orgId: string): Promise<Message[]> {
-    return messageCache.getOrSet(`${orgId}:conversations`, () => this.findInbox(orgId, 'conversation'));
+  async findConversations(orgId: string, options: QueryOptions = {}): Promise<PaginatedResult<Message>> {
+    return messageCache.getOrSet(
+      this.inboxCacheKey(orgId, 'conversations', options),
+      () => this.findInboxPaginated(orgId, 'conversation', options),
+    );
   }
 
   /**
@@ -160,16 +184,16 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         updatedAt: new Date(),
       })
       .where(and(
-        eq(schema.message.id, id),
-        // Match the isActive filter of markThreadAsRead/getUnreadCount so a
-        // soft-deleted message can't be mutated (readBy stamped) via this path.
-        eq(schema.message.isActive, true),
+        // Participant + isActive (+ id) predicate comes from the SHARED
+        // `buildMessageConditions` (via buildConditions) — the single source of
+        // truth for message visibility. The hand-rolled `or(orgId,recipientOrgId,'*')`
+        // this replaced diverged from the shared builder's system-org "sees all"
+        // carve-out, so the system org could READ a cross-org message but got 0
+        // rows here (404 on markAsRead / wrong unread count). Routing through the
+        // builder keeps read + write visibility identical. `isActive:true` blocks
+        // stamping readBy on a soft-deleted row, matching markThreadAsRead/getUnreadCount.
+        ...this.buildConditions({ id, isActive: true } as Partial<MessageFilter>, orgId),
         sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId})`,
-        or(
-          eq(schema.message.orgId, orgId),
-          eq(schema.message.recipientOrgId, orgId),
-          eq(schema.message.recipientOrgId, '*'),
-        ),
       ))
       .returning());
     // Direct tx bypasses the CrudService onAfter* hooks — invalidate the reader's
@@ -186,15 +210,10 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       .select()
       .from(schema.message)
       .where(and(
-        eq(schema.message.id, id),
-        // Soft-deleted messages are not returnable — keep parity with the
-        // update predicate above so a deleted message reads as not-found.
-        eq(schema.message.isActive, true),
-        or(
-          eq(schema.message.orgId, orgId),
-          eq(schema.message.recipientOrgId, orgId),
-          eq(schema.message.recipientOrgId, '*'),
-        ),
+        // Same shared participant+isActive+id predicate as the update above, so
+        // a message not visible to this org reads as not-found and a soft-deleted
+        // one stays non-returnable (parity keeps idempotent re-marks correct).
+        ...this.buildConditions({ id, isActive: true } as Partial<MessageFilter>, orgId),
       ))
       .limit(1));
     return (existing as Message) ?? null;
@@ -221,14 +240,12 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         updatedAt: new Date(),
       })
       .where(and(
-        eq(schema.message.threadId, threadId),
-        eq(schema.message.isActive, true),
+        // Shared participant + isActive predicate (system org "sees all"),
+        // scoped to the thread. Replaces the divergent hand-rolled
+        // or(orgId,recipientOrgId,'*') so the system support org can mark a
+        // cross-org thread read rather than silently matching zero rows.
+        ...this.buildConditions({ threadId, isActive: true } as Partial<MessageFilter>, orgId),
         sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId})`,
-        or(
-          eq(schema.message.orgId, orgId),
-          eq(schema.message.recipientOrgId, orgId),
-          eq(schema.message.recipientOrgId, '*'),
-        ),
       ))
       .returning());
     if (updated.length > 0) await this.invalidateMessageCaches(orgId);
@@ -249,16 +266,14 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       .select({ count: sql<number>`count(*)::int` })
       .from(schema.message)
       .where(and(
-        eq(schema.message.isActive, true),
-        // coalesce so a NULL readBy (never-read message) is treated as `{}` and
-        // counted as unread — matching markAsRead/markThreadAsRead. Without it,
-        // `NULL ? orgId` → NULL → `not NULL` → NULL drops genuinely-unread rows.
+        // Shared participant + isActive predicate (system org "sees all") — same
+        // builder the inbox/read paths use, so the unread count can't diverge from
+        // what the org can actually read. coalesce so a NULL readBy (never-read
+        // message) is treated as `{}` and counted as unread — matching
+        // markAsRead/markThreadAsRead. Without it, `NULL ? orgId` → NULL →
+        // `not NULL` → NULL drops genuinely-unread rows.
+        ...this.buildConditions({ isActive: true } as Partial<MessageFilter>, orgId),
         sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId})`,
-        or(
-          eq(schema.message.orgId, orgId),
-          eq(schema.message.recipientOrgId, orgId),
-          eq(schema.message.recipientOrgId, '*'),
-        ),
       )));
     return row?.count ?? 0;
   }

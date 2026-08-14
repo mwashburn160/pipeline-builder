@@ -188,11 +188,18 @@ class AuthService {
   /**
    * List orgs carrying a pending-billing marker (for the reconcile pass). Sparse
    * lookup against the `pendingBillingPlanId` index — empty on the common no-op.
+   *
+   * BOUNDED + ordered: returns at most `limit` orgs, OLDEST marker first
+   * (`pendingBillingSince` asc), so a single pass can't walk an unbounded backlog
+   * serially and overlap the next interval. Any leftovers are picked up (still
+   * oldest-first) on the following pass.
    */
-  async listPendingBillingOrgs(): Promise<Array<{ orgId: string; planId: string }>> {
-    const orgs = await Organization.find({ pendingBillingPlanId: { $exists: true, $ne: null } })
-      .select('_id pendingBillingPlanId')
-      .lean();
+  async listPendingBillingOrgs(limit?: number): Promise<Array<{ orgId: string; planId: string }>> {
+    const query = Organization.find({ pendingBillingPlanId: { $exists: true, $ne: null } })
+      .select('_id pendingBillingPlanId pendingBillingSince')
+      .sort({ pendingBillingSince: 1 });
+    if (limit && limit > 0) query.limit(limit);
+    const orgs = await query.lean();
     return orgs.map((o) => ({ orgId: String(o._id), planId: String(o.pendingBillingPlanId) }));
   }
 
@@ -257,6 +264,14 @@ class AuthService {
       isActive: true,
     }).lean();
     if (!membership) return null;
+
+    // Refuse to make a SOFT-DELETED (tombstoned) org the active one — mirrors
+    // the token chokepoint (`resolveMembership`), which won't scope a token to a
+    // dying org. Without this the caller could set `lastActiveOrgId` to a
+    // tombstoned org, then every subsequent token issue would fall back off it
+    // (a dangling pointer) instead of the switch simply being rejected here.
+    const org = await Organization.findById(toOrgId(organizationId)).select('deletedAt').lean();
+    if (!org || (org as { deletedAt?: Date | null }).deletedAt) return null;
 
     await User.updateOne({ _id: userId }, { $set: { lastActiveOrgId: organizationId } });
     // `+isSuperAdmin` — switching orgs reissues a JWT and must preserve

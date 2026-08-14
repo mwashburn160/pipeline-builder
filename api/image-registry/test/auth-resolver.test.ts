@@ -96,6 +96,22 @@ describe('resolveIdentity', () => {
     const token = jwt.sign({ sub: 'user-x', organizationId: 'acme' }, 'different-secret');
     await expect(resolveIdentity('whoever', token)).resolves.toBeNull();
   });
+
+  it('resolves a JWT whose type claim is "access"', async () => {
+    const token = signPlatformJwt({ sub: 'user-2', organizationId: 'acme', isAdmin: false, type: 'access' });
+    await expect(resolveIdentity('orgname', token)).resolves.toMatchObject({ type: 'jwt', orgId: 'acme', userId: 'user-2' });
+  });
+
+  it('rejects a non-access token type (e.g. a refresh token) on the mint path', async () => {
+    // Defense-in-depth: only an access token may mint registry credentials.
+    const token = signPlatformJwt({ sub: 'user-3', organizationId: 'acme', isAdmin: false, type: 'refresh' });
+    await expect(resolveIdentity('orgname', token)).resolves.toBeNull();
+  });
+
+  it('still resolves a JWT with no type claim (backward-compat)', async () => {
+    const token = signPlatformJwt({ sub: 'user-4', organizationId: 'acme', isAdmin: false });
+    await expect(resolveIdentity('orgname', token)).resolves.toMatchObject({ type: 'jwt', orgId: 'acme', userId: 'user-4' });
+  });
 });
 
 /**

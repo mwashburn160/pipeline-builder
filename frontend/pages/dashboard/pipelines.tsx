@@ -4,6 +4,7 @@ import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
 import { Plus, GitBranch, Search, Trash2, X, Upload } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFeatures } from '@/hooks/useFeatures';
 import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
 import { useFormState } from '@/hooks/useFormState';
@@ -58,6 +59,13 @@ export default function PipelinesPage() {
   // on `pipelines:write`, not org-admin role, so a custom-group member granted
   // the capability gets them too. Role-admins hold it in their bundle.
   const canWrite = can('pipelines:write');
+  // Batch create/update/delete is a tier-gated feature: the backend attaches
+  // `requireFeature('bulk_operations')` to the bulk routes, so without the flag
+  // every bulk action 403s. Gate the select checkboxes + bulk toolbar on it so
+  // we don't surface controls that are guaranteed to fail. (`can`-gated too, so
+  // read-only members never see them.)
+  const { isEnabled } = useFeatures();
+  const canBulk = canWrite && isEnabled('bulk_operations');
 
   // ── Data ──
 
@@ -262,7 +270,7 @@ export default function PipelinesPage() {
   // ── Columns ──
 
   const pipelineColumns: Column<Pipeline>[] = useMemo(() => [
-    ...(canWrite ? [{
+    ...(canBulk ? [{
       id: 'select',
       header: '',
       locked: true,
@@ -379,7 +387,7 @@ export default function PipelinesPage() {
         </div>
       ),
     },
-  ], [isSuperAdmin, canWrite, can, selectedIds, toggleSelect]);
+  ], [isSuperAdmin, canWrite, canBulk, can, selectedIds, toggleSelect]);
 
   // ── Render ──
 
@@ -392,10 +400,14 @@ export default function PipelinesPage() {
       actions={
         canWrite ? (
           <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={openBulkCreate}>
-              <Upload className="w-4 h-4 mr-2" />
-              Bulk import
-            </Button>
+            {/* Bulk import needs the `bulk_operations` feature — the backend
+                bulk route 403s without it, so hide the entry when disabled. */}
+            {canBulk && (
+              <Button variant="secondary" onClick={openBulkCreate}>
+                <Upload className="w-4 h-4 mr-2" />
+                Bulk import
+              </Button>
+            )}
             <Button onClick={() => { setShowCreateModal(true); createForm.reset(); setCreateSuccess(null); }}>
               <Plus className="w-4 h-4 mr-2" />
               Create Pipeline
@@ -449,7 +461,7 @@ export default function PipelinesPage() {
         />
 
         {/* Spacer when sticky bulk bar is visible */}
-        {canWrite && selectedIds.size > 0 && <div className="h-16" />}
+        {canBulk && selectedIds.size > 0 && <div className="h-16" />}
 
         {/* ResourceList owns: error+retry, refresh button, empty state, and
             offset Pagination. Body is custom so we preserve DataTable's
@@ -583,7 +595,7 @@ export default function PipelinesPage() {
       )}
 
       {/* Sticky bottom bulk actions bar */}
-      {canWrite && selectedIds.size > 0 && (
+      {canBulk && selectedIds.size > 0 && (
         <div className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg">
           <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-3">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">

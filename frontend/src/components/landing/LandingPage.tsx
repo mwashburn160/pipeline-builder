@@ -20,7 +20,14 @@ import api from '@/lib/api';
 // Must match the callback page (pages/auth/callback/[provider].tsx).
 const OAUTH_INTENT_KEY = 'pb_oauth_intent';
 
-const PROVIDER_LABELS: Record<string, string> = { google: 'Google', github: 'GitHub' };
+const PROVIDER_LABELS: Record<string, string> = {
+  google: 'Google',
+  github: 'GitHub',
+  facebook: 'Facebook',
+  microsoft: 'Microsoft',
+  gitlab: 'GitLab',
+  linkedin: 'LinkedIn',
+};
 const providerLabel = (p: string) => PROVIDER_LABELS[p] ?? (p.charAt(0).toUpperCase() + p.slice(1));
 
 // ---------------------------------------------------------------------------

@@ -82,16 +82,22 @@ const IMPOSSIBLE: SQL = sql`false`;
  * - accessModifier='public': Own org public only
  * - No accessModifier (default): Own org public + system org public
  *
+ * `parentOrgId` (org → team hierarchy) widens the default catalog view so a team
+ * org also sees its parent's public pipelines — parity with the plugin and
+ * template builders. Absent for root orgs, leaving the condition unchanged.
+ *
  * @param filter - Pipeline filter criteria
  * @param orgId - User's organization ID (optional — anonymous gets system public only)
+ * @param parentOrgId - Parent org ID when the caller is a team (optional)
  * @returns Array of SQL conditions
  */
 export function buildPipelineConditions(
   filter: Partial<PipelineFilter>,
   orgId?: string,
+  parentOrgId?: string,
 ): SQL[] {
   // Use generic builder for common conditions (access control, ID, booleans, accessModifier)
-  const conditions = pipelineBuilder.buildCommonConditions(filter, orgId);
+  const conditions = pipelineBuilder.buildCommonConditions(filter, orgId, parentOrgId);
 
   // Add pipeline-specific filters
   if (filter.project !== undefined) {

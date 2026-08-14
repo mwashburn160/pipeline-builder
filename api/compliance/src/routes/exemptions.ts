@@ -64,9 +64,10 @@ export function createExemptionRoutes(): Router {
   }));
 
   // POST /bulk — bulk-create exemptions in one request (up to 500).
-  // The schema has no unique constraint on (ruleId, entityType, entityId), so
-  // duplicates are NOT deduplicated server-side — every input row produces a
-  // row in the table. Callers are responsible for not double-submitting.
+  // Duplicates are deduped at the DB level via the unique index on
+  // (org_id, rule_id, entity_id) + `onConflictDoNothing` in the service, so a
+  // double-submit (or a batch repeating an entity) skips the colliding rows
+  // instead of erroring. `skipped = requested - created` reports the difference.
   router.post('/bulk', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, BulkExemptionsSchema);
     if (!validation.ok) {

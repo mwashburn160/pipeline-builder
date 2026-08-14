@@ -136,8 +136,11 @@ export class QuotaService {
    * Default-when-unknown-org behaviour: a logged-in caller from an org that
    * has not yet been provisioned in the quota service still gets a usable
    * response (tier=developer, defaults from config) so the dashboard renders.
-   * This is the multi-tenant fallback path — first-touch provisioning is
-   * handled lazily by the increment flow, not by reads.
+   * This is a READ-ONLY multi-tenant fallback — it does NOT create the org
+   * document. There is no lazy provisioning: the platform service owns org
+   * creation, and `incrementUsage` on a missing org throws `OrgNotFoundError`
+   * (it never inserts a document). So an unprovisioned org reads defaults here
+   * but cannot reserve/enforce quota until the platform has created it.
    */
   async findByOrgId(orgId: string): Promise<OrgQuotaResponse> {
     const org = await Organization.findById(toOrgId(orgId))

@@ -101,6 +101,16 @@ export interface PluginBuildJobData {
    * (double-count) and an un-released job purged early still gets its slot back.
    */
   quotaReleased?: boolean;
+  /**
+   * ISO `resetAt` of the quota period this job's slot was reserved in (captured
+   * at route reserve time, or at re-reserve time for a DLQ replay / failed
+   * retry). Passed as the conditional-decrement snapshot when the slot is later
+   * released (`releasePluginQuota`): a DLQ retry can span a quota-period reset,
+   * and without the snapshot the refund would land on the NEW period (stealing
+   * capacity). When the stored `resetAt` no longer matches, the decrement is a
+   * no-op — the old period already reset to 0, so there is nothing to refund.
+   */
+  reservedResetAt?: string;
 }
 
 /** Parameters for creating a plugin build job. */
@@ -110,6 +120,10 @@ interface CreateBuildJobParams {
   userId: string;
   buildRequest: BuildRequest;
   pluginRecord: Partial<PluginRecordData> & Pick<PluginRecordData, 'orgId' | 'name' | 'version' | 'commands' | 'accessModifier'>;
+  /** ISO `resetAt` observed when the plugins slot was reserved (see
+   *  {@link PluginBuildJobData.reservedResetAt}). Threaded through so the
+   *  terminal-failure refund is period-safe. */
+  reservedResetAt?: string;
 }
 
 /** Create a PluginBuildJobData with defaults applied. */

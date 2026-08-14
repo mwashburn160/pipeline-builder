@@ -274,19 +274,25 @@ describe('GET /messages/announcements', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
-  it('returns announcements', async () => {
+  it('returns a paginated announcements page', async () => {
     const announcements = [{ id: '1', subject: 'System update', messageType: 'announcement' }];
-    mockFindAnnouncements.mockResolvedValue(announcements);
+    mockFindAnnouncements.mockResolvedValue({ data: announcements, total: 1, limit: 25, offset: 0, hasMore: false });
 
     const req = mockReq();
     const res = mockRes();
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
+    // Now paginated + hard-capped (mirrors the `/` inbox): the service is called
+    // with pagination options, and the response is a paginated envelope.
+    expect(mockFindAnnouncements).toHaveBeenCalledWith(
+      'org-1',
+      expect.objectContaining({ limit: 25, offset: 0, sortBy: 'createdAt', sortOrder: 'desc' }),
+    );
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
-        success: true,
-        data: expect.objectContaining({ messages: announcements }),
+        messages: announcements,
+        pagination: expect.objectContaining({ limit: 25, offset: 0, hasMore: false, total: 1 }),
       }),
     );
   });
@@ -307,19 +313,23 @@ describe('GET /messages/conversations', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
-  it('returns conversations', async () => {
+  it('returns a paginated conversations page', async () => {
     const conversations = [{ id: '1', subject: 'Question', messageType: 'conversation' }];
-    mockFindConversations.mockResolvedValue(conversations);
+    mockFindConversations.mockResolvedValue({ data: conversations, total: 1, limit: 25, offset: 0, hasMore: false });
 
     const req = mockReq();
     const res = mockRes();
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockFindConversations).toHaveBeenCalledWith(
+      'org-1',
+      expect.objectContaining({ limit: 25, offset: 0, sortBy: 'createdAt', sortOrder: 'desc' }),
+    );
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
-        success: true,
-        data: expect.objectContaining({ messages: conversations }),
+        messages: conversations,
+        pagination: expect.objectContaining({ limit: 25, offset: 0, hasMore: false, total: 1 }),
       }),
     );
   });
@@ -493,6 +503,39 @@ describe('POST /messages (create)', () => {
     await handler(req, res);
 
     expect(sendBadRequest).toHaveBeenCalledWith(res, 'Request body is required', 'VALIDATION_ERROR');
+  });
+
+  // Tenant-boundary guard (#20): '*' is a BROADCAST recipient reserved for
+  // announcements. A conversation must never target '*' for ANY caller — a
+  // '*'-recipient conversation lands in every org's inbox (an un-audited
+  // broadcast) and the reachability gate can't catch it (sysadmins/service
+  // principals skip the gate; '*' short-circuits reachability anyway).
+  it.each([
+    ['a regular member', false, false],
+    ['a sysadmin', true, false],
+    ['a service principal', false, true],
+  ])('rejects a conversation with recipientOrgId="*" for %s (400, no row created)', async (_who, sysadmin, service) => {
+    (isSystemAdmin as jest.Mock).mockReturnValue(sysadmin);
+    (isServicePrincipal as jest.Mock).mockReturnValue(service);
+
+    const req = mockReq({
+      body: {
+        recipientOrgId: '*',
+        messageType: 'conversation',
+        subject: 'Sneaky broadcast',
+        content: 'Content',
+        priority: 'normal',
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(sendBadRequest).toHaveBeenCalledWith(
+      res,
+      'Conversations cannot use "*" as recipientOrgId; "*" is reserved for announcement broadcasts',
+      'VALIDATION_ERROR',
+    );
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it('returns 403 when non-sysadmin creates announcement', async () => {
@@ -786,6 +829,49 @@ describe('POST /messages/:id/reply', () => {
       'MESSAGE',
       'New reply',
       expect.objectContaining({ action: 'NEW_MESSAGE', messageId: 'msg-reply', threadId: 'msg-1' }),
+    );
+  });
+
+  // #23: a reply is ALWAYS a conversation, even when the root is an announcement.
+  // Copying rootMessage.messageType persisted `announcement`-typed rows authored
+  // by non-sysadmins (a member replying to a broadcast), polluting messageType
+  // filters + the announcements feed. Replies must persist as `conversation`.
+  it('persists an announcement reply as messageType="conversation" (not announcement)', async () => {
+    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    const rootAnnouncement = {
+      id: 'ann-1',
+      orgId: '000000000000000000000001', // system org broadcast
+      recipientOrgId: '*',
+      messageType: 'announcement',
+      subject: 'System-wide notice',
+      priority: 'normal',
+    };
+    mockFindById.mockResolvedValue(rootAnnouncement);
+    mockCreate.mockResolvedValue({ id: 'reply-1', threadId: 'ann-1' });
+
+    // Caller org 'org-1' is a broadcast recipient → allowed to reply (goes to system org).
+    const req = mockReq({
+      params: { id: 'ann-1' },
+      body: { content: 'A member replying to the broadcast' },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'ann-1',
+        messageType: 'conversation',
+        recipientOrgId: '000000000000000000000001', // reply routes back to the system org
+      }),
+      'user-1',
+    );
+    // SSE notification carries the reply's (conversation) type too.
+    expect(mockSseManager.send).toHaveBeenCalledWith(
+      '000000000000000000000001',
+      'MESSAGE',
+      'New reply',
+      expect.objectContaining({ messageType: 'conversation' }),
     );
   });
 

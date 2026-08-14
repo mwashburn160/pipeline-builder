@@ -5,9 +5,18 @@ import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
 import type { ApiResponse, Plan, Subscription, Bundle, ComboDiscount, AddonResult, BillingEvent, BillingInterval, UsageRollup, Discount } from '@/types';
 
-/** Itemized price effect returned by a discount preview/apply (shape is provider-
- *  dependent; the UI renders it generically). */
-export type DiscountPriceBreakdown = Record<string, unknown>;
+/** Itemized, display-only price breakdown returned by a discount preview/apply.
+ *  Concrete mirror of the billing service's `DiscountBreakdown`
+ *  (`api/billing/src/helpers/discount-helpers.ts`): a base plan line minus the
+ *  usage credit consumed this cycle, with the credit carrying forward. All money
+ *  fields are integer cents. */
+export interface DiscountPriceBreakdown {
+  interval: 'monthly' | 'annual';
+  items: { label: string; cents: number }[];
+  subtotalCents: number;
+  totalCents: number;
+  creditRemainingCents: number;
+}
 
 /** Authoring input for minting a discount. `code` is the compact authoring form
  *  `value:unit:kind[:campaign]` (e.g. `50:percent:onetime`, `100:dollar:credit`). */

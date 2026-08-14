@@ -152,6 +152,24 @@ describe('PipelineService', () => {
     });
   });
 
+  // F1 (Wave-1 follow-up): the buildConditions override must FORWARD parentOrgId
+  // to buildPipelineConditions so a team org's reads widen to its parent's public
+  // pipelines (org → team hierarchy). Previously the override dropped the third
+  // arg, so the widening the base CrudService requested was silently lost.
+  describe('buildConditions parentOrgId threading (F1)', () => {
+    it('forwards parentOrgId to buildPipelineConditions', () => {
+      const { buildPipelineConditions } = pipelineDataMock as unknown as { buildPipelineConditions: jest.Mock };
+      (service as any).buildConditions({ pipelineName: 'p' }, 'team-org', 'parent-org');
+      expect(buildPipelineConditions).toHaveBeenCalledWith({ pipelineName: 'p' }, 'team-org', 'parent-org');
+    });
+
+    it('passes parentOrgId=undefined for a root org (no widening)', () => {
+      const { buildPipelineConditions } = pipelineDataMock as unknown as { buildPipelineConditions: jest.Mock };
+      (service as any).buildConditions({}, 'root-org');
+      expect(buildPipelineConditions).toHaveBeenCalledWith({}, 'root-org', undefined);
+    });
+  });
+
   describe('getSortColumn', () => {
     it('should return a column for valid sortBy values', () => {
       const validFields = ['id', 'project', 'organization', 'pipelineName', 'createdAt', 'updatedAt', 'isActive', 'isDefault'];

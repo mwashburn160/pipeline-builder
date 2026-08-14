@@ -86,7 +86,11 @@ export function withRoute(
 
   return async (req: Request, res: Response) => {
     const ctx = getContext(req);
-    const orgId = ctx.identity.orgId?.toLowerCase() || '';
+    // `identity.orgId` is already normalized (trimmed + lowercased) once at
+    // resolution in api-core's `getIdentity`, so the previously-duplicated
+    // `.toLowerCase()` here is redundant — kept normalization at the single
+    // source of truth instead. This value now matches the RLS GUC exactly.
+    const orgId = ctx.identity.orgId || '';
     const userId = ctx.identity.userId || '';
 
     if (requireOrgId && !orgId) {

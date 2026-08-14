@@ -139,13 +139,23 @@ describe('authorizeScope', () => {
     expect(granted).toEqual(['pull']);
   });
 
-  it('grants pull,push on system/* to a SYSTEM-ORG token (system sample-plugin build)', () => {
-    // The system org owns system/*; a system-org-scoped build token (not a
-    // super-admin) must be able to push its sample plugins there.
-    const granted = authorizeScope( { type: 'jwt', orgId: '000000000000000000000001', userId: 'svc-plugin', isAdmin: false, isSuperAdmin: false, canWritePlugins: false },
+  it('grants pull,push on system/* to a SYSTEM-ORG token WITH plugins:write (system sample-plugin build)', () => {
+    // The system org owns system/*; a system-org-scoped build token that holds
+    // plugins:write (the sample-plugin build token is minted role:'owner') must
+    // be able to push its sample plugins there.
+    const granted = authorizeScope( { type: 'jwt', orgId: '000000000000000000000001', userId: 'svc-plugin', isAdmin: false, isSuperAdmin: false, canWritePlugins: true },
       { type: 'repository', name: 'system/sentry-release', actions: ['pull', 'push'] },
     );
     expect(granted).toEqual(['pull', 'push']);
+  });
+
+  it('downgrades system/* push to pull-only for a SYSTEM-ORG token WITHOUT plugins:write', () => {
+    // A plain system-org member (no plugins:write, not admin) must not be able
+    // to overwrite a published system image — mirrors the org-namespace rule.
+    const granted = authorizeScope( { type: 'jwt', orgId: '000000000000000000000001', userId: 'u-sys', isAdmin: false, isSuperAdmin: false, canWritePlugins: false },
+      { type: 'repository', name: 'system/sentry-release', actions: ['pull', 'push'] },
+    );
+    expect(granted).toEqual(['pull']);
   });
 
   it('does NOT let the system-org token push outside system/* (e.g. library/* or another org)', () => {

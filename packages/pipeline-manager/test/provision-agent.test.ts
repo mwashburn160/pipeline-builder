@@ -259,6 +259,11 @@ describe('ai helpers degrade gracefully without a key', () => {
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.AI_PROVIDER;
     delete process.env.AI_MODEL;
+    delete process.env.AWS_ACCESS_KEY_ID;
+    // Bedrock is keyless (IAM role): an AWS region makes it "configured", so clear
+    // both region vars to keep the no-config cases deterministic.
+    delete process.env.AWS_REGION;
+    delete process.env.AWS_DEFAULT_REGION;
   });
   afterAll(() => {
     process.env = saved;
@@ -277,6 +282,22 @@ describe('ai helpers degrade gracefully without a key', () => {
     expect(isAiConfigured({ provider: 'bedrock' })).toBe(true);
     expect(isAiConfigured({ provider: 'amazon-bedrock' })).toBe(true);
     delete process.env.AWS_ACCESS_KEY_ID;
+  });
+  it('treats Bedrock as configured on an instance role (AWS region, no access key)', () => {
+    // The regression: gating Bedrock on AWS_ACCESS_KEY_ID left it permanently off on
+    // instance-role EC2/EKS. An AWS region is the keyless "running in AWS" signal.
+    expect(isAiConfigured({ provider: 'bedrock' })).toBe(false);
+    process.env.AWS_REGION = 'us-east-1';
+    expect(isAiConfigured({ provider: 'bedrock' })).toBe(true);
+    expect(isAiConfigured({ provider: 'amazon-bedrock' })).toBe(true);
+    delete process.env.AWS_REGION;
+    process.env.AWS_DEFAULT_REGION = 'eu-west-1';
+    expect(isAiConfigured({ provider: 'bedrock' })).toBe(true);
+  });
+  it('does not treat a bare AWS region as configuring a key-based provider', () => {
+    // AWS_REGION only unlocks the keyless provider; anthropic still needs its key.
+    process.env.AWS_REGION = 'us-east-1';
+    expect(isAiConfigured({ provider: 'anthropic' })).toBe(false);
   });
   it('parseGoal returns null without a key (deterministic fallback)', async () => {
     await expect(parseGoal('deploy to eks in us-east-1')).resolves.toBeNull();

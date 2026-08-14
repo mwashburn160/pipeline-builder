@@ -12,7 +12,7 @@ function shift(q: unknown[][]): unknown[] {
 
 function makeChain(terminal: () => Promise<unknown[]>): Record<string, unknown> {
   const chain: Record<string, unknown> = {};
-  for (const name of ['from', 'where', 'set', 'orderBy', 'limit', 'offset', 'values']) {
+  for (const name of ['from', 'where', 'set', 'orderBy', 'limit', 'offset', 'values', 'onConflictDoNothing']) {
     chain[name] = jest.fn(() => chain);
   }
   chain.returning = jest.fn(() => Promise.resolve(shift(returningResults)));
@@ -140,6 +140,34 @@ describe('ComplianceExemptionService', () => {
       await expect(
         complianceExemptionService.review('ex-1', 'org-1', 'approver', 'approved'),
       ).rejects.toThrow(CE_NOT_FOUND);
+    });
+  });
+
+  describe('bulkCreate (dedup)', () => {
+    const row = (entityId: string) => ({
+      ruleId: 'r1', entityType: 'plugin' as const, entityId, reason: 'ok',
+    });
+
+    it('dedupes via onConflictDoNothing on (orgId, ruleId, entityId) and returns only inserted ids', async () => {
+      // Two inputs, but the DB returns one row (the other collided with an
+      // existing pending exemption and was skipped by ON CONFLICT DO NOTHING).
+      returningResults = [[{ id: 'ex-1' }]];
+      const ids = await complianceExemptionService.bulkCreate(
+        [row('a'), row('b')], 'org-1', 'u-1',
+      );
+
+      expect(ids).toEqual(['ex-1']);
+      // The conflict target is the (org, rule, entity) unique index.
+      const insertChain = tx.insert.mock.results[0].value as Record<string, jest.Mock>;
+      expect(insertChain.onConflictDoNothing).toHaveBeenCalledWith({
+        target: ['col_org', 'col_rule', 'col_entity'],
+      });
+    });
+
+    it('returns no ids when every row collided (all skipped)', async () => {
+      returningResults = [[]];
+      const ids = await complianceExemptionService.bulkCreate([row('a')], 'org-1', 'u-1');
+      expect(ids).toEqual([]);
     });
   });
 

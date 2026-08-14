@@ -162,12 +162,247 @@ function createGitHubProvider(): OAuthProvider {
   };
 }
 
+// Facebook provider
+//
+// Facebook Login is OAuth2 but NOT standards-OIDC (no discovery/JWKS/id_token),
+// so — like Google/GitHub — it gets a dedicated handler rather than riding the
+// generic-oidc IdP path. User info comes from the Graph API `/me` endpoint.
+
+function createFacebookProvider(): OAuthProvider {
+  const { clientId, clientSecret, authorizeUrl, tokenUrl, userinfoUrl, enabled } = config.oauth.facebook;
+  const callbackUrl = `${config.oauth.callbackBaseUrl}/auth/callback/facebook`;
+
+  return {
+    enabled,
+    buildAuthorizeUrl(state: string) {
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: callbackUrl,
+        response_type: 'code',
+        // Facebook scopes are comma-separated. `email` is required for account
+        // linking; the user can still decline it at the consent screen (handled below).
+        scope: 'email,public_profile',
+        state,
+      });
+      return `${authorizeUrl}?${params}`;
+    },
+    async exchangeCode(code: string) {
+      // Graph token endpoint accepts the params as a query string and returns JSON.
+      const params = new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        redirect_uri: callbackUrl,
+      });
+      const res = await fetch(`${tokenUrl}?${params}`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      const data = await res.json() as Record<string, unknown>;
+      if (!res.ok || !data.access_token) throw new Error('TOKEN_EXCHANGE_FAILED');
+      return data.access_token as string;
+    },
+    async fetchUserInfo(accessToken: string) {
+      // Graph `/me` with an explicit field list. Facebook only returns an email it
+      // has itself verified, so a returned address is trustworthy for linking — but
+      // it is OMITTED when the user declined the `email` scope or the account has
+      // no confirmed email, which we must reject rather than link a blank identity.
+      const params = new URLSearchParams({ fields: 'id,name,email', access_token: accessToken });
+      const res = await fetch(`${userinfoUrl}?${params}`, { headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error('Failed to fetch Facebook user info');
+      const data = await res.json() as Record<string, unknown>;
+      if (!data.email) {
+        throw new Error('Facebook did not return an email address (the user may have declined the email permission)');
+      }
+      const picture = ((data.picture as { data?: { url?: string } } | undefined)?.data?.url) ?? undefined;
+      return { id: String(data.id), email: data.email as string, name: data.name as string | undefined, picture };
+    },
+  };
+}
+
+// Microsoft provider
+//
+// Entra/Azure AD v2 is standards-OIDC. Like Google, user info comes from the
+// OIDC userinfo endpoint (Microsoft Graph `/oidc/userinfo`). The authorize/token
+// URLs are tenant-scoped (`common` by default) — the `{tenant}` placeholder in
+// the configured URLs is substituted at construction time.
+
+function createMicrosoftProvider(): OAuthProvider {
+  const { clientId, clientSecret, authorizeUrl: authorizeTpl, tokenUrl: tokenTpl, userinfoUrl, tenant, enabled } = config.oauth.microsoft;
+  const callbackUrl = `${config.oauth.callbackBaseUrl}/auth/callback/microsoft`;
+  const authorizeUrl = authorizeTpl.replace('{tenant}', tenant);
+  const tokenUrl = tokenTpl.replace('{tenant}', tenant);
+
+  return {
+    enabled,
+    buildAuthorizeUrl(state: string) {
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: callbackUrl,
+        response_type: 'code',
+        scope: 'openid email profile',
+        response_mode: 'query',
+        state,
+      });
+      return `${authorizeUrl}?${params}`;
+    },
+    async exchangeCode(code: string) {
+      const params = new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        redirect_uri: callbackUrl,
+        grant_type: 'authorization_code',
+      });
+      const res = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+        body: params.toString(),
+      });
+      const data = await res.json() as Record<string, unknown>;
+      if (!res.ok || !data.access_token) throw new Error('TOKEN_EXCHANGE_FAILED');
+      return data.access_token as string;
+    },
+    async fetchUserInfo(accessToken: string) {
+      const res = await fetch(userinfoUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok) throw new Error('Failed to fetch Microsoft user info');
+      const data = await res.json() as Record<string, unknown>;
+      // Microsoft Graph's OIDC userinfo returns the verified account email in the
+      // `email` claim; it does not emit `email_verified`. An account with no email
+      // (some personal accounts) yields no `email` claim — reject rather than link
+      // a blank identity onto a pre-existing local account.
+      const email = (data.email ?? data.preferred_username) as string | undefined;
+      if (!email) throw new Error('Microsoft did not return an email address');
+      return { id: (data.sub ?? data.oid) as string, email, name: data.name as string | undefined, picture: data.picture as string | undefined };
+    },
+  };
+}
+
+// GitLab provider
+//
+// GitLab is standards-OIDC (also self-hostable). All endpoints derive from the
+// configured base URL unless individually overridden. The OIDC userinfo endpoint
+// supplies `email_verified`, which we require before linking.
+
+function createGitLabProvider(): OAuthProvider {
+  const { clientId, clientSecret, baseUrl, enabled } = config.oauth.gitlab;
+  const authorizeUrl = config.oauth.gitlab.authorizeUrl || `${baseUrl}/oauth/authorize`;
+  const tokenUrl = config.oauth.gitlab.tokenUrl || `${baseUrl}/oauth/token`;
+  const userinfoUrl = config.oauth.gitlab.userinfoUrl || `${baseUrl}/oauth/userinfo`;
+  const callbackUrl = `${config.oauth.callbackBaseUrl}/auth/callback/gitlab`;
+
+  return {
+    enabled,
+    buildAuthorizeUrl(state: string) {
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: callbackUrl,
+        response_type: 'code',
+        scope: 'openid email profile',
+        state,
+      });
+      return `${authorizeUrl}?${params}`;
+    },
+    async exchangeCode(code: string) {
+      const params = new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        redirect_uri: callbackUrl,
+        grant_type: 'authorization_code',
+      });
+      const res = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+        body: params.toString(),
+      });
+      const data = await res.json() as Record<string, unknown>;
+      if (!res.ok || !data.access_token) throw new Error('TOKEN_EXCHANGE_FAILED');
+      return data.access_token as string;
+    },
+    async fetchUserInfo(accessToken: string) {
+      const res = await fetch(userinfoUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok) throw new Error('Failed to fetch GitLab user info');
+      const data = await res.json() as Record<string, unknown>;
+      // GitLab's OIDC userinfo emits `email_verified`; require it before linking
+      // the address onto a pre-existing local account (account-takeover guard,
+      // mirroring the Google path).
+      if (!data.email || data.email_verified !== true) {
+        throw new Error('GitLab did not return a verified email address');
+      }
+      return { id: String(data.sub), email: data.email as string, name: data.name as string | undefined, picture: data.picture as string | undefined };
+    },
+  };
+}
+
+// LinkedIn provider
+//
+// "Sign in with LinkedIn using OpenID Connect" — standards-OIDC. User info comes
+// from the OIDC userinfo endpoint. LinkedIn only returns emails it has verified;
+// it also emits `email_verified` (a string "true"/"false" in some responses),
+// which we honour when present.
+
+function createLinkedInProvider(): OAuthProvider {
+  const { clientId, clientSecret, authorizeUrl, tokenUrl, userinfoUrl, enabled } = config.oauth.linkedin;
+  const callbackUrl = `${config.oauth.callbackBaseUrl}/auth/callback/linkedin`;
+
+  return {
+    enabled,
+    buildAuthorizeUrl(state: string) {
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: callbackUrl,
+        response_type: 'code',
+        scope: 'openid email profile',
+        state,
+      });
+      return `${authorizeUrl}?${params}`;
+    },
+    async exchangeCode(code: string) {
+      const params = new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        redirect_uri: callbackUrl,
+        grant_type: 'authorization_code',
+      });
+      const res = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+        body: params.toString(),
+      });
+      const data = await res.json() as Record<string, unknown>;
+      if (!res.ok || !data.access_token) throw new Error('TOKEN_EXCHANGE_FAILED');
+      return data.access_token as string;
+    },
+    async fetchUserInfo(accessToken: string) {
+      const res = await fetch(userinfoUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok) throw new Error('Failed to fetch LinkedIn user info');
+      const data = await res.json() as Record<string, unknown>;
+      // LinkedIn only returns emails it has verified, so a returned address is
+      // trustworthy; when `email_verified` is present (bool or string form) we
+      // still honour it and reject a false value. A missing email is rejected.
+      const verified = data.email_verified === undefined
+        || data.email_verified === true
+        || data.email_verified === 'true';
+      if (!data.email || !verified) {
+        throw new Error('LinkedIn did not return a verified email address');
+      }
+      return { id: String(data.sub), email: data.email as string, name: data.name as string | undefined, picture: data.picture as string | undefined };
+    },
+  };
+}
+
 // Provider registry — keyed by the shared `OAuthProviderName` union
 // (src/types/oauth-provider.ts) rather than a locally-redeclared alias.
 
 const providers: Record<OAuthProviderName, OAuthProvider> = {
   google: createGoogleProvider(),
   github: createGitHubProvider(),
+  facebook: createFacebookProvider(),
+  microsoft: createMicrosoftProvider(),
+  gitlab: createGitLabProvider(),
+  linkedin: createLinkedInProvider(),
 };
 
 function getProvider(name: string): OAuthProvider | null {

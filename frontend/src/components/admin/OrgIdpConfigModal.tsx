@@ -19,7 +19,7 @@ interface Props {
   onSaved?: () => void;
 }
 
-type Provider = 'generic-oidc' | 'google' | 'github';
+type Provider = 'generic-oidc' | 'cognito' | 'google' | 'github';
 
 /**
  * Sysadmin modal for managing an org's SSO / IdP configuration.
@@ -42,6 +42,8 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [discoveryUrl, setDiscoveryUrl] = useState('');
+  const [region, setRegion] = useState('');
+  const [userPoolId, setUserPoolId] = useState('');
   const [allowedEmailDomains, setAllowedEmailDomains] = useState('');
   const [enabled, setEnabled] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -62,6 +64,8 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
         setProvider(c.provider);
         setClientId(c.clientId);
         setDiscoveryUrl(c.discoveryUrl || '');
+        setRegion(c.region || '');
+        setUserPoolId(c.userPoolId || '');
         setAllowedEmailDomains((c.allowedEmailDomains || []).join(', '));
         setEnabled(c.enabled);
       }
@@ -85,18 +89,27 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
     if (provider === 'generic-oidc' && !discoveryUrl.trim()) {
       setError('discoveryUrl is required for generic-oidc'); return;
     }
+    if (provider === 'cognito' && (!region.trim() || !userPoolId.trim())) {
+      setError('Region and User Pool ID are required for cognito'); return;
+    }
 
     const domains = allowedEmailDomains
       .split(',')
       .map((d) => d.trim())
       .filter(Boolean);
 
+    // For cognito the server derives the discovery URL from region + userPoolId,
+    // so only send those; other providers send discoveryUrl and never region/pool.
+    const providerFields = provider === 'cognito'
+      ? { region: region.trim(), userPoolId: userPoolId.trim(), discoveryUrl: undefined }
+      : { discoveryUrl: discoveryUrl || undefined, region: undefined, userPoolId: undefined };
+
     setSubmitting(true);
     try {
       if (existing) {
         // PATCH — only send the fields that changed; clientSecret only when supplied.
-        const patch: Partial<{ provider: Provider; clientId: string; clientSecret: string; discoveryUrl: string; allowedEmailDomains: string[]; enabled: boolean }> = {
-          provider, clientId, discoveryUrl: discoveryUrl || undefined,
+        const patch: Partial<{ provider: Provider; clientId: string; clientSecret: string; discoveryUrl: string; region: string; userPoolId: string; allowedEmailDomains: string[]; enabled: boolean }> = {
+          provider, clientId, ...providerFields,
           allowedEmailDomains: domains, enabled,
         };
         if (clientSecret.trim()) patch.clientSecret = clientSecret;
@@ -105,7 +118,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
       } else {
         const res = await api.putOrgIdpConfig(org.id, {
           provider, clientId, clientSecret,
-          discoveryUrl: discoveryUrl || undefined,
+          ...providerFields,
           allowedEmailDomains: domains, enabled,
         });
         if (!res.success) throw new Error(res.message || 'Create failed');
@@ -117,7 +130,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
     } finally {
       setSubmitting(false);
     }
-  }, [org.id, provider, clientId, clientSecret, discoveryUrl, allowedEmailDomains, enabled, existing, onSaved, onClose]);
+  }, [org.id, provider, clientId, clientSecret, discoveryUrl, region, userPoolId, allowedEmailDomains, enabled, existing, onSaved, onClose]);
 
   const handleDelete = useCallback(async () => {
     if (!window.confirm(`Remove IdP config for "${org.name}"? SSO will be disabled for this org.`)) return;
@@ -182,6 +195,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
               disabled={submitting}
             >
               <option value="generic-oidc">Generic OIDC</option>
+              <option value="cognito">AWS Cognito</option>
               <option value="google">Google</option>
               <option value="github">GitHub</option>
             </Select>
@@ -230,6 +244,36 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
                 disabled={submitting}
               />
             </div>
+          )}
+
+          {provider === 'cognito' && (
+            <>
+              <div>
+                <label className="label">Region</label>
+                <Input
+                  type="text"
+                  value={region}
+                  onChange={(e) => setRegion(e.target.value)}
+                  placeholder="us-east-1"
+                  className="font-mono text-sm"
+                  disabled={submitting}
+                />
+              </div>
+              <div>
+                <label className="label">User Pool ID</label>
+                <Input
+                  type="text"
+                  value={userPoolId}
+                  onChange={(e) => setUserPoolId(e.target.value)}
+                  placeholder="us-east-1_aB1cD2eF3"
+                  className="font-mono text-sm"
+                  disabled={submitting}
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  The discovery URL is derived server-side from the region and user pool.
+                </p>
+              </div>
+            </>
           )}
 
           <div>

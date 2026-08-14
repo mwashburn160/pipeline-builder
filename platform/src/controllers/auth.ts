@@ -5,6 +5,7 @@ import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthH
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
+import { findSsoEnforcementForEmail } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
 import { provisionBillingSubscription } from '../services/billing-provision.js';
 import { authService, DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME } from '../services/index.js';
@@ -100,10 +101,34 @@ export const register = withController('Register', async (req, res) => {
   MISSING_FIELDS: { status: 400, message: 'Missing required fields' },
 });
 
+/**
+ * Reject a password login when the account's email domain is covered by an
+ * ENABLED + `sso`-entitled org IdP — those users MUST authenticate through SSO,
+ * so password login is a bypass. Returns true when it handled (rejected) the
+ * request. `details.orgId`/`provider` let the frontend route the user straight
+ * into the SSO initiate flow. A disabled/unentitled config never matches, so
+ * this is a no-op until an admin enables SSO.
+ */
+async function rejectIfSsoEnforced(res: Parameters<typeof sendError>[0], email: string): Promise<boolean> {
+  const enforcement = await findSsoEnforcementForEmail(email);
+  if (!enforcement) return false;
+  sendError(
+    res, 403,
+    'This account must sign in with single sign-on (SSO).',
+    'SSO_REQUIRED',
+    { orgId: enforcement.orgId, provider: enforcement.provider },
+  );
+  return true;
+}
+
 /** Login user. POST /auth/login */
 export const login = withController('Login', async (req, res) => {
   const body = validateBody(loginSchema, req.body, res);
   if (!body) return;
+
+  // Early gate: if the identifier is itself an email whose domain is SSO-forced,
+  // turn it away before processing the password at all.
+  if (body.identifier.includes('@') && await rejectIfSsoEnforced(res, body.identifier)) return;
 
   const user = await authService.findByCredentials(body.identifier, body.password);
   if (!user) {
@@ -115,6 +140,10 @@ export const login = withController('Login', async (req, res) => {
     incCounter('platform_logins_failed_total');
     return sendError(res, 401, 'Invalid credentials');
   }
+
+  // Post-credential gate: closes the username-login bypass of the email-identifier
+  // early gate above — a covered account can't password-login by username either.
+  if (await rejectIfSsoEnforced(res, user.email)) return;
 
   const tokens = await issueTokens(user, user.lastActiveOrgId?.toString());
 

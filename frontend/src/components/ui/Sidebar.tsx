@@ -11,8 +11,8 @@ import {
 import { hasPermission, isMutationPermission } from '@/lib/auth-helpers';
 import { useAuth } from '@/hooks/useAuth';
 import { type User } from '@/types';
-import { useFeatures } from '@/hooks/useFeatures';
 import { useBillingEnabled } from '@/hooks/useBillingEnabled';
+import { useFeatures } from '@/hooks/useFeatures';
 import { NAV_SECTIONS, QUICK_ACTIONS, isNavItemVisible, type NavItem } from '@/lib/nav';
 import { Tooltip } from './Tooltip';
 
@@ -48,8 +48,8 @@ export function Sidebar({
   collapsed = false,
   onToggleCollapsed,
 }: SidebarProps) {
-  const features = useFeatures();
   const billingEnabled = useBillingEnabled();
+  const { isEnabled: isFeatureEnabled } = useFeatures();
   const { isReadOnly } = useAuth();
   // A quick action is available only if permitted AND not a write blocked by a
   // read-only impersonation session (matches nav.ts's documented `can()` intent).
@@ -81,7 +81,7 @@ export function Sidebar({
       : currentPath.startsWith(href);
 
   const isItemVisible = (item: NavItem) =>
-    isNavItemVisible(item, { isAdmin, isSuperAdmin, isFeatureEnabled: (n) => features.isEnabled(n), hasPermission: (p) => hasPermission(user, p), billingEnabled });
+    isNavItemVisible(item, { isAdmin, isSuperAdmin, hasPermission: (p) => hasPermission(user, p), billingEnabled, isFeatureEnabled });
 
   return (
     <div className={`sidebar transition-all duration-200 ${collapsed ? 'w-16' : 'w-64'}`}>

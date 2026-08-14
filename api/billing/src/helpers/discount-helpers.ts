@@ -6,6 +6,7 @@ import { createLogger } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { createBillingEvent, getBundleCatalog, MANAGEABLE_SUBSCRIPTION_STATUSES } from './billing-helpers.js';
 import { activeComboCredits, comboLedgerId, getComboDiscounts, priceForInterval } from './combo-pricing.js';
+import { compactCreditLedger } from './credit-ledger-compaction.js';
 import { decodeDiscountCode, type DiscountSpec, type DiscountKind } from './discount-code.js';
 import { Discount } from '../models/discount.js';
 import type { DiscountDocument } from '../models/discount.js';
@@ -368,6 +369,13 @@ export async function grantPeriodicCredits(subscription: SubscriptionDocument, p
     if (subscription.creditLedger.some((c) => c.discountId === discountId && c.dedupeKey === periodKey)) continue;
     await grantUsageCredit(subscription, discountId, combo.creditCents, creditIdemSeed(orgId, discountId, periodKey), undefined, periodKey);
   }
+
+  // Bound the ledger's growth: fold old per-period rows into per-family carry rows
+  // (the recent-period rows this grant just checked stay intact, so idempotency
+  // holds). Only reassign when a fold actually shrank the array — avoids dirtying
+  // the doc on the common no-fold path. In-memory; persisted by the caller's save.
+  const compacted = compactCreditLedger(subscription.creditLedger);
+  if (compacted.length !== subscription.creditLedger.length) subscription.creditLedger = compacted;
 }
 
 /**
