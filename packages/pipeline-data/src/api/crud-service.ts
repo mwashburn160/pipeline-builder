@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { NotFoundError, createLogger } from '@pipeline-builder/api-core';
-import { SQL, eq, and, asc, desc, sql, inArray, isNotNull, lt, getTableColumns } from 'drizzle-orm';
+import { SQL, eq, and, asc, desc, sql, inArray, getTableColumns } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { withTenantTx, runWithTenantContext, getTenantContext } from '../database/tenancy.js';
@@ -885,7 +885,7 @@ export abstract class CrudService<
     const conditions: SQL[] = [
       this.exactIdCondition(id),
       eq(this.cols.isActive, false),
-      isNotNull(this.cols.deletedAt),
+      sql`${this.cols.deletedAt} IS NOT NULL`,
     ];
     if (orgId) conditions.push(eq(this.getOrgColumn(), orgId));
 
@@ -924,7 +924,7 @@ export abstract class CrudService<
     const conditions: SQL[] = [
       this.exactIdCondition(id),
       eq(this.cols.isActive, false),
-      isNotNull(this.cols.deletedAt),
+      sql`${this.cols.deletedAt} IS NOT NULL`,
     ];
     if (orgId) conditions.push(eq(this.getOrgColumn(), orgId));
 
@@ -955,7 +955,7 @@ export abstract class CrudService<
 
     const conditions: SQL[] = [
       eq(this.cols.isActive, false),
-      isNotNull(this.cols.deletedAt),
+      sql`${this.cols.deletedAt} IS NOT NULL`,
     ];
     if (orgId) conditions.push(eq(this.getOrgColumn(), orgId));
 
@@ -988,7 +988,7 @@ export abstract class CrudService<
         // casts elsewhere in this file work around). Result is re-typed below.
         .select({ id: this.cols.id as any })
         .from(this.schema)
-        .where(and(isNotNull(this.cols.deletedAt!), lt(this.cols.purgeAfter!, now)))
+        .where(and(sql`${this.cols.deletedAt} IS NOT NULL`, sql`${this.cols.purgeAfter} < ${now}`))
         .limit(limit)
         .then(r => (r as Array<{ id: unknown }>).map(d => String(d.id)));
 

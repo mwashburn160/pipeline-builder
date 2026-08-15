@@ -72,6 +72,12 @@ function permissionGate(mode: 'some' | 'every', joiner: string) {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    REPORT_INTERVALS: ['day', 'week', 'month'],
+    scrubAwsIdentifiersFromString: (s: string) => s,
+    scrubAwsIdentifiers: <T>(v: T): T => v,
+    createScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+    createEnvRedisLock: () => null,
+    requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
     SYSTEM_ORG_ID: '000000000000000000000001',
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },

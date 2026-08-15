@@ -67,6 +67,12 @@ class NotFoundError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    REPORT_INTERVALS: ['day', 'week', 'month'],
+    scrubAwsIdentifiersFromString: (s: string) => s,
+    scrubAwsIdentifiers: <T>(v: T): T => v,
+    createScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+    createEnvRedisLock: () => null,
+    requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
     // RBAC read-permission gate factories. Behavioral so gate suites can assert
     // 403-vs-pass; provided by default so read-quotas.ts (which now imports both)
     // links in every suite. Handler-only suites skip these middleware layers.

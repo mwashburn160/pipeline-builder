@@ -3,7 +3,7 @@
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
-import { and, asc, eq, isNull, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 
 import { getNotificationChannel, type NotificationMessage } from './notification-channels.js';
 
@@ -293,7 +293,7 @@ export class AlertDestinationService {
         .where(and(
           eq(schema.orgAlertDestination.id, id),
           eq(schema.orgAlertDestination.orgId, caller.orgId),
-          isNotNull(schema.orgAlertDestination.deletedAt),
+          sql`${schema.orgAlertDestination.deletedAt} IS NOT NULL`,
         ))
         .returning({ id: schema.orgAlertDestination.id });
       return !!restored;

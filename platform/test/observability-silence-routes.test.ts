@@ -18,6 +18,11 @@ import { jest, describe, it, expect } from '@jest/globals';
 const requireAuthStub: any = (_req: unknown, _res: unknown, next: () => void) => next();
 requireAuthStub.__mw = 'requireAuth';
 
+// requireStepUp stub — the observability router's restore routes import it; the
+// silence-route assertions below don't inspect it, so a tagged pass-through is enough.
+const requireStepUpStub: any = (_req: unknown, _res: unknown, next: () => void) => next();
+requireStepUpStub.__mw = 'requireStepUp';
+
 // requirePermission stub — returns a middleware tagged with the perms it gates,
 // so the stack assertion can identify the write-gate on a route.
 jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
@@ -34,7 +39,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
   },
 }));
 
-jest.unstable_mockModule('../src/middleware/index.js', () => ({ requireAuth: requireAuthStub }));
+jest.unstable_mockModule('../src/middleware/index.js', () => ({ requireAuth: requireAuthStub, requireStepUp: requireStepUpStub }));
 
 // Handler stubs — the router only needs referenceable functions.
 const handler = (name: string) => Object.assign((_req: unknown, res: any) => res?.end?.(), { __handler: name });
@@ -45,6 +50,7 @@ jest.unstable_mockModule('../src/controllers/alert-destinations.js', () => ({
   createAlertDestination: handler('createAlertDestination'),
   updateAlertDestination: handler('updateAlertDestination'),
   deleteAlertDestination: handler('deleteAlertDestination'),
+  restoreAlertDestination: handler('restoreAlertDestination'),
   testAlertDestination: handler('testAlertDestination'),
   alertWebhook: handler('alertWebhook'),
 }));
@@ -54,6 +60,7 @@ jest.unstable_mockModule('../src/controllers/alert-rules.js', () => ({
   createAlertRule: handler('createAlertRule'),
   updateAlertRule: handler('updateAlertRule'),
   deleteAlertRule: handler('deleteAlertRule'),
+  restoreAlertRule: handler('restoreAlertRule'),
   materializeAlertRules: handler('materializeAlertRules'),
 }));
 

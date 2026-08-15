@@ -64,13 +64,14 @@ set -a; . "$ENV_FILE"; set +a
 # Exclude .env and auth dirs which contain secrets
 if [ "$(id -u)" = "0" ]; then
   chmod -R o+rX "$DEPLOY_DIR/k8s" "$DEPLOY_DIR/config" "$DEPLOY_DIR/nginx" 2>/dev/null || true
-  # .env holds secrets, so keep it off-limits to "other" — but hand ownership to
-  # the minikube user (who owns and runs the stack) with 0600, so a later manual
-  # re-run of startup.sh AS minikube can still source it. The old `chmod o-rwx`
-  # left .env root-owned and unreadable to minikube, so non-root re-runs died at
-  # `. "$ENV_FILE"` with "Permission denied".
+  # Give .env to the minikube user (who owns and runs the stack) and keep it
+  # READABLE (0644) so `startup.sh` re-run as ANY login user — root, minikube,
+  # or the default ec2-user/ssm-user — can source it at `. "$ENV_FILE"`. On this
+  # single-node box the whole deploy tree (incl. TLS/JWT keys) is intentionally
+  # 644; locking .env to 0600/root left non-owner re-runs dying with
+  # "Permission denied" at line 56.
   chown minikube:minikube "$DEPLOY_DIR/.env" 2>/dev/null || true
-  chmod 600 "$DEPLOY_DIR/.env" 2>/dev/null || true
+  chmod 644 "$DEPLOY_DIR/.env" 2>/dev/null || true
 fi
 # Generate the MongoDB replica-set keyfile per-deploy (idempotent; a fresh
 # checkout no longer ships one). pb_create_config_maps below reads it directly.
@@ -197,7 +198,11 @@ pb_create_ghcr_secret
 
 log "Creating registry token-signing keypair"
 mkdir -p "$CERT_DIR"
-chown root:minikube "$CERT_DIR"
+# Group the cert dir to minikube so `mk kubectl` (the minikube-user reader) can
+# traverse it. Root-only: a non-root (minikube) run can't chown to root and would
+# abort under `set -e` — and it doesn't need to (it already owns what it created;
+# the JWT keys are 0644 and the dir 0755, so they stay readable regardless).
+[ "$(id -u)" = "0" ] && chown root:minikube "$CERT_DIR" 2>/dev/null || true
 
 # JWT signing keypair for image-registry's token-auth endpoint (shared generator), then the
 # registry secrets (token keypair + build-svc Basic-auth creds). No htpasswd/registry-auth-secret

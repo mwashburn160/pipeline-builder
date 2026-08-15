@@ -125,6 +125,11 @@ jest.unstable_mockModule('../src/routes/deploy-generated-plugin.js', () => ({ cr
 jest.unstable_mockModule('../src/routes/update-plugin.js', () => ({ createUpdatePluginRoutes: () => Router() }));
 jest.unstable_mockModule('../src/routes/delete-plugin.js', () => ({ createDeletePluginRoutes: () => Router() }));
 jest.unstable_mockModule('../src/routes/bulk-plugin.js', () => ({ createBulkPluginRoutes: () => Router() }));
+jest.unstable_mockModule('../src/routes/restore-plugin.js', () => ({ createRestorePluginRoutes: () => Router() }));
+// Purge-scheduler deps the index now imports — mock so the real pipeline-data
+// barrel / pluginService aren't pulled into this route-mount test.
+jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService: {} }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({ createSoftDeletePurgeScheduler: () => null }));
 
 // Import the REAL boot module — assembles the production route wiring, incl. the
 // REAL generate router at the actual '/plugins' generate mount.

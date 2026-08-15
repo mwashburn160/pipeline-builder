@@ -34,6 +34,7 @@ const ROUTERS = {
   update: { __router: 'update' },
   delete: { __router: 'delete' },
   bulk: { __router: 'bulk' },
+  restore: { __router: 'restore' },
 } as const;
 
 /** requirePermission/requireFeature return tagged guards so we can assert them. */
@@ -81,6 +82,11 @@ jest.unstable_mockModule('../src/routes/queue-status.js', () => ({ createQueueSt
 jest.unstable_mockModule('../src/routes/read-plugins.js', () => ({ createReadPluginRoutes: () => ROUTERS.read }));
 jest.unstable_mockModule('../src/routes/update-plugin.js', () => ({ createUpdatePluginRoutes: () => ROUTERS.update }));
 jest.unstable_mockModule('../src/routes/upload-plugin.js', () => ({ createUploadPluginRoutes: () => ROUTERS.upload }));
+jest.unstable_mockModule('../src/routes/restore-plugin.js', () => ({ createRestorePluginRoutes: () => ROUTERS.restore }));
+// Purge-scheduler deps the index now imports — mock so the real pipeline-data
+// barrel / pluginService aren't pulled into this wiring test.
+jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService: {} }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({ createSoftDeletePurgeScheduler: () => null }));
 
 await import('../src/index.js');
 

@@ -62,6 +62,11 @@ class NotFoundError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    REPORT_INTERVALS: ['day', 'week', 'month'],
+    scrubAwsIdentifiersFromString: (s: string) => s,
+    scrubAwsIdentifiers: <T>(v: T): T => v,
+    createEnvRedisLock: () => null,
+    requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
     // Optional-dep require shim → always "unavailable" so callers fall back to no-ops.
     safeCreateRequire: () => ((_id: string) => { throw new Error('require unavailable in tests'); }),
     // Scheduler factory stub — no-op start/stop (real behaviour tested in api-core).

@@ -47,6 +47,11 @@ class NotFoundError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    REPORT_INTERVALS: ['day', 'week', 'month'],
+    scrubAwsIdentifiersFromString: (s: string) => s,
+    scrubAwsIdentifiers: <T>(v: T): T => v,
+    createScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+    requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
     // Metrics no-op — the promotion engine emits `billing_promotion_*` counters.
     emitCounter: () => undefined,
     SYSTEM_ORG_ID: '000000000000000000000001',

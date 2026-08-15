@@ -75,8 +75,14 @@ class HookedService extends BaseTestService {
 }
 
 const tombstone: TestEntity = {
-  id: 'id-1', orgId: 'org1', name: 'Gone', isDefault: false,
-  createdAt: new Date(), updatedAt: new Date(), createdBy: 'u', updatedBy: 'u',
+  id: 'id-1',
+  orgId: 'org1',
+  name: 'Gone',
+  isDefault: false,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  createdBy: 'u',
+  updatedBy: 'u',
 };
 
 // Mock builders for each drizzle chain --------------------------------------
@@ -87,9 +93,13 @@ function mockSelectLimit(rows: unknown[]) {
   mockSelect.mockReturnValue({ from: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue(rows) }) }) });
 }
 function mockSelectOrderLimitOffset(rows: unknown[]) {
-  mockSelect.mockReturnValue({ from: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({
-    orderBy: jest.fn().mockReturnValue({ limit: jest.fn().mockReturnValue({ offset: jest.fn().mockResolvedValue(rows) }) }),
-  }) }) });
+  mockSelect.mockReturnValue({
+    from: jest.fn().mockReturnValue({
+      where: jest.fn().mockReturnValue({
+        orderBy: jest.fn().mockReturnValue({ limit: jest.fn().mockReturnValue({ offset: jest.fn().mockResolvedValue(rows) }) }),
+      }),
+    }),
+  });
 }
 // purgeExpired: select doomed ids, then delete().where().
 function mockPurge(ids: string[]) {

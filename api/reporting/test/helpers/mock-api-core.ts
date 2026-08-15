@@ -65,6 +65,12 @@ class NotFoundError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    REPORT_INTERVALS: ['day', 'week', 'month'],
+    scrubAwsIdentifiersFromString: (s: string) => s,
+    scrubAwsIdentifiers: <T>(v: T): T => v,
+    createScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+    createEnvRedisLock: () => null,
+    requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
     // RBAC read-permission gate factories. Behavioral so the index-wiring suite
     // can assert 403-vs-pass; provided by default so any suite loading src/index.ts
     // (which now imports requirePermission) links. Router-only suites don't hit them.

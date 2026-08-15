@@ -3,7 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { db, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
-import { and, asc, eq, isNull, isNotNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
 
 // The transaction object's full type is enormous; reuse drizzle's inferred
 // shape so insertPanels can take a tx without re-typing it everywhere.
@@ -229,7 +229,7 @@ export class DashboardService {
       const [row] = await tx
         .select()
         .from(schema.dashboard)
-        .where(and(eq(schema.dashboard.id, id), isNotNull(schema.dashboard.deletedAt)))
+        .where(and(eq(schema.dashboard.id, id), sql`${schema.dashboard.deletedAt} IS NOT NULL`))
         .limit(1);
       return row ?? null;
     });
@@ -242,7 +242,7 @@ export class DashboardService {
       const [restored] = await tx
         .update(schema.dashboard)
         .set({ deletedAt: null, deletedBy: null })
-        .where(and(eq(schema.dashboard.id, id), isNotNull(schema.dashboard.deletedAt)))
+        .where(and(eq(schema.dashboard.id, id), sql`${schema.dashboard.deletedAt} IS NOT NULL`))
         .returning({ id: schema.dashboard.id });
       return !!restored;
     });

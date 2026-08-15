@@ -18,7 +18,7 @@
 
 import { createLogger, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
-import { and, asc, eq, isNull, isNotNull } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { injectOrgId, PromQLRewriteError, validateOrgIdMatchers } from './promql-rewriter.js';
 
 const logger = createLogger('alert-rule-service');
@@ -213,7 +213,7 @@ export class AlertRuleService {
       .where(and(
         eq(schema.orgAlertRule.id, id),
         eq(schema.orgAlertRule.orgId, orgId),
-        isNotNull(schema.orgAlertRule.deletedAt),
+        sql`${schema.orgAlertRule.deletedAt} IS NOT NULL`,
       ))
       .returning());
     return rows.length > 0;

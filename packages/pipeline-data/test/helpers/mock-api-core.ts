@@ -43,6 +43,9 @@ class NotFoundError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    createScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+    createEnvRedisLock: () => null,
+    requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
     SYSTEM_ORG_ID: '000000000000000000000001',
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },

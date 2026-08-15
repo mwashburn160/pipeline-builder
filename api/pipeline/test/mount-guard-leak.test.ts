@@ -138,6 +138,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: {},
   // Scorecard route calls per-pipeline DORA in-process; stub the singleton.
   reportingService: { getDoraMetrics: jest.fn(async () => ({})) },
+  // Retention purge scheduler wired in index.ts; null disables it in the test.
+  createSoftDeletePurgeScheduler: () => null,
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({

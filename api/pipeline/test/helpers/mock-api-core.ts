@@ -56,6 +56,11 @@ class ValidationError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    REPORT_INTERVALS: ['day', 'week', 'month'],
+    scrubAwsIdentifiers: <T>(v: T): T => v,
+    createScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+    createEnvRedisLock: () => null,
+    requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
     SYSTEM_ORG_ID: '000000000000000000000001',
     // S2S token minter — routes forward a service token (not the user bearer)
     // to quota/compliance. Suites that assert on the forwarded auth override this.
