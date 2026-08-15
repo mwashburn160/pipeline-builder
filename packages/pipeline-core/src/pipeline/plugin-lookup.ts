@@ -329,6 +329,7 @@ export class PluginLookup extends Construct {
       isActive: true,
       deletedAt: null,
       deletedBy: null,
+      purgeAfter: null,
     };
   }
 

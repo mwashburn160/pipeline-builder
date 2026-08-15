@@ -218,6 +218,7 @@ describe('createCodeBuildStep — env var precedence', () => {
     updatedAt: new Date(),
     deletedAt: null,
     deletedBy: null,
+    purgeAfter: null,
     ...over,
   });
 

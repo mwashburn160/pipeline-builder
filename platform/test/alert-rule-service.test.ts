@@ -115,6 +115,7 @@ describe('renderRulesYaml', () => {
     enabled: true,
     deletedAt: null,
     deletedBy: null,
+    purgeAfter: null,
   };
 
   it('renders an empty groups list when there are no rules', () => {
