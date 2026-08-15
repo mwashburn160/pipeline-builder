@@ -42,6 +42,7 @@ jest.unstable_mockModule('mongoose', () => {
 });
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+  softDeleteRetentionMs: () => 0,
   runWithTenantContext: (ctx: unknown, fn: () => unknown) => {
     mockRunWithTenantContext(ctx);
     return fn();

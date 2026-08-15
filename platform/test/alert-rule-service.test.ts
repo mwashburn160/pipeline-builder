@@ -12,6 +12,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+  softDeleteRetentionMs: () => 0,
   schema: { orgAlertRule: {} },
   withTenantTx: jest.fn(),
   runWithTenantContext: jest.fn(),

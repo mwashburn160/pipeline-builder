@@ -327,7 +327,9 @@ export const restoreOrganization = withController('Restore organization', async 
     return sendError(res, 403, 'You can only restore an organization you administer');
   }
 
-  const restored = await organizationService.restore(id);
+  // Exclude the acting admin from the member token-invalidation so restoring an
+  // org never logs out the person who did it (they'd otherwise 401 → login screen).
+  const restored = await organizationService.restore(id, req.user!.sub);
   if (!restored) {
     return sendError(res, 404, 'No organization pending deletion with this id (already purged or never deleted)');
   }

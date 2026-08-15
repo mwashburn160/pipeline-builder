@@ -56,6 +56,7 @@ class ValidationError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    loadAndRestore: async () => null,
     REPORT_INTERVALS: ['day', 'week', 'month'],
     scrubAwsIdentifiers: <T>(v: T): T => v,
     createScheduler: () => ({ start: () => undefined, stop: () => undefined }),

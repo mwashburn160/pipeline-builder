@@ -50,6 +50,7 @@ class NotFoundError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   const mock: Record<string, unknown> = {
     createLogger: loggerMock,
+    loadAndRestore: async () => null,
     REPORT_INTERVALS: ['day', 'week', 'month'],
     scrubAwsIdentifiersFromString: (s: string) => s,
     scrubAwsIdentifiers: <T>(v: T): T => v,

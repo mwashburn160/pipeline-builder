@@ -452,7 +452,7 @@ class OrganizationService {
    * org with this id (already purged, never deleted, or unknown) so the
    * controller can 404 — a purged org is gone and cannot be restored.
    */
-  async restore(id: string): Promise<{ id: string; name: string; membersInvalidated: number } | null> {
+  async restore(id: string, excludeUserId?: string): Promise<{ id: string; name: string; membersInvalidated: number } | null> {
     let bumpedMemberIds: Types.ObjectId[] = [];
     const result = await withMongoTransaction(async (session) => {
       const org = await Organization.findOne({ _id: toOrgId(id), deletedAt: { $ne: null } }).session(session);
@@ -464,7 +464,13 @@ class OrganizationService {
 
       const memberships = await UserOrganization.find({ organizationId: toOrgId(id), isActive: true })
         .select('userId').session(session).lean();
-      bumpedMemberIds = memberships.map((m) => m.userId);
+      // Bump tokenVersion so members re-auth and pick up the restored membership —
+      // but NEVER the actor performing the restore: invalidating their own token
+      // would 401 their next request and bounce them to the login screen. Their
+      // session stays valid and resolves the now-live org on the next request.
+      bumpedMemberIds = memberships
+        .map((m) => m.userId)
+        .filter((uid) => !excludeUserId || uid.toString() !== excludeUserId);
       if (bumpedMemberIds.length > 0) {
         await User.updateMany({ _id: { $in: bumpedMemberIds } }, { $inc: { tokenVersion: 1 } }).session(session);
       }

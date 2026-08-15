@@ -84,6 +84,19 @@ describe('organizationService.restore', () => {
     expect(result).toEqual({ id: 'org-acme', name: 'Acme', membersInvalidated: 2 });
   });
 
+  it('excludes the acting admin so restore never logs out the restorer', async () => {
+    const save = jest.fn();
+    const doc: any = { _id: { toString: () => 'org-acme' }, name: 'Acme', deletedAt: new Date(), purgeAfter: new Date(), save };
+    mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(doc) });
+
+    // u1 is the actor performing the restore.
+    const result = await organizationService.restore('org-acme', 'u1');
+
+    // Only the OTHER member (u2) is invalidated; u1's session stays valid.
+    expect(mockUserUpdateMany).toHaveBeenCalledWith({ _id: { $in: ['u2'] } }, { $inc: { tokenVersion: 1 } });
+    expect(result).toEqual({ id: 'org-acme', name: 'Acme', membersInvalidated: 1 });
+  });
+
   it('returns null when there is no soft-deleted org (already purged / never deleted)', async () => {
     mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(null) });
 

@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Request, Response } from 'express';
+import { requirePublicAccess } from './access-helpers.js';
+import { sendEntityNotFound } from './crud-helpers.js';
 import { ErrorCode } from '../types/error-codes.js';
 import type { Permission } from '../types/permissions.js';
 import { getParam } from '../utils/params.js';
 import { sendBadRequest } from '../utils/response.js';
-import { requirePublicAccess } from './access-helpers.js';
-import { sendEntityNotFound } from './crud-helpers.js';
 
 /** Minimal shape a restore route needs from the entity it restores. */
 export interface RestorableEntity {

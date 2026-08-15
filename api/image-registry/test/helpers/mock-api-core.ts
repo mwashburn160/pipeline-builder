@@ -72,6 +72,7 @@ function permissionGate(mode: 'some' | 'every', joiner: string) {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    loadAndRestore: async () => null,
     REPORT_INTERVALS: ['day', 'week', 'month'],
     scrubAwsIdentifiersFromString: (s: string) => s,
     scrubAwsIdentifiers: <T>(v: T): T => v,
