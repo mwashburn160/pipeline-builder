@@ -17,7 +17,7 @@
  */
 
 import { createLogger, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
+import { runWithTenantContext, schema, withTenantTx, softDeleteRetentionMs } from '@pipeline-builder/pipeline-data';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { injectOrgId, PromQLRewriteError, validateOrgIdMatchers } from './promql-rewriter.js';
 
@@ -192,9 +192,11 @@ export class AlertRuleService {
   /** Soft-delete. Returns true on success, false if the row was already
    * gone  matches the alert-destination service's semantics. */
   async delete(orgId: string, id: string, actor: string): Promise<boolean> {
+    const now = new Date();
+    const retentionMs = softDeleteRetentionMs();
     const rows = await withTenantTx(async (tx) => tx
       .update(schema.orgAlertRule)
-      .set({ deletedAt: new Date(), deletedBy: actor })
+      .set({ deletedAt: now, deletedBy: actor, ...(retentionMs > 0 ? { purgeAfter: new Date(now.getTime() + retentionMs) } : {}) })
       .where(and( eq(schema.orgAlertRule.id, id),
         eq(schema.orgAlertRule.orgId, orgId),
         isNull(schema.orgAlertRule.deletedAt),

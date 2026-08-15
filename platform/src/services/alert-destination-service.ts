@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
-import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
+import { schema, withTenantTx, softDeleteRetentionMs } from '@pipeline-builder/pipeline-data';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 
 import { getNotificationChannel, type NotificationMessage } from './notification-channels.js';
@@ -269,10 +269,12 @@ export class AlertDestinationService {
   }
 
   async delete(id: string, caller: { orgId: string; userId: string }): Promise<boolean> {
+    const now = new Date();
+    const retentionMs = softDeleteRetentionMs();
     return withTenantTx(async (tx) => {
       const [deleted] = await tx
         .update(schema.orgAlertDestination)
-        .set({ deletedAt: sql`CURRENT_TIMESTAMP`, deletedBy: caller.userId })
+        .set({ deletedAt: now, deletedBy: caller.userId, ...(retentionMs > 0 ? { purgeAfter: new Date(now.getTime() + retentionMs) } : {}) })
         .where(and(
           eq(schema.orgAlertDestination.id, id),
           eq(schema.orgAlertDestination.orgId, caller.orgId),

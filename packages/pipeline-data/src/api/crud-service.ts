@@ -132,6 +132,14 @@ interface CrudColumns {
  */
 const SOFT_DELETE_RETENTION_MS = Math.max(0, Number.parseInt(process.env.SOFT_DELETE_RETENTION_DAYS ?? '30', 10) || 0) * 24 * 60 * 60 * 1000;
 
+/** The shared soft-delete retention window in ms (`SOFT_DELETE_RETENTION_DAYS`,
+ *  default 30d; 0 disables purge-deadline stamping). Exposed so non-CrudService
+ *  soft-delete paths (e.g. platform's hand-rolled dashboard/alert services)
+ *  stamp `purge_after` with the SAME window the CrudService entities use. */
+export function softDeleteRetentionMs(): number {
+  return SOFT_DELETE_RETENTION_MS;
+}
+
 export abstract class CrudService<
   TEntity extends BaseEntity,
   TFilter,

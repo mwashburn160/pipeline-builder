@@ -18,6 +18,7 @@ import {
   requirePermission,
   requirePublicAccess,
   requireStepUp,
+  loadAndRestore,
   PipelineTemplateFilterSchema,
   PipelineTemplateCreateSchema,
   PipelineTemplateUpdateSchema,
@@ -292,27 +293,18 @@ export function createPipelineTemplateRoutes(): Router {
   // DELETE authority (auth + orgId + pipelines:write, +pipelines:publish for
   // public templates).
   router.post('/:id/restore', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), requireStepUp, withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const id = getParam(req.params, 'id');
-    if (!id) return sendBadRequest(res, 'Template ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
+    const result = await loadAndRestore(req, res, orgId, userId ?? 'system', pipelineTemplateService, 'Template', 'pipelines:publish');
+    if (!result) return;
+    const { existing, restored } = result;
 
-    // Own-org only: the subsequent restore() is own-org-pinned, so widening the
-    // tombstone lookup to a parent org would load a row restore() can't touch
-    // (apparent success → 404). Mirrors restore-pipeline.ts.
-    const existing = await pipelineTemplateService.findDeletedById(id, orgId);
-    if (!existing) return sendEntityNotFound(res, 'Template');
-    if (!requirePublicAccess(req, res, existing, 'pipelines:publish')) return;
-
-    const restored = await pipelineTemplateService.restore(id, orgId, userId ?? 'system');
-    if (!restored) return sendEntityNotFound(res, 'Template');
-
-    ctx.log('COMPLETED', 'Restored pipeline template', { id });
+    ctx.log('COMPLETED', 'Restored pipeline template', { id: restored.id });
     emitPipelineAudit({
       action: 'pipeline_template.restore',
       actorId: req.user?.sub ?? userId ?? 'system',
       orgId,
       affectedOrgId: existing.orgId,
       targetType: 'pipeline_template',
-      targetId: id,
+      targetId: restored.id,
       details: { name: restored.name },
     });
     return sendSuccess(res, 200, { template: normalizeArrayFields(restored, ['keywords']) });

@@ -71,8 +71,11 @@ export function verifyStepUpToken(token: string): StepUpTokenPayload {
 
 // -- Single-use jti store -----------------------------------------------------
 // Redis SET NX EX when Redis is configured (cross-instance single-use); else a
-// bounded process-local map with TTL sweep (best-effort per-process). A step-up
-// token is 60s-lived, so the fallback window is tiny.
+// bounded process-local map with TTL sweep (per-process). A step-up token is
+// 60s-lived. When Redis IS configured it's the authoritative store: a Redis
+// error FAILS CLOSED (throws → STEP_UP_INVALID, user re-verifies) rather than
+// degrading to the per-instance mem guard, which would accept a cross-instance
+// replay during the outage. The mem guard is used ONLY when Redis is absent.
 
 let _redis: { set: (...args: unknown[]) => Promise<unknown> } | null | undefined;
 function redis(): { set: (...args: unknown[]) => Promise<unknown> } | null {
@@ -98,16 +101,14 @@ export async function consumeStepUpJti(jti: string, expEpochSeconds: number): Pr
   const ttlSeconds = Math.max(1, expEpochSeconds - Math.floor(Date.now() / 1000));
   const client = redis();
   if (client) {
-    try {
-      // SET key value NX EX ttl → 'OK' when newly set, null when it already exists.
-      const res = await client.set(`stepup:jti:${jti}`, '1', 'EX', ttlSeconds, 'NX');
-      return res === 'OK';
-    } catch (err) {
-      // Redis blip: fall through to the local guard (fail-safe = reject replays
-      // we CAN see; a cross-instance replay during an outage is a tolerated edge).
-      logger.warn('Step-up jti Redis consume failed; using local guard', { error: String(err) });
-    }
+    // Redis configured ⇒ authoritative cross-instance store. SET NX EX → 'OK'
+    // when newly set, null when already consumed. A thrown Redis error is NOT
+    // caught here: it propagates so `requireStepUp` fails closed (STEP_UP_INVALID)
+    // instead of silently degrading to the per-instance mem guard.
+    const res = await client.set(`stepup:jti:${jti}`, '1', 'EX', ttlSeconds, 'NX');
+    return res === 'OK';
   }
+  // No Redis ⇒ single-instance deployment; the process-local map IS the store.
   if (memJti.has(jti)) return false;
   memJti.set(jti, Date.now() + ttlSeconds * 1000);
   return true;

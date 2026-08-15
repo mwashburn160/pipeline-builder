@@ -3,6 +3,7 @@
 
 export * from './crud-helpers.js';
 export * from './access-helpers.js';
+export * from './restore-helpers.js';
 export * from './sse-helpers.js';
 export * from './org-hierarchy.js';
 export * from './org-hierarchy-http.js';

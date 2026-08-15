@@ -26,8 +26,10 @@ router.post('/', requireAuth, requirePermission('dashboards:write'), createDashb
 // so it must resolve the target row first and can't move to a route middleware.
 router.put('/:id', requireAuth, updateDashboard);
 router.delete('/:id', requireAuth, deleteDashboard);
-// Restore is handler-gated (dynamic canWrite, like delete) + step-up-gated
-// (reverses a destructive action, mirroring org restore).
+// Deliberate asymmetry: delete is NOT step-up-gated (soft-delete is recoverable
+// — the row stays restorable), but restore IS — it's the administrative override
+// that brings a row back into service, mirroring the org delete/restore pattern.
+// Restore stays handler-gated too (dynamic canWrite, like delete).
 router.post('/:id/restore', requireAuth, requireStepUp, restoreDashboard);
 router.post('/:id/clone', requireAuth, requirePermission('dashboards:write'), cloneDashboard);
 

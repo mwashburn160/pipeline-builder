@@ -521,6 +521,11 @@ async function initDependencies(): Promise<void> {
   const { startOrgPurgeSweep } = await import('./services/org-purge.js');
   startOrgPurgeSweep();
 
+  // Retention purge for platform-owned soft-deleted tables (dashboards + alerts).
+  // Leader-locked + sysadmin-scoped inside the sweep. Opt out via SOFT_DELETE_PURGE_ENABLED=false.
+  const { startSoftDeletePurge } = await import('./services/soft-delete-purge.js');
+  startSoftDeletePurge();
+
   setReady(true);
   logger.info('Platform ready — dependencies connected');
 
@@ -578,6 +583,8 @@ async function startServer(): Promise<void> {
       stopInvitationReaper();
       const { stopOrgPurgeSweep } = await import('./services/org-purge.js');
       stopOrgPurgeSweep();
+      const { stopSoftDeletePurge } = await import('./services/soft-delete-purge.js');
+      stopSoftDeletePurge();
 
       try {
         await mongoose.connection.close(false);

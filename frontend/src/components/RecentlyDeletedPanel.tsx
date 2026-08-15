@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { History, RotateCcw } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -10,6 +10,7 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
+import { useLoadable } from '@/hooks/useLoadable';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { Pipeline, Plugin } from '@/types';
@@ -57,42 +58,23 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow }: {
 }) {
   const toast = useToast();
   const labels = LABELS[resource];
-  const [rows, setRows] = useState<DeletedRow[]>([]);
-  // Starts true: the load runs in a post-paint effect, so init-false would flash
-  // the "No recently deleted" empty state for one frame on every mount.
-  const [loading, setLoading] = useState(true);
-  // A load failure must NOT render as an empty "nothing deleted" state — that
-  // would falsely imply there's nothing to restore.
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [restoring, setRestoring] = useState<string | null>(null);
   // Hold the row awaiting a step-up re-verify; the restore runs in executeRestore.
   const [pendingRestore, setPendingRestore] = useState<DeletedRow | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      // Branch per resource so each response's `data` narrows to a concrete
-      // shape ({ pipelines } vs { plugins }) instead of a union.
-      if (resource === 'pipeline') {
-        const res = await api.listDeletedPipelines();
-        if (res.success && res.data) setRows(res.data.pipelines.map((i) => toRow('pipeline', i)));
-        else setLoadError(`Failed to load deleted ${labels.plural}`);
-      } else {
-        const res = await api.listDeletedPlugins();
-        if (res.success && res.data) setRows(res.data.plugins.map((i) => toRow('plugin', i)));
-        else setLoadError(`Failed to load deleted ${labels.plural}`);
-      }
-    } catch (err) {
-      const msg = formatError(err, `Failed to load deleted ${labels.plural}`);
-      setLoadError(msg);
-      toast.error(msg);
-    } finally {
-      setLoading(false);
+  // Branch per resource so each response's `data` narrows to a concrete shape
+  // ({ pipelines } vs { plugins }); throw on failure so useLoadable surfaces it.
+  const loader = useCallback(async (): Promise<DeletedRow[]> => {
+    if (resource === 'pipeline') {
+      const res = await api.listDeletedPipelines();
+      if (res.success && res.data) return res.data.pipelines.map((i) => toRow('pipeline', i));
+      throw new Error(`Failed to load deleted ${labels.plural}`);
     }
-  }, [resource, labels.plural, toast]);
-
-  useEffect(() => { void load(); }, [load]);
+    const res = await api.listDeletedPlugins();
+    if (res.success && res.data) return res.data.plugins.map((i) => toRow('plugin', i));
+    throw new Error(`Failed to load deleted ${labels.plural}`);
+  }, [resource, labels.plural]);
+  const { data: rows, loading, error: loadError, reload: load } = useLoadable<DeletedRow[]>(loader, [], `Failed to load deleted ${labels.plural}`);
 
   const executeRestore = async (stepUpToken: string) => {
     if (!pendingRestore) return;

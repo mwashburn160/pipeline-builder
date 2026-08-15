@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { db, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
+import { db, schema, withTenantTx, softDeleteRetentionMs } from '@pipeline-builder/pipeline-data';
 import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
 
 // The transaction object's full type is enormous; reuse drizzle's inferred
@@ -206,12 +206,16 @@ export class DashboardService {
     });
   }
 
-  /** Soft delete (mark deletedAt + deletedBy). */
+  /** Soft delete (mark deletedAt + deletedBy + purge_after). Stamping
+   *  `purge_after` lets the retention sweep hard-delete this tombstone later
+   *  (dashboard_panels cascade via ON DELETE CASCADE). */
   async delete(id: string, caller: { userId: string }): Promise<boolean> {
+    const now = new Date();
+    const retentionMs = softDeleteRetentionMs();
     return withTenantTx(async (tx) => {
       const [deleted] = await tx
         .update(schema.dashboard)
-        .set({ deletedAt: sql`CURRENT_TIMESTAMP`, deletedBy: caller.userId })
+        .set({ deletedAt: now, deletedBy: caller.userId, ...(retentionMs > 0 ? { purgeAfter: new Date(now.getTime() + retentionMs) } : {}) })
         .where(and(eq(schema.dashboard.id, id), isNull(schema.dashboard.deletedAt)))
         .returning({ id: schema.dashboard.id });
       return !!deleted;

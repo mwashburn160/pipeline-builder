@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, requirePublicAccess, sendBadRequest, sendSuccess, sendEntityNotFound, normalizeArrayFields } from '@pipeline-builder/api-core';
+import { loadAndRestore, sendSuccess, normalizeArrayFields } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { emitPipelineAudit } from '../services/audit.js';
@@ -14,29 +14,16 @@ import { pipelineService } from '../services/pipeline-service.js';
  * Expects `requireAuth`, `requireOrgId`, `requirePermission('pipelines:write')`
  * and `requireStepUp` to have been applied as router-level middleware in the
  * parent (mirrors the delete route's authority, plus a step-up re-verify since
- * restore un-does a destructive action).
+ * restore un-does a destructive action). The load → publish-gate → restore → 404
+ * skeleton is shared via `loadAndRestore`.
  */
 export function createRestorePipelineRoutes(): Router {
   const router: Router = Router();
 
   router.post('/:id/restore', withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const id = getParam(req.params, 'id');
-
-    if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
-
-    ctx.log('INFO', 'Pipeline restore request received', { id });
-
-    // Load the TOMBSTONE (isActive=false + deletedAt set) — a live pipeline or an
-    // unknown id yields null → 404 (nothing to restore).
-    const existing = await pipelineService.findDeletedById(id, orgId);
-    if (!existing) return sendEntityNotFound(res, 'Pipeline');
-
-    // Only system admins / publish-holders can restore a non-private (public)
-    // pipeline — same gate as delete.
-    if (!requirePublicAccess(req, res, existing, 'pipelines:publish')) return;
-
-    const restored = await pipelineService.restore(id, orgId, userId || 'system');
-    if (!restored) return sendEntityNotFound(res, 'Pipeline');
+    const result = await loadAndRestore(req, res, orgId, userId || 'system', pipelineService, 'Pipeline', 'pipelines:publish');
+    if (!result) return;
+    const { existing, restored } = result;
 
     ctx.log('COMPLETED', 'Restored pipeline', { id: restored.id, name: restored.pipelineName });
 

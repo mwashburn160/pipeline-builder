@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { KeyRound, Trash2 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -13,6 +13,7 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
+import { useLoadable } from '@/hooks/useLoadable';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { PatMeta } from '@/lib/api/domains/auth';
@@ -30,11 +31,15 @@ const STATUS_COLOR: Record<PatMeta['status'], 'green' | 'gray' | 'red'> = {
  */
 export function PatSection() {
   const toast = useToast();
-  const [pats, setPats] = useState<PatMeta[]>([]);
-  const [loading, setLoading] = useState(false);
   // A load failure must NOT render as "no tokens yet" — on a security surface a
   // false-empty could imply the account has no live credentials when it may.
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // useLoadable keeps prior `pats` on failure and surfaces `loadError`.
+  const loadPats = useCallback(async (): Promise<PatMeta[]> => {
+    const res = await api.listPats();
+    if (res.success && res.data) return res.data.pats;
+    throw new Error('Failed to load tokens');
+  }, []);
+  const { data: pats, loading, error: loadError, reload: load } = useLoadable<PatMeta[]>(loadPats, [], 'Failed to load tokens');
   const [name, setName] = useState('');
   const [days, setDays] = useState(90);
   const [creating, setCreating] = useState(false);
@@ -43,24 +48,6 @@ export function PatSection() {
   // Creating a PAT is step-up gated (mints a long-lived credential). Hold the
   // validated request until the user re-confirms their password in StepUpModal.
   const [pendingCreate, setPendingCreate] = useState<{ name: string; expiresIn: number } | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const res = await api.listPats();
-      if (res.success && res.data) setPats(res.data.pats);
-      else setLoadError('Failed to load tokens');
-    } catch (err) {
-      const msg = formatError(err, 'Failed to load tokens');
-      setLoadError(msg);
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
-
-  useEffect(() => { void load(); }, [load]);
 
   // Validate, then hand off to the step-up modal — the actual create runs in
   // executeCreate once the user re-confirms their password.
