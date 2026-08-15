@@ -272,11 +272,26 @@ export const restoreAlertDestination = withController('Restore alert destination
   const { userId, orgId } = ctx;
 
   const id = req.params.id as string;
-  const ok = await alertDestinationService.restore(id, { orgId, userId });
-  if (!ok) return sendError(res, 404, 'Destination not found');
 
-  audit(req, 'alert.destination.restore', { targetType: 'alert-destination', targetId: id });
-  sendSuccess(res, 200, undefined, 'Destination restored');
+  // Restore re-adds a live row → re-reserve the feature slot delete released, so
+  // delete→restore→create can't drift an org past its alertDestinations cap.
+  const reservation = await reserveFeatureQuota(orgId, 'alertDestinations');
+  if (reservation.exceeded) {
+    return sendQuotaExceeded(res, 'alertDestinations', reservation.quota, reservation.quota.resetAt);
+  }
+
+  try {
+    const ok = await alertDestinationService.restore(id, { orgId, userId });
+    if (!ok) {
+      releaseFeatureQuota(orgId, 'alertDestinations', logger.warn.bind(logger));
+      return sendError(res, 404, 'Destination not found');
+    }
+    audit(req, 'alert.destination.restore', { targetType: 'alert-destination', targetId: id });
+    sendSuccess(res, 200, undefined, 'Destination restored');
+  } catch (err) {
+    releaseFeatureQuota(orgId, 'alertDestinations', logger.warn.bind(logger));
+    throw err;
+  }
 });
 
 /**

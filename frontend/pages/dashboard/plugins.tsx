@@ -677,7 +677,7 @@ export default function PluginsPage() {
             step-up gated). */}
         {canWrite && (
           <div className="mt-6">
-            <RecentlyDeletedPanel resource="plugin" />
+            <RecentlyDeletedPanel resource="plugin" canRestoreRow={(r) => canModify(isSuperAdmin, r.accessModifier ?? 'private')} />
           </div>
         )}
       </div>

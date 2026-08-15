@@ -237,11 +237,11 @@ export class DashboardService {
 
   /** Restore a soft-deleted dashboard (clear deletedAt/deletedBy). Returns false
    *  when there is no matching tombstone (already live, or unknown id). */
-  async restore(id: string, _caller: { userId: string }): Promise<boolean> {
+  async restore(id: string, caller: { userId: string }): Promise<boolean> {
     return withTenantTx(async (tx) => {
       const [restored] = await tx
         .update(schema.dashboard)
-        .set({ deletedAt: null, deletedBy: null })
+        .set({ deletedAt: null, deletedBy: null, updatedAt: sql`CURRENT_TIMESTAMP`, updatedBy: caller.userId })
         .where(and(eq(schema.dashboard.id, id), sql`${schema.dashboard.deletedAt} IS NOT NULL`))
         .returning({ id: schema.dashboard.id });
       return !!restored;

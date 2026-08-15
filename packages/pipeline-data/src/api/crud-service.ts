@@ -26,6 +26,11 @@ export function drizzleCount(rows: unknown): [{ count: number }] {
   return rows as [{ count: number }];
 }
 
+/** The Drizzle transaction object handed to `withTenantTx` callbacks. Passed to
+ *  `onBeforePurge` so a subclass's dependent teardown runs in the SAME purge
+ *  transaction (atomic with the parent DELETE), not a fresh connection. */
+export type CrudTx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
+
 /**
  * Base interface for entities with common fields
  */
@@ -240,10 +245,12 @@ export abstract class CrudService<
    *  for entities whose restore has side-effects (e.g. re-notify). Best-effort. */
   protected async onAfterRestore(_id: string, _entity: TEntity, _userId: string): Promise<void> {}
 
-  /** Called (best-effort) with the ids about to be hard-purged, BEFORE the
-   *  delete, so a subclass can tear down dependents that lack ON DELETE CASCADE.
-   *  Throwing aborts that batch's purge (rows stay tombstoned, retried next tick). */
-  protected async onBeforePurge(_ids: string[]): Promise<void> {}
+  /** Called with the ids about to be hard-purged, BEFORE the delete, inside the
+   *  purge transaction (`tx`) — a subclass tearing down dependents that lack ON
+   *  DELETE CASCADE MUST use `tx` so the teardown is atomic with the parent
+   *  DELETE (and can't self-deadlock against its row locks). Throwing aborts that
+   *  batch's purge (rows stay tombstoned, retried next tick). */
+  protected async onBeforePurge(_ids: string[], _tx: CrudTx): Promise<void> {}
 
   /** Called after rows are hard-purged, for external side-effects (e.g. plugin
    *  image GC). Best-effort: errors are logged, never block the sweep. */
@@ -256,8 +263,11 @@ export abstract class CrudService<
   }
 
   /** The `purge_after` value to stamp on a soft-delete: `now + retention`, or the
-   *  spread-friendly empty object when the entity has no `purge_after` column. */
-  private purgeAfterStamp(now: Date): Record<string, unknown> {
+   *  spread-friendly empty object when the entity has no `purge_after` column.
+   *  `protected` so subclasses with hand-rolled soft-delete paths (e.g.
+   *  message-service's thread cascade / sysadmin moderation) stamp it too — an
+   *  un-stamped tombstone has NULL `purge_after` and is never hard-purged. */
+  protected purgeAfterStamp(now: Date): Record<string, unknown> {
     if (!this.cols.purgeAfter || this.softDeleteRetentionMs <= 0) return {};
     return { purgeAfter: new Date(now.getTime() + this.softDeleteRetentionMs) };
   }
@@ -880,14 +890,23 @@ export abstract class CrudService<
    * driver's unique-violation for the route to map to 409 — in practice the
    * tombstone IS the key holder, so this is defensive.
    */
-  async restore(id: string, orgId: string, userId: string): Promise<TEntity | null> {
-    if (!this.cols.deletedAt) return null; // entity has no soft-delete lifecycle
+  /** Conditions matching a GENUINE tombstone (`isActive=false` AND `deletedAt IS
+   *  NOT NULL`), optionally pinned to `id` and/or `orgId`. Single source of truth
+   *  for restore/findDeletedById/findDeleted so the "what is a tombstone" rule
+   *  lives in one place. */
+  private tombstoneConditions(orgId?: string, id?: string): SQL[] {
     const conditions: SQL[] = [
-      this.exactIdCondition(id),
       eq(this.cols.isActive, false),
       sql`${this.cols.deletedAt} IS NOT NULL`,
     ];
+    if (id !== undefined) conditions.unshift(this.exactIdCondition(id));
     if (orgId) conditions.push(eq(this.getOrgColumn(), orgId));
+    return conditions;
+  }
+
+  async restore(id: string, orgId: string, userId: string): Promise<TEntity | null> {
+    if (!this.cols.deletedAt) return null; // entity has no soft-delete lifecycle
+    const conditions = this.tombstoneConditions(orgId, id);
 
     const [restored] = await withTenantTx(async (tx) => tx
       .update(this.schema)
@@ -919,20 +938,15 @@ export abstract class CrudService<
    * gating before restoring. Returns null unless the row exists AND is a genuine
    * tombstone (`isActive=false` + `deletedAt IS NOT NULL`).
    */
-  async findDeletedById(id: string, orgId?: string, parentOrgId?: string): Promise<TEntity | null> {
+  async findDeletedById(id: string, orgId?: string): Promise<TEntity | null> {
     if (!this.cols.deletedAt) return null;
-    const conditions: SQL[] = [
-      this.exactIdCondition(id),
-      eq(this.cols.isActive, false),
-      sql`${this.cols.deletedAt} IS NOT NULL`,
-    ];
-    if (orgId) conditions.push(eq(this.getOrgColumn(), orgId));
+    const conditions = this.tombstoneConditions(orgId, id);
 
-    const results = await this.runRead(parentOrgId, () => withTenantTx(async (tx) => tx
+    const results = await withTenantTx(async (tx) => tx
       .select()
       .from(this.schema)
       .where(and(...conditions))
-      .limit(1).then(r => drizzleRows<TEntity>(r))));
+      .limit(1).then(r => drizzleRows<TEntity>(r)));
 
     return results[0] || null;
   }
@@ -947,35 +961,31 @@ export abstract class CrudService<
   async findDeleted(
     orgId: string,
     opts: { limit?: number; offset?: number } = {},
-    parentOrgId?: string,
   ): Promise<TEntity[]> {
     if (!this.cols.deletedAt) return [];
     const limit = Math.min(Math.max(1, opts.limit ?? 50), 200);
     const offset = Math.max(0, opts.offset ?? 0);
 
-    const conditions: SQL[] = [
-      eq(this.cols.isActive, false),
-      sql`${this.cols.deletedAt} IS NOT NULL`,
-    ];
-    if (orgId) conditions.push(eq(this.getOrgColumn(), orgId));
+    const conditions = this.tombstoneConditions(orgId);
 
-    return this.runRead(parentOrgId, () => withTenantTx(async (tx) => tx
+    return withTenantTx(async (tx) => tx
       .select()
       .from(this.schema)
       .where(and(...conditions))
       .orderBy(desc(this.cols.deletedAt!))
       .limit(limit)
       .offset(offset)
-      .then(r => drizzleRows<TEntity>(r))));
+      .then(r => drizzleRows<TEntity>(r)));
   }
 
   /**
    * Hard-delete a batch of tombstones whose purge deadline has passed
    * (`deletedAt IS NOT NULL AND purge_after < now`). Batched (`limit`) so a
    * sweep tick stays bounded; the per-service sweep loops until a tick returns
-   * `< limit`. Runs across ALL orgs, so callers MUST invoke it from a system
-   * (no-tenant) context. `onBeforePurge` tears down dependents lacking ON DELETE
-   * CASCADE (inside the tx); `onAfterPurge` handles external side-effects.
+   * `< limit`. Runs across ALL orgs, so callers MUST invoke it from a sysadmin
+   * scope (`runSoftDeletePurge` establishes one). `onBeforePurge(ids, tx)` tears
+   * down dependents lacking ON DELETE CASCADE inside the same tx; `onAfterPurge`
+   * handles external side-effects.
    * Returns the number of rows purged. No-op (0) for entities without the columns.
    */
   async purgeExpired(now: Date, limit = 500): Promise<number> {
@@ -996,7 +1006,7 @@ export abstract class CrudService<
 
       // Dependent teardown must happen inside the same tx so a FK-blocking child
       // can't strand the parent. A throw here aborts this batch (retried next tick).
-      await this.onBeforePurge(doomed);
+      await this.onBeforePurge(doomed, tx);
 
       await tx.delete(this.schema).where(inArray(this.cols.id, doomed));
       return doomed;

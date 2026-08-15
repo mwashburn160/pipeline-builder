@@ -295,7 +295,10 @@ export function createPipelineTemplateRoutes(): Router {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Template ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    const existing = await pipelineTemplateService.findDeletedById(id, orgId, req.user?.parentOrganizationId);
+    // Own-org only: the subsequent restore() is own-org-pinned, so widening the
+    // tombstone lookup to a parent org would load a row restore() can't touch
+    // (apparent success → 404). Mirrors restore-pipeline.ts.
+    const existing = await pipelineTemplateService.findDeletedById(id, orgId);
     if (!existing) return sendEntityNotFound(res, 'Template');
     if (!requirePublicAccess(req, res, existing, 'pipelines:publish')) return;
 

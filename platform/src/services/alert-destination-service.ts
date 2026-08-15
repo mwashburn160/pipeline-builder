@@ -289,7 +289,7 @@ export class AlertDestinationService {
     return withTenantTx(async (tx) => {
       const [restored] = await tx
         .update(schema.orgAlertDestination)
-        .set({ deletedAt: null, deletedBy: null })
+        .set({ deletedAt: null, deletedBy: null, updatedAt: sql`CURRENT_TIMESTAMP`, updatedBy: caller.userId })
         .where(and(
           eq(schema.orgAlertDestination.id, id),
           eq(schema.orgAlertDestination.orgId, caller.orgId),

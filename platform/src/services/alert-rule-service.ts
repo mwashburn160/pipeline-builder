@@ -206,10 +206,10 @@ export class AlertRuleService {
   /** Restore a soft-deleted rule (clear deletedAt/deletedBy), org-scoped. A
    *  restored enabled rule re-enters the materializer on its next poll. Returns
    *  false when there is no matching tombstone in the org. */
-  async restore(orgId: string, id: string, _actor: string): Promise<boolean> {
+  async restore(orgId: string, id: string, actor: string): Promise<boolean> {
     const rows = await withTenantTx(async (tx) => tx
       .update(schema.orgAlertRule)
-      .set({ deletedAt: null, deletedBy: null })
+      .set({ deletedAt: null, deletedBy: null, updatedAt: new Date(), updatedBy: actor })
       .where(and(
         eq(schema.orgAlertRule.id, id),
         eq(schema.orgAlertRule.orgId, orgId),

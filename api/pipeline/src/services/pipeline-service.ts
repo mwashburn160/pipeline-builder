@@ -209,6 +209,14 @@ export class PipelineService extends CrudService<
     await this.invalidateAndEmit('deleted', id, entity, userId);
   }
 
+  /** A restored pipeline re-enters the live catalog, so it must be re-evaluated
+   *  for compliance and its caches invalidated — symmetric with delete. Emitted
+   *  as 'updated' (the entity keeps its id/history) so the compliance subscriber
+   *  re-checks it rather than treating it as gone. */
+  protected async onAfterRestore(id: string, entity: Pipeline, userId: string): Promise<void> {
+    await this.invalidateAndEmit('updated', id, entity, userId);
+  }
+
   /**
    * Build the `ON CONFLICT ... DO UPDATE` set for the default-upsert. Spreading
    * the whole insert `data` here would overwrite immutable columns on the update

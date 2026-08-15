@@ -289,10 +289,11 @@ export const restoreDashboard = withController('Restore dashboard', async (req, 
   const ctx = requireAuthContext(req, res);
   if (!ctx) return;
   const { userId, orgId } = ctx;
+  const id = getParam(req.params, 'id')!;
 
   // Load the TOMBSTONE and apply the same DYNAMIC canWrite gate as delete
   // (creator | org-admin | sysadmin) against the deleted dashboard's own row.
-  const existing = await dashboardService.findDeletedById(getParam(req.params, 'id')!);
+  const existing = await dashboardService.findDeletedById(id);
   if (!existing) return sendError(res, 404, 'Dashboard not found');
 
   const canWrite = dashboardService.canWrite(existing, {
@@ -303,16 +304,37 @@ export const restoreDashboard = withController('Restore dashboard', async (req, 
   });
   if (!canWrite) return sendError(res, 403, 'You cannot restore this dashboard');
 
-  const ok = await dashboardService.restore(getParam(req.params, 'id')!, { userId });
-  if (!ok) return sendError(res, 404, 'Dashboard not found');
+  // Restore re-adds a LIVE row, so re-reserve the feature slot delete released —
+  // else an org could delete→restore→create to drift past its `dashboards` cap.
+  // Reserve against the dashboard's own org (matching delete/create).
+  const reservation = await reserveFeatureQuota(existing.orgId, 'dashboards');
+  if (reservation.exceeded) {
+    return sendQuotaExceeded(res, 'dashboards', reservation.quota, reservation.quota.resetAt);
+  }
 
-  audit(req, 'dashboard.restore', {
-    targetType: 'dashboard',
-    targetId: getParam(req.params, 'id')!,
-    affectedOrgId: existing.orgId,
-    details: { name: existing.name },
-  });
-  sendSuccess(res, 200, undefined, 'Dashboard restored');
+  try {
+    const ok = await dashboardService.restore(id, { userId });
+    if (!ok) {
+      releaseFeatureQuota(existing.orgId, 'dashboards', logger.warn.bind(logger));
+      return sendError(res, 404, 'Dashboard not found');
+    }
+    audit(req, 'dashboard.restore', {
+      targetType: 'dashboard',
+      targetId: id,
+      affectedOrgId: existing.orgId,
+      details: { name: existing.name },
+    });
+    sendSuccess(res, 200, undefined, 'Dashboard restored');
+  } catch (err) {
+    releaseFeatureQuota(existing.orgId, 'dashboards', logger.warn.bind(logger));
+    // The (org_id, name) unique index is partial (WHERE deleted_at IS NULL), so a
+    // live namesake can coexist with this tombstone; restoring then collides.
+    // Surface as 409, not a raw 500.
+    if ((err as { code?: string }).code === '23505') {
+      return sendError(res, 409, 'A dashboard with this name already exists — rename it and try again.');
+    }
+    throw err;
+  }
 });
 
 /** POST /api/dashboards/:id/clone — fork into the caller's org as private. */

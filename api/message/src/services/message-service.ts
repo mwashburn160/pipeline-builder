@@ -298,14 +298,19 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    * @param allOrgs - When true, skip the org-scope filter (sysadmin only)
    */
   async deleteThread(threadId: string, userId: string, orgId: string, allOrgs = false): Promise<void> {
+    const now = new Date();
     await withTenantTx(async (tx) => tx
       .update(schema.message)
       .set({
         isActive: false,
-        updatedAt: new Date(),
+        updatedAt: now,
         updatedBy: userId,
-        deletedAt: new Date(),
+        deletedAt: now,
         deletedBy: userId,
+        // Stamp the purge deadline so these cascade tombstones are collected by
+        // the retention sweep (the base delete does this; this hand-rolled path
+        // must too, else purge_after stays NULL and the rows are immortal).
+        ...this.purgeAfterStamp(now),
       })
       .where(
         and(
@@ -335,14 +340,18 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    * restricts this to sysadmins.
    */
   async deleteAsSysadmin(id: string, userId: string): Promise<Message | null> {
+    const now = new Date();
     const [deleted] = await withTenantTx(async (tx) => tx
       .update(schema.message)
       .set({
         isActive: false,
-        updatedAt: new Date(),
+        updatedAt: now,
         updatedBy: userId || 'system',
-        deletedAt: new Date(),
+        deletedAt: now,
         deletedBy: userId || 'system',
+        // Stamp the purge deadline so sysadmin-moderated tombstones are collected
+        // by the retention sweep (parity with the base delete).
+        ...this.purgeAfterStamp(now),
       })
       .where(and(
         eq(schema.message.id, id),

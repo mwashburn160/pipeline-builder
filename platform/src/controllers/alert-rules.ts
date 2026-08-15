@@ -189,16 +189,33 @@ export const restoreAlertRule = withController('Restore alert rule', async (req,
 
   const id = getParam(req.params, 'id')!;
 
-  const ok = await alertRuleService.restore(orgId, id, userId);
-  if (!ok) return sendError(res, 404, 'Alert rule not found');
+  // Restore re-adds a live row → re-reserve the feature slot delete released.
+  const reservation = await reserveFeatureQuota(orgId, 'alertRules');
+  if (reservation.exceeded) {
+    return sendQuotaExceeded(res, 'alertRules', reservation.quota, reservation.quota.resetAt);
+  }
 
-  audit(req, 'alert.rule.restore', {
-    targetType: 'alert-rule',
-    targetId: id,
-    affectedOrgId: orgId,
-  });
-
-  sendSuccess(res, 200, {});
+  try {
+    const ok = await alertRuleService.restore(orgId, id, userId);
+    if (!ok) {
+      releaseFeatureQuota(orgId, 'alertRules', logger.warn.bind(logger));
+      return sendError(res, 404, 'Alert rule not found');
+    }
+    audit(req, 'alert.rule.restore', {
+      targetType: 'alert-rule',
+      targetId: id,
+      affectedOrgId: orgId,
+    });
+    sendSuccess(res, 200, {});
+  } catch (err) {
+    releaseFeatureQuota(orgId, 'alertRules', logger.warn.bind(logger));
+    // (org_id, name) unique index is partial (WHERE deleted_at IS NULL) — a live
+    // namesake can coexist with this tombstone, so restore can collide → 409.
+    if ((err as { code?: string }).code === '23505') {
+      return sendError(res, 409, 'An alert rule with this name already exists — rename it and try again.');
+    }
+    throw err;
+  }
 });
 
 // ---------------------------------------------------------------------------

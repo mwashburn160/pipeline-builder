@@ -171,6 +171,14 @@ export class PluginService extends CrudService<
     await this.invalidateAndEmit('deleted', id, entity, userId);
   }
 
+  /** A restored plugin re-enters the live catalog, so it must be re-evaluated for
+   *  compliance and its caches invalidated — symmetric with delete. Emitted as
+   *  'updated' (the entity keeps its id/history) so the compliance subscriber
+   *  re-checks it rather than treating it as gone. */
+  protected async onAfterRestore(id: string, entity: Plugin, userId: string): Promise<void> {
+    await this.invalidateAndEmit('updated', id, entity, userId);
+  }
+
   /** Atomically deploy a new plugin version as default (clears old defaults for same name+org). */
   async deployVersion(
     data: PluginInsert,

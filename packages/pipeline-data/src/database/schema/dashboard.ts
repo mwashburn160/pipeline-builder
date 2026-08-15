@@ -81,7 +81,10 @@ export const dashboard = pgTable('dashboards', {
   // Same-org duplicate-name guard. The (orgId, name) tuple is unique among
   // non-deleted rows; soft-deleted rows are excluded so name reuse after
   // deletion works.
-  nameUnique: uniqueIndex('dashboard_org_name_unique').on(table.orgId, table.name),
+  // Partial (live-rows only) to match the deployed DDL + the sibling
+  // orgAlertRule.orgNameUq — a tombstone must not reserve its name, so a live
+  // namesake can coexist (and restore can 409 on collision, handled in the route).
+  nameUnique: uniqueIndex('dashboard_org_name_unique').on(table.orgId, table.name).where(sql`deleted_at IS NULL`),
 }));
 
 /**
