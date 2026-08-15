@@ -166,6 +166,22 @@ export function pluginsApi(core: ApiCore) {
       });
     },
 
+    /** List the org's soft-deleted plugins (tombstones), most-recent first —
+     *  restorable until the retention sweep purges them. */
+    listDeletedPlugins: async (params?: Record<string, string>) => {
+      return core.request<ApiResponse<{ plugins: Plugin[] }>>(`/api/plugins/deleted${buildQuery(params)}`);
+    },
+
+    /** Restore a soft-deleted plugin. Step-up gated (reverses a destructive
+     *  action): pass the token from StepUpModal; the api forwards it as the
+     *  `X-Step-Up-Token` header. */
+    restorePlugin: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${id}/restore`, {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
     bulkDeletePlugins: async (ids: string[]) => {
       return core.request<ApiResponse<{ deleted: number; ids: string[] }>>('/api/plugins/bulk/delete', {
         method: 'POST',

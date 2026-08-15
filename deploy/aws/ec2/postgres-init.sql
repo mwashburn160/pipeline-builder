@@ -1233,6 +1233,36 @@ WHERE event_object_table IN ('plugins', 'pipelines', 'messages', 'pipeline_regis
 ORDER BY event_object_table, trigger_name;
 
 -- ============================================================================
+-- Soft-delete retention: purge_after deadline + tombstone-only purge index
+-- ============================================================================
+-- Stamped alongside deleted_at when a row is soft-deleted; the per-service
+-- retention sweep (createSoftDeletePurgeScheduler) hard-deletes tombstones once
+-- purge_after has passed. Additive + idempotent for existing installs. Each
+-- partial index (WHERE deleted_at IS NOT NULL) covers only tombstones, so the
+-- sweep's `deleted_at IS NOT NULL AND purge_after < now` scan never touches
+-- live rows. Index names match the Drizzle schema (packages/pipeline-data).
+
+ALTER TABLE plugins                ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;
+ALTER TABLE pipelines              ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;
+ALTER TABLE pipeline_templates     ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;
+ALTER TABLE dashboards             ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;
+ALTER TABLE org_alert_destinations ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;
+ALTER TABLE org_alert_rules        ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;
+ALTER TABLE compliance_policies    ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;
+ALTER TABLE compliance_rules       ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;
+ALTER TABLE messages               ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS plugin_purge_idx                ON plugins(purge_after)                WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS pipeline_purge_idx              ON pipelines(purge_after)              WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS pipeline_template_purge_idx     ON pipeline_templates(purge_after)     WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS dashboard_purge_idx             ON dashboards(purge_after)             WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS org_alert_destination_purge_idx ON org_alert_destinations(purge_after) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS org_alert_rule_purge_idx        ON org_alert_rules(purge_after)        WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS compliance_policy_purge_idx     ON compliance_policies(purge_after)    WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS compliance_rule_purge_idx       ON compliance_rules(purge_after)       WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS message_purge_idx               ON messages(purge_after)               WHERE deleted_at IS NOT NULL;
+
+-- ============================================================================
 -- ROW-LEVEL SECURITY (multi-tenancy defense-in-depth)
 -- ============================================================================
 --

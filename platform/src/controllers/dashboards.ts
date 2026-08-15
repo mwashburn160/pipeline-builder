@@ -284,6 +284,37 @@ export const deleteDashboard = withController('Delete dashboard', async (req, re
   sendSuccess(res, 200, undefined, 'Dashboard deleted');
 });
 
+/** POST /api/dashboards/:id/restore — undo a soft-delete (step-up gated). */
+export const restoreDashboard = withController('Restore dashboard', async (req, res) => {
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
+
+  // Load the TOMBSTONE and apply the same DYNAMIC canWrite gate as delete
+  // (creator | org-admin | sysadmin) against the deleted dashboard's own row.
+  const existing = await dashboardService.findDeletedById(getParam(req.params, 'id')!);
+  if (!existing) return sendError(res, 404, 'Dashboard not found');
+
+  const canWrite = dashboardService.canWrite(existing, {
+    orgId,
+    userId,
+    isSuperAdmin: isSystemAdmin(req),
+    isOrgAdmin: userHasPermission(req, 'dashboards:write'),
+  });
+  if (!canWrite) return sendError(res, 403, 'You cannot restore this dashboard');
+
+  const ok = await dashboardService.restore(getParam(req.params, 'id')!, { userId });
+  if (!ok) return sendError(res, 404, 'Dashboard not found');
+
+  audit(req, 'dashboard.restore', {
+    targetType: 'dashboard',
+    targetId: getParam(req.params, 'id')!,
+    affectedOrgId: existing.orgId,
+    details: { name: existing.name },
+  });
+  sendSuccess(res, 200, undefined, 'Dashboard restored');
+});
+
 /** POST /api/dashboards/:id/clone — fork into the caller's org as private. */
 export const cloneDashboard = withController('Clone dashboard', async (req, res) => {
   const ctx = requireAuthContext(req, res);

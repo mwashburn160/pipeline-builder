@@ -76,7 +76,11 @@ export const compliancePolicy = pgTable('compliance_policies', {
   isActive: boolean('is_active').default(true).notNull(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   deletedBy: text('deleted_by'),
+  // Soft-delete purge deadline: the retention sweep hard-deletes tombstoned
+  // rows once `purge_after` has passed (set on delete alongside deleted_at).
+  purgeAfter: timestamp('purge_after', { withTimezone: true }),
 }, (table) => ({
+  purgeIdx: index('compliance_policy_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),
   orgActiveIdx: index('compliance_policy_org_active_idx').on(table.orgId, table.isActive),
   templateIdx: index('compliance_policy_template_idx').on(table.isTemplate),
   nameOrgVersionUnique: uniqueIndex('compliance_policy_name_org_version_unique')
@@ -140,7 +144,11 @@ export const complianceRule = pgTable('compliance_rules', {
   isActive: boolean('is_active').default(true).notNull(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   deletedBy: text('deleted_by'),
+  // Soft-delete purge deadline: the retention sweep hard-deletes tombstoned
+  // rows once `purge_after` has passed (set on delete alongside deleted_at).
+  purgeAfter: timestamp('purge_after', { withTimezone: true }),
 }, (table) => ({
+  purgeIdx: index('compliance_rule_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),
   orgTargetActiveIdx: index('compliance_rule_org_target_active_idx')
     .on(table.orgId, table.target, table.isActive),
   orgPolicyIdx: index('compliance_rule_org_policy_idx').on(table.orgId, table.policyId),

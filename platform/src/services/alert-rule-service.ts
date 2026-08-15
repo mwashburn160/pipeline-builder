@@ -18,7 +18,7 @@
 
 import { createLogger, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull, isNotNull } from 'drizzle-orm';
 import { injectOrgId, PromQLRewriteError, validateOrgIdMatchers } from './promql-rewriter.js';
 
 const logger = createLogger('alert-rule-service');
@@ -198,6 +198,22 @@ export class AlertRuleService {
       .where(and( eq(schema.orgAlertRule.id, id),
         eq(schema.orgAlertRule.orgId, orgId),
         isNull(schema.orgAlertRule.deletedAt),
+      ))
+      .returning());
+    return rows.length > 0;
+  }
+
+  /** Restore a soft-deleted rule (clear deletedAt/deletedBy), org-scoped. A
+   *  restored enabled rule re-enters the materializer on its next poll. Returns
+   *  false when there is no matching tombstone in the org. */
+  async restore(orgId: string, id: string, _actor: string): Promise<boolean> {
+    const rows = await withTenantTx(async (tx) => tx
+      .update(schema.orgAlertRule)
+      .set({ deletedAt: null, deletedBy: null })
+      .where(and(
+        eq(schema.orgAlertRule.id, id),
+        eq(schema.orgAlertRule.orgId, orgId),
+        isNotNull(schema.orgAlertRule.deletedAt),
       ))
       .returning());
     return rows.length > 0;

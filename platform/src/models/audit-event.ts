@@ -89,16 +89,19 @@ export type AuditAction =
   | 'dashboard.create'
   | 'dashboard.update'
   | 'dashboard.delete'
+  | 'dashboard.restore'
   | 'dashboard.clone'
   // Alert destinations (controllers/alert-destinations.ts)
   | 'alert.destination.create'
   | 'alert.destination.update'
   | 'alert.destination.delete'
+  | 'alert.destination.restore'
   | 'alert.destination.test'
   // per-org operator-authored alert rules (controllers/alert-rules.ts).
   | 'alert.rule.create'
   | 'alert.rule.update'
   | 'alert.rule.delete'
+  | 'alert.rule.restore'
   // per-org IdP config (controllers/org-idp.ts). Sysadmin-only setup.
   | 'admin.org-idp.upsert'
   | 'admin.org-idp.delete'
@@ -158,9 +161,11 @@ export type AuditAction =
   | 'pipeline.create'
   | 'pipeline.update'
   | 'pipeline.delete'
+  | 'pipeline.restore'
   | 'pipeline_template.create'
   | 'pipeline_template.update'
   | 'pipeline_template.delete'
+  | 'pipeline_template.restore'
   | 'pipeline.execution.start'
   | 'pipeline.execution.cancel'
   | 'pipeline.registry.register'
@@ -168,6 +173,7 @@ export type AuditAction =
   // Plugin lifecycle mutations (api/plugin) — the delete/upload/deploy surface
   // that complements the already-audited builds. Posted to the ingest.
   | 'plugin.delete'
+  | 'plugin.restore'
   | 'plugin.upload'
   | 'plugin.deploy'
   | 'plugin.bulk.update'
@@ -186,9 +192,11 @@ export type AuditAction =
   | 'compliance.rule.create'
   | 'compliance.rule.update'
   | 'compliance.rule.delete'
+  | 'compliance.rule.restore'
   | 'compliance.policy.create'
   | 'compliance.policy.update'
   | 'compliance.policy.delete'
+  | 'compliance.policy.restore'
   | 'compliance.scan-schedule.create'
   | 'compliance.scan-schedule.update'
   | 'compliance.scan-schedule.delete'
@@ -203,6 +211,7 @@ export type AuditAction =
   // deletes (metadata only, never message body content).
   | 'message.announcement.create'
   | 'message.delete'
+  | 'message.restore'
   // Billing (api/billing) — subscription + entitlement mutations, mirrored to
   // the central trail (also in the service-local billing_events collection).
   | 'billing.subscription.cancel'
@@ -292,14 +301,17 @@ export const ALL_AUDIT_ACTIONS = [
   'dashboard.create',
   'dashboard.update',
   'dashboard.delete',
+  'dashboard.restore',
   'dashboard.clone',
   'alert.destination.create',
   'alert.destination.update',
   'alert.destination.delete',
+  'alert.destination.restore',
   'alert.destination.test',
   'alert.rule.create',
   'alert.rule.update',
   'alert.rule.delete',
+  'alert.rule.restore',
   'admin.org-idp.upsert',
   'admin.org-idp.delete',
   'admin.superadmin.grant',
@@ -317,14 +329,17 @@ export const ALL_AUDIT_ACTIONS = [
   'pipeline.create',
   'pipeline.update',
   'pipeline.delete',
+  'pipeline.restore',
   'pipeline_template.create',
   'pipeline_template.update',
   'pipeline_template.delete',
+  'pipeline_template.restore',
   'pipeline.execution.start',
   'pipeline.execution.cancel',
   'pipeline.registry.register',
   'pipeline.registry.deregister',
   'plugin.delete',
+  'plugin.restore',
   'plugin.upload',
   'plugin.deploy',
   'plugin.bulk.update',
@@ -339,9 +354,11 @@ export const ALL_AUDIT_ACTIONS = [
   'compliance.rule.create',
   'compliance.rule.update',
   'compliance.rule.delete',
+  'compliance.rule.restore',
   'compliance.policy.create',
   'compliance.policy.update',
   'compliance.policy.delete',
+  'compliance.policy.restore',
   'compliance.scan-schedule.create',
   'compliance.scan-schedule.update',
   'compliance.scan-schedule.delete',
@@ -352,6 +369,7 @@ export const ALL_AUDIT_ACTIONS = [
   'registry.image.copy',
   'message.announcement.create',
   'message.delete',
+  'message.restore',
   'billing.subscription.cancel',
   'billing.subscription.delete',
   'billing.tier.override',

@@ -129,6 +129,19 @@ export function createReadPluginRoutes(
     return respondWithSinglePlugin(validated.value as PluginFilter, req, res, orgId, ctx, true);
   }));
 
+  // GET /plugins/deleted — org's soft-deleted tombstones (most recent first),
+  // powering the "recently deleted" restore UI. Registered BEFORE `/:id` so the
+  // literal path isn't swallowed by the id matcher.
+  router.get('/deleted', withRoute(async ({ req, res, ctx, orgId }) => {
+    const { limit, offset } = parsePaginationParams(req.query as Record<string, unknown>);
+    const deleted = await pluginService.findDeleted(orgId, { limit, offset });
+
+    ctx.log('COMPLETED', 'Listed deleted plugins', { count: deleted.length });
+    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+
+    return sendSuccess(res, 200, { plugins: deleted.map(shapePlugin) });
+  }));
+
   // GET /plugins/:id — single plugin by UUID
   router.get('/:id', withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');

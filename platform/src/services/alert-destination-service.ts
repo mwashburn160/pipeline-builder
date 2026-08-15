@@ -3,7 +3,7 @@
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, isNotNull, sql } from 'drizzle-orm';
 
 import { getNotificationChannel, type NotificationMessage } from './notification-channels.js';
 
@@ -280,6 +280,23 @@ export class AlertDestinationService {
         ))
         .returning({ id: schema.orgAlertDestination.id });
       return !!deleted;
+    });
+  }
+
+  /** Restore a soft-deleted destination (clear deletedAt/deletedBy), org-scoped.
+   *  Returns false when there is no matching tombstone in the caller's org. */
+  async restore(id: string, caller: { orgId: string; userId: string }): Promise<boolean> {
+    return withTenantTx(async (tx) => {
+      const [restored] = await tx
+        .update(schema.orgAlertDestination)
+        .set({ deletedAt: null, deletedBy: null })
+        .where(and(
+          eq(schema.orgAlertDestination.id, id),
+          eq(schema.orgAlertDestination.orgId, caller.orgId),
+          isNotNull(schema.orgAlertDestination.deletedAt),
+        ))
+        .returning({ id: schema.orgAlertDestination.id });
+      return !!restored;
     });
   }
 }

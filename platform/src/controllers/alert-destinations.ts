@@ -263,6 +263,22 @@ export const deleteAlertDestination = withController('Delete alert destination',
   sendSuccess(res, 200, undefined, 'Destination deleted');
 });
 
+/** POST /api/observability/alert-destinations/:id/restore — undo a soft-delete
+ *  within the retention window. Same `observability:write` gate as delete, plus
+ *  step-up (reverses a destructive action). Org-scoped in the service. */
+export const restoreAlertDestination = withController('Restore alert destination', async (req, res) => {
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
+
+  const id = req.params.id as string;
+  const ok = await alertDestinationService.restore(id, { orgId, userId });
+  if (!ok) return sendError(res, 404, 'Destination not found');
+
+  audit(req, 'alert.destination.restore', { targetType: 'alert-destination', targetId: id });
+  sendSuccess(res, 200, undefined, 'Destination restored');
+});
+
 /**
  * POST /api/observability/alert-destinations/:id/test — send a labeled TEST
  * notification to the destination so an operator can verify delivery without

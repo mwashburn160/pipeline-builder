@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { AccessModifier, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { sql } from 'drizzle-orm';
 import { boolean, varchar, pgTable, text, timestamp, uuid, jsonb, index } from 'drizzle-orm/pg-core';
 
 /**
@@ -97,7 +98,12 @@ export const message = pgTable('messages', {
   // Deletion tracking (soft delete)
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   deletedBy: text('deleted_by'),
+  // Soft-delete purge deadline: the retention sweep hard-deletes tombstoned
+  // rows once `purge_after` has passed (set on delete alongside deleted_at).
+  purgeAfter: timestamp('purge_after', { withTimezone: true }),
 }, (table) => ({
+  // Partial index over just the tombstones — drives the retention purge sweep.
+  purgeIdx: index('message_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),
   // Indexes for common queries
   orgIdIdx: index('message_org_id_idx').on(table.orgId),
   recipientOrgIdIdx: index('message_recipient_org_id_idx').on(table.recipientOrgId),

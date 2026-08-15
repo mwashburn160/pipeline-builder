@@ -85,6 +85,22 @@ export function pipelinesApi(core: ApiCore) {
       });
     },
 
+    /** List the org's soft-deleted pipelines (tombstones), most-recent first —
+     *  restorable until the retention sweep purges them. */
+    listDeletedPipelines: async (params?: Record<string, string>) => {
+      return core.request<ApiResponse<{ pipelines: Pipeline[] }>>(`/api/pipelines/deleted${buildQuery(params)}`);
+    },
+
+    /** Restore a soft-deleted pipeline. Step-up gated (reverses a destructive
+     *  action): pass the token from StepUpModal; the api forwards it as the
+     *  `X-Step-Up-Token` header. */
+    restorePipeline: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipelines/${id}/restore`, {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
     bulkDeletePipelines: async (ids: string[]) => {
       return core.request<ApiResponse<{ deleted: number; ids: string[] }>>('/api/pipelines/bulk/delete', {
         method: 'POST',

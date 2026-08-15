@@ -3,3 +3,4 @@
 
 export * from './auth.js';
 export * from './mongo-sanitize.js';
+export * from './step-up.js';

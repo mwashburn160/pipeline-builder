@@ -9,6 +9,7 @@ import {
   createAlertDestination,
   updateAlertDestination,
   deleteAlertDestination,
+  restoreAlertDestination,
   testAlertDestination,
   alertWebhook,
 } from '../controllers/alert-destinations.js';
@@ -17,9 +18,10 @@ import {
   createAlertRule,
   updateAlertRule,
   deleteAlertRule,
+  restoreAlertRule,
   materializeAlertRules,
 } from '../controllers/alert-rules.js';
-import { requireAuth } from '../middleware/index.js';
+import { requireAuth, requireStepUp } from '../middleware/index.js';
 import {
   observabilityQuery,
   observabilityLogs,
@@ -69,6 +71,7 @@ router.get('/alert-destinations/all', requireAuth, listAllAlertDestinations);
 router.post('/alert-destinations', requireAuth, requirePermission('observability:write'), createAlertDestination);
 router.put('/alert-destinations/:id', requireAuth, requirePermission('observability:write'), updateAlertDestination);
 router.delete('/alert-destinations/:id', requireAuth, requirePermission('observability:write'), deleteAlertDestination);
+router.post('/alert-destinations/:id/restore', requireAuth, requirePermission('observability:write'), requireStepUp, restoreAlertDestination);
 // Send a labeled test notification to a destination (org-scoped, observability:write).
 router.post('/alert-destinations/:id/test', requireAuth, requirePermission('observability:write'), testAlertDestination);
 
@@ -91,5 +94,6 @@ router.get('/alert-rules', requireAuth, listAlertRules);
 router.post('/alert-rules', requireAuth, requirePermission('observability:write'), createAlertRule);
 router.put('/alert-rules/:id', requireAuth, requirePermission('observability:write'), updateAlertRule);
 router.delete('/alert-rules/:id', requireAuth, requirePermission('observability:write'), deleteAlertRule);
+router.post('/alert-rules/:id/restore', requireAuth, requirePermission('observability:write'), requireStepUp, restoreAlertRule);
 
 export default router;

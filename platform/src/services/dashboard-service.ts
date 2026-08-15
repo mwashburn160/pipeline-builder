@@ -3,7 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { db, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
-import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, isNotNull, or, sql } from 'drizzle-orm';
 
 // The transaction object's full type is enormous; reuse drizzle's inferred
 // shape so insertPanels can take a tx without re-typing it everywhere.
@@ -215,6 +215,36 @@ export class DashboardService {
         .where(and(eq(schema.dashboard.id, id), isNull(schema.dashboard.deletedAt)))
         .returning({ id: schema.dashboard.id });
       return !!deleted;
+    });
+  }
+
+  /**
+   * Load a soft-deleted (tombstoned) dashboard by id — used by the restore
+   * controller to resolve `canWrite` before restoring. Returns null unless a
+   * genuine tombstone (`deletedAt IS NOT NULL`) exists. Panels are not needed
+   * for the access check, so only the base row is returned.
+   */
+  async findDeletedById(id: string): Promise<Dashboard | null> {
+    return withTenantTx(async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(schema.dashboard)
+        .where(and(eq(schema.dashboard.id, id), isNotNull(schema.dashboard.deletedAt)))
+        .limit(1);
+      return row ?? null;
+    });
+  }
+
+  /** Restore a soft-deleted dashboard (clear deletedAt/deletedBy). Returns false
+   *  when there is no matching tombstone (already live, or unknown id). */
+  async restore(id: string, _caller: { userId: string }): Promise<boolean> {
+    return withTenantTx(async (tx) => {
+      const [restored] = await tx
+        .update(schema.dashboard)
+        .set({ deletedAt: null, deletedBy: null })
+        .where(and(eq(schema.dashboard.id, id), isNotNull(schema.dashboard.deletedAt)))
+        .returning({ id: schema.dashboard.id });
+      return !!restored;
     });
   }
 

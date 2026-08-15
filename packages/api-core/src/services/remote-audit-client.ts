@@ -44,6 +44,7 @@ export const REMOTE_AUDIT_ACTIONS = [
   // publishing surface that builds already audit's counterpart: registry delete,
   // source upload, and deploy-to-cluster. `targetId` is the plugin id.
   'plugin.delete',
+  'plugin.restore',
   'plugin.upload',
   'plugin.deploy',
   // Plugin bulk mutations (api/plugin bulk-plugin route) + DLQ purge (drops all
@@ -57,9 +58,11 @@ export const REMOTE_AUDIT_ACTIONS = [
   'pipeline.create',
   'pipeline.update',
   'pipeline.delete',
+  'pipeline.restore',
   'pipeline_template.create',
   'pipeline_template.update',
   'pipeline_template.delete',
+  'pipeline_template.restore',
   'pipeline.execution.start',
   'pipeline.execution.cancel',
   // CodePipeline ARN-registry config (api/pipeline registry route) — registering /
@@ -83,9 +86,11 @@ export const REMOTE_AUDIT_ACTIONS = [
   'compliance.rule.create',
   'compliance.rule.update',
   'compliance.rule.delete',
+  'compliance.rule.restore',
   'compliance.policy.create',
   'compliance.policy.update',
   'compliance.policy.delete',
+  'compliance.policy.restore',
   'compliance.scan-schedule.create',
   'compliance.scan-schedule.update',
   'compliance.scan-schedule.delete',
@@ -105,6 +110,7 @@ export const REMOTE_AUDIT_ACTIONS = [
   // (subject/type/scope), NEVER message body content.
   'message.announcement.create',
   'message.delete',
+  'message.restore',
   // Billing (api/billing) — subscription + entitlement mutations, mirrored to the
   // central audit trail (these also write to the service-local billing_events
   // collection). `details` carry plan/tier/addon ids only — never card/payment

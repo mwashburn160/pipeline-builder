@@ -3,15 +3,18 @@
 
 import crypto from 'crypto';
 
-import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS, wireAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
-import { createApp, runServer, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
+import { createLogger, requireAuth, requirePermission, requireStepUp, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS, wireAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
+import { createApp, runServer, attachRequestContext, createAuthenticatedWithOrgRoute, postgresHealthCheck } from '@pipeline-builder/api-server';
+import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data';
 import type { Request, Response } from 'express';
 
 import { createCreateMessageRoutes } from './routes/create-message.js';
 import { createDeleteMessageRoutes } from './routes/delete-message.js';
 import { createReadMessageRoutes } from './routes/read-messages.js';
+import { createRestoreMessageRoutes } from './routes/restore-message.js';
 import { createUpdateMessageRoutes } from './routes/update-message.js';
 import { getAuditClient } from './services/audit.js';
+import { messageService } from './services/message-service.js';
 
 const logger = createLogger('message');
 const quotaService = createQuotaService();
@@ -134,12 +137,29 @@ app.use('/messages', createCreateMessageRoutes(sseManager));
 app.use('/messages', createUpdateMessageRoutes(sseManager));
 app.use('/messages', createDeleteMessageRoutes(sseManager));
 
+// -- Restore route — auth + orgId + messages:write + step-up ------------------
+// Undo a soft-delete within the retention window; step-up-gated because it
+// reverses a destructive action.
+app.use('/messages', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), requireStepUp, createRestoreMessageRoutes());
+
 logger.info('All /messages routes registered');
+
+// Retention purge: hard-delete message tombstones past their purge_after
+// deadline. Leader-locked + sysadmin-scoped inside the sweep. Opt out with
+// SOFT_DELETE_PURGE_ENABLED=false.
+const purgeScheduler = createSoftDeletePurgeScheduler({
+  service: 'message',
+  entities: [
+    { name: 'message', purgeExpired: (now, limit) => messageService.purgeExpired(now, limit) },
+  ],
+});
+purgeScheduler?.start();
 
 runServer(app, {
   name: 'Message Service',
   sseManager,
   onShutdown: async () => {
     clearInterval(ticketCleanup);
+    purgeScheduler?.stop();
   },
 });

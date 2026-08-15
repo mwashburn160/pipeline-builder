@@ -149,7 +149,12 @@ export const plugin = pgTable('plugins', {
   // Deletion tracking (soft delete)
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   deletedBy: text('deleted_by'),
+  // Soft-delete purge deadline: the retention sweep hard-deletes tombstoned
+  // rows once `purge_after` has passed (set on delete alongside deleted_at).
+  purgeAfter: timestamp('purge_after', { withTimezone: true }),
 }, (table) => ({
+  // Partial index over just the tombstones — drives the retention purge sweep.
+  purgeIdx: index('plugin_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),
   // Indexes for common queries
   nameIdx: index('plugin_name_idx').on(table.name),
   orgIdIdx: index('plugin_org_id_idx').on(table.orgId),

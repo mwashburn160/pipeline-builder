@@ -28,6 +28,7 @@ import { FilterBar } from '@/components/ui/FilterBar';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import EditPluginModal from '@/components/plugin/EditPluginModal';
 import CreatePluginModal from '@/components/plugin/CreatePluginModal';
+import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import api from '@/lib/api';
 import { mapCommonParams, canModify } from '@/lib/resource-helpers';
 import { visitedPluginsKey } from '@/lib/onboarding';
@@ -670,6 +671,15 @@ export default function PluginsPage() {
             onSortChange={handleServerSort}
           />
         </ResourceList>
+
+        {/* Recently deleted — restore soft-deleted plugins within the retention
+            window. Only for users who can write (restore is plugins:write +
+            step-up gated). */}
+        {canWrite && (
+          <div className="mt-6">
+            <RecentlyDeletedPanel resource="plugin" />
+          </div>
+        )}
       </div>
 
       {createInitialTab && (

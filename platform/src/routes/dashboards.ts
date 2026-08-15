@@ -9,9 +9,10 @@ import {
   createDashboard,
   updateDashboard,
   deleteDashboard,
+  restoreDashboard,
   cloneDashboard,
 } from '../controllers/dashboards.js';
-import { requireAuth } from '../middleware/index.js';
+import { requireAuth, requireStepUp } from '../middleware/index.js';
 
 const router: Router = Router();
 
@@ -25,6 +26,9 @@ router.post('/', requireAuth, requirePermission('dashboards:write'), createDashb
 // so it must resolve the target row first and can't move to a route middleware.
 router.put('/:id', requireAuth, updateDashboard);
 router.delete('/:id', requireAuth, deleteDashboard);
+// Restore is handler-gated (dynamic canWrite, like delete) + step-up-gated
+// (reverses a destructive action, mirroring org restore).
+router.post('/:id/restore', requireAuth, requireStepUp, restoreDashboard);
 router.post('/:id/clone', requireAuth, requirePermission('dashboards:write'), cloneDashboard);
 
 export default router;

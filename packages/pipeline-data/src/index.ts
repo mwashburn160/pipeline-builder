@@ -33,6 +33,7 @@ export * from './database/index.js';
 export * from './api/query-builders.js';
 export * from './api/access-control-builder.js';
 export * from './api/crud-service.js';
+export * from './api/soft-delete-sweep.js';
 export * from './api/reporting-service.js';
 
 // Filters

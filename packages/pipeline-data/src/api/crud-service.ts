@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { NotFoundError, createLogger } from '@pipeline-builder/api-core';
-import { SQL, eq, and, asc, desc, sql, inArray, getTableColumns } from 'drizzle-orm';
+import { SQL, eq, and, asc, desc, sql, inArray, isNotNull, lt, getTableColumns } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { withTenantTx, runWithTenantContext, getTenantContext } from '../database/tenancy.js';
@@ -112,8 +112,20 @@ interface CrudColumns {
   isActive: AnyColumn;
   isDefault: AnyColumn;
   accessModifier?: AnyColumn;
+  // Soft-delete lifecycle columns (present on tombstone-bearing entities only;
+  // `restore`/`purgeExpired` are no-ops when absent).
+  deletedAt?: AnyColumn;
+  purgeAfter?: AnyColumn;
   [key: string]: AnyColumn | undefined;
 }
+
+/**
+ * Retention before a soft-deleted row becomes purge-eligible, shared across
+ * every CrudService entity (unified `SOFT_DELETE_RETENTION_DAYS`, default 30d).
+ * Stamped into `purge_after` at delete time; the per-service purge sweep hard-
+ * deletes tombstones once it has passed. `0` disables purge-deadline stamping.
+ */
+const SOFT_DELETE_RETENTION_MS = Math.max(0, Number.parseInt(process.env.SOFT_DELETE_RETENTION_DAYS ?? '30', 10) || 0) * 24 * 60 * 60 * 1000;
 
 export abstract class CrudService<
   TEntity extends BaseEntity,
@@ -223,6 +235,32 @@ export abstract class CrudService<
 
   /** Called after an entity is soft-deleted */
   protected async onAfterDelete(_id: string, _entity: TEntity, _userId: string): Promise<void> {}
+
+  /** Called after a soft-deleted entity is restored (undo the delete). Override
+   *  for entities whose restore has side-effects (e.g. re-notify). Best-effort. */
+  protected async onAfterRestore(_id: string, _entity: TEntity, _userId: string): Promise<void> {}
+
+  /** Called (best-effort) with the ids about to be hard-purged, BEFORE the
+   *  delete, so a subclass can tear down dependents that lack ON DELETE CASCADE.
+   *  Throwing aborts that batch's purge (rows stay tombstoned, retried next tick). */
+  protected async onBeforePurge(_ids: string[]): Promise<void> {}
+
+  /** Called after rows are hard-purged, for external side-effects (e.g. plugin
+   *  image GC). Best-effort: errors are logged, never block the sweep. */
+  protected async onAfterPurge(_ids: string[]): Promise<void> {}
+
+  /** Retention before a soft-deleted row becomes purge-eligible. Defaults to the
+   *  shared `SOFT_DELETE_RETENTION_DAYS`; override per entity for a bespoke window. */
+  protected get softDeleteRetentionMs(): number {
+    return SOFT_DELETE_RETENTION_MS;
+  }
+
+  /** The `purge_after` value to stamp on a soft-delete: `now + retention`, or the
+   *  spread-friendly empty object when the entity has no `purge_after` column. */
+  private purgeAfterStamp(now: Date): Record<string, unknown> {
+    if (!this.cols.purgeAfter || this.softDeleteRetentionMs <= 0) return {};
+    return { purgeAfter: new Date(now.getTime() + this.softDeleteRetentionMs) };
+  }
 
   /**
    * Org → team hierarchy: when a read is widened to a parent org (`parentOrgId`
@@ -557,15 +595,18 @@ export abstract class CrudService<
    */
   async delete(id: string, orgId: string, userId: string): Promise<TEntity | null> {
     const conditions = this.writeConditions(id, orgId);
+    const now = new Date();
 
     const [deleted] = await withTenantTx(async (tx) => tx
       .update(this.schema)
       .set({
         isActive: false,
-        updatedAt: new Date(),
+        updatedAt: now,
         updatedBy: userId || 'system',
-        deletedAt: new Date(),
+        deletedAt: now,
         deletedBy: userId || 'system',
+        // Stamp the purge deadline so the retention sweep can hard-delete later.
+        ...this.purgeAfterStamp(now),
       } as any)
       .where(and(...conditions))
       .returning().then(r => drizzleRows<TEntity>(r)));
@@ -809,6 +850,8 @@ export abstract class CrudService<
         updatedBy: user,
         deletedAt: now,
         deletedBy: user,
+        // Stamp the purge deadline so the retention sweep can hard-delete later.
+        ...this.purgeAfterStamp(now),
       } as any)
       .where(and(...conditions))
       .returning().then(r => drizzleRows<TEntity>(r)));
@@ -822,5 +865,151 @@ export abstract class CrudService<
     );
 
     return deleted;
+  }
+
+  /**
+   * Restore a soft-deleted (tombstoned) entity: clear `isActive`/`deletedAt`/
+   * `deletedBy`/`purgeAfter` so it reappears in normal reads.
+   *
+   * Matches ONLY a genuine tombstone — `isActive = false` AND `deletedAt IS NOT
+   * NULL` — so a merely *deactivated* row (isActive=false, no deletedAt) is never
+   * silently "restored". Pinned to the caller's own org (orgId-less sysadmin
+   * context spans orgs, matching delete/update). Returns null when there is no
+   * such tombstone (already active, purged, or unknown) so the route can 404.
+   * A unique-key collision (a live row already holds the key) surfaces as the
+   * driver's unique-violation for the route to map to 409 — in practice the
+   * tombstone IS the key holder, so this is defensive.
+   */
+  async restore(id: string, orgId: string, userId: string): Promise<TEntity | null> {
+    if (!this.cols.deletedAt) return null; // entity has no soft-delete lifecycle
+    const conditions: SQL[] = [
+      this.exactIdCondition(id),
+      eq(this.cols.isActive, false),
+      isNotNull(this.cols.deletedAt),
+    ];
+    if (orgId) conditions.push(eq(this.getOrgColumn(), orgId));
+
+    const [restored] = await withTenantTx(async (tx) => tx
+      .update(this.schema)
+      .set({
+        isActive: true,
+        updatedAt: new Date(),
+        updatedBy: userId || 'system',
+        deletedAt: null,
+        deletedBy: null,
+        ...(this.cols.purgeAfter ? { purgeAfter: null } : {}),
+      } as any)
+      .where(and(...conditions))
+      .returning().then(r => drizzleRows<TEntity>(r)));
+
+    if (restored) {
+      try {
+        await this.onAfterRestore(id, restored, userId);
+      } catch (err) {
+        this._logger.warn('Lifecycle hook failed', { error: String(err) });
+      }
+    }
+
+    return restored || null;
+  }
+
+  /**
+   * Read a soft-deleted entity by id (the inverse of the default `isActive=true`
+   * reads) — used by restore routes to load the tombstone for access-control
+   * gating before restoring. Returns null unless the row exists AND is a genuine
+   * tombstone (`isActive=false` + `deletedAt IS NOT NULL`).
+   */
+  async findDeletedById(id: string, orgId?: string, parentOrgId?: string): Promise<TEntity | null> {
+    if (!this.cols.deletedAt) return null;
+    const conditions: SQL[] = [
+      this.exactIdCondition(id),
+      eq(this.cols.isActive, false),
+      isNotNull(this.cols.deletedAt),
+    ];
+    if (orgId) conditions.push(eq(this.getOrgColumn(), orgId));
+
+    const results = await this.runRead(parentOrgId, () => withTenantTx(async (tx) => tx
+      .select()
+      .from(this.schema)
+      .where(and(...conditions))
+      .limit(1).then(r => drizzleRows<TEntity>(r))));
+
+    return results[0] || null;
+  }
+
+  /**
+   * List an org's soft-deleted tombstones (`isActive=false` + `deletedAt IS NOT
+   * NULL`), most-recently-deleted first — powers the "recently deleted" restore
+   * UI. Returns `[]` for entities without a soft-delete lifecycle. `limit` is
+   * clamped to [1, 200] to keep the response bounded (the retention sweep hard-
+   * deletes old tombstones anyway, so this is a short, self-limiting list).
+   */
+  async findDeleted(
+    orgId: string,
+    opts: { limit?: number; offset?: number } = {},
+    parentOrgId?: string,
+  ): Promise<TEntity[]> {
+    if (!this.cols.deletedAt) return [];
+    const limit = Math.min(Math.max(1, opts.limit ?? 50), 200);
+    const offset = Math.max(0, opts.offset ?? 0);
+
+    const conditions: SQL[] = [
+      eq(this.cols.isActive, false),
+      isNotNull(this.cols.deletedAt),
+    ];
+    if (orgId) conditions.push(eq(this.getOrgColumn(), orgId));
+
+    return this.runRead(parentOrgId, () => withTenantTx(async (tx) => tx
+      .select()
+      .from(this.schema)
+      .where(and(...conditions))
+      .orderBy(desc(this.cols.deletedAt!))
+      .limit(limit)
+      .offset(offset)
+      .then(r => drizzleRows<TEntity>(r))));
+  }
+
+  /**
+   * Hard-delete a batch of tombstones whose purge deadline has passed
+   * (`deletedAt IS NOT NULL AND purge_after < now`). Batched (`limit`) so a
+   * sweep tick stays bounded; the per-service sweep loops until a tick returns
+   * `< limit`. Runs across ALL orgs, so callers MUST invoke it from a system
+   * (no-tenant) context. `onBeforePurge` tears down dependents lacking ON DELETE
+   * CASCADE (inside the tx); `onAfterPurge` handles external side-effects.
+   * Returns the number of rows purged. No-op (0) for entities without the columns.
+   */
+  async purgeExpired(now: Date, limit = 500): Promise<number> {
+    if (!this.cols.deletedAt || !this.cols.purgeAfter) return 0;
+
+    const purgedIds = await withTenantTx(async (tx) => {
+      const doomed = await tx
+        // `as any`: cols.id is the base `AnyColumn`, which drizzle's typed
+        // select-field map doesn't accept directly (same friction the `.set()`
+        // casts elsewhere in this file work around). Result is re-typed below.
+        .select({ id: this.cols.id as any })
+        .from(this.schema)
+        .where(and(isNotNull(this.cols.deletedAt!), lt(this.cols.purgeAfter!, now)))
+        .limit(limit)
+        .then(r => (r as Array<{ id: unknown }>).map(d => String(d.id)));
+
+      if (doomed.length === 0) return [];
+
+      // Dependent teardown must happen inside the same tx so a FK-blocking child
+      // can't strand the parent. A throw here aborts this batch (retried next tick).
+      await this.onBeforePurge(doomed);
+
+      await tx.delete(this.schema).where(inArray(this.cols.id, doomed));
+      return doomed;
+    });
+
+    if (purgedIds.length > 0) {
+      try {
+        await this.onAfterPurge(purgedIds);
+      } catch (err) {
+        this._logger.warn('Lifecycle hook failed', { error: String(err) });
+      }
+    }
+
+    return purgedIds.length;
   }
 }

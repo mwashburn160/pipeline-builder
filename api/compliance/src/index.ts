@@ -10,6 +10,7 @@ import {
   createAuthenticatedWithOrgRoute,
   postgresHealthCheck,
 } from '@pipeline-builder/api-server';
+import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { startAuditPruneCron } from './helpers/compliance-check-log.js';
 import { startDigestScheduler, stopDigestScheduler } from './helpers/digest-scheduler.js';
@@ -19,6 +20,10 @@ import { createCreatePolicyRoutes } from './routes/create-policies.js';
 import { createCreateRuleRoutes } from './routes/create-rules.js';
 import { createDeletePolicyRoutes } from './routes/delete-policies.js';
 import { createDeleteRuleRoutes } from './routes/delete-rules.js';
+import { createRestorePolicyRoutes } from './routes/restore-policies.js';
+import { createRestoreRuleRoutes } from './routes/restore-rules.js';
+import { compliancePolicyService } from './services/policy-service.js';
+import { complianceRuleService } from './services/compliance-rule-service.js';
 import { createEntityEventRoutes } from './routes/entity-events.js';
 import { createExemptionRoutes } from './routes/exemptions.js';
 import { createNotificationPreferenceRoutes } from './routes/notification-preferences.js';
@@ -65,6 +70,9 @@ rulesRouter.use(requirePermission('compliance:write'));
 rulesRouter.use(createCreateRuleRoutes());
 rulesRouter.use(createUpdateRuleRoutes());
 rulesRouter.use(createDeleteRuleRoutes());
+// Restore (POST /:id/restore) sits after the write-permission gate; the route
+// adds requireStepUp itself (the composite chain has no step-up).
+rulesRouter.use(createRestoreRuleRoutes());
 app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), rulesRouter);
 
 // Published rules catalog (auth + org, rate limited)
@@ -99,6 +107,7 @@ policiesRouter.use(requirePermission('compliance:write'));
 policiesRouter.use(createCreatePolicyRoutes());
 policiesRouter.use(createUpdatePolicyRoutes());
 policiesRouter.use(createDeletePolicyRoutes());
+policiesRouter.use(createRestorePolicyRoutes());
 app.use('/compliance/policies', ...createProtectedRoute(quotaService, 'apiCalls'), policiesRouter);
 
 // Rule templates (auth + org)
@@ -131,6 +140,17 @@ setTokenRevocationStore(createEnvRedisTokenRevocationStore());
 // shutdown so tests/process-exit don't leave a dangling timer.
 const auditPrune = startAuditPruneCron();
 
+// Retention purge: hard-delete compliance policy + rule tombstones past their
+// purge_after deadline. Leader-locked + sysadmin-scoped inside the sweep. Opt
+// out with SOFT_DELETE_PURGE_ENABLED=false.
+const purgeScheduler = createSoftDeletePurgeScheduler({
+  service: 'compliance',
+  entities: [
+    { name: 'compliance_policy', purgeExpired: (now, limit) => compliancePolicyService.purgeExpired(now, limit) },
+    { name: 'compliance_rule', purgeExpired: (now, limit) => complianceRuleService.purgeExpired(now, limit) },
+  ],
+});
+
 void runServer(app, {
   name: 'Compliance Service',
   sseManager,
@@ -138,10 +158,12 @@ void runServer(app, {
     stopScanScheduler();
     stopDigestScheduler();
     auditPrune.stop();
+    purgeScheduler?.stop();
   },
 });
 
 startScanScheduler();
 startDigestScheduler();
+purgeScheduler?.start();
 
 export { app };

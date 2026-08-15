@@ -179,6 +179,28 @@ export const deleteAlertRule = withController('Delete alert rule', async (req, r
   sendSuccess(res, 200, {});
 });
 
+/** POST /api/observability/alert-rules/:id/restore — undo a soft-delete within
+ *  the retention window. Same `observability:write` gate as delete, plus step-up.
+ *  A restored enabled rule re-enters the materializer on its next poll. */
+export const restoreAlertRule = withController('Restore alert rule', async (req, res) => {
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
+
+  const id = getParam(req.params, 'id')!;
+
+  const ok = await alertRuleService.restore(orgId, id, userId);
+  if (!ok) return sendError(res, 404, 'Alert rule not found');
+
+  audit(req, 'alert.rule.restore', {
+    targetType: 'alert-rule',
+    targetId: id,
+    affectedOrgId: orgId,
+  });
+
+  sendSuccess(res, 200, {});
+});
+
 // ---------------------------------------------------------------------------
 // Materializer
 // ---------------------------------------------------------------------------

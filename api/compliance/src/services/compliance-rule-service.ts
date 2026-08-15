@@ -488,6 +488,23 @@ export class ComplianceRuleService extends CrudService<
     }
     return deleted;
   }
+
+  /**
+   * Restore mirrors delete's correctness-critical side-effects: a restored rule
+   * re-enters evaluation, so the rules cache MUST be invalidated (and subscriber
+   * caches for a published rule) or the rule stays invisible until TTL. Also
+   * records history and re-triggers a target scan. Called by the base
+   * `restore()` after the row is un-tombstoned.
+   */
+  protected async onAfterRestore(id: string, entity: ComplianceRule, userId: string): Promise<void> {
+    const warn = (err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) });
+    this.recordHistory(id, entity.orgId, 'restored', null, userId).catch(warn);
+    this.invalidateRulesCache(entity.orgId).catch(warn);
+    this.triggerRuleChangeScan(entity.orgId, entity.target, userId).catch(warn);
+    if (entity.scope === 'published') {
+      this.invalidateSubscriberCaches(id).catch(warn);
+    }
+  }
 }
 
 export const complianceRuleService = new ComplianceRuleService();

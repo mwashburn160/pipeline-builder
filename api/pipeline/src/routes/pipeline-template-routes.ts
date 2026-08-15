@@ -17,6 +17,7 @@ import {
   validateBody,
   requirePermission,
   requirePublicAccess,
+  requireStepUp,
   PipelineTemplateFilterSchema,
   PipelineTemplateCreateSchema,
   PipelineTemplateUpdateSchema,
@@ -284,6 +285,34 @@ export function createPipelineTemplateRoutes(): Router {
       details: { name: deleted.name },
     });
     return sendSuccess(res, 200, { message: 'Template deleted' });
+  }));
+
+  // POST /pipeline-templates/:id/restore — undo a soft-delete within the
+  // retention window. Step-up-gated (reverses a destructive action); mirrors the
+  // DELETE authority (auth + orgId + pipelines:write, +pipelines:publish for
+  // public templates).
+  router.post('/:id/restore', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), requireStepUp, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const id = getParam(req.params, 'id');
+    if (!id) return sendBadRequest(res, 'Template ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
+
+    const existing = await pipelineTemplateService.findDeletedById(id, orgId, req.user?.parentOrganizationId);
+    if (!existing) return sendEntityNotFound(res, 'Template');
+    if (!requirePublicAccess(req, res, existing, 'pipelines:publish')) return;
+
+    const restored = await pipelineTemplateService.restore(id, orgId, userId ?? 'system');
+    if (!restored) return sendEntityNotFound(res, 'Template');
+
+    ctx.log('COMPLETED', 'Restored pipeline template', { id });
+    emitPipelineAudit({
+      action: 'pipeline_template.restore',
+      actorId: req.user?.sub ?? userId ?? 'system',
+      orgId,
+      affectedOrgId: existing.orgId,
+      targetType: 'pipeline_template',
+      targetId: id,
+      details: { name: restored.name },
+    });
+    return sendSuccess(res, 200, { template: normalizeArrayFields(restored, ['keywords']) });
   }));
 
   return router;

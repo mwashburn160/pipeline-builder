@@ -81,6 +81,19 @@ export function createReadPipelineRoutes(
     return sendSuccess(res, 200, { pipeline: normalizeArrayFields(result, ['keywords']) });
   }));
 
+  // GET /pipelines/deleted — org's soft-deleted tombstones (most recent first),
+  // powering the "recently deleted" restore UI. Registered BEFORE `/:id` so the
+  // literal path isn't swallowed by the id matcher.
+  router.get('/deleted', withRoute(async ({ req, res, ctx, orgId }) => {
+    const { limit, offset } = parsePaginationParams(req.query as Record<string, unknown>);
+    const deleted = await pipelineService.findDeleted(orgId, { limit, offset });
+
+    ctx.log('COMPLETED', 'Listed deleted pipelines', { count: deleted.length });
+    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+
+    return sendSuccess(res, 200, { pipelines: deleted.map(r => normalizeArrayFields(r, ['keywords'])) });
+  }));
+
   // GET /pipelines/:id — single pipeline by UUID
   // ?resolve=true resolves pipeline-level {{ ... }} templates before returning.
   router.get('/:id', withRoute(async ({ req, res, ctx, orgId }) => {

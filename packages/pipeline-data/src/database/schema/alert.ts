@@ -59,7 +59,12 @@ export const orgAlertDestination = pgTable('org_alert_destinations', {
   /** Soft delete so we keep audit history of who-deleted-what. */
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   deletedBy: text('deleted_by'),
+  // Soft-delete purge deadline: the retention sweep hard-deletes tombstoned
+  // rows once `purge_after` has passed (set on delete alongside deleted_at).
+  purgeAfter: timestamp('purge_after', { withTimezone: true }),
 }, (table) => ({
+  // Partial index over just the tombstones — drives the retention purge sweep.
+  purgeIdx: index('org_alert_destination_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),
   // Per-org listing  the only access path.
   orgIdx: index('org_alert_destination_org_idx')
     .on(table.orgId, table.enabled),
@@ -119,7 +124,12 @@ export const orgAlertRule = pgTable('org_alert_rules', {
   /** Soft delete so we keep audit of who-deleted-what. */
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   deletedBy: text('deleted_by'),
+  // Soft-delete purge deadline: the retention sweep hard-deletes tombstoned
+  // rows once `purge_after` has passed (set on delete alongside deleted_at).
+  purgeAfter: timestamp('purge_after', { withTimezone: true }),
 }, (table) => ({
+  // Partial index over just the tombstones — drives the retention purge sweep.
+  purgeIdx: index('org_alert_rule_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),
   // Per-org listing + materializer's enabled-only scan.
   orgEnabledIdx: index('org_alert_rule_org_enabled_idx')
     .on(table.orgId, table.enabled),

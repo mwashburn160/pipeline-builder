@@ -27,6 +27,7 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import { DeployedPipelinesPanel } from '@/components/pipeline/DeployedPipelinesPanel';
+import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import api from '@/lib/api';
 import type { BulkPipelineSpec, BulkCreateResult } from '@/lib/api/domains/pipelines';
 import { mapCommonParams, canWritePipeline } from '@/lib/resource-helpers';
@@ -508,6 +509,15 @@ export default function PipelinesPage() {
             onSortChange={handleServerSort}
           />
         </ResourceList>
+
+        {/* Recently deleted — restore soft-deleted pipelines within the
+            retention window. Only for users who can write (restore is
+            pipelines:write + step-up gated). */}
+        {canWrite && (
+          <div className="mt-6">
+            <RecentlyDeletedPanel resource="pipeline" />
+          </div>
+        )}
       </div>
 
       <CreatePipelineModal

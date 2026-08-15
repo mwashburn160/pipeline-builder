@@ -64,7 +64,13 @@ set -a; . "$ENV_FILE"; set +a
 # Exclude .env and auth dirs which contain secrets
 if [ "$(id -u)" = "0" ]; then
   chmod -R o+rX "$DEPLOY_DIR/k8s" "$DEPLOY_DIR/config" "$DEPLOY_DIR/nginx" 2>/dev/null || true
-  chmod o-rwx "$DEPLOY_DIR/.env" 2>/dev/null || true
+  # .env holds secrets, so keep it off-limits to "other" — but hand ownership to
+  # the minikube user (who owns and runs the stack) with 0600, so a later manual
+  # re-run of startup.sh AS minikube can still source it. The old `chmod o-rwx`
+  # left .env root-owned and unreadable to minikube, so non-root re-runs died at
+  # `. "$ENV_FILE"` with "Permission denied".
+  chown minikube:minikube "$DEPLOY_DIR/.env" 2>/dev/null || true
+  chmod 600 "$DEPLOY_DIR/.env" 2>/dev/null || true
 fi
 # Generate the MongoDB replica-set keyfile per-deploy (idempotent; a fresh
 # checkout no longer ships one). pb_create_config_maps below reads it directly.

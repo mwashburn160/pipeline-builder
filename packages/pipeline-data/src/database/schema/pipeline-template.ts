@@ -11,6 +11,7 @@ import {
   type OwnerType,
   type TemplateInput,
 } from '@pipeline-builder/api-core';
+import { sql } from 'drizzle-orm';
 import { boolean, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
 /**
@@ -64,7 +65,12 @@ export const pipelineTemplate = pgTable('pipeline_templates', {
   // Soft delete
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   deletedBy: text('deleted_by'),
+  // Soft-delete purge deadline: the retention sweep hard-deletes tombstoned
+  // rows once `purge_after` has passed (set on delete alongside deleted_at).
+  purgeAfter: timestamp('purge_after', { withTimezone: true }),
 }, (table) => ({
+  // Partial index over just the tombstones — drives the retention purge sweep.
+  purgeIdx: index('pipeline_template_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),
   orgIdIdx: index('pipeline_template_org_id_idx').on(table.orgId),
   activeIdx: index('pipeline_template_active_idx').on(table.isActive),
   categoryIdx: index('pipeline_template_category_idx').on(table.category),
