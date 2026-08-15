@@ -34,6 +34,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
   class MockCrudService {
     find = mockFind;
     findPaginated = mockFindPaginated;
+    purgeAfterStamp() { return {}; }
   }
 
   return {
@@ -72,6 +73,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   class MockCrudService {
     find = mockFind;
     findPaginated = mockFindPaginated;
+    purgeAfterStamp() { return {}; }
   }
 
   return {

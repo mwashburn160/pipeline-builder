@@ -142,7 +142,9 @@ describe('restoreOrganization', () => {
 
     await (restoreOrganization as unknown as (req: any, res: any) => Promise<void>)(req(), res);
 
-    expect(mockRestore).toHaveBeenCalledWith('org-acme');
+    // Passes the acting admin's id so restore excludes them from the member
+    // token-invalidation (restoring an org must not log out the restorer).
+    expect(mockRestore).toHaveBeenCalledWith('org-acme', 'admin-1');
     expect(res.status).toHaveBeenCalledWith(200);
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'org.restore', expect.objectContaining({ affectedOrgId: 'org-acme' }));
   });
