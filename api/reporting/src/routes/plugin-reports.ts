@@ -14,7 +14,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
-import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubErrorMessage, rollupIds } from '../helpers.js';
+import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubField, rollupIds } from '../helpers.js';
 
 export function createPluginReportRoutes(): Router {
   const router = Router();
@@ -62,11 +62,7 @@ export function createPluginReportRoutes(): Router {
     const limit = parseQueryIntClamped(req.query.limit, 20, MAX_REPORT_LIMIT);
     const orgIds = await rollupIds(req, orgId);
     const failures = await reportingService.getBuildFailures(orgId, range.from, range.to, limit, orgIds);
-    const scrubbed = (failures as unknown as Array<Record<string, unknown>>).map((f) => ({
-      ...f,
-      error_message: scrubErrorMessage(f.error_message as string | null | undefined),
-    }));
-    sendSuccess(res, 200, { failures: scrubbed });
+    sendSuccess(res, 200, { failures: scrubField(failures, 'error_message') });
   }));
 
   return router;

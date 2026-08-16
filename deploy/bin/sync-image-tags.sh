@@ -10,9 +10,9 @@
 # Targets:
 #   - deploy/local/minikube/k8s/*.yaml       (Kubernetes Deployment manifests)
 #   - deploy/aws/ec2/k8s/*.yaml        (EC2 single-node k8s manifests)
+#   - deploy/aws/eks/k8s/*.yaml        (EKS k8s manifests)
 #   - deploy/local/docker/docker-compose.yml  (Docker Compose for local dev)
 #   - deploy/aws/eks/.env.example  (EKS env defaults)
-#   - deploy/aws/eks/stacks/04-services.yaml
 #
 # Plugin image is a single target (no `-docker`/`-kaniko`/`-podman` suffix).
 # Builds run on a rootless buildkitd sidecar across every deploy target.
@@ -38,9 +38,9 @@ SERVICES=(
 FILES=(
   "$ROOT"/deploy/local/minikube/k8s/*.yaml
   "$ROOT"/deploy/aws/ec2/k8s/*.yaml
+  "$ROOT"/deploy/aws/eks/k8s/*.yaml
   "$ROOT/deploy/local/docker/docker-compose.yml"
   "$ROOT/deploy/aws/eks/.env.example"
-  "$ROOT/deploy/aws/eks/stacks/04-services.yaml"
 )
 
 # Cross-platform `sed -i` (BSD sed needs an explicit empty backup arg)

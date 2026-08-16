@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { entityEvents, createCacheService } from '@pipeline-builder/api-core';
+import { entityEvents, createCacheService, toComplianceAttributes } from '@pipeline-builder/api-core';
 import { CoreConstants, AccessModifier } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildPipelineConditions, getTenantContext, schema, withTenantTx, type PipelineFilter } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, sql, inArray } from 'drizzle-orm';
@@ -15,70 +15,10 @@ export type Pipeline = typeof schema.pipeline.$inferSelect;
 export type PipelineInsert = typeof schema.pipeline.$inferInsert;
 export type PipelineUpdate = Partial<Omit<Pipeline, 'id' | 'createdAt' | 'createdBy'>>;
 
-/** Marker written in place of a redacted secret VALUE. */
-const REDACTED = '[REDACTED]';
-
-/**
- * Map keys whose (string→string) VALUES are secret material. The pipeline row's
- * secrets live nested inside `props` (a serialized BuilderProps): `props.synth.env`,
- * per-step `props.stages[].steps[].env`, and step `buildArgs` maps all hold
- * secret values (see packages/pipeline-core/.../stage-builder.ts, source-types.ts).
- */
-const SECRET_MAP_KEYS = new Set(['env', 'buildArgs']);
-
-/**
- * Scalar keys that themselves carry a secret string. `props` can embed a source
- * `token` (source-types.ts: `token?: SecretValue | string`) plus assorted
- * password/credential fields. Applied only to string values so booleans and
- * arrays are left intact.
- */
-function isSecretScalarKey(key: string): boolean {
-  const k = key.toLowerCase();
-  return k.includes('token') || k.includes('secret') || k.includes('password')
-    || k.includes('passphrase') || k.includes('credential') || k.includes('apikey')
-    || k.includes('accesskey') || k.includes('privatekey');
-}
-
-/** Only plain (Object-prototype) objects are traversed — Dates/class instances pass through intact. */
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  if (v === null || typeof v !== 'object') return false;
-  const proto = Object.getPrototypeOf(v);
-  return proto === Object.prototype || proto === null;
-}
-
-/**
- * Project an entity into the compliance-event `attributes`, redacting secret
- * VALUES while preserving everything the compliance engine actually evaluates.
- *
- * Strategy (b) — redact-in-place, keys preserved. The compliance rule engine
- * traverses `props` deeply (rules reference paths like
- * `props.stages[].steps[].plugin.field` and computed `$count(props.stages)` /
- * `$keys(env)` — see api/compliance/src/engine/rule-operators.ts and its tests).
- * It reads secret maps ONLY by key (keys/count/presence), never by value. So we
- * walk the row and, for every nested `env`/`buildArgs` map, keep its KEYS but
- * redact each value; scalar secret fields (source `token`, passwords, …) are
- * replaced outright. Structure and non-secret data are preserved so rule
- * evaluation is unchanged, while plaintext secrets never reach Redis or the
- * compliance service.
- */
-export function toComplianceAttributes(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(toComplianceAttributes);
-  if (isPlainObject(value)) {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) {
-      if (SECRET_MAP_KEYS.has(k) && isPlainObject(v)) {
-        // Preserve keys (compliance reads $keys/$count/presence), redact values.
-        out[k] = Object.fromEntries(Object.keys(v).map((mk) => [mk, REDACTED]));
-      } else if (isSecretScalarKey(k) && typeof v === 'string') {
-        out[k] = REDACTED;
-      } else {
-        out[k] = toComplianceAttributes(v);
-      }
-    }
-    return out;
-  }
-  return value; // primitives, Date, null — untouched
-}
+// `toComplianceAttributes` (secret redaction for compliance events) is shared
+// in api-core — it was a byte-identical copy here + in plugin-service, and a
+// security-critical function must not drift. Re-exported for existing importers.
+export { toComplianceAttributes };
 
 /** Pipeline CRUD service with multi-tenant access control. */
 export class PipelineService extends CrudService<

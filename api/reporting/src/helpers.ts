@@ -29,6 +29,18 @@ export function scrubErrorMessage(msg: string | null | undefined): string | null
 }
 
 /**
+ * Return a copy of each row with `key`'s free-text error value scrubbed of
+ * credentials. Centralizes the `as unknown as Record<...>[]` cast the admin
+ * error/failure reports each hand-rolled (differing only in the field name).
+ */
+export function scrubField<T>(rows: readonly T[], key: string): Array<Record<string, unknown>> {
+  return (rows as unknown as Array<Record<string, unknown>>).map((r) => ({
+    ...r,
+    [key]: scrubErrorMessage(r[key] as string | null | undefined),
+  }));
+}
+
+/**
  * Org → team rollup: resolve `[self, ...descendantOrgIds]` for `orgId` by
  * calling the platform's authoritative descendants endpoint (it owns the org
  * tree). Returns `undefined` when there's no parent/child hierarchy, or on ANY

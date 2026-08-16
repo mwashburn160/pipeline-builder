@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createQuotaService, registerComplianceEventSubscriber, requirePermission, requireStepUp, wireAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, registerComplianceEventSubscriber, requirePermission, requireStepUp, wireServiceSecurity } from '@pipeline-builder/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 import { createSoftDeletePurgeScheduler, runMigrations } from '@pipeline-builder/pipeline-data';
 
@@ -25,11 +25,7 @@ const quotaService = createQuotaService();
 const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck });
 
 // Forward denied (non-GET) requests to the shared authz.denied audit sink.
-wireAuthzDenialAuditor('pipeline', getAuditClient);
-
-// Reject tokens whose tokenVersion is behind the platform-published value once
-// Redis is configured; fail-open (no-op) otherwise — falls back to token expiry.
-setTokenRevocationStore(createEnvRedisTokenRevocationStore());
+wireServiceSecurity('pipeline', getAuditClient);
 
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));
@@ -96,18 +92,11 @@ registerComplianceEventSubscriber(undefined, 'pipeline');
 
 logger.info('All /pipelines routes registered');
 
-void runServer(app, {
-  name: 'Pipeline Service',
-  sseManager,
-  // Run any pending Drizzle migrations before opening the listening socket.
-  // Idempotent and a no-op when ./drizzle/ has no journal yet.
-  onBeforeStart: () => runMigrations(),
-});
-
 // Retention purge: hard-delete pipeline + pipeline_template tombstones past
 // their `purge_after` deadline. Leader-locked (one replica per window) and
 // sysadmin-scoped inside the sweep so it spans all orgs. Opt out with
-// SOFT_DELETE_PURGE_ENABLED=false.
+// SOFT_DELETE_PURGE_ENABLED=false. Created before runServer so its teardown
+// rides runServer's coordinated onShutdown (not a racing process.once).
 const purgeScheduler = createSoftDeletePurgeScheduler({
   service: 'pipeline',
   entities: [
@@ -115,5 +104,13 @@ const purgeScheduler = createSoftDeletePurgeScheduler({
     { name: 'pipeline_template', purgeExpired: (now, limit) => pipelineTemplateService.purgeExpired(now, limit) },
   ],
 });
+
+void runServer(app, {
+  name: 'Pipeline Service',
+  sseManager,
+  // Run any pending Drizzle migrations before opening the listening socket.
+  // Idempotent and a no-op when ./drizzle/ has no journal yet.
+  onBeforeStart: () => runMigrations(),
+  onShutdown: async () => { purgeScheduler?.stop(); },
+});
 purgeScheduler?.start();
-process.once('SIGTERM', () => purgeScheduler?.stop());

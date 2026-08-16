@@ -96,8 +96,29 @@ Access tokens expire after 2 hours by default (configurable via `JWT_EXPIRES_IN`
 | `GET` | `/quotas/:orgId` | Specific org quotas (orgId in URL — auth scoped) |
 | `GET` | `/quotas/:orgId/:type` | Single quota type status |
 | `PUT` | `/quotas/:orgId` | Update tier/limits (system admin only) |
-| `POST` | `/quotas/:orgId/reset` | Reset usage counters (system admin only) |
+| `POST` | `/quotas/:orgId/reset` | Reset usage counters (system admin only; **+ step-up**, service principals exempt) |
 | `POST` | `/quotas/:orgId/increment` | Internal: increment usage (service-to-service, `amount` capped at 1000/call) |
+
+### Message Service
+
+Base path `/api/messages`. Reads require `messages:read`; writes require `messages:write`. Announcements (broadcast, `recipientOrgId: "*"`) are system-admin only.
+
+| Method | Endpoint | Description | Permission |
+|--------|----------|-------------|------------|
+| `GET` | `/messages` | Inbox (root messages), paginated + viewer-scoped; `?search=` matches subject/content | `messages:read` |
+| `GET` | `/messages/conversations` \| `/announcements` | Conversations / announcements views | `messages:read` |
+| `GET` | `/messages/unread/count` | Unread count for the caller | `messages:read` |
+| `GET` | `/messages/:id` \| `/:id/thread` | A message / its full thread (viewer-scoped) | `messages:read` |
+| `POST` | `/messages` | Send a conversation or announcement | `messages:write` |
+| `POST` | `/messages/:id/reply` | Reply to a thread | `messages:write` |
+| `POST` | `/messages/attachments` | Upload one attachment (multipart `file`) → returns its id | `messages:write` |
+| `GET` | `/messages/attachments/:id` | Download an attachment (auth-gated, inherits message visibility); `?thumb=1` serves the downscaled image thumbnail, falling back to the original | `messages:read` |
+| `GET` | `/messages/:id/attachments` | List a message's attachment metadata | `messages:read` |
+| `DELETE` \| `POST` | `/messages/:id[/restore]` | Soft-delete / restore (restore + step-up) | `messages:write` |
+
+**Per-user direct messages:** a conversation `POST /messages` may include `recipientUserId` (a member of `recipientOrgId`) to target a single user — only that user (plus the sender org and system org) can see the message and its replies/attachments. Omit it for an org-wide message. `recipientUserId` is rejected on announcements/broadcasts.
+
+**Attachments flow:** `POST /messages/attachments` first (one call per file, ≤ `MESSAGE_ATTACHMENT_MAX_MB`, MIME allow-listed), then pass the returned ids as `attachmentIds` on `POST /messages` or `/:id/reply`. Blobs live in S3-compatible storage (MinIO); see [Environment Variables → Messaging & Attachments](environment-variables.md#messaging--attachments).
 
 ### Organization & Access Service
 
@@ -114,6 +135,7 @@ Base path `/api/organization` (and `/api/invitation`). Management endpoints enfo
 | `GET` | `/organization/:id/export` | GDPR data export | `org:settings` |
 | `PATCH` | `/organization/:id/transfer-owner` | Transfer ownership (+ step-up) | `org:settings` |
 | `GET` | `/organization/:id/members` | List members | — (member) |
+| `GET` | `/organization/:id/members/:userId/exists` | Active-membership probe (`{ isMember }`) — internal, used by the message service to reject a per-user DM to a non-member | — (service / member) |
 | `POST` \| `DELETE` \| `PATCH` | `/organization/:id/members[/:userId[/activate\|deactivate]]` | Add / remove / change-role / (de)activate a member | `members:manage` |
 | `GET` | `/organization/:id/teams` | List descendant teams | — (member) |
 | `GET` | `/organization/:id/roles` | List Roles (permission sets) + members | — (member) |

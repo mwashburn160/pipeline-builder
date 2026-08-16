@@ -88,7 +88,7 @@ describe('GET /plans', () => {
       { _id: 'pro', name: 'Pro', description: 'Pro tier', tier: 'pro', prices: { monthly: 999, annual: 9999 }, features: ['All'], isDefault: false, sortOrder: 1 },
     ];
 
-    mockPlanFind.mockReturnValue({ sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(plans) }) });
+    mockPlanFind.mockReturnValue({ sort: jest.fn().mockReturnValue({ limit: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(plans) }) }) });
 
     const req = mockReq();
     const res = mockRes();
@@ -104,7 +104,7 @@ describe('GET /plans', () => {
   });
 
   it('returns empty array when no plans exist', async () => {
-    mockPlanFind.mockReturnValue({ sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) });
+    mockPlanFind.mockReturnValue({ sort: jest.fn().mockReturnValue({ limit: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) });
 
     const req = mockReq();
     const res = mockRes();
@@ -114,7 +114,7 @@ describe('GET /plans', () => {
   });
 
   it('returns 500 on database error', async () => {
-    mockPlanFind.mockReturnValue({ sort: jest.fn().mockReturnValue({ lean: jest.fn().mockRejectedValue(new Error('DB error')) }) });
+    mockPlanFind.mockReturnValue({ sort: jest.fn().mockReturnValue({ limit: jest.fn().mockReturnValue({ lean: jest.fn().mockRejectedValue(new Error('DB error')) }) }) });
 
     const req = mockReq();
     const res = mockRes();

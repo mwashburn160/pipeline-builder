@@ -45,6 +45,7 @@ export const REMOTE_AUDIT_ACTIONS = [
   // source upload, and deploy-to-cluster. `targetId` is the plugin id.
   'plugin.delete',
   'plugin.restore',
+  'plugin.update',
   'plugin.upload',
   'plugin.deploy',
   // Plugin bulk mutations (api/plugin bulk-plugin route) + DLQ purge (drops all

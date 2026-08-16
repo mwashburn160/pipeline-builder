@@ -26,9 +26,11 @@ resources:
   - frontend.yaml
   - mongo-express.yaml
   - pgadmin.yaml
+  - minio.yaml
   - registry.yaml
   - image-registry.yaml
   - prometheus.yaml
+  - thanos-query.yaml
   - alertmanager.yaml
   - loki.yaml
   - promtail.yaml
@@ -37,7 +39,4 @@ resources:
 patches:
   # Resource (CPU) overrides for all deployments
   - path: patches/resources.yaml
-  # Storage size overrides (smaller PVs for local dev)
-  - path: patches/storage.yaml
-  # Scaling and resource quota/limit overrides
-  - path: patches/scaling.yaml
+  # Storage size overrides (smaller PVs for local dev)  - path: patches/scaling.yaml

@@ -179,10 +179,16 @@ deployment. The redirect URI to register in each provider's console is
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `REDIS_URL` | — | Full connection URL (takes precedence over HOST/PORT) |
 | `REDIS_HOST` | `redis` | Hostname |
 | `REDIS_PORT` | `6379` | Port |
+| `REDIS_PASSWORD` | — | Data-node AUTH password (optional) |
+| `REDIS_SENTINELS` | — | **HA:** comma-separated `host:port` Sentinel list. When set, the app connects via Sentinel and auto-fails-over to the promoted primary (HOST/PORT/URL ignored). Also the shape a managed ElastiCache (cluster-mode-disabled) uses. See [`deploy/aws/*/k8s/redis-sentinel.yaml`](../deploy/aws/eks/k8s/redis-sentinel.yaml) |
+| `REDIS_SENTINEL_MASTER` | `mymaster` | Sentinel monitored-primary name (Sentinel mode) |
+| `REDIS_SENTINEL_PASSWORD` | — | Sentinel AUTH password (Sentinel mode, optional) |
 
 > Redis must use `maxmemory-policy noeviction` for BullMQ. `allkeys-lru` causes silent job data loss.
+> **HA:** the shipped in-cluster Redis is single-instance (no failover). For HA, apply the `redis-sentinel.yaml` template (3 Redis + 3 Sentinel) and set `REDIS_SENTINELS`, or point it at a managed **ElastiCache (Multi-AZ, cluster-mode-disabled)** — the recommended production path.
 
 ---
 
@@ -264,6 +270,11 @@ builder, one path, no per-builder target suffixes.
 | `RATE_LIMIT_WINDOW_MS` | `60000` | Per-route rate limit window (1 min) |
 | `AUTH_LIMITER_MAX` | `20` | Auth endpoint rate limit |
 | `AUTH_LIMITER_WINDOWMS` | `900000` | Auth rate limit window (15 min) |
+| `MESSAGE_SEND_RATE_MAX` | `60` | Per-**org** message send + reply limit (post-auth; complements the global per-IP limiter). Verified service principals exempt |
+| `MESSAGE_SEND_RATE_WINDOW_MS` | `60000` | Per-org message-send window (1 min) |
+| `MESSAGE_ATTACHMENT_RATE_MAX` | `30` | Per-**org** attachment-upload limit (rejected before multipart buffering) |
+| `MESSAGE_ATTACHMENT_RATE_WINDOW_MS` | `60000` | Per-org attachment-upload window (1 min) |
+| `MESSAGE_THUMBNAIL_MAX_DIM` | `320` | Long-edge (px) of generated image thumbnails (pure-JS jimp; served via `?thumb=1`, falls back to the original) |
 | `LIMITER_MULT_DEVELOPER` | `1` | Developer-tier rate-limit multiplier (budget = `LIMITER_MAX` × mult) |
 | `LIMITER_MULT_PRO` | `10` | Pro-tier rate-limit multiplier |
 | `LIMITER_MULT_TEAM` | `25` | Team-tier rate-limit multiplier |
@@ -308,6 +319,27 @@ Per-call increments to `/quotas/:orgId/increment` cap `amount` at 1000 — bound
 | `BILLING_SERVICE_PORT` | `3000` | Billing service port |
 | `QUOTA_SERVICE_HOST` | `quota` | Quota service hostname |
 | `QUOTA_SERVICE_PORT` | `3000` | Quota service port |
+
+---
+
+## Messaging & Attachments
+
+The message service backs in-app messaging: system announcements (broadcast to every org), org-to-org conversations, support threads, and **per-user direct messages** (a conversation targeted at a single user within the recipient org via `recipientUserId` — only that user, plus the sender org and system org, can see it). Messages may carry file/image **attachments**, stored in S3-compatible object storage (MinIO by default).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SUPPORT_ALIASES` | `support@pipeline-builder,help@pipeline-builder` | Comma-separated support inbox aliases. Any of them resolves to the system support org on send; the compose recipient picker lists **all** of them as suggestions (the first is the primary, prefilled default). |
+| `S3_ENDPOINT` | `http://minio:9000` | S3-compatible endpoint for attachment storage. Empty ⇒ default AWS S3 (no custom endpoint). |
+| `S3_BUCKET` | `message-attachments` | Bucket for attachment blobs (auto-created on first upload). |
+| `S3_REGION` | `us-east-1` | S3 region. |
+| `S3_ACCESS_KEY_ID` | `message-svc` | Per-service, bucket-scoped access key (created by the `minio-init` bootstrap — not the MinIO root creds). |
+| `S3_SECRET_ACCESS_KEY` | `message-svc-secret` | Secret key. **Change for any real deployment.** |
+| `S3_FORCE_PATH_STYLE` | `true` | Path-style addressing (required by MinIO; harmless for real S3). |
+| `MESSAGE_ATTACHMENT_MAX_MB` | `10` | Max attachment size (MiB). Uploads over this are rejected `413`. |
+
+> MinIO backs more than attachments now: the **container registry** (S3 storage driver), **Loki** (log chunks + index), and **Thanos** (Prometheus long-term blocks) each use their own bucket + a per-service, bucket-scoped key (`registry-svc` / `loki-svc` / `thanos-svc`), all created by the `minio-init` bootstrap. See **[Deploy Operations → Object storage (MinIO)](deploy-operations.md#object-storage-minio)** for the bucket table + HA topology (distributed StatefulSet on EKS, SNMD on ec2, single-drive on docker/minikube).
+
+Attachments are validated against a MIME allow-list (common images + documents; no executables/scripts/HTML). Downloads are auth-gated and inherit the parent message's visibility, so a per-user targeted message's attachment stays private to its target. Blobs are reclaimed when a message is hard-purged by the retention sweep.
 
 ---
 
@@ -417,7 +449,7 @@ For `BILLING_PROVIDER=aws-marketplace`: add-on charges are reported as metered u
 
 All optional (defaults shown). They tune behavior that matters only under horizontal scaling (>1 replica) or high load.
 
-> **Redis is required for multi-replica correctness.** OAuth/SSO login CSRF `state` + nonce, SSE build-log delivery, step-up single-use tokens, and the background sweep leader locks (org-purge, invitation-reaper, billing-reconcile, registry GC) all use the shared Redis when running with more than one replica. Without Redis they degrade to **per-pod** behavior, which is correct only on a single replica — e.g. round-robin between replicas would fail OAuth/SSO logins (`state`/`nonce` minted on one pod, validated on another) and drop live build-log lines.
+> **Redis is required for multi-replica correctness.** OAuth/SSO login CSRF `state` + nonce, SSE build-log delivery, the message service's SSE notification tickets (minted on one pod, redeemed on another), keyed-mutation idempotency (e.g. `POST /messages`), step-up single-use tokens, and the background sweep leader locks (org-purge, invitation-reaper, billing-reconcile, registry GC) all use the shared Redis when running with more than one replica. Without Redis they degrade to **per-pod** behavior, which is correct only on a single replica — e.g. round-robin between replicas would fail OAuth/SSO logins (`state`/`nonce` minted on one pod, validated on another), reject valid message-notification SSE connections (ticket minted on pod A, redeemed on pod B), and drop live build-log lines.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -486,6 +518,8 @@ The upload request returns `202 Accepted` after the ZIP is parsed and the build 
 | `SSE_CLEANUP_INTERVAL_MS` | `300000` | SSE cleanup interval (5 min) |
 | `SSE_STREAM_TIMEOUT_MS` | `300000` | SSE stream timeout (5 min) |
 | `SSE_BACKPRESSURE_THRESHOLD` | `10` | SSE backpressure threshold |
+| `SSE_MAX_TOTAL_TICKETS` | `1000` | Message service: cap on notification SSE tickets minted per TTL window across all orgs (Redis-backed when configured; abuse bound) |
+| `SSE_MAX_TICKETS_PER_ORG` | `10` | Message service: per-org cap on notification SSE tickets minted per TTL window |
 
 ---
 

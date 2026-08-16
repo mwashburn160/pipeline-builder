@@ -19,46 +19,6 @@ spec:
     app: registry
 
 ---
-# =============================================================================
-# Registry PersistentVolume (hostPath)
-# =============================================================================
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: registry-pv
-  labels:
-    app: registry
-spec:
-  storageClassName: ""
-  capacity:
-    storage: 80Gi
-  accessModes: ["ReadWriteOnce"]
-  persistentVolumeReclaimPolicy: Retain
-  hostPath:
-    path: /data/registry-data
-    type: DirectoryOrCreate
-
----
-# =============================================================================
-# Registry PersistentVolumeClaim
-# =============================================================================
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: registry-data
-  labels:
-    app: registry
-spec:
-  storageClassName: ""
-  accessModes: ["ReadWriteOnce"]
-  resources:
-    requests:
-      storage: 80Gi
-  selector:
-    matchLabels:
-      app: registry
-
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -69,8 +29,8 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 3
-  # Single-writer RWO hostPath PVC: Recreate avoids the RollingUpdate two-pod
-  # attach deadlock (the new pod can't bind the volume the old one still holds).
+  # Stateless — blobs live in MinIO (S3 driver), not a local volume. Recreate is
+  # retained conservatively (single replica); RollingUpdate is now safe too.
   strategy:
     type: Recreate
   selector:
@@ -86,33 +46,15 @@ spec:
       # mounted at /var/run/secrets/kubernetes.io/serviceaccount/. Reduces blast
       # radius if the container is compromised (no kubelet API access).
       automountServiceAccountToken: false
-      initContainers:
-        - name: fix-permissions
-          image: busybox:1.38
-          command: ["sh", "-c", "chown -R 1000:1000 /var/lib/registry"]
-          volumeMounts:
-            - name: registry-data
-              mountPath: /var/lib/registry
-          securityContext:
-            runAsUser: 0
-          resources:
-            limits:
-              cpu: "100m"
-              memory: 64Mi
-            requests:
-              cpu: "50m"
-              memory: 32Mi
       containers:
         - name: registry
           image: registry:3
           ports:
             - containerPort: 5000
               name: registry
-          # `fix-permissions` init container chowns /var/lib/registry to
-          # 1000:1000 so the main container can run as a non-root UID.
-          # registry:3 writes only to /var/lib/registry (PVC) and reads
-          # TLS material + the JWT pubkey from mounted Secrets — both
-          # are compatible with a read-only root filesystem.
+          # Stateless: blobs live in MinIO (S3 driver, see registry-config).
+          # The only writable path is a small /tmp emptyDir scratch; TLS/JWT
+          # come from mounted Secrets — all compatible with a read-only root FS.
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -153,6 +95,18 @@ spec:
             # for external clients.
             - name: REGISTRY_STORAGE_DELETE_ENABLED
               value: "true"
+            # S3 (MinIO) credentials — per-service, bucket-scoped key. Driver +
+            # endpoint + bucket come from the mounted config.yml.
+            - name: REGISTRY_STORAGE_S3_ACCESSKEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: registry-access-key
+            - name: REGISTRY_STORAGE_S3_SECRETKEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: registry-secret-key
           resources:
             limits:
               cpu: "400m"
@@ -178,16 +132,23 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 5
           volumeMounts:
-            - name: registry-data
-              mountPath: /var/lib/registry
+            - name: tmp
+              mountPath: /tmp
             - name: registry-token-cert
               mountPath: /etc/registry/jwt-public.pem
               subPath: jwt-public.pem
               readOnly: true
+            # Custom config.yml selects the S3 (MinIO) storage driver.
+            - name: registry-config
+              mountPath: /etc/distribution/config.yml
+              subPath: config.yml
+              readOnly: true
       volumes:
-        - name: registry-data
-          persistentVolumeClaim:
-            claimName: registry-data
+        - name: tmp
+          emptyDir: {}
+        - name: registry-config
+          configMap:
+            name: registry-config
         - name: registry-token-cert
           secret:
             # Same keypair pipeline-image-registry uses for signing.
@@ -200,3 +161,36 @@ spec:
             items:
               - key: jwt-public.pem
                 path: jwt-public.pem
+---
+# =============================================================================
+# Registry storage config — S3 driver pointed at MinIO (replaces the image's
+# filesystem default). Auth (token) + delete flag stay ENV-driven; only the S3
+# credentials come from the minio-secret.
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: registry-config
+  labels:
+    app: registry
+data:
+  config.yml: |
+    version: 0.1
+    log:
+      level: info
+      fields:
+        service: registry
+    storage:
+      cache:
+        blobdescriptor: inmemory
+      s3:
+        region: us-east-1
+        regionendpoint: http://minio:9000
+        bucket: registry
+        forcepathstyle: true
+        secure: false
+        rootdirectory: /
+    http:
+      addr: 0.0.0.0:5000
+      debug:
+        addr: 0.0.0.0:5001

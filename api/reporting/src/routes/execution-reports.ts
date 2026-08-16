@@ -16,7 +16,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import type { Request } from 'express';
-import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubErrorMessage, rollupIds } from '../helpers.js';
+import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubField, rollupIds } from '../helpers.js';
 
 export function createExecutionReportRoutes(): Router {
   const router = Router();
@@ -153,11 +153,7 @@ export function createExecutionReportRoutes(): Router {
     // the error report up over the org→team subtree for a reports:rollup holder.
     const orgIds = await rollupIds(req, orgId);
     const errors = await reportingService.getErrors(orgId, range.from, range.to, limit, orgIds);
-    const scrubbed = (errors as unknown as Array<Record<string, unknown>>).map((e) => ({
-      ...e,
-      error_pattern: scrubErrorMessage(e.error_pattern as string | null | undefined),
-    }));
-    sendSuccess(res, 200, { errors: scrubbed });
+    sendSuccess(res, 200, { errors: scrubField(errors, 'error_pattern') });
   }));
 
   return router;

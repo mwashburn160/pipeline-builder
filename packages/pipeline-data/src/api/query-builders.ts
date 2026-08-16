@@ -249,15 +249,32 @@ export function buildMessageConditions(
   const conditions: SQL[] = [];
   const normalizedOrgId = orgId.toLowerCase();
 
-  // Custom access control: sender OR recipient OR broadcast
+  // Custom access control: sender OR recipient OR broadcast.
+  //
+  // Per-user targeting: a row with `recipient_user_id` set is private to that
+  // user WITHIN the recipient org. The recipient-side branch therefore admits a
+  // targeted row only when the viewer IS that user (`filter.viewerUserId`);
+  // org-wide rows (recipient_user_id IS NULL) stay visible to everyone in the
+  // org. Absent a viewer id, the recipient side sees org-wide rows only, so a
+  // targeted message never leaks to other members (it stays visible to its
+  // target, the sender org, and the system org). The SENDER branch is
+  // unconditional — you always see what you sent, targeted or not.
   if (normalizedOrgId === SYSTEM_ORG_ID) {
     // System org can see all messages
   } else {
+    const recipientVisible = filter.viewerUserId
+      ? or(
+        isNull(schema.message.recipientUserId),
+        eq(schema.message.recipientUserId, filter.viewerUserId),
+      )!
+      : isNull(schema.message.recipientUserId);
     conditions.push(
       or(
         eq(schema.message.orgId, normalizedOrgId),
-        eq(schema.message.recipientOrgId, normalizedOrgId),
-        eq(schema.message.recipientOrgId, '*'),
+        and(eq(schema.message.recipientOrgId, normalizedOrgId), recipientVisible)!,
+        // Broadcast (announcements). Self-defending: only ever org-wide rows —
+        // a mis-created '*' + per-user row can't leak to every org.
+        and(eq(schema.message.recipientOrgId, '*'), isNull(schema.message.recipientUserId))!,
       )!,
     );
   }
@@ -281,6 +298,19 @@ export function buildMessageConditions(
   // Recipient org filter
   if (filter.recipientOrgId !== undefined) {
     conditions.push(eq(schema.message.recipientOrgId, normalizeStringFilter(filter.recipientOrgId)));
+  }
+
+  // Recipient user filter (explicit): null → org-wide rows only; a value →
+  // rows targeted at that user. Distinct from `viewerUserId`, which widens
+  // visibility rather than narrowing it.
+  if (filter.recipientUserId !== undefined) {
+    if (filter.recipientUserId === null) {
+      conditions.push(isNull(schema.message.recipientUserId));
+    } else {
+      // Compare the raw user id — case-preserving, matching how it's stored and
+      // how `viewerUserId` is compared (do NOT lowercase via normalizeStringFilter).
+      conditions.push(eq(schema.message.recipientUserId, filter.recipientUserId));
+    }
   }
 
   // Message type filter
@@ -314,6 +344,22 @@ export function buildMessageConditions(
   // ID filter
   if (filter.id !== undefined) {
     conditions.push(idEquals(schema.message.id, filter.id));
+  }
+
+  // Free-text inbox search — case-insensitive substring over subject OR content.
+  // Wildcards in the term are escaped so a literal `%`/`_` is matched literally;
+  // an all-whitespace term is ignored (no-op) rather than matching everything.
+  if (filter.search !== undefined) {
+    const term = normalizeStringFilter(filter.search).trim();
+    if (term) {
+      const like = `%${escapeLikeWildcards(term)}%`;
+      conditions.push(
+        or(
+          ilike(schema.message.subject, like),
+          ilike(schema.message.content, like),
+        )!,
+      );
+    }
   }
 
   return conditions;

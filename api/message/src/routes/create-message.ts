@@ -19,11 +19,12 @@ import {
   sendEntityNotFound,
   errorMessage,
 } from '@pipeline-builder/api-core';
-import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/api-server';
+import { withRoute, createAuthenticatedWithOrgRoute, incCounter, rateLimitByOrg } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { schema } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
-import { isRecipientReachable } from '../helpers/org-reachability.js';
+import { isRecipientReachable, isTargetUserReachable } from '../helpers/org-reachability.js';
+import { attachmentService } from '../services/attachment-service.js';
 import { getAuditClient } from '../services/audit.js';
 import { messageService } from '../services/message-service.js';
 
@@ -38,18 +39,28 @@ type MessageInsert = typeof schema.message.$inferInsert;
  * @param sseManager - SSE manager for pushing real-time notifications
  * @returns Express Router
  */
+/** Per-org send limiter — a single org can't flood messages/replies (each one
+ *  fans out over SSE + writes rows). Shared across send + reply. Env-overridable.
+ *  Verified service principals are exempt; unauthenticated falls back to per-IP. */
+const sendLimiter = rateLimitByOrg({
+  name: 'message-send',
+  max: Math.max(1, Number.parseInt(process.env.MESSAGE_SEND_RATE_MAX ?? '60', 10) || 60),
+  windowMs: Math.max(1000, Number.parseInt(process.env.MESSAGE_SEND_RATE_WINDOW_MS ?? '60000', 10) || 60000),
+  message: 'Too many messages sent, please slow down.',
+});
+
 export function createCreateMessageRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
   // POST /messages — Create new message
-  router.post('/', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), sendLimiter, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     // Validate request body with Zod schema
     const validation = validateBody(req, MessageCreateSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
-    const { recipientOrgId: rawRecipientOrgId, messageType, subject, content, priority, channel } = validation.value;
+    const { recipientOrgId: rawRecipientOrgId, recipientUserId, messageType, subject, content, priority, channel, attachmentIds } = validation.value;
 
     // Resolve email-like aliases (e.g., support@pipeline-builder -> system)
     const { resolvedOrgId: recipientOrgId, wasAlias, originalValue } = resolveRecipientAlias(rawRecipientOrgId);
@@ -86,6 +97,14 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       return sendBadRequest(res, 'Conversations cannot use "*" as recipientOrgId; "*" is reserved for announcement broadcasts', ErrorCode.VALIDATION_ERROR);
     }
 
+    // Per-user targeting is a CONVERSATION-only, concrete-recipient feature.
+    // It is meaningless on an announcement (an org-wide '*' broadcast), so reject
+    // rather than silently drop it — a mis-built client must not believe it sent
+    // a private, single-user message when it actually broadcast org-wide.
+    if (recipientUserId && (messageType === 'announcement' || recipientOrgId === '*')) {
+      return sendBadRequest(res, 'recipientUserId is only valid on a conversation to a specific organization', ErrorCode.VALIDATION_ERROR);
+    }
+
     // Cross-tenant send gate. A non-sysadmin member may only start a
     // conversation with an org they could also RECEIVE from — mirroring the
     // read-visibility model in `buildMessageConditions`. Reachable recipients:
@@ -112,11 +131,24 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       );
     }
 
+    // Per-user target must be an ACTIVE member of the recipient org, else the DM
+    // black-holes (viewer-scoping surfaces it to that user alone; a non-member
+    // is nobody). Reject the mistake up front. Fail-open on an indeterminate
+    // platform lookup — this is a correctness guard, not an authz boundary
+    // (the recipient still can't read anything they're not scoped for).
+    if (recipientUserId && !(await isTargetUserReachable(recipientOrgId, recipientUserId))) {
+      ctx.log('WARN', 'Blocked DM to non-member recipient user', { recipientOrgId });
+      return sendBadRequest(res, 'recipientUserId is not an active member of the recipient organization', ErrorCode.VALIDATION_ERROR);
+    }
+
     ctx.log('INFO', 'Creating message', { messageType, recipientOrgId, subject });
 
     const messageData: MessageInsert = {
       orgId,
       recipientOrgId: recipientOrgId.toLowerCase() === '*' ? '*' : recipientOrgId.toLowerCase(),
+      // Per-user target (null = whole recipient org). Guarded above to be absent
+      // on announcements / '*' broadcasts.
+      recipientUserId: recipientUserId ?? null,
       messageType,
       channel: channel?.toLowerCase() ?? null,
       subject,
@@ -129,14 +161,40 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
 
     const message = await messageService.create(messageData, userId);
 
+    // Link any pre-uploaded attachments to this message. Only the caller's own
+    // still-pending uploads link (enforced in the service); a mismatch means the
+    // client sent a bogus/foreign/already-linked id — logged, non-fatal (the
+    // message stands with whatever validly linked).
+    if (attachmentIds?.length) {
+      const linked = await attachmentService.linkToMessage(attachmentIds, message.id, orgId, userId);
+      if (linked.length !== attachmentIds.length) {
+        ctx.log('WARN', 'Some attachments did not link', { requested: attachmentIds.length, linked: linked.length });
+      }
+    }
+
     ctx.log('COMPLETED', 'Message created', { id: message.id, messageType });
+
+    // Domain metric — a message was created. Tagged by action only to keep
+    // label cardinality bounded (no orgId/messageId).
+    incCounter('message_events_total', { action: 'created' });
 
     // Push SSE notification to recipient
     try {
+      // The SSE fan-out is ORG-scoped (no per-user channel), so every member of
+      // the recipient org receives this event. For a per-user targeted message
+      // that means the `subject` would leak to members who cannot read the
+      // message — so redact it (and mark the target) when targeted. The client
+      // shows a generic "new message" ping and refetches; server-side visibility
+      // (findVisibleById / viewer-scoped inbox) still gates the actual content.
       const notificationData = {
         action: 'NEW_MESSAGE' as const,
         messageId: message.id,
-        subject,
+        // Redact the subject for a targeted message — the SSE fan-out is
+        // org-wide, so members who can't read it must not see its subject. We
+        // also DON'T include recipientUserId: it would tell every org member
+        // WHICH user was targeted. The client just refetches; server-side
+        // visibility gates who actually sees the message.
+        subject: recipientUserId ? undefined : subject,
         senderOrgId: orgId,
         messageType,
       };
@@ -174,7 +232,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
   }));
 
   // POST /messages/:id/reply — Reply to a thread
-  router.post('/:id/reply', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/:id/reply', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), sendLimiter, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -185,10 +243,12 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
-    const { content } = validation.value;
+    const { content, attachmentIds } = validation.value;
 
-    // Find the root message
-    const rootMessage = await messageService.findById(id, orgId);
+    // Find the root message, VIEWER-SCOPED: if the root is targeted at a specific
+    // user, only that user (and the sender org / system org) can load it — so a
+    // non-target member of the recipient org can't reply into a private thread.
+    const rootMessage = await messageService.findVisibleById(id, orgId, userId);
     if (!rootMessage) {
       return sendEntityNotFound(res, 'Message');
     }
@@ -237,10 +297,21 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
     // messageType filters and the announcements feed. Pin replies to conversation.
     const replyMessageType = 'conversation' as const;
 
+    // Keep a per-user targeted thread private: when the reply is addressed BACK
+    // to the org that held the targeted user (rootMessage.recipientOrgId), carry
+    // the target forward so only that user sees it. Replies toward the sender org
+    // stay org-wide (the sender side was always org-wide). Null-safe: an untargeted
+    // root yields null on both branches (today's behavior).
+    const replyRecipientUserId =
+      replyRecipientOrgId.toLowerCase() === rootMessage.recipientOrgId.toLowerCase()
+        ? rootMessage.recipientUserId ?? null
+        : null;
+
     const replyData: MessageInsert = {
       orgId,
       threadId: id,
       recipientOrgId: replyRecipientOrgId,
+      recipientUserId: replyRecipientUserId,
       messageType: replyMessageType,
       // Replies inherit the root message's channel so the thread stays
       // in one bucket — system-org filtering by channel sees the whole
@@ -256,7 +327,17 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
 
     const reply = await messageService.create(replyData, userId);
 
+    if (attachmentIds?.length) {
+      const linked = await attachmentService.linkToMessage(attachmentIds, reply.id, orgId, userId);
+      if (linked.length !== attachmentIds.length) {
+        ctx.log('WARN', 'Some reply attachments did not link', { requested: attachmentIds.length, linked: linked.length });
+      }
+    }
+
     ctx.log('COMPLETED', 'Reply created', { id: reply.id, threadId: id });
+
+    // Domain metric — a reply is a created message row too.
+    incCounter('message_events_total', { action: 'created' });
 
     // Push SSE notification to the reply recipient
     try {
@@ -264,7 +345,9 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
         action: 'NEW_MESSAGE' as const,
         messageId: reply.id,
         threadId: id,
-        subject: rootMessage.subject,
+        // Same redaction as the create path: a targeted reply's subject must not
+        // reach the whole recipient org via the org-wide SSE fan-out.
+        subject: replyRecipientUserId ? undefined : rootMessage.subject,
         senderOrgId: orgId,
         messageType: replyMessageType,
       });

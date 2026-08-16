@@ -56,6 +56,9 @@ class ValidationError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    MAX_PAGE_LIMIT: 1000,
+    DEFAULT_PAGE_LIMIT: 100,
+    closeLeaderLock: async () => undefined,
     loadAndRestore: async () => null,
     REPORT_INTERVALS: ['day', 'week', 'month'],
     scrubAwsIdentifiers: <T>(v: T): T => v,
@@ -85,6 +88,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
     setAuthzDenialAuditor: () => {},
     wireAuthzDenialAuditor: () => {},
+    wireServiceSecurity: () => {},
     // Token-revocation reader hooks (session-invalidation) — stubbed for parity
     // so suites that transitively load the boot module still link.
     setTokenRevocationStore: () => {},

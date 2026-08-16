@@ -14,7 +14,7 @@ import {
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
 import { z } from 'zod';
-import { canReadRepo, canWriteRepo } from './repo-access.js';
+import { canReadRepo, canWriteRepo, repoTenant } from './repo-access.js';
 import {
   logger,
   RegistryMetrics,
@@ -48,16 +48,6 @@ const CopyImageSchema = z.object({
 function parseRepoRef(s: string): { repo: string; ref: string } {
   const i = s.lastIndexOf(':');
   return { repo: s.slice(0, i), ref: s.slice(i + 1) };
-}
-
-/**
- * Extract the tenant id from a repo path of the form `org-<id>/...`.
- * Returns null for non-org-prefixed repos (`system/`, `library/`, etc.) —
- * those are platform-managed and have no per-tenant scope.
- */
-function tenantOf(repo: string): string | null {
-  const match = repo.match(/^org-([a-z0-9][a-z0-9-]*)\//);
-  return match ? match[1] : null;
 }
 
 /**
@@ -115,8 +105,8 @@ export function registerCopyRoutes(router: Router): void {
     // moves data across customer boundaries. Require an explicit opt-in so
     // operators can't do it by accident. Promotions to `system/` or copies
     // within the same org continue to work without the flag.
-    const sourceTenant = tenantOf(sourceRepo);
-    const targetTenant = tenantOf(targetRepo);
+    const sourceTenant = repoTenant(sourceRepo);
+    const targetTenant = repoTenant(targetRepo);
     if (
       sourceTenant !== null &&
       targetTenant !== null &&

@@ -115,7 +115,7 @@ VPC_ID=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$REGION" --qu
 CLUSTER_SG=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$REGION" --query 'cluster.resourcesVpcConfig.clusterSecurityGroupId' --output text)
 echo "  vpc=$VPC_ID cluster-sg=$CLUSTER_SG"
 
-# ---- Phase 2: EFS (RWX volumes: registry, loki, plugin uploads) ------------
+# ---- Phase 2: EFS (RWX volume: plugin uploads) -----------------------------
 log "Phase 2: EFS filesystem"
 # Idempotent via a creation token tied to the cluster name.
 EFS_FILESYSTEM_ID=$(aws efs describe-file-systems --region "$REGION" \

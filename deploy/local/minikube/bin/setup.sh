@@ -111,7 +111,7 @@ set -a; . "$ENV_FILE"; set +a
 # the mongodb-keyfile Secret below is created from it, and the mongodb pod's
 # init-container tightens perms to 400 at start.
 pb_ensure_mongo_keyfile "$DEPLOY_DIR/mongodb-keyfile"
-mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,loki,prometheus},registry-data,pgadmin-data,tmp} 2>/dev/null || true
+mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,loki,prometheus},minio-data,pgadmin-data,tmp} 2>/dev/null || true
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$VM_DATA_DIR/plugins-data/builds}"
 
 # -- Clean stale Docker state ------------------------------------------------
@@ -310,6 +310,9 @@ configmap promtail-config --from-file=promtail-config.yml="$CONFIG_DIR/promtail/
 
 # Ensure plugin hostPath directories exist on data volume.
 minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${VM_DATA_DIR}/plugins-data/builds ${VM_DATA_DIR}/plugins-data/uploads && sudo chown -R 1000:1000 ${VM_DATA_DIR}/plugins-data"
+# MinIO's hostPath drive must be writable by the minio UID (1000); hostPath
+# volumes aren't chowned by fsGroup on minikube. (Single-drive dev — no HA.)
+minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${VM_DATA_DIR}/minio-data && sudo chown -R 1000:1000 ${VM_DATA_DIR}/minio-data"
 
 # Register QEMU/binfmt for cross-arch plugin builds (e.g. amd64 on an arm64 box).
 # No-op on Docker Desktop / same-arch. The minikube node shares the host (VM)

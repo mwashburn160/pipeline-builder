@@ -247,7 +247,10 @@ export function createPromotionRoutes(): Router {
     const agg = await Subscription.aggregate([
       { $unwind: '$creditLedger' },
       { $match: { 'creditLedger.discountId': `promo:${id}` } },
-      { $group: { _id: null, cents: { $sum: '$creditLedger.cents' }, grants: { $sum: 1 } } },
+      // Count a COMPACTED carry row as the number of grants it folded
+      // (`grantCount`), an ordinary row as 1 — otherwise this endpoint under-
+      // reports grants after ledger compaction (matches reconcilePromotionSpend).
+      { $group: { _id: null, cents: { $sum: '$creditLedger.cents' }, grants: { $sum: { $ifNull: ['$creditLedger.grantCount', 1] } } } },
     ]);
     const ledgerCents = agg[0]?.cents ?? 0;
     const ledgerGrants = agg[0]?.grants ?? 0;

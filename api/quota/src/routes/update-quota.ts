@@ -5,6 +5,7 @@ import {
   requireAuth,
   isSystemAdmin,
   isServicePrincipal,
+  requireStepUp,
   NotFoundError,
   sendSuccess,
   sendError,
@@ -75,6 +76,11 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
   router.delete( '/:orgId',
     requireAuth as RequestHandler,
     authorizeOrg({ requireSystemAdmin: true }) as RequestHandler,
+    // Destructive: drops the org's quota doc (removes enforcement). Step-up
+    // re-verifies the human sysadmin; the platform cascade's service token is
+    // exempt (requireStepUp skips verified service principals) so org-delete
+    // still works unattended.
+    requireStepUp as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
       const deleted = await svc.delete(targetOrgId);
@@ -101,6 +107,9 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
   router.post( '/:orgId/reset',
     requireAuth as RequestHandler,
     authorizeOrg({ requireSystemAdmin: true }) as RequestHandler,
+    // Destructive: zeroes an org's usage counters (lets it re-consume against
+    // its caps). Step-up re-verifies the human sysadmin; service principals exempt.
+    requireStepUp as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
 

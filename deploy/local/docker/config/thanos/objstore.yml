@@ -1,0 +1,12 @@
+# Thanos object-storage config — ships Prometheus TSDB blocks to MinIO (S3).
+# Bucket-scoped `thanos-svc` key (created by minio-init). CHANGE the creds for a
+# real deployment. NOTE: the sidecar only UPLOADS blocks for durable long-term
+# storage; querying the archived blocks is served by the Thanos store-gateway + querier
+# (see thanos-query.yaml / docker-compose).
+type: S3
+config:
+  bucket: thanos
+  endpoint: minio:9000
+  access_key: thanos-svc
+  secret_key: thanos-svc-secret
+  insecure: true

@@ -153,9 +153,11 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
 
         ctx.log('COMPLETED', 'Pipeline created', { id: result.id });
 
-        // Best-effort attributed audit — emitted only after the create landed.
+        // Best-effort attributed audit — emitted only after the write landed.
+        // `inserted === false` means an existing default was UPDATED (quota slot
+        // refunded above), so attribute it as an update, matching bulk-create.
         emitPipelineAudit({
-          action: 'pipeline.create',
+          action: inserted ? 'pipeline.create' : 'pipeline.update',
           actorId: req.user?.sub ?? userId ?? 'system',
           orgId,
           targetType: 'pipeline',

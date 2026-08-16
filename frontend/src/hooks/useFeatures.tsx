@@ -13,6 +13,8 @@ interface FeaturesContextType {
   isLoaded: boolean;
   /** Primary support alias (from the server's SUPPORT_ALIASES) for compose prefill. */
   supportAlias: string;
+  /** ALL configured support aliases, for listing every support inbox in the picker. */
+  supportAliases: string[];
 }
 
 /** Fallback until the server config loads (matches api-core DEFAULT_SUPPORT_ALIAS). */
@@ -23,6 +25,7 @@ const FeaturesContext = createContext<FeaturesContextType>({
   features: [],
   isLoaded: false,
   supportAlias: DEFAULT_SUPPORT_ALIAS,
+  supportAliases: [DEFAULT_SUPPORT_ALIAS],
 });
 
 /**
@@ -36,6 +39,7 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
   const [serviceFeatures, setServiceFeatures] = useState<Record<string, boolean>>({});
   const [isLoaded, setIsLoaded] = useState(false);
   const [supportAlias, setSupportAlias] = useState(DEFAULT_SUPPORT_ALIAS);
+  const [supportAliases, setSupportAliases] = useState<string[]>([DEFAULT_SUPPORT_ALIAS]);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +47,7 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
       if (!cancelled && res.success && res.data) {
         setServiceFeatures(res.data.serviceFeatures);
         if (res.data.supportAlias) setSupportAlias(res.data.supportAlias);
+        if (res.data.supportAliases?.length) setSupportAliases(res.data.supportAliases);
       }
     }).catch(() => {
       // Config fetch failed — default billing shown
@@ -89,8 +94,9 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
       features,
       isLoaded,
       supportAlias,
+      supportAliases,
     };
-  }, [serviceFeatures, user, isLoaded, supportAlias]);
+  }, [serviceFeatures, user, isLoaded, supportAlias, supportAliases]);
 
   return (
     <FeaturesContext.Provider value={value}>

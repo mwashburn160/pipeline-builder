@@ -1,5 +1,6 @@
-import { Megaphone, MessageCircle, Trash2 } from 'lucide-react';
+import { Megaphone, MessageCircle, Trash2, User } from 'lucide-react';
 import { formatRelativeTime } from '@/lib/relative-time';
+import { EmptyState } from '@/components/ui/EmptyState';
 import type { Message } from '@/types';
 
 /** Props for the MessageList component. */
@@ -14,6 +15,16 @@ interface MessageListProps {
   currentOrgId: string;
   /** Callback to delete a message by ID. */
   onDelete?: (id: string) => void;
+  /** True when more inbox pages exist beyond what's rendered. */
+  hasMore?: boolean;
+  /** True while the next page is loading (disables the button + shows a spinner). */
+  loadingMore?: boolean;
+  /** Load the next inbox page (server-side pagination). */
+  onLoadMore?: () => void;
+  /** Empty-state title override (e.g. "No results" when a search is active). */
+  emptyTitle?: string;
+  /** Empty-state description override. */
+  emptyDescription?: string;
 }
 
 /** Returns the display name for a message row: "Announcement" or the other party's org ID. */
@@ -37,13 +48,16 @@ function getAvatarLetters(name: string): string {
 }
 
 /** Scrollable inbox list displaying message previews with unread indicators. */
-export function MessageList({ messages, onSelect, selectedId, currentOrgId, onDelete }: MessageListProps) {
+export function MessageList({ messages, onSelect, selectedId, currentOrgId, onDelete, hasMore, loadingMore, onLoadMore, emptyTitle, emptyDescription }: MessageListProps) {
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 py-12">
-        <MessageCircle className="w-12 h-12 mb-3 opacity-40" />
-        <p className="text-base font-medium">No messages</p>
-        <p className="text-sm mt-1">Start a conversation or wait for a message</p>
+      <div className="flex-1 flex items-center justify-center">
+        <EmptyState
+          icon={MessageCircle}
+          illustration="messages"
+          title={emptyTitle ?? 'No messages'}
+          description={emptyDescription ?? 'Start a conversation or wait for a message'}
+        />
       </div>
     );
   }
@@ -58,12 +72,18 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, onDe
         return (
           <div
             key={msg.id}
-            className={`group relative w-full text-left px-3 py-3 flex items-center gap-3 transition-colors cursor-pointer ${
+            role="button"
+            tabIndex={0}
+            aria-current={isSelected ? 'true' : undefined}
+            className={`group relative w-full text-left px-3 py-3 flex items-center gap-3 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset ${
               isSelected
                 ? 'bg-blue-50 dark:bg-blue-900/20'
                 : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
             }`}
             onClick={() => onSelect(msg)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(msg); }
+            }}
           >
             {/* Avatar */}
             <div
@@ -101,6 +121,15 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, onDe
                   {msg.content.slice(0, 60)}
                 </p>
                 <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                  {msg.recipientUserId && (
+                    <span
+                      className="inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                      title="Direct message — targeted at a specific user"
+                    >
+                      <User className="w-2.5 h-2.5" />
+                      Direct
+                    </span>
+                  )}
                   {msg.channel && (
                     <span
                       className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
@@ -130,6 +159,19 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, onDe
           </div>
         );
       })}
+
+      {/* Server-side pagination — appends the next page in place. */}
+      {hasMore && onLoadMore && (
+        <div className="px-3 py-3">
+          <button
+            onClick={onLoadMore}
+            disabled={loadingMore}
+            className="w-full text-center text-xs font-medium py-2 rounded-lg text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {loadingMore ? 'Loading…' : 'Load more'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

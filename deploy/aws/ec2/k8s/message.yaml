@@ -105,6 +105,25 @@ spec:
               value: "6379"
             - name: SUPPORT_ALIASES
               value: "support@pipeline-builder,help@pipeline-builder"
+            # Message attachments — S3-compatible object storage (MinIO).
+            - name: S3_ENDPOINT
+              value: "http://minio:9000"
+            - name: S3_BUCKET
+              value: "message-attachments"
+            - name: S3_FORCE_PATH_STYLE
+              value: "true"
+            - name: MESSAGE_ATTACHMENT_MAX_MB
+              value: "10"
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: message-access-key
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: message-secret-key
           resources:
             limits:
               cpu: "350m"

@@ -46,6 +46,15 @@ class NotFoundError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    // Shared attachment bounds (used by attachment-routes' multer setup).
+    MESSAGE_ATTACHMENT_MAX_BYTES: 10 * 1024 * 1024,
+    MESSAGE_ATTACHMENT_ALLOWED_MIME: new Set([
+      'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+      'application/pdf', 'text/plain', 'text/csv', 'application/json',
+    ]),
+    MAX_PAGE_LIMIT: 1000,
+    DEFAULT_PAGE_LIMIT: 100,
+    closeLeaderLock: async () => undefined,
     loadAndRestore: async () => null,
     REPORT_INTERVALS: ['day', 'week', 'month'],
     scrubAwsIdentifiersFromString: (s: string) => s,
@@ -75,6 +84,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
     setAuthzDenialAuditor: () => {},
     wireAuthzDenialAuditor: () => {},
+    wireServiceSecurity: () => {},
     // Token-revocation reader hooks (session-invalidation) — stubbed for parity
     // so suites that transitively load the boot module still link.
     setTokenRevocationStore: () => {},

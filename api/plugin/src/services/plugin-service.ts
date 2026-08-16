@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { entityEvents, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { entityEvents, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
 import { CoreConstants, AccessModifier, ComputeType, PluginType } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildPluginConditions, getTenantContext, schema, withTenantTx, type PluginFilter } from '@pipeline-builder/pipeline-data';
 import { and, eq, sql, SQL } from 'drizzle-orm';
@@ -17,68 +17,10 @@ export type Plugin = typeof schema.plugin.$inferSelect;
 export type PluginInsert = typeof schema.plugin.$inferInsert;
 export type PluginUpdate = Partial<Omit<Plugin, 'id' | 'createdAt' | 'createdBy'>>;
 
-/** Marker written in place of a redacted secret VALUE. */
-const REDACTED = '[REDACTED]';
-
-/**
- * Map keys whose (string→string) VALUES are secret build-time material. The
- * plugin `env` and `buildArgs` columns (see packages/pipeline-data/.../plugin.ts)
- * hold secret values injected into plugin builds.
- */
-const SECRET_MAP_KEYS = new Set(['env', 'buildArgs']);
-
-/**
- * Scalar keys that themselves carry a secret string (tokens/passwords/etc.).
- * Applied only to string values so boolean flags like `secretsRequired` and
- * declaration arrays like the plugin `secrets: PluginSecret[]` are untouched.
- */
-function isSecretScalarKey(key: string): boolean {
-  const k = key.toLowerCase();
-  return k.includes('token') || k.includes('secret') || k.includes('password')
-    || k.includes('passphrase') || k.includes('credential') || k.includes('apikey')
-    || k.includes('accesskey') || k.includes('privatekey');
-}
-
-/** Only plain (Object-prototype) objects are traversed — Dates/class instances pass through intact. */
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  if (v === null || typeof v !== 'object') return false;
-  const proto = Object.getPrototypeOf(v);
-  return proto === Object.prototype || proto === null;
-}
-
-/**
- * Project an entity into the compliance-event `attributes`, redacting secret
- * VALUES while preserving everything the compliance engine actually evaluates.
- *
- * Strategy (b) — redact-in-place, keys preserved. The compliance rule engine
- * reads `env`/`buildArgs` ONLY via key-oriented access — `$keys(env)`,
- * `$count(env)`, dot-path existence, and key-`contains` checks
- * (api/compliance/src/engine/rule-operators.ts; its tests assert
- * `$count(env)`→key count and `$keys(env)`→key names). It never needs the
- * VALUES. So we keep each secret map's shape and KEYS but overwrite every value
- * with a marker; scalar secret fields (tokens, etc.) are replaced outright.
- * Non-secret metadata (name/version/computeType/secrets[]/…) passes through so
- * rule evaluation is unchanged, and plaintext secrets never reach Redis or the
- * compliance service. Recurses so nested secrets are covered too.
- */
-export function toComplianceAttributes(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(toComplianceAttributes);
-  if (isPlainObject(value)) {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) {
-      if (SECRET_MAP_KEYS.has(k) && isPlainObject(v)) {
-        // Preserve keys (compliance reads $keys/$count/presence), redact values.
-        out[k] = Object.fromEntries(Object.keys(v).map((mk) => [mk, REDACTED]));
-      } else if (isSecretScalarKey(k) && typeof v === 'string') {
-        out[k] = REDACTED;
-      } else {
-        out[k] = toComplianceAttributes(v);
-      }
-    }
-    return out;
-  }
-  return value; // primitives, Date, null — untouched
-}
+// `toComplianceAttributes` (secret redaction for compliance events) is shared
+// in api-core — it was a byte-identical copy here + in pipeline-service, and a
+// security-critical function must not drift. Re-exported for existing importers.
+export { toComplianceAttributes };
 
 /** Plugin CRUD service with multi-tenant access control. */
 export class PluginService extends CrudService<

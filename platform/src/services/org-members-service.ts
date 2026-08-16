@@ -283,6 +283,26 @@ class OrgMembersService {
    * the existence + duplicate checks + insert in a single transaction.
    * Throws OM_ORG_NOT_FOUND / OM_USER_NOT_FOUND / OM_ALREADY_MEMBER.
    */
+  /**
+   * True iff `userId` holds an ACTIVE membership in `orgId`. Used by the message
+   * service (over HTTP) to reject a per-user DM addressed to someone who isn't a
+   * member of the recipient org — otherwise the message black-holes (nobody in
+   * that org is scoped to see it). A malformed user id (not a valid ObjectId)
+   * yields false rather than throwing a CastError.
+   */
+  async isActiveMember(orgId: string, userId: string): Promise<boolean> {
+    try {
+      const hit = await UserOrganization.exists({
+        userId, organizationId: toOrgId(orgId), isActive: true,
+      });
+      return !!hit;
+    } catch {
+      // Cast error on a non-ObjectId userId (or a transient query error) → treat
+      // as "not a member"; the caller decides its fail-open/closed policy.
+      return false;
+    }
+  }
+
   async addMember(orgId: string, body: { userId?: string; email?: string; role?: OrgMemberRole }): Promise<void> {
     await withMongoTransaction(async (session) => {
       const org = await Organization.findById(toOrgId(orgId)).session(session);

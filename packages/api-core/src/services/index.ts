@@ -13,8 +13,6 @@ export {
   DEFAULT_RETRY_DELAY_MS,
   DEFAULT_MAX_RATE_LIMIT_RETRIES,
   calculateBackoff,
-  isTransientStatusCode,
-  isRateLimited,
   getRetryDecision,
   getErrorRetryDecision,
 } from './retry-strategy.js';
@@ -24,3 +22,5 @@ export * from './remote-audit-client.js';
 export * from './audit-spool.js';
 export * from './env-redis.js';
 export * from './token-revocation.js';
+export * from './sse-ticket-store.js';
+export * from './service-boot.js';

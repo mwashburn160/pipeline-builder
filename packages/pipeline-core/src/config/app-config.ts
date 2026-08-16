@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { MAX_PAGE_LIMIT as SHARED_MAX_PAGE_LIMIT, DEFAULT_PAGE_LIMIT as SHARED_DEFAULT_PAGE_LIMIT } from '@pipeline-builder/api-core';
 import type { Algorithm } from 'jsonwebtoken';
 import { loadBillingConfig } from './billing-config.js';
 import type { AppConfig } from './config-types.js';
@@ -51,9 +52,10 @@ export class CoreConstants {
   static readonly PLUGIN_BUILD_COMPLETED_RETENTION_SECS = parseInt(process.env.PLUGIN_BUILD_COMPLETED_RETENTION_SECS || '3600', 10); // 1 hr
   static readonly PLUGIN_BUILD_FAILED_RETENTION_SECS = parseInt(process.env.PLUGIN_BUILD_FAILED_RETENTION_SECS || '86400', 10); // 24 hr
 
-  // Pagination and limits
-  static readonly MAX_PAGE_LIMIT = parseInt(process.env.MAX_PAGE_LIMIT || '1000', 10);
-  static readonly DEFAULT_PAGE_LIMIT = parseInt(process.env.DEFAULT_PAGE_LIMIT || '100', 10);
+  // Pagination and limits — single source in api-core (validation/common-schemas)
+  // so the validation layer, this config, and pipeline-data's CrudService never drift.
+  static readonly MAX_PAGE_LIMIT = SHARED_MAX_PAGE_LIMIT;
+  static readonly DEFAULT_PAGE_LIMIT = SHARED_DEFAULT_PAGE_LIMIT;
   static readonly MAX_PROMPT_LENGTH = parseInt(process.env.MAX_PROMPT_LENGTH || '5000', 10);
   static readonly PLUGIN_MAX_UPLOAD_MB = parseInt(process.env.PLUGIN_MAX_UPLOAD_MB || '4096', 10);
   static readonly PIPELINE_NAME_MAX_LENGTH = parseInt(process.env.PIPELINE_NAME_MAX_LENGTH || '100', 10);

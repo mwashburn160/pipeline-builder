@@ -150,7 +150,9 @@ export function formatTable(data: unknown[], columns?: TableColumn[]): string {
   const { border } = TABLE_OPTIONS;
 
   const horizontalLine = (left: string, middle: string, right: string) =>
-    left + colWidths.map(w => border.bodyJoin.repeat((w ?? 0) + 2)).join(middle) + right;
+    // Fill with the HORIZONTAL rule glyph (`─`), not `bodyJoin` (`│`) — the latter
+    // rendered every rule as `┌│││││┬…` instead of `┌─────┬…`.
+    left + colWidths.map(w => border.topBody.repeat((w ?? 0) + 2)).join(middle) + right;
 
   const topLine = horizontalLine(border.topLeft, border.topJoin, border.topRight);
   const midLine = horizontalLine(border.joinLeft, border.joinJoin, border.joinRight);

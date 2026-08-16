@@ -20,6 +20,7 @@ import {
   getOrganizationSeatUsage,
   getOrganizationFeatureEntitlements,
   getOrganizationMembers,
+  checkOrganizationMembership,
   getOrganizationTeams,
   getMemberTeams,
   addMemberToOrganization,
@@ -69,7 +70,11 @@ router.post('/', requireAuth, requirePermission('org:settings'), createOrganizat
 /** GET /organization/ai-config - Get org AI provider config */
 router.get('/ai-config', requireAuth, getOrgAIConfig);
 
-/** PUT /organization/ai-config - Update org AI provider keys (admin only) */
+/** PUT /organization/ai-config - Update org AI provider keys (admin only).
+ *  TODO(security): step-up-gate this (persists per-org provider SECRETS, like the
+ *  KMS-config route). Requires coordinated frontend wiring first — updateOrgAIConfig
+ *  must forward an X-Step-Up-Token and AIProviderConfig must prompt via StepUpModal
+ *  (mirror OrgKmsConfigModal); adding requireStepUp alone loops the save on 401. */
 router.put('/ai-config', requireAuth, requirePermission('org:settings'), updateOrgAIConfig);
 
 /*
@@ -178,6 +183,11 @@ router.delete('/:id/idp', requireAuth, requirePermission('org:idp'), requireStep
 
 /** GET /organization/:id/members - List organization members */
 router.get('/:id/members', requireAuth, getOrganizationMembers);
+
+/** GET /organization/:id/members/:userId/exists - Active-membership probe
+ *  (service principal / org-admin). Used by the message service to reject a
+ *  per-user DM addressed to a non-member. */
+router.get('/:id/members/:userId/exists', requireAuth, checkOrganizationMembership);
 
 /** POST /organization/:id/members - Add member to organization (admin only) */
 router.post('/:id/members', requireAuth, requirePermission('members:manage'), addMemberToOrganization);

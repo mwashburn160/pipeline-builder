@@ -343,7 +343,7 @@ export async function retryFailedJob(jobId: string, quotaService: QuotaService):
  * masked build lines; any other failure (deploy, compliance, validation) degrades
  * to the masked error message. Never includes unbounded output.
  */
-export function summarizeBuildFailure(error: Error, isTimeout: boolean): { message: string; reason: string; tail: string[] } {
+function summarizeBuildFailure(error: Error, isTimeout: boolean): { message: string; reason: string; tail: string[] } {
   if (error instanceof BuildProcessError) {
     const reason = error.timedOut || isTimeout
       ? 'timed out'

@@ -568,11 +568,22 @@ services:
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
       SUPPORT_ALIASES: ${SUPPORT_ALIASES:-support@pipeline-builder,help@pipeline-builder}
+      # Message attachments — S3-compatible object storage (MinIO). Path-style +
+      # custom endpoint. Uses a per-service, bucket-scoped MinIO key (created by
+      # minio-init), NOT the root credentials.
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_BUCKET: ${S3_BUCKET:-message-attachments}
+      S3_ACCESS_KEY_ID: ${MESSAGE_S3_ACCESS_KEY:-message-svc}
+      S3_SECRET_ACCESS_KEY: ${MESSAGE_S3_SECRET_KEY:-message-svc-secret}
+      S3_FORCE_PATH_STYLE: 'true'
+      MESSAGE_ATTACHMENT_MAX_MB: ${MESSAGE_ATTACHMENT_MAX_MB:-10}
     networks:
       - backend-network
     depends_on:
       postgres:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     healthcheck: *api-healthcheck
     deploy:
       resources:
@@ -954,6 +965,81 @@ services:
   # ---------------------------------------------------------------------------
   # Docker Registry
   # ---------------------------------------------------------------------------
+  # MinIO — S3-compatible object storage for message attachments. Persists to the
+  # shared ./data folder like the other stateful services. Pin the image tag for
+  # reproducible deploys (latest tracks upstream releases).
+  minio:
+    image: 'minio/minio:latest'
+    container_name: minio
+    restart: always
+    # Single-node, single-drive — this is a local dev target (no HA). The
+    # erasure-coded HA setups live in the ec2 (SNMD) + eks (distributed) targets.
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - './data/minio-data/:/data:rw'
+    networks:
+      - backend-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.35'
+          memory: 512M
+        reservations:
+          cpus: '0.10'
+          memory: 128M
+
+  # ---------------------------------------------------------------------------
+  # One-shot bootstrap: create the per-service buckets and per-service,
+  # bucket-scoped MinIO users (so no service uses the root credentials). Exits 0;
+  # `depends_on: minio-init: service_completed_successfully` gates the consumers.
+  minio-init:
+    image: 'minio/mc:latest'
+    container_name: minio-init
+    depends_on:
+      - minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MESSAGE_S3_ACCESS_KEY: ${MESSAGE_S3_ACCESS_KEY:-message-svc}
+      MESSAGE_S3_SECRET_KEY: ${MESSAGE_S3_SECRET_KEY:-message-svc-secret}
+      REGISTRY_S3_ACCESS_KEY: ${REGISTRY_S3_ACCESS_KEY:-registry-svc}
+      REGISTRY_S3_SECRET_KEY: ${REGISTRY_S3_SECRET_KEY:-registry-svc-secret}
+      LOKI_S3_ACCESS_KEY: ${LOKI_S3_ACCESS_KEY:-loki-svc}
+      LOKI_S3_SECRET_KEY: ${LOKI_S3_SECRET_KEY:-loki-svc-secret}
+      THANOS_S3_ACCESS_KEY: ${THANOS_S3_ACCESS_KEY:-thanos-svc}
+      THANOS_S3_SECRET_KEY: ${THANOS_S3_SECRET_KEY:-thanos-svc-secret}
+    networks:
+      - backend-network
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do echo 'waiting for minio...'; sleep 2; done
+        # One bucket + one bucket-scoped user per consumer (no shared root creds).
+        for b in message-attachments registry loki thanos; do mc mb --ignore-existing "local/$$b"; done
+        # Versioning on user data (attachments) for accidental-delete protection +
+        # a lifecycle rule to expire non-current versions so it stays bounded.
+        # NOT enabled on loki/registry/thanos — they churn objects and versioning
+        # would retain deleted versions unbounded.
+        mc version enable local/message-attachments || true
+        mc ilm rule add --noncurrent-expire-days 30 local/message-attachments || true
+        make_user() {  # $1=bucket  $2=policy  $3=access  $4=secret
+          echo "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:*\"],\"Resource\":[\"arn:aws:s3:::$$1\",\"arn:aws:s3:::$$1/*\"]}]}" > /tmp/p.json
+          mc admin policy create local "$$2" /tmp/p.json || true
+          mc admin user add local "$$3" "$$4" || true
+          mc admin policy attach local "$$2" --user "$$3" || true
+        }
+        make_user message-attachments message-attachments-rw "$$MESSAGE_S3_ACCESS_KEY" "$$MESSAGE_S3_SECRET_KEY"
+        make_user registry            registry-rw            "$$REGISTRY_S3_ACCESS_KEY" "$$REGISTRY_S3_SECRET_KEY"
+        make_user loki                loki-rw                "$$LOKI_S3_ACCESS_KEY"     "$$LOKI_S3_SECRET_KEY"
+        make_user thanos              thanos-rw              "$$THANOS_S3_ACCESS_KEY"   "$$THANOS_S3_SECRET_KEY"
+        echo 'minio-init done'
+
+  # ---------------------------------------------------------------------------
   registry:
     image: 'registry:3'
     container_name: registry
@@ -988,9 +1074,18 @@ services:
       # Both clients are happy when realm + registry are both HTTP.
       REGISTRY_STORAGE_DELETE_ENABLED: 'true'
       REGISTRY_HTTP_DEBUG_ADDR: '0.0.0.0:5001'
+      # S3 (MinIO) storage — driver + endpoint live in the mounted config.yml;
+      # only the per-service, bucket-scoped credentials come from env.
+      REGISTRY_STORAGE_S3_ACCESSKEY: ${REGISTRY_S3_ACCESS_KEY:-registry-svc}
+      REGISTRY_STORAGE_S3_SECRETKEY: ${REGISTRY_S3_SECRET_KEY:-registry-svc-secret}
     volumes:
       - './certs/image-registry-jwt.crt:/etc/registry/jwt-public.pem:ro'
-      - './data/registry-data/:/var/lib/registry/:rw'
+      # Custom config.yml selects the S3 driver (replaces the image's filesystem
+      # default). The old ./data/registry-data volume is no longer used.
+      - './config/registry-config.yml:/etc/distribution/config.yml:ro'
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
     networks:
       - proxy-network
       - backend-network
@@ -1017,7 +1112,15 @@ services:
     image: 'prom/prometheus:v3.13.2'
     container_name: prometheus
     restart: always
-    command: ['--config.file=/etc/prometheus/prometheus.yml', '--storage.tsdb.retention.time=7d']
+    # 2h min/max block duration is required for the Thanos sidecar to upload
+    # complete blocks; --web.enable-admin-api lets the sidecar snapshot the TSDB.
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=7d'
+      - '--storage.tsdb.max-block-duration=2h'
+      - '--storage.tsdb.min-block-duration=2h'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
     volumes:
       - './config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro'
       - './config/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro'
@@ -1038,6 +1141,98 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+
+  # Thanos sidecar — ships Prometheus's 2h TSDB blocks to MinIO (S3) for durable
+  # long-term storage. Shares Prometheus's TSDB volume (read) + talks to it over
+  # HTTP. (Querying archived blocks needs a store-gateway + querier — follow-up.)
+  thanos-sidecar:
+    image: 'quay.io/thanos/thanos:v0.39.2'
+    container_name: thanos-sidecar
+    restart: always
+    command:
+      - 'sidecar'
+      - '--tsdb.path=/prometheus'
+      - '--prometheus.url=http://prometheus:9090'
+      - '--objstore.config-file=/etc/thanos/objstore.yml'
+      - '--http-address=0.0.0.0:10902'
+      - '--grpc-address=0.0.0.0:10901'
+    volumes:
+      - './data/db-data/prometheus/:/prometheus:ro'
+      - './config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
+    networks:
+      - backend-network
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+      prometheus:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: '0.35'
+          memory: 256M
+        reservations:
+          cpus: '0.10'
+          memory: 64M
+
+  # Thanos store-gateway: exposes the MinIO-archived TSDB blocks over the Thanos
+  # StoreAPI (gRPC 10901) so the querier can read long-term history. Its local
+  # data-dir is a rebuildable index cache (container-local; no volume needed).
+  thanos-store-gateway:
+    image: 'quay.io/thanos/thanos:v0.39.2'
+    container_name: thanos-store-gateway
+    restart: always
+    command:
+      - 'store'
+      - '--objstore.config-file=/etc/thanos/objstore.yml'
+      - '--data-dir=/var/thanos/store'
+      - '--http-address=0.0.0.0:10902'
+      - '--grpc-address=0.0.0.0:10901'
+    volumes:
+      - './config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
+    networks:
+      - backend-network
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: '0.35'
+          memory: 512M
+        reservations:
+          cpus: '0.10'
+          memory: 128M
+
+  # Thanos querier: Prometheus-compatible query API (9090) that fans out to the
+  # sidecar (recent blocks) + store-gateway (archived blocks) and de-duplicates.
+  # PROMETHEUS_URL points services here so PromQL spans recent + long-term.
+  thanos-query:
+    image: 'quay.io/thanos/thanos:v0.39.2'
+    container_name: thanos-query
+    restart: always
+    command:
+      - 'query'
+      - '--http-address=0.0.0.0:9090'
+      - '--grpc-address=0.0.0.0:10901'
+      - '--endpoint=thanos-sidecar:10901'
+      - '--endpoint=thanos-store-gateway:10901'
+      - '--query.replica-label=replica'
+    networks:
+      - backend-network
+    depends_on:
+      thanos-sidecar:
+        condition: service_started
+      thanos-store-gateway:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: '0.35'
+          memory: 512M
+        reservations:
+          cpus: '0.10'
+          memory: 128M
 
   # Alertmanager: routes Prometheus alerts to Slack and to the platform relay.
   # NOTE: Alertmanager does NOT expand environment variables in its config
@@ -1080,12 +1275,20 @@ services:
     image: 'grafana/loki:3.6.11'
     container_name: loki
     restart: always
-    command: -config.file=/etc/loki/loki-config.yml
+    # -config.expand-env expands ${LOKI_S3_*} in loki-config.yml (chunks/index
+    # now live in MinIO; /loki is just ephemeral WAL + shipper cache).
+    command: -config.file=/etc/loki/loki-config.yml -config.expand-env=true
+    environment:
+      LOKI_S3_ACCESS_KEY: ${LOKI_S3_ACCESS_KEY:-loki-svc}
+      LOKI_S3_SECRET_KEY: ${LOKI_S3_SECRET_KEY:-loki-svc-secret}
     volumes:
       - './data/db-data/loki/:/loki:rw'
       - './config/loki/loki-config.yml:/etc/loki/loki-config.yml:ro'
     networks:
       - backend-network
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
     healthcheck:
       # loki 3.6+ images are distroless (no wget/curl/sh) — the loki binary's own
       # `-health` flag probes localhost:3100/ready and exits non-zero until ready.

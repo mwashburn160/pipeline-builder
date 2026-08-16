@@ -174,61 +174,50 @@ export function createComplianceClient(config?: Partial<ServiceConfig>): Complia
     return response.body.data;
   }
 
+  // Shared body for all four validate/dry-run calls: POST → unwrap, and on a
+  // transport/HTTP failure either return a fail-open bypass result (when
+  // COMPLIANCE_BYPASS) or rethrow. The four methods differ ONLY in path, request
+  // body, op label, and bypass context.
+  async function runValidation(
+    orgId: string,
+    authHeader: string,
+    path: string,
+    body: Record<string, unknown>,
+    op: string,
+    bypassCtx: Record<string, unknown>,
+  ): Promise<ComplianceCheckResult> {
+    try {
+      const response = await client.post<{ success: boolean; data: ComplianceCheckResult; message?: string }>(
+        path, body, validateOptions(orgId, authHeader),
+      );
+      return unwrap(response, op);
+    } catch (error) {
+      if (COMPLIANCE_BYPASS) return bypassResult(bypassCtx);
+      throw error;
+    }
+  }
+
   return {
-    async validatePlugin(orgId, attributes, authHeader, entityId, entityName, action) {
-      try {
-        const response = await client.post<{ success: boolean; data: ComplianceCheckResult; message?: string }>(
-          '/compliance/validate/plugin',
-          { attributes, entityId, entityName, action: action ?? 'upload' },
-          validateOptions(orgId, authHeader),
-        );
-        return unwrap(response, 'validatePlugin');
-      } catch (error) {
-        if (COMPLIANCE_BYPASS) return bypassResult({ orgId, entityType: 'plugin', entityId, entityName });
-        throw error;
-      }
+    validatePlugin(orgId, attributes, authHeader, entityId, entityName, action) {
+      return runValidation(orgId, authHeader, '/compliance/validate/plugin',
+        { attributes, entityId, entityName, action: action ?? 'upload' }, 'validatePlugin',
+        { orgId, entityType: 'plugin', entityId, entityName });
     },
 
-    async validatePipeline(orgId, attributes, authHeader, entityId, entityName, action) {
-      try {
-        const response = await client.post<{ success: boolean; data: ComplianceCheckResult; message?: string }>(
-          '/compliance/validate/pipeline',
-          { attributes, entityId, entityName, action: action ?? 'create' },
-          validateOptions(orgId, authHeader),
-        );
-        return unwrap(response, 'validatePipeline');
-      } catch (error) {
-        if (COMPLIANCE_BYPASS) return bypassResult({ orgId, entityType: 'pipeline', entityId, entityName });
-        throw error;
-      }
+    validatePipeline(orgId, attributes, authHeader, entityId, entityName, action) {
+      return runValidation(orgId, authHeader, '/compliance/validate/pipeline',
+        { attributes, entityId, entityName, action: action ?? 'create' }, 'validatePipeline',
+        { orgId, entityType: 'pipeline', entityId, entityName });
     },
 
-    async dryRunPlugin(orgId, attributes, authHeader) {
-      try {
-        const response = await client.post<{ success: boolean; data: ComplianceCheckResult; message?: string }>(
-          '/compliance/validate/plugin/dry-run',
-          { attributes },
-          validateOptions(orgId, authHeader),
-        );
-        return unwrap(response, 'dryRunPlugin');
-      } catch (error) {
-        if (COMPLIANCE_BYPASS) return bypassResult({ orgId, entityType: 'plugin', dryRun: true });
-        throw error;
-      }
+    dryRunPlugin(orgId, attributes, authHeader) {
+      return runValidation(orgId, authHeader, '/compliance/validate/plugin/dry-run',
+        { attributes }, 'dryRunPlugin', { orgId, entityType: 'plugin', dryRun: true });
     },
 
-    async dryRunPipeline(orgId, attributes, authHeader) {
-      try {
-        const response = await client.post<{ success: boolean; data: ComplianceCheckResult; message?: string }>(
-          '/compliance/validate/pipeline/dry-run',
-          { attributes },
-          validateOptions(orgId, authHeader),
-        );
-        return unwrap(response, 'dryRunPipeline');
-      } catch (error) {
-        if (COMPLIANCE_BYPASS) return bypassResult({ orgId, entityType: 'pipeline', dryRun: true });
-        throw error;
-      }
+    dryRunPipeline(orgId, attributes, authHeader) {
+      return runValidation(orgId, authHeader, '/compliance/validate/pipeline/dry-run',
+        { attributes }, 'dryRunPipeline', { orgId, entityType: 'pipeline', dryRun: true });
     },
   };
 }

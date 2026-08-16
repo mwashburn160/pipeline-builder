@@ -1,0 +1,30 @@
+# Docker Registry (distribution v3) — S3 storage driver pointed at MinIO.
+#
+# The base registry:3 image ships a config.yml that uses the FILESYSTEM driver;
+# mounting this file replaces it so the single active storage driver is `s3`
+# (you can't have both — the registry errors on multiple drivers). Auth (token)
+# and the delete flag stay ENV-driven (REGISTRY_AUTH_TOKEN_* / REGISTRY_STORAGE_
+# DELETE_ENABLED) so the realm can vary per environment; the S3 credentials come
+# from env too (REGISTRY_STORAGE_S3_ACCESSKEY / _SECRETKEY) to keep them out of
+# this file.
+version: 0.1
+log:
+  level: info
+  fields:
+    service: registry
+storage:
+  cache:
+    blobdescriptor: inmemory
+  s3:
+    region: us-east-1
+    regionendpoint: http://minio:9000
+    bucket: registry
+    # Path-style + plain HTTP: MinIO has no per-bucket virtual-host DNS and
+    # serves HTTP on the internal network.
+    forcepathstyle: true
+    secure: false
+    rootdirectory: /
+http:
+  addr: 0.0.0.0:5000
+  debug:
+    addr: 0.0.0.0:5001

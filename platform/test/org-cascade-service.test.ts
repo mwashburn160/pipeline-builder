@@ -37,11 +37,14 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: {
     plugin: { orgId: 'plugins.org_id' },
     pipeline: { orgId: 'pipelines.org_id' },
+    pipelineTemplate: { orgId: 'pipeline_templates.org_id' },
     message: { orgId: 'messages.org_id' },
+    messageAttachment: { orgId: 'message_attachments.org_id' },
     pipelineRegistry: { orgId: 'pipeline_registry.org_id' },
     pipelineEvent: { orgId: 'pipeline_events.org_id' },
     dashboard: { orgId: 'dashboards.org_id' },
     orgAlertDestination: { orgId: 'org_alert_destinations.org_id' },
+    orgAlertRule: { orgId: 'org_alert_rules.org_id' },
     compliancePolicy: { orgId: 'compliance_policies.org_id' },
     complianceRule: { orgId: 'compliance_rules.org_id' },
     complianceRuleHistory: { orgId: 'compliance_rule_history.org_id' },
@@ -96,7 +99,13 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
   },
 }));
 
-const { cascadeDeleteOrg, exportOrg, SYSTEM_ORG_DELETE_FORBIDDEN } = await import('../src/services/org-cascade-service.js');
+const { cascadeDeleteOrg, exportOrg, SYSTEM_ORG_DELETE_FORBIDDEN, CASCADE_TABLE_NAMES } = await import('../src/services/org-cascade-service.js');
+
+// The REAL drizzle schema (deep import — bypasses the barrel's DB pool, which is
+// mocked above). Used only by the drift-guard test below to reflect every table.
+const { schema: realSchema } = await import('@pipeline-builder/pipeline-data/lib/database/drizzle-schema.js') as { schema: Record<string, unknown> };
+const { getTableColumns, getTableName, is } = await import('drizzle-orm');
+const { PgTable } = await import('drizzle-orm/pg-core');
 
 
 beforeEach(() => {
@@ -130,17 +139,17 @@ describe('cascadeDeleteOrg', () => {
     await expect(cascadeDeleteOrg('000000000000000000000001', '000000000000000000000001')).rejects.toThrow(SYSTEM_ORG_DELETE_FORBIDDEN);
   });
 
-  it('soft-deletes the 7 tables that have a deleted_at column', async () => {
+  it('soft-deletes the 9 tables that have a deleted_at column', async () => {
     await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    // 7 soft-delete tables  one update per
-    expect(mockUpdateChain.set).toHaveBeenCalledTimes(7);
-    expect(mockUpdateChain.where).toHaveBeenCalledTimes(7);
+    // 9 soft-delete tables — one update per
+    expect(mockUpdateChain.set).toHaveBeenCalledTimes(9);
+    expect(mockUpdateChain.where).toHaveBeenCalledTimes(9);
   });
 
-  it('hard-deletes the 13 tables without deleted_at', async () => {
+  it('hard-deletes the 14 tables without deleted_at', async () => {
     await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    // 13 hard-delete tables
-    expect(mockDeleteChain.where).toHaveBeenCalledTimes(13);
+    // 14 hard-delete tables
+    expect(mockDeleteChain.where).toHaveBeenCalledTimes(14);
   });
 
   it('drops mongo invitations + audit events + idp configs but preserves the admin.org.delete event', async () => {
@@ -243,6 +252,25 @@ describe('cascadeDeleteOrg', () => {
     expect(report.billing.ok).toBe(false);
   });
 
+  it('fires the message-service attachment-blob purge with a service token', async () => {
+    await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+    const paths = mockHttpDelete.mock.calls.map((c: unknown[]) => c[0]);
+    expect(paths).toContain('/messages/internal/org/org-acme/attachments');
+  });
+
+  it('reports messageBlobs ok + deleted count from the purge response', async () => {
+    mockHttpDelete.mockResolvedValue({ statusCode: 200, body: { data: { deleted: 7 } } });
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+    expect(report.messageBlobs).toEqual({ ok: true, statusCode: 200, deleted: 7 });
+  });
+
+  it('reports messageBlobs ok=false on a non-2xx purge (orphans flagged, not fatal)', async () => {
+    mockHttpDelete.mockResolvedValue({ statusCode: 500, body: {} });
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+    expect(report.messageBlobs.ok).toBe(false);
+    expect(report.messageBlobs.statusCode).toBe(500);
+  });
+
   it('continues past a Postgres delete failure on one table without aborting the rest', async () => {
     // First update fails, the rest succeed.
     mockUpdateChain.where
@@ -256,8 +284,8 @@ describe('cascadeDeleteOrg', () => {
     expect(entries.some((e) => e.ok === false)).toBe(true);
     expect(entries.filter((e) => e.ok === true).length).toBe(entries.length - 1);
     // Other tables still got their delete chains called.
-    expect(mockUpdateChain.where).toHaveBeenCalledTimes(7);
-    expect(mockDeleteChain.where).toHaveBeenCalledTimes(13);
+    expect(mockUpdateChain.where).toHaveBeenCalledTimes(9);
+    expect(mockDeleteChain.where).toHaveBeenCalledTimes(14);
   });
 
   it('flags an orphaned per-org KMS key (audit event + report) but does NOT auto-delete it', async () => {
@@ -296,10 +324,33 @@ describe('exportOrg', () => {
 
     const dump = await exportOrg('org-acme', '000000000000000000000001');
 
-    expect(Object.keys(dump.postgres).length).toBe(20); // 7 soft + 13 hard
+    expect(Object.keys(dump.postgres).length).toBe(23); // 9 soft + 14 hard
     expect(dump.mongo.invitations).toHaveLength(1);
     expect(dump.mongo.auditEvents).toHaveLength(1);
     expect(dump.orgId).toBe('org-acme');
     expect(dump.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+});
+
+describe('org cascade drift guard (schema reflection)', () => {
+  it('cascades EVERY org-scoped Postgres table', () => {
+    // Reflect the real drizzle schema: any table with an `org_id` column MUST be
+    // in the cascade (soft or hard) or it orphans on org purge + is missing from
+    // the GDPR export. A failure here means: add the new table to SOFT/HARD_DELETE_TABLES.
+    const uncovered: string[] = [];
+    for (const val of Object.values(realSchema)) {
+      if (!is(val, PgTable)) continue;
+      const cols = getTableColumns(val as never);
+      const hasOrgId = Object.values(cols).some((c) => (c as { name: string }).name === 'org_id');
+      if (!hasOrgId) continue;
+      const name = getTableName(val as never);
+      if (!CASCADE_TABLE_NAMES.has(name)) uncovered.push(name);
+    }
+    expect(uncovered).toEqual([]);
+  });
+
+  it('covers the two tables that were previously omitted', () => {
+    expect(CASCADE_TABLE_NAMES.has('org_alert_rules')).toBe(true);
+    expect(CASCADE_TABLE_NAMES.has('pipeline_templates')).toBe(true);
   });
 });

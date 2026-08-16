@@ -73,7 +73,9 @@ export function startPlatformMetricsScraper(intervalMs: number = INTERVAL_MS): (
   if (timer) return stopPlatformMetricsScraper;
   const lockTtlMs = Math.max(intervalMs, 60_000);
   const runLocked = () => void runWithLeaderLock(LOCK_KEY, lockTtlMs, async () => { await scrapeOnce(); });
-  timer = setInterval(runLocked, intervalMs);
+  // .unref() so the interval never keeps Node alive on its own — matching the
+  // invitation-reaper / org-purge / billing-reconcile sweeps.
+  timer = setInterval(runLocked, intervalMs).unref();
   runLocked(); // immediate first sample (leader-locked)
   logger.info('Platform metrics scraper started', { intervalMs });
   return stopPlatformMetricsScraper;

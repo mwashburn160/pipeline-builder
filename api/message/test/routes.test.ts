@@ -21,6 +21,7 @@ const mockFindById = jest.fn<(...args: unknown[]) => unknown>();
 const mockFindThreadMessages = jest.fn<(...args: unknown[]) => unknown>();
 const mockCreate = jest.fn<(...args: unknown[]) => unknown>();
 const mockMarkAsRead = jest.fn<(...args: unknown[]) => unknown>();
+const mockEditContent = jest.fn<(...args: unknown[]) => unknown>();
 const mockMarkThreadAsRead = jest.fn<(...args: unknown[]) => unknown>();
 const mockDelete = jest.fn<(...args: unknown[]) => unknown>();
 const mockDeleteThread = jest.fn<(...args: unknown[]) => unknown>();
@@ -33,9 +34,13 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
     findConversations: mockFindConversations,
     getUnreadCount: mockGetUnreadCount,
     findById: mockFindById,
+    // Viewer-scoped single-message read used by GET /:id, thread root, and reply
+    // root lookup. Points at the same mock so existing findById expectations hold.
+    findVisibleById: mockFindById,
     findThreadMessages: mockFindThreadMessages,
     create: mockCreate,
     markAsRead: mockMarkAsRead,
+    editContent: mockEditContent,
     markThreadAsRead: mockMarkThreadAsRead,
     delete: mockDelete,
     deleteThread: mockDeleteThread,
@@ -66,8 +71,28 @@ const mockIsRecipientReachable = jest.fn<(caller: string, recipient: string) => 
     return r === c || r === SYSTEM_ORG;
   },
 );
+// Per-user DM target membership probe. Default: reachable (a member) so existing
+// targeted-conversation tests are unaffected; the not-a-member case overrides
+// with `mockResolvedValueOnce(false)`.
+const mockIsTargetUserReachable = jest.fn<(recipientOrgId: string, userId: string) => Promise<boolean>>(
+  async () => true,
+);
 jest.unstable_mockModule('../src/helpers/org-reachability.js', () => ({
   isRecipientReachable: mockIsRecipientReachable,
+  isTargetUserReachable: mockIsTargetUserReachable,
+}));
+
+// create-message + read-messages import attachmentService (which pulls in
+// pipeline-data withTenantTx). Stub it; existing tests don't pass attachmentIds.
+const mockLinkToMessage = jest.fn<(...args: unknown[]) => Promise<unknown[]>>().mockResolvedValue([]);
+jest.unstable_mockModule('../src/services/attachment-service.js', () => ({
+  attachmentService: {
+    linkToMessage: mockLinkToMessage,
+    findByMessageId: jest.fn(async () => []),
+    findByMessageIds: jest.fn(async () => []),
+    findById: jest.fn(async () => null),
+    createPending: jest.fn(),
+  },
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -109,6 +134,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }),
   MessageCreateSchema: {},
   MessageReplySchema: {},
+  MessageEditSchema: {},
   MessageFilterSchema: {},
   validateQuery: jest.fn(() => ({ ok: true, value: {} })),
   incrementQuota: jest.fn(),
@@ -134,6 +160,8 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: () => undefined,
+  rateLimitByOrg: () => (_req: any, _res: any, next: () => void) => next(),
   getContext: (req: any) => mockGetContext(req),
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = mockGetContext(req);
@@ -325,6 +353,7 @@ describe('GET /messages/conversations', () => {
     expect(mockFindConversations).toHaveBeenCalledWith(
       'org-1',
       expect.objectContaining({ limit: 25, offset: 0, sortBy: 'createdAt', sortOrder: 'desc' }),
+      'user-1', // viewer id — scopes per-user targeted conversations
     );
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -438,7 +467,8 @@ describe('GET /messages/:id/thread', () => {
       expect.objectContaining({
         success: true,
         data: expect.objectContaining({
-          messages: [root, reply],
+          // Thread route now embeds per-message attachments (empty here).
+          messages: [{ ...root, attachments: [] }, { ...reply, attachments: [] }],
         }),
       }),
     );
@@ -503,6 +533,121 @@ describe('POST /messages (create)', () => {
     await handler(req, res);
 
     expect(sendBadRequest).toHaveBeenCalledWith(res, 'Request body is required', 'VALIDATION_ERROR');
+  });
+
+  it('persists recipientUserId on a per-user targeted conversation', async () => {
+    mockCreate.mockResolvedValue({ id: 'msg-dm' });
+    const req = mockReq({
+      body: {
+        recipientOrgId: '000000000000000000000001',
+        recipientUserId: 'user-42',
+        messageType: 'conversation',
+        subject: 'Just for you',
+        content: 'private note',
+        priority: 'normal',
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientUserId: 'user-42' }),
+      expect.anything(),
+    );
+    // Targeted sends redact the subject from the org-wide SSE fan-out AND omit
+    // recipientUserId (which would leak WHICH user was targeted to the org).
+    expect(mockSseManager.send).toHaveBeenCalledWith(
+      '000000000000000000000001',
+      'MESSAGE',
+      'New message',
+      expect.objectContaining({ action: 'NEW_MESSAGE', subject: undefined }),
+    );
+    const sseArg = (mockSseManager.send as jest.Mock).mock.calls.at(-1)?.[3] as Record<string, unknown>;
+    expect(sseArg).not.toHaveProperty('recipientUserId');
+  });
+
+  it('rejects a per-user DM addressed to a non-member of the recipient org', async () => {
+    mockIsTargetUserReachable.mockResolvedValueOnce(false);
+    const req = mockReq({
+      body: {
+        recipientOrgId: '000000000000000000000001',
+        recipientUserId: 'ghost-user',
+        messageType: 'conversation',
+        subject: 'Just for you',
+        content: 'private note',
+        priority: 'normal',
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('defaults recipientUserId to null for an org-wide conversation', async () => {
+    mockCreate.mockResolvedValue({ id: 'msg-orgwide' });
+    const req = mockReq({
+      body: {
+        recipientOrgId: '000000000000000000000001',
+        messageType: 'conversation',
+        subject: 'Everyone',
+        content: 'hello team',
+        priority: 'normal',
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientUserId: null }),
+      expect.anything(),
+    );
+  });
+
+  it('links attachmentIds to the created message', async () => {
+    mockCreate.mockResolvedValue({ id: 'msg-att' });
+    mockLinkToMessage.mockResolvedValue([{ id: 'att-1' }]);
+    const req = mockReq({
+      body: {
+        recipientOrgId: '000000000000000000000001',
+        messageType: 'conversation',
+        subject: 'With file',
+        content: 'see attached',
+        priority: 'normal',
+        attachmentIds: ['att-1'],
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockLinkToMessage).toHaveBeenCalledWith(['att-1'], 'msg-att', expect.any(String), expect.any(String));
+  });
+
+  it('rejects recipientUserId on an announcement (broadcast is org-wide)', async () => {
+    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    const req = mockReq({
+      body: {
+        recipientOrgId: '*',
+        recipientUserId: 'user-42',
+        messageType: 'announcement',
+        subject: 'Broadcast',
+        content: 'to everyone',
+        priority: 'normal',
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(sendBadRequest).toHaveBeenCalledWith(
+      res,
+      'recipientUserId is only valid on a conversation to a specific organization',
+      'VALIDATION_ERROR',
+    );
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   // Tenant-boundary guard (#20): '*' is a BROADCAST recipient reserved for
@@ -956,6 +1101,42 @@ describe('POST /messages/:id/reply', () => {
 });
 
 // Update Routes
+
+describe('PATCH /messages/:id (edit content)', () => {
+  const handler = getHandler(updateRouter, 'patch', '/:id');
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('edits a message and returns the updated row', async () => {
+    const updated = { id: 'msg-1', orgId: 'org-1', recipientOrgId: '000000000000000000000001', threadId: null, content: 'fixed text', editedAt: '2026-08-16T00:00:00Z' };
+    mockEditContent.mockResolvedValue(updated);
+
+    const req = mockReq({ params: { id: 'msg-1' }, body: { content: 'fixed text' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    // Service is called with (id, callerOrg, callerUser, content) — authorship
+    // is enforced inside the service predicate.
+    expect(mockEditContent).toHaveBeenCalledWith('msg-1', 'org-1', 'user-1', 'fixed text');
+  });
+
+  it('404s when the caller is not the author / message not found', async () => {
+    mockEditContent.mockResolvedValue(null);
+    const req = mockReq({ params: { id: 'msg-x' }, body: { content: 'nope' } });
+    const res = mockRes();
+    await handler(req, res);
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it('400s on an empty body', async () => {
+    const req = mockReq({ params: { id: 'msg-1' }, body: {} });
+    const res = mockRes();
+    await handler(req, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockEditContent).not.toHaveBeenCalled();
+  });
+});
 
 describe('PUT /messages/:id/read', () => {
   const handler = getHandler(updateRouter, 'put', '/:id/read');

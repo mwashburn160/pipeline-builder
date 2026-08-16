@@ -18,6 +18,26 @@ export interface LockRedis {
   /** Optional Lua eval (ioredis has it). When present, release uses an atomic
    *  compare-and-delete so a lapsed holder can't free a successor's lock. */
   eval?(script: string, numKeys: number, ...args: unknown[]): Promise<unknown>;
+  /** Graceful close (ioredis `quit`) — called on shutdown so the connection
+   *  doesn't keep the event loop alive. */
+  quit?(): Promise<unknown>;
+  /** Immediate close (ioredis `disconnect`) — the fallback if `quit` fails. */
+  disconnect?(): void;
+}
+
+/**
+ * Best-effort close of a leader-lock Redis client on shutdown. Prefers graceful
+ * `quit`; falls back to `disconnect`. No-op for a null client / one without
+ * either method. Never throws.
+ */
+export async function closeLeaderLock(redis: LockRedis | null | undefined): Promise<void> {
+  if (!redis) return;
+  try {
+    if (typeof redis.quit === 'function') { await redis.quit(); return; }
+  } catch {
+    // fall through to disconnect
+  }
+  try { redis.disconnect?.(); } catch { /* best-effort */ }
 }
 
 /** Atomic "delete only if I still own it" — closes the get-then-del race where

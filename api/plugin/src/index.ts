@@ -90,21 +90,21 @@ registerComplianceEventSubscriber(undefined, 'plugin');
 
 logger.info('All /plugins routes registered');
 
-void runServer(app, {
-  name: 'Plugin Service',
-  sseManager,
-  onBeforeStart: () => waitForWorkerReady(),
-  onShutdown: () => shutdownQueue(),
-});
-
 // Retention purge: hard-delete plugin tombstones past their `purge_after`
 // deadline. Leader-locked (one replica per window) and sysadmin-scoped inside
 // the sweep so it spans all orgs. Opt out with SOFT_DELETE_PURGE_ENABLED=false.
+// Created before runServer so teardown rides its coordinated onShutdown.
 const purgeScheduler = createSoftDeletePurgeScheduler({
   service: 'plugin',
   entities: [
     { name: 'plugin', purgeExpired: (now, limit) => pluginService.purgeExpired(now, limit) },
   ],
 });
+
+void runServer(app, {
+  name: 'Plugin Service',
+  sseManager,
+  onBeforeStart: () => waitForWorkerReady(),
+  onShutdown: async () => { await shutdownQueue(); purgeScheduler?.stop(); },
+});
 purgeScheduler?.start();
-process.once('SIGTERM', () => purgeScheduler?.stop());

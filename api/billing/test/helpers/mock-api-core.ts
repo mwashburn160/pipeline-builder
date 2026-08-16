@@ -45,8 +45,11 @@ class NotFoundError extends Error {
  * so a suite can replace any default (and add exports the default omits).
  */
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
+  const api: Record<string, unknown> = {
     createLogger: loggerMock,
+    MAX_PAGE_LIMIT: 1000,
+    DEFAULT_PAGE_LIMIT: 100,
+    closeLeaderLock: async () => undefined,
     loadAndRestore: async () => null,
     REPORT_INTERVALS: ['day', 'week', 'month'],
     scrubAwsIdentifiersFromString: (s: string) => s,
@@ -100,6 +103,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
     setAuthzDenialAuditor: () => {},
     wireAuthzDenialAuditor: () => {},
+    wireServiceSecurity: () => {},
     // Token-revocation reader hooks (session-invalidation) — stubbed for parity
     // so suites that transitively load the boot module still link.
     setTokenRevocationStore: () => {},
@@ -121,4 +125,13 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     }),
     ...overrides,
   };
+  // sendBadRequest delegates to the (possibly-overridden) sendError, mirroring
+  // the real impl — so suites that spy on sendError also observe 400s routed
+  // through sendBadRequest, and don't need a bare `res.status` on their stub.
+  if (!('sendBadRequest' in overrides)) {
+    api.sendBadRequest = (res: unknown, message: string, code?: string) =>
+      (api.sendError as (r: unknown, s: number, m: string, c?: string) => unknown)(
+        res, 400, message, code ?? ErrorCode.VALIDATION_ERROR);
+  }
+  return api;
 }

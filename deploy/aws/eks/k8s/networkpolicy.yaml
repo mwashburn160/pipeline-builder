@@ -330,6 +330,61 @@ spec:
               kubernetes.io/metadata.name: keda
       ports:
         - port: 9090
+    # Thanos querier reaches the sidecar StoreAPI (gRPC) to serve recent blocks.
+    - from:
+        - podSelector:
+            matchLabels:
+              app: thanos-query
+      ports:
+        - port: 10901
+
+---
+# =============================================================================
+# Thanos querier — ingress from platform (native Observability query path via
+# PROMETHEUS_URL=http://thanos-query:9090). Egress (to prometheus sidecar +
+# store-gateway StoreAPIs) is unrestricted by the Ingress-only default-deny.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-thanos-query-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: thanos-query
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: platform
+      ports:
+        - port: 9090
+
+---
+# =============================================================================
+# Thanos store-gateway — ingress from the querier (StoreAPI gRPC) for archived
+# blocks. It reads the blocks themselves from MinIO (allowed via the minio
+# ingress policy above).
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-thanos-store-gateway-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: thanos-store-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: thanos-query
+      ports:
+        - port: 10901
 
 ---
 # =============================================================================
@@ -548,3 +603,29 @@ spec:
 # True FQDN-level egress allow-listing (per-registry/per-package) is NOT
 # expressible in standard NetworkPolicy / the VPC CNI — it needs Cilium; see
 # cilium-network-policies.yaml (opt-in, not in this kustomization).
+
+---
+# =============================================================================
+# MinIO — ingress on the S3 API from the services that use it + the bootstrap
+# Job. Without this, default-deny-ingress blocks message/registry from reaching
+# minio:9000 and attachments + the registry backend fail.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-minio-from-services
+spec:
+  podSelector:
+    matchLabels:
+      app: minio
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [message, registry, minio-init, loki, prometheus, minio, thanos-store-gateway]
+      ports:
+        - port: 9000

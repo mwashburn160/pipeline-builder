@@ -561,7 +561,7 @@ kubectl patch pvc postgres-data -n pipeline-builder \
 # the EBS CSI driver expands the volume + filesystem online (gp3) — no pod restart needed
 ```
 
-**pb-efs (registry / loki) — no expansion needed:** EFS is elastic and grows automatically as data is written. To cap growth, prune old plugin image tags from the in-cluster registry; check usage via the EFS metered size (`aws efs describe-file-systems`).
+**pb-efs (plugin build uploads) — no expansion needed:** EFS is elastic and grows automatically. (The registry, Loki, and message attachments now live in **MinIO**, not EFS — the registry is stateless S3, Loki ships chunks/index to S3; only plugin build uploads still use pb-efs.) Cap MinIO growth via bucket lifecycle rules + Loki `retention_period`; check EFS usage via `aws efs describe-file-systems`.
 
 **Cluster capacity:** node capacity is managed by **Karpenter** (Auto Mode) — it provisions and removes EC2 nodes to fit scheduled pods, so there is no instance to resize.
 

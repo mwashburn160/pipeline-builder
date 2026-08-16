@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requireAuth, requirePermission, wireAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
+import { requireAuth, requirePermission, wireServiceSecurity } from '@pipeline-builder/api-core';
 import { createApp, runServer, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 
 import { createEventIngestRoutes } from './routes/event-ingest.js';
@@ -11,12 +11,9 @@ import { getAuditClient } from './services/audit.js';
 
 const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck, jsonLimit: '5mb' });
 
-// Forward denied (non-GET) requests to the shared authz.denied audit sink.
-wireAuthzDenialAuditor('reporting', getAuditClient);
-
-// Reject tokens whose tokenVersion is behind the platform-published value once
-// Redis is configured; fail-open (no-op) otherwise — falls back to token expiry.
-setTokenRevocationStore(createEnvRedisTokenRevocationStore());
+// Boot security: forward denied authorizations to the authz.denied audit sink +
+// register the env-Redis token-revocation reader (fail-open).
+wireServiceSecurity('reporting', getAuditClient);
 
 app.use(attachRequestContext(sseManager));
 

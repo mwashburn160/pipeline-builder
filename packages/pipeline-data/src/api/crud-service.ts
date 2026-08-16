@@ -1,15 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { NotFoundError, createLogger } from '@pipeline-builder/api-core';
+import { NotFoundError, createLogger, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '@pipeline-builder/api-core';
 import { SQL, eq, and, asc, desc, sql, inArray, getTableColumns } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { withTenantTx, runWithTenantContext, getTenantContext } from '../database/tenancy.js';
 
-/** Pagination defaults — read from env to match CoreConstants in pipeline-core. */
-const DEFAULT_PAGE_LIMIT = parseInt(process.env.DEFAULT_PAGE_LIMIT || '100', 10);
-const MAX_PAGE_LIMIT = parseInt(process.env.MAX_PAGE_LIMIT || '1000', 10);
 
 /**
  * Cast Drizzle query results to a typed array.
@@ -319,6 +316,23 @@ export abstract class CrudService<
   }
 
   /**
+   * Find the FIRST entity matching `filter` — a bounded (`LIMIT 1`) variant of
+   * `find` for the "match by filter, take one" read paths (e.g. `GET /find`), so
+   * they don't `SELECT` every matching org row just to return `[0]`.
+   */
+  async findFirst(filter: Partial<TFilter>, orgId?: string, parentOrgId?: string): Promise<TEntity | null> {
+    const conditions = this.buildConditions(filter, orgId, parentOrgId);
+
+    const results = await this.runRead(parentOrgId, () => withTenantTx(async (tx) => tx
+      .select()
+      .from(this.schema)
+      .where(and(...conditions))
+      .limit(1).then(r => drizzleRows<TEntity>(r))));
+
+    return results[0] || null;
+  }
+
+  /**
    * Find entities with pagination and sorting
    *
    * @param filter - Filter criteria
@@ -508,7 +522,11 @@ export abstract class CrudService<
    * is undefined) keep the supplied org, matching the RLS policy
    * `current_is_sysadmin() OR org_id = current_org_id()`.
    */
-  protected enforceOrgId(data: TInsert): TInsert {
+  // Generic over the payload shape so BOTH the create (`TInsert`) and update
+  // (`Partial<TUpdate>`) call sites use it without the `as unknown as TInsert`
+  // round-trip they previously needed — the org-stamp logic is identical for
+  // either shape (it only touches the `orgId` key).
+  protected enforceOrgId<T>(data: T): T {
     const ctx = getTenantContext();
     const d = data as Record<string, unknown>;
     if (ctx && !ctx.isSuperAdmin && ctx.orgId && d.orgId !== ctx.orgId) {
@@ -523,7 +541,7 @@ export abstract class CrudService<
       } else {
         this._logger.debug('CrudService: stamping tenant-context org on write', meta);
       }
-      return { ...d, orgId: ctx.orgId } as TInsert;
+      return { ...d, orgId: ctx.orgId } as T;
     }
     return data;
   }
@@ -585,7 +603,7 @@ export abstract class CrudService<
     // Scrub a caller-supplied `orgId` in the update payload (as create does): the
     // WHERE only pins which rows you can TARGET, not what you can set — without this
     // a tenant could re-home a row it owns into another org via `data.orgId`.
-    const safeData = this.enforceOrgId(data as unknown as TInsert) as unknown as Partial<TUpdate>;
+    const safeData = this.enforceOrgId(data);
 
     const [updated] = await withTenantTx(async (tx) => tx
       .update(this.schema)
@@ -737,7 +755,7 @@ export abstract class CrudService<
 
     // Scrub a caller-supplied orgId (see update()) so a filter-based update can't
     // re-home rows into another tenant.
-    const safeData = this.enforceOrgId(data as unknown as TInsert) as unknown as Partial<TUpdate>;
+    const safeData = this.enforceOrgId(data);
 
     return withTenantTx(async (tx) => tx
       .update(this.schema)

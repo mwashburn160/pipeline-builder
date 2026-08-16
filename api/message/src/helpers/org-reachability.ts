@@ -4,6 +4,7 @@
 import {
   createLogger,
   errorMessage,
+  fetchOrgMembership,
   fetchParentOrgId,
   resolveRootOrgIdWith,
   SYSTEM_ORG_ID,
@@ -80,5 +81,34 @@ export async function isRecipientReachable(callerOrgId: string, recipientOrgId: 
       error: errorMessage(err),
     });
     return false;
+  }
+}
+
+/**
+ * True when `userId` may be the per-user target of a DM to `recipientOrgId` —
+ * i.e. platform does NOT definitively report them a non-member. A targeted
+ * message to someone outside the recipient org would black-hole (viewer-scoping
+ * means nobody in that org is scoped to see it), so this rejects the obvious
+ * mistake up front.
+ *
+ * FAIL-OPEN (unlike {@link isRecipientReachable}, which is a security gate and
+ * fails closed): this is a correctness/UX guard, not an authorization boundary —
+ * the recipient still can't read a message they're not scoped for. So only a
+ * DEFINITIVE not-a-member (`fetchOrgMembership` → `false`) blocks; an
+ * indeterminate result (`undefined`) or a transport error ALLOWS the send rather
+ * than coupling message delivery to platform availability.
+ */
+export async function isTargetUserReachable(recipientOrgId: string, userId: string): Promise<boolean> {
+  try {
+    const isMember = await fetchOrgMembership(recipientOrgId.toLowerCase(), userId, hierarchyOptions());
+    if (isMember === false) return false; // definitive: not a member
+    return true; // member, or indeterminate → fail-open
+  } catch (err) {
+    logger.warn('Target-user membership lookup failed; allowing send (fail-open)', {
+      recipientOrgId: recipientOrgId.toLowerCase(),
+      userId,
+      error: errorMessage(err),
+    });
+    return true;
   }
 }

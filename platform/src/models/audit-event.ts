@@ -174,6 +174,7 @@ export type AuditAction =
   // that complements the already-audited builds. Posted to the ingest.
   | 'plugin.delete'
   | 'plugin.restore'
+  | 'plugin.update'
   | 'plugin.upload'
   | 'plugin.deploy'
   | 'plugin.bulk.update'
@@ -243,6 +244,8 @@ export type AuditAction =
   // requirePermission / requireSystemAdmin gate on a rejected state-changing
   // request (probing/escalation signal). `outcome` is 'failure'.
   | 'authz.denied'
+  | 'observability.silence.create'
+  | 'observability.silence.delete'
   // Platform admin mutations that were previously unaudited (controllers).
   // `admin.org.ai-config.update` — org AI-provider config (holds provider API
   //   keys; details carry field NAMES only, never a key value).
@@ -340,6 +343,7 @@ export const ALL_AUDIT_ACTIONS = [
   'pipeline.registry.deregister',
   'plugin.delete',
   'plugin.restore',
+  'plugin.update',
   'plugin.upload',
   'plugin.deploy',
   'plugin.bulk.update',
@@ -390,6 +394,8 @@ export const ALL_AUDIT_ACTIONS = [
   'billing.credit.exhausted',
   'billing.combo.expired',
   'authz.denied',
+  'observability.silence.create',
+  'observability.silence.delete',
   'admin.org.ai-config.update',
   'admin.org.quota.override',
   'admin.user.features.update',

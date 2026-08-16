@@ -1,0 +1,198 @@
+---
+# =============================================================================
+# MinIO — S3-compatible object storage for message attachments.
+#
+# Single-writer stateful service: RWO volume on pb-ebs with a Recreate strategy
+# (no two MinIO pods on the same volume). The message service talks to it over
+# the in-cluster ClusterIP using the S3 SDK (path-style). Credentials live in
+# `minio-secret`; the message deployment reads the SAME secret for its S3 keys.
+# =============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-secret
+  labels:
+    app: minio
+type: Opaque
+stringData:
+  # CHANGE THESE for any real deployment (kubectl create secret / sealed-secrets).
+  # root-* are MinIO's admin credentials (server + bootstrap only). Each service
+  # uses its OWN bucket-scoped key below — never the root creds.
+  root-user: "minioadmin"
+  root-password: "minioadmin"
+  message-access-key: "message-svc"
+  message-secret-key: "message-svc-secret"
+  registry-access-key: "registry-svc"
+  registry-secret-key: "registry-svc-secret"
+  loki-access-key: "loki-svc"
+  loki-secret-key: "loki-svc-secret"
+  thanos-access-key: "thanos-svc"
+  thanos-secret-key: "thanos-svc-secret"
+---
+# One-shot bootstrap: create per-service buckets + per-service, bucket-scoped
+# users (so no workload uses the root credentials). Idempotent; safe to re-apply.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-init
+  labels:
+    app: minio
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app: minio-init
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      containers:
+        - name: mc
+          image: minio/mc:latest
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "25m"
+              memory: 32Mi
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom: { secretKeyRef: { name: minio-secret, key: root-user } }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: minio-secret, key: root-password } }
+            - name: MESSAGE_S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: message-access-key } }
+            - name: MESSAGE_S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: message-secret-key } }
+            - name: REGISTRY_S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: registry-access-key } }
+            - name: REGISTRY_S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: registry-secret-key } }
+            - name: LOKI_S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: loki-access-key } }
+            - name: LOKI_S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: loki-secret-key } }
+            - name: THANOS_S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: thanos-access-key } }
+            - name: THANOS_S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: thanos-secret-key } }
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do echo 'waiting for minio...'; sleep 2; done
+              for b in message-attachments registry loki thanos; do mc mb --ignore-existing "local/$b"; done
+              mc version enable local/message-attachments || true
+              mc ilm rule add --noncurrent-expire-days 30 local/message-attachments || true
+              make_user() {  # $1=bucket $2=policy $3=access $4=secret
+                echo "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:*\"],\"Resource\":[\"arn:aws:s3:::$1\",\"arn:aws:s3:::$1/*\"]}]}" > /tmp/p.json
+                mc admin policy create local "$2" /tmp/p.json || true
+                mc admin user add local "$3" "$4" || true
+                mc admin policy attach local "$2" --user "$3" || true
+              }
+              make_user message-attachments message-attachments-rw "$MESSAGE_S3_ACCESS_KEY" "$MESSAGE_S3_SECRET_KEY"
+              make_user registry            registry-rw            "$REGISTRY_S3_ACCESS_KEY" "$REGISTRY_S3_SECRET_KEY"
+              make_user loki                loki-rw                "$LOKI_S3_ACCESS_KEY"     "$LOKI_S3_SECRET_KEY"
+              make_user thanos              thanos-rw              "$THANOS_S3_ACCESS_KEY"   "$THANOS_S3_SECRET_KEY"
+              echo 'minio-init done'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  labels:
+    app: minio
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9000
+      targetPort: 9000
+      name: s3
+    - port: 9001
+      targetPort: 9001
+      name: console
+  selector:
+    app: minio
+---
+# Single-node, single-drive MinIO — local dev target (no HA). The erasure-coded
+# HA setups live in the ec2 (SNMD) + eks (distributed StatefulSet) targets.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  labels:
+    app: minio
+    app.kubernetes.io/component: minio
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9000"
+        prometheus.io/path: /minio/v2/metrics/cluster
+      labels:
+        app: minio
+        app.kubernetes.io/component: minio
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+      containers:
+        - name: minio
+          image: minio/minio:latest
+          args: ["server", "/data", "--console-address", ":9001"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 9000
+              name: s3
+            - containerPort: 9001
+              name: console
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom: { secretKeyRef: { name: minio-secret, key: root-user } }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: minio-secret, key: root-password } }
+            - name: HOME
+              value: "/data"
+          resources:
+            limits:
+              cpu: "400m"
+              memory: 768Mi
+            requests:
+              cpu: "100m"
+              memory: 128Mi
+          readinessProbe:
+            httpGet: { path: /minio/health/ready, port: 9000 }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /minio/health/live, port: 9000 }
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            failureThreshold: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          hostPath:
+            path: /data/minio-data
+            type: DirectoryOrCreate

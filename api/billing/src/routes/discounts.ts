@@ -7,6 +7,7 @@ import {
   requireSystemAdmin,
   sendSuccess,
   sendError,
+  sendBadRequest,
   ErrorCode,
   createLogger,
   getParam,
@@ -78,7 +79,7 @@ export function createDiscountRoutes(): Router {
 
     const spec = parseAuthoringForm(body.code);
     if ('error' in spec) return sendError(res, 400, spec.error, ErrorCode.VALIDATION_ERROR);
-    if (!withinCeiling(spec)) return sendError(res, 400, 'Discount value exceeds the configured ceiling', 'DISCOUNT_CEILING_EXCEEDED');
+    if (!withinCeiling(spec)) return sendBadRequest(res, 'Discount value exceeds the configured ceiling', ErrorCode.DISCOUNT_CEILING_EXCEEDED);
 
     const _id = generateDiscountId();
     const discount = await Discount.create({
@@ -118,7 +119,7 @@ export function createDiscountRoutes(): Router {
     if (!id) return sendError(res, 400, 'id is required');
     const discount = await Discount.findById(id);
     if (!discount) return sendError(res, 404, 'Discount not found', ErrorCode.NOT_FOUND);
-    if (!discount.isActive) return sendError(res, 409, 'Cannot issue a token for an inactive discount', 'DISCOUNT_INACTIVE');
+    if (!discount.isActive) return sendError(res, 409, 'Cannot issue a token for an inactive discount', ErrorCode.DISCOUNT_INACTIVE);
 
     let token: string;
     try {
@@ -279,7 +280,7 @@ export function createDiscountRoutes(): Router {
     const validation = validateBody(req, DiscountRedeemSchema);
     if (!validation.ok) return sendError(res, 400, validation.error);
     const discount = await resolveRedeemable(validation.value.code);
-    if (!discount) return sendError(res, 404, 'Invalid or unknown discount code', 'DISCOUNT_NOT_FOUND');
+    if (!discount) return sendError(res, 404, 'Invalid or unknown discount code', ErrorCode.DISCOUNT_NOT_FOUND);
     const preview = await previewDiscountForOrg(orgId, discount);
     if (!preview.ok) return sendError(res, preview.status, preview.error, preview.code);
     return sendSuccess(res, 200, { applied: preview.kind, priceBreakdown: preview.breakdown });
@@ -292,7 +293,7 @@ export function createDiscountRoutes(): Router {
     if (!validation.ok) return sendError(res, 400, validation.error);
 
     const discount = await resolveRedeemable(validation.value.code);
-    if (!discount) return sendError(res, 404, 'Invalid or unknown discount code', 'DISCOUNT_NOT_FOUND');
+    if (!discount) return sendError(res, 404, 'Invalid or unknown discount code', ErrorCode.DISCOUNT_NOT_FOUND);
 
     const result = await applyDiscountToOrg(orgId, discount, req.user?.sub);
     if (!result.ok) return sendError(res, result.status, result.error, result.code);

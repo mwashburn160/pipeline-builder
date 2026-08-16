@@ -48,6 +48,12 @@ spec:
       targetPort: 9090
       protocol: TCP
       name: http
+    # Thanos sidecar StoreAPI (gRPC) — the querier reaches the sidecar's
+    # still-local recent blocks through this port on the prometheus pod.
+    - port: 10901
+      targetPort: 10901
+      protocol: TCP
+      name: grpc-sidecar
   selector:
     app: prometheus
 
@@ -153,6 +159,10 @@ spec:
             - "--config.file=/etc/prometheus/prometheus.yml"
             - "--storage.tsdb.retention.time=7d"
             - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.max-block-duration=2h"
+            - "--storage.tsdb.min-block-duration=2h"
+            - "--web.enable-lifecycle"
+            - "--web.enable-admin-api"
           ports:
             - containerPort: 9090
               name: http
@@ -185,10 +195,49 @@ spec:
               readOnly: true
             - name: prometheus-data
               mountPath: /prometheus
+        # Thanos sidecar — ships Prometheus 2h TSDB blocks to MinIO (S3) for durable
+        # long-term storage. Reads the shared TSDB volume; talks to Prometheus on
+        # localhost. (Querying archived blocks needs a store-gateway + querier.)
+        - name: thanos-sidecar
+          image: quay.io/thanos/thanos:v0.39.2
+          args:
+            - "sidecar"
+            - "--tsdb.path=/prometheus"
+            - "--prometheus.url=http://localhost:9090"
+            - "--objstore.config-file=/etc/thanos/objstore.yml"
+            - "--http-address=0.0.0.0:10902"
+            - "--grpc-address=0.0.0.0:10901"
+          ports:
+            - containerPort: 10902
+              name: http-sidecar
+            - containerPort: 10901
+              name: grpc
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            limits:
+              cpu: "200m"
+              memory: 256Mi
+            requests:
+              cpu: "50m"
+              memory: 64Mi
+          volumeMounts:
+            - name: prometheus-data
+              mountPath: /prometheus
+              readOnly: true
+            - name: thanos-objstore
+              mountPath: /etc/thanos
+              readOnly: true
       volumes:
         - name: prometheus-config
           configMap:
             name: prometheus-config
+        - name: thanos-objstore
+          configMap:
+            name: thanos-objstore
         - name: prometheus-data
           persistentVolumeClaim:
             claimName: prometheus-data

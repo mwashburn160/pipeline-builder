@@ -46,7 +46,8 @@ const { setMetricsRegistry } = await import('./observability/metrics.js');
 setMetricsRegistry(metricsRegistry);
 const { startPlatformMetricsScraper, stopPlatformMetricsScraper } = await import('./observability/scraper.js');
 startPlatformMetricsScraper();
-process.once('SIGTERM', () => stopPlatformMetricsScraper());
+// (stopped in the unified shutdown() below, alongside the other sweeps — not via
+// a separate SIGTERM handler, so SIGINT also tears it down.)
 
 const httpRequestDuration = new Histogram({
   name: 'http_request_duration_seconds',
@@ -585,6 +586,7 @@ async function startServer(): Promise<void> {
       stopOrgPurgeSweep();
       const { stopSoftDeletePurge } = await import('./services/soft-delete-purge.js');
       stopSoftDeletePurge();
+      stopPlatformMetricsScraper();
 
       try {
         await mongoose.connection.close(false);

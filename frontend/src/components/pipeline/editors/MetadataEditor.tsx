@@ -82,7 +82,7 @@ function MetadataKeyCombobox({
   onSelectPredefined: (opt: MetadataKeyOption) => void;
   disabled?: boolean;
 }) {
-  const { open, setOpen, filter, wrapperRef, inputRef, handleInputChange, handleKeyDown, dismiss } = useCombobox(onChange);
+  const { open, setOpen, filter, activeIndex, setActiveIndex, wrapperRef, inputRef, handleInputChange, handleKeyDown, dismiss, listboxId, optionId, inputAriaProps } = useCombobox(onChange);
 
   const handleSelect = useCallback(
     (opt: MetadataKeyOption) => {
@@ -103,6 +103,8 @@ function MetadataKeyCombobox({
         group.category.toLowerCase().includes(query),
     ),
   })).filter((g) => g.keys.length > 0);
+  // Flat, render-ordered option list so keyboard nav can track a single active index across groups.
+  const flatKeys = filteredGroups.flatMap((g) => g.keys);
 
   return (
     <div ref={wrapperRef} className="relative flex-1">
@@ -112,33 +114,46 @@ function MetadataKeyCombobox({
         value={value}
         onChange={handleInputChange}
         onFocus={() => setOpen(true)}
-        onKeyDown={handleKeyDown}
+        onKeyDown={(e) => handleKeyDown(e, flatKeys.length, (i) => handleSelect(flatKeys[i]))}
         placeholder="Key (type or select)"
         disabled={disabled}
         autoComplete="off"
         className="w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+        {...inputAriaProps}
       />
       {open && !disabled && filteredGroups.length > 0 && (
-        <div className="absolute z-50 mt-1 w-full max-h-60 overflow-auto bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl shadow-lg text-sm">
-          {filteredGroups.map((group) => (
-            <div key={group.category}>
-              <div className="px-3 py-1 text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 sticky top-0">
-                {group.category}
+        <div role="listbox" id={listboxId} aria-label="Metadata keys" className="absolute z-50 mt-1 w-full max-h-60 overflow-auto bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl shadow-lg text-sm">
+          {(() => {
+            let flatIndex = -1;
+            return filteredGroups.map((group) => (
+              <div key={group.category}>
+                <div className="px-3 py-1 text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 sticky top-0">
+                  {group.category}
+                </div>
+                {group.keys.map((opt) => {
+                  flatIndex += 1;
+                  const i = flatIndex;
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      role="option"
+                      id={optionId(i)}
+                      aria-selected={i === activeIndex}
+                      ref={(el) => { if (i === activeIndex) el?.scrollIntoView({ block: 'nearest' }); }}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onMouseEnter={() => setActiveIndex(i)}
+                      onClick={() => handleSelect(opt)}
+                      className={`w-full text-left px-3 py-1.5 cursor-pointer flex justify-between items-center text-gray-900 dark:text-gray-100 transition-colors ${i === activeIndex ? 'bg-blue-100 dark:bg-blue-900/40' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
+                    >
+                      <span className="truncate">{opt.label}</span>
+                      <span className="ml-2 text-xs text-gray-400 dark:text-gray-500 shrink-0">{opt.type}</span>
+                    </button>
+                  );
+                })}
               </div>
-              {group.keys.map((opt) => (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => handleSelect(opt)}
-                  className="w-full text-left px-3 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer flex justify-between items-center text-gray-900 dark:text-gray-100 transition-colors"
-                >
-                  <span className="truncate">{opt.label}</span>
-                  <span className="ml-2 text-xs text-gray-400 dark:text-gray-500 shrink-0">{opt.type}</span>
-                </button>
-              ))}
-            </div>
-          ))}
+            ));
+          })()}
         </div>
       )}
     </div>

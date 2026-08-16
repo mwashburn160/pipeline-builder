@@ -35,6 +35,7 @@ const mockFindThreadMessages = jest.fn<(...args: unknown[]) => unknown>();
 jest.unstable_mockModule('../src/services/message-service.js', () => ({
   messageService: {
     findById: mockFindById,
+    findVisibleById: mockFindById,
     delete: mockDelete,
     deleteThread: mockDeleteThread,
     markAsRead: mockMarkAsRead,
@@ -44,6 +45,18 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
     findAnnouncements: mockFindAnnouncements,
     findConversations: mockFindConversations,
     findThreadMessages: mockFindThreadMessages,
+  },
+}));
+
+// Stub attachmentService (imported by create-message/read-messages) so the real
+// one (pipeline-data withTenantTx) doesn't load in this permission-focused test.
+jest.unstable_mockModule('../src/services/attachment-service.js', () => ({
+  attachmentService: {
+    linkToMessage: jest.fn(async () => []),
+    findByMessageId: jest.fn(async () => []),
+    findByMessageIds: jest.fn(async () => []),
+    findById: jest.fn(async () => null),
+    createPending: jest.fn(),
   },
 }));
 
@@ -61,7 +74,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     res.status(opts?.statusCode ?? 200).json({ [dataKey]: data })),
   parsePaginationParams: () => ({ limit: 25, offset: 0, sortBy: 'createdAt', sortOrder: 'desc' }),
   validateQuery: () => ({ ok: true, value: {} }),
+  validateBody: (req: any) => (req.body && Object.keys(req.body).length > 0 ? { ok: true, value: req.body } : { ok: false, error: 'Request body is required' }),
   MessageFilterSchema: {},
+  MessageEditSchema: {},
   // Real gate semantics: 403 unless the caller holds the required permission.
   requirePermission: (perm: string) => (req: any, res: any, next: () => void) => {
     const perms: string[] = req.user?.permissions ?? [];
@@ -71,6 +86,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: () => undefined,
   withRoute: (handler: Function) => async (req: any, res: any) => {
     await handler({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: req.__userId });
   },

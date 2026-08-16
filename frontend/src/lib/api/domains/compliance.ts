@@ -65,6 +65,23 @@ export function complianceApi(core: ApiCore) {
       });
     },
 
+    /** List the org's soft-deleted compliance rules (tombstones), most-recent
+     *  first — restorable until the retention sweep purges them. Powers the
+     *  RecentlyDeletedPanel. */
+    listDeletedComplianceRules: async (params?: Record<string, string>) => {
+      return core.request<ApiResponse<{ rules: ComplianceRule[] }>>(`/api/compliance/rules/deleted${buildQuery(params)}`);
+    },
+
+    /** Restore a soft-deleted compliance rule (undo delete within the retention
+     *  window). Step-up gated (reverses a destructive action): pass the token
+     *  from StepUpModal; the api forwards it as the `X-Step-Up-Token` header. */
+    restoreComplianceRule: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<undefined>>(`/api/compliance/rules/${id}/restore`, {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
     /** Validate plugin attributes against compliance rules (dry-run) */
     dryRunPluginCompliance: async (attributes: Record<string, unknown>) => {
       return core.request<ApiResponse<ComplianceCheckResult>>('/api/compliance/validate/plugin/dry-run', {
@@ -115,6 +132,23 @@ export function complianceApi(core: ApiCore) {
     deleteCompliancePolicy: async (id: string) => {
       return core.request<ApiResponse<{ message: string }>>(`/api/compliance/policies/${id}`, {
         method: 'DELETE',
+      });
+    },
+
+    /** List the org's soft-deleted compliance policies (tombstones), most-recent
+     *  first — restorable until the retention sweep purges them. Powers the
+     *  RecentlyDeletedPanel. */
+    listDeletedCompliancePolicies: async (params?: Record<string, string>) => {
+      return core.request<ApiResponse<{ policies: CompliancePolicy[] }>>(`/api/compliance/policies/deleted${buildQuery(params)}`);
+    },
+
+    /** Restore a soft-deleted compliance policy (undo delete within the retention
+     *  window). Step-up gated (reverses a destructive action): pass the token
+     *  from StepUpModal; the api forwards it as the `X-Step-Up-Token` header. */
+    restoreCompliancePolicy: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<undefined>>(`/api/compliance/policies/${id}/restore`, {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
       });
     },
 

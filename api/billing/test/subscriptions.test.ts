@@ -785,7 +785,7 @@ describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
       externalCustomerId: 'cus_LEAKED',
       stripeCustomerId: 'cus_LEAKED',
     });
-    mockSubscriptionFind.mockResolvedValue([sub]);
+    mockSubscriptionFind.mockReturnValue({ limit: jest.fn().mockResolvedValue([sub]) });
     mockCancelSubscription.mockResolvedValue(undefined);
 
     // withRoute mock gates on req.user.organizationId; the handler itself uses the
@@ -808,7 +808,7 @@ describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
   });
 
   it('looks up the manageable (non-terminal) set, not just active, for the provider-cancel sweep', async () => {
-    mockSubscriptionFind.mockResolvedValue([]);
+    mockSubscriptionFind.mockReturnValue({ limit: jest.fn().mockResolvedValue([]) });
     const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
     await handler(req, mockRes());
 
@@ -828,7 +828,7 @@ describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
       status: 'trialing',
       externalId: 'ext-trial-1',
     });
-    mockSubscriptionFind.mockResolvedValue([trialing]);
+    mockSubscriptionFind.mockReturnValue({ limit: jest.fn().mockResolvedValue([trialing]) });
     mockCancelSubscription.mockResolvedValue(undefined);
 
     const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
@@ -845,7 +845,7 @@ describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
       status: 'trialing',
       externalId: 'ext-trial-1',
     });
-    mockSubscriptionFind.mockResolvedValue([trialing]);
+    mockSubscriptionFind.mockReturnValue({ limit: jest.fn().mockResolvedValue([trialing]) });
     mockCancelSubscription.mockRejectedValue(new Error('provider down'));
 
     const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });

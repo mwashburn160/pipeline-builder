@@ -63,6 +63,15 @@ set -a; . "$ENV_FILE"; set +a
 # Grant minikube user read access to deploy assets (manifests, configs, nginx)
 # Exclude .env and auth dirs which contain secrets
 if [ "$(id -u)" = "0" ]; then
+  # DIRECTORIES must stay TRAVERSABLE (execute bit) for the minikube-user reader
+  # (`mk kubectl`). A recursive `chmod 644` over the deploy tree — or a checkout
+  # that lost dir x-bits — leaves directories at 0644, which cannot be traversed
+  # even by their owner, so a later read of a ConfigMap/cert *source file* dies
+  # with "permission denied" ("no objects passed to apply") even though the FILE
+  # itself is 0644-readable. Restore dir execute bits WITHOUT touching file modes
+  # (the 644 TLS/JWT key files stay 644): `+X` adds x only to directories (and
+  # already-executable files). Covers the full deploy path the reader traverses.
+  find "$DEPLOY_DIR" -type d -exec chmod a+rX {} + 2>/dev/null || true
   chmod -R o+rX "$DEPLOY_DIR/k8s" "$DEPLOY_DIR/config" "$DEPLOY_DIR/nginx" 2>/dev/null || true
   # Give .env to the minikube user (who owns and runs the stack) and keep it
   # READABLE (0644) so `startup.sh` re-run as ANY login user — root, minikube,
@@ -93,7 +102,7 @@ fi
 
 # -- Data directories ---------------------------------------------------------
 
-mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,loki,prometheus},registry-data,pgadmin-data,tmp} 2>/dev/null || true
+mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,loki,prometheus},minio-data/{1,2,3,4},pgadmin-data,tmp} 2>/dev/null || true
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$DATA_DIR/plugins-data/builds}"
 
 # -- Clean stale Docker state ------------------------------------------------
@@ -208,6 +217,15 @@ mkdir -p "$CERT_DIR"
 # registry secrets (token keypair + build-svc Basic-auth creds). No htpasswd/registry-auth-secret
 # — the registry uses token auth (REGISTRY_AUTH=token); nothing mounts registry.passwd.
 bash "$BIN_DIR/jwt-keys.sh" "$CERT_DIR"
+# Guarantee the minikube-user reader (pb_create_registry_secrets → mk kubectl)
+# can TRAVERSE cert dir + READ the freshly-written keypair, regardless of the
+# umask jwt-keys.sh created them under. Dir gets traverse bits; the key/crt keep
+# the intended 0644 (readable). This is the exact read that was failing with
+# "permission denied → no objects passed to apply" when a dir lost its x-bit.
+if [ "$(id -u)" = "0" ]; then
+  chmod a+rX "$CERT_DIR" 2>/dev/null || true
+  chmod 644 "$CERT_DIR/image-registry-jwt.key" "$CERT_DIR/image-registry-jwt.crt" 2>/dev/null || true
+fi
 pb_create_registry_secrets "$CERT_DIR/image-registry-jwt.key" "$CERT_DIR/image-registry-jwt.crt"
 echo "  registry token-signing keypair done"
 
@@ -230,7 +248,7 @@ log "Applying Kubernetes manifests"
 mk kubectl kustomize "$K8S_DIR" | envsubst '${BUILDKIT_MEMORY_LIMIT}' | mk kubectl apply -f -
 
 log "Post-deploy fixups"
-mk minikube ssh --profile="$PROFILE" -- "sudo chown -R 1000:1000 ${DATA_DIR}/registry-data"
+mk minikube ssh --profile="$PROFILE" -- "sudo chown -R 1000:1000 ${DATA_DIR}/minio-data"
 REGISTRY_IP=$(mk kubectl get svc registry -n "$NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
 [ -n "$REGISTRY_IP" ] && mk minikube ssh --profile="$PROFILE" -- \
   "T=\$(mktemp); grep -q '\\sregistry\$' /etc/hosts && { grep -v '\\sregistry\$' /etc/hosts > \"\$T\"; echo '$REGISTRY_IP registry' >> \"\$T\"; sudo cp \"\$T\" /etc/hosts; rm -f \"\$T\"; } || echo '$REGISTRY_IP registry' | sudo tee -a /etc/hosts >/dev/null"

@@ -190,7 +190,7 @@ flowchart TB
 | **Image Registry** | Stores and serves plugin images with token auth, per-org quotas, garbage collection |
 | **Compliance** | Per-organization rule enforcement (subscribe to the shared catalog), policy management, audit trail |
 | **Reporting** | Execution reports + build analytics via EventBridge |
-| **Quota / Billing / Message** | Resource limits, subscriptions, organization announcements |
+| **Quota / Billing / Message** | Resource limits, subscriptions, and messaging (announcements, conversations, per-user direct messages, file/image attachments) |
 
 See [Architecture Flow]({{ '/docs/architecture-flow.html' | relative_url }}) for end-to-end request → build → deploy diagrams.
 

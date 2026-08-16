@@ -20,6 +20,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { isServicePrincipal } from './auth.js';
 import { createEnvRedisClient } from '../services/env-redis.js';
 import { getHeaderString } from '../utils/headers.js';
 import { createLogger } from '../utils/logger.js';
@@ -119,6 +120,19 @@ export async function consumeStepUpJti(jti: string, expEpochSeconds: number): Pr
  * the `X-Step-Up-Token` header. Must run AFTER `requireAuth` (needs `req.user`).
  */
 export async function requireStepUp(req: Request, res: Response, next: NextFunction): Promise<void> {
+  // Verified internal service principals are EXEMPT: step-up is a re-verify-the-
+  // HUMAN gate (they replay a password-reverify token), which a service token
+  // structurally cannot produce. Services already bypass `requirePermission` on
+  // the same trust basis (a signed service JWT), and internal callers of a
+  // step-up-gated route — e.g. the platform org-cascade's `DELETE /quotas/:orgId`
+  // or the billing→quota entitlement sync — would otherwise be hard-blocked.
+  // Safe: a service token can only be minted with `JWT_SECRET`, so this can't be
+  // spoofed by an external client to skip step-up.
+  if (isServicePrincipal(req)) {
+    next();
+    return;
+  }
+
   const callerSub = (req as Request & { user?: { sub?: string } }).user?.sub;
   if (!callerSub) {
     sendError(res, 401, 'Authentication required', 'UNAUTHORIZED');

@@ -26,6 +26,7 @@
     "target": "ESNext",
     "types": [
       "express",
+      "multer",
       "node",
       "pg",
       "ws"

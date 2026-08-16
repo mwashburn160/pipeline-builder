@@ -31,6 +31,17 @@ export function createReadRuleRoutes(): Router {
     });
   }));
 
+  // GET /deleted — org's soft-deleted rule tombstones (most recent first),
+  // powering the "recently deleted" restore UI. Registered BEFORE `/:id` so the
+  // literal path isn't swallowed by the id matcher.
+  router.get('/deleted', withRoute(async ({ req, res, ctx, orgId }) => {
+    const { limit, offset } = parsePaginationParams(req.query);
+    const deleted = await complianceRuleService.findDeleted(orgId, { limit, offset });
+
+    ctx.log('COMPLETED', 'Listed deleted compliance rules', { count: deleted.length });
+    return sendSuccess(res, 200, { rules: deleted });
+  }));
+
   // GET /:id — single rule by ID
   router.get('/:id', withRoute(async ({ req, res, orgId }) => {
     const id = getParam(req.params, 'id');

@@ -1,0 +1,260 @@
+# =============================================================================
+# HA Redis via Sentinel — TEMPLATE (kept OUT of k8s/kustomization.yaml).
+#
+# Replaces the single-instance redis.yaml with a 3-node Redis (1 primary + 2
+# replicas) monitored by 3 Sentinels (quorum 2), so a single Redis pod loss
+# fails over automatically instead of taking down the shared Redis.
+#
+# Enable it:
+#   1. Remove `redis.yaml` from kustomization.yaml (or don't list this there —
+#      it is applied explicitly, like the backup-cronjob template).
+#   2. kubectl apply -f redis-sentinel.yaml
+#   3. Point the app at Sentinel — set in the `app-env` ConfigMap / .env:
+#        REDIS_SENTINELS=redis-sentinel-0.redis-sentinel-headless:26379,redis-sentinel-1.redis-sentinel-headless:26379,redis-sentinel-2.redis-sentinel-headless:26379
+#        REDIS_SENTINEL_MASTER=mymaster
+#      (createEnvRedisClient switches to Sentinel mode automatically — it then
+#       tracks the current primary + reconnects after a failover.)
+#   4. VALIDATE FAILOVER in a scratch cluster: `kubectl delete pod redis-0`,
+#      then confirm a replica is promoted (`redis-cli -p 26379 sentinel
+#      get-master-addr-by-name mymaster`) and the app keeps serving.
+#
+# PRODUCTION RECOMMENDATION: prefer a managed **ElastiCache for Redis/Valkey,
+# cluster-mode DISABLED, Multi-AZ + automatic failover** — it provides the same
+# Sentinel-style failover with no self-managed quorum/announce-IP fiddling.
+# Point REDIS_SENTINELS (or REDIS_URL) at it and delete this manifest.
+# =============================================================================
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-sentinel-config
+data:
+  redis-bootstrap.sh: |
+    #!/bin/sh
+    set -eu
+    # Determine the CURRENT primary from any Sentinel. On first boot no Sentinel
+    # knows it yet, so redis-0 bootstraps as primary and the others replicate it.
+    MASTER=""
+    for s in redis-sentinel-0 redis-sentinel-1 redis-sentinel-2; do
+      MASTER="$(redis-cli -h "$s.redis-sentinel-headless" -p 26379 sentinel get-master-addr-by-name mymaster 2>/dev/null | head -1 || true)"
+      [ -n "$MASTER" ] && break
+    done
+    if [ -z "$MASTER" ]; then
+      [ "$HOSTNAME" = "redis-0" ] && MASTER="" || MASTER="redis-0.redis-headless"
+    fi
+    # Announce the stable pod FQDN so Sentinel/replicas reach us after a restart.
+    {
+      echo "appendonly yes"
+      echo "replica-announce-ip ${HOSTNAME}.redis-headless"
+      echo "replica-announce-port 6379"
+    } > /etc/redis/runtime.conf
+    if [ -n "$MASTER" ] && [ "$MASTER" != "${HOSTNAME}.redis-headless" ]; then
+      echo "replicaof $MASTER 6379" >> /etc/redis/runtime.conf
+    fi
+    exec redis-server /etc/redis/runtime.conf --maxmemory 256mb --maxmemory-policy noeviction
+  sentinel-bootstrap.sh: |
+    #!/bin/sh
+    set -eu
+    # Monitor whatever redis-0 currently resolves to on first boot; Sentinel then
+    # tracks failovers itself and rewrites its own config.
+    until getent hosts redis-0.redis-headless >/dev/null 2>&1; do echo "waiting for redis-0..."; sleep 2; done
+    MASTER_IP="$(getent hosts redis-0.redis-headless | awk '{print $1}' | head -1)"
+    cat > /etc/redis/sentinel.conf <<EOF
+    port 26379
+    sentinel monitor mymaster ${MASTER_IP} 6379 2
+    sentinel down-after-milliseconds mymaster 5000
+    sentinel failover-timeout mymaster 60000
+    sentinel parallel-syncs mymaster 1
+    sentinel announce-ip ${HOSTNAME}.redis-sentinel-headless
+    sentinel announce-port 26379
+    EOF
+    exec redis-sentinel /etc/redis/sentinel.conf
+---
+# Headless service — stable per-pod DNS (redis-0.redis-headless, …).
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-headless
+  labels: { app: redis }
+spec:
+  clusterIP: None
+  selector: { app: redis }
+  ports:
+    - { port: 6379, targetPort: 6379, name: redis }
+---
+# Client-facing service (data plane). Clients normally reach Redis via Sentinel,
+# but this keeps a stable name for direct/debug access to whichever pod answers.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels: { app: redis }
+spec:
+  type: ClusterIP
+  selector: { app: redis }
+  ports:
+    - { port: 6379, targetPort: 6379, name: redis }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  labels: { app: redis, app.kubernetes.io/component: cache }
+spec:
+  serviceName: redis-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis, app.kubernetes.io/component: cache }
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector: { matchLabels: { app: redis } }
+                topologyKey: kubernetes.io/hostname
+      securityContext: { runAsUser: 999, runAsNonRoot: true, fsGroup: 999 }
+      containers:
+        - name: redis
+          image: redis:8-alpine
+          command: ["sh", "/scripts/redis-bootstrap.sh"]
+          ports:
+            - { containerPort: 6379, name: redis }
+          readinessProbe:
+            exec: { command: ["redis-cli", "ping"] }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            exec: { command: ["redis-cli", "ping"] }
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "50m", memory: 128Mi }
+            limits: { cpu: "300m", memory: 320Mi }
+          volumeMounts:
+            - { name: scripts, mountPath: /scripts, readOnly: true }
+            - { name: conf, mountPath: /etc/redis }
+            - { name: data, mountPath: /data }
+      volumes:
+        - name: scripts
+          configMap: { name: redis-sentinel-config, defaultMode: 0555 }
+        - name: conf
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        storageClassName: pb-ebs
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 1Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-sentinel-headless
+  labels: { app: redis-sentinel }
+spec:
+  clusterIP: None
+  selector: { app: redis-sentinel }
+  ports:
+    - { port: 26379, targetPort: 26379, name: sentinel }
+---
+# Client-facing Sentinel service (REDIS_SENTINELS may also target the per-pod
+# headless names for direct discovery).
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-sentinel
+  labels: { app: redis-sentinel }
+spec:
+  type: ClusterIP
+  selector: { app: redis-sentinel }
+  ports:
+    - { port: 26379, targetPort: 26379, name: sentinel }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-sentinel
+  labels: { app: redis-sentinel, app.kubernetes.io/component: cache }
+spec:
+  serviceName: redis-sentinel-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels: { app: redis-sentinel }
+  template:
+    metadata:
+      labels: { app: redis-sentinel, app.kubernetes.io/component: cache }
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector: { matchLabels: { app: redis-sentinel } }
+                topologyKey: kubernetes.io/hostname
+      securityContext: { runAsUser: 999, runAsNonRoot: true, fsGroup: 999 }
+      containers:
+        - name: sentinel
+          image: redis:8-alpine
+          command: ["sh", "/scripts/sentinel-bootstrap.sh"]
+          ports:
+            - { containerPort: 26379, name: sentinel }
+          readinessProbe:
+            exec: { command: ["redis-cli", "-p", "26379", "ping"] }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "25m", memory: 32Mi }
+            limits: { cpu: "100m", memory: 64Mi }
+          volumeMounts:
+            - { name: scripts, mountPath: /scripts, readOnly: true }
+            - { name: conf, mountPath: /etc/redis }
+      volumes:
+        - name: scripts
+          configMap: { name: redis-sentinel-config, defaultMode: 0555 }
+        - name: conf
+          emptyDir: {}
+---
+# NetworkPolicies — make the template drop-in under the default-deny-ingress.
+# App services reach the Redis data nodes (6379) and Sentinels (26379); Redis
+# pods + Sentinels talk among themselves for replication + monitoring.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis-ingress
+spec:
+  podSelector:
+    matchLabels: { app: redis }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, pipeline, plugin, message, quota, billing, compliance, reporting, image-registry, redis, redis-sentinel]
+      ports:
+        - { port: 6379 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis-sentinel-ingress
+spec:
+  podSelector:
+    matchLabels: { app: redis-sentinel }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, pipeline, plugin, message, quota, billing, compliance, reporting, image-registry, redis, redis-sentinel]
+      ports:
+        - { port: 26379 }

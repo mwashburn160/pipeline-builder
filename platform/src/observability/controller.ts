@@ -32,6 +32,7 @@ import {
 } from './catalog.js';
 import * as loki from './loki-client.js';
 import * as prom from './prometheus-client.js';
+import { audit } from '../helpers/audit.js';
 import { isSystemAdmin, requireAuth, withController } from '../helpers/controller-helper.js';
 import { isReasonableString } from '../utils/string-guards.js';
 
@@ -365,6 +366,14 @@ export const observabilitySilenceCreate = withController('Observability silence 
       createdBy,
       comment: body.comment,
     });
+    // Audit — creating a silence SUPPRESSES the org's alerts (detection-evasion
+    // vector), so it has high forensic value. Safe metadata only (no matcher
+    // values that might carry sensitive labels beyond count).
+    audit(req, 'observability.silence.create', {
+      targetType: 'silence',
+      targetId: silenceID,
+      details: { matcherCount: cleanedMatchers.length, endsAt, comment: body.comment },
+    });
     sendSuccess(res, 201, { silenceID });
   } catch (err) {
     sendUpstreamError(res, err);
@@ -409,6 +418,7 @@ export const observabilitySilenceDelete = withController('Observability silence 
 
   try {
     await am.deleteSilence(id);
+    audit(req, 'observability.silence.delete', { targetType: 'silence', targetId: id });
     sendSuccess(res, 200, undefined, 'Silence expired');
   } catch (err) {
     sendUpstreamError(res, err);

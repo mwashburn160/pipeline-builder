@@ -19,6 +19,12 @@ const mockBuildMessageConditions = jest.fn((_filter: unknown, _orgId: string): u
 // The real `@pipeline-builder/api-core` barrel only re-exports a stale built
 // `createCacheService`; mock it with a pass-through cache so reads still hit the
 // underlying service methods (getOrSet invokes its loader) and invalidation is a no-op.
+// message-service imports deleteAttachments from attachment-storage (which pulls
+// in the S3 SDK + api-core env helpers). Stub it so the service loads cleanly.
+jest.unstable_mockModule('../src/services/attachment-storage.js', () => ({
+  deleteAttachments: jest.fn(async () => undefined),
+}));
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createCacheService: () => ({
     get: jest.fn(),
@@ -115,6 +121,7 @@ jest.unstable_mockModule('drizzle-orm', () => ({
   ilike: jest.fn((col: any, val: any) => ({ col, val, op: 'ilike' })),
   eq: jest.fn((col: any, val: any) => ({ col, val, op: 'eq' })),
   and: jest.fn((...args: any[]) => args),
+  inArray: jest.fn((col: any, vals: any) => ({ col, vals, op: 'inArray' })),
   sql: Object.assign(
     jest.fn((..._args: any[]) => ({ _kind: 'sql' })),
     { [Symbol.for('drizzle.sql')]: true },
@@ -291,7 +298,7 @@ describe('MessageService', () => {
       await service.markAsRead('msg-1', 'org-1', 'user-1');
 
       expect(mockBuildMessageConditions).toHaveBeenCalledWith(
-        { id: 'msg-1', isActive: true },
+        { id: 'msg-1', isActive: true, viewerUserId: 'user-1' },
         'org-1',
       );
     });
@@ -309,9 +316,9 @@ describe('MessageService', () => {
       await service.markAsRead('msg-1', 'org-1', 'user-1');
 
       // Called for both the update predicate and the fallback existence select,
-      // each with the shared {id, isActive:true} filter.
+      // each with the shared {id, isActive:true} filter + the viewer id.
       expect(mockBuildMessageConditions).toHaveBeenCalledWith(
-        { id: 'msg-1', isActive: true },
+        { id: 'msg-1', isActive: true, viewerUserId: 'user-1' },
         'org-1',
       );
       expect(mockBuildMessageConditions).toHaveBeenCalledTimes(2);
@@ -336,9 +343,10 @@ describe('MessageService', () => {
         updatedBy: 'user-1',
       }));
       expect(result).toEqual(updated);
-      // Participant predicate centralized through the shared builder (thread-scoped).
+      // Participant predicate centralized through the shared builder (thread-scoped),
+      // scoped to the calling user for per-user targeted rows.
       expect(mockBuildMessageConditions).toHaveBeenCalledWith(
-        { threadId: 'root-1', isActive: true },
+        { threadId: 'root-1', isActive: true, viewerUserId: 'user-1' },
         'org-1',
       );
     });

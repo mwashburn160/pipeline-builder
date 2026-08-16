@@ -5,14 +5,24 @@ import type { Request, Response } from 'express';
 import { sendBadRequest, sendInternalError } from '../utils/response.js';
 
 /**
- * Set SSE response headers and flush.
- * Returns an `aborted()` function to check if the client disconnected.
+ * Set the four standard SSE response headers (does NOT flush — the caller flushes
+ * after any additional per-endpoint setup like `res.setTimeout`). The single
+ * source of truth for the `text/event-stream` + no-cache + keep-alive +
+ * `X-Accel-Buffering: no` (disable nginx buffering) block.
  */
-export function initSSEStream(req: Request, res: Response, timeoutMs: number): { aborted: () => boolean } {
+export function writeSseHeaders(res: Response): void {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
+}
+
+/**
+ * Set SSE response headers and flush.
+ * Returns an `aborted()` function to check if the client disconnected.
+ */
+export function initSSEStream(req: Request, res: Response, timeoutMs: number): { aborted: () => boolean } {
+  writeSseHeaders(res);
   res.setTimeout(timeoutMs);
   res.flushHeaders();
   let _aborted = false;

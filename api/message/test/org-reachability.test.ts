@@ -27,18 +27,21 @@ const SYSTEM_ORG = '000000000000000000000001';
 // resolveRootOrgIdWith lets us assert the allow/deny/fail-closed policy without
 // any HTTP. fetchParentOrgId is stubbed but never invoked (the mock ignores the cb).
 const mockResolveRoot = jest.fn<(orgId: string, cb: unknown) => Promise<string>>();
+// Platform membership probe backing `isTargetUserReachable`.
+const mockFetchMembership = jest.fn<(orgId: string, userId: string, opts: unknown) => Promise<boolean | undefined>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   SYSTEM_ORG_ID: SYSTEM_ORG,
   fetchParentOrgId: jest.fn(),
   resolveRootOrgIdWith: (orgId: string, cb: unknown) => mockResolveRoot(orgId, cb),
+  fetchOrgMembership: (orgId: string, userId: string, opts: unknown) => mockFetchMembership(orgId, userId, opts),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   Config: { get: () => ({ services: { platformHost: 'platform', platformPort: 3000 } }) },
 }));
 
-const { isRecipientReachable } = await import('../src/helpers/org-reachability.js');
+const { isRecipientReachable, isTargetUserReachable } = await import('../src/helpers/org-reachability.js');
 
 describe('isRecipientReachable', () => {
   beforeEach(() => {
@@ -103,5 +106,46 @@ describe('isRecipientReachable', () => {
 
       expect(ok).toBe(false);
     });
+  });
+});
+
+describe('isTargetUserReachable', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('allows when platform confirms active membership (and lowercases the org)', async () => {
+    mockFetchMembership.mockResolvedValue(true);
+
+    const ok = await isTargetUserReachable('ORG-1', 'user-42');
+
+    expect(ok).toBe(true);
+    expect(mockFetchMembership).toHaveBeenCalledWith('org-1', 'user-42', expect.any(Object));
+  });
+
+  it('rejects only on a DEFINITIVE not-a-member (false)', async () => {
+    mockFetchMembership.mockResolvedValue(false);
+
+    const ok = await isTargetUserReachable('org-1', 'ghost');
+
+    expect(ok).toBe(false);
+  });
+
+  it('FAILS OPEN on an indeterminate lookup (undefined)', async () => {
+    // This is a correctness guard, not an authz boundary, so an unknown result
+    // must not block a legitimate send.
+    mockFetchMembership.mockResolvedValue(undefined);
+
+    const ok = await isTargetUserReachable('org-1', 'user-42');
+
+    expect(ok).toBe(true);
+  });
+
+  it('FAILS OPEN when the lookup throws (transport error)', async () => {
+    mockFetchMembership.mockRejectedValue(new Error('platform unreachable'));
+
+    const ok = await isTargetUserReachable('org-1', 'user-42');
+
+    expect(ok).toBe(true);
   });
 });

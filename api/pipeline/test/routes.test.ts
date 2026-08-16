@@ -21,6 +21,7 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
     findPaginated: mockFindPaginated,
     find: mockFind,
+    findFirst: mockFind,
     findById: mockFindById,
   },
 }));
@@ -81,6 +82,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: () => undefined,
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   getContext: (req: any) => mockGetContext(req),
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
@@ -285,7 +287,7 @@ describe('GET /pipelines/find', () => {
 
   it('returns the first matching pipeline', async () => {
     const pipeline = { id: '1', pipelineName: 'build' };
-    mockFind.mockResolvedValue([pipeline]);
+    mockFind.mockResolvedValue(pipeline);
 
     const req = mockReq();
     const res = mockRes();
@@ -301,7 +303,7 @@ describe('GET /pipelines/find', () => {
   });
 
   it('returns 404 when no pipeline found', async () => {
-    mockFind.mockResolvedValue([]);
+    mockFind.mockResolvedValue(null);
 
     const req = mockReq();
     const res = mockRes();
@@ -311,7 +313,7 @@ describe('GET /pipelines/find', () => {
   });
 
   it('forwards parentOrganizationId to find (org → team widening)', async () => {
-    mockFind.mockResolvedValue([{ id: '1', pipelineName: 'build' }]);
+    mockFind.mockResolvedValue({ id: '1', pipelineName: 'build' });
 
     await handler(mockReq({ user: { parentOrganizationId: 'parent-org' } }), mockRes());
 

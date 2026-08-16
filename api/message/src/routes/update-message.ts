@@ -9,6 +9,8 @@ import {
   requirePermission,
   sendEntityNotFound,
   errorMessage,
+  validateBody,
+  MessageEditSchema,
 } from '@pipeline-builder/api-core';
 import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
@@ -25,6 +27,45 @@ import { messageService } from '../services/message-service.js';
  */
 export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
   const router = Router();
+
+  // PATCH /messages/:id — Edit a sent message's content (author-only, enforced
+  // in the service). Requires messages:write. Only the body is mutable.
+  router.patch('/:id', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const id = getParam(req.params, 'id');
+    if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
+
+    const validation = validateBody(req, MessageEditSchema);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+
+    ctx.log('INFO', 'Editing message', { id });
+
+    const updated = await messageService.editContent(id, orgId, userId, validation.value.content);
+    // Null = not the author / not found / soft-deleted. Return 404 (don't leak
+    // whether a message the caller can't edit exists) rather than a 403.
+    if (!updated) return sendEntityNotFound(res, 'Message');
+
+    ctx.log('COMPLETED', 'Message edited', { id });
+
+    // Notify the other party's org so an open thread refreshes to the new text.
+    // Best-effort; the edit already persisted. Carries no content (the client
+    // refetches — server-side visibility still gates who can read it).
+    try {
+      const audienceOrg = updated.recipientOrgId.toLowerCase() === orgId
+        ? updated.orgId.toLowerCase()
+        : updated.recipientOrgId.toLowerCase();
+      if (audienceOrg && audienceOrg !== '*') {
+        sseManager.send(audienceOrg, 'MESSAGE', 'Message edited', {
+          action: 'MESSAGE_EDITED' as const,
+          messageId: updated.id,
+          threadId: updated.threadId ?? updated.id,
+        });
+      }
+    } catch (err) {
+      ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
+    }
+
+    return sendSuccess(res, 200, { message: updated }, 'Message updated');
+  }));
 
   // PUT /messages/:id/read — Mark message as read (messaging read floor)
   router.put('/:id/read', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId, userId }) => {

@@ -130,6 +130,21 @@ function comboDelta(
   };
 }
 
+/** Emit a `combo_expired` billing event + audit record for each combo a bundle
+ *  change dropped. Shared by the add and remove handlers (was copy-pasted). */
+async function recordLostCombos(orgId: string, lost: ComboChange[], subscriptionId: string, actorId?: string): Promise<void> {
+  for (const c of lost) {
+    await createBillingEvent(orgId, 'combo_expired', { comboId: c.comboId }, subscriptionId, actorId);
+    getAuditClient().record({
+      action: 'billing.combo.expired',
+      actorId: actorId ?? 'system',
+      orgId,
+      targetId: c.comboId,
+      details: { comboId: c.comboId, creditCents: c.creditCents, subscriptionId },
+    }, 'billing');
+  }
+}
+
 /**
  * Add-on bundle management routes (root-org billing; behind
  * `BILLING_BUNDLES_ENABLED`). See docs/billing-bundles.md §7/§7a.
@@ -285,7 +300,7 @@ export function createAddonRoutes(): Router {
         ? await provider.hasPaymentMethod(subscription.externalCustomerId ?? '').catch(() => false)
         : true;
       if (!chargeable) {
-        return sendError(res, 402, 'Add a payment method before purchasing add-ons', 'PAYMENT_METHOD_REQUIRED');
+        return sendError(res, 402, 'Add a payment method before purchasing add-ons', ErrorCode.PAYMENT_METHOD_REQUIRED);
       }
     }
 
@@ -293,7 +308,7 @@ export function createAddonRoutes(): Router {
     // (an increase never trips it). Structured details drive the UI's "remove N".
     const overages = await checkEntitlementOvercap(orgId, plan.tier, next, '');
     if (overages.length > 0) {
-      return sendError(res, 409, 'This change would put the account over its limit — remove members/resources first', 'ADDON_OVER_CAP', { overages });
+      return sendError(res, 409, 'This change would put the account over its limit — remove members/resources first', ErrorCode.ADDON_OVER_CAP, { overages });
     }
 
     subscription.addons = next;
@@ -326,16 +341,7 @@ export function createAddonRoutes(): Router {
     // A combo can end even on an ADD when the new packing drops a lower-value combo
     // that shared a member. Record combo_expired for any combo the change lost.
     const delta = comboDelta(current, next, bundles, subscription.interval);
-    for (const c of delta.lostCombos) {
-      await createBillingEvent(orgId, 'combo_expired', { comboId: c.comboId }, subscription._id.toString(), req.user?.sub);
-      getAuditClient().record({
-        action: 'billing.combo.expired',
-        actorId: req.user?.sub ?? 'system',
-        orgId,
-        targetId: c.comboId,
-        details: { comboId: c.comboId, creditCents: c.creditCents, subscriptionId: subscription._id.toString() },
-      }, 'billing');
-    }
+    await recordLostCombos(orgId, delta.lostCombos, subscription._id.toString(), req.user?.sub);
 
     const { limits } = effectiveEntitlements(plan.tier, next, bundles);
     return sendSuccess(res, 200, {
@@ -366,7 +372,7 @@ export function createAddonRoutes(): Router {
 
     const overages = await checkEntitlementOvercap(orgId, plan.tier, next, '');
     if (overages.length > 0) {
-      return sendError(res, 409, 'Removing this bundle would put the account over its limit — remove members/resources first', 'ADDON_OVER_CAP', { overages });
+      return sendError(res, 409, 'Removing this bundle would put the account over its limit — remove members/resources first', ErrorCode.ADDON_OVER_CAP, { overages });
     }
 
     subscription.addons = next;
@@ -397,16 +403,7 @@ export function createAddonRoutes(): Router {
     const bundles = getBundleCatalog();
     // Record combo_expired for any combo this removal ended.
     const delta = comboDelta(current, next, bundles, subscription.interval);
-    for (const c of delta.lostCombos) {
-      await createBillingEvent(orgId, 'combo_expired', { comboId: c.comboId }, subscription._id.toString(), req.user?.sub);
-      getAuditClient().record({
-        action: 'billing.combo.expired',
-        actorId: req.user?.sub ?? 'system',
-        orgId,
-        targetId: c.comboId,
-        details: { comboId: c.comboId, creditCents: c.creditCents, subscriptionId: subscription._id.toString() },
-      }, 'billing');
-    }
+    await recordLostCombos(orgId, delta.lostCombos, subscription._id.toString(), req.user?.sub);
 
     const { limits } = effectiveEntitlements(plan.tier, next, bundles);
     return sendSuccess(res, 200, {

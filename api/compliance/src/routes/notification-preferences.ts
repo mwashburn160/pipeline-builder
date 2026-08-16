@@ -45,8 +45,10 @@ const PreferenceUpdateSchema = z.object({
   // null clears the list (→ all org admins). Empty array also means "no explicit
   // recipients"; we normalise it to null below.
   targetUsers: z.array(z.string().min(1)).nullable().optional(),
-  // null/'' clears the webhook; a non-empty string sets it.
-  webhookUrl: z.string().url().nullable().optional(),
+  // null/'' clears the webhook; a non-empty string sets it. Require https up
+  // front — delivery (resolveSafeWebhookTarget) rejects non-https, so accepting
+  // http here would silently fail on every future send instead of 400-ing now.
+  webhookUrl: z.string().url().refine((u) => u.startsWith('https://'), 'webhook url must use https').nullable().optional(),
   // Omit to keep the existing secret; '' clears it.
   webhookSecret: z.string().nullable().optional(),
 }).strict();

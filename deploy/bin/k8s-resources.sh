@@ -61,6 +61,7 @@ pb_create_config_maps() {
   pb_configmap nginx-njs           --from-file=jwt.js="$_nginx/jwt.js" --from-file=metrics.js="$_nginx/metrics.js" --from-file=registry-auth.js="$_nginx/registry-auth.js"
   pb_configmap loki-config         --from-file=loki-config.yml="$_config/loki/loki-config.yml"
   pb_configmap prometheus-config   --from-file=prometheus.yml="$_config/prometheus/prometheus.yml" --from-file=alert-rules.yml="$_config/prometheus/alert-rules.yml"
+  pb_configmap thanos-objstore     --from-file=objstore.yml="$_config/thanos/objstore.yml"
   pb_configmap alertmanager-config --from-file=alertmanager.yml="$_config/alertmanager/alertmanager.yml"
   pb_configmap promtail-config     --from-file=promtail-config.yml="$_config/promtail/promtail-config.yml"
 }

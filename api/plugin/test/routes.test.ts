@@ -21,6 +21,7 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: {
     findPaginated: mockFindPaginated,
     find: mockFind,
+    findFirst: mockFind,
     findById: mockFindById,
   },
 }));
@@ -277,7 +278,7 @@ describe('GET /plugins/find', () => {
 
   it('returns the first matching plugin', async () => {
     const plugin = { id: '1', name: 'lint' };
-    mockFind.mockResolvedValue([plugin]);
+    mockFind.mockResolvedValue(plugin);
 
     const req = mockReq();
     const res = mockRes();
@@ -293,7 +294,7 @@ describe('GET /plugins/find', () => {
   });
 
   it('returns 404 when no plugin found', async () => {
-    mockFind.mockResolvedValue([]);
+    mockFind.mockResolvedValue(null);
 
     const req = mockReq();
     const res = mockRes();

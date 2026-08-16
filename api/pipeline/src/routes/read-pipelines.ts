@@ -68,8 +68,7 @@ export function createReadPipelineRoutes(
     // Org → team hierarchy: also match the parent's public pipelines (mirrors
     // the list path). No-op for root orgs (claim absent).
     const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
-    const pipelines = await pipelineService.find(filter.value, orgId, parentOrgId);
-    const result = pipelines[0];
+    const result = await pipelineService.findFirst(filter.value, orgId, parentOrgId);
 
     if (!result) return sendEntityNotFound(res, 'Pipeline');
 

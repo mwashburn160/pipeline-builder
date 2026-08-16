@@ -12,7 +12,7 @@ import {
   validateBody,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { createAuthenticatedWithOrgRoute, withRoute, checkQuota, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
+import { createAuthenticatedWithOrgRoute, withRoute, checkQuota, incrementQuotaFromCtx, incCounter } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { emitPipelineAudit } from '../services/audit.js';
@@ -84,6 +84,10 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
         const { executionId } = await pipelineExecutionService.triggerExecution(pipelineId, orgId);
         ctx.log('COMPLETED', 'Triggered pipeline execution', { pipelineId, executionId });
 
+        // Domain metric — CodePipeline execution started. Tagged by outcome only;
+        // pipelineId/orgId are deliberately omitted to keep label cardinality bounded.
+        incCounter('pipeline_executions_total', { outcome: 'started' });
+
         // Meter the successful trigger against the org's apiCalls budget.
         incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
@@ -99,6 +103,7 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
 
         return sendSuccess(res, 202, { executionId });
       } catch (err) {
+        incCounter('pipeline_executions_total', { outcome: 'failed' });
         const code = errorMessage(err);
         if (code === PE_PIPELINE_NOT_REGISTERED) {
           return sendError(res, 404, 'Pipeline is not deployed/registered', ErrorCode.NOT_FOUND);
@@ -133,6 +138,9 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
         abandon: validation.value.abandon,
       });
       ctx.log('COMPLETED', 'Stopped pipeline execution', { pipelineId, executionId });
+
+      // Domain metric — CodePipeline execution stopped/cancelled.
+      incCounter('pipeline_executions_total', { outcome: 'stopped' });
 
       // Best-effort attributed audit — the AWS CodePipeline stop succeeded.
       emitPipelineAudit({

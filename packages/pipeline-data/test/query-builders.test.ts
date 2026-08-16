@@ -117,6 +117,27 @@ describe('buildMessageConditions', () => {
     expect(conditions.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('viewerUserId scopes visibility WITHIN the access-control branch (no extra top-level condition)', () => {
+    // The viewer id widens the recipient sub-branch of the single access-control
+    // OR; it must NOT add a separate top-level predicate (which would AND-narrow
+    // the whole query and hide broadcasts / the sender's own rows).
+    const withViewer = buildMessageConditions({ viewerUserId: 'user-1' }, 'org-1');
+    const withoutViewer = buildMessageConditions({}, 'org-1');
+    expect(withViewer.length).toBe(withoutViewer.length);
+  });
+
+  it('explicit recipientUserId adds a column filter', () => {
+    const withUser = buildMessageConditions({ recipientUserId: 'user-1' }, 'org-1');
+    const without = buildMessageConditions({}, 'org-1');
+    expect(withUser.length).toBeGreaterThan(without.length);
+  });
+
+  it('recipientUserId: null adds an IS NULL (org-wide only) filter', () => {
+    const orgWide = buildMessageConditions({ recipientUserId: null }, 'org-1');
+    const without = buildMessageConditions({}, 'org-1');
+    expect(orgWide.length).toBeGreaterThan(without.length);
+  });
+
   it('defaults isActive to true when not specified', () => {
     const conditions = buildMessageConditions({}, 'org-1');
     // Should include isActive=true condition
@@ -181,6 +202,29 @@ describe('buildMessageConditions', () => {
     // Should not throw even with uppercase orgId
     const conditions = buildMessageConditions({}, 'ORG-1');
     expect(conditions.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('adds a single free-text search predicate (subject OR content)', () => {
+    const withSearch = buildMessageConditions({ search: 'invoice' }, 'org-1');
+    const without = buildMessageConditions({}, 'org-1');
+    // One extra top-level condition — the internal subject-OR-content is a single
+    // OR clause, so it must not narrow the query beyond one predicate.
+    expect(withSearch.length).toBe(without.length + 1);
+  });
+
+  it('ignores an all-whitespace search term (no predicate)', () => {
+    const blank = buildMessageConditions({ search: '   ' }, 'org-1');
+    const without = buildMessageConditions({}, 'org-1');
+    expect(blank.length).toBe(without.length);
+  });
+
+  it('does not throw on LIKE-wildcard characters in the search term', () => {
+    // Wildcards are escaped by the builder; a term of pure wildcards is still a
+    // valid literal substring search.
+    expect(() => buildMessageConditions({ search: '100%_off' }, 'org-1')).not.toThrow();
+    const withSearch = buildMessageConditions({ search: '100%_off' }, 'org-1');
+    const without = buildMessageConditions({}, 'org-1');
+    expect(withSearch.length).toBe(without.length + 1);
   });
 });
 

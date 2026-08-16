@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ReactNode } from 'react';
+import { BaseAlert } from './BaseAlert';
 
 interface SuccessAlertProps {
   /** Success text/content. Renders nothing when falsy. */
@@ -12,14 +13,6 @@ interface SuccessAlertProps {
 }
 
 /** The `.alert-success` banner counterpart to {@link ErrorAlert}. */
-export function SuccessAlert({ message, onDismiss, className = '' }: SuccessAlertProps) {
-  if (!message) return null;
-  return (
-    <div className={['alert-success', className].filter(Boolean).join(' ')} role="status">
-      <p>{message}</p>
-      {onDismiss && (
-        <button onClick={onDismiss} className="action-link mt-2 underline">Dismiss</button>
-      )}
-    </div>
-  );
+export function SuccessAlert({ message, onDismiss, className }: SuccessAlertProps) {
+  return <BaseAlert variant="success" message={message} onDismiss={onDismiss} className={className} />;
 }

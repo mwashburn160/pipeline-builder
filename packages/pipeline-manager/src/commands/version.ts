@@ -243,10 +243,7 @@ export function version(program: Command): void {
         });
       }
     });
-
-  // Also support -v and --version flags at root level
-  program.on('option:version', () => {
-    console.log(`${APP_NAME} v${APP_VERSION}`);
-    process.exit(0);
-  });
+  // NOTE: `-v`/`--version` is handled by commander's own `.version(...)` in
+  // cli.ts (registered first, so it exits before any custom option:version
+  // listener would run) — a duplicate listener here was dead code.
 }

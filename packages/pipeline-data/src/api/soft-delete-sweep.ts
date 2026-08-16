@@ -19,7 +19,7 @@
  * per-org operation.
  */
 
-import { createLogger, createScheduler, createEnvRedisLock, type Scheduler } from '@pipeline-builder/api-core';
+import { createLogger, createScheduler, createEnvRedisLock, closeLeaderLock, type Scheduler } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '../database/tenancy.js';
 
 const logger = createLogger('soft-delete-sweep');
@@ -140,11 +140,21 @@ export function createSoftDeletePurgeScheduler(opts: SoftDeletePurgeSchedulerOpt
     locked: !!lock,
   });
 
-  return createScheduler({
+  const scheduler = createScheduler({
     name: `soft-delete-purge:${opts.service}`,
     intervalMs,
     startupDelayMs,
     run: async () => { await runSoftDeletePurge(opts.entities, opts); },
     ...(lock ? { lock: { redis: () => lock, key: `soft-delete-purge:${opts.service}:leader`, ttlMs: lockTtlMs } } : {}),
   });
+  if (!lock) return scheduler;
+
+  // Own the leader-lock Redis client's lifecycle: `stop()` (wired to the
+  // service's runServer onShutdown) also closes the connection so it can't keep
+  // the process from exiting cleanly. Per-cycle lock acquire/release is handled
+  // by withLeaderLock; this is just connection teardown.
+  return {
+    start: () => scheduler.start(),
+    stop: () => { scheduler.stop(); void closeLeaderLock(lock); },
+  };
 }

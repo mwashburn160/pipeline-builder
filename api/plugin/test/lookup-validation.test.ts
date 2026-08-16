@@ -24,7 +24,7 @@ const mockSendSuccess = jest.fn((res: any, status: number, data: any) =>
 const mockSendEntityNotFound = jest.fn((res: any) => res.status(404).json({}));
 
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
-  pluginService: { find: mockFind, findPaginated: jest.fn(), findById: jest.fn() },
+  pluginService: { find: mockFind, findFirst: mockFind, findPaginated: jest.fn(), findById: jest.fn() },
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -122,7 +122,7 @@ describe('POST /plugins/lookup — filter validation', () => {
   });
 
   it('accepts whitelisted fields and returns the plugin', async () => {
-    mockFind.mockResolvedValue([{ id: 'p1', name: 'mine', keywords: [], installCommands: [], commands: [] }]);
+    mockFind.mockResolvedValue({ id: 'p1', name: 'mine', keywords: [], installCommands: [], commands: [] });
     const handler = getLookupHandler();
     const { res } = makeRes();
     await handler({ body: { filter: { name: 'mine' } } }, res);
@@ -133,7 +133,7 @@ describe('POST /plugins/lookup — filter validation', () => {
   });
 
   it('returns 404 when no plugin matches', async () => {
-    mockFind.mockResolvedValue([]);
+    mockFind.mockResolvedValue(null);
     const handler = getLookupHandler();
     const { res } = makeRes();
     await handler({ body: { filter: { name: 'missing' } } }, res);

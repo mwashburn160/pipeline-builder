@@ -191,6 +191,26 @@ export interface MessageFilter extends CommonFilter {
   readonly recipientOrgId?: string;
 
   /**
+   * Recipient user ID to filter by (per-user targeting within the recipient
+   * org). Pass `null` to match org-wide messages only (recipient_user_id IS
+   * NULL). Rarely set directly by callers — see `viewerUserId` for the
+   * visibility-scoping variant.
+   */
+  readonly recipientUserId?: string | null;
+
+  /**
+   * The VIEWER's user ID, used purely to scope visibility of per-user targeted
+   * messages — NOT a column filter. When present, the recipient-side visibility
+   * branch in `buildMessageConditions` widens to include messages targeted at
+   * this user (recipient_user_id = viewerUserId) in addition to org-wide ones
+   * (recipient_user_id IS NULL). When absent, only org-wide recipient messages
+   * are visible on the recipient side (a user-targeted message stays private to
+   * its target, the sender, and the system org). This is how the message read
+   * paths thread the authenticated user through the shared CrudService filter.
+   */
+  readonly viewerUserId?: string;
+
+  /**
    * Message type filter
    */
   readonly messageType?: 'announcement' | 'conversation';
@@ -216,6 +236,14 @@ export interface MessageFilter extends CommonFilter {
    * - undefined → no read-state filter
    */
   readonly isRead?: boolean;
+
+  /**
+   * Free-text inbox search. Case-insensitive substring match against the
+   * message `subject` OR `content` (LIKE wildcards in the term are escaped, so a
+   * literal `%`/`_` matches itself). Applied on top of the visibility scope, so
+   * it never widens what the caller can see.
+   */
+  readonly search?: string;
 }
 
 // ========================================

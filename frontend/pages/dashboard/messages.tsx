@@ -1,7 +1,8 @@
 import { useState, useCallback, useMemo } from 'react';
-import { Plus, MessageCircle } from 'lucide-react';
+import { Plus, MessageCircle, Search, X } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useMessages } from '@/hooks/useMessages';
+import { useDebounce } from '@/hooks/useDebounce';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
@@ -9,11 +10,15 @@ import { Button } from '@/components/ui/Button';
 import { MessageList } from '@/components/message/MessageList';
 import { ThreadView } from '@/components/message/ThreadView';
 import { ComposeModal } from '@/components/message/ComposeModal';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/hooks/useAuth';
 import { useFeatures } from '@/hooks/useFeatures';
 import { MessageBadge } from '@/components/message/MessageBadge';
 import { LiveStatusIndicator } from '@/components/message/LiveStatusIndicator';
+import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
+import api from '@/lib/api';
 import type { Message } from '@/types';
+import type { MemberOption } from '@/components/message/RecipientPicker';
 
 type MessageFilter = 'all' | 'conversations' | 'announcements';
 
@@ -39,10 +44,13 @@ const CHANNEL_TABS: { key: ChannelFilter; label: string }[] = [
 /** Placeholder shown in the thread panel when no conversation is selected. */
 function EmptyChat() {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center text-gray-400 dark:text-gray-500">
-      <MessageCircle className="w-16 h-16 mb-4 opacity-30" />
-      <p className="text-lg font-medium">Select a conversation</p>
-      <p className="text-sm mt-1">Choose from your conversations or start a new one</p>
+    <div className="flex-1 flex items-center justify-center">
+      <EmptyState
+        icon={MessageCircle}
+        illustration="messages"
+        title="Select a conversation"
+        description="Choose from your conversations or start a new one"
+      />
     </div>
   );
 }
@@ -55,19 +63,26 @@ export default function MessagesPage() {
   // sysadmin-only (see ComposeModal `isSuperAdmin`). Role-admins hold the perm.
   const canWrite = can('messages:write');
   const { organizations } = useAuth();
-  const { supportAlias } = useFeatures();
+  const { supportAlias, supportAliases } = useFeatures();
+  const [searchInput, setSearchInput] = useState('');
+  // Debounce so each keystroke doesn't fire a request; the hook refetches page 0
+  // server-side whenever this settles.
+  const debouncedSearch = useDebounce(searchInput.trim(), 300);
   const {
     messages,
     loading,
     error,
     unreadCount,
     livePaused,
+    hasMore,
+    loadingMore,
+    loadMore,
     sendMessage,
     markAsRead,
     markThreadAsRead,
     deleteMessage,
     fetchMessages,
-  } = useMessages(user?.organizationId);
+  } = useMessages(user?.organizationId, debouncedSearch);
 
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [showCompose, setShowCompose] = useState(false);
@@ -116,6 +131,25 @@ export default function MessagesPage() {
     return result !== null;
   }, [sendMessage]);
 
+  // Member search backing the compose "specific user" typeahead. Server-side
+  // search over the selected org's roster; caps the page and maps to the minimal
+  // shape the picker needs. Best-effort — a failure yields no suggestions.
+  const fetchMembers = useCallback(async (orgId: string, search: string): Promise<MemberOption[]> => {
+    try {
+      const res = await api.getOrganizationMembers(orgId, { search, limit: 10, status: 'active' });
+      return (res.data?.members ?? []).map((m) => ({ id: m.id, username: m.username, email: m.email }));
+    } catch {
+      return [];
+    }
+  }, []);
+
+  // Upload one attachment; returns its metadata (id linked on send).
+  const uploadAttachment = useCallback(async (file: File) => {
+    const res = await api.uploadAttachment(file);
+    if (!res.data?.attachment) throw new Error('Upload failed');
+    return res.data.attachment;
+  }, []);
+
   if (!isReady || !user) return <LoadingPage />;
 
   const currentOrgId = user.organizationId?.toLowerCase() || '';
@@ -143,6 +177,30 @@ export default function MessagesPage() {
               >
                 <Plus className="w-4 h-4" />
               </Button>
+            </div>
+
+            {/* Search — free-text over subject/content (server-side). */}
+            <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500 pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder="Search messages"
+                  aria-label="Search messages"
+                  className="w-full pl-8 pr-8 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                />
+                {searchInput && (
+                  <button
+                    onClick={() => setSearchInput('')}
+                    aria-label="Clear search"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Filter tabs — message type */}
@@ -208,6 +266,11 @@ export default function MessagesPage() {
                 selectedId={selectedMessage?.id}
                 currentOrgId={currentOrgId}
                 onDelete={canWrite ? handleDelete : undefined}
+                hasMore={hasMore}
+                loadingMore={loadingMore}
+                onLoadMore={loadMore}
+                emptyTitle={debouncedSearch ? 'No results' : undefined}
+                emptyDescription={debouncedSearch ? `No messages match "${debouncedSearch}"` : undefined}
               />
             )}
           </div>
@@ -218,6 +281,7 @@ export default function MessagesPage() {
               <ThreadView
                 rootMessage={selectedMessage}
                 currentOrgId={currentOrgId}
+                currentUserId={user.id}
                 onBack={handleBack}
                 onThreadRead={markThreadAsRead}
                 onDelete={canWrite ? handleDelete : undefined}
@@ -227,6 +291,15 @@ export default function MessagesPage() {
             )}
           </div>
         </Card>
+
+        {/* Recently deleted — restore soft-deleted messages within the retention
+            window. Only for users who can write (restore is messages:write +
+            step-up gated). */}
+        {canWrite && (
+          <div className="mt-6">
+            <RecentlyDeletedPanel resource="message" onRestored={fetchMessages} />
+          </div>
+        )}
       </div>
 
       {/* Compose modal */}
@@ -237,6 +310,9 @@ export default function MessagesPage() {
         canWrite={canWrite}
         isSuperAdmin={isSuperAdmin}
         supportAlias={supportAlias}
+        supportAliases={supportAliases}
+        fetchMembers={fetchMembers}
+        onUploadAttachment={uploadAttachment}
         recipientSuggestions={organizations
           .filter((o) => o.id.toLowerCase() !== currentOrgId)
           .map((o) => ({ value: o.id, label: o.name }))}

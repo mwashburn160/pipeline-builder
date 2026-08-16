@@ -664,8 +664,15 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
   },
   {
     name: 'message',
-    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.22.0', 'drizzle-orm@0.45.2', 'uuid@14.0.1', 'ws@8.21.1', 'zod@4.4.3'],
-    devDeps: ['@types/pg@8.20.3', '@types/ws@8.18.1'],
+    // multer: multipart attachment uploads (same pin as the plugin service).
+    // @aws-sdk/client-s3 + s3-request-presigner: S3-compatible blob storage
+    // (MinIO everywhere; a real-S3 swap is an endpoint env change). Pinned to
+    // the shared @aws-sdk version so it doesn't perturb the dep tree.
+    // jimp: PURE-JS image resize for attachment thumbnails — deliberately NOT
+    // sharp, so the alpine (musl) service image needs no native libvips binary /
+    // Dockerfile change (thumbnails are occasional + small, so perf is a non-issue).
+    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.22.0', 'drizzle-orm@0.45.2', 'uuid@14.0.1', 'ws@8.21.1', 'zod@4.4.3', 'multer@2.2.0', '@aws-sdk/client-s3@3.1101.0', '@aws-sdk/s3-request-presigner@3.1101.0', 'jimp@1.6.0'],
+    devDeps: ['@types/pg@8.20.3', '@types/ws@8.18.1', '@types/multer@2.2.0'],
   },
   {
     name: 'reporting',

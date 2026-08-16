@@ -73,16 +73,27 @@ export const ORG_SNAPSHOT_FAILED = 'ORG_SNAPSHOT_FAILED';
 const SOFT_DELETE_TABLES = [
   { table: schema.plugin, name: 'plugins' },
   { table: schema.pipeline, name: 'pipelines' },
+  { table: schema.pipelineTemplate, name: 'pipeline_templates' },
   { table: schema.message, name: 'messages' },
   { table: schema.compliancePolicy, name: 'compliance_policies' },
   { table: schema.complianceRule, name: 'compliance_rules' },
   { table: schema.dashboard, name: 'dashboards' },
   { table: schema.orgAlertDestination, name: 'org_alert_destinations' },
+  { table: schema.orgAlertRule, name: 'org_alert_rules' },
 ] as const;
 
 const HARD_DELETE_TABLES = [
   { table: schema.pipelineRegistry, name: 'pipeline_registry' },
   { table: schema.pipelineEvent, name: 'pipeline_events' },
+  // Child rows of messages; no soft-delete columns of their own, so they are
+  // hard-removed with the org (parity with pipeline_events). This deletes only
+  // the METADATA rows — the MinIO blobs (keyed `<orgId>/...`) are reclaimed
+  // separately by the cascade's HTTP DELETE to the message service
+  // (`/messages/internal/org/:orgId/attachments` → `deleteAttachmentsByOrgPrefix`),
+  // since platform holds no object-storage client. That call is best-effort
+  // (`report.messageBlobs.ok`), so a MinIO lifecycle rule remains a sensible
+  // backstop, but blobs are no longer orphaned on a healthy purge.
+  { table: schema.messageAttachment, name: 'message_attachments' },
   { table: schema.complianceRuleHistory, name: 'compliance_rule_history' },
   { table: schema.complianceAuditLog, name: 'compliance_audit_log' },
   { table: schema.complianceExemption, name: 'compliance_exemptions' },
@@ -95,6 +106,14 @@ const HARD_DELETE_TABLES = [
   { table: schema.complianceReport, name: 'compliance_reports' },
   { table: schema.complianceReportSchedule, name: 'compliance_report_schedules' },
 ] as const;
+
+/** Every DB table name the org cascade covers (soft + hard). Exported so a
+ *  schema-reflection test can assert that EVERY org-scoped table is cascaded —
+ *  turning "added a table, forgot the cascade" (which silently orphaned
+ *  org_alert_rules + pipeline_templates) into a red test. */
+export const CASCADE_TABLE_NAMES: ReadonlySet<string> = new Set(
+  [...SOFT_DELETE_TABLES, ...HARD_DELETE_TABLES].map((t) => t.name),
+);
 
 // ---------------------------------------------------------------------------
 // HTTP clients for downstream services
@@ -120,6 +139,14 @@ function billingClient() {
   });
 }
 
+function messageClient() {
+  return createSafeClient({
+    host: process.env.MESSAGE_SERVICE_HOST || 'message',
+    port: parseInt(process.env.MESSAGE_SERVICE_PORT || '3000', 10),
+    timeout: CASCADE_HTTP_TIMEOUT_MS,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Cascade
 // ---------------------------------------------------------------------------
@@ -133,6 +160,12 @@ export interface CascadeReport {
   mongo: { invitations: number; auditEvents: number; idpConfigs: number };
   quota: { ok: boolean; statusCode?: number };
   billing: { ok: boolean; statusCode?: number };
+  /** Result of purging the org's MinIO attachment blobs via the message service
+   *  (platform holds no object-storage client, so the blobs — keyed `<orgId>/…`
+   *  — would orphan otherwise). Best-effort: unlike quota/billing this is NOT a
+   *  hard gate (an unreachable message service must not block the org delete),
+   *  but a false `ok` signals leftover blobs for out-of-band reclamation. */
+  messageBlobs: { ok: boolean; statusCode?: number; deleted?: number };
   /** Whether the org's audit trail was durably archived to
    *  `archived_audit_events` BEFORE the live rows were deleted. This is a HARD
    *  GATE for the purge sweep exactly like billing/quota — a failed archive
@@ -170,6 +203,7 @@ export async function cascadeDeleteOrg( orgId: string,
     mongo: { invitations: 0, auditEvents: 0, idpConfigs: 0 },
     quota: { ok: false },
     billing: { ok: false },
+    messageBlobs: { ok: false },
     auditArchive: { ok: false },
   };
 
@@ -301,6 +335,25 @@ export async function cascadeDeleteOrg( orgId: string,
     report.billing = { ok: !!resp && resp.statusCode < 400, statusCode: resp?.statusCode };
   } catch (err) {
     logger.warn('Billing service delete failed', { orgId, error: errorMessage(err) });
+  }
+
+  // -- Message service: HTTP DELETE /messages/internal/org/:orgId/attachments.
+  // Reclaims the org's MinIO attachment blobs (platform hard-deletes the
+  // `message_attachments` rows above but has no object-storage client, so the
+  // blobs would orphan). Best-effort + NOT a hard gate: an unreachable message
+  // service must not block the org delete; a false `ok` just flags leftover
+  // blobs for the out-of-band orgId-prefix sweep. Service-token auth.
+  try {
+    const auth = getServiceAuthHeader({ serviceName: 'platform', orgId: SYSTEM_ORG_ID, role: 'owner' });
+    const resp = await messageClient().delete(`/messages/internal/org/${encodeURIComponent(orgId)}/attachments`, {
+      headers: { 'Authorization': auth, 'x-org-id': orgId },
+    });
+    const ok = !!resp && resp.statusCode < 400;
+    const deleted = (resp?.body as { data?: { deleted?: number } } | undefined)?.data?.deleted;
+    report.messageBlobs = { ok, statusCode: resp?.statusCode, ...(typeof deleted === 'number' ? { deleted } : {}) };
+    if (!ok) logger.warn('Message attachment-blob purge returned non-2xx (orphans may remain)', { orgId, statusCode: resp?.statusCode });
+  } catch (err) {
+    logger.warn('Message service attachment-blob purge failed (orphans may remain)', { orgId, error: errorMessage(err) });
   }
 
   // -- Per-org KMS CMK: the org may have its own KMS customer master key

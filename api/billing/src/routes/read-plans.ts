@@ -11,6 +11,7 @@ import {
   createCacheService,
   parsePositiveInt,
   CACHE_TTL_BILLING_PLANS_SECS,
+  MAX_PAGE_LIMIT,
 } from '@pipeline-builder/api-core';
 import { Router, type Request, type Response } from 'express';
 import { Plan, type PlanDocument } from '../models/plan.js';
@@ -56,6 +57,7 @@ export function createReadPlanRoutes(): Router {
         // displayed when billing is on — per the tier's contract.
         const plans = await Plan.find({ isActive: true, tier: { $ne: 'unlimited' } })
           .sort({ sortOrder: 1 })
+          .limit(MAX_PAGE_LIMIT)
           .lean<PlanDocument[]>();
 
         return plans.map(toPlanResponse);

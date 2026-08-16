@@ -3,10 +3,11 @@
 
 import { createCacheService } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
-import { CrudService, schema, withTenantTx, buildMessageConditions, type MessageFilter, type PaginatedResult, type QueryOptions } from '@pipeline-builder/pipeline-data';
-import { SQL, eq, and, or, sql } from 'drizzle-orm';
+import { CrudService, schema, withTenantTx, buildMessageConditions, type CrudTx, type MessageFilter, type PaginatedResult, type QueryOptions } from '@pipeline-builder/pipeline-data';
+import { SQL, eq, and, or, sql, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
+import { deleteAttachments } from './attachment-storage.js';
 
 type Message = typeof schema.message.$inferSelect;
 type MessageInsert = typeof schema.message.$inferInsert;
@@ -90,17 +91,49 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
   }
 
   /**
+   * Cascade attachment teardown when messages are HARD-purged (retention sweep).
+   * Runs inside the purge transaction (sysadmin-scoped, so it spans all orgs):
+   * deletes the attachment metadata rows for the doomed messages and reclaims
+   * their object-storage blobs. Blob deletion is best-effort (never throws) — an
+   * orphaned blob is housekeeping, not data loss, and must not abort the purge.
+   */
+  protected async onBeforePurge(ids: string[], tx: CrudTx): Promise<void> {
+    if (ids.length === 0) return;
+    const removed = await tx
+      .delete(schema.messageAttachment)
+      .where(inArray(schema.messageAttachment.messageId, ids))
+      .returning({ storageKey: schema.messageAttachment.storageKey });
+    await deleteAttachments((removed as Array<{ storageKey: string }>).map((r) => r.storageKey));
+  }
+
+  /**
    * Get all reply messages in a thread (excludes the root message).
    *
    * @param threadId - ID of the root message
    * @param orgId - Organization ID for access control
    * @returns Array of reply messages in the thread
    */
-  async findThreadMessages(threadId: string, orgId: string): Promise<Message[]> {
+  async findThreadMessages(threadId: string, orgId: string, viewerUserId?: string): Promise<Message[]> {
     return this.find(
-      { threadId, isActive: true } as Partial<MessageFilter>,
+      { threadId, isActive: true, ...(viewerUserId ? { viewerUserId } : {}) } as Partial<MessageFilter>,
       orgId,
     );
+  }
+
+  /**
+   * Get a single visible message by id for a specific viewer. Mirrors
+   * `findById` but threads the viewer's `userId` through the shared
+   * `buildMessageConditions` so a per-user targeted message is returned only to
+   * its target (plus the sender org / system org) — a bare `findById(id, orgId)`
+   * would otherwise hand any member of the recipient org a message addressed to
+   * one specific user. Returns null when not visible / not found / inactive.
+   */
+  async findVisibleById(id: string, orgId: string, viewerUserId?: string): Promise<Message | null> {
+    const [message] = await this.find(
+      { id, isActive: true, ...(viewerUserId ? { viewerUserId } : {}) } as Partial<MessageFilter>,
+      orgId,
+    );
+    return (message as Message) ?? null;
   }
 
   /**
@@ -122,18 +155,27 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
     orgId: string,
     messageType: 'announcement' | 'conversation',
     options: QueryOptions = {},
+    viewerUserId?: string,
   ): Promise<PaginatedResult<Message>> {
     const filter: Partial<MessageFilter> = {
       isActive: true,
       threadId: null, // SQL-level IS NULL — root messages only
       messageType,
+      ...(viewerUserId ? { viewerUserId } : {}),
     };
     return this.findPaginated(filter, orgId, options);
   }
 
-  /** Per-page cache key so distinct pages/sorts don't collide or over-cache. */
-  private inboxCacheKey(orgId: string, view: 'announcements' | 'conversations', o: QueryOptions): string {
-    return `${orgId}:${view}:${o.limit ?? ''}:${o.offset ?? ''}:${o.sortBy ?? ''}:${o.sortOrder ?? ''}`;
+  /**
+   * Per-page cache key so distinct pages/sorts don't collide or over-cache.
+   * `viewerUserId` is part of the key because per-user targeted conversations
+   * make a page VIEWER-SPECIFIC — without it, user A's cached conversations page
+   * (which may include a message targeted only at A) could be served to user B
+   * in the same org. Announcements are org-wide (never user-targeted), so their
+   * key leaves the viewer segment empty and stays shared per-org.
+   */
+  private inboxCacheKey(orgId: string, view: 'announcements' | 'conversations', o: QueryOptions, viewerUserId?: string): string {
+    return `${orgId}:${view}:${viewerUserId ?? ''}:${o.limit ?? ''}:${o.offset ?? ''}:${o.sortBy ?? ''}:${o.sortOrder ?? ''}`;
   }
 
   /**
@@ -157,10 +199,10 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    * @param options - Pagination + sort options
    * @returns Paginated page of conversation root messages
    */
-  async findConversations(orgId: string, options: QueryOptions = {}): Promise<PaginatedResult<Message>> {
+  async findConversations(orgId: string, options: QueryOptions = {}, viewerUserId?: string): Promise<PaginatedResult<Message>> {
     return messageCache.getOrSet(
-      this.inboxCacheKey(orgId, 'conversations', options),
-      () => this.findInboxPaginated(orgId, 'conversation', options),
+      this.inboxCacheKey(orgId, 'conversations', options, viewerUserId),
+      () => this.findInboxPaginated(orgId, 'conversation', options, viewerUserId),
     );
   }
 
@@ -192,7 +234,9 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         // rows here (404 on markAsRead / wrong unread count). Routing through the
         // builder keeps read + write visibility identical. `isActive:true` blocks
         // stamping readBy on a soft-deleted row, matching markThreadAsRead/getUnreadCount.
-        ...this.buildConditions({ id, isActive: true } as Partial<MessageFilter>, orgId),
+        // `viewerUserId` scopes per-user targeted rows to their target — a member
+        // can't mark-read a message addressed to a different user in their org.
+        ...this.buildConditions({ id, isActive: true, viewerUserId: userId } as Partial<MessageFilter>, orgId),
         sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId})`,
       ))
       .returning());
@@ -213,10 +257,40 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         // Same shared participant+isActive+id predicate as the update above, so
         // a message not visible to this org reads as not-found and a soft-deleted
         // one stays non-returnable (parity keeps idempotent re-marks correct).
-        ...this.buildConditions({ id, isActive: true } as Partial<MessageFilter>, orgId),
+        ...this.buildConditions({ id, isActive: true, viewerUserId: userId } as Partial<MessageFilter>, orgId),
       ))
       .limit(1));
     return (existing as Message) ?? null;
+  }
+
+  /**
+   * Edit a sent message's CONTENT. AUTHOR-ONLY: the predicate requires both
+   * `org_id = <caller org>` (the SENDER side) AND `created_by = <caller user>`,
+   * so a recipient (who can READ the row — incl. via the RLS recipient carve-out)
+   * can never rewrite it, and neither can a different member of the sender org.
+   * Sets `editedAt` (the "edited" marker, distinct from read-receipt `updatedAt`
+   * bumps). Returns the updated row, or null when the caller isn't the author /
+   * the message is missing or soft-deleted. Bypasses the CrudService onAfter*
+   * hooks (direct tx), so it invalidates the caches itself.
+   */
+  async editContent(id: string, orgId: string, userId: string, content: string): Promise<Message | null> {
+    const now = new Date();
+    const [updated] = await withTenantTx(async (tx) => tx
+      .update(schema.message)
+      .set({ content, editedAt: now, updatedBy: userId, updatedAt: now })
+      .where(and(
+        eq(schema.message.id, id),
+        eq(schema.message.orgId, orgId.toLowerCase()), // sender org only
+        eq(schema.message.createdBy, userId), // author only
+        eq(schema.message.isActive, true), // not soft-deleted
+      ))
+      .returning());
+    if (updated) {
+      const row = updated as Message;
+      await this.invalidateMessageCaches(row.orgId, row.recipientOrgId);
+      return row;
+    }
+    return null;
   }
 
   /**
@@ -244,7 +318,8 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         // scoped to the thread. Replaces the divergent hand-rolled
         // or(orgId,recipientOrgId,'*') so the system support org can mark a
         // cross-org thread read rather than silently matching zero rows.
-        ...this.buildConditions({ threadId, isActive: true } as Partial<MessageFilter>, orgId),
+        // `viewerUserId` keeps per-user targeted rows scoped to their target.
+        ...this.buildConditions({ threadId, isActive: true, viewerUserId: userId } as Partial<MessageFilter>, orgId),
         sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId})`,
       ))
       .returning());
@@ -261,7 +336,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    * @param orgId - Organization ID for access control + reader identity
    * @returns Number of unread active messages
    */
-  async getUnreadCount(orgId: string): Promise<number> {
+  async getUnreadCount(orgId: string, viewerUserId?: string): Promise<number> {
     const [row] = await withTenantTx(async (tx) => tx
       .select({ count: sql<number>`count(*)::int` })
       .from(schema.message)
@@ -271,8 +346,10 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         // what the org can actually read. coalesce so a NULL readBy (never-read
         // message) is treated as `{}` and counted as unread — matching
         // markAsRead/markThreadAsRead. Without it, `NULL ? orgId` → NULL →
-        // `not NULL` → NULL drops genuinely-unread rows.
-        ...this.buildConditions({ isActive: true } as Partial<MessageFilter>, orgId),
+        // `not NULL` → NULL drops genuinely-unread rows. `viewerUserId` keeps the
+        // count consistent with the per-user inbox: a message targeted at another
+        // member of the org is neither visible nor counted here.
+        ...this.buildConditions({ isActive: true, ...(viewerUserId ? { viewerUserId } : {}) } as Partial<MessageFilter>, orgId),
         sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId})`,
       )));
     return row?.count ?? 0;

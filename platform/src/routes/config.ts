@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, getPrimarySupportAlias } from '@pipeline-builder/api-core';
+import { sendSuccess, getPrimarySupportAlias, getAllSupportAliases } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import { config } from '../config/index.js';
 
@@ -21,6 +21,9 @@ router.get('/', (_req, res) => {
     // Primary support alias (from SUPPORT_ALIASES) so the UI's compose "To"
     // field prefills the configured value instead of a hardcoded string.
     supportAlias: getPrimarySupportAlias(),
+    // ALL configured support aliases, so the compose recipient picker can list
+    // every support inbox (support@, help@, …) as a distinct suggestion.
+    supportAliases: getAllSupportAliases(),
   });
 });
 

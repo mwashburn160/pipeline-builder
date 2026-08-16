@@ -5,6 +5,7 @@ import {
   requireAuth,
   requirePermission,
   requireSystemAdmin,
+  requireStepUp,
   sendSuccess,
   sendError,
   sendBadRequest,
@@ -88,6 +89,10 @@ export function createAdminSubscriptionRoutes(): Router {
     '/admin/subscriptions/:id',
     requireAuth(AUTH_OPTS) as RequestHandler,
     requireSystemAdmin as RequestHandler,
+    // Sysadmin override can force-cancel/downgrade any org's subscription — a
+    // high-impact cross-tenant mutation. Step-up re-verifies the human; a
+    // service principal (none call this today) would be exempt.
+    requireStepUp as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
       const subscriptionId = getParam(req.params, 'id');
       const validation = validateBody(req, AdminSubscriptionUpdateSchema);

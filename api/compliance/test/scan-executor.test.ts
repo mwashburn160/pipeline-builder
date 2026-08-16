@@ -65,6 +65,12 @@ const mockNotifyComplianceWarnings = jest.fn<(...args: unknown[]) => Promise<unk
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
+// scan-executor imports incCounter from api-server; stub it so the real
+// api-server module (and its api-core named imports) isn't linked in.
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: () => undefined,
+}));
+
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: {
     complianceScan: { id: 'col_id', status: 'col_status', orgId: 'col_org' },

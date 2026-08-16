@@ -515,7 +515,7 @@ export default function PipelinesPage() {
             pipelines:write + step-up gated). */}
         {canWrite && (
           <div className="mt-6">
-            <RecentlyDeletedPanel resource="pipeline" canRestoreRow={(r) => canWritePipeline(can, isSuperAdmin, r.accessModifier ?? 'private')} />
+            <RecentlyDeletedPanel resource="pipeline" onRestored={list.refresh} canRestoreRow={(r) => canWritePipeline(can, isSuperAdmin, r.accessModifier ?? 'private')} />
           </div>
         )}
       </div>

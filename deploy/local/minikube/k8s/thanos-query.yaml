@@ -1,0 +1,222 @@
+---
+# =============================================================================
+# Thanos store-gateway + querier — the READ path for archived metrics.
+#
+# The Thanos sidecar (in prometheus.yaml) only UPLOADS Prometheus' 2h TSDB
+# blocks to MinIO. To QUERY those archived blocks you need:
+#   - a store-gateway: exposes the MinIO-resident blocks over the Thanos StoreAPI
+#     (gRPC 10901); keeps a local index cache (ephemeral — rebuilt from the bucket).
+#   - a querier: a Prometheus-compatible HTTP query API (9090) that fans out to
+#     every StoreAPI — the sidecar (recent, still-local blocks) AND the
+#     store-gateway (older, archived blocks) — and de-duplicates the overlap.
+#
+# `PROMETHEUS_URL` points services at the QUERIER (not Prometheus directly) so a
+# PromQL query spans recent + long-term history. KEDA autoscaling deliberately
+# still targets Prometheus directly (recent-only, one less hop, lower latency).
+# =============================================================================
+
+# =============================================================================
+# Store-gateway Service (StoreAPI gRPC) + metrics
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: thanos-store-gateway
+  labels:
+    app: thanos-store-gateway
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+    - port: 10901
+      targetPort: 10901
+      protocol: TCP
+      name: grpc
+    - port: 10902
+      targetPort: 10902
+      protocol: TCP
+      name: http
+  selector:
+    app: thanos-store-gateway
+
+---
+# =============================================================================
+# Store-gateway Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thanos-store-gateway
+  labels:
+    app: thanos-store-gateway
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: thanos-store-gateway
+  template:
+    metadata:
+      labels:
+        app: thanos-store-gateway
+        app.kubernetes.io/component: observability
+    spec:
+      securityContext:
+        runAsUser: 65534
+        runAsNonRoot: true
+        fsGroup: 65534
+      containers:
+        - name: thanos-store-gateway
+          image: quay.io/thanos/thanos:v0.39.2
+          args:
+            - "store"
+            - "--objstore.config-file=/etc/thanos/objstore.yml"
+            - "--data-dir=/var/thanos/store"           # local index cache (ephemeral)
+            - "--http-address=0.0.0.0:10902"
+            - "--grpc-address=0.0.0.0:10901"
+          ports:
+            - containerPort: 10901
+              name: grpc
+            - containerPort: 10902
+              name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            # Writes only to the mounted data-dir emptyDir; rootfs stays read-only.
+            readOnlyRootFilesystem: true
+          resources:
+            limits:
+              cpu: "300m"
+              memory: 512Mi
+            requests:
+              cpu: "50m"
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 10902
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 10902
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          volumeMounts:
+            - name: thanos-objstore
+              mountPath: /etc/thanos
+              readOnly: true
+            - name: store-data
+              mountPath: /var/thanos/store
+      volumes:
+        - name: thanos-objstore
+          configMap:
+            name: thanos-objstore
+        # Index cache is a rebuildable cache of bucket metadata — ephemeral is fine.
+        - name: store-data
+          emptyDir: {}
+
+---
+# =============================================================================
+# Querier Service — Prometheus-compatible HTTP query API (PROMETHEUS_URL target)
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: thanos-query
+  labels:
+    app: thanos-query
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+      name: http
+    - port: 10901
+      targetPort: 10901
+      protocol: TCP
+      name: grpc
+  selector:
+    app: thanos-query
+
+---
+# =============================================================================
+# Querier Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thanos-query
+  labels:
+    app: thanos-query
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: thanos-query
+  template:
+    metadata:
+      labels:
+        app: thanos-query
+        app.kubernetes.io/component: observability
+    spec:
+      securityContext:
+        runAsUser: 65534
+        runAsNonRoot: true
+      containers:
+        - name: thanos-query
+          image: quay.io/thanos/thanos:v0.39.2
+          args:
+            - "query"
+            - "--http-address=0.0.0.0:9090"
+            - "--grpc-address=0.0.0.0:10901"
+            # Fan out to BOTH StoreAPIs. The sidecar (prometheus:10901) serves
+            # recent still-local blocks; the store-gateway serves archived blocks
+            # from MinIO. `dedup` collapses the block overlap between them.
+            - "--endpoint=prometheus:10901"
+            - "--endpoint=thanos-store-gateway:10901"
+            - "--query.replica-label=replica"
+          ports:
+            - containerPort: 9090
+              name: http
+            - containerPort: 10901
+              name: grpc
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            limits:
+              cpu: "300m"
+              memory: 512Mi
+            requests:
+              cpu: "50m"
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5

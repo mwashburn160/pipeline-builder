@@ -110,3 +110,35 @@ export async function fetchOrgDescendants(orgId: string, opts: OrgHierarchyHttpO
   // Only meaningful when the (validated) subtree is larger than the org itself.
   return orgIds.length > 1 ? orgIds : undefined;
 }
+
+/**
+ * Check whether `userId` is an ACTIVE member of `orgId` via platform's
+ * `GET /organization/:id/members/:userId/exists`. Returns the boolean the
+ * platform reports.
+ *
+ * Returns `undefined` (— "couldn't determine") on a non-2xx response, and
+ * throws only on a transport failure (connection/timeout) — so the caller
+ * distinguishes a definitive not-a-member (`false`) from an indeterminate
+ * lookup (`undefined`) and applies its own fail-open/closed policy. The `path`
+ * differs from the parent/descendants shape, so this builds its own request.
+ */
+export async function fetchOrgMembership(
+  orgId: string,
+  userId: string,
+  opts: OrgHierarchyHttpOptions,
+): Promise<boolean | undefined> {
+  const client = new InternalHttpClient(opts.service);
+  const path = `/organization/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}/exists`;
+  const headers: Record<string, string> = {
+    Authorization: getServiceAuthHeader({
+      serviceName: opts.serviceName,
+      orgId: opts.authOrgId ?? orgId,
+      role: opts.role ?? 'member',
+    }),
+    ...opts.headers,
+  };
+  const res = await client.get<{ data?: { isMember?: unknown } }>(path, { headers, timeout: opts.timeout });
+  if (res.statusCode >= 400) return undefined;
+  const isMember = res.body?.data?.isMember;
+  return typeof isMember === 'boolean' ? isMember : undefined;
+}

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { FEATURE_METADATA } from '@/lib/feature-flags';
+import { downloadCsv } from '@/lib/csv-export';
 import type { DoraLevel, DoraTrendPoint } from '@/lib/api/domains/reporting';
 import { StatCard } from './StatCard';
 import { CFR_ELEVATED_PCT, SPARKLINE_MIN_BAR_PCT, SPARKLINE_ZERO_BAR_PCT } from './constants';
@@ -540,32 +541,13 @@ interface ExportButtonProps {
   filename: string;
 }
 
-// CSV formula-injection defense: Excel/LibreOffice treat leading `=`, `+`, `-`,
-// `@`, tab, or CR as formula starters. If a user names a pipeline `=cmd|'/c calc'`
-// and an operator opens the export in Excel, the formula executes. Prefix any
-// such cell with a leading `'` so the spreadsheet renders it as literal text.
-function escapeCsvCell(s: string): string {
-  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
-}
-
 export function ExportCSVButton({ data, filename }: ExportButtonProps) {
   const handleExport = () => {
     if (data.length === 0) return;
-    const headers = Object.keys(data[0]);
-    const rows = data.map(row => headers.map(h => {
-      const val = row[h];
-      const raw = val === null || val === undefined ? '' : String(val);
-      const str = escapeCsvCell(raw);
-      return str.includes(',') || str.includes('"') ? `"${str.replace(/"/g, '""')}"` : str;
-    }).join(','));
-    const csv = [headers.join(','), ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${filename}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // Delegate to the shared serializer — it owns the formula-injection defense,
+    // newline/quote escaping (this inline copy missed `\n`), header quoting, and
+    // the DOM-attached anchor (Firefox needs it) in ONE place.
+    downloadCsv(data, Object.keys(data[0]), filename);
   };
 
   return (

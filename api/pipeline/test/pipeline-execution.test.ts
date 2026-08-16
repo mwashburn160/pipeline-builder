@@ -77,6 +77,7 @@ const mockCtxLog = jest.fn();
 // incrementQuotaFromCtx is asserted on to prove the successful trigger is metered.
 const mockIncrementQuotaFromCtx = jest.fn();
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: () => undefined,
   // Auth + orgId chain the execution routes now spread in per-route (the write
   // permission guard moved off the shared '/pipelines' mount). No-op here — the
   // suite drives the withRoute handler directly.

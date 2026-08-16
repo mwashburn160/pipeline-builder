@@ -13,7 +13,8 @@ import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useLoadable } from '@/hooks/useLoadable';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
-import type { Pipeline, Plugin } from '@/types';
+import type { Pipeline, Plugin, Message } from '@/types';
+import type { ComplianceRule, CompliancePolicy } from '@/types/compliance';
 
 /** The subset of a soft-deleted pipeline/plugin the panel renders. */
 interface DeletedRow {
@@ -25,21 +26,93 @@ interface DeletedRow {
   deletedBy?: string;
 }
 
-type Resource = 'pipeline' | 'plugin';
+/**
+ * Resources this panel supports. A resource qualifies ONLY if the backend
+ * exposes BOTH a list-deleted (`GET …/deleted`) route AND a restore
+ * (`POST …/:id/restore`) route — the panel is list-driven, so a resource with
+ * only restore-by-id cannot appear here.
+ */
+type Resource = 'pipeline' | 'plugin' | 'message' | 'compliance-rule' | 'compliance-policy';
 
-const LABELS: Record<Resource, { singular: string; plural: string }> = {
-  pipeline: { singular: 'pipeline', plural: 'pipelines' },
-  plugin: { singular: 'plugin', plural: 'plugins' },
-};
+/**
+ * Per-resource registry: labels + a list-deleted loader (throws on failure so
+ * `useLoadable` surfaces it) + a step-up-gated restore call. Adding a resource
+ * (once its backend grows a list-deleted route) is a single entry here plus a
+ * widening of the `Resource` union — no branching in the component body.
+ */
+interface ResourceConfig {
+  labels: { singular: string; plural: string };
+  load: () => Promise<DeletedRow[]>;
+  restore: (id: string, stepUpToken?: string) => Promise<{ success: boolean }>;
+}
 
-function toRow(resource: Resource, item: Pipeline | Plugin): DeletedRow {
-  if (resource === 'pipeline') {
-    const p = item as Pipeline;
-    return { id: p.id, name: p.pipelineName || p.id, accessModifier: p.accessModifier, deletedAt: p.deletedAt, deletedBy: p.deletedBy };
-  }
-  const p = item as Plugin;
+function pipelineToRow(p: Pipeline): DeletedRow {
+  return { id: p.id, name: p.pipelineName || p.id, accessModifier: p.accessModifier, deletedAt: p.deletedAt, deletedBy: p.deletedBy };
+}
+
+function pluginToRow(p: Plugin): DeletedRow {
   return { id: p.id, name: p.name || p.id, version: p.version, accessModifier: p.accessModifier, deletedAt: p.deletedAt, deletedBy: p.deletedBy };
 }
+
+function messageToRow(m: Message): DeletedRow {
+  return { id: m.id, name: m.subject || m.id, accessModifier: m.accessModifier, deletedAt: m.deletedAt, deletedBy: m.deletedBy };
+}
+
+function ruleToRow(r: ComplianceRule): DeletedRow {
+  return { id: r.id, name: r.name || r.id, deletedAt: r.deletedAt, deletedBy: r.deletedBy };
+}
+
+function policyToRow(p: CompliancePolicy): DeletedRow {
+  return { id: p.id, name: p.name || p.id, deletedAt: p.deletedAt, deletedBy: p.deletedBy };
+}
+
+const RESOURCES: Record<Resource, ResourceConfig> = {
+  pipeline: {
+    labels: { singular: 'pipeline', plural: 'pipelines' },
+    load: async () => {
+      const res = await api.listDeletedPipelines();
+      if (res.success && res.data) return res.data.pipelines.map(pipelineToRow);
+      throw new Error('Failed to load deleted pipelines');
+    },
+    restore: (id, stepUpToken) => api.restorePipeline(id, stepUpToken),
+  },
+  plugin: {
+    labels: { singular: 'plugin', plural: 'plugins' },
+    load: async () => {
+      const res = await api.listDeletedPlugins();
+      if (res.success && res.data) return res.data.plugins.map(pluginToRow);
+      throw new Error('Failed to load deleted plugins');
+    },
+    restore: (id, stepUpToken) => api.restorePlugin(id, stepUpToken),
+  },
+  message: {
+    labels: { singular: 'message', plural: 'messages' },
+    load: async () => {
+      const res = await api.listDeletedMessages();
+      if (res.success && res.data) return res.data.messages.map(messageToRow);
+      throw new Error('Failed to load deleted messages');
+    },
+    restore: (id, stepUpToken) => api.restoreMessage(id, stepUpToken),
+  },
+  'compliance-rule': {
+    labels: { singular: 'rule', plural: 'rules' },
+    load: async () => {
+      const res = await api.listDeletedComplianceRules();
+      if (res.success && res.data) return res.data.rules.map(ruleToRow);
+      throw new Error('Failed to load deleted rules');
+    },
+    restore: (id, stepUpToken) => api.restoreComplianceRule(id, stepUpToken),
+  },
+  'compliance-policy': {
+    labels: { singular: 'policy', plural: 'policies' },
+    load: async () => {
+      const res = await api.listDeletedCompliancePolicies();
+      if (res.success && res.data) return res.data.policies.map(policyToRow);
+      throw new Error('Failed to load deleted policies');
+    },
+    restore: (id, stepUpToken) => api.restoreCompliancePolicy(id, stepUpToken),
+  },
+};
 
 /**
  * "Recently deleted" restore panel for a resource kind. Lists the org's
@@ -48,32 +121,28 @@ function toRow(resource: Resource, item: Pipeline | Plugin): DeletedRow {
  * destructive action, so it's step-up gated: clicking Restore opens the
  * StepUpModal and the re-verified token is forwarded to the restore endpoint.
  */
-export function RecentlyDeletedPanel({ resource, canRestoreRow }: {
+export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
   resource: Resource;
   /** Optional per-row gate mirroring the list page's row-level write check.
    *  Restoring a PUBLIC entity needs `:publish` (backend `requirePublicAccess`),
    *  so a write-but-not-publish user should not see Restore on a public tombstone
    *  (else they get a 403 after the password prompt). Defaults to always-allowed. */
   canRestoreRow?: (row: DeletedRow) => boolean;
+  /** Called after a successful restore so the mounting page can refresh its
+   *  main list — a restored entity reappears there, so without this the page
+   *  shows a stale list until the next manual reload. */
+  onRestored?: () => void;
 }) {
   const toast = useToast();
-  const labels = LABELS[resource];
+  const config = RESOURCES[resource];
+  const { labels } = config;
   const [restoring, setRestoring] = useState<string | null>(null);
   // Hold the row awaiting a step-up re-verify; the restore runs in executeRestore.
   const [pendingRestore, setPendingRestore] = useState<DeletedRow | null>(null);
 
-  // Branch per resource so each response's `data` narrows to a concrete shape
-  // ({ pipelines } vs { plugins }); throw on failure so useLoadable surfaces it.
-  const loader = useCallback(async (): Promise<DeletedRow[]> => {
-    if (resource === 'pipeline') {
-      const res = await api.listDeletedPipelines();
-      if (res.success && res.data) return res.data.pipelines.map((i) => toRow('pipeline', i));
-      throw new Error(`Failed to load deleted ${labels.plural}`);
-    }
-    const res = await api.listDeletedPlugins();
-    if (res.success && res.data) return res.data.plugins.map((i) => toRow('plugin', i));
-    throw new Error(`Failed to load deleted ${labels.plural}`);
-  }, [resource, labels.plural]);
+  // Registry-driven loader — each resource's `load` narrows its own response
+  // shape and throws on failure so useLoadable surfaces it.
+  const loader = useCallback(() => config.load(), [config]);
   const { data: rows, loading, error: loadError, reload: load } = useLoadable<DeletedRow[]>(loader, [], `Failed to load deleted ${labels.plural}`);
 
   const executeRestore = async (stepUpToken: string) => {
@@ -81,12 +150,13 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow }: {
     const { id, name } = pendingRestore;
     setRestoring(id);
     try {
-      const res = resource === 'pipeline'
-        ? await api.restorePipeline(id, stepUpToken)
-        : await api.restorePlugin(id, stepUpToken);
+      const res = await config.restore(id, stepUpToken);
       if (res.success) {
         toast.success(`Restored ${labels.singular} "${name}"`);
         void load();
+        // Refresh the mounting page's main list — the restored entity reappears
+        // there, so skipping this leaves it showing a stale list.
+        onRestored?.();
       } else {
         toast.error(`Failed to restore ${labels.singular}`);
       }

@@ -20,46 +20,6 @@ spec:
 
 ---
 # =============================================================================
-# Loki PersistentVolume (hostPath)
-# =============================================================================
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: loki-pv
-  labels:
-    app: loki
-spec:
-  storageClassName: ""
-  capacity:
-    storage: 1Gi
-  accessModes: ["ReadWriteOnce"]
-  persistentVolumeReclaimPolicy: Retain
-  hostPath:
-    path: /opt/pipeline/pipeline-data/db-data/loki
-    type: DirectoryOrCreate
-
----
-# =============================================================================
-# Loki PersistentVolumeClaim
-# =============================================================================
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: loki-data
-  labels:
-    app: loki
-spec:
-  storageClassName: ""
-  accessModes: ["ReadWriteOnce"]
-  resources:
-    requests:
-      storage: 1Gi
-  selector:
-    matchLabels:
-      app: loki
-
----
-# =============================================================================
 # Loki Deployment
 # =============================================================================
 apiVersion: apps/v1
@@ -90,23 +50,6 @@ spec:
         fsGroup: 10001
         runAsUser: 10001
         runAsNonRoot: true
-      initContainers:
-        - name: fix-permissions
-          image: busybox:1.38
-          resources:
-            limits:
-              cpu: "100m"
-              memory: 64Mi
-            requests:
-              cpu: "25m"
-              memory: 32Mi
-          command: ["sh", "-c", "chown -R 10001:10001 /loki"]
-          securityContext:
-            runAsUser: 0
-            runAsNonRoot: false
-          volumeMounts:
-            - name: loki-data
-              mountPath: /loki
       containers:
         - name: loki
           image: grafana/loki:3.6.11
@@ -117,6 +60,12 @@ spec:
             readOnlyRootFilesystem: true
           args:
             - "-config.file=/etc/loki/loki-config.yml"
+            - "-config.expand-env=true"
+          env:
+            - name: LOKI_S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: loki-access-key } }
+            - name: LOKI_S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: loki-secret-key } }
           ports:
             - containerPort: 3100
               name: http
@@ -154,5 +103,4 @@ spec:
           configMap:
             name: loki-config
         - name: loki-data
-          persistentVolumeClaim:
-            claimName: loki-data
+          emptyDir: {}

@@ -57,6 +57,13 @@ export const message = pgTable('messages', {
   recipientOrgId: varchar('recipient_org_id', { length: 255 })
     .notNull(),
 
+  // Optional per-user targeting WITHIN the recipient org. NULL (default) = the
+  // whole recipient org sees it — the original, backward-compatible behavior.
+  // When set, only this user (a member of `recipientOrgId`) sees it, enforced in
+  // `buildMessageConditions` against the viewer's userId. Announcement broadcasts
+  // (`recipientOrgId = '*'`) never set this — they are org-wide by definition.
+  recipientUserId: varchar('recipient_user_id', { length: 255 }),
+
   // Message content
   messageType: varchar('message_type', { length: 20 })
     .$type<MessageType>()
@@ -69,6 +76,10 @@ export const message = pgTable('messages', {
     .notNull(),
   content: text('content')
     .notNull(),
+  // Set when the author edits the content after sending (NULL = never edited).
+  // Distinct from `updatedAt`, which also moves on read-receipt/system updates;
+  // `editedAt` marks a human CONTENT edit so the UI can show an "edited" hint.
+  editedAt: timestamp('edited_at', { withTimezone: true }),
 
   // Status
   // `readBy` is the per-participant read-receipt map: orgId → ISO timestamp.
@@ -116,6 +127,10 @@ export const message = pgTable('messages', {
   // Composite index for inbox queries (recipient + active + created)
   recipientActiveCreatedIdx: index('message_recipient_active_created_idx')
     .on(table.recipientOrgId, table.isActive, table.createdAt),
+
+  // Composite index for per-user targeted inbox lookups (recipient org + user).
+  recipientUserIdx: index('message_recipient_user_idx')
+    .on(table.recipientOrgId, table.recipientUserId, table.isActive),
 
   // Composite index for org inbox (orgId + active)
   orgActiveIdx: index('message_org_active_idx').on(table.orgId, table.isActive),

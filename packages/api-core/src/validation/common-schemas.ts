@@ -4,6 +4,7 @@
 // Must run before any z.* schema creation — Zod 4 requires eager extension
 import '../openapi/extend-zod.js';
 import { z } from 'zod';
+import { envInt } from '../utils/env.js';
 
 /**
  * Access modifier schema
@@ -49,9 +50,14 @@ export const CatalogMetadataShape = {
 export const SortOrderSchema = z.enum(['asc', 'desc']);
 
 /**
- * Pagination parameters schema
+ * Pagination parameters schema.
+ *
+ * `MAX_PAGE_LIMIT` / `DEFAULT_PAGE_LIMIT` are the SINGLE source for these values
+ * across the monorepo — pipeline-core's `CoreConstants` and pipeline-data's
+ * `CrudService` import them from here instead of re-reading the env (which drifted).
  */
-export const MAX_PAGE_LIMIT = parseInt(process.env.MAX_PAGE_LIMIT || '1000', 10);
+export const MAX_PAGE_LIMIT = envInt('MAX_PAGE_LIMIT', 1000, { min: 1 });
+export const DEFAULT_PAGE_LIMIT = envInt('DEFAULT_PAGE_LIMIT', 100, { min: 1 });
 
 export const PaginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_PAGE_LIMIT).optional(),

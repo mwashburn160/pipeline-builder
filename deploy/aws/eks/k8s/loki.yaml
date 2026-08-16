@@ -20,22 +20,6 @@ spec:
 
 ---
 # =============================================================================
-# Loki PersistentVolumeClaim
-# =============================================================================
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: loki-data
-  labels:
-    app: loki
-spec:
-  storageClassName: pb-efs
-  accessModes: ["ReadWriteMany"]
-  resources:
-    requests:
-      storage: 1Gi
----
-# =============================================================================
 # Loki Deployment
 # =============================================================================
 apiVersion: apps/v1
@@ -66,29 +50,6 @@ spec:
         fsGroup: 10001
         runAsUser: 10001
         runAsNonRoot: true
-      initContainers:
-        - name: fix-permissions
-          image: busybox:1.38
-          resources:
-            limits:
-              cpu: "100m"
-              memory: 64Mi
-            requests:
-              cpu: "25m"
-              memory: 32Mi
-          # The loki-data PVC is an EFS access point that POSIX-overrides ALL access to
-          # uid/gid 1000 (storageclasses.yaml). chown to ANY other id (the ec2 hostPath
-          # value was 10001) is DENIED by the access point — even for root — so the init
-          # crash-loops. chown to 1000 (the access-point id, as registry.yaml does) is a
-          # no-op that succeeds; loki's writes are squashed to 1000 and work regardless of
-          # its 10001 process uid.
-          command: ["sh", "-c", "chown -R 1000:1000 /loki"]
-          securityContext:
-            runAsUser: 0
-            runAsNonRoot: false
-          volumeMounts:
-            - name: loki-data
-              mountPath: /loki
       containers:
         - name: loki
           image: grafana/loki:3.6.11
@@ -99,6 +60,12 @@ spec:
             readOnlyRootFilesystem: true
           args:
             - "-config.file=/etc/loki/loki-config.yml"
+            - "-config.expand-env=true"
+          env:
+            - name: LOKI_S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: loki-access-key } }
+            - name: LOKI_S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: loki-secret-key } }
           ports:
             - containerPort: 3100
               name: http
@@ -136,5 +103,4 @@ spec:
           configMap:
             name: loki-config
         - name: loki-data
-          persistentVolumeClaim:
-            claimName: loki-data
+          emptyDir: {}

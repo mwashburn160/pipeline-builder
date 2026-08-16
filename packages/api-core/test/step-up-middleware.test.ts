@@ -104,6 +104,17 @@ describe('requireStepUp middleware', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
+  it('SKIPS a verified service principal (no header needed) so internal S2S calls pass', async () => {
+    const res = mockRes();
+    const next = jest.fn();
+    // A service token's `sub` starts with `service:` (isServicePrincipal). It
+    // structurally cannot produce a human step-up token, so the gate exempts it.
+    await requireStepUp(mockReq({ user: { sub: 'service:platform' } as never }), res, next);
+    expect(next).toHaveBeenCalledTimes(1);
+    // The skip path proceeds without emitting a 401.
+    expect(res._status).not.toBe(401);
+  });
+
   it('401 STEP_UP_INVALID when the token is malformed', async () => {
     const res = mockRes();
     const next = jest.fn();

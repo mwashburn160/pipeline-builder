@@ -1,13 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createQuotaService, createEnvRedisTokenRevocationStore, requirePermission, wireAuthzDenialAuditor, setTokenRevocationStore } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, requirePermission, wireServiceSecurity } from '@pipeline-builder/api-core';
 import {
   createApp,
   runServer,
   attachRequestContext,
   createProtectedRoute,
   createAuthenticatedWithOrgRoute,
+  meterQuotaOnSuccess,
   postgresHealthCheck,
 } from '@pipeline-builder/api-server';
 import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data';
@@ -50,6 +51,16 @@ const { app, sseManager } = createApp({
 
 // Attach request context to all requests
 app.use(attachRequestContext(sseManager));
+
+// Meter apiCalls quota for every successful, user-driven /compliance request.
+// `createProtectedRoute` below only CHECKS the apiCalls quota; without this the
+// counter is never incremented, so compliance traffic went entirely unmetered
+// (and the auth-only route groups — validate/subscriptions/scans/schedules/
+// templates — were neither checked nor metered). One finish-based mount closes
+// the loop for ALL /compliance routes: it skips non-2xx, unauthenticated, and
+// service-principal (internal S2S) requests. Registered BEFORE the routers so
+// its `finish` listener is attached for each request. Fire-and-forget.
+app.use('/compliance', meterQuotaOnSuccess(quotaService, 'apiCalls'));
 
 // Validation endpoints (auth + org, rate limited) — before CRUD to avoid /:id catch
 app.use('/compliance/validate', ...createAuthenticatedWithOrgRoute(), createValidateRoutes());
@@ -123,17 +134,11 @@ logger.info('All /compliance routes registered');
 // Forward denied state-changing authorizations (rejected by requirePermission /
 // requireSystemAdmin) into the same remote audit sink as the mutation events,
 // as best-effort `authz.denied` failure records. Registered once at boot.
-wireAuthzDenialAuditor('compliance', getAuditClient);
-
-// Token-revocation reader (session-invalidation option b). Uses the shared
-// env-configured Redis client (lazily built, fully fail-open) so the shared
-// `requireAuth` can reject a token whose `tokenVersion` is behind the version
-// the platform published on a privilege change. Fail-open by contract: no Redis
-// / a miss / an outage yields null and auth degrades to natural token expiry,
-// never a lockout. (Previously borrowed the BullMQ queue's connection; the dead
-// async-re-validation queue was removed — post-mutation eval rides the HTTP
-// entity-event subscriber, and the fail-closed live validate path is primary.)
-setTokenRevocationStore(createEnvRedisTokenRevocationStore());
+// Token-revocation reader (session-invalidation option b): the env-Redis store
+// is lazily built + fully fail-open, so `requireAuth` can reject a token whose
+// `tokenVersion` is behind the platform-published version, degrading to natural
+// token expiry (never a lockout) when Redis is absent.
+wireServiceSecurity('compliance', getAuditClient);
 
 // Daily prune of compliance_audit_log (default 180 days, override via
 // COMPLIANCE_AUDIT_RETENTION_DAYS). The handle is captured for graceful

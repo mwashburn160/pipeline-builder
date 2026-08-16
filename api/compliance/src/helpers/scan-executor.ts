@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { eq, and, gt, asc } from 'drizzle-orm';
 import { logComplianceCheck } from './compliance-check-log.js';
@@ -58,6 +59,10 @@ async function executeScanInternal(scanId: string): Promise<void> {
     .returning());
 
   if (!scan) return;
+
+  // Domain metric — a scan was claimed and is now executing. Tagged by outcome
+  // only; orgId is deliberately omitted to keep label cardinality bounded.
+  incCounter('compliance_scans_total', { outcome: 'started' });
 
   // System org is exempt from all compliance scans.
   // Use the same case-insensitive comparison style used in DB queries.
@@ -223,6 +228,9 @@ async function executeScanInternal(scanId: string): Promise<void> {
       return;
     }
 
+    // Domain metric — scan reached a terminal completed state.
+    incCounter('compliance_scans_total', { outcome: 'passed' });
+
     logger.info('Scan completed', {
       scanId,
       totalEntities,
@@ -232,6 +240,8 @@ async function executeScanInternal(scanId: string): Promise<void> {
       isDryRun,
     });
   } catch (err) {
+    // Domain metric — scan hit an unrecoverable error and will be marked failed.
+    incCounter('compliance_scans_total', { outcome: 'failed' });
     logger.error('Scan failed', { scanId, error: errorMessage(err) });
     // Only flip to 'failed' if the scan is still running — preserve a
     // concurrent cancellation rather than overwriting it.

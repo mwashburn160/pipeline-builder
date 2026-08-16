@@ -129,6 +129,25 @@ export class EnvKeyProvider implements KeyProvider {
  * Construct lazily  importing the AWS SDK has a non-trivial cold-start
  * cost so envs that stay on EnvKeyProvider never load it.
  */
+/**
+ * KMS-decrypt a base64 ciphertext into a 32-byte key. Shared by both KMS key
+ * providers (single-master + per-org), which previously copy-pasted this
+ * dynamic-import + Decrypt + empty/length guards. `@aws-sdk/client-kms` is
+ * dynamically imported so EnvKeyProvider-only envs never load the SDK.
+ */
+async function kmsDecrypt32(keyId: string, ciphertextB64: string, region?: string, endpoint?: string): Promise<Buffer> {
+  const { KMSClient, DecryptCommand } = await import('@aws-sdk/client-kms');
+  const client = new KMSClient({ region, ...(endpoint ? { endpoint } : {}) });
+  const resp = await client.send(new DecryptCommand({
+    KeyId: keyId,
+    CiphertextBlob: Buffer.from(ciphertextB64, 'base64'),
+  }));
+  if (!resp.Plaintext) throw new Error(`KMS Decrypt returned an empty Plaintext for key ${keyId}`);
+  const buf = Buffer.from(resp.Plaintext);
+  if (buf.length !== 32) throw new Error(`KMS Decrypt returned ${buf.length}-byte key for ${keyId}; expected 32`);
+  return buf;
+}
+
 export class KmsKeyProvider implements KeyProvider {
   private masterKeyCache: Buffer | null = null;
   private readonly keyId: string;
@@ -181,25 +200,8 @@ export class KmsKeyProvider implements KeyProvider {
     }
   }
 
-  private async fetchAndDecrypt(): Promise<Buffer> {
-    // Dynamic import so EnvKeyProvider-only envs don't load the SDK.
-    const { KMSClient, DecryptCommand } = await import('@aws-sdk/client-kms');
-    const client = new KMSClient({
-      region: this.region,
-      ...(this.endpoint ? { endpoint: this.endpoint }: {}),
-    });
-    const resp = await client.send(new DecryptCommand({
-      KeyId: this.keyId,
-      CiphertextBlob: Buffer.from(this.ciphertextB64, 'base64'),
-    }));
-    if (!resp.Plaintext) {
-      throw new Error('KMS Decrypt returned an empty Plaintext');
-    }
-    const buf = Buffer.from(resp.Plaintext);
-    if (buf.length !== 32) {
-      throw new Error(`KMS Decrypt returned ${buf.length}-byte key; expected 32`);
-    }
-    return buf;
+  private fetchAndDecrypt(): Promise<Buffer> {
+    return kmsDecrypt32(this.keyId, this.ciphertextB64, this.region, this.endpoint);
   }
 }
 
@@ -348,20 +350,8 @@ export class PerOrgKmsKeyProvider implements KeyProvider {
     return { key, kid: cfg.keyId };
   }
 
-  private async fetchAndDecrypt(cfg: PerOrgKmsConfig): Promise<Buffer> {
-    const { KMSClient, DecryptCommand } = await import('@aws-sdk/client-kms');
-    const client = new KMSClient({
-      region: this.region,
-      ...(this.endpoint ? { endpoint: this.endpoint } : {}),
-    });
-    const resp = await client.send(new DecryptCommand({
-      KeyId: cfg.keyId,
-      CiphertextBlob: Buffer.from(cfg.ciphertextBase64, 'base64'),
-    }));
-    if (!resp.Plaintext) throw new Error(`KMS Decrypt returned empty Plaintext for key ${cfg.keyId}`);
-    const buf = Buffer.from(resp.Plaintext);
-    if (buf.length !== 32) throw new Error(`KMS Decrypt returned ${buf.length}-byte key for ${cfg.keyId}; expected 32`);
-    return buf;
+  private fetchAndDecrypt(cfg: PerOrgKmsConfig): Promise<Buffer> {
+    return kmsDecrypt32(cfg.keyId, cfg.ciphertextBase64, this.region, this.endpoint);
   }
 
   /** Evict a cached per-org master. Use after a key rotation so the next

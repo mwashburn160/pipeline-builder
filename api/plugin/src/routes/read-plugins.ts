@@ -14,6 +14,12 @@ import { Router } from 'express';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
 import { pluginService } from '../services/plugin-service.js';
 
+/** The caller's parent-org id (org→team hierarchy), carried in the JWT; absent
+ *  for root orgs. Centralizes the one cast the read handlers all need. */
+function parentOrgIdOf(req: Request): string | undefined {
+  return (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+}
+
 export function createReadPluginRoutes(
   quotaService: QuotaService,
 ): Router {
@@ -73,7 +79,7 @@ export function createReadPluginRoutes(
     // Org → team hierarchy: a team org also sees its parent's public plugins.
     // `parentOrganizationId` rides in the JWT (absent for root orgs), so this
     // is a no-op for non-team callers.
-    const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+    const parentOrgId = parentOrgIdOf(req);
 
     const result = await pluginService.findPaginated(
       filter.value,
@@ -104,9 +110,8 @@ export function createReadPluginRoutes(
   ) => {
     // Org → team hierarchy: a team org also sees its parent's public plugins
     // (mirrors the list path). No-op for root orgs (claim absent).
-    const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
-    const plugins = await pluginService.find(filter, orgId, parentOrgId);
-    const result = plugins[0];
+    const parentOrgId = parentOrgIdOf(req);
+    const result = await pluginService.findFirst(filter, orgId, parentOrgId);
     if (!result) return sendEntityNotFound(res, 'Plugin');
     ctx.log('COMPLETED', 'Plugin lookup', { id: result.id, name: result.name });
     incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
@@ -150,7 +155,7 @@ export function createReadPluginRoutes(
 
     // Org → team hierarchy: a team org also fetches its parent's public plugins
     // by id (mirrors the list path). No-op for root orgs (claim absent).
-    const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+    const parentOrgId = parentOrgIdOf(req);
     const result = await pluginService.findById(id, orgId, parentOrgId);
 
     if (!result) return sendEntityNotFound(res, 'Plugin');

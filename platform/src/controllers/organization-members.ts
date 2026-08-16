@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, parsePaginationParams } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, parsePaginationParams, isServicePrincipal, getParam } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg,
@@ -64,6 +64,28 @@ export const getOrganizationMembers = withController('Get members', async (req, 
     members,
     pagination: { total, offset: off, limit: lim, hasMore: off + lim < total },
   });
+});
+
+/**
+ * GET /organization/:id/members/:userId/exists — lightweight membership probe.
+ *
+ * Internal read for the message service's per-user DM validation: it must reject
+ * a targeted message addressed to a user who isn't an active member of the
+ * recipient org. Returns `{ isMember: boolean }` and nothing else — no roster,
+ * no PII. Authz mirrors `getOrganizationParent`: a service principal (the
+ * message service's signed token) or an org-admin who can access the org.
+ */
+export const checkOrganizationMembership = withController('Check membership', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+
+  const id = getParam(req.params, 'id')!;
+  const userId = getParam(req.params, 'userId')!;
+  if (!isServicePrincipal(req) && !(await canAccessOrg(req, id))) {
+    return sendError(res, 403, 'Forbidden: service or organization-admin only');
+  }
+
+  const isMember = await orgMembersService.isActiveMember(id, userId);
+  sendSuccess(res, 200, { isMember });
 });
 
 /** POST /organization/:id/members */

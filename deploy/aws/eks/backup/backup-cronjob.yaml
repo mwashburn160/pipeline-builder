@@ -13,10 +13,16 @@
 #      Pod Identity / IRSA. NOTE: the eks setup role currently grants only SES +
 #      CodePipeline, so this grant must be ADDED.
 #   3. Build/point `image:` at a small image that has `pg_dump` (postgres client),
-#      `mongodump` (mongo database tools), and the `aws` CLI.
+#      `mongodump` (mongo database tools), the `aws` CLI, AND `mc` (MinIO client,
+#      for the object-storage mirror below).
 #   4. Set BACKUP_BUCKET below, then apply into the namespace.
-#   5. TEST A RESTORE into a scratch namespace (`deploy/bin/restore.sh
-#      --confirm-destructive`) — an untested backup is not a backup.
+#   5. (MinIO object storage) point MINIO_BACKUP_TARGET_URL at a durable S3/MinIO
+#      and create the `minio-backup-target` Secret (access-key/secret-key) — or
+#      unset MINIO_ENDPOINT to skip the object-storage mirror. Restore with
+#      `deploy/bin/restore.sh --minio --confirm-destructive`.
+#   6. TEST A RESTORE into a scratch namespace (`deploy/bin/restore.sh
+#      --confirm-destructive`, and `--minio` for object storage) — an untested
+#      backup is not a backup.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -76,6 +82,20 @@ spec:
                     | gzip | aws s3 cp - "$prefix/postgres-$ts.sql.gz" --sse aws:kms
                   mongodump --uri "$MONGODB_URI" --archive --gzip \
                     | aws s3 cp - "$prefix/mongo-$ts.archive.gz" --sse aws:kms
+                  # MinIO object storage (attachments/registry/loki/thanos blobs).
+                  # `mc mirror` is additive — copies new/changed objects, never
+                  # deletes from the backup — so it goes to a STABLE prefix (not
+                  # the dated one); pair the backup bucket with versioning for
+                  # point-in-time recovery. A failure fails the job (set -e).
+                  # Requires the image to ship `mc`; creds come from minio-secret.
+                  if [ -n "${MINIO_ENDPOINT:-}" ]; then
+                    mc alias set pbsrc "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+                    mc alias set pbdst "$MINIO_BACKUP_TARGET_URL" "$MINIO_BACKUP_TARGET_ACCESS_KEY" "$MINIO_BACKUP_TARGET_SECRET_KEY"
+                    for b in ${MINIO_BUCKETS:-message-attachments registry loki thanos}; do
+                      echo "mirror $b"
+                      mc mirror --overwrite --quiet "pbsrc/$b" "pbdst/${MINIO_BACKUP_TARGET_BUCKET:-$BACKUP_BUCKET}/minio/$ENV_NAME/$b"
+                    done
+                  fi
                   echo "backup ok $ts"
               envFrom:
                 - configMapRef: { name: app-env }        # DB_HOST, POSTGRES_DB, …
@@ -86,6 +106,20 @@ spec:
                   value: "REPLACE_ME"
                 - name: ENV_NAME              # environment label in the S3 path; must
                   value: "prod"              # match ENV_NAME used by backup.sh/restore.sh
+                # --- MinIO object-storage mirror (optional) ---
+                # Unset MINIO_ENDPOINT to skip the object-storage step entirely.
+                # Root creds from minio-secret (MINIO_ROOT_USER/PASSWORD); the
+                # backup target is a durable S3/MinIO the mc image can reach.
+                - name: MINIO_ENDPOINT
+                  value: "http://minio:9000"
+                - { name: MINIO_ROOT_USER,     valueFrom: { secretKeyRef: { name: minio-secret, key: root-user } } }
+                - { name: MINIO_ROOT_PASSWORD, valueFrom: { secretKeyRef: { name: minio-secret, key: root-password } } }
+                - name: MINIO_BACKUP_TARGET_URL
+                  value: "REPLACE_ME"        # e.g. https://s3.us-east-1.amazonaws.com
+                - name: MINIO_BACKUP_TARGET_BUCKET
+                  value: ""                  # defaults to BACKUP_BUCKET when empty
+                - { name: MINIO_BACKUP_TARGET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: minio-backup-target, key: access-key, optional: true } } }
+                - { name: MINIO_BACKUP_TARGET_SECRET_KEY, valueFrom: { secretKeyRef: { name: minio-backup-target, key: secret-key, optional: true } } }
               resources:
                 requests: { cpu: "100m", memory: "128Mi" }
                 limits: { cpu: "500m", memory: "512Mi" }

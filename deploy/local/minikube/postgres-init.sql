@@ -197,6 +197,10 @@ CREATE TABLE IF NOT EXISTS messages (    -- Identity & Audit Fields
     -- Message Routing
     recipient_org_id VARCHAR(255) NOT NULL,
 
+    -- Optional per-user targeting WITHIN the recipient org (NULL = whole org
+    -- sees it). Enforced in buildMessageConditions against the viewer's userId.
+    recipient_user_id VARCHAR(255),
+
     -- Message Content
     message_type VARCHAR(20) NOT NULL DEFAULT 'conversation'
                         CHECK (message_type IN ('conversation', 'announcement')),
@@ -205,6 +209,9 @@ CREATE TABLE IF NOT EXISTS messages (    -- Identity & Audit Fields
     channel VARCHAR(50),
     subject VARCHAR(500) NOT NULL,
     content TEXT NOT NULL,
+    -- Set when the author edits the content after sending (NULL = never edited).
+    -- Distinct from updated_at (which also moves on read-receipt/system updates).
+    edited_at TIMESTAMPTZ,
 
     -- Status
     -- read_by is the per-participant read-receipt map: orgId → ISO timestamp.
@@ -753,6 +760,30 @@ CREATE INDEX IF NOT EXISTS message_read_by_idx
 CREATE INDEX IF NOT EXISTS message_recipient_active_created_idx
     ON messages(recipient_org_id, is_active, created_at);
 
+-- Composite index for per-user targeted inbox lookups.
+CREATE INDEX IF NOT EXISTS message_recipient_user_idx
+    ON messages(recipient_org_id, recipient_user_id, is_active);
+-- ============================================================================
+-- Message Attachments — file/image blobs live in S3-compatible object storage
+-- (MinIO); this table holds metadata + the storage key only. message_id is NULL
+-- for a pending upload (uploaded but not yet attached to a sent message).
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS message_attachments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id VARCHAR(255) NOT NULL,
+    message_id UUID,
+    uploaded_by TEXT NOT NULL,
+    filename VARCHAR(255) NOT NULL,
+    content_type VARCHAR(128) NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    storage_key VARCHAR(512) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS message_attachment_message_id_idx
+    ON message_attachments(message_id);
+CREATE INDEX IF NOT EXISTS message_attachment_org_id_idx
+    ON message_attachments(org_id);
 CREATE INDEX IF NOT EXISTS message_org_active_idx
     ON messages(org_id, is_active);
 
@@ -1320,7 +1351,11 @@ DECLARE
 BEGIN
     FOR t IN
         SELECT unnest(ARRAY[
-            'plugins', 'pipelines', 'messages',
+            -- NOTE: `messages` + `message_attachments` are intentionally ABSENT
+            -- here  they get a dedicated policy (with a RECIPIENT carve-out)
+            -- below, because the generic sender-only scope would block a
+            -- recipient org from reading a message addressed to it.
+            'plugins', 'pipelines',
             'pipeline_registry', 'pipeline_events',
             'dashboards', 'org_alert_destinations', 'org_alert_rules',
             'compliance_policies', 'compliance_rules', 'compliance_rule_history',
@@ -1341,6 +1376,49 @@ BEGIN
         );
     END LOOP;
 END $$;
+
+-- Messaging tables carry BOTH a sender (`org_id`) and a recipient
+-- (`recipient_org_id`), so the generic sender-only scope above would block a
+-- recipient org from reading a message addressed TO it whenever the sender is
+-- neither the reader nor the system org (i.e. org<->org, same-account
+-- messaging). These dedicated policies add the RECIPIENT carve-out (and the
+-- '*' broadcast-announcement carve-out). Per-user targeting
+-- (`recipient_user_id`) is deliberately NOT enforced here  RLS is org-grained
+-- (there is no per-user session GUC); the app-layer `buildMessageConditions`
+-- narrows a recipient-visible row down to the specific target user. Writes stay
+-- gated to the caller's own org (WITH CHECK), unchanged.
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS rls_org_scope ON messages;
+CREATE POLICY rls_org_scope ON messages
+    USING (
+        current_is_sysadmin()
+        OR org_id = current_org_id()
+        OR org_id = '000000000000000000000001'
+        OR recipient_org_id = current_org_id()
+        OR recipient_org_id = '*'
+    )
+    WITH CHECK (current_is_sysadmin() OR org_id = current_org_id());
+
+-- `message_attachments` follows its parent message's visibility. The uploader
+-- org (`org_id`) always sees its own rows  including still-PENDING uploads,
+-- whose `message_id` is NULL, for which the EXISTS below is false. A recipient
+-- sees an attachment IFF it can see the linked message (recipient org, or a '*'
+-- broadcast). The subquery is itself filtered by `messages`' policy above, so it
+-- can only confirm a message the caller is already permitted to read.
+ALTER TABLE message_attachments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS rls_org_scope ON message_attachments;
+CREATE POLICY rls_org_scope ON message_attachments
+    USING (
+        current_is_sysadmin()
+        OR org_id = current_org_id()
+        OR org_id = '000000000000000000000001'
+        OR EXISTS (
+            SELECT 1 FROM messages m
+            WHERE m.id = message_attachments.message_id
+              AND (m.recipient_org_id = current_org_id() OR m.recipient_org_id = '*')
+        )
+    )
+    WITH CHECK (current_is_sysadmin() OR org_id = current_org_id());
 
 -- `dashboard_panels` doesn't have an `org_id` column  it inherits scoping
 -- from its parent `dashboards` row. Policy joins through the FK.
@@ -1381,6 +1459,7 @@ ALTER TABLE org_alert_rules FORCE ROW LEVEL SECURITY;
 -- Hot paths (plugins, pipelines, pipeline_events) deliberately remain
 -- owner-bypass and flip in a later phase.
 ALTER TABLE messages FORCE ROW LEVEL SECURITY;
+ALTER TABLE message_attachments FORCE ROW LEVEL SECURITY;
 ALTER TABLE pipeline_registry FORCE ROW LEVEL SECURITY;
 
 DO $$

@@ -16,7 +16,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   validateBody: jest.fn(),
   requirePermission: () => jest.fn(),
 }));
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ withRoute: (fn: unknown) => fn }));
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter: () => undefined, withRoute: (fn: unknown) => fn }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({ schema: { complianceNotificationPreference: {} }, withTenantTx: jest.fn() }));
 jest.unstable_mockModule('../src/services/notification-service.js', () => ({
   getNotificationPreference: jest.fn(),

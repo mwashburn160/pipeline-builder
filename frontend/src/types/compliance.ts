@@ -34,6 +34,9 @@ export interface CompliancePolicy {
   createdAt: string;
   updatedAt: string;
   createdBy: string;
+  /** Soft-delete tombstone metadata (present on rows returned by list-deleted). */
+  deletedAt?: string;
+  deletedBy?: string;
 }
 
 export interface ComplianceRule {
@@ -61,6 +64,9 @@ export interface ComplianceRule {
   createdAt: string;
   updatedAt: string;
   createdBy: string;
+  /** Soft-delete tombstone metadata (present on rows returned by list-deleted). */
+  deletedAt?: string;
+  deletedBy?: string;
 }
 
 export interface ComplianceRuleHistoryEntry {

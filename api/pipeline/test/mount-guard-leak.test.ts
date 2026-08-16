@@ -94,6 +94,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: () => undefined,
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   // Return the real Express app so index.ts assembles production wiring onto it.
   createApp: () => ({ app: capturedApp, sseManager: {} }),

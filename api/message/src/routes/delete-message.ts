@@ -12,7 +12,7 @@ import {
   sendEntityNotFound,
   errorMessage,
 } from '@pipeline-builder/api-core';
-import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/api-server';
+import { withRoute, createAuthenticatedWithOrgRoute, incCounter } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { getAuditClient } from '../services/audit.js';
@@ -72,6 +72,10 @@ export function createDeleteMessageRoutes(sseManager: SSEManager): Router {
     }
 
     ctx.log('COMPLETED', 'Message deleted', { id });
+
+    // Domain metric — a message was deleted. Tagged by action only to keep
+    // label cardinality bounded (no orgId/messageId).
+    incCounter('message_events_total', { action: 'deleted' });
 
     // Audit the delete (admin/message-sender action). `details` is SAFE METADATA
     // ONLY (whether the deleted message was an announcement) — never the body.

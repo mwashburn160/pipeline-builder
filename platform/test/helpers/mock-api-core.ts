@@ -103,13 +103,14 @@ function resolveUserPermissions(assignedPermissions?: readonly string[] | null, 
  */
 const REMOTE_AUDIT_ACTIONS: readonly string[] = [
   'plugin.build.completed', 'plugin.build.failed', 'plugin.build.timeout',
-  'plugin.delete', 'plugin.upload', 'plugin.deploy',
+  'plugin.delete', 'plugin.update', 'plugin.upload', 'plugin.deploy',
   'pipeline.create', 'pipeline.update', 'pipeline.delete',
   'pipeline.execution.start', 'pipeline.execution.cancel',
   'quota.reset', 'quota.limit.update',
   'compliance.exemption.approve', 'compliance.rule.toggle', 'compliance.scan.cancel',
   'registry.gc', 'registry.image.delete',
   'authz.denied',
+  'observability.silence.create', 'observability.silence.delete',
 ];
 
 /**
@@ -254,6 +255,15 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // the JWT's `isSuperAdmin` flag. Used by tenant-binding gates (audit ingest,
     // notify-email) to let a sysadmin service token target any org.
     isSystemAdmin: (req: { user?: { isSuperAdmin?: boolean } }) => req?.user?.isSuperAdmin === true,
+    // Service-principal check (faithful to api-core): a service token's `sub`
+    // starts with `service:`. Used by internal read gates (org parent/members).
+    isServicePrincipal: (req: { user?: { sub?: string } }) => req?.user?.sub?.startsWith('service:') ?? false,
+    // Route-param extractor (faithful to api-core): first value of a param.
+    getParam: (params: Record<string, unknown>, key: string) => {
+      const v = params?.[key];
+      if (v === undefined) return undefined;
+      return Array.isArray(v) ? v[0] : v;
+    },
     // Audit ingest allow-list + AWS-id scrub (audit-chain / audit route consume
     // these). Faithful to api-core so the anti-forgery gate and details scrub
     // behave for real under the mock.

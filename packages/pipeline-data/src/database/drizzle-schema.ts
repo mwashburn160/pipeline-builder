@@ -13,6 +13,7 @@ export * from './schema/plugin.js';
 export * from './schema/pipeline.js';
 export * from './schema/pipeline-template.js';
 export * from './schema/message.js';
+export * from './schema/message-attachment.js';
 export * from './schema/compliance.js';
 export * from './schema/dashboard.js';
 export * from './schema/alert.js';
@@ -34,6 +35,7 @@ import {
   complianceReportSchedule,
 } from './schema/compliance.js';
 import { dashboard, dashboardPanel } from './schema/dashboard.js';
+import { messageAttachment } from './schema/message-attachment.js';
 import { message } from './schema/message.js';
 import { pipelineTemplate } from './schema/pipeline-template.js';
 import { pipeline, pipelineRegistry, pipelineEvent } from './schema/pipeline.js';
@@ -47,6 +49,7 @@ export const schema = {
   pipeline,
   pipelineTemplate,
   message,
+  messageAttachment,
   pipelineRegistry,
   pipelineEvent,
   // Observability dashboards (user-editable replacement for code-defined dashboards)

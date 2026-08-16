@@ -14,6 +14,7 @@ import { IconButton } from '@/components/ui/IconButton';
 import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 
 interface RuleListProps {
   onEdit?: (rule: ComplianceRule) => void;
@@ -268,6 +269,11 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
           />
         </div>
       )}
+
+      {/* Recently deleted — restore soft-deleted rules within the retention
+          window. Gated on write (restore is compliance:write + step-up gated);
+          `onEdit` is passed only for managers, so it mirrors that gate. */}
+      {onEdit && <RecentlyDeletedPanel resource="compliance-rule" onRestored={fetchRules} />}
     </div>
   );
 }

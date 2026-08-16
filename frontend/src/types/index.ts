@@ -719,11 +719,25 @@ export type MessagePriority = 'normal' | 'high' | 'urgent';
 /**
  * Internal message model
  */
+/** Attachment metadata (the blob is fetched separately, auth-gated). */
+export interface MessageAttachment {
+  id: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+}
+
 export interface Message {
   id: string;
   orgId: string;
   threadId: string | null;
   recipientOrgId: string;
+  /**
+   * Optional per-user target WITHIN `recipientOrgId`. Null (default) = the whole
+   * recipient org sees it; when set, only this user does. Announcement broadcasts
+   * ('*' recipient) never set this.
+   */
+  recipientUserId: string | null;
   messageType: MessageType;
   /**
    * Logical channel/inbox bucket (e.g. 'support', 'help'). Null for
@@ -739,10 +753,14 @@ export interface Message {
    */
   readBy: Record<string, string>;
   priority: MessagePriority;
+  /** Attachment metadata, embedded by the thread endpoint (absent on list rows). */
+  attachments?: MessageAttachment[];
   createdBy: string;
   createdAt: string;
   updatedBy: string;
   updatedAt: string;
+  /** Set when the author edited the content after sending (drives the "edited" hint). */
+  editedAt?: string | null;
   accessModifier: AccessModifier;
   isDefault: boolean;
   isActive: boolean;

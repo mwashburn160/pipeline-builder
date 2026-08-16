@@ -1,18 +1,19 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import crypto from 'crypto';
-
-import { createLogger, requireAuth, requirePermission, requireStepUp, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS, wireAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
+import { createLogger, requireAuth, requirePermission, requireStepUp, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS, wireServiceSecurity, createEnvSseTicketStore } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, createAuthenticatedWithOrgRoute, postgresHealthCheck } from '@pipeline-builder/api-server';
 import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data';
 import type { Request, Response } from 'express';
 
+import { createAttachmentRoutes } from './routes/attachment-routes.js';
 import { createCreateMessageRoutes } from './routes/create-message.js';
 import { createDeleteMessageRoutes } from './routes/delete-message.js';
+import { createInternalOrgPurgeRoutes } from './routes/internal-org-purge.js';
 import { createReadMessageRoutes } from './routes/read-messages.js';
 import { createRestoreMessageRoutes } from './routes/restore-message.js';
 import { createUpdateMessageRoutes } from './routes/update-message.js';
+import { attachmentService } from './services/attachment-service.js';
 import { getAuditClient } from './services/audit.js';
 import { messageService } from './services/message-service.js';
 
@@ -21,86 +22,61 @@ const quotaService = createQuotaService();
 const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck });
 
 // Forward denied (non-GET) requests to the shared authz.denied audit sink.
-wireAuthzDenialAuditor('message', getAuditClient);
-
-// Reject tokens whose tokenVersion is behind the platform-published value once
-// Redis is configured; fail-open (no-op) otherwise — falls back to token expiry.
-setTokenRevocationStore(createEnvRedisTokenRevocationStore());
+wireServiceSecurity('message', getAuditClient);
 
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));
 
 // -- SSE ticket store ---------------------------------------------------------
 // Short-lived, single-use tickets so JWTs never appear in query strings / logs.
+// Redis-backed when configured so a ticket minted on one replica is redeemable
+// on another (multi-replica correctness); falls back to in-memory single-process.
 
-/** Ticket TTL — see api-core `SSE_TICKET_TTL_MS` (enough for the client to open the EventSource). */
-const TICKET_TTL_MS = SSE_TICKET_TTL_MS;
-
-/** Hard cap on total live tickets across the process — bounds memory under abuse.
+/** Hard cap on tickets minted per TTL window across all orgs — bounds abuse.
  *  Override via SSE_MAX_TOTAL_TICKETS. */
 const MAX_TOTAL_TICKETS = parseInt(process.env.SSE_MAX_TOTAL_TICKETS || '1000', 10);
-/** Per-org cap — prevents a single tenant from saturating the table.
+/** Per-org cap — prevents a single tenant from saturating the store.
  *  Override via SSE_MAX_TICKETS_PER_ORG. */
 const MAX_TICKETS_PER_ORG = parseInt(process.env.SSE_MAX_TICKETS_PER_ORG || '10', 10);
 
-interface SseTicket { orgId: string; expiresAt: number }
-const ticketStore = new Map<string, SseTicket>();
-
-function countLiveTicketsForOrg(orgId: string, now: number): number {
-  let count = 0;
-  for (const ticket of ticketStore.values()) {
-    if (ticket.orgId === orgId && ticket.expiresAt > now) count++;
-  }
-  return count;
-}
-
-// Periodic cleanup of expired tickets
-const ticketCleanup = setInterval(() => {
-  const now = Date.now();
-  for (const [id, ticket] of ticketStore) {
-    if (now > ticket.expiresAt) ticketStore.delete(id);
-  }
-}, TICKET_TTL_MS);
-ticketCleanup.unref();
+const ticketStore = createEnvSseTicketStore({
+  ttlMs: SSE_TICKET_TTL_MS,
+  maxTotal: MAX_TOTAL_TICKETS,
+  maxPerOrg: MAX_TICKETS_PER_ORG,
+});
 
 // POST /messages/notifications/ticket — exchange JWT for a single-use SSE ticket
 app.post(
   '/messages/notifications/ticket',
   requireAuth,
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     const orgId = req.user?.organizationId?.toLowerCase();
     if (!orgId) {
       return sendError(res, 400, 'Token missing organization', ErrorCode.VALIDATION_ERROR);
     }
 
-    const now = Date.now();
-    if (ticketStore.size >= MAX_TOTAL_TICKETS) {
-      return sendError(res, 503, 'Notification subsystem at capacity', ErrorCode.QUOTA_EXCEEDED);
+    const result = await ticketStore.issue(orgId);
+    if (!result.ok) {
+      return result.reason === 'total'
+        ? sendError(res, 503, 'Notification subsystem at capacity', ErrorCode.QUOTA_EXCEEDED)
+        : sendError(res, 429, 'Too many notification tickets issued', ErrorCode.QUOTA_EXCEEDED);
     }
-    if (countLiveTicketsForOrg(orgId, now) >= MAX_TICKETS_PER_ORG) {
-      return sendError(res, 429, 'Too many notification tickets issued', ErrorCode.QUOTA_EXCEEDED);
-    }
-
-    const ticketId = crypto.randomBytes(24).toString('base64url');
-    ticketStore.set(ticketId, { orgId, expiresAt: now + TICKET_TTL_MS });
-    return sendSuccess(res, 200, { ticket: ticketId });
+    return sendSuccess(res, 200, { ticket: result.ticket });
   },
 );
 
 // GET /messages/notifications?ticket=<ticket> — SSE endpoint using ticket auth
 app.get(
   '/messages/notifications',
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     const ticketId = req.query.ticket as string | undefined;
     if (!ticketId) {
       sendError(res, 401, 'Missing ticket parameter', ErrorCode.UNAUTHORIZED);
       return;
     }
 
-    const ticket = ticketStore.get(ticketId);
-    ticketStore.delete(ticketId); // Single use — consume immediately
-
-    if (!ticket || Date.now() > ticket.expiresAt) {
+    const ticket = await ticketStore.consume(ticketId); // atomic single-use
+    if (!ticket) {
       sendError(res, 401, 'Invalid or expired ticket', ErrorCode.UNAUTHORIZED);
       return;
     }
@@ -132,6 +108,11 @@ app.get(
 // -- /messages routes ---------------------------------------------------------
 // Each route attaches its own auth/quota middleware so that mounting these
 // at a shared prefix never causes middleware to bleed across verbs.
+// Attachment upload/download — mounted BEFORE the read routes so the literal
+// `/attachments` + `/attachments/:id` paths resolve here and aren't swallowed by
+// the read router's `/:id` matcher. Each route owns its auth (messages:write to
+// upload, messages:read to download).
+app.use('/messages', createAttachmentRoutes(quotaService));
 app.use('/messages', createReadMessageRoutes(quotaService));
 app.use('/messages', createCreateMessageRoutes(sseManager));
 app.use('/messages', createUpdateMessageRoutes(sseManager));
@@ -142,6 +123,11 @@ app.use('/messages', createDeleteMessageRoutes(sseManager));
 // reverses a destructive action.
 app.use('/messages', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), requireStepUp, createRestoreMessageRoutes());
 
+// Internal org-purge (service-to-service): the platform cascade calls
+// DELETE /messages/internal/org/:orgId/attachments to reclaim the org's MinIO
+// blobs. Its own requireAuth + requireServicePrincipal gate it — no user chain.
+app.use('/messages', createInternalOrgPurgeRoutes());
+
 logger.info('All /messages routes registered');
 
 // Retention purge: hard-delete message tombstones past their purge_after
@@ -151,6 +137,9 @@ const purgeScheduler = createSoftDeletePurgeScheduler({
   service: 'message',
   entities: [
     { name: 'message', purgeExpired: (now, limit) => messageService.purgeExpired(now, limit) },
+    // Reap abandoned PENDING attachments (uploaded but never linked to a sent
+    // message) + their blobs. Same leader-locked, sysadmin-scoped sweep.
+    { name: 'message_attachment_pending', purgeExpired: (now, limit) => attachmentService.purgePending(now, limit) },
   ],
 });
 purgeScheduler?.start();
@@ -159,7 +148,7 @@ runServer(app, {
   name: 'Message Service',
   sseManager,
   onShutdown: async () => {
-    clearInterval(ticketCleanup);
+    ticketStore.stop();
     purgeScheduler?.stop();
   },
 });

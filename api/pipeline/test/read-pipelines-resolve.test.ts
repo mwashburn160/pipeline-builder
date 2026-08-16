@@ -41,6 +41,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: () => undefined,
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   withRoute: (h: Function) => async (req: any, res: any) => {
     try { await h({ req, res, ctx: { log: jest.fn() }, orgId: 'org-1', userId: 'u-1' }); } catch (err: any) { res.status(500).json({ message: err.message }); }

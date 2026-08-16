@@ -47,6 +47,12 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   isSystemAdmin: jest.fn(),
 }));
 
+// The controller now audits silence create/delete; stub the audit helper so the
+// test doesn't pull in the real audit-service / mongoose chain.
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({
+  audit: jest.fn(),
+}));
+
 const { requireAuth, isSystemAdmin } = await import('../src/helpers/controller-helper.js');
 const { observabilityQuery, observabilityLogs } = await import('../src/observability/controller.js');
 

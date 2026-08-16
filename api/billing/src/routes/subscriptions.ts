@@ -5,6 +5,7 @@ import {
   requireAuth,
   requirePermission,
   requireSystemAdmin,
+  requireStepUp,
   sendSuccess,
   sendError,
   sendBadRequest,
@@ -276,7 +277,7 @@ export function createSubscriptionRoutes(): Router {
       // current pooled usage. Structured overages drive the UI's "remove N".
       const overages = await checkEntitlementOvercap(orgId, plan.tier, subscription.addons ?? [], '');
       if (overages.length > 0) {
-        return sendError(res, 409, 'This plan change would put the account over its limit — remove members/resources first', 'PLAN_OVER_CAP', { overages });
+        return sendError(res, 409, 'This plan change would put the account over its limit — remove members/resources first', ErrorCode.PLAN_OVER_CAP, { overages });
       }
     }
 
@@ -369,7 +370,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions/:id/cancel  cancel at period end
 
-  router.post('/subscriptions/:id/cancel', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/cancel', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, requireStepUp as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
 
     const subscription = await Subscription.findOne({
@@ -462,9 +463,12 @@ export function createSubscriptionRoutes(): Router {
       // with nothing left to reconcile. Match the manageable (non-terminal)
       // set so the provider-cancel covers what deleteMany removes. Fail-soft:
       // a provider-cancel failure is logged but never blocks the local cascade.
+      // An org realistically holds a single active subscription; a hard cap
+      // keeps this cascade sweep bounded even against pathological data (the
+      // provider-cancel loop + audit mirror below iterate this set).
       const billable = await Subscription.find({
         orgId: targetOrgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
-      });
+      }).limit(1000);
       for (const sub of billable) {
         if (sub.externalId) {
           try {

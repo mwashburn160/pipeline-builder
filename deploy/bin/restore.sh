@@ -18,6 +18,12 @@
 #   ENV_NAME                 environment label embedded in S3 path (default: prod)
 #   AWS_REGION               AWS region (default: us-east-1)
 #
+# MinIO object-storage restore (--minio): reverse-mirrors the backup target
+# buckets back INTO the source MinIO. Standalone mode (does not touch the DBs).
+# Same MINIO_* env as backup.sh (MINIO_ENDPOINT, MINIO_ROOT_USER/PASSWORD,
+# MINIO_BACKUP_TARGET_URL, MINIO_BACKUP_TARGET_ACCESS_KEY/_SECRET_KEY,
+# MINIO_BACKUP_TARGET_BUCKET, MINIO_BUCKETS). Requires `mc`.
+#
 # Usage:
 #   ./restore.sh --list                                              # list available backups
 #   ./restore.sh --date 2026/04/26 --confirm-destructive             # restore latest pair from a date
@@ -26,6 +32,7 @@
 #                --confirm-destructive                                # restore specific keys
 #   ./restore.sh --date 2026/04/26 --pg-only --confirm-destructive   # only postgres
 #   ./restore.sh --date 2026/04/26 --mongo-only --confirm-destructive # only mongo
+#   ./restore.sh --minio --confirm-destructive                       # restore MinIO buckets (blobs)
 #
 # Exit codes:
 #   0  success
@@ -45,6 +52,7 @@ AWS_REGION="${AWS_REGION:-us-east-1}"
 LIST_ONLY=0
 PG_ONLY=0
 MONGO_ONLY=0
+MINIO_RESTORE=0
 CONFIRM=0
 DATE=""
 PG_KEY=""
@@ -66,6 +74,7 @@ while [ $# -gt 0 ]; do
     --mongo-key) [ $# -ge 2 ] || { echo "$1 requires a value" >&2; usage 1; }; MONGO_KEY="$2"; shift ;;
     --pg-only) PG_ONLY=1 ;;
     --mongo-only) MONGO_ONLY=1 ;;
+    --minio) MINIO_RESTORE=1 ;;
     --confirm-destructive) CONFIRM=1 ;;
     -h|--help) usage 0 ;;
     *) echo "unknown arg: $1" >&2; usage 1 ;;
@@ -81,6 +90,41 @@ if [ "$LIST_ONLY" = "1" ]; then
   echo "Available backups in s3://${BACKUP_BUCKET}/${ENV_NAME}/:"
   aws s3 ls "s3://${BACKUP_BUCKET}/${ENV_NAME}/" --recursive --region "${AWS_REGION}" \
     | awk '{print $1, $2, $4}' | sort -k1,2
+  exit 0
+fi
+
+# --- MinIO object-storage restore (standalone) ------------------------------
+# Reverse the backup mirror: copy the backup target's buckets back INTO the
+# source MinIO. Does not touch the DBs, so it exits when done.
+if [ "$MINIO_RESTORE" = "1" ]; then
+  if [ "$CONFIRM" != "1" ]; then
+    echo "ERROR: --minio restore overwrites MinIO objects." >&2
+    echo "       Re-run with --confirm-destructive to proceed." >&2
+    exit 3
+  fi
+  require_env MINIO_ENDPOINT MINIO_ROOT_USER MINIO_ROOT_PASSWORD \
+             MINIO_BACKUP_TARGET_URL MINIO_BACKUP_TARGET_ACCESS_KEY MINIO_BACKUP_TARGET_SECRET_KEY
+  command -v mc >/dev/null 2>&1 || { echo "ERROR: 'mc' (MinIO client) not found" >&2; exit 2; }
+
+  MINIO_BUCKETS="${MINIO_BUCKETS:-message-attachments registry loki thanos}"
+  MINIO_BACKUP_TARGET_BUCKET="${MINIO_BACKUP_TARGET_BUCKET:-${BACKUP_BUCKET}}"
+  WORKDIR=$(mktemp -d)
+  trap 'rm -rf "$WORKDIR"' EXIT
+  MC_CONFIG_DIR="${WORKDIR}/.mc"
+
+  mc --config-dir "$MC_CONFIG_DIR" alias set pbsrc "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null \
+    || { echo "ERROR: mc alias set (source) failed" >&2; exit 2; }
+  mc --config-dir "$MC_CONFIG_DIR" alias set pbdst "$MINIO_BACKUP_TARGET_URL" "$MINIO_BACKUP_TARGET_ACCESS_KEY" "$MINIO_BACKUP_TARGET_SECRET_KEY" >/dev/null \
+    || { echo "ERROR: mc alias set (target) failed" >&2; exit 2; }
+  for b in ${MINIO_BUCKETS}; do
+    echo "[minio] restoring ${b} ← ${MINIO_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/${b}"
+    mc --config-dir "$MC_CONFIG_DIR" mb --ignore-existing "pbsrc/${b}" >/dev/null 2>&1 || true
+    mc --config-dir "$MC_CONFIG_DIR" mirror --overwrite --quiet \
+      "pbdst/${MINIO_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/${b}" "pbsrc/${b}" \
+      || { echo "ERROR: mc mirror restore of bucket ${b} failed" >&2; exit 2; }
+  done
+  echo ""
+  echo "=== MinIO restore complete (${MINIO_BUCKETS}) ==="
   exit 0
 fi
 

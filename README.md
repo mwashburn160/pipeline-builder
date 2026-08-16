@@ -246,7 +246,7 @@ flowchart TB
 | **Reporting** | Execution reports + build analytics via EventBridge |
 | **Quota** | Resource limits per organization (pooled across a parent's teams) |
 | **Billing** | Subscription tiers + add-on bundles per account |
-| **Message** | Organization and team announcements |
+| **Message** | Announcements, org-to-org + support conversations, per-user direct messages, and file/image attachments (MinIO-backed) |
 
 For detailed end-to-end flows (plugin upload, pipeline creation, CDK synthesis, CodePipeline execution), see [Architecture Flow](docs/architecture-flow.md). For how Pipeline Builder benefits engineering organizations, see [Organization Benefits](docs/organization-benefits.md). For cut-and-paste pipeline examples by language, see [Developer Guide](docs/developer-guide.md).
 

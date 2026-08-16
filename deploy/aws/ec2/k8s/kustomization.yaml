@@ -25,9 +25,11 @@ resources:
   - frontend.yaml
   - mongo-express.yaml
   - pgadmin.yaml
+  - minio.yaml
   - registry.yaml
   - image-registry.yaml
   - prometheus.yaml
+  - thanos-query.yaml
   - alertmanager.yaml
   - loki.yaml
   - promtail.yaml

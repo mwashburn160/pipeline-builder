@@ -19,6 +19,15 @@ function getSupportAliases(): Set<string> {
   return _supportAliases;
 }
 
+/**
+ * Clear the memoized alias set so the next access re-reads `SUPPORT_ALIASES`.
+ * The cache is process-lifetime by design (env is fixed per process); this hook
+ * exists so tests can vary the env between cases.
+ */
+export function resetSupportAliasesCache(): void {
+  _supportAliases = undefined;
+}
+
 /** Well-known fallback support alias used when SUPPORT_ALIASES is unconfigured. */
 export const DEFAULT_SUPPORT_ALIAS = 'support@pipeline-builder';
 
@@ -31,6 +40,16 @@ export const DEFAULT_SUPPORT_ALIAS = 'support@pipeline-builder';
 export function getPrimarySupportAlias(): string {
   for (const alias of getSupportAliases()) return alias;
   return DEFAULT_SUPPORT_ALIAS;
+}
+
+/**
+ * ALL configured support aliases (order preserved), for UIs that surface every
+ * support inbox as a distinct recipient suggestion. Falls back to a single
+ * {@link DEFAULT_SUPPORT_ALIAS} when SUPPORT_ALIASES is unset.
+ */
+export function getAllSupportAliases(): string[] {
+  const all = [...getSupportAliases()];
+  return all.length > 0 ? all : [DEFAULT_SUPPORT_ALIAS];
 }
 
 /** Result of alias resolution. */

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, ErrorCode, mongoSanitize, wireAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, ErrorCode, mongoSanitize, wireServiceSecurity } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, mongoHealthCheck, connectMongo } from '@pipeline-builder/api-server';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -27,11 +27,7 @@ const logger = createLogger('billing');
 
 // Forward denied (non-GET) requests to the shared authz.denied audit sink.
 // Registered unconditionally — harmless in disabled mode (no gated routes fire).
-wireAuthzDenialAuditor('billing', getAuditClient);
-
-// Reject tokens whose tokenVersion is behind the platform-published value once
-// Redis is configured; fail-open (no-op) otherwise — falls back to token expiry.
-setTokenRevocationStore(createEnvRedisTokenRevocationStore());
+wireServiceSecurity('billing', getAuditClient);
 
 // -- Express app ---------------------------------------------------------------
 

@@ -6,9 +6,10 @@
  * Prometheus Gauge. BullMQ does not auto-export to Prometheus, so the
  * Observability dashboards need an in-process scraper.
  *
- * Cardinality: `queue` is bounded to 2 values (`plugin-build`, `plugin-build-dlq`)
- * and `state` is bounded to BullMQ's 6 states (`waiting`, `active`, `completed`,
- * `failed`, `delayed`, `paused`) → 12 series total. Safe to label.
+ * Cardinality: `queue` is bounded to the 5 per-tier build queues
+ * (`plugin-build-{developer,pro,team,enterprise,unlimited}`) + the DLQ = 6
+ * values, and `state` to BullMQ's 6 states (`waiting`, `active`, `completed`,
+ * `failed`, `delayed`, `paused`) → 36 series total. Safe to label.
  */
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';

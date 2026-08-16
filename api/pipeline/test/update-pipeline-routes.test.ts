@@ -69,6 +69,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: () => undefined,
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   getContext: (req: any) => req.context,
   createProtectedRoute: () => [],

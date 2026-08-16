@@ -27,6 +27,10 @@ export class InvalidRuleRegexError extends Error {
 
 const logger = createLogger('compliance-rule-service');
 
+/** Shared `.catch` sink for the fire-and-forget side effects (history / cache /
+ *  scan-trigger) in create/update/delete/restore — was copy-pasted 16×. */
+const warnNonFatal = (err: unknown): void => { logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }); };
+
 /** Cache for active rules per org+target. Rules change infrequently. */
 const rulesCache = createCacheService('compliance:rules:', CoreConstants.CACHE_TTL_COMPLIANCE_RULES);
 
@@ -433,11 +437,11 @@ export class ComplianceRuleService extends CrudService<
     const regexError = validateRuleRegexPatterns(data as Parameters<typeof validateRuleRegexPatterns>[0]);
     if (regexError) throw new InvalidRuleRegexError(regexError);
     const created = await super.create(data, userId);
-    this.recordHistory(created.id, created.orgId, 'created', null, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
-    this.invalidateRulesCache(created.orgId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
-    this.triggerRuleChangeScan(created.orgId, created.target, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
+    this.recordHistory(created.id, created.orgId, 'created', null, userId).catch(warnNonFatal);
+    this.invalidateRulesCache(created.orgId).catch(warnNonFatal);
+    this.triggerRuleChangeScan(created.orgId, created.target, userId).catch(warnNonFatal);
     if (created.scope === 'published') {
-      this.invalidateSubscriberCaches(created.id).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
+      this.invalidateSubscriberCaches(created.id).catch(warnNonFatal);
     }
     return created;
   }
@@ -453,12 +457,12 @@ export class ComplianceRuleService extends CrudService<
     const existing = await this.findById(id, orgId);
     const updated = await super.update(id, data, orgId, userId);
     if (updated && existing) {
-      this.recordHistory(id, orgId, 'updated', existing, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
-      this.invalidateRulesCache(orgId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
-      this.triggerRuleChangeScan(orgId, existing.target, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
+      this.recordHistory(id, orgId, 'updated', existing, userId).catch(warnNonFatal);
+      this.invalidateRulesCache(orgId).catch(warnNonFatal);
+      this.triggerRuleChangeScan(orgId, existing.target, userId).catch(warnNonFatal);
       if (existing.scope === 'published') {
-        this.invalidateSubscriberCaches(id).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
-        notifyPublishedRuleChange(id, existing.name, 'updated').catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
+        this.invalidateSubscriberCaches(id).catch(warnNonFatal);
+        notifyPublishedRuleChange(id, existing.name, 'updated').catch(warnNonFatal);
       }
     }
     return updated;
@@ -478,12 +482,12 @@ export class ComplianceRuleService extends CrudService<
       : [];
     const deleted = await super.delete(id, orgId, userId);
     if (deleted && existing) {
-      this.recordHistory(id, orgId, 'deleted', existing, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
-      this.invalidateRulesCache(orgId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
-      this.triggerRuleChangeScan(orgId, existing.target, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
+      this.recordHistory(id, orgId, 'deleted', existing, userId).catch(warnNonFatal);
+      this.invalidateRulesCache(orgId).catch(warnNonFatal);
+      this.triggerRuleChangeScan(orgId, existing.target, userId).catch(warnNonFatal);
       if (existing.scope === 'published') {
-        this.invalidateSubscriberCaches(id).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
-        notifyPublishedRuleChange(id, existing.name, 'deleted', subscribers).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
+        this.invalidateSubscriberCaches(id).catch(warnNonFatal);
+        notifyPublishedRuleChange(id, existing.name, 'deleted', subscribers).catch(warnNonFatal);
       }
     }
     return deleted;
@@ -497,12 +501,11 @@ export class ComplianceRuleService extends CrudService<
    * `restore()` after the row is un-tombstoned.
    */
   protected async onAfterRestore(id: string, entity: ComplianceRule, userId: string): Promise<void> {
-    const warn = (err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) });
-    this.recordHistory(id, entity.orgId, 'restored', null, userId).catch(warn);
-    this.invalidateRulesCache(entity.orgId).catch(warn);
-    this.triggerRuleChangeScan(entity.orgId, entity.target, userId).catch(warn);
+    this.recordHistory(id, entity.orgId, 'restored', null, userId).catch(warnNonFatal);
+    this.invalidateRulesCache(entity.orgId).catch(warnNonFatal);
+    this.triggerRuleChangeScan(entity.orgId, entity.target, userId).catch(warnNonFatal);
     if (entity.scope === 'published') {
-      this.invalidateSubscriberCaches(id).catch(warn);
+      this.invalidateSubscriberCaches(id).catch(warnNonFatal);
     }
   }
 }

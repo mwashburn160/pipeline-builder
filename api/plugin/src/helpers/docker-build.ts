@@ -78,7 +78,7 @@ export interface BuildStreamOptions {
 /** Last-N masked build lines retained for a bounded failure summary. */
 export const BUILD_LOG_TAIL_LINES = 25;
 /** Hard cap per streamed/summarized line so a pathological line can't bloat SSE. */
-export const BUILD_LOG_MAX_LINE_CHARS = 2000;
+const BUILD_LOG_MAX_LINE_CHARS = 2000;
 
 /**
  * A build subprocess exited non-zero or timed out. Carries a bounded tail of the

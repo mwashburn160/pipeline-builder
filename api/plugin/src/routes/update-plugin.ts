@@ -5,6 +5,7 @@ import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBa
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
+import { emitPluginAudit } from '../services/audit.js';
 import { pluginService } from '../services/plugin-service.js';
 
 const complianceClient = createComplianceClient();
@@ -135,6 +136,21 @@ export function createUpdatePluginRoutes(): Router {
     if (!updated) return sendEntityNotFound(res, 'Plugin');
 
     ctx.log('COMPLETED', 'Updated plugin', { id: updated.id, name: updated.name });
+
+    // Audit the mutation — parity with delete/upload/deploy/restore (and the
+    // peer services' update routes, which all audit).
+    emitPluginAudit({
+      action: 'plugin.update',
+      actorId: req.user?.sub ?? userId ?? 'system',
+      orgId,
+      targetType: 'plugin',
+      targetId: id,
+      details: {
+        pluginName: updated.name,
+        version: updated.version,
+        accessModifier: updated.accessModifier,
+      },
+    });
 
     return sendSuccess(res, 200, { plugin: shapePlugin(updated) });
   }));

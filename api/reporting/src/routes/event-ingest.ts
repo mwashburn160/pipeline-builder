@@ -55,7 +55,11 @@ const ingestEventSchema = z.discriminatedUnion('eventSource', [
 ]);
 
 const ingestBatchSchema = z.object({
-  events: z.array(ingestEventSchema).min(1, 'At least one event is required'),
+  // Bound at the Zod layer so an oversized batch is rejected BEFORE the whole
+  // array is validated element-by-element (the route also re-checks post-parse).
+  events: z.array(ingestEventSchema)
+    .min(1, 'At least one event is required')
+    .max(CoreConstants.MAX_EVENTS_PER_BATCH, `Maximum ${CoreConstants.MAX_EVENTS_PER_BATCH} events per batch`),
 });
 
 

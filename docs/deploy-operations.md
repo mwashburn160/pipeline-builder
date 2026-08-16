@@ -35,16 +35,36 @@ Always update the **k8s Secret** (not just `.env`) on the k8s targets, then `kub
 
 ## Backups & disaster recovery
 
-`deploy/bin/backup.sh` / `restore.sh` dump and restore Postgres + Mongo (to/from S3; `restore.sh` requires `--confirm-destructive`). **They are not scheduled by default** on any target — wire them:
+`deploy/bin/backup.sh` / `restore.sh` dump and restore Postgres + Mongo (to/from S3; `restore.sh` requires `--confirm-destructive`), and **optionally mirror the MinIO buckets** (attachments/registry/loki/thanos) when `MINIO_ENDPOINT` is set. **They are not scheduled by default** on any target — wire them:
 
-- **EKS:** apply [`deploy/aws/eks/backup/backup-cronjob.yaml`](../deploy/aws/eks/backup/backup-cronjob.yaml) (kept out of the kustomize overlay so it never auto-applies) after (1) provisioning an **encrypted + versioned** S3 bucket, (2) granting the `db-backup` ServiceAccount `s3:PutObject` (Pod Identity / IRSA — the current eks setup role grants only SES + CodePipeline, so **add** this), (3) pointing `image:` at a backup image with `pg_dump`/`mongodump`/`aws`, and (4) setting `BACKUP_BUCKET`. (Minikube is local and has no bucket to write to; run `deploy/bin/backup.sh` manually there if you point it at reachable object storage.)
+- **EKS:** apply [`deploy/aws/eks/backup/backup-cronjob.yaml`](../deploy/aws/eks/backup/backup-cronjob.yaml) (kept out of the kustomize overlay so it never auto-applies) after (1) provisioning an **encrypted + versioned** S3 bucket, (2) granting the `db-backup` ServiceAccount `s3:PutObject` (Pod Identity / IRSA — the current eks setup role grants only SES + CodePipeline, so **add** this), (3) pointing `image:` at a backup image with `pg_dump`/`mongodump`/`aws`/**`mc`**, and (4) setting `BACKUP_BUCKET`. (Minikube is local and has no bucket to write to; run `deploy/bin/backup.sh` manually there if you point it at reachable object storage.)
 - **EC2:** `bootstrap.sh` installs `pipeline-backup.timer` **disabled**. To enable it you must install the DB clients, give the host a path to the ClusterIP DBs (port-forward/NodePort), provision the bucket + `s3:PutObject`, and set `BACKUP_BUCKET`.
 
 **Bucket hardening:** enable SSE-KMS, versioning, and a **bucket lifecycle** retention policy (not the app's client-side `RETENTION_DAYS` prune, which a compromised role could bypass).
 
-**Also back up (or make reconstructible) the in-cluster image registry** — a DB-only restore cannot rebuild a working platform if the built plugin images are gone.
+**MinIO object storage** (plugin images, message attachments, logs) is backed up by the same script: set `MINIO_ENDPOINT` + `MINIO_ROOT_USER`/`PASSWORD` + a durable `MINIO_BACKUP_TARGET_URL` and its `*_ACCESS_KEY`/`*_SECRET_KEY`. `backup.sh` runs `mc mirror` (additive — never deletes from the backup, so a source delete can't wipe it; pair the target with **versioning** for point-in-time). Restore with `restore.sh --minio --confirm-destructive` (reverse mirror; standalone, does not touch the DBs). Skipping this (leaving `MINIO_ENDPOINT` unset) is a deliberate opt-out — a DB-only restore can't rebuild a working platform without the blobs.
 
 **DR drill:** periodically restore the latest backup into a scratch namespace/instance and verify — an untested backup is not a backup.
+
+## Object storage (MinIO)
+
+Several stateful services store into **MinIO** (S3-compatible), each with its own bucket + a per-service, bucket-scoped key (never the root credentials) — all created by the `minio-init` bootstrap (a compose service / a k8s Job):
+
+| Bucket | Consumer | Key |
+|--------|----------|-----|
+| `message-attachments` | message service (attachments) | `message-svc` |
+| `registry` | Docker registry (S3 storage driver — now **stateless**, no PVC) | `registry-svc` |
+| `loki` | Loki (chunks + index; `/loki` is now ephemeral scratch) | `loki-svc` |
+| `thanos` | Thanos sidecar (Prometheus 2h TSDB blocks, long-term) — READ back via the store-gateway + querier | `thanos-svc` |
+
+**HA / topology:**
+- **EKS (production):** distributed MinIO — a **StatefulSet of 4 pods**, one pb-ebs PVC each, erasure set **EC:2** (tolerates 2 pod/drive losses), spread across nodes via anti-affinity. Clients hit the `minio` Service (round-robin); peers resolve via the `minio-headless` Service.
+- **ec2 (single-node prod-style):** single-node **multi-drive (SNMD)** — 4 hostPath drives ⇒ EC:2 (drive-fault tolerance on the one node; true node-HA needs multiple nodes).
+- **docker / minikube (local dev):** single-node, single-drive — **no HA** (dev convenience). For cross-site async replication (any target) add `mc admin replicate`.
+
+Back up the MinIO drives as part of DR (EKS: the 4 `data-minio-*` PVCs; ec2: `minio-data/{1..4}`; dev: `./data/minio-data`). Fresh install — nothing to migrate.
+
+**Long-term metrics (Thanos) read path.** The sidecar only *uploads* Prometheus' 2h blocks to the `thanos` bucket; querying them back is served by two components (`thanos-query.yaml` on the k8s targets, equivalent services in docker-compose): a **store-gateway** (exposes the archived blocks over the Thanos StoreAPI, gRPC `10901`; local index cache is ephemeral) and a **querier** (Prometheus-compatible HTTP `9090` that fans out to the sidecar + store-gateway and de-duplicates). `PROMETHEUS_URL` points platform's Observability query endpoint at the **querier** (`http://thanos-query:9090`) so PromQL spans recent + archived history; set it back to `http://prometheus:9090` for recent-only. KEDA autoscaling deliberately still targets Prometheus directly (recent-only, lower latency).
 
 ## Teardown
 

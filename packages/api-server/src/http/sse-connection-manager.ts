@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomBytes } from 'node:crypto';
-import { createLogger, SSE_TICKET_TTL_MS } from '@pipeline-builder/api-core';
+import { createLogger, SSE_TICKET_TTL_MS, writeSseHeaders } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import type { Response } from 'express';
 import { v7 as uuid } from 'uuid';
@@ -688,10 +688,7 @@ export class SSEManager {
         return;
       }
 
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+      writeSseHeaders(res);
       res.flushHeaders();
 
       // Headers are flushed — we can no longer send a 429. addClient re-checks

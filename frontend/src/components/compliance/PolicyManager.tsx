@@ -10,6 +10,7 @@ import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import api from '@/lib/api';
 import { useCrudResource } from '@/hooks/useCrudResource';
 import type { CompliancePolicy } from '@/types/compliance';
@@ -201,6 +202,10 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
           />
         </div>
       )}
+
+      {/* Recently deleted — restore soft-deleted policies within the retention
+          window. Gated on write (restore is compliance:write + step-up gated). */}
+      {!readOnly && <RecentlyDeletedPanel resource="compliance-policy" onRestored={fetchPolicies} />}
     </div>
   );
 }

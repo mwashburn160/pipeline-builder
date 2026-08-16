@@ -16,6 +16,11 @@
       "type": "build"
     },
     {
+      "name": "@types/multer",
+      "version": "2.2.0",
+      "type": "build"
+    },
+    {
       "name": "@types/node",
       "version": "26.1.2",
       "type": "build"
@@ -79,6 +84,16 @@
       "type": "build"
     },
     {
+      "name": "@aws-sdk/client-s3",
+      "version": "3.1101.0",
+      "type": "runtime"
+    },
+    {
+      "name": "@aws-sdk/s3-request-presigner",
+      "version": "3.1101.0",
+      "type": "runtime"
+    },
+    {
       "name": "@pipeline-builder/api-core",
       "version": "workspace:*",
       "type": "runtime"
@@ -106,6 +121,16 @@
     {
       "name": "express",
       "version": "5.2.1",
+      "type": "runtime"
+    },
+    {
+      "name": "jimp",
+      "version": "1.6.0",
+      "type": "runtime"
+    },
+    {
+      "name": "multer",
+      "version": "2.2.0",
       "type": "runtime"
     },
     {

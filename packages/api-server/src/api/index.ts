@@ -6,6 +6,8 @@ export * from './middleware.js';
 export * from './middleware-factory.js';
 export * from './context-middleware.js';
 export * from './check-quota.js';
+export * from './meter-quota.js';
+export * from './rate-limit-by-org.js';
 export * from './require-org-id.js';
 export * from './tenant-context.js';
 export * from './get-context.js';

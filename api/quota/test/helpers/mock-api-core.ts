@@ -67,6 +67,9 @@ class NotFoundError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    MAX_PAGE_LIMIT: 1000,
+    DEFAULT_PAGE_LIMIT: 100,
+    closeLeaderLock: async () => undefined,
     loadAndRestore: async () => null,
     REPORT_INTERVALS: ['day', 'week', 'month'],
     scrubAwsIdentifiersFromString: (s: string) => s,
@@ -101,6 +104,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     createRemoteAuditAccessor: () => ({ getAuditClient: () => ({ record: jest.fn() }), emit: jest.fn() }),
     setAuthzDenialAuditor: () => {},
     wireAuthzDenialAuditor: () => {},
+    wireServiceSecurity: () => {},
     // Token-revocation reader hooks (session-invalidation option b) — stubbed
     // for parity so suites that transitively load the boot module still link.
     setTokenRevocationStore: () => {},
