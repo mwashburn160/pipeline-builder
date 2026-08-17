@@ -44,8 +44,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=common.sh
-. "$SCRIPT_DIR/common.sh"
+# shellcheck source=../../../bin/common.sh
+. "$SCRIPT_DIR/../../../bin/common.sh"
 
 ENV_NAME="${ENV_NAME:-prod}"
 AWS_REGION="${AWS_REGION:-us-east-1}"

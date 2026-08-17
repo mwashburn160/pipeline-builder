@@ -1,0 +1,274 @@
+#!/usr/bin/env bash
+# ============================================================================
+# Pipeline Builder — Postgres + MongoDB restore from S3 (via kubectl port-forward)
+# ============================================================================
+# k8s targets (minikube / ec2 / eks): restores a backup pair (postgres + mongo)
+# created by backup.sh. The datastores run INSIDE the cluster, so this stands up
+# short-lived `kubectl port-forward`s and rewrites the connection env to the
+# local tunnels before restoring, then tears them down on exit.
+# DESTRUCTIVE — drops existing tables/collections before restore. REFUSES to run
+# unless --confirm-destructive is passed.
+#
+# Required env vars:
+#   BACKUP_BUCKET            S3 bucket name
+#   POSTGRES_USER/PASSWORD/DB   postgres credentials + db (host is forwarded)
+#   MONGODB_URI              full mongo connection string (rewritten to the tunnel)
+#
+# Optional:
+#   ENV_NAME                 environment label embedded in S3 path (default: prod)
+#   AWS_REGION               AWS region (default: us-east-1)
+#
+# Port-forward tunables: PB_NAMESPACE (default pipeline-builder), PB_KUBE_CONTEXT,
+#   PG_LOCAL_PORT (15432), MONGO_LOCAL_PORT (27018), MINIO_LOCAL_PORT (19000).
+#
+# MinIO object-storage restore (--minio): reverse-mirrors the backup target
+# buckets back INTO the source MinIO. Standalone mode (does not touch the DBs).
+# Same MINIO_* env as backup.sh. Requires `mc`.
+#
+# Usage:
+#   ./restore.sh --list                                              # no cluster needed
+#   ./restore.sh --date 2026/04/26 --confirm-destructive             # restore latest pair
+#   ./restore.sh --pg-key ... --mongo-key ... --confirm-destructive  # specific keys
+#   ./restore.sh --date 2026/04/26 --pg-only --confirm-destructive   # only postgres
+#   ./restore.sh --minio --confirm-destructive                       # restore MinIO buckets
+#
+# Exit codes:
+#   0  success        1  arg/env error / port-forward not ready
+#   2  download/restore failed        3  missing --confirm-destructive
+# ============================================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../../../bin/common.sh
+. "$SCRIPT_DIR/../../../bin/common.sh"
+
+ENV_NAME="${ENV_NAME:-prod}"
+AWS_REGION="${AWS_REGION:-us-east-1}"
+LIST_ONLY=0
+PG_ONLY=0
+MONGO_ONLY=0
+MINIO_RESTORE=0
+CONFIRM=0
+DATE=""
+PG_KEY=""
+MONGO_KEY=""
+
+usage() {
+  grep '^#' "$SCRIPT_DIR/$(basename "$0")" | head -40
+  exit "${1:-1}"
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --list) LIST_ONLY=1 ;;
+    --date) [ $# -ge 2 ] || { echo "$1 requires a value" >&2; usage 1; }; DATE="$2"; shift ;;
+    --pg-key) [ $# -ge 2 ] || { echo "$1 requires a value" >&2; usage 1; }; PG_KEY="$2"; shift ;;
+    --mongo-key) [ $# -ge 2 ] || { echo "$1 requires a value" >&2; usage 1; }; MONGO_KEY="$2"; shift ;;
+    --pg-only) PG_ONLY=1 ;;
+    --mongo-only) MONGO_ONLY=1 ;;
+    --minio) MINIO_RESTORE=1 ;;
+    --confirm-destructive) CONFIRM=1 ;;
+    -h|--help) usage 0 ;;
+    *) echo "unknown arg: $1" >&2; usage 1 ;;
+  esac
+  shift
+done
+
+require_env BACKUP_BUCKET
+
+# --- Port-forward connectivity (k8s) ----------------------------------------
+
+NS="${PB_NAMESPACE:-pipeline-builder}"
+PG_LOCAL_PORT="${PG_LOCAL_PORT:-15432}"
+MONGO_LOCAL_PORT="${MONGO_LOCAL_PORT:-27018}"
+MINIO_LOCAL_PORT="${MINIO_LOCAL_PORT:-19000}"
+KCTX_ARGS=()
+[ -n "${PB_KUBE_CONTEXT:-}" ] && KCTX_ARGS=(--context "$PB_KUBE_CONTEXT")
+
+PF_PIDS=()
+WORKDIR=""
+cleanup() {
+  [ -n "$WORKDIR" ] && rm -rf "$WORKDIR"
+  if [ ${#PF_PIDS[@]} -gt 0 ]; then
+    local pid
+    for pid in "${PF_PIDS[@]}"; do [ -n "$pid" ] && kill "$pid" 2>/dev/null || true; done
+  fi
+}
+trap cleanup EXIT INT TERM
+
+start_pf() {
+  kubectl "${KCTX_ARGS[@]}" -n "$NS" port-forward "svc/$1" "$2:$3" >/dev/null 2>&1 &
+  PF_PIDS+=("$!")
+}
+wait_port() {
+  local port="$1" name="$2" tries=0
+  while [ "$tries" -lt 60 ]; do
+    if (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then exec 3>&- 3<&-; return 0; fi
+    sleep 0.5; tries=$((tries + 1))
+  done
+  echo "ERROR: port-forward for ${name} (127.0.0.1:${port}) never became ready" >&2
+  return 1
+}
+rewrite_mongo_uri() {
+  local uri="$1" hp="$2" rest creds query path newq kv
+  case "$uri" in
+    mongodb://*) rest="${uri#mongodb://}" ;;
+    *) echo "$uri"; return 0 ;;
+  esac
+  if [[ "$rest" == *@* ]]; then creds="${rest%%@*}@"; rest="${rest#*@}"; else creds=""; fi
+  if [[ "$rest" == *\?* ]]; then query="${rest#*\?}"; rest="${rest%%\?*}"; else query=""; fi
+  if [[ "$rest" == */* ]]; then path="/${rest#*/}"; else path=""; fi
+  newq="directConnection=true"
+  if [ -n "$query" ]; then
+    local oldIFS="$IFS"
+    set -f; IFS='&'
+    for kv in $query; do
+      case "$kv" in ''|replicaSet=*|directConnection=*) : ;; *) newq="${newq}&${kv}" ;; esac
+    done
+    IFS="$oldIFS"; set +f
+  fi
+  echo "mongodb://${creds}${hp}${path}?${newq}"
+}
+# Forward postgres+mongodb and repoint the DB env at the tunnels.
+pf_up_db() {
+  preflight kubectl
+  echo "=== port-forward → postgres/mongodb (ns ${NS}${PB_KUBE_CONTEXT:+, context ${PB_KUBE_CONTEXT}}) ==="
+  start_pf postgres "$PG_LOCAL_PORT" 5432
+  start_pf mongodb  "$MONGO_LOCAL_PORT" 27017
+  wait_port "$PG_LOCAL_PORT" postgres
+  wait_port "$MONGO_LOCAL_PORT" mongodb
+  export POSTGRES_HOST="127.0.0.1" PGPORT="$PG_LOCAL_PORT"
+  MONGODB_URI="$(rewrite_mongo_uri "${MONGODB_URI:-}" "127.0.0.1:${MONGO_LOCAL_PORT}")"
+}
+# Forward minio and repoint MINIO_ENDPOINT at the tunnel.
+pf_up_minio() {
+  preflight kubectl
+  echo "=== port-forward → minio (ns ${NS}) ==="
+  start_pf minio "$MINIO_LOCAL_PORT" 9000
+  wait_port "$MINIO_LOCAL_PORT" minio
+  export MINIO_ENDPOINT="http://127.0.0.1:${MINIO_LOCAL_PORT}"
+}
+
+# --- List mode (S3-only; no cluster) ----------------------------------------
+
+if [ "$LIST_ONLY" = "1" ]; then
+  echo "Available backups in s3://${BACKUP_BUCKET}/${ENV_NAME}/:"
+  aws s3 ls "s3://${BACKUP_BUCKET}/${ENV_NAME}/" --recursive --region "${AWS_REGION}" \
+    | awk '{print $1, $2, $4}' | sort -k1,2
+  exit 0
+fi
+
+WORKDIR=$(mktemp -d)  # cleaned up by the EXIT trap above (alongside the forwards)
+
+# --- MinIO object-storage restore (standalone) ------------------------------
+# Reverse the backup mirror: copy the backup target's buckets back INTO the
+# source MinIO. Does not touch the DBs, so it exits when done.
+if [ "$MINIO_RESTORE" = "1" ]; then
+  if [ "$CONFIRM" != "1" ]; then
+    echo "ERROR: --minio restore overwrites MinIO objects." >&2
+    echo "       Re-run with --confirm-destructive to proceed." >&2
+    exit 3
+  fi
+  require_env MINIO_ENDPOINT MINIO_ROOT_USER MINIO_ROOT_PASSWORD \
+             MINIO_BACKUP_TARGET_URL MINIO_BACKUP_TARGET_ACCESS_KEY MINIO_BACKUP_TARGET_SECRET_KEY
+  command -v mc >/dev/null 2>&1 || { echo "ERROR: 'mc' (MinIO client) not found" >&2; exit 2; }
+
+  pf_up_minio  # forward + repoint MINIO_ENDPOINT before configuring mc aliases
+
+  MINIO_BUCKETS="${MINIO_BUCKETS:-message-attachments registry loki thanos}"
+  MINIO_BACKUP_TARGET_BUCKET="${MINIO_BACKUP_TARGET_BUCKET:-${BACKUP_BUCKET}}"
+  MC_CONFIG_DIR="${WORKDIR}/.mc"
+
+  mc_setup_aliases "$MC_CONFIG_DIR"
+  for b in ${MINIO_BUCKETS}; do
+    echo "[minio] restoring ${b} ← ${MINIO_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/${b}"
+    mc --config-dir "$MC_CONFIG_DIR" mb --ignore-existing "pbsrc/${b}" >/dev/null 2>&1 || true
+    mc --config-dir "$MC_CONFIG_DIR" mirror --overwrite --quiet \
+      "pbdst/${MINIO_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/${b}" "pbsrc/${b}" \
+      || { echo "ERROR: mc mirror restore of bucket ${b} failed" >&2; exit 2; }
+  done
+  echo ""
+  echo "=== MinIO restore complete (${MINIO_BUCKETS}) ==="
+  exit 0
+fi
+
+# --- Validate restore args --------------------------------------------------
+
+if [ -z "$DATE" ] && [ -z "$PG_KEY" ] && [ -z "$MONGO_KEY" ]; then
+  echo "ERROR: provide either --date <YYYY/MM/DD> or --pg-key/--mongo-key" >&2
+  usage
+fi
+
+if [ "$CONFIRM" != "1" ]; then
+  echo "ERROR: restore is destructive (drops tables/collections before reload)." >&2
+  echo "       Re-run with --confirm-destructive to proceed." >&2
+  exit 3
+fi
+
+# --- Resolve keys via --date if provided ----------------------------------
+
+if [ -n "$DATE" ]; then
+  echo "Resolving latest pair under s3://${BACKUP_BUCKET}/${ENV_NAME}/${DATE}/"
+  if [ -z "$PG_KEY" ] && [ "$MONGO_ONLY" != "1" ]; then
+    PG_KEY=$(aws s3 ls "s3://${BACKUP_BUCKET}/${ENV_NAME}/${DATE}/" --region "${AWS_REGION}" \
+      | awk '{print $4}' | grep '^postgres-' | sort | tail -1 || true)
+    [ -n "$PG_KEY" ] && PG_KEY="${ENV_NAME}/${DATE}/${PG_KEY}"
+  fi
+  if [ -z "$MONGO_KEY" ] && [ "$PG_ONLY" != "1" ]; then
+    MONGO_KEY=$(aws s3 ls "s3://${BACKUP_BUCKET}/${ENV_NAME}/${DATE}/" --region "${AWS_REGION}" \
+      | awk '{print $4}' | grep '^mongo-' | sort | tail -1 || true)
+    [ -n "$MONGO_KEY" ] && MONGO_KEY="${ENV_NAME}/${DATE}/${MONGO_KEY}"
+  fi
+fi
+
+# Forward postgres+mongodb once for the DB restore(s) below.
+pf_up_db
+
+# --- Postgres restore -------------------------------------------------------
+
+if [ "$MONGO_ONLY" != "1" ]; then
+  if [ -z "$PG_KEY" ]; then
+    echo "ERROR: no postgres key resolved" >&2; exit 1
+  fi
+  require_env POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
+
+  PG_LOCAL="${WORKDIR}/$(basename "${PG_KEY}")"
+  echo ""
+  echo "[postgres] downloading s3://${BACKUP_BUCKET}/${PG_KEY} → ${PG_LOCAL}"
+  aws s3 cp "s3://${BACKUP_BUCKET}/${PG_KEY}" "${PG_LOCAL}" --region "${AWS_REGION}" \
+    || { echo "ERROR: postgres download failed" >&2; exit 2; }
+
+  echo "[postgres] restoring into ${POSTGRES_USER}@${POSTGRES_HOST}:${PGPORT:-5432}/${POSTGRES_DB}"
+  gunzip -c "${PG_LOCAL}" | \
+    PGPASSWORD="${POSTGRES_PASSWORD}" psql \
+      --host="${POSTGRES_HOST}" \
+      --username="${POSTGRES_USER}" \
+      --dbname="${POSTGRES_DB}" \
+      --set ON_ERROR_STOP=on \
+    || { echo "ERROR: psql restore failed" >&2; exit 2; }
+  echo "[postgres] restore complete"
+fi
+
+# --- MongoDB restore --------------------------------------------------------
+
+if [ "$PG_ONLY" != "1" ]; then
+  if [ -z "$MONGO_KEY" ]; then
+    echo "ERROR: no mongo key resolved" >&2; exit 1
+  fi
+  require_env MONGODB_URI
+
+  MONGO_LOCAL="${WORKDIR}/$(basename "${MONGO_KEY}")"
+  echo ""
+  echo "[mongo] downloading s3://${BACKUP_BUCKET}/${MONGO_KEY} → ${MONGO_LOCAL}"
+  aws s3 cp "s3://${BACKUP_BUCKET}/${MONGO_KEY}" "${MONGO_LOCAL}" --region "${AWS_REGION}" \
+    || { echo "ERROR: mongo download failed" >&2; exit 2; }
+
+  echo "[mongo] restoring (--drop) into the mongodb port-forward"
+  mongorestore --uri="${MONGODB_URI}" --gzip --archive="${MONGO_LOCAL}" --drop \
+    || { echo "ERROR: mongorestore failed" >&2; exit 2; }
+  echo "[mongo] restore complete"
+fi
+
+echo ""
+echo "=== Restore complete ==="

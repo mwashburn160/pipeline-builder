@@ -422,24 +422,28 @@ fi
 # =============================================================================
 # Phase 11: Daily backup timer (systemd) — INSTALLED DISABLED, needs review
 # =============================================================================
-# deploy/bin/backup.sh does pg_dump + mongodump → S3 but nothing schedules it.
-# We install a ready-to-enable systemd service + daily timer here, but leave it
-# DISABLED because enabling it unattended is NOT unambiguously safe on this box:
-#   - backup.sh needs pg_dump + mongodump on the HOST; bootstrap doesn't install
-#     the postgresql/mongodb client tools.
-#   - The DBs run INSIDE minikube; POSTGRES_HOST / MONGODB_URI in .env resolve to
-#     in-cluster service names, not reachable from the host without a NodePort /
-#     port-forward.
+# deploy/aws/ec2/bin/backup.sh dumps postgres+mongo → S3. It stands up short-lived
+# `kubectl port-forward`s to postgres/mongodb/minio, rewrites the connection env to
+# the local tunnels, dumps, then tears the forwards down — resolving the DB
+# reachability problem automatically (the app's POSTGRES_HOST/MONGODB_URI resolve
+# to in-cluster names the host can't reach). We still install the timer DISABLED
+# because two prerequisites remain operator-owned:
+#   - the postgresql/mongodb clients (pg_dump/mongodump) and `mc` are NOT
+#     installed by bootstrap; backup.sh needs them on the host.
 #   - BACKUP_BUCKET must be provisioned + the instance role granted s3:PutObject.
-# So an operator must review + wire those up, then `systemctl enable --now
-# pipeline-backup.timer`. Mirrors the dnf-automatic-install.timer style above,
-# but intentionally not auto-enabled. Guarded so it only installs if backup.sh
-# is present.
+# (kubectl + a working kubeconfig already exist for the `minikube` user that runs
+# the unit, so the port-forwards succeed.) Once the clients + bucket are wired up:
+# `systemctl enable --now pipeline-backup.timer`. Mirrors the dnf-automatic timer
+# style above, but intentionally not auto-enabled. Guarded on backup.sh presence.
 echo ""
 echo "========================================"
 echo "Phase 11: Install backup timer (disabled — review before enabling)"
 echo "========================================"
-BACKUP_SH="${INSTALL_DIR}/deploy/bin/backup.sh"
+# Per-target script lives under the target's own bin/ now. The ec2 backup.sh is
+# the port-forward-enabled variant: it stands up short-lived kubectl port-forwards
+# to the in-cluster datastores, rewrites the connection env, dumps, and tears them
+# down — so the in-cluster names in .env don't need to be host-reachable.
+BACKUP_SH="${INSTALL_DIR}/deploy/aws/ec2/bin/backup.sh"
 if [ -f "$BACKUP_SH" ]; then
   cat > /etc/systemd/system/pipeline-backup.service <<BACKUPSVC
 [Unit]
@@ -451,8 +455,7 @@ Wants=network-online.target
 Type=oneshot
 User=minikube
 # Pulls BACKUP_BUCKET / POSTGRES_* / MONGODB_URI / AWS_REGION from the deploy .env.
-# Review that these point at host-reachable endpoints before enabling (see notes
-# in bootstrap.sh Phase 11).
+# backup.sh rewrites the DB/MinIO HOST env to short-lived kubectl port-forwards.
 EnvironmentFile=${DEPLOY_DIR}/.env
 ExecStart=/usr/bin/env bash ${BACKUP_SH}
 BACKUPSVC
@@ -472,7 +475,7 @@ BACKUPTIMER
 
   systemctl daemon-reload
   echo "  Installed pipeline-backup.{service,timer} (DISABLED)."
-  echo "  To enable after wiring up client tools + DB reachability + BACKUP_BUCKET:"
+  echo "  To enable after installing DB clients (pg_dump/mongodump/mc) + BACKUP_BUCKET:"
   echo "    sudo systemctl enable --now pipeline-backup.timer"
 else
   echo "  backup.sh not found at $BACKUP_SH — skipping backup timer install"

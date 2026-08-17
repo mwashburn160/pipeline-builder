@@ -40,8 +40,9 @@ pipeline-manager infra provision --repo --with-plugins           # add --prompt 
 - **Images** — `build-plugin-images.sh` (base + plugin images; defaults `PUBLISH_PLATFORM` to the host arch for local targets, wires `ensure-binfmt.sh` for cross-arch), `push-base-images.sh`, `build-codebuild-bootstrap.sh`, `sync-image-tags.sh` / `verify-image-tags.sh`.
 - **Init** — `init-platform.sh` (health-gates dependencies, registers admin, drives the `load-*` steps), `load-plugins.sh` / `load-plugin-worker.sh`, `load-pipelines.sh`, `load-compliance.sh`.
 - **Secrets / TLS** — `gen-env-secrets.sh` (`pb_gen_env_secrets` fills the `.env` `CHANGE_ME` credentials with fresh random values and asserts none remain), `jwt-keys.sh` (registry signing keypair), `nginx-tls.sh` (gateway TLS), `mongo-keyfile.sh` (`pb_ensure_mongo_keyfile` — the replica-set keyfile, generated **per deploy**, never committed).
-- **Data** — `backup.sh` / `restore.sh` (Postgres + Mongo dump/restore to S3; `restore.sh` needs `--confirm-destructive`). See the operations runbook for scheduling + DR.
-- **Helpers** — `common.sh` (logging, retries, `preflight <tools…>`, `curl_with_retry`, health waits, image-tag hashing), `k8s-resources.sh`, `cfn-deploy.sh`, `provision-docker.sh`.
+- **Helpers** — `common.sh` (logging, retries, `preflight <tools…>`, `curl_with_retry`, health waits, image-tag hashing, `mc_setup_aliases`), `k8s-resources.sh`, `cfn-deploy.sh`, `provision-docker.sh`.
+
+> **Data (backup/restore) is per-target, not shared.** Each target owns its `bin/backup.sh` + `bin/restore.sh` (same names everywhere): the kubectl targets (minikube/ec2/eks) run the port-forward variant (auto-tunnels to the in-cluster datastores), docker connects directly. Both dump/restore Postgres + Mongo to/from S3 (`restore.sh` needs `--confirm-destructive`) and optionally mirror MinIO. See the [operations runbook](../docs/deploy-operations.md#backups--disaster-recovery) for scheduling + DR.
 
 ## Conventions
 

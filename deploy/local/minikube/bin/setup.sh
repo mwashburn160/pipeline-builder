@@ -154,7 +154,7 @@ pb_ensure_mongo_keyfile "$DEPLOY_DIR/mongodb-keyfile"
 # host `data/` folder. minikube reserves /data for that persistent disk, which
 # shadows any host 9p mount there, so we don't attempt one (see MK_ARGS). Data
 # survives `minikube stop/start`; `minikube delete` wipes it. For host-side copies
-# use `deploy/bin/backup.sh minikube`.
+# use `deploy/local/minikube/bin/backup.sh` (dumps via kubectl port-forward).
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$VM_DATA_DIR/plugins-data}"
 
 # -- Clean stale Docker state ------------------------------------------------
@@ -472,7 +472,7 @@ echo "  dev tools above. Credentials live in $ENV_FILE."
 echo ""
 echo "  Data persists on the minikube VM disk (survives 'minikube stop/start'; wiped"
 echo "  by 'minikube delete') — it is NOT mirrored to the host ./data/ folder. Use"
-echo "  './deploy/bin/backup.sh minikube' for host-side copies."
+echo "  'deploy/local/minikube/bin/backup.sh' for host-side copies (via port-forward)."
 echo ""
 echo "  Next : ./deploy/bin/init-platform.sh minikube   # register admin + (opt-in) load plugins/samples/compliance"
 echo "  Stop port-forwards : pkill -f 'kubectl port-forward.*-n $NAMESPACE'"

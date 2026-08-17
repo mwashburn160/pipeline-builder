@@ -19,8 +19,8 @@
 #   5. (MinIO object storage) point MINIO_BACKUP_TARGET_URL at a durable S3/MinIO
 #      and create the `minio-backup-target` Secret (access-key/secret-key) — or
 #      unset MINIO_ENDPOINT to skip the object-storage mirror. Restore with
-#      `deploy/bin/restore.sh --minio --confirm-destructive`.
-#   6. TEST A RESTORE into a scratch namespace (`deploy/bin/restore.sh
+#      `deploy/aws/eks/bin/restore.sh --minio --confirm-destructive`.
+#   6. TEST A RESTORE into a scratch namespace (`deploy/aws/eks/bin/restore.sh
 #      --confirm-destructive`, and `--minio` for object storage) — an untested
 #      backup is not a backup.
 ---
@@ -71,7 +71,7 @@ spec:
               args:
                 - |
                   set -euo pipefail
-                  # Mirror deploy/bin/backup.sh's S3 layout EXACTLY so restore.sh
+                  # Mirror deploy/aws/eks/bin/backup.sh's S3 layout EXACTLY so restore.sh
                   # (`--date`/`--list`, which grep '^postgres-'/'^mongo-' under
                   # <env>/<YYYY/MM/DD>/) can actually find these objects.
                   ts="$(date -u +%Y%m%dT%H%M%SZ)"
