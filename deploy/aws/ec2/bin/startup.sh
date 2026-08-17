@@ -105,7 +105,12 @@ fi
 
 # -- Data directories ---------------------------------------------------------
 
-mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,loki,prometheus},minio-data/{1,2,3,4},pgadmin-data,tmp} 2>/dev/null || true
+# Pre-seed the hostPath dirs the manifests mount (all DirectoryOrCreate, so this
+# is a convenience). NOTE: no db-data/loki — Loki is object-storage-backed (its
+# chunks/index live in the minio `loki` bucket) and keeps only an in-pod emptyDir
+# WAL, so a host db-data/loki dir is unused. alertmanager IS mounted, so include it.
+# minio runs 4-drive erasure-set here (minio-data/{1,2,3,4}).
+mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,prometheus,alertmanager},minio-data/{1,2,3,4},pgadmin-data,tmp} 2>/dev/null || true
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$DATA_DIR/plugins-data}"
 
 # -- Clean stale Docker state ------------------------------------------------

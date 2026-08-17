@@ -115,7 +115,11 @@ set -a; . "$ENV_FILE"; set +a
 # the mongodb-keyfile Secret below is created from it, and the mongodb pod's
 # init-container tightens perms to 400 at start.
 pb_ensure_mongo_keyfile "$DEPLOY_DIR/mongodb-keyfile"
-mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,loki,prometheus},minio-data,pgadmin-data,tmp} 2>/dev/null || true
+# Pre-seed the hostPath dirs the manifests mount (all DirectoryOrCreate, so this
+# is a convenience). NOTE: no db-data/loki — Loki is object-storage-backed (its
+# chunks/index live in the minio `loki` bucket) and keeps only an in-pod emptyDir
+# WAL, so a host db-data/loki dir is unused. alertmanager IS mounted, so include it.
+mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,prometheus,alertmanager},minio-data,pgadmin-data,tmp} 2>/dev/null || true
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$VM_DATA_DIR/plugins-data}"
 
 # -- Clean stale Docker state ------------------------------------------------
