@@ -568,6 +568,9 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/prometheus
               - cluster.local/ns/pipeline-builder/sa/plugin
               - cluster.local/ns/pipeline-builder/sa/platform
+              # `default` = crane push pods from init-platform.sh request a push
+              # token here (image-registry:3000/token) before pushing base images.
+              - cluster.local/ns/pipeline-builder/sa/default
       to:
         - operation:
             ports: ["3000"]
