@@ -20,7 +20,7 @@ NAMESPACE="pipeline-builder"
 PROFILE="pipeline-builder"
 # Istio ambient mesh version (ambient-GA >= 1.24). istioctl must be installed on
 # the instance and on the minikube user's PATH (it runs via the `mk` wrapper).
-ISTIO_VERSION="${ISTIO_VERSION:-1.24.3}"
+ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
 # Persistent-storage layout. Honors PIPELINE_ROOT from the host (set by
 # UserData / bootstrap.sh) but defaults to /opt/pipeline for standalone
 # script invocations. The minikube VM mounts $DATA_DIR at the SAME path

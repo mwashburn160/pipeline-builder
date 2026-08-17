@@ -31,7 +31,7 @@ DEPLOY_MODE="${DEPLOY_MODE:-private}"            # public (internet-facing ALB) 
 NAMESPACE="${NAMESPACE:-pipeline-builder}"
 # Istio ambient mesh version (ambient-GA >= 1.24). AWS recommends EKS Auto Mode
 # + Istio ambient. Overridable; bump to current stable at deploy time.
-ISTIO_VERSION="${ISTIO_VERSION:-1.24.3}"
+ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 GHCR_USER="${GHCR_USER:-mwashburn160}"
 EKS_VERSION="${EKS_VERSION:-1.36}"               # pinned default for fresh installs; `latest` tracks newest, or --eks-version X

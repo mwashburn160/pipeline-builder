@@ -18,7 +18,7 @@ DATA_DIR="$DEPLOY_DIR/data"
 # Istio ambient mesh version. Must be ambient-GA (>= 1.24). Overridable; bump to
 # the current stable at deploy time. The installed `istioctl` binary drives the
 # install — keep it on the same minor.
-ISTIO_VERSION="${ISTIO_VERSION:-1.24.3}"
+ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
 # VM-side mount target. Laptop-style /data/* to mirror local docker-compose
 # (host ./data/* → container /data/*). The minikube k8s hostPath manifests
 # use this same path. ec2's manifests use /opt/pipeline/pipeline-data
