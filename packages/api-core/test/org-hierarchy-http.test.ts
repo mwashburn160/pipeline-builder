@@ -20,23 +20,28 @@ jest.unstable_mockModule('../src/utils/logger.js', () => ({
 }));
 
 // Stub the service-auth header so no JWT signing / secret loading is required.
+// SYSTEM_ORG_ID is re-exported by org-hierarchy-http (fetchOrgNames default org),
+// so the mock must provide it or ESM linking against auth.js throws.
 jest.unstable_mockModule('../src/middleware/auth.js', () => ({
   getServiceAuthHeader: jest.fn(() => 'Bearer test-token'),
+  SYSTEM_ORG_ID: '000000000000000000000001',
 }));
 
-// Mock the shared HTTP client: a single controllable `get` spy backs every
+// Mock the shared HTTP client: controllable `get`/`post` spies back every
 // InternalHttpClient instance the helpers construct.
 const mockGet = jest.fn<(...args: any[]) => any>();
+const mockPost = jest.fn<(...args: any[]) => any>();
 jest.unstable_mockModule('../src/services/http-client.js', () => ({
-  InternalHttpClient: jest.fn().mockImplementation(() => ({ get: mockGet })),
+  InternalHttpClient: jest.fn().mockImplementation(() => ({ get: mockGet, post: mockPost })),
 }));
 
-const { fetchParentOrgId, fetchOrgDescendants } = await import('../src/helpers/org-hierarchy-http.js');
+const { fetchParentOrgId, fetchOrgDescendants, fetchOrgNames } = await import('../src/helpers/org-hierarchy-http.js');
 
 const OPTS = { service: { host: 'platform', port: 3000 }, serviceName: 'reporting' as const };
 
 beforeEach(() => {
   mockGet.mockReset();
+  mockPost.mockReset();
 });
 
 describe('fetchOrgDescendants', () => {
@@ -101,5 +106,45 @@ describe('fetchParentOrgId', () => {
   it('propagates a transport failure', async () => {
     mockGet.mockRejectedValue(new Error('ETIMEDOUT'));
     await expect(fetchParentOrgId('child', OPTS)).rejects.toThrow('ETIMEDOUT');
+  });
+});
+
+describe('fetchOrgNames', () => {
+  it('returns a lowercased id→name map on the happy path', async () => {
+    mockPost.mockResolvedValue({
+      statusCode: 200,
+      body: { data: { names: { AAAA: 'Acme', bbbb: 'Beta' } } },
+      headers: {},
+    });
+    await expect(fetchOrgNames(['AAAA', 'bbbb'], OPTS)).resolves.toEqual({ aaaa: 'Acme', bbbb: 'Beta' });
+  });
+
+  it('drops non-string values (trust-boundary validation)', async () => {
+    mockPost.mockResolvedValue({
+      statusCode: 200,
+      body: { data: { names: { a: 'Acme', b: 42, c: null, d: 'Delta' } } },
+      headers: {},
+    });
+    await expect(fetchOrgNames(['a', 'b', 'c', 'd'], OPTS)).resolves.toEqual({ a: 'Acme', d: 'Delta' });
+  });
+
+  it('short-circuits to {} for an empty id list (no request)', async () => {
+    await expect(fetchOrgNames([], OPTS)).resolves.toEqual({});
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it('returns {} on a non-2xx response (fail-soft)', async () => {
+    mockPost.mockResolvedValue({ statusCode: 403, body: {}, headers: {} });
+    await expect(fetchOrgNames(['a'], OPTS)).resolves.toEqual({});
+  });
+
+  it('returns {} when the names payload is missing/malformed', async () => {
+    mockPost.mockResolvedValue({ statusCode: 200, body: { data: { names: 'nope' } }, headers: {} });
+    await expect(fetchOrgNames(['a'], OPTS)).resolves.toEqual({});
+  });
+
+  it('propagates a transport failure', async () => {
+    mockPost.mockRejectedValue(new Error('ECONNREFUSED'));
+    await expect(fetchOrgNames(['a'], OPTS)).rejects.toThrow('ECONNREFUSED');
   });
 });
