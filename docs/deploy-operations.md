@@ -90,7 +90,9 @@ See [Service Mesh](service-mesh.md) for the full troubleshooting table.
 ## Teardown
 
 - **docker:** `docker compose down` (data persists in `data/`); reset = `down && rm -rf data/`.
-- **minikube:** `minikube delete`.
+- **minikube:** `minikube delete --profile=pipeline-builder` (wipes the cluster; a clean restart = delete then re-run `bin/setup.sh`). `bin/shutdown.sh` just stops port-forwards + deletes the namespace without removing the VM.
 - **ec2/eks:** `shutdown.sh` (types the cluster name to confirm; `--delete-volumes` to also remove the `Retain`ed EBS/EFS). Without `--domain`, eks leaves the ACM cert / Route 53 alias / SES resources behind (warned).
+
+**Lean local deploy (`LEAN=1`)** — on an ~8-core laptop the full stack **+ the Istio mesh** exceeds 8 vCPU. Run `LEAN=1 deploy/local/minikube/bin/setup.sh` to bring up the core stack + mesh only: it omits the optional observability/admin services (prometheus, thanos, loki, promtail, jaeger, alertmanager, mongo-express, pgadmin) and collapses every service to a single replica. Full stack (all observability) is the default for larger machines.
 
 Destructive resets print raw one-liners today — dump first (`backup.sh`) before wiping data you might want.
