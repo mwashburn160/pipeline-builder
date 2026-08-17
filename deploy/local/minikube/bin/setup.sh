@@ -19,6 +19,11 @@ DATA_DIR="$DEPLOY_DIR/data"
 # the current stable at deploy time. The installed `istioctl` binary drives the
 # install — keep it on the same minor.
 ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
+# LEAN=1 drops the optional observability + admin services (prometheus, thanos,
+# loki, promtail, jaeger, alertmanager, mongo-express, pgadmin) from the apply so
+# the core stack + Istio mesh fits on an ~8-core laptop. Core services + DBs are
+# unaffected. Full stack is the default (LEAN=0) for larger machines.
+LEAN="${LEAN:-0}"
 # VM-side mount target. Laptop-style /data/* to mirror local docker-compose
 # (host ./data/* → container /data/*). The minikube k8s hostPath manifests
 # use this same path. ec2's manifests use /opt/pipeline/pipeline-data
@@ -42,6 +47,26 @@ preflight kubectl minikube openssl envsubst istioctl
 
 kube() { kubectl "$@" --dry-run=client -o yaml | kubectl apply -f -; }
 log()  { echo ""; echo "=== $1 ==="; }
+
+# lean_filter — with LEAN=1, drop the optional observability/admin workloads from
+# the kustomize stream (their Deployment/StatefulSet/DaemonSet/Service/PV/PVC/HPA/
+# PDB/ServiceAccount/ConfigMap docs) so no pods schedule for them. Kept: everything
+# else, incl. AuthZ/NetworkPolicy docs that merely reference them (harmless, no pod).
+# With LEAN=0 it's a pass-through (cat).
+lean_filter() {
+  if [ "$LEAN" != "1" ]; then cat; return; fi
+  awk '
+    function emit(  o,d) {
+      o = (nm ~ /^(prometheus|loki|thanos-query|thanos-store-gateway|alertmanager|promtail|jaeger|mongo-express|pgadmin)(-.*)?$/)
+      d = (kd ~ /^(Deployment|StatefulSet|DaemonSet|Service|PersistentVolume|PersistentVolumeClaim|HorizontalPodAutoscaler|PodDisruptionBudget|ServiceAccount|ConfigMap|ClusterRole|ClusterRoleBinding|Role|RoleBinding)$/)
+      if (buf != "" && !(o && d)) printf "---\n%s", buf
+      buf=""; kd=""; nm=""
+    }
+    /^---$/ { emit(); next }
+    { buf = buf $0 "\n"; if ($1=="kind:") kd=$2; if ($0 ~ /^  name: / && nm=="") nm=$2 }
+    END { emit() }
+  '
+}
 
 secret() {
   local name="$1"; shift
@@ -364,9 +389,11 @@ minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${VM_DATA_DIR}/minio-data &&
 bash "$BIN_DIR/ensure-binfmt.sh" "${PUBLISH_PLATFORM:-linux/amd64}"
 
 log "Applying Kubernetes manifests"
-# Restricted envsubst: ONLY ${BUILDKIT_MEMORY_LIMIT} is expanded, so runtime
-# shell tokens in inline configmaps (nginx ${NS}/$s, etc.) are left intact.
-kubectl kustomize "$K8S_DIR" | sed "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" | kubectl apply -f -
+[ "$LEAN" = "1" ] && echo "  LEAN=1 — omitting optional observability + admin services (prometheus/thanos/loki/promtail/jaeger/alertmanager/mongo-express/pgadmin)"
+# Substitute ONLY ${BUILDKIT_MEMORY_LIMIT} (sed, not envsubst — some envsubst
+# builds ignore the shell-format restriction and strip runtime $tokens like the
+# minio-init `$b` loop). lean_filter drops optional workloads when LEAN=1.
+kubectl kustomize "$K8S_DIR" | sed "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" | lean_filter | kubectl apply -f -
 
 log "Post-deploy fixups"
 REGISTRY_IP=$(kubectl get svc registry -n "$NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
@@ -397,8 +424,11 @@ sleep 1
 # survived — leaving https://localhost:8443 unreachable. The HTTP→HTTPS redirect
 # on 8080 isn't needed for the API/UI (use the NodePort if you want it).
 port_forward "Nginx"          nginx            "8443:8443"
-port_forward "Mongo Express"  mongo-express    "8081:8081"
-port_forward "pgAdmin"        pgadmin          "5480:80"
+# mongo-express / pgAdmin are omitted under LEAN=1 (no service to forward to).
+if [ "$LEAN" != "1" ]; then
+  port_forward "Mongo Express"  mongo-express    "8081:8081"
+  port_forward "pgAdmin"        pgadmin          "5480:80"
+fi
 # Registry UI is served via the platform frontend at /dashboard/registry
 # (sysadmin only) — no separate joxit/registry-express port-forward.
 
