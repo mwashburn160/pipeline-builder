@@ -25,7 +25,9 @@ deploy/local/docker/bin/setup.sh                      # or minikube / aws target
 LOAD_PLUGINS=y deploy/bin/init-platform.sh docker     # target: docker|minikube|ec2|eks
 ```
 
-> **minikube on a small machine (~8-core laptop):** the full stack **+ the Istio mesh** doesn't fit in 8 vCPU. Run **`LEAN=1 deploy/local/minikube/bin/setup.sh`** to deploy the core stack + mesh only — it omits the optional observability/admin services (prometheus, thanos, loki, promtail, jaeger, alertmanager, mongo-express, pgadmin) and collapses every service to a single replica. For a clean restart, wipe the cluster first: `minikube delete --profile=pipeline-builder`, then re-run setup.
+> **minikube on a small machine (~8-core laptop):** the full stack **+ the Istio mesh** doesn't fit in 8 vCPU. Run **`LEAN=1 deploy/local/minikube/bin/setup.sh`** to deploy the core stack + mesh only — it omits the optional observability/admin services (prometheus, thanos, loki, promtail, jaeger, alertmanager, mongo-express, pgadmin) and collapses every service to a single replica.
+>
+> **Overrides** (env vars on `setup.sh`): `DISK_SIZE=60g` (VM disk, default 30g), `ISTIO_VERSION=…` (mesh version), `LEAN=1` (above). Disk size and CPU/memory are applied at cluster **create** only — to change them, `minikube delete --profile=pipeline-builder` and re-run setup. Data lives on the minikube **VM disk** (survives `stop/start`, wiped by `delete`), not the host `data/` folder — see [docs/deploy-operations.md](../docs/deploy-operations.md#teardown).
 
 Or provision a fresh machine end-to-end in one command (sparse-clones the repo, runs setup + init + post-steps):
 

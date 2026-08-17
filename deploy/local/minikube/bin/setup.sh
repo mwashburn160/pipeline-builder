@@ -24,10 +24,15 @@ ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
 # the core stack + Istio mesh fits on an ~8-core laptop. Core services + DBs are
 # unaffected. Full stack is the default (LEAN=0) for larger machines.
 LEAN="${LEAN:-0}"
-# VM-side mount target. Laptop-style /data/* to mirror local docker-compose
-# (host ./data/* → container /data/*). The minikube k8s hostPath manifests
-# use this same path. ec2's manifests use /opt/pipeline/pipeline-data
-# because that's the canonical EBS mount on a production-style host.
+# Minikube VM disk size. Applied only at cluster CREATE — to grow an existing
+# cluster you must `minikube delete --profile=pipeline-builder` and re-run.
+# On the docker driver it's bounded by Docker Desktop's virtual-disk limit.
+DISK_SIZE="${DISK_SIZE:-30g}"
+# In-VM data path for the k8s hostPath manifests. This is minikube's OWN
+# persistent disk (/data) — data survives stop/start but is NOT mirrored to the
+# host `data/` folder (minikube's /data shadows any host mount there, and DB data
+# on a 9p mount is unreliable anyway). ec2's manifests use
+# /opt/pipeline/pipeline-data (its EBS mount). See docs/deploy-operations.md.
 VM_DATA_DIR="/data"
 
 # -- Shared deploy helpers ----------------------------------------------------
@@ -144,10 +149,12 @@ set -a; . "$ENV_FILE"; set +a
 # the mongodb-keyfile Secret below is created from it, and the mongodb pod's
 # init-container tightens perms to 400 at start.
 pb_ensure_mongo_keyfile "$DEPLOY_DIR/mongodb-keyfile"
-# Pre-seed the hostPath dirs the manifests mount (all DirectoryOrCreate, so this
-# is a convenience). alertmanager IS mounted, so include it. (No db-data/loki —
-# Loki uses object storage + an in-pod emptyDir WAL, so it doesn't mount here.)
-mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,prometheus,alertmanager},minio-data,pgadmin-data,tmp} 2>/dev/null || true
+# Data lives on the minikube VM's own persistent /data disk — created by the
+# hostPath `DirectoryOrCreate` mounts + the chown'd ssh mkdirs below — NOT on the
+# host `data/` folder. minikube reserves /data for that persistent disk, which
+# shadows any host 9p mount there, so we don't attempt one (see MK_ARGS). Data
+# survives `minikube stop/start`; `minikube delete` wipes it. For host-side copies
+# use `deploy/bin/backup.sh minikube`.
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$VM_DATA_DIR/plugins-data}"
 
 # -- Clean stale Docker state ------------------------------------------------
@@ -216,7 +223,10 @@ if [ "$TOTAL_MEM" -lt "$RECOMMENDED_MEM" ]; then
   echo "  WARNING: istio-system, outside the namespace ResourceQuota)."
 fi
 
-MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size=30g --driver=docker --mount --mount-string="$DATA_DIR:$VM_DATA_DIR")
+# No --mount: /data is minikube's reserved persistent disk, which shadows a host
+# 9p mount there (it silently did nothing), and DB data on 9p is unreliable.
+# Data stays on the VM disk (persists across stop/start). See the DOCKER_BUILD note above.
+MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size="$DISK_SIZE" --driver=docker)
 
 log "Starting Minikube"
 if ! minikube start "${MK_ARGS[@]}"; then
@@ -459,6 +469,10 @@ echo "    Registry browser: https://localhost:8443/dashboard/registry  (sysadmin
 echo ""
 echo "  Databases (postgres / mongodb / redis) run in-cluster — reach them via the"
 echo "  dev tools above. Credentials live in $ENV_FILE."
+echo ""
+echo "  Data persists on the minikube VM disk (survives 'minikube stop/start'; wiped"
+echo "  by 'minikube delete') — it is NOT mirrored to the host ./data/ folder. Use"
+echo "  './deploy/bin/backup.sh minikube' for host-side copies."
 echo ""
 echo "  Next : ./deploy/bin/init-platform.sh minikube   # register admin + (opt-in) load plugins/samples/compliance"
 echo "  Stop port-forwards : pkill -f 'kubectl port-forward.*-n $NAMESPACE'"

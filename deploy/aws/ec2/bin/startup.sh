@@ -21,6 +21,9 @@ PROFILE="pipeline-builder"
 # Istio ambient mesh version (ambient-GA >= 1.24). istioctl must be installed on
 # the instance and on the minikube user's PATH (it runs via the `mk` wrapper).
 ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
+# Minikube VM disk size. Applied only at cluster CREATE — grow it by re-running
+# after a delete. Keep it within the instance's EBS data volume.
+DISK_SIZE="${DISK_SIZE:-40g}"
 # Persistent-storage layout. Honors PIPELINE_ROOT from the host (set by
 # UserData / bootstrap.sh) but defaults to /opt/pipeline for standalone
 # script invocations. The minikube VM mounts $DATA_DIR at the SAME path
@@ -141,7 +144,7 @@ MK_MEM_BY_RESERVE=$((TOTAL_MEM - 4096))
 MK_MEM=$(( MK_MEM_BY_RATIO > MK_MEM_BY_RESERVE ? MK_MEM_BY_RATIO : MK_MEM_BY_RESERVE ))
 echo "  System: ${TOTAL_CPU} CPUs, ${TOTAL_MEM}M RAM → Minikube: ${MK_CPUS} CPUs, ${MK_MEM}M"
 
-MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size=40g --driver=docker --mount --mount-string="$DATA_DIR:$DATA_DIR")
+MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size="$DISK_SIZE" --driver=docker --mount --mount-string="$DATA_DIR:$DATA_DIR")
 
 log "Starting Minikube"
 if ! mk minikube start "${MK_ARGS[@]}"; then
