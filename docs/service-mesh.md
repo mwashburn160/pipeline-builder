@@ -144,11 +144,28 @@ eks adds: confirm capture across all Auto Mode nodes, node SecurityGroups allow
 node↔node `:15008` (HBONE), and a Karpenter scale-up captures pods on fresh nodes
 (ztunnel/istio-cni Ready first).
 
+## Local footprint (LEAN mode)
+
+The mesh adds ~1 CPU (istiod + ztunnel + istio-cni) on top of the app stack. On an
+~8-core laptop the **full** stack + mesh exceeds 8 vCPU and pods sit Pending (and can
+starve the minikube apiserver). Run minikube with **`LEAN=1`**:
+
+```bash
+LEAN=1 ./deploy/local/minikube/bin/setup.sh
+# clean restart: minikube delete --profile=pipeline-builder, then re-run
+```
+
+LEAN omits the optional observability/admin services (prometheus, thanos, loki,
+promtail, jaeger, alertmanager, mongo-express, pgadmin) and collapses every service to
+a single replica, leaving the core stack + mesh room to schedule. The full stack is the
+default (LEAN=0) for larger machines; ec2/eks are unaffected.
+
 ## Troubleshooting
 
 | Symptom | Likely cause |
 |---|---|
 | A service 403s another at L4 | Caller identity missing from the callee's `AuthorizationPolicy` — add its `sa/<name>` and re-apply `istio.yaml`. |
+| mongodb `ReplicaSetNoPrimary` / stateful peer stuck | The workload's own SA must be in its `AuthorizationPolicy` — replica-set/gossip traffic is self-directed (e.g. `sa/mongodb` on `mongodb-allow`). |
 | All calls to a service denied | An ALLOW policy selected it but omitted a real caller (often `prometheus` or `nginx`). |
 | External ingress broken after enabling STRICT | nginx external port not carved out (`8080` on aws, `8080`+`8443` on local). |
 | Builds can't pull base images | `outboundTrafficPolicy` was set to `REGISTRY_ONLY` — revert to `ALLOW_ANY`. |

@@ -276,6 +276,8 @@ cd deploy/local/docker && chmod +x bin/setup.sh && ./bin/setup.sh   # 1. pull im
 cd ../.. && ./deploy/bin/init-platform.sh docker                  # 2. register admin + load plugins
 ```
 
+> **Minikube instead of Docker?** Swap the target: `cd deploy/local/minikube && ./bin/setup.sh`, then `./deploy/bin/init-platform.sh minikube`. On an ~8-core laptop use **`LEAN=1 ./bin/setup.sh`** — the full stack **+ the Istio mesh** won't fit in 8 vCPU, so LEAN omits the optional observability/admin services (prometheus/thanos/loki/promtail/jaeger/alertmanager/mongo-express/pgadmin) and runs single replicas. Clean restart: `minikube delete --profile=pipeline-builder`, then re-run setup.
+
 Then open **https://localhost:8443** and log in with the default local admin
 `admin@internal` / `SecurePassword123!` — create teams, load more plugins, and
 build pipelines. (`init-platform.sh` registers the admin and loads the plugin

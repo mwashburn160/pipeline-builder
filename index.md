@@ -220,6 +220,8 @@ cd deploy/local/docker && ./bin/setup.sh          # 1. pull images + start the s
 cd ../.. && ./deploy/bin/init-platform.sh docker   # 2. register admin + load plugins
 ```
 
+> **Minikube:** `cd deploy/local/minikube && ./bin/setup.sh` (use target `minikube` for init). On an ~8-core laptop run **`LEAN=1 ./bin/setup.sh`** — the full stack **+ the Istio mesh** exceeds 8 vCPU, so LEAN omits the optional observability/admin services and uses single replicas. Clean restart: `minikube delete --profile=pipeline-builder`.
+
 Then open **https://localhost:8443** (default admin `admin@internal` / `SecurePassword123!` — change it immediately on anything beyond your laptop).
 
 From there:
