@@ -25,6 +25,8 @@ deploy/local/docker/bin/setup.sh                      # or minikube / aws target
 LOAD_PLUGINS=y deploy/bin/init-platform.sh docker     # target: docker|minikube|ec2|eks
 ```
 
+> **minikube on a small machine (~8-core laptop):** the full stack **+ the Istio mesh** doesn't fit in 8 vCPU. Run **`LEAN=1 deploy/local/minikube/bin/setup.sh`** to deploy the core stack + mesh only — it omits the optional observability/admin services (prometheus, thanos, loki, promtail, jaeger, alertmanager, mongo-express, pgadmin) and collapses every service to a single replica. For a clean restart, wipe the cluster first: `minikube delete --profile=pipeline-builder`, then re-run setup.
+
 Or provision a fresh machine end-to-end in one command (sparse-clones the repo, runs setup + init + post-steps):
 
 ```bash
