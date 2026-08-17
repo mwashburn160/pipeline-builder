@@ -65,7 +65,11 @@ lean_filter() {
     /^---$/ { emit(); next }
     { buf = buf $0 "\n"; if ($1=="kind:") kd=$2; if ($0 ~ /^  name: / && nm=="") nm=$2 }
     END { emit() }
-  '
+  ' | sed -E 's/^(  replicas:) [0-9]+/\1 1/; s/^(  (min|max)Replicas:) [0-9]+/\1 1/; s/^(  (min|max)ReplicaCount:) [0-9]+/\1 1/'
+  # ^ also collapse every workload/HPA/ScaledObject to a single replica: on an
+  #   ~8-core laptop the core stack + mesh already fills the node, so 2nd replicas
+  #   just sit Pending. (spec-level fields are 2-space; the ScaledObject `fallback`
+  #   replicas is deeper-indented and intentionally left alone.)
 }
 
 secret() {

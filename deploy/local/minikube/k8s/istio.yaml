@@ -239,6 +239,9 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/quota
               - cluster.local/ns/pipeline-builder/sa/billing
               - cluster.local/ns/pipeline-builder/sa/mongo-express
+              # mongod connects to ITSELF for replica-set (rs0) primary election;
+              # without this the RS never elects a primary → ReplicaSetNoPrimary.
+              - cluster.local/ns/pipeline-builder/sa/mongodb
       to:
         - operation:
             ports: ["27017"]
@@ -441,6 +444,11 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/plugin
               - cluster.local/ns/pipeline-builder/sa/message
               - cluster.local/ns/pipeline-builder/sa/billing
+              # every api-core service runs the quota-check middleware (apiCalls
+              # increment) on inbound requests, so all API services call quota.
+              - cluster.local/ns/pipeline-builder/sa/compliance
+              - cluster.local/ns/pipeline-builder/sa/reporting
+              - cluster.local/ns/pipeline-builder/sa/image-registry
       to:
         - operation:
             ports: ["3000"]
