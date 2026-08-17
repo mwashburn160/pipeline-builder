@@ -2,12 +2,18 @@
 set -euo pipefail
 
 # =============================================================================
-# Pipeline Builder - Minikube Shutdown
+# Pipeline Builder - Minikube Shutdown (graceful STOP; PRESERVES data)
+# =============================================================================
+# Stops port-forwards, then `minikube stop` — which halts the VM but PRESERVES
+# its persistent disk. All hostPath data (postgres, mongodb, minio buckets on the
+# VM's own /data disk) AND the full cluster state (workloads, PVCs, secrets) are
+# kept, so the next start brings everything back with no re-provisioning.
+#
+# This deliberately does NOT delete the namespace / manifests / secrets — that
+# would drop the PVCs and force a full re-setup. To WIPE everything instead, run:
+#   minikube delete --profile=pipeline-builder
 # =============================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-K8S_DIR="$DEPLOY_DIR/k8s"
 NAMESPACE="pipeline-builder"
 PROFILE="pipeline-builder"
 
@@ -16,28 +22,13 @@ log() { echo ""; echo "=== $1 ==="; }
 log "Stopping port-forwards"
 pkill -f "kubectl port-forward.*-n $NAMESPACE" 2>/dev/null || true
 
-log "Removing Kubernetes resources"
-kubectl delete -k "$K8S_DIR" --ignore-not-found 2>/dev/null || true
-
-# Dynamic resources not in kustomize
-kubectl delete configmap app-env postgres-init mongodb-init nginx-config nginx-njs \
-  loki-config prometheus-config thanos-objstore alertmanager-config promtail-config \
-  -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
-# NOTE: registry-auth-secret is intentionally NOT listed — setup uses registry
-# token auth (no htpasswd), so it is never created.
-kubectl delete secret jwt-secret postgres-secret mongodb-secret mongodb-keyfile \
-  mongo-express-secret pgadmin-secret ghcr-secret \
-  nginx-tls-secret registry-token-secret \
-  image-registry-build-svc-secret \
-  -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
-
-log "Removing namespace"
-kubectl delete namespace "$NAMESPACE" --ignore-not-found 2>/dev/null || true
-
-log "Stopping Minikube"
+log "Stopping Minikube (preserves the VM disk + cluster state)"
 minikube stop --profile="$PROFILE" || true
-docker network rm "$PROFILE" 2>/dev/null || true
 
 echo ""
 echo "=== Shutdown complete ==="
+echo "  Data preserved on the minikube VM disk (postgres / mongodb / minio buckets)."
 echo "  Restart: bash deploy/local/minikube/bin/setup.sh"
+echo "           (or a quick 'minikube start --profile=pipeline-builder', then re-run"
+echo "            setup.sh to re-establish port-forwards)"
+echo "  Wipe ALL data: minikube delete --profile=pipeline-builder"
