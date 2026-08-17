@@ -390,9 +390,9 @@ log "Phase 6b: Istio ambient mesh ($ISTIO_VERSION)"
 istioctl install --skip-confirmation \
   --set profile=ambient \
   --set values.pilot.replicaCount=2 \
-  --set meshConfig.extensionProviders[0].name=jaeger \
-  --set meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${NAMESPACE}.svc.cluster.local \
-  --set meshConfig.extensionProviders[0].opentelemetry.port=4317
+  --set "meshConfig.extensionProviders[0].name=jaeger" \
+  --set "meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${NAMESPACE}.svc.cluster.local" \
+  --set "meshConfig.extensionProviders[0].opentelemetry.port=4317"
 kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=180s 2>/dev/null || echo "  istiod not ready yet"
 kubectl rollout status daemonset/ztunnel -n istio-system --timeout=180s 2>/dev/null || echo "  ztunnel not ready yet"
 kubectl rollout status daemonset/istio-cni-node -n istio-system --timeout=180s 2>/dev/null || echo "  istio-cni not ready yet"

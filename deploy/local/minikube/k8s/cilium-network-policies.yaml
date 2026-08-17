@@ -2,6 +2,10 @@
 # =============================================================================
 #  CiliumNetworkPolicy: true per-org egress allow-lists.
 # =============================================================================
+# NOTE: this file is NOT in the kustomization (opt-in). It is inert unless
+# Cilium is installed as the cluster CNI; applying it without Cilium's CRDs
+# errors, so it ships as a template only. See docs / eks copy for context.
+# =============================================================================
 #
 # These manifests REQUIRE Cilium installed as the cluster CNI. Standard
 # k8s NetworkPolicy can't express per-org rules because it has no notion

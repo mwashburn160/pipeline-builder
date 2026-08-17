@@ -81,7 +81,7 @@ spec:
         # no SYS_ADMIN, no privileged mode, no CA-trust shell wrapper. buildkitd
         # uses the system CA bundle baked into moby/buildkit:rootless directly.
         - name: buildkitd
-          # v0.30.0 (was v0.16.0): newer runc reaper no longer wedges in a hot
+          # v0.32.1 (was v0.16.0): newer runc reaper no longer wedges in a hot
           # "container not running" retry loop when a build container is killed
           # mid-flight, which previously zombified the pod (Init:ContainerStatusUnknown).
           image: moby/buildkit:v0.32.1-rootless
@@ -204,10 +204,6 @@ spec:
                   name: app-env
                   key: BILLING_ENABLED
                   optional: true
-            - name: REDIS_HOST
-              value: "redis"
-            - name: REDIS_PORT
-              value: "6379"
             - name: COMPLIANCE_SERVICE_HOST
               value: "compliance"
             - name: COMPLIANCE_SERVICE_PORT

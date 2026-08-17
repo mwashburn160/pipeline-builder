@@ -56,13 +56,19 @@ log_skip() { echo -e "  ${YELLOW}SKIP${NC} $1"; SKIPPED=$((SKIPPED + 1)); }
 log_warn() { echo -e "  ${YELLOW}WARN${NC} $1"; }
 log_info() { echo -e "${BLUE}==>${NC} $1"; }
 
-# read_lines ARRAY < input — portable `mapfile -t` (bash 3.2 has none). Reads each
-# line of stdin into the named array (no nameref in 3.2, so it goes via eval).
-#   Usage:  read_lines REFS < <(grep -rhoE '…' "$dir" | sort -u)
-read_lines() {
-  local __name="$1" __line
-  eval "$__name=()"
-  while IFS= read -r __line; do eval "$__name+=(\"\$__line\")"; done
+# ---------------------------------------------------------------------------
+# mc_setup_aliases — configure the two MinIO client aliases used by backup/restore:
+#   pbsrc = this deploy's MinIO (MINIO_ENDPOINT + root creds)
+#   pbdst = the backup target    (MINIO_BACKUP_TARGET_URL + its creds)
+#   $1 = mc --config-dir (isolated per-run config). Exits 2 on failure (sourced,
+#   so the exit propagates to the caller, matching the previous inline behavior).
+# ---------------------------------------------------------------------------
+mc_setup_aliases() {
+  local _cfg="$1"
+  mc --config-dir "$_cfg" alias set pbsrc "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null \
+    || { echo "ERROR: mc alias set (source) failed" >&2; exit 2; }
+  mc --config-dir "$_cfg" alias set pbdst "$MINIO_BACKUP_TARGET_URL" "$MINIO_BACKUP_TARGET_ACCESS_KEY" "$MINIO_BACKUP_TARGET_SECRET_KEY" >/dev/null \
+    || { echo "ERROR: mc alias set (target) failed" >&2; exit 2; }
 }
 
 # ---------------------------------------------------------------------------
@@ -351,7 +357,9 @@ prompt_toggle() {
 # ---------------------------------------------------------------------------
 prompt_credentials() {
   local _is_local
-  [ "${DEPLOY_TARGET:-docker}" = "docker" ] && _is_local=true || _is_local=false
+  # docker AND minikube are local dev targets (deploy/local/*) — accept the dev
+  # default; ec2/eks are remote and must set a real password.
+  case "${DEPLOY_TARGET:-docker}" in docker|minikube) _is_local=true ;; *) _is_local=false ;; esac
 
   if [ -z "${PLATFORM_IDENTIFIER:-}" ]; then
     if [ "$_is_local" = true ]; then

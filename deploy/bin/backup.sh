@@ -135,10 +135,7 @@ if [ -n "${MINIO_ENDPOINT:-}" ]; then
   MC_CONFIG_DIR="${WORKDIR}/.mc"
 
   if [ "$DRY_RUN" != "1" ]; then
-    mc --config-dir "$MC_CONFIG_DIR" alias set pbsrc "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null \
-      || { echo "ERROR: mc alias set (source) failed" >&2; exit 2; }
-    mc --config-dir "$MC_CONFIG_DIR" alias set pbdst "$MINIO_BACKUP_TARGET_URL" "$MINIO_BACKUP_TARGET_ACCESS_KEY" "$MINIO_BACKUP_TARGET_SECRET_KEY" >/dev/null \
-      || { echo "ERROR: mc alias set (target) failed" >&2; exit 2; }
+    mc_setup_aliases "$MC_CONFIG_DIR"
     for b in ${MINIO_BUCKETS}; do
       echo "  mirroring ${b} → ${MINIO_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/${b}"
       mc --config-dir "$MC_CONFIG_DIR" mirror --overwrite --quiet \
@@ -154,6 +151,12 @@ fi
 
 # --- Retention -------------------------------------------------------------
 
+# A non-numeric RETENTION_DAYS must only WARN (a failed prune shouldn't fail an
+# otherwise-successful backup). Under `set -e`, `[ abc -gt 0 ]` errors and aborts,
+# so coerce anything non-integer to 0 (skip prune) with a warning.
+case "${RETENTION_DAYS}" in
+  ''|*[!0-9]*) echo "  WARN: RETENTION_DAYS='${RETENTION_DAYS}' is not a positive integer — skipping prune"; RETENTION_DAYS=0 ;;
+esac
 if [ "${RETENTION_DAYS}" -gt 0 ]; then
   echo "[5/5] Pruning backups older than ${RETENTION_DAYS} days"
   CUTOFF=$(date -u -v-"${RETENTION_DAYS}"d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \

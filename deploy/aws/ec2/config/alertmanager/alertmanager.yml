@@ -4,10 +4,14 @@
 #   - critical → critical-slack receiver (paging channel)
 #   - warning  → warning-slack receiver (non-paging channel)
 #
-# Webhook URLs are templated from environment variables — the deploy startup
-# script substitutes them via envsubst before Alertmanager loads the file. If
-# SLACK_WEBHOOK_URL is unset, alerts go to the `null` receiver (silently
-# dropped) so the container stays healthy in environments without Slack wired up.
+# DELIVERY — be honest about what this actually does: the deploy script loads
+# this file verbatim into the `alertmanager-config` ConfigMap and does NOT run
+# envsubst over it. The Slack `api_url`s and the platform-relay `credentials`
+# below are HARDCODED placeholders, so out of the box Slack/relay delivery no-ops
+# (Slack 404s the placeholder IDs; the relay bearer is a stub) while firing
+# alerts still show in Alertmanager's UI/API. There is NO `null` receiver. To
+# actually deliver, replace the placeholders here with real values (or wire
+# envsubst into the deploy script and switch the literals back to ${VAR} refs).
 #
 # Tunables:
 #   group_wait      — batch alerts that fire within this window into one

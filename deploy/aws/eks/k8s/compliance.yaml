@@ -112,10 +112,6 @@ spec:
               value: "pipeline"
             - name: PIPELINE_SERVICE_PORT
               value: "3000"
-            - name: REDIS_HOST
-              value: "redis"
-            - name: REDIS_PORT
-              value: "6379"
           resources:
             limits:
               cpu: "500m"

@@ -21,11 +21,13 @@ kubectl delete -k "$K8S_DIR" --ignore-not-found 2>/dev/null || true
 
 # Dynamic resources not in kustomize
 kubectl delete configmap app-env postgres-init mongodb-init nginx-config nginx-njs \
-  loki-config prometheus-config alertmanager-config promtail-config \
+  loki-config prometheus-config thanos-objstore alertmanager-config promtail-config \
   -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
+# NOTE: registry-auth-secret is intentionally NOT listed — setup uses registry
+# token auth (no htpasswd), so it is never created.
 kubectl delete secret jwt-secret postgres-secret mongodb-secret mongodb-keyfile \
   mongo-express-secret pgadmin-secret ghcr-secret \
-  nginx-tls-secret registry-auth-secret registry-token-secret \
+  nginx-tls-secret registry-token-secret \
   image-registry-build-svc-secret \
   -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
 

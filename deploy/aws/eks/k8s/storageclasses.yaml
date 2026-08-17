@@ -2,12 +2,15 @@
 # StorageClasses for the EKS Auto Mode target
 # =============================================================================
 # Multi-node EKS can't use the ec2 target's hostPath volumes (a pod may land on
-# any node), so workloads bind PVCs instead:
-#   - pb-ebs (RWO):  single-writer data — postgres, mongodb, prometheus,
-#                    alertmanager, pgadmin.
-#   - pb-efs (RWX):  shared across nodes — the in-cluster registry + loki.
-# (redis is ephemeral; the plugin build-temp + uploads use emptyDir, shared in-pod
-# with the buildkitd sidecar — neither needs a PVC.)
+# any node), so workloads bind PVCs instead. Actual usage (keep in sync with the
+# manifests):
+#   - pb-ebs (RWO):  single-writer data — postgres, mongodb, prometheus, pgadmin,
+#                    minio, and the redis-sentinel StatefulSet (volumeClaimTemplate).
+#   - pb-efs (RWX):  alertmanager only (its silences/nflog need to survive a
+#                    reschedule onto any node).
+# No PVC: registry is stateless (blobs live in MinIO/S3); loki uses an emptyDir
+# WAL/cache with its durable chunks+index in MinIO/S3; the plugin build-temp +
+# uploads use emptyDir shared in-pod with the buildkitd sidecar.
 # =============================================================================
 ---
 apiVersion: storage.k8s.io/v1

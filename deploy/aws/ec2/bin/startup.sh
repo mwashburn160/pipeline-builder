@@ -106,10 +106,8 @@ fi
 # -- Data directories ---------------------------------------------------------
 
 # Pre-seed the hostPath dirs the manifests mount (all DirectoryOrCreate, so this
-# is a convenience). NOTE: no db-data/loki — Loki is object-storage-backed (its
-# chunks/index live in the minio `loki` bucket) and keeps only an in-pod emptyDir
-# WAL, so a host db-data/loki dir is unused. alertmanager IS mounted, so include it.
-# minio runs 4-drive erasure-set here (minio-data/{1,2,3,4}).
+# is a convenience). alertmanager IS mounted; minio runs a 4-drive erasure-set.
+# (No db-data/loki — Loki uses object storage + an in-pod emptyDir WAL.)
 mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,prometheus,alertmanager},minio-data/{1,2,3,4},pgadmin-data,tmp} 2>/dev/null || true
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$DATA_DIR/plugins-data}"
 
@@ -194,9 +192,9 @@ echo "  Addons + KEDA installed"
 log "Installing Istio ambient mesh ($ISTIO_VERSION)"
 mk istioctl install --skip-confirmation \
   --set profile=ambient \
-  --set meshConfig.extensionProviders[0].name=jaeger \
-  --set meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${NAMESPACE}.svc.cluster.local \
-  --set meshConfig.extensionProviders[0].opentelemetry.port=4317
+  --set "meshConfig.extensionProviders[0].name=jaeger" \
+  --set "meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${NAMESPACE}.svc.cluster.local" \
+  --set "meshConfig.extensionProviders[0].opentelemetry.port=4317"
 mk kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=180s 2>/dev/null || echo "  istiod not ready yet"
 mk kubectl rollout status daemonset/ztunnel -n istio-system --timeout=120s 2>/dev/null || echo "  ztunnel not ready yet"
 mk kubectl rollout status daemonset/istio-cni-node -n istio-system --timeout=120s 2>/dev/null || echo "  istio-cni not ready yet"

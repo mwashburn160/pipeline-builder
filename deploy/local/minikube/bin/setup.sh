@@ -116,9 +116,8 @@ set -a; . "$ENV_FILE"; set +a
 # init-container tightens perms to 400 at start.
 pb_ensure_mongo_keyfile "$DEPLOY_DIR/mongodb-keyfile"
 # Pre-seed the hostPath dirs the manifests mount (all DirectoryOrCreate, so this
-# is a convenience). NOTE: no db-data/loki — Loki is object-storage-backed (its
-# chunks/index live in the minio `loki` bucket) and keeps only an in-pod emptyDir
-# WAL, so a host db-data/loki dir is unused. alertmanager IS mounted, so include it.
+# is a convenience). alertmanager IS mounted, so include it. (No db-data/loki —
+# Loki uses object storage + an in-pod emptyDir WAL, so it doesn't mount here.)
 mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,prometheus,alertmanager},minio-data,pgadmin-data,tmp} 2>/dev/null || true
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$VM_DATA_DIR/plugins-data}"
 
@@ -243,9 +242,9 @@ echo "  Addons + KEDA installed"
 log "Installing Istio ambient mesh ($ISTIO_VERSION)"
 istioctl install --skip-confirmation \
   --set profile=ambient \
-  --set meshConfig.extensionProviders[0].name=jaeger \
-  --set meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${NAMESPACE}.svc.cluster.local \
-  --set meshConfig.extensionProviders[0].opentelemetry.port=4317
+  --set "meshConfig.extensionProviders[0].name=jaeger" \
+  --set "meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${NAMESPACE}.svc.cluster.local" \
+  --set "meshConfig.extensionProviders[0].opentelemetry.port=4317"
 kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=180s 2>/dev/null || echo "  istiod not ready yet"
 kubectl rollout status daemonset/ztunnel -n istio-system --timeout=120s 2>/dev/null || echo "  ztunnel not ready yet"
 kubectl rollout status daemonset/istio-cni-node -n istio-system --timeout=120s 2>/dev/null || echo "  istio-cni not ready yet"
@@ -334,6 +333,10 @@ configmap loki-config     --from-file=loki-config.yml="$CONFIG_DIR/loki/loki-con
 configmap prometheus-config \
   --from-file=prometheus.yml="$CONFIG_DIR/prometheus/prometheus.yml" \
   --from-file=alert-rules.yml="$CONFIG_DIR/prometheus/alert-rules.yml"
+# Thanos object-store config, mounted by the prometheus thanos-sidecar and
+# thanos-query (prometheus.yaml / thanos-query.yaml). Was missing here — those
+# pods FailedMount on minikube — while ec2/eks create it via bin/k8s-resources.sh.
+configmap thanos-objstore --from-file=objstore.yml="$CONFIG_DIR/thanos/objstore.yml"
 configmap alertmanager-config --from-file=alertmanager.yml="$CONFIG_DIR/alertmanager/alertmanager.yml"
 configmap promtail-config --from-file=promtail-config.yml="$CONFIG_DIR/promtail/promtail-config.yml"
 

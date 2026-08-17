@@ -416,10 +416,10 @@ for _tag in "${BASE_TAGS[@]}"; do
     continue
   fi
 
-  # Sign a fresh JWT per image — image-registry's token endpoint enforces
-  # a 300s expiry, and the slowest base (sonarcloud + JDK) can take longer
-  # than that on its own. A loop-wide JWT would work for the first image
-  # and 401 on the rest.
+  # Sign a fresh JWT per image — the platform token TTL (PUSH_JWT_TTL, default
+  # 900s) can still be exceeded across a long multi-image push run (the slowest
+  # base, sonarcloud + JDK, is minutes on its own), so a single loop-wide JWT
+  # could expire mid-run and 401 the later images. Re-signing per image is cheap.
   _jwt="$(_sign_platform_jwt)"
 
   case "$DEPLOY_TARGET" in

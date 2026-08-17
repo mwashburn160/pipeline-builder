@@ -40,4 +40,6 @@ resources:
 patches:
   # Resource (CPU) overrides for all deployments
   - path: patches/resources.yaml
-  # Storage size overrides (smaller PVs for local dev)  - path: patches/scaling.yaml
+  # Plugin autoscale cap override for the local box
+  # (was silently disabled — the path was glued onto the end of this comment line)
+  - path: patches/scaling.yaml

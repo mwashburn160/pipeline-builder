@@ -112,10 +112,7 @@ if [ "$MINIO_RESTORE" = "1" ]; then
   trap 'rm -rf "$WORKDIR"' EXIT
   MC_CONFIG_DIR="${WORKDIR}/.mc"
 
-  mc --config-dir "$MC_CONFIG_DIR" alias set pbsrc "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null \
-    || { echo "ERROR: mc alias set (source) failed" >&2; exit 2; }
-  mc --config-dir "$MC_CONFIG_DIR" alias set pbdst "$MINIO_BACKUP_TARGET_URL" "$MINIO_BACKUP_TARGET_ACCESS_KEY" "$MINIO_BACKUP_TARGET_SECRET_KEY" >/dev/null \
-    || { echo "ERROR: mc alias set (target) failed" >&2; exit 2; }
+  mc_setup_aliases "$MC_CONFIG_DIR"
   for b in ${MINIO_BUCKETS}; do
     echo "[minio] restoring ${b} ← ${MINIO_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/${b}"
     mc --config-dir "$MC_CONFIG_DIR" mb --ignore-existing "pbsrc/${b}" >/dev/null 2>&1 || true
@@ -175,7 +172,7 @@ if [ "$MONGO_ONLY" != "1" ]; then
     || { echo "ERROR: postgres download failed" >&2; exit 2; }
 
   echo "[postgres] restoring into ${POSTGRES_USER}@${POSTGRES_HOST}/${POSTGRES_DB}"
-  PGPASSWORD="${POSTGRES_PASSWORD}" gunzip -c "${PG_LOCAL}" | \
+  gunzip -c "${PG_LOCAL}" | \
     PGPASSWORD="${POSTGRES_PASSWORD}" psql \
       --host="${POSTGRES_HOST}" \
       --username="${POSTGRES_USER}" \

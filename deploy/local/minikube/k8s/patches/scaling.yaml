@@ -1,8 +1,13 @@
 # =============================================================================
 # Minikube scaling overrides
 # =============================================================================
+# Applied via kustomization.yaml `patches:`. Kept minimal on purpose: the base
+# ResourceQuota/LimitRange in resource-limits.yaml are already tuned for the
+# laptop (requests.cpu bumped to 12 for crane-push bootstrap headroom), so this
+# patch no longer overrides them — an older copy set requests.cpu:10 / limits.cpu:16,
+# which would have regressed that headroom once the patch was actually wired in.
 
-# --- Plugin KEDA ScaledObject (align with EC2/EKS) ---
+# --- Plugin KEDA ScaledObject: allow more build replicas on the local box ---
 ---
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
@@ -10,29 +15,3 @@ metadata:
   name: plugin
 spec:
   maxReplicaCount: 4
-
-# --- ResourceQuota (adjusted for minikube cluster) ---
----
-apiVersion: v1
-kind: ResourceQuota
-metadata:
-  name: pipeline-builder-quota
-spec:
-  hard:
-    requests.cpu: "10"
-    limits.cpu: "16"
-
-# --- LimitRange (adjusted for minikube cluster) ---
----
-apiVersion: v1
-kind: LimitRange
-metadata:
-  name: pipeline-builder-limits
-spec:
-  limits:
-    - type: Pod
-      max:
-        cpu: "4"
-        # Plugin pod = buildkitd sidecar (BUILDKIT_MEMORY_LIMIT, 3Gi default) +
-        # plugin app (2Gi) ≈ 5Gi, so a 4Gi pod cap forbids it. Keep >= that sum.
-        memory: 10Gi

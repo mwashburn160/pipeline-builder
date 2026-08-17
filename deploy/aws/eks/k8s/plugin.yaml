@@ -113,7 +113,7 @@ spec:
         # no SYS_ADMIN, no privileged mode, no CA-trust shell wrapper. buildkitd
         # uses the system CA bundle baked into moby/buildkit:rootless directly.
         - name: buildkitd
-          # v0.30.0 (was v0.16.0): newer runc reaper no longer wedges in a hot
+          # v0.32.1 (was v0.16.0): newer runc reaper no longer wedges in a hot
           # "container not running" retry loop when a build container is killed
           # mid-flight, which previously zombified the pod (Init:ContainerStatusUnknown).
           image: moby/buildkit:v0.32.1-rootless
@@ -235,10 +235,6 @@ spec:
                   name: app-env
                   key: BILLING_ENABLED
                   optional: true
-            - name: REDIS_HOST
-              value: "redis"
-            - name: REDIS_PORT
-              value: "6379"
             - name: COMPLIANCE_SERVICE_HOST
               value: "compliance"
             - name: COMPLIANCE_SERVICE_PORT
@@ -378,15 +374,13 @@ spec:
   scaleTargetRef:
     name: plugin
   minReplicaCount: 1
-  # Capped at 2: the single-node EC2 minikube only has CPU headroom for
-  # two plugin pods (each requests ~1250m = plugin 750m + buildkitd 500m)
-  # alongside the rest of the namespace. A 3rd replica stays Pending with
-  # "Insufficient cpu", and the unschedulable scale-up churn kills
-  # in-flight builds (BullMQ marks them "stalled more than allowable
-  # limit"). Raise this only after growing the instance's vCPUs — the
-  # in-pod buildkitd sidecar is the sole builder, so each replica carries
-  # its full ~1250m cost.
-  maxReplicaCount: 2
+  # EKS Auto Mode is multi-node: Karpenter provisions nodes to fit pending
+  # plugin pods, so the build fleet (the primary horizontally-scaling workload)
+  # is NOT bounded by a single instance's vCPUs the way the ec2 target is. Each
+  # replica carries its own in-pod buildkitd sidecar (~1250m = plugin 750m +
+  # buildkitd 500m). Cap at 8 to bound cost / node-churn on a queue spike; raise
+  # if build throughput demands more (Karpenter will add nodes to schedule them).
+  maxReplicaCount: 8
   pollingInterval: 15
   cooldownPeriod: 120
   # Hold a safe replica count if Prometheus (the primary trigger's source) is

@@ -51,9 +51,9 @@ resources:
   # External entrypoint (ALB)
   - ingress.yaml
 
-# Storage is PVC-based: postgres/mongodb/prometheus/alertmanager/pgadmin/minio → pb-ebs
-# (RWO); loki → pb-efs (RWX); registry → stateless (blobs in MinIO/S3);
-# plugin builds+uploads → emptyDir.
+# Storage: postgres/mongodb/prometheus/pgadmin/minio/redis-sentinel → pb-ebs (RWO);
+# alertmanager → pb-efs (RWX); registry → stateless (blobs in MinIO/S3);
+# loki → emptyDir WAL/cache (durable chunks+index in MinIO/S3); plugin builds+uploads → emptyDir.
 #
 # NetworkPolicy: networkpolicy.yaml (standard k8s NetworkPolicy) is the active set —
 # VPC CNI (Auto Mode) enforces it. cilium-network-policies.yaml is intentionally NOT
