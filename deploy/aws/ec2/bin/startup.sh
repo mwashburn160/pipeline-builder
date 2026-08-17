@@ -190,6 +190,13 @@ echo "  Addons + KEDA installed"
 # namespace is enrolled via the ambient label on namespace.yaml. Run as the
 # minikube user (mk) like the rest of the cluster. See docs/service-mesh.md.
 log "Installing Istio ambient mesh ($ISTIO_VERSION)"
+# Ambient needs istioctl >= 1.24 (the `ambient` profile ships in the binary).
+_ic_ver="$(mk istioctl version --remote=false 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+if [ -z "$_ic_ver" ] || [ "${_ic_ver%%.*}" -lt 1 ] || { [ "${_ic_ver%%.*}" -eq 1 ] && [ "${_ic_ver#*.}" -lt 24 ]; }; then
+  echo "ERROR: istioctl '${_ic_ver:-unknown}' is too old for ambient — need >= 1.24 (ISTIO_VERSION=$ISTIO_VERSION)." >&2
+  echo "       Upgrade: curl -L https://istio.io/downloadIstio | ISTIO_VERSION=$ISTIO_VERSION sh - ; put istioctl on the minikube user's PATH." >&2
+  exit 1
+fi
 mk istioctl install --skip-confirmation \
   --set profile=ambient \
   --set "meshConfig.extensionProviders[0].name=jaeger" \

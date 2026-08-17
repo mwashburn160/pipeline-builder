@@ -387,6 +387,13 @@ log "Phase 6b: Istio ambient mesh ($ISTIO_VERSION)"
 #   - Node SecurityGroups MUST allow node<->node HBONE :15008 (cross-node mTLS)
 #     plus istiod xDS :15012 / webhook :15017. Auto Mode manages the node SG —
 #     confirm these are permitted (see docs/aws-deployment.md).
+# Ambient needs istioctl >= 1.24 (the `ambient` profile ships in the binary).
+_ic_ver="$(istioctl version --remote=false 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+if [ -z "$_ic_ver" ] || [ "${_ic_ver%%.*}" -lt 1 ] || { [ "${_ic_ver%%.*}" -eq 1 ] && [ "${_ic_ver#*.}" -lt 24 ]; }; then
+  echo "ERROR: istioctl '${_ic_ver:-unknown}' is too old for ambient — need >= 1.24 (ISTIO_VERSION=$ISTIO_VERSION)." >&2
+  echo "       Upgrade: curl -L https://istio.io/downloadIstio | ISTIO_VERSION=$ISTIO_VERSION sh - && sudo mv istio-$ISTIO_VERSION/bin/istioctl /usr/local/bin/istioctl" >&2
+  exit 1
+fi
 istioctl install --skip-confirmation \
   --set profile=ambient \
   --set values.pilot.replicaCount=2 \
