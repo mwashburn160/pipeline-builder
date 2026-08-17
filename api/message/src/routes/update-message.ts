@@ -15,6 +15,7 @@ import {
 import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { enrichOneWithOrgNames } from '../helpers/org-names.js';
 import { messageService } from '../services/message-service.js';
 
 /**
@@ -64,7 +65,7 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
       ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
     }
 
-    return sendSuccess(res, 200, { message: updated }, 'Message updated');
+    return sendSuccess(res, 200, { message: await enrichOneWithOrgNames(updated) }, 'Message updated');
   }));
 
   // PUT /messages/:id/read — Mark message as read (messaging read floor)
@@ -93,7 +94,7 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
       ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
     }
 
-    return sendSuccess(res, 200, { message }, 'Message marked as read');
+    return sendSuccess(res, 200, { message: await enrichOneWithOrgNames(message) }, 'Message marked as read');
   }));
 
   // PUT /messages/:id/thread/read — Mark entire thread as read (messaging read floor)

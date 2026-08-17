@@ -27,11 +27,17 @@ interface MessageListProps {
   emptyDescription?: string;
 }
 
-/** Returns the display name for a message row: "Announcement" or the other party's org ID. */
+/**
+ * Returns the display name for a message row: "Announcement", or the OTHER
+ * party's org name (falling back to its id when the name isn't resolved). When
+ * the current org is the sender, the other party is the recipient, and vice-versa.
+ */
 function getDisplayName(msg: Message, currentOrgId: string): string {
   if (msg.messageType === 'announcement') return 'Announcement';
-  if (msg.orgId.toLowerCase() === currentOrgId.toLowerCase()) return msg.recipientOrgId;
-  return msg.orgId;
+  if (msg.orgId.toLowerCase() === currentOrgId.toLowerCase()) {
+    return msg.recipientOrgName || msg.recipientOrgId;
+  }
+  return msg.orgName || msg.orgId;
 }
 
 /**

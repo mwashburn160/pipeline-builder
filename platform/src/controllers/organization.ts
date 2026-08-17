@@ -159,6 +159,38 @@ export const getOrganizationParent = withController('Get organization parent', a
   sendSuccess(res, 200, { parentOrgId: org.parentOrgId ?? null });
 });
 
+/**
+ * POST /organization/names — batch id→name resolver for internal callers.
+ *
+ * Body: `{ orgIds: string[] }` → `{ names: { [lowercasedOrgId]: name } }`.
+ * SERVICE-PRINCIPAL ONLY (mirrors the `/parent` gate). This is an internal
+ * enrichment path — the message service labels each conversation row with the
+ * counterparty org's NAME instead of its raw id. It returns ONLY id→name, never
+ * the full-org body / members / quotas, so it exposes nothing a peer service
+ * couldn't already infer, and it is never reachable by an end-user token. Ids
+ * are validated to 24-hex, de-duped, and capped so it can't become an unbounded
+ * scan.
+ */
+export const getOrganizationNames = withController('Get organization names', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  if (!isServicePrincipal(req)) {
+    return sendError(res, 403, 'Forbidden: service principal only');
+  }
+  const raw = (req.body as { orgIds?: unknown })?.orgIds;
+  if (!Array.isArray(raw)) {
+    return sendError(res, 400, 'orgIds must be an array of organization ids');
+  }
+  const ids = [
+    ...new Set(
+      raw
+        .filter((v): v is string => typeof v === 'string' && /^[a-f0-9]{24}$/i.test(v))
+        .map((v) => v.toLowerCase()),
+    ),
+  ].slice(0, 200);
+  const names = ids.length > 0 ? await organizationService.getNamesByIds(ids) : {};
+  sendSuccess(res, 200, { names });
+});
+
 export const updateOrganization = withController('Update organization', async (req, res) => {
   if (!requireSystemAdmin(req, res)) return;
   const body = validateBody(updateOrganizationSchema, req.body, res);

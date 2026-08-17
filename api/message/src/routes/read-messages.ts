@@ -17,6 +17,7 @@ import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incrementQuotaFromCtx, createProtectedRoute } from '@pipeline-builder/api-server';
 import type { MessageFilter } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
+import { enrichOneWithOrgNames, enrichWithOrgNames } from '../helpers/org-names.js';
 import { attachmentService } from '../services/attachment-service.js';
 import { messageService } from '../services/message-service.js';
 
@@ -74,7 +75,10 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     ctx.log('COMPLETED', 'Messages fetched', { count: result.data.length, total: result.total });
     incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
-    return sendPaginatedNested(res, 'messages', result.data, {
+    // Label each row with the counterparty org's NAME (the UI renders names, not
+    // ids). Best-effort: a resolution failure leaves the id for the client to show.
+    const messages = await enrichWithOrgNames(result.data);
+    return sendPaginatedNested(res, 'messages', messages, {
       total: result.total, limit: result.limit, offset: result.offset, hasMore: result.hasMore,
     });
   }));
@@ -92,7 +96,8 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     ctx.log('COMPLETED', 'Announcements fetched', { count: result.data.length });
     incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
-    return sendPaginatedNested(res, 'messages', result.data, {
+    const messages = await enrichWithOrgNames(result.data);
+    return sendPaginatedNested(res, 'messages', messages, {
       total: result.total, limit: result.limit, offset: result.offset, hasMore: result.hasMore,
     });
   }));
@@ -108,7 +113,8 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     ctx.log('COMPLETED', 'Conversations fetched', { count: result.data.length });
     incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
-    return sendPaginatedNested(res, 'messages', result.data, {
+    const messages = await enrichWithOrgNames(result.data);
+    return sendPaginatedNested(res, 'messages', messages, {
       total: result.total, limit: result.limit, offset: result.offset, hasMore: result.hasMore,
     });
   }));
@@ -138,7 +144,8 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     ctx.log('COMPLETED', 'Listed deleted messages', { count: deleted.length });
     incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
-    return sendSuccess(res, 200, { messages: deleted });
+    const messages = await enrichWithOrgNames(deleted);
+    return sendSuccess(res, 200, { messages });
   }));
 
   // GET /messages/:id — Get single message
@@ -156,7 +163,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
 
     incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
-    return sendSuccess(res, 200, { message });
+    return sendSuccess(res, 200, { message: await enrichOneWithOrgNames(message) });
   }));
 
   // GET /messages/:id/thread — Get thread messages
@@ -193,7 +200,9 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
       list.push({ id: a.id, filename: a.filename, contentType: a.contentType, sizeBytes: a.sizeBytes });
       byMsg.set(a.messageId, list);
     }
-    const messages = thread.map((m) => ({ ...m, attachments: byMsg.get(m.id) ?? [] }));
+    const withAttachments = thread.map((m) => ({ ...m, attachments: byMsg.get(m.id) ?? [] }));
+    // Label each row with the counterparty org's name (preserves attachments).
+    const messages = await enrichWithOrgNames(withAttachments);
 
     ctx.log('COMPLETED', 'Thread fetched', { count: thread.length });
     incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');

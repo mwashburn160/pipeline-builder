@@ -11,8 +11,8 @@ import {
   sendError,
   sendSuccess,
   sendEntityNotFound,
-  MESSAGE_ATTACHMENT_ALLOWED_MIME,
   MESSAGE_ATTACHMENT_MAX_BYTES,
+  isAllowedAttachmentType,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import {
@@ -38,7 +38,9 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { files: 1, fileSize: MESSAGE_ATTACHMENT_MAX_BYTES },
   fileFilter: (_req, file, cb) => {
-    if (MESSAGE_ATTACHMENT_ALLOWED_MIME.has(file.mimetype)) cb(null, true);
+    // Accept by MIME allow-list, or by safe extension when the browser reports the
+    // generic application/octet-stream (archives/yaml/… often have no MIME).
+    if (isAllowedAttachmentType(file.mimetype, file.originalname)) cb(null, true);
     else cb(new Error(`Unsupported file type: ${file.mimetype}`));
   },
 });
@@ -94,7 +96,7 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const file = (req as Request & { file?: Express.Multer.File }).file;
       if (!file) return sendBadRequest(res, 'No file uploaded', ErrorCode.MISSING_REQUIRED_FIELD);
-      if (!MESSAGE_ATTACHMENT_ALLOWED_MIME.has(file.mimetype)) {
+      if (!isAllowedAttachmentType(file.mimetype, file.originalname)) {
         return sendBadRequest(res, `Unsupported file type: ${file.mimetype}`, ErrorCode.VALIDATION_ERROR);
       }
 

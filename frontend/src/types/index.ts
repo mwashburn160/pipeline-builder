@@ -730,8 +730,15 @@ export interface MessageAttachment {
 export interface Message {
   id: string;
   orgId: string;
+  /**
+   * Display name of the sender org (`orgId`), resolved server-side. Optional —
+   * absent when the name couldn't be resolved, so the UI falls back to the id.
+   */
+  orgName?: string;
   threadId: string | null;
   recipientOrgId: string;
+  /** Display name of the recipient org (`recipientOrgId`); see `orgName`. Unset for '*' broadcasts. */
+  recipientOrgName?: string;
   /**
    * Optional per-user target WITHIN `recipientOrgId`. Null (default) = the whole
    * recipient org sees it; when set, only this user does. Announcement broadcasts

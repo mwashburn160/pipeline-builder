@@ -52,6 +52,28 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       'image/png', 'image/jpeg', 'image/gif', 'image/webp',
       'application/pdf', 'text/plain', 'text/csv', 'application/json',
     ]),
+    // Mirror the real isAllowedAttachmentType: MIME allow-list, plus a safe-
+    // extension fallback for the generic application/octet-stream.
+    isAllowedAttachmentType: (mimetype: string, filename: string): boolean => {
+      const mime = new Set([
+        'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf',
+        'text/plain', 'text/csv', 'application/json', 'text/json',
+        'application/zip', 'application/x-zip-compressed', 'application/gzip',
+        'application/x-gzip', 'application/x-tar', 'application/tar',
+        'application/x-compressed-tar', 'application/x-yaml', 'application/yaml',
+        'text/yaml', 'text/x-yaml',
+      ]);
+      if (mime.has(mimetype)) return true;
+      if (mimetype !== 'application/octet-stream') return false;
+      const i = (filename || '').lastIndexOf('.');
+      if (i < 0) return false;
+      const ext = new Set([
+        '.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf', '.txt', '.csv',
+        '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+        '.zip', '.gz', '.tgz', '.tar', '.json', '.yaml', '.yml',
+      ]);
+      return ext.has(filename.slice(i).toLowerCase());
+    },
     MAX_PAGE_LIMIT: 1000,
     DEFAULT_PAGE_LIMIT: 100,
     closeLeaderLock: async () => undefined,
@@ -92,8 +114,13 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     NotFoundError,
     createCacheService: () => ({
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
+      get: async () => null,
+      set: async () => undefined,
       invalidatePattern: () => Promise.resolve(0),
     }),
+    // Org id→name enrichment (org-names helper) — resolve to "no names" so route
+    // suites fall back to the raw id, exactly like a platform lookup miss.
+    fetchOrgNames: async () => ({}),
     ...overrides,
   };
 }

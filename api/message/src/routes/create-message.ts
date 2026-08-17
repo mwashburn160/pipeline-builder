@@ -23,6 +23,7 @@ import { withRoute, createAuthenticatedWithOrgRoute, incCounter, rateLimitByOrg 
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { schema } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
+import { enrichOneWithOrgNames } from '../helpers/org-names.js';
 import { isRecipientReachable, isTargetUserReachable } from '../helpers/org-reachability.js';
 import { attachmentService } from '../services/attachment-service.js';
 import { getAuditClient } from '../services/audit.js';
@@ -228,7 +229,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       }, 'message');
     }
 
-    return sendSuccess(res, 201, message, 'Message created successfully');
+    return sendSuccess(res, 201, await enrichOneWithOrgNames(message), 'Message created successfully');
   }));
 
   // POST /messages/:id/reply — Reply to a thread
@@ -355,7 +356,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
     }
 
-    return sendSuccess(res, 201, reply, 'Reply sent successfully');
+    return sendSuccess(res, 201, await enrichOneWithOrgNames(reply), 'Reply sent successfully');
   }));
 
   return router;

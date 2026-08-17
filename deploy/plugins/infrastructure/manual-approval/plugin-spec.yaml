@@ -11,7 +11,9 @@ pluginType: ManualApprovalStep
 computeType: SMALL
 timeout: 0
 failureBehavior: fail
-primaryOutputDirectory: null
+# A ManualApprovalStep produces no build artifact — the field is optional, so
+# it is omitted rather than declared null (an explicit null fails a plain string
+# schema on older plugin-API builds).
 secrets: []
 installCommands: []
 commands: []

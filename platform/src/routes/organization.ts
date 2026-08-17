@@ -10,6 +10,7 @@ import {
   updateOrgAIConfig,
   getOrganizationById,
   getOrganizationDescendants,
+  getOrganizationNames,
   getOrganizationParent,
   updateOrganization,
   updateOrganizationIdentity,
@@ -62,6 +63,12 @@ router.get('/', requireAuth, getMyOrganization);
  *  This route is for already-org-bound admins/owners adding *additional*
  *  orgs to their account. */
 router.post('/', requireAuth, requirePermission('org:settings'), createOrganization);
+
+/** POST /organization/names — internal batch id→name resolver (service principal
+ *  only; gate enforced in the controller). Used by the message service to label
+ *  conversation rows with the counterparty org's name. Literal path, so it's
+ *  declared before the `/:id` routes and never shadowed by the id matcher. */
+router.post('/names', requireAuth, getOrganizationNames);
 
 /*
  * AI Provider Configuration (must be before /:id routes)

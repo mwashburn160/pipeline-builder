@@ -191,6 +191,24 @@ class OrganizationService {
   }
 
   /**
+   * Batch-resolve org id → display name for a set of ids. Internal helper for
+   * peer services (the message service labels conversation rows with the
+   * counterparty org's NAME instead of its raw id). Returns a plain map keyed by
+   * the lowercased hex id; ids with no matching org are simply absent, so the
+   * caller falls back to rendering the id. Soft-deleted orgs still resolve — a
+   * historical conversation should keep showing the org's name.
+   */
+  async getNamesByIds(ids: string[]): Promise<Record<string, string>> {
+    if (ids.length === 0) return {};
+    const orgs = await Organization.find({ _id: { $in: ids.map(toOrgId) } })
+      .select('_id name')
+      .lean();
+    const out: Record<string, string> = {};
+    for (const o of orgs) out[o._id.toString().toLowerCase()] = o.name;
+    return out;
+  }
+
+  /**
    * Create org + UserOrganization owner row + set user.lastActiveOrgId in a single
    * transaction. Quota limits seeded from tier config so subsequent quota lookups
    * have a baseline even before the quota service is ever called.

@@ -130,7 +130,11 @@ const PluginSpecSchema = z.object({
     required: z.boolean(),
     description: z.string().optional(),
   })).optional(),
-  primaryOutputDirectory: z.string().optional(),
+  // Accept an explicit `primaryOutputDirectory: null` (a ManualApprovalStep /
+  // output-less step legitimately declares it) and normalize it to `undefined`,
+  // matching the `string | undefined` PluginSpec field. Without `.nullish()` a
+  // present YAML `null` fails the bare string check and 400s the whole upload.
+  primaryOutputDirectory: z.string().nullish().transform((v) => v ?? undefined),
   metadata: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
   dockerfile: z.string().optional(),
   installCommands: z.array(z.string()).optional(),

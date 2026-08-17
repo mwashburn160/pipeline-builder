@@ -3,6 +3,7 @@ import { ArrowLeft, Send, Megaphone, MessageCircle, AlertTriangle, AlertOctagon,
 import { Textarea } from '@/components/ui/Textarea';
 import { IconButton } from '@/components/ui/IconButton';
 import { MessageAttachments } from '@/components/message/MessageAttachments';
+import { useAuth } from '@/hooks/useAuth';
 import api from '@/lib/api';
 import type { Message, MessageAttachment } from '@/types';
 
@@ -58,6 +59,10 @@ function PriorityBadge({ priority }: { priority: string }) {
 
 /** Chat-style thread view displaying a conversation with reply input. */
 export function ThreadView({ rootMessage, currentOrgId, currentUserId, onBack, onThreadRead, onDelete }: ThreadViewProps) {
+  const { organizations } = useAuth();
+  // The current org's own display name, for labelling optimistic (own) bubbles
+  // before the server round-trip returns the resolved name.
+  const currentOrgName = organizations.find((o) => o.id.toLowerCase() === currentOrgId.toLowerCase())?.name;
   const [thread, setThread] = useState<ThreadItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [replyContent, setReplyContent] = useState('');
@@ -145,6 +150,9 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, onBack, o
       id: tempId,
       threadId: rootMessage.id,
       orgId: currentOrgId,
+      // Override the inherited root-sender name with our OWN org's name — the
+      // reply is from the current org, not necessarily the root's sender.
+      orgName: currentOrgName,
       createdBy: 'You',
       content,
       attachments,
@@ -252,8 +260,8 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, onBack, o
               {rootMessage.messageType === 'announcement'
                 ? 'Announcement'
                 : rootMessage.orgId.toLowerCase() === currentOrgId.toLowerCase()
-                  ? rootMessage.recipientOrgId
-                  : rootMessage.orgId}
+                  ? (rootMessage.recipientOrgName || rootMessage.recipientOrgId)
+                  : (rootMessage.orgName || rootMessage.orgId)}
             </h2>
             <PriorityBadge priority={rootMessage.priority} />
           </div>
@@ -302,7 +310,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, onBack, o
                   } ${isSending ? 'opacity-70' : ''} ${isFailed ? 'ring-2 ring-red-400 dark:ring-red-500' : ''}`}
                 >
                   <div className={`flex items-center gap-2 text-xs mb-1 ${isMine ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'}`}>
-                    <span>{msg.createdBy} ({msg.orgId})</span>
+                    <span>{msg.createdBy} ({msg.orgName || msg.orgId})</span>
                     {canEdit && !isEditing && (
                       <button
                         onClick={() => beginEdit(msg)}

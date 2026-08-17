@@ -19,7 +19,7 @@
  * as "no data" (returns undefined), matching what the callers previously did.
  */
 
-import { getServiceAuthHeader } from '../middleware/auth.js';
+import { getServiceAuthHeader, SYSTEM_ORG_ID } from '../middleware/auth.js';
 import { InternalHttpClient } from '../services/http-client.js';
 import type { ServiceConfig } from '../types/common.js';
 
@@ -109,6 +109,49 @@ export async function fetchOrgDescendants(orgId: string, opts: OrgHierarchyHttpO
   const orgIds = ids.filter((id): id is string => typeof id === 'string');
   // Only meaningful when the (validated) subtree is larger than the org itself.
   return orgIds.length > 1 ? orgIds : undefined;
+}
+
+/**
+ * Batch-resolve org id → display NAME via platform's `POST /organization/names`.
+ * Returns a lowercased `{ [orgId]: name }` map — ids the platform doesn't know
+ * are simply absent (caller falls back to the raw id).
+ *
+ * Best-effort by design: a non-2xx response (e.g. the caller isn't a service
+ * principal) or a malformed body yields `{}`, and it throws ONLY on a transport
+ * failure (connection/timeout) — matching the fail-soft policy of the other
+ * lookups here so a name-enrichment read never fails the caller's request. The
+ * response is validated entry-by-entry (only string→string pairs survive), so a
+ * malformed payload can't smuggle a non-string into the returned map.
+ */
+export async function fetchOrgNames(
+  orgIds: string[],
+  opts: OrgHierarchyHttpOptions,
+): Promise<Record<string, string>> {
+  if (orgIds.length === 0) return {};
+  const client = new InternalHttpClient(opts.service);
+  const headers: Record<string, string> = {
+    Authorization: getServiceAuthHeader({
+      serviceName: opts.serviceName,
+      // A cross-org registry read, not a tenant-scoped op — default to the system
+      // org context when the caller doesn't pin one.
+      orgId: opts.authOrgId ?? SYSTEM_ORG_ID,
+      role: opts.role ?? 'member',
+    }),
+    ...opts.headers,
+  };
+  const res = await client.post<{ data?: { names?: unknown } }>(
+    '/organization/names',
+    { orgIds },
+    { headers, timeout: opts.timeout },
+  );
+  if (res.statusCode >= 400) return {};
+  const names = res.body?.data?.names;
+  if (!names || typeof names !== 'object') return {};
+  const out: Record<string, string> = {};
+  for (const [id, name] of Object.entries(names as Record<string, unknown>)) {
+    if (typeof name === 'string') out[id.toLowerCase()] = name;
+  }
+  return out;
 }
 
 /**
