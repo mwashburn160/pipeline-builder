@@ -642,12 +642,18 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
   },
   {
     name: 'plugin',
+    // @aws-sdk/client-s3: S3-compatible blob storage for the uploaded build
+    // context (MinIO everywhere). Staging the upload zip in object storage lets a
+    // build run on a different plugin replica than the one that received it — so
+    // the build scratch dir can be per-pod (no shared RWX EFS). Pinned to the
+    // shared @aws-sdk version (matches the message service) to avoid perturbing
+    // the dep tree.
     deps: [
       `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
       'express-rate-limit@8.6.1', 'jsonwebtoken@9.0.3', 'helmet@8.3.0', 'cors@2.8.6',
       'pg@8.22.0', 'drizzle-orm@0.45.2', 'uuid@14.0.1', 'yaml@2.9.0',
       'adm-zip@0.6.0', 'yauzl@3.4.0', 'multer@2.2.0', `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.4.3',
-      'bullmq@5.80.6', 'ioredis@6.0.0',
+      'bullmq@5.80.6', 'ioredis@6.0.0', '@aws-sdk/client-s3@3.1101.0',
     ],
     devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19', '@types/pg@8.20.3', '@types/adm-zip@0.5.8', '@types/yauzl@3.4.0', '@types/multer@2.2.0'],
   },

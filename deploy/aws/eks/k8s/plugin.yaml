@@ -20,43 +20,18 @@ spec:
 
 ---
 # =============================================================================
-# Plugin build context + uploads — SHARED across plugin pods (pb-efs, RWX)
+# Plugin build scratch — PER-POD emptyDir (no shared EFS)
 # =============================================================================
 # Plugin builds are queue-based (BullMQ) and the Deployment autoscales (KEDA),
 # so the pod that RECEIVES an upload is frequently NOT the pod that later runs
-# the build job. With per-pod emptyDir the worker pod can't see the uploaded
-# Dockerfile/context → `ENOENT … builds/<uuid>/Dockerfile` and the job fails all
-# retries. Backing both dirs with one shared EFS filesystem (per-PVC access point,
-# uid/gid 1000 — matching the plugin's runAsUser, so no chown init is needed) lets
-# any pod read any upload's context. Build dirs are UUID-keyed, so concurrent
-# builds across pods don't collide.
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: plugin-builds
-  labels:
-    app: plugin
-spec:
-  storageClassName: pb-efs
-  accessModes: ["ReadWriteMany"]
-  resources:
-    requests:
-      storage: 20Gi
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: plugin-uploads
-  labels:
-    app: plugin
-spec:
-  storageClassName: pb-efs
-  accessModes: ["ReadWriteMany"]
-  resources:
-    requests:
-      storage: 10Gi
-
----
+# the build job. That cross-pod handoff used to require a SHARED EFS (RWX) volume
+# so any pod could read any upload's context. It no longer does: the upload
+# handler stages the build-context ZIP in object storage (S3/MinIO, `plugins`
+# bucket) and the build worker rehydrates it into its OWN local scratch dir
+# (see plugin-artifact-storage + ensureLocalBuildContext). So `plugins-data` is
+# now a per-pod emptyDir — faster + cheaper than EFS, and no RWX PVC to manage.
+# (The two former pb-efs PVCs plugin-builds/plugin-uploads are intentionally
+# removed.)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -273,24 +248,35 @@ spec:
               value: "4096"
             - name: DOCKER_BUILD_TIMEOUT_MS
               value: "900000"
-            # Canonical build-temp + upload paths. PLUGIN_UPLOAD_DIR must be
-            # a writable absolute path because the container has
+            # Canonical build-scratch path (single dir now — the durable
+            # cross-pod build context lives in object storage, S3_* below).
+            # Must be a writable absolute path because the container has
             # readOnlyRootFilesystem=true — a relative `uploads/` resolves
             # to /app/uploads on the read-only root and EROFS-fails.
             - name: DOCKER_BUILD_TEMP_ROOT
-              value: "/opt/pipeline/pipeline-data/plugins-data/builds"
+              value: "/opt/pipeline/pipeline-data/plugins-data"
             - name: PLUGIN_UPLOAD_DIR
-              value: "/opt/pipeline/pipeline-data/plugins-data/uploads"
+              value: "/opt/pipeline/pipeline-data/plugins-data"
+            # Object storage for the uploaded build context — a worker on any pod
+            # rehydrates a build from here, so build scratch can be per-pod.
+            - name: S3_ENDPOINT
+              value: "http://minio:9000"
+            - name: S3_BUCKET
+              value: "plugins"
+            - name: S3_ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: minio-secret, key: plugin-access-key } }
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: plugin-secret-key } }
+            - name: S3_FORCE_PATH_STYLE
+              value: "true"
             - name: TMPDIR
               value: "/tmp"
           volumeMounts:
             # Mount at the SAME absolute path as the host (which buildkit
             # also sees) so DOCKER_BUILD_TEMP_ROOT resolves identically on
             # both sides — buildkit bind mounts won't work otherwise.
-            - name: tmp
-              mountPath: /opt/pipeline/pipeline-data/plugins-data/builds
-            - name: uploads
-              mountPath: /opt/pipeline/pipeline-data/plugins-data/uploads
+            - name: plugins-data
+              mountPath: /opt/pipeline/pipeline-data/plugins-data
             - name: buildkit-socket
               mountPath: /run/buildkit
             # readOnlyRootFilesystem: true means the Node.js process can't
@@ -332,17 +318,16 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 30
       volumes:
-        # Build context + uploads on SHARED EFS (pb-efs, RWX) — NOT per-pod emptyDir.
-        # The build queue (BullMQ) + autoscaler (KEDA) decouple "pod that received the
-        # upload" from "pod that runs the build", so the context must be visible to all
-        # plugin pods (see the PVCs above). buildkitd doesn't mount these — buildctl in
-        # the plugin container reads the context and streams it over the socket.
-        - name: tmp
-          persistentVolumeClaim:
-            claimName: plugin-builds
-        - name: uploads
-          persistentVolumeClaim:
-            claimName: plugin-uploads
+        # Per-pod build scratch (transient incoming ZIP + extracted context).
+        # No longer shared EFS: the build queue (BullMQ) + autoscaler (KEDA)
+        # decouple "pod that received the upload" from "pod that runs the build",
+        # but the durable context now lives in object storage (S3/MinIO) and the
+        # worker rehydrates it locally, so this can be a per-pod emptyDir.
+        # buildkitd doesn't mount this — buildctl in the plugin container reads
+        # the context and streams it over the socket.
+        - name: plugins-data
+          emptyDir:
+            sizeLimit: 20Gi
         # Shared socket between buildkitd sidecar and plugin container.
         - name: buildkit-socket
           emptyDir:

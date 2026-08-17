@@ -138,6 +138,21 @@ function registerMocks() {
     readdirSync: jest.fn().mockReturnValue([]),
   }));
 
+  // Stub the ZIP-extraction helper (real one imports createWriteStream/yauzl,
+  // which the partial `fs` mock above doesn't provide) and the S3 artifact
+  // client — neither is the unit under test here. Mirrors the docker-build mock.
+  jest.unstable_mockModule('../src/helpers/zip-extract.js', () => ({
+    extractZipToDir: jest.fn(),
+    readAndExtractZip: jest.fn(),
+  }));
+  jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
+    getPluginArtifactToFile: jest.fn(),
+    deletePluginArtifact: jest.fn(),
+    putPluginArtifact: jest.fn(),
+    pluginArtifactKey: jest.fn(() => 'org/req.zip'),
+    PLUGIN_ARTIFACT_BUCKET: 'plugins',
+  }));
+
   jest.unstable_mockModule('../src/helpers/docker-build.js', () => ({
     buildAndPush: mockBuildAndPush,
     loadAndPush: jest.fn(),
@@ -236,6 +251,11 @@ function makeJobData(overrides: Partial<PluginBuildJobData> = {}): PluginBuildJo
     userId: 'user-1',
     buildRequest: {
       contextDir: '/tmp/build-ctx',
+      // Every producesImage job stages its context in object storage; the worker
+      // uses this key to rehydrate the context when the local dir isn't on this
+      // replica (existsSync=false). zip-extract + artifact-storage are mocked, so
+      // the rehydrate is a no-op here.
+      s3Key: 'org-1/req-123.zip',
       dockerfile: 'Dockerfile',
       name: 'my-plugin',
       version: '1.0.0',

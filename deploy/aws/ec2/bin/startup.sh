@@ -103,7 +103,7 @@ fi
 # -- Data directories ---------------------------------------------------------
 
 mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,loki,prometheus},minio-data/{1,2,3,4},pgadmin-data,tmp} 2>/dev/null || true
-export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$DATA_DIR/plugins-data/builds}"
+export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$DATA_DIR/plugins-data}"
 
 # -- Clean stale Docker state ------------------------------------------------
 
@@ -240,7 +240,7 @@ pb_create_config_maps "$DEPLOY_DIR" "$CONFIG_DIR" "$NGINX_DIR"
 # mount-string maps $DATA_DIR onto itself, so the path is identical on
 # both sides — feeding it through with quotes (single-quoted command
 # template, then expanded shellword) keeps the var available inside the VM.
-mk minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${DATA_DIR}/plugins-data/builds ${DATA_DIR}/plugins-data/uploads && sudo chown -R 1000:1000 ${DATA_DIR}/plugins-data"
+mk minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${DATA_DIR}/plugins-data && sudo chown -R 1000:1000 ${DATA_DIR}/plugins-data"
 
 log "Applying Kubernetes manifests"
 # Restricted envsubst: ONLY ${BUILDKIT_MEMORY_LIMIT} is expanded, so runtime

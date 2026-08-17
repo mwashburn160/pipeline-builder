@@ -28,6 +28,8 @@ stringData:
   loki-secret-key: "loki-svc-secret"
   thanos-access-key: "thanos-svc"
   thanos-secret-key: "thanos-svc-secret"
+  plugin-access-key: "plugin-svc"
+  plugin-secret-key: "plugin-svc-secret"
 ---
 # One-shot bootstrap: create per-service buckets + per-service, bucket-scoped
 # users (so no workload uses the root credentials). Idempotent; safe to re-apply.
@@ -77,14 +79,21 @@ spec:
               valueFrom: { secretKeyRef: { name: minio-secret, key: thanos-access-key } }
             - name: THANOS_S3_SECRET_KEY
               valueFrom: { secretKeyRef: { name: minio-secret, key: thanos-secret-key } }
+            - name: PLUGIN_S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: plugin-access-key } }
+            - name: PLUGIN_S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: plugin-secret-key } }
           command: ["/bin/sh", "-c"]
           args:
             - |
               set -e
               until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do echo 'waiting for minio...'; sleep 2; done
-              for b in message-attachments registry loki thanos; do mc mb --ignore-existing "local/$b"; done
+              for b in message-attachments registry loki thanos plugins; do mc mb --ignore-existing "local/$b"; done
               mc version enable local/message-attachments || true
               mc ilm rule add --noncurrent-expire-days 30 local/message-attachments || true
+              # plugins holds transient build-context ZIPs (deleted post-build);
+              # expire after 7 days as a backstop against a missed delete.
+              mc ilm rule add --expire-days 7 local/plugins || true
               make_user() {  # $1=bucket $2=policy $3=access $4=secret
                 echo "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:*\"],\"Resource\":[\"arn:aws:s3:::$1\",\"arn:aws:s3:::$1/*\"]}]}" > /tmp/p.json
                 mc admin policy create local "$2" /tmp/p.json || true
@@ -95,6 +104,7 @@ spec:
               make_user registry            registry-rw            "$REGISTRY_S3_ACCESS_KEY" "$REGISTRY_S3_SECRET_KEY"
               make_user loki                loki-rw                "$LOKI_S3_ACCESS_KEY"     "$LOKI_S3_SECRET_KEY"
               make_user thanos              thanos-rw              "$THANOS_S3_ACCESS_KEY"   "$THANOS_S3_SECRET_KEY"
+              make_user plugins             plugins-rw             "$PLUGIN_S3_ACCESS_KEY"   "$PLUGIN_S3_SECRET_KEY"
               echo 'minio-init done'
 ---
 apiVersion: v1

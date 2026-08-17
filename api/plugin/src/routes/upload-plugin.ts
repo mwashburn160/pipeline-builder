@@ -15,6 +15,7 @@ import { createBuildJobData } from '../helpers/plugin-helpers.js';
 import { parsePluginZip, validateBuildArgs } from '../helpers/plugin-spec.js';
 import { enqueueBuild, getOrgTier } from '../queue/plugin-build-queue.js';
 import { emitPluginAudit } from '../services/audit.js';
+import { deletePluginArtifact, pluginArtifactKey, putPluginArtifact } from '../services/plugin-artifact-storage.js';
 import { pluginService } from '../services/plugin-service.js';
 
 const logger = createLogger('upload-plugin');
@@ -23,14 +24,15 @@ const complianceClient = createComplianceClient();
 
 const MAX_UPLOAD_SIZE = CoreConstants.PLUGIN_MAX_UPLOAD_MB * 1024 * 1024;
 
-// Multer needs a writable destination. The plugin container runs with
-// readOnlyRootFilesystem=true, so a relative path like `uploads/` resolves
-// under `/app` and EROFS-fails. The volume is mounted at the canonical
-// /opt/pipeline/pipeline-data/plugins-data/uploads (same on host + container
-// so buildkit bind mounts work). Override via PLUGIN_UPLOAD_DIR for tests
-// or alternate layouts.
+// Multer needs a writable destination for the incoming multipart ZIP. The
+// plugin container runs with readOnlyRootFilesystem=true, so a relative path
+// like `uploads/` resolves under `/app` and EROFS-fails. It writes into the
+// per-pod build-scratch volume mounted at the canonical
+// /opt/pipeline/pipeline-data/plugins-data. The staged ZIP is transient — it is
+// uploaded to object storage (for cross-replica builds) and extracted locally,
+// then deleted in the finally block. Override via PLUGIN_UPLOAD_DIR for tests.
 const UPLOAD_DEST = process.env.PLUGIN_UPLOAD_DIR
-  || '/opt/pipeline/pipeline-data/plugins-data/uploads';
+  || '/opt/pipeline/pipeline-data/plugins-data';
 
 const upload = multer({
   limits: { files: 1, fileSize: MAX_UPLOAD_SIZE },
@@ -250,6 +252,23 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           });
         }
 
+        // -- Stage the build context in object storage ------------------------
+        // The upload + build workers run on every replica and BullMQ may route
+        // the build to a DIFFERENT replica than this one; `contextDir` is per-pod
+        // local scratch, so stage the raw ZIP in S3 (MinIO) FIRST. A worker
+        // elsewhere re-materializes the context from this key; the local
+        // extractDir remains the same-replica fast path. Fail the upload if
+        // staging fails — a build we can't reconstruct must never be queued.
+        const s3Key = pluginArtifactKey(orgId, ctx.requestId);
+        try {
+          await putPluginArtifact(s3Key, await fs.promises.readFile(zipPath));
+        } catch (s3Err) {
+          ctx.log('ERROR', 'Failed to stage build context in object storage', { error: errorMessage(s3Err) });
+          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+          reserved = false;
+          return sendError(res, 503, 'Object storage unavailable  please retry', ErrorCode.SERVICE_UNAVAILABLE);
+        }
+
         // -- Queue build job (returns immediately) ----------------------------
         const jobData = createBuildJobData({
           requestId: ctx.requestId,
@@ -260,6 +279,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           reservedResetAt,
           buildRequest: {
             contextDir: plugin.extractDir,
+            s3Key,
             dockerfile: plugin.dockerfile,
             name: s.name,
             version: s.version || '0.0.0',
@@ -290,6 +310,9 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           });
           decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
+          // The build won't run — drop the staged context so it doesn't orphan
+          // (best-effort; the bucket's expiry lifecycle is the backstop).
+          await deletePluginArtifact(s3Key);
           return sendError(res, 503, 'Build queue unavailable  please retry', ErrorCode.SERVICE_UNAVAILABLE);
         }
 

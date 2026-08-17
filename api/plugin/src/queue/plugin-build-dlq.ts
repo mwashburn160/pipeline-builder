@@ -16,7 +16,7 @@ import {
   totalAttemptBudget,
   getTierQueue,
   getOrgTier,
-  cleanupContextDir,
+  cleanupBuildArtifacts,
   releasePluginQuota,
   reserveReplaySlot,
   recordTerminalFailedBuildEvent,
@@ -138,7 +138,7 @@ export async function enforceDlqMaxSize(quotaService: QuotaService): Promise<voi
     // (its terminal handler decremented + marked it) — purging is otherwise a
     // silent quota leak for any not-yet-terminal job we evict for capacity.
     releasePluginQuota(job, quotaService);
-    cleanupContextDir(job.data.buildRequest.contextDir);
+    cleanupBuildArtifacts(job.data.buildRequest);
     try { await job.remove(); } catch { /* best-effort */ }
     logger.info('Purged oldest DLQ job', { jobId: job.id, pluginName: job.data.pluginRecord.name });
   }
@@ -151,7 +151,7 @@ export async function purgeDlq(quotaService: QuotaService): Promise<number> {
     // Release each still-reserved slot before obliterating — jobs that never
     // reached a terminal handler would otherwise leak quota until period reset.
     releasePluginQuota(job, quotaService);
-    cleanupContextDir(job.data.buildRequest.contextDir);
+    cleanupBuildArtifacts(job.data.buildRequest);
   }
   await q.obliterate({ force: true });
   return jobs.length;
@@ -223,7 +223,7 @@ export function startDlqWorker(quotaService: QuotaService): void {
       const budget = totalAttemptBudget();
 
       if ((totalAttempts ?? 0) >= budget) {
-        cleanupContextDir(buildRequest.contextDir);
+        cleanupBuildArtifacts(buildRequest);
         releasePluginQuota(job, quotaService);
         emitTerminalBuildFailure(job, job.data.lastError);
         logger.warn('DLQ: max total attempts reached, giving up', {
@@ -234,10 +234,15 @@ export function startDlqWorker(quotaService: QuotaService): void {
         return;
       }
 
-      if (!fs.existsSync(buildRequest.contextDir)) {
-        throw new Error(`Context dir missing: ${buildRequest.contextDir}`);
+      // The DLQ worker only re-queues (the main worker rebuilds); it needs the
+      // context to still be recoverable. Local dir present ⇒ same replica; else
+      // an S3 key means the main worker can rehydrate it (ensureLocalBuildContext).
+      if (!fs.existsSync(buildRequest.contextDir) && !buildRequest.s3Key) {
+        throw new Error(`Build context missing: ${buildRequest.contextDir} (no S3 key to restore from)`);
       }
 
+      // Best-effort keep-warm of the local dir (no-op when it lives on another
+      // replica — the S3 object is what the rebuild will use).
       try { fs.utimesSync(buildRequest.contextDir, new Date(), new Date()); } catch { /* ignore */ }
 
       logger.info('DLQ: re-queuing job', {
@@ -280,7 +285,7 @@ export function startDlqWorker(quotaService: QuotaService): void {
     });
 
     if (isFinalAttempt) {
-      cleanupContextDir(job.data.buildRequest.contextDir);
+      cleanupBuildArtifacts(job.data.buildRequest);
       releasePluginQuota(job, quotaService);
       // The build is genuinely abandoned — emit the single terminal audit
       // event. Prefer the original build failure (lastError) over this DLQ

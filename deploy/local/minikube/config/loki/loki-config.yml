@@ -14,8 +14,11 @@ server:
 common:
   path_prefix: /loki
   # Chunks + index live in MinIO (S3). `-config.expand-env=true` expands the
-  # ${LOKI_S3_*} creds from the environment. /loki is now just local scratch
-  # (WAL + shipper cache), so it can be ephemeral.
+  # LOKI_S3_ACCESS_KEY / LOKI_S3_SECRET_KEY creds from the environment. /loki is
+  # now just local scratch (WAL + shipper cache), so it can be ephemeral.
+  # NOTE: never write a dollar-brace glob with a star (LOKI_S3 wildcard) in these
+  # comments — expand-env parses the whole file (comments included) and a star
+  # inside dollar-brace makes it fail to start with "missing closing brace".
   storage:
     s3:
       endpoint: minio:9000

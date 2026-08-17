@@ -45,7 +45,7 @@ Shared server/auth/DB/Redis settings (`PORT`, `JWT_SECRET`, `DB_*`, `REDIS_HOST`
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `PLUGIN_UPLOAD_DIR` | Directory where uploaded ZIPs are staged for the build | `/opt/pipeline/pipeline-data/plugins-data/uploads` |
+| `PLUGIN_UPLOAD_DIR` | Directory where uploaded ZIPs are staged for the build | `/opt/pipeline/pipeline-data/plugins-data` |
 | `PLUGIN_UPLOAD_TIMEOUT_MS` | Upload request timeout (ms) | `300000` |
 | `PLUGIN_MAX_BUILDS_PER_ORG` | Max concurrent builds per org (semaphore size) | `3` |
 | `PLUGIN_ORG_SLOT_DELAY_MS` | Delay before re-checking an org build slot (ms) | `10000` |

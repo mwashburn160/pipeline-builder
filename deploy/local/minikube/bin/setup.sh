@@ -112,7 +112,7 @@ set -a; . "$ENV_FILE"; set +a
 # init-container tightens perms to 400 at start.
 pb_ensure_mongo_keyfile "$DEPLOY_DIR/mongodb-keyfile"
 mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,loki,prometheus},minio-data,pgadmin-data,tmp} 2>/dev/null || true
-export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$VM_DATA_DIR/plugins-data/builds}"
+export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$VM_DATA_DIR/plugins-data}"
 
 # -- Clean stale Docker state ------------------------------------------------
 
@@ -309,7 +309,7 @@ configmap promtail-config --from-file=promtail-config.yml="$CONFIG_DIR/promtail/
 # -- Deploy -------------------------------------------------------------------
 
 # Ensure plugin hostPath directories exist on data volume.
-minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${VM_DATA_DIR}/plugins-data/builds ${VM_DATA_DIR}/plugins-data/uploads && sudo chown -R 1000:1000 ${VM_DATA_DIR}/plugins-data"
+minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${VM_DATA_DIR}/plugins-data && sudo chown -R 1000:1000 ${VM_DATA_DIR}/plugins-data"
 # MinIO's hostPath drive must be writable by the minio UID (1000); hostPath
 # volumes aren't chowned by fsGroup on minikube. (Single-drive dev — no HA.)
 minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${VM_DATA_DIR}/minio-data && sudo chown -R 1000:1000 ${VM_DATA_DIR}/minio-data"

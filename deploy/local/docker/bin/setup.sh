@@ -116,34 +116,41 @@ chmod 400 "$KEYFILE"
 # Ensure data directories exist
 # -----------------------------------------------------------------------
 echo "=== Ensuring data directories exist ==="
+# Bind-mount sources under ./data/ — pre-created here so they're owned by the
+# invoking user (Docker would otherwise auto-create a missing source as root).
+# Keep this list in lockstep with the './data/*' bind mounts in
+# docker-compose.yml. NOT created here (deliberately):
+#   - buildkit-cache : a *named* Docker volume now, not ./data/buildkit-cache.
+#   - registry-data / uploads : pre-object-storage leftovers, superseded by
+#     MinIO (./data/minio-data). The registry no longer uses ./data/registry-data.
 mkdir -p "$DEPLOY_DIR/data/db-data/mongodb" \
          "$DEPLOY_DIR/data/db-data/postgres" \
          "$DEPLOY_DIR/data/db-data/redis" \
          "$DEPLOY_DIR/data/db-data/loki" \
          "$DEPLOY_DIR/data/db-data/prometheus" \
          "$DEPLOY_DIR/data/db-data/alertmanager" \
-         "$DEPLOY_DIR/data/registry-data" \
+         "$DEPLOY_DIR/data/minio-data" \
          "$DEPLOY_DIR/data/pgadmin-data" \
-         "$DEPLOY_DIR/data/uploads" \
          "$DEPLOY_DIR/data/cache" \
-         "$DEPLOY_DIR/data/buildkit-cache" \
-         "$DEPLOY_DIR/data/promtail-positions"
+         "$DEPLOY_DIR/data/tmp" \
+         "$DEPLOY_DIR/data/promtail-data"
 
-# Docker build temp dir. Two paths in play:
+# Docker build scratch dir (single dir now — the durable cross-replica build
+# context lives in object storage / MinIO, so this is per-node scratch: the
+# transient incoming ZIP + the extracted build context). Two paths in play:
 #   - Host: where docker-compose binds the volume from (created + chmod'd here)
-#   - Container: laptop-style /data/plugins-data/* inside the plugin
-#     container, matching the volumeMount in docker-compose.yml. The plugin
-#     code reads DOCKER_BUILD_TEMP_ROOT to find the build dir, so the env
-#     value must equal the container-side bind target.
+#   - Container: laptop-style /data/plugins-data inside the plugin container,
+#     matching the volumeMount in docker-compose.yml. The plugin code reads
+#     DOCKER_BUILD_TEMP_ROOT / PLUGIN_UPLOAD_DIR to find it, so the env value
+#     must equal the container-side bind target.
 # the ec2 deploy keeps host=container path at /opt/pipeline/pipeline-data/*
 # (its k8s hostPath mounts the same absolute path on both sides).
-PLUGIN_BUILDS_HOST="$DEPLOY_DIR/data/plugins-data/builds"
-PLUGIN_UPLOADS_HOST="$DEPLOY_DIR/data/plugins-data/uploads"
-export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/data/plugins-data/builds}"
-mkdir -p "$PLUGIN_BUILDS_HOST" "$PLUGIN_UPLOADS_HOST"
+PLUGIN_DATA_HOST="$DEPLOY_DIR/data/plugins-data"
+export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/data/plugins-data}"
+mkdir -p "$PLUGIN_DATA_HOST"
 
-# Plugin container runs as node (UID 1000) — ensure writable volume mounts
-chmod 1777 "$PLUGIN_BUILDS_HOST" "$PLUGIN_UPLOADS_HOST"
+# Plugin container runs as node (UID 1000) — ensure the writable volume mount
+chmod 1777 "$PLUGIN_DATA_HOST"
 
 # Plugin builds run via a rootless buildkitd sidecar — no strategy choice,
 # no dind, no certs to generate. See deploy/local/docker/docker-compose.yml.

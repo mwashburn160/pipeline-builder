@@ -206,25 +206,36 @@ spec:
               value: "4096"
             - name: DOCKER_BUILD_TIMEOUT_MS
               value: "900000"
-            # Laptop-style /data/* paths (minikube is dev-local; mirrors
-            # local docker-compose). PLUGIN_UPLOAD_DIR must be a writable
-            # absolute path because the container has readOnlyRootFilesystem=true
-            # — a relative `uploads/` resolves to /app/uploads on the read-only
-            # root and EROFS-fails.
+            # Laptop-style /data/* path (minikube is dev-local; mirrors local
+            # docker-compose). Single build-scratch dir now — the durable
+            # cross-pod build context lives in object storage (S3_* below).
+            # PLUGIN_UPLOAD_DIR must be a writable absolute path because the
+            # container has readOnlyRootFilesystem=true — a relative `uploads/`
+            # resolves to /app/uploads on the read-only root and EROFS-fails.
             - name: DOCKER_BUILD_TEMP_ROOT
-              value: "/data/plugins-data/builds"
+              value: "/data/plugins-data"
             - name: PLUGIN_UPLOAD_DIR
-              value: "/data/plugins-data/uploads"
+              value: "/data/plugins-data"
+            # Object storage for the uploaded build context (S3/MinIO, plugins
+            # bucket) so a build can run on any plugin replica.
+            - name: S3_ENDPOINT
+              value: "http://minio:9000"
+            - name: S3_BUCKET
+              value: "plugins"
+            - name: S3_ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: minio-secret, key: plugin-access-key } }
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: plugin-secret-key } }
+            - name: S3_FORCE_PATH_STYLE
+              value: "true"
             - name: TMPDIR
               value: "/tmp"
           volumeMounts:
             # Mount at the SAME absolute path as the host (which buildkit
             # also sees) so DOCKER_BUILD_TEMP_ROOT resolves identically on
             # both sides — buildkit bind mounts won't work otherwise.
-            - name: tmp
-              mountPath: /data/plugins-data/builds
-            - name: uploads
-              mountPath: /data/plugins-data/uploads
+            - name: plugins-data
+              mountPath: /data/plugins-data
             - name: buildkit-socket
               mountPath: /run/buildkit
             # readOnlyRootFilesystem: true means the Node.js process can't
@@ -266,13 +277,13 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 30
       volumes:
-        - name: tmp
+        # Node-local build scratch (transient ZIP + extracted context). Single
+        # dir now — the durable cross-pod build context lives in object storage
+        # (S3/MinIO). hostPath (not emptyDir) so buildkit — which sees the host
+        # filesystem — resolves the same absolute path the container writes to.
+        - name: plugins-data
           hostPath:
-            path: /data/plugins-data/builds
-            type: DirectoryOrCreate
-        - name: uploads
-          hostPath:
-            path: /data/plugins-data/uploads
+            path: /data/plugins-data
             type: DirectoryOrCreate
         - name: buildkit-socket
           emptyDir:

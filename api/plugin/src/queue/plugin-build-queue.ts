@@ -15,6 +15,7 @@ import { Queue, Worker } from 'bullmq';
 import type { Job, ConnectionOptions } from 'bullmq';
 import { Redis } from 'ioredis';
 
+import { v7 as uuid } from 'uuid';
 import { intFromEnv } from './env-int.js';
 import {
   DLQ_NAME,
@@ -27,9 +28,12 @@ import {
 import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metrics-scraper.js';
 import { ORG_SLOT_DELAY_MS, tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots } from './slot-manager.js';
 import { getBuildStrategy } from '../helpers/build-strategy.js';
+import type { BuildRequest } from '../helpers/docker-build.js';
 import { getBuildkitAddrForTier, BUILD_TEMP_ROOT, BuildProcessError, maskSecrets } from '../helpers/docker-build.js';
 import type { FailureCategory, PluginBuildJobData } from '../helpers/plugin-helpers.js';
+import { extractZipToDir } from '../helpers/zip-extract.js';
 import { getAuditClient } from '../services/audit.js';
+import { deletePluginArtifact, getPluginArtifactToFile } from '../services/plugin-artifact-storage.js';
 import { pluginService } from '../services/plugin-service.js';
 
 // Re-exported so existing `import { ... } from './plugin-build-queue.js'` sites
@@ -420,6 +424,46 @@ export function cleanupContextDir(dir: string): void {
 }
 
 /**
+ * Terminal cleanup for a finished build: remove the local scratch context AND
+ * the staged S3 build-context object. Call ONLY at points where the job is truly
+ * done (success or give-up) — NOT when handing a job to the DLQ for retry, where
+ * a retry on another replica still needs the S3 object to re-materialize. Both
+ * deletes are best-effort (the bucket's expiry lifecycle is the backstop).
+ */
+export function cleanupBuildArtifacts(buildRequest: Pick<BuildRequest, 'contextDir' | 's3Key'>): void {
+  cleanupContextDir(buildRequest.contextDir);
+  void deletePluginArtifact(buildRequest.s3Key);
+}
+
+/**
+ * Ensure the build context exists on THIS replica's local disk, returning the
+ * usable path. Fast path: the extractDir the uploader wrote is present (same
+ * replica) — use it as-is. Cross-replica: the local dir is absent, so download
+ * the staged ZIP from object storage and re-extract into a fresh local dir,
+ * mutating `buildRequest.contextDir` so the rest of the pipeline (build +
+ * cleanup) is oblivious to where it came from. Throws if the context is neither
+ * local nor recoverable from S3 — the worker treats that as a build failure.
+ */
+export async function ensureLocalBuildContext(buildRequest: BuildRequest): Promise<void> {
+  if (buildRequest.contextDir && fs.existsSync(buildRequest.contextDir)) return;
+  if (!buildRequest.s3Key) {
+    throw new Error(`Build context missing: ${buildRequest.contextDir} (no S3 key to restore from)`);
+  }
+
+  const zipPath = path.join(BUILD_TEMP_ROOT, `${uuid()}.zip`);
+  const extractDir = path.join(BUILD_TEMP_ROOT, uuid());
+  try {
+    await getPluginArtifactToFile(buildRequest.s3Key, zipPath);
+    await extractZipToDir(zipPath, extractDir);
+  } finally {
+    // The downloaded ZIP is only needed for extraction — drop it either way.
+    try { fs.rmSync(zipPath, { force: true }); } catch { /* ignore */ }
+  }
+  buildRequest.contextDir = extractDir;
+  logger.info('Rehydrated build context from object storage', { s3Key: buildRequest.s3Key, extractDir });
+}
+
+/**
  * Persist a plugin build event then invalidate the org's reporting cache.
  *
  * Order matters: invalidate ONLY after the insert resolves so a failed
@@ -574,6 +618,12 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
           plugin: `${pluginRecord.name}:${pluginRecord.version}`,
         });
 
+        // Materialize the build context on THIS replica (fast path if the
+        // uploader was here; else download+extract the staged ZIP from S3). Only
+        // needed when the build produces an image — metadata-only jobs never
+        // enqueue, so this is on the image path regardless.
+        await ensureLocalBuildContext(buildRequest);
+
         try { fs.utimesSync(buildRequest.contextDir, new Date(), new Date()); } catch { /* ignore */ }
 
         const isApprovalStep = pluginRecord.pluginType === 'ManualApprovalStep';
@@ -641,7 +691,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
           fullImage,
         });
 
-        cleanupContextDir(buildRequest.contextDir);
+        cleanupBuildArtifacts(buildRequest);
 
         return { pluginId: result.id, fullImage };
       } finally {
@@ -731,7 +781,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
       // owns the decrement on DLQ exhaustion, otherwise a single retryable
       // failure would double-count.
       if (category === 'permanent' || totalAttempts >= budget) {
-        cleanupContextDir(buildRequest.contextDir);
+        cleanupBuildArtifacts(buildRequest);
         releasePluginQuota(job, quotaService);
 
         // Record the terminal `failed` build event HERE (not on every attempt): a
@@ -796,7 +846,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         })
         .catch((dlqErr) => {
           logger.warn('Failed to move job to DLQ, cleaning up', { jobId: job.id, error: errorMessage(dlqErr) });
-          cleanupContextDir(buildRequest.contextDir);
+          cleanupBuildArtifacts(buildRequest);
         });
     });
   };

@@ -61,6 +61,14 @@ export interface BuildRequest {
   registry: RegistryInfo;
   buildArgs?: Record<string, string>;
   buildType: BuildType;
+  /**
+   * Object-storage key of the uploaded build-context ZIP (see
+   * plugin-artifact-storage). Present for `producesImage` builds so a worker on a
+   * DIFFERENT replica than the uploader can re-materialize `contextDir` from S3
+   * (the local scratch dir is per-pod, not shared). Absent for metadata-only
+   * builds (no image, no build job).
+   */
+  s3Key?: string;
 }
 
 export interface BuildResult {

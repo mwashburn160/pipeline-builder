@@ -436,21 +436,29 @@ services:
       DOCKER_BUILD_TIMEOUT_MS: ${DOCKER_BUILD_TIMEOUT_MS:-900000}
       DOCKER_PUSH_TIMEOUT_MS: ${DOCKER_PUSH_TIMEOUT_MS:-300000}
       PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-1}
-      # Plugin code (read-only rootfs) writes uploads + build artifacts here.
-      # MUST match the container-side bind targets in `volumes:` below. Local
-      # uses a laptop-style /data/* container path that mirrors the host
-      # ./data/ checkout layout; the ec2 deploy uses the canonical
-      # /opt/pipeline/pipeline-data/* paths instead. Either way, the env
-      # vars + mount target must agree so multer/buildkit can write.
-      DOCKER_BUILD_TEMP_ROOT: ${DOCKER_BUILD_TEMP_ROOT:-/data/plugins-data/builds}
-      PLUGIN_UPLOAD_DIR: ${PLUGIN_UPLOAD_DIR:-/data/plugins-data/uploads}
+      # Plugin code (read-only rootfs) writes the transient incoming ZIP + the
+      # extracted build context here. MUST match the container-side bind target
+      # in `volumes:` below. Local uses a laptop-style /data/* container path
+      # that mirrors the host ./data/ checkout layout; the ec2 deploy uses the
+      # canonical /opt/pipeline/pipeline-data/* path instead. Single dir now
+      # (was builds/ + uploads/) — the durable cross-replica artifact lives in
+      # object storage (S3_* below), so this is per-node build scratch only.
+      DOCKER_BUILD_TEMP_ROOT: ${DOCKER_BUILD_TEMP_ROOT:-/data/plugins-data}
+      PLUGIN_UPLOAD_DIR: ${PLUGIN_UPLOAD_DIR:-/data/plugins-data}
+      # Object storage for the uploaded build context — a worker on any replica
+      # can rehydrate a build from here (see plugin-artifact-storage). Own bucket
+      # + bucket-scoped creds (provisioned by minio-init).
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_BUCKET: ${PLUGIN_S3_BUCKET:-plugins}
+      S3_ACCESS_KEY_ID: ${PLUGIN_S3_ACCESS_KEY:-plugin-svc}
+      S3_SECRET_ACCESS_KEY: ${PLUGIN_S3_SECRET_KEY:-plugin-svc-secret}
+      S3_FORCE_PATH_STYLE: 'true'
       TMPDIR: /tmp
     volumes:
-      # Host ./data/plugins-data → container /data/plugins-data. Symmetric
-      # naming makes "what's in the laptop dir" obvious from inside the
-      # container too.
-      - './data/plugins-data/builds:/data/plugins-data/builds:rw'
-      - './data/plugins-data/uploads:/data/plugins-data/uploads:rw'
+      # Host ./data/plugins-data → container /data/plugins-data (per-node build
+      # scratch: transient ZIP + extract dir). Symmetric naming makes "what's in
+      # the laptop dir" obvious from inside the container too.
+      - './data/plugins-data:/data/plugins-data:rw'
     networks:
       - backend-network
     depends_on:
@@ -460,6 +468,8 @@ services:
         condition: service_healthy
       buildkitd:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     healthcheck: *api-healthcheck
     deploy:
       resources:
@@ -963,7 +973,7 @@ services:
           memory: 256M
 
   # ---------------------------------------------------------------------------
-  # Docker Registry
+  # MinIO (object storage)
   # ---------------------------------------------------------------------------
   # MinIO — S3-compatible object storage for message attachments. Persists to the
   # shared ./data folder like the other stateful services. Pin the image tag for
@@ -1011,6 +1021,8 @@ services:
       LOKI_S3_SECRET_KEY: ${LOKI_S3_SECRET_KEY:-loki-svc-secret}
       THANOS_S3_ACCESS_KEY: ${THANOS_S3_ACCESS_KEY:-thanos-svc}
       THANOS_S3_SECRET_KEY: ${THANOS_S3_SECRET_KEY:-thanos-svc-secret}
+      PLUGIN_S3_ACCESS_KEY: ${PLUGIN_S3_ACCESS_KEY:-plugin-svc}
+      PLUGIN_S3_SECRET_KEY: ${PLUGIN_S3_SECRET_KEY:-plugin-svc-secret}
     networks:
       - backend-network
     restart: "no"
@@ -1020,13 +1032,17 @@ services:
         set -e
         until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do echo 'waiting for minio...'; sleep 2; done
         # One bucket + one bucket-scoped user per consumer (no shared root creds).
-        for b in message-attachments registry loki thanos; do mc mb --ignore-existing "local/$$b"; done
+        for b in message-attachments registry loki thanos plugins; do mc mb --ignore-existing "local/$$b"; done
         # Versioning on user data (attachments) for accidental-delete protection +
         # a lifecycle rule to expire non-current versions so it stays bounded.
-        # NOT enabled on loki/registry/thanos — they churn objects and versioning
-        # would retain deleted versions unbounded.
+        # NOT enabled on loki/registry/thanos/plugins — they churn objects and
+        # versioning would retain deleted versions unbounded.
         mc version enable local/message-attachments || true
         mc ilm rule add --noncurrent-expire-days 30 local/message-attachments || true
+        # plugins holds transient build-context ZIPs — the plugin service deletes
+        # each after its build, but expire after 7 days as a backstop so a missed
+        # delete (crash between build + cleanup) can't grow the bucket unbounded.
+        mc ilm rule add --expire-days 7 local/plugins || true
         make_user() {  # $1=bucket  $2=policy  $3=access  $4=secret
           echo "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:*\"],\"Resource\":[\"arn:aws:s3:::$$1\",\"arn:aws:s3:::$$1/*\"]}]}" > /tmp/p.json
           mc admin policy create local "$$2" /tmp/p.json || true
@@ -1037,8 +1053,11 @@ services:
         make_user registry            registry-rw            "$$REGISTRY_S3_ACCESS_KEY" "$$REGISTRY_S3_SECRET_KEY"
         make_user loki                loki-rw                "$$LOKI_S3_ACCESS_KEY"     "$$LOKI_S3_SECRET_KEY"
         make_user thanos              thanos-rw              "$$THANOS_S3_ACCESS_KEY"   "$$THANOS_S3_SECRET_KEY"
+        make_user plugins             plugins-rw             "$$PLUGIN_S3_ACCESS_KEY"   "$$PLUGIN_S3_SECRET_KEY"
         echo 'minio-init done'
 
+  # ---------------------------------------------------------------------------
+  # Docker Registry
   # ---------------------------------------------------------------------------
   registry:
     image: 'registry:3'
@@ -1275,7 +1294,7 @@ services:
     image: 'grafana/loki:3.6.11'
     container_name: loki
     restart: always
-    # -config.expand-env expands ${LOKI_S3_*} in loki-config.yml (chunks/index
+    # -config.expand-env expands LOKI_S3_ACCESS_KEY/SECRET_KEY in loki-config.yml (chunks/index
     # now live in MinIO; /loki is just ephemeral WAL + shipper cache).
     command: -config.file=/etc/loki/loki-config.yml -config.expand-env=true
     environment:
@@ -1311,8 +1330,8 @@ services:
     container_name: promtail
     restart: always
     # Wrap promtail to auto-clean corrupted positions file on startup.
-    # The named volume preserves read positions across restarts for log dedup,
-    # but unclean shutdowns can corrupt the YAML — purge it before launching.
+    # The ./data/promtail-data bind mount preserves read positions across restarts
+    # for log dedup, but unclean shutdowns can corrupt the YAML — purge it first.
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -1324,7 +1343,7 @@ services:
     volumes:
       - './config/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro'
       - '/var/run/docker.sock:/var/run/docker.sock:ro'
-      - './data/promtail-positions/:/tmp'
+      - './data/promtail-data/:/tmp'
     networks:
       - backend-network
     depends_on:
