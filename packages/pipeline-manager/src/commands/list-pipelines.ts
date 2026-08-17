@@ -2,12 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Command } from 'commander';
-import { formatDuration, validateBoolean } from '../config/cli.constants.js';
-import { type PipelineListResponse, type Pipeline } from '../types/index.js';
-import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils.js';
-import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { buildCommonFilters, type CommonFilterParams, displayPaginationInfo, displayListResults } from '../utils/list-command-utils.js';
-import { outputData, extractListResponse, printInfo, printKeyValue, printSection } from '../utils/output-utils.js';
+import { runListEntity } from './entity-list.js';
+import { validateBoolean } from '../config/cli.constants.js';
+import { type Pipeline } from '../types/index.js';
+import { type CommonFilterParams } from '../utils/list-command-utils.js';
 
 /**
  * Query parameters for the pipeline list API endpoint.
@@ -66,144 +64,44 @@ export function listPipelines(program: Command): void {
     .option('--verify-ssl', 'Enable SSL certificate verification')
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
 
-    .action(async (options) => {
-      const executionId = printCommandHeader('List Pipelines', 'Query Pipelines');
-      const startTime = Date.now();
-
-      try {
-
-        // Build filter parameters (common + pipeline-specific)
-        const filterParams: PipelineFilterParams = {
-          ...buildCommonFilters(options),
-        };
-
-        // Pipeline-specific filters
-        if (options.accessModifier) {
-          filterParams.accessModifier = options.accessModifier;
-        }
-
-        if (options.isDefault !== undefined) {
-          filterParams.isDefault = validateBoolean(options.isDefault, 'is-default');
-        }
-
-        if (options.project) {
-          filterParams.project = options.project;
-        }
-
-        if (options.organization) {
-          filterParams.organization = options.organization;
-        }
-
-        if (options.pipelineName) {
-          filterParams.pipelineName = options.pipelineName;
-        }
-
-        // Display active filters
-        const activeFilters: Record<string, unknown> = {};
-        if (filterParams.id) activeFilters.ID = filterParams.id;
-        if (filterParams.accessModifier) activeFilters['Access Modifier'] = filterParams.accessModifier;
-        if (filterParams.isDefault !== undefined) activeFilters['Is Default'] = filterParams.isDefault;
-        if (filterParams.isActive !== undefined) activeFilters['Is Active'] = filterParams.isActive;
-        if (filterParams.project) activeFilters.Project = filterParams.project;
-        if (filterParams.organization) activeFilters.Organization = filterParams.organization;
-        if (filterParams.pipelineName) activeFilters['Pipeline Name'] = filterParams.pipelineName;
-
-        if (Object.keys(activeFilters).length > 0) {
-          printInfo('Active Filters');
-          printKeyValue(activeFilters);
-        } else {
-          printInfo('No filters applied - fetching all pipelines');
-        }
-
-        displayPaginationInfo(filterParams);
-
-        // Security warning for SSL verification disabled
-        printSslWarning(options.verifySsl);
-
-        // Create authenticated API client
-        const client = createAuthenticatedClient(options);
-        const config = client.getConfig();
-
-        // Query pipelines
-        console.log('');
-        printSection('Querying Pipelines');
-        printInfo('Sending request to API...');
-
-        const requestStart = Date.now();
-        const response = await client.get<PipelineListResponse>(
-          config.api.pipelineListUrl,
-          filterParams as Record<string, unknown>,
-        );
-        const requestDuration = Date.now() - requestStart;
-
-        // Handle response
-        const { items: pipelines, total, hasMore } = extractListResponse<Pipeline>(response, 'pipelines');
-
-        console.log('');
-        printSection('✓ Query Complete');
-
-        // Display results summary
-        displayListResults(pipelines, total, hasMore, 'Pipelines', requestDuration, filterParams);
-
-        // Display statistics
-        if (pipelines.length > 0 && options.format === 'table') {
-          const activeCount = pipelines.filter(p => p.isActive).length;
-          const defaultCount = pipelines.filter(p => p.isDefault).length;
-
-          console.log('');
-          printInfo('Statistics');
-          printKeyValue({
-            'Active Pipelines': `${activeCount}/${pipelines.length}`,
-            'Default Pipelines': `${defaultCount}/${pipelines.length}`,
-          });
-        }
-
-        // Output data in requested format
-        console.log('');
-        if (options.output) {
-          printInfo('Saving to file', {
-            path: options.output,
-            format: options.format,
-          });
-        }
-
-        // Format output data
-        const outputPipelines = options.showProps ? pipelines : pipelines.map(p => ({
-          'ID': p.id,
-          'Project': p.project,
-          'Organization': p.organization,
-          'Name': p.pipelineName || 'N/A',
-          'Access Modifier': p.accessModifier || 'private',
-          'Default': p.isDefault ? 'Yes' : 'No',
-          'Active': p.isActive ? 'Yes' : 'No',
-          'Created At': p.createdAt || 'N/A',
-        }));
-
-        outputData(outputPipelines, {
-          format: options.format,
-          file: options.output,
-        });
-
-        // Performance metrics
-        console.log('');
-        printKeyValue({
-          'Execution ID': executionId,
-          'Total Duration': formatDuration(Date.now() - startTime),
-        });
-
-        console.log('');
-
-      } catch (error) {
-        handleError(error, ERROR_CODES.API_REQUEST, {
-          debug: program.opts().debug,
-          exit: true,
-          context: {
-            command: 'list-pipelines',
-            executionId,
-            filters: options,
-            verifySsl: options.verifySsl,
-          },
-        });
-      }
-    });
+    .action((options) => runListEntity<Pipeline, PipelineFilterParams>(program, options, {
+      labelPlural: 'Pipelines',
+      responseKey: 'pipelines',
+      listUrl: (config) => config.api.pipelineListUrl,
+      commandName: 'list-pipelines',
+      buildFilters: (options, base) => {
+        const filters: PipelineFilterParams = { ...base };
+        if (options.accessModifier) filters.accessModifier = options.accessModifier as string;
+        if (options.isDefault !== undefined) filters.isDefault = validateBoolean(options.isDefault as string, 'is-default');
+        if (options.project) filters.project = options.project as string;
+        if (options.organization) filters.organization = options.organization as string;
+        if (options.pipelineName) filters.pipelineName = options.pipelineName as string;
+        return filters;
+      },
+      activeFilters: (filters) => {
+        const active: Record<string, unknown> = {};
+        if (filters.id) active.ID = filters.id;
+        if (filters.accessModifier) active['Access Modifier'] = filters.accessModifier;
+        if (filters.isDefault !== undefined) active['Is Default'] = filters.isDefault;
+        if (filters.isActive !== undefined) active['Is Active'] = filters.isActive;
+        if (filters.project) active.Project = filters.project;
+        if (filters.organization) active.Organization = filters.organization;
+        if (filters.pipelineName) active['Pipeline Name'] = filters.pipelineName;
+        return active;
+      },
+      statistics: (pipelines) => ({
+        'Active Pipelines': `${pipelines.filter(p => p.isActive).length}/${pipelines.length}`,
+        'Default Pipelines': `${pipelines.filter(p => p.isDefault).length}/${pipelines.length}`,
+      }),
+      rows: (pipelines, options) => options.showProps ? pipelines : pipelines.map(p => ({
+        'ID': p.id,
+        'Project': p.project,
+        'Organization': p.organization,
+        'Name': p.pipelineName || 'N/A',
+        'Access Modifier': p.accessModifier || 'private',
+        'Default': p.isDefault ? 'Yes' : 'No',
+        'Active': p.isActive ? 'Yes' : 'No',
+        'Created At': p.createdAt || 'N/A',
+      })),
+    }));
 }

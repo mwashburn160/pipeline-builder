@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { LoadingSpinner } from './Loading';
-import { ModalPortal } from './ModalPortal';
+import { Modal } from './Modal';
 
 /** Props for the DeleteConfirmModal component. */
 interface DeleteConfirmModalProps {
@@ -18,56 +18,26 @@ interface DeleteConfirmModalProps {
   className?: string;
 }
 
-/** Destructive-action confirmation dialog with a warning message and Cancel/Delete buttons. */
+/**
+ * Destructive-action confirmation dialog with a warning message and Cancel/Delete
+ * buttons. Built on {@link Modal} for the shared focus-trap / Escape / portal /
+ * scroll-lock behavior; the Cancel button receives initial focus so a stray
+ * Enter can't confirm the deletion.
+ */
 export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCancel, className = '' }: DeleteConfirmModalProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !loading) {
-        // Only close if focus is inside THIS dialog, and stop other document
-        // listeners (a parent dialog) from also firing. stopPropagation() can't
-        // stop same-target listeners — stopImmediatePropagation() can.
-        if (panelRef.current?.contains(document.activeElement)) {
-          e.stopImmediatePropagation();
-          onCancel();
-        }
-        return;
-      }
-      // Focus trap: keep Tab within the two buttons so it can't escape to the
-      // background page behind the overlay.
-      if (e.key === 'Tab' && panelRef.current) {
-        const focusable = Array.from(
-          panelRef.current.querySelectorAll<HTMLElement>('button:not([disabled])'),
-        );
-        if (focusable.length === 0) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        const active = document.activeElement;
-        if (!(active instanceof Node) || !panelRef.current.contains(active)) {
-          e.preventDefault(); first.focus();
-        } else if (e.shiftKey && active === first) {
-          e.preventDefault(); last.focus();
-        } else if (!e.shiftKey && active === last) {
-          e.preventDefault(); first.focus();
-        }
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    cancelRef.current?.focus();
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [loading, onCancel]);
+  // While a delete is in flight the modal must not be dismissible — swallow the
+  // Escape/backdrop/close paths until it resolves.
+  const handleClose = () => { if (!loading) onCancel(); };
 
   return (
-    <ModalPortal>
-    <div className="modal-backdrop" onClick={() => !loading && onCancel()} role="presentation">
-      <div ref={panelRef} className={`modal-panel max-w-md ${className}`} onClick={(e) => e.stopPropagation()} role="alertdialog" aria-modal="true" aria-label={title}>
-        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">{title}</h3>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
-          Are you sure you want to delete <strong className="text-gray-700 dark:text-gray-200">{itemName}</strong>?
-        </p>
-        <p className="text-sm text-red-600 dark:text-red-400 mb-4">This action cannot be undone.</p>
+    <Modal
+      title={title}
+      onClose={handleClose}
+      initialFocusRef={cancelRef}
+      maxWidth={`max-w-md ${className}`.trim()}
+      footer={(
         <div className="flex justify-end space-x-3">
           <button ref={cancelRef} onClick={onCancel} disabled={loading} className="btn btn-secondary">
             Cancel
@@ -78,8 +48,12 @@ export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCanc
             ) : 'Delete'}
           </button>
         </div>
-      </div>
-    </div>
-    </ModalPortal>
+      )}
+    >
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+        Are you sure you want to delete <strong className="text-gray-700 dark:text-gray-200">{itemName}</strong>?
+      </p>
+      <p className="text-sm text-red-600 dark:text-red-400">This action cannot be undone.</p>
+    </Modal>
   );
 }

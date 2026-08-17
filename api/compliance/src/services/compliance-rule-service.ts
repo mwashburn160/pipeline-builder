@@ -38,6 +38,33 @@ export type ComplianceRule = typeof schema.complianceRule.$inferSelect;
 export type ComplianceRuleInsert = typeof schema.complianceRule.$inferInsert;
 export type ComplianceRuleUpdate = Partial<Omit<ComplianceRule, 'id' | 'createdAt' | 'createdBy'>>;
 
+/**
+ * Build a `ComplianceRuleInsert` copying the evaluable body of a source rule
+ * (priority/target/severity/tags/scope/field/operator/value/conditions/…), with
+ * `overrides` for the per-clone bits (orgId, name, policyId, forkedFromRuleId,
+ * createdBy/updatedBy). Shared by `cloneRule` (fork a published rule) and
+ * `cloneTemplate` (materialize a policy template) — was hand-built in both, the
+ * policy copy via an `as unknown as` double-cast this removes.
+ */
+export function ruleInsertFromSource(source: ComplianceRule, overrides: Partial<ComplianceRuleInsert>): ComplianceRuleInsert {
+  return {
+    name: source.name,
+    description: source.description ?? undefined,
+    priority: source.priority,
+    target: source.target,
+    severity: source.severity,
+    tags: source.tags as string[],
+    scope: 'org' as RuleScope,
+    suppressNotification: source.suppressNotification,
+    field: source.field ?? undefined,
+    operator: source.operator ?? undefined,
+    value: source.value ?? undefined,
+    conditions: (source.conditions as unknown as ComplianceRuleInsert['conditions']) ?? undefined,
+    conditionMode: source.conditionMode ?? undefined,
+    ...overrides,
+  } as ComplianceRuleInsert;
+}
+
 export class ComplianceRuleService extends CrudService<
   ComplianceRule,
   ComplianceRuleFilter,
@@ -246,26 +273,14 @@ export class ComplianceRuleService extends CrudService<
 
     if (!sourceRule) throw new Error('Published rule not found');
 
-    const cloned = await this.create({
+    const cloned = await this.create(ruleInsertFromSource(sourceRule, {
       orgId,
       name: `${sourceRule.name}-custom`,
-      description: sourceRule.description ?? undefined,
       policyId: undefined,
-      priority: sourceRule.priority,
-      target: sourceRule.target,
-      severity: sourceRule.severity,
-      tags: sourceRule.tags as string[],
-      scope: 'org' as RuleScope,
-      suppressNotification: sourceRule.suppressNotification,
-      field: sourceRule.field ?? undefined,
-      operator: sourceRule.operator ?? undefined,
-      value: sourceRule.value ?? undefined,
-      conditions: (sourceRule.conditions as unknown as ComplianceRuleInsert['conditions']) ?? undefined,
-      conditionMode: sourceRule.conditionMode ?? undefined,
       forkedFromRuleId: ruleId,
       createdBy: userId,
       updatedBy: userId,
-    } as ComplianceRuleInsert, userId);
+    }), userId);
 
     return cloned;
   }

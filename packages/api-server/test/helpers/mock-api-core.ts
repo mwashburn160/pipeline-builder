@@ -127,6 +127,19 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       if (details !== undefined) body.details = details;
       res.status(statusCode).json(body);
     },
+    // Functional sendQuotaExceeded double mirroring api-core's envelope: sets
+    // the quota headers and delegates to a 429 error body. Suites that assert on
+    // the call override this with a jest.fn() (overrides win).
+    sendQuotaExceeded: (res: any, quotaType: string, quota: { limit: number; used: number; remaining: number }, resetAt?: string, message?: string) => {
+      if (res.headersSent) return;
+      res.status(429).json({
+        success: false,
+        statusCode: 429,
+        message: message ?? `${quotaType} quota exceeded (${quota.used}/${quota.limit}). Please try again later.`,
+        code: 'QUOTA_EXCEEDED',
+        details: { quota },
+      });
+    },
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
     // SSE payload redactor — passthrough by default; suites that assert on the
     // redaction (request-types) override with a spy.

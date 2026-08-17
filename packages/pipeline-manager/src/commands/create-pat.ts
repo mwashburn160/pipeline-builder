@@ -1,23 +1,16 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import https from 'https';
 import axios from 'axios';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { generateExecutionId, TIMEOUTS } from '../config/cli.constants.js';
+import { assertCredentialTlsAllowed, credentialHttpsAgent, postLogin, resolveCredentials, switchOrganization } from '../utils/auth-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printDebug, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import { checkAuthRateLimit, recordAuthFailure, recordAuthSuccess } from '../utils/rate-limiter.js';
-import { isProductionEnv } from '../utils/tls.js';
 
 const { bold, cyan, green, magenta, yellow } = pico;
-
-/** Login/switch-org response — carries the session access token. */
-interface AuthResponse {
-  success: boolean;
-  data: { accessToken: string; refreshToken: string };
-}
 
 /** Step-up response — a short-lived (60s) JWT bound to the user's sub. */
 interface StepUpResponse {
@@ -80,15 +73,11 @@ export function createPat(program: Command): void {
       // SECURITY: this POSTs a plaintext password (login + step-up). Never send it
       // over an unverified TLS connection in production — a MITM would harvest it.
       // Mirrors the guard in `login`. Non-production still honors --no-verify-ssl.
-      if (options.verifySsl === false && isProductionEnv()) {
-        printError('Refusing to disable TLS verification in production (NODE_ENV=production) — credentials must not be transmitted over an unverified connection. Use a valid certificate, or unset NODE_ENV for local/self-signed development.');
-        process.exit(ERROR_CODES.AUTHENTICATION);
-      }
+      assertCredentialTlsAllowed(options.verifySsl);
 
       // Credentials from flags OR PLATFORM_IDENTIFIER/PLATFORM_PASSWORD env (so the
       // password need not appear in shell history / `ps`).
-      const identifier = options.identifier || process.env.PLATFORM_IDENTIFIER;
-      const password = options.password || process.env.PLATFORM_PASSWORD;
+      const { identifier, password } = resolveCredentials(options);
       const quiet = options.quiet ?? false;
 
       try {
@@ -134,20 +123,13 @@ export function createPat(program: Command): void {
           printInfo('Authenticating', { identifier, url: options.url, verifySsl: options.verifySsl });
         }
 
-        const httpsAgent = new https.Agent({ rejectUnauthorized: options.verifySsl ?? true });
+        const httpsAgent = credentialHttpsAgent(options.verifySsl);
         const timeout = TIMEOUTS.HTTP_REQUEST;
 
         // 1) Login → session access token.
-        const loginUrl = `${options.url}/api/auth/login`;
-        printDebug('POST', { url: loginUrl });
         let accessToken: string | undefined;
         try {
-          const res = await axios.post<AuthResponse>(
-            loginUrl,
-            { identifier, password },
-            { headers: { 'Content-Type': 'application/json' }, httpsAgent, timeout },
-          );
-          accessToken = res.data?.data?.accessToken;
+          accessToken = await postLogin({ url: options.url, identifier, password, httpsAgent, timeout });
         } catch (error) {
           recordAuthFailure(identifier, options.url);
           throw error;
@@ -163,20 +145,14 @@ export function createPat(program: Command): void {
         //    PAT inherits).
         if (options.org) {
           if (!quiet) printInfo('Switching to organization', { orgId: options.org });
-          const switchUrl = `${options.url}/api/auth/switch-org`;
-          printDebug('POST', { url: switchUrl });
-          const switchRes = await axios.post<AuthResponse>(
-            switchUrl,
-            { organizationId: options.org },
-            { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` }, httpsAgent, timeout },
-          );
-          const switched = switchRes.data?.data?.accessToken;
-          if (!switched) {
-            printError('Organization switch failed: no access token in response');
-            process.exit(ERROR_CODES.AUTHENTICATION);
-          }
-          accessToken = switched;
-          if (!quiet) printSuccess(`Switched to organization ${options.org}`);
+          accessToken = await switchOrganization({
+            url: options.url,
+            orgId: options.org,
+            accessToken,
+            httpsAgent,
+            timeout,
+            quiet,
+          });
         }
 
         // 3) Step-up — re-verify the password to unlock the gated create call.

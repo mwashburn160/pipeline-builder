@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, createLogger, sendError } from '@pipeline-builder/api-core';
+import { ErrorCode, createLogger, sendError, sendQuotaExceeded } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaService } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 import { getContext } from './get-context.js';
@@ -64,12 +64,16 @@ export function checkQuota(
           used: quotaStatus.used,
         });
 
-        sendError(
+        // Route through the shared helper so the check-gate 429 emits the same
+        // Retry-After + X-Quota-* headers as the reserve-path 429 (the inline
+        // 429 this replaced omitted them). Custom message keeps the
+        // "contact your administrator" copy.
+        sendQuotaExceeded(
           res,
-          429,
+          quotaType,
+          { type: quotaType, limit: quotaStatus.limit, used: quotaStatus.used, remaining: quotaStatus.remaining },
+          quotaStatus.resetAt,
           `${QUOTA_LABELS[quotaType]} quota exceeded. Please contact your administrator to increase your quota.`,
-          ErrorCode.QUOTA_EXCEEDED,
-          { quota: { type: quotaType, limit: quotaStatus.limit, used: quotaStatus.used, remaining: quotaStatus.remaining } },
         );
         return;
       }

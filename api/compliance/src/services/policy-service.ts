@@ -6,7 +6,7 @@ import { CrudService, buildCompliancePolicyConditions, runWithTenantContext, sch
 import { SQL, and, eq, isNull } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
-import { complianceRuleService } from './compliance-rule-service.js';
+import { complianceRuleService, ruleInsertFromSource } from './compliance-rule-service.js';
 
 export type CompliancePolicy = typeof schema.compliancePolicy.$inferSelect;
 export type CompliancePolicyInsert = typeof schema.compliancePolicy.$inferInsert;
@@ -94,25 +94,12 @@ export class CompliancePolicyService extends CrudService<
     );
 
     for (const rule of templateRules) {
-      await complianceRuleService.create({
+      await complianceRuleService.create(ruleInsertFromSource(rule, {
         orgId: targetOrgId,
         policyId: cloned.id,
-        name: rule.name,
-        description: rule.description ?? undefined,
-        priority: rule.priority,
-        target: rule.target,
-        severity: rule.severity,
-        scope: 'org',
-        tags: rule.tags as string[],
-        suppressNotification: rule.suppressNotification,
-        field: rule.field ?? undefined,
-        operator: rule.operator ?? undefined,
-        value: rule.value ?? undefined,
-        conditions: rule.conditions ?? undefined,
-        conditionMode: rule.conditionMode ?? undefined,
         createdBy: userId,
         updatedBy: userId,
-      } as unknown as Parameters<typeof complianceRuleService.create>[0], userId);
+      }), userId);
     }
 
     return cloned;

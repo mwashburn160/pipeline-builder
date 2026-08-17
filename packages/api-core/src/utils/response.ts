@@ -123,6 +123,7 @@ export function sendQuotaExceeded(
   quotaType: string,
   quota: QuotaInfo,
   resetAt?: string,
+  message?: string,
 ): void {
   const resetDate = resetAt ? new Date(resetAt) : new Date();
   const resetIn = Math.max(0, Math.ceil((resetDate.getTime() - Date.now()) / 1000));
@@ -139,7 +140,7 @@ export function sendQuotaExceeded(
   sendError(
     res,
     429,
-    `${quotaType} quota exceeded (${quota.used}/${quota.limit}). Please try again later.`,
+    message ?? `${quotaType} quota exceeded (${quota.used}/${quota.limit}). Please try again later.`,
     ErrorCode.QUOTA_EXCEEDED,
     { quota },
   );

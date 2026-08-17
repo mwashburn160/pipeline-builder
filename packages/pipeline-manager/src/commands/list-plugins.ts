@@ -2,12 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Command } from 'commander';
-import { formatDuration, formatFileSize } from '../config/cli.constants.js';
-import { type PluginListResponse, type Plugin } from '../types/index.js';
-import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils.js';
-import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { buildCommonFilters, type CommonFilterParams, displayPaginationInfo, displayListResults } from '../utils/list-command-utils.js';
-import { outputData, extractListResponse, printInfo, printKeyValue, printSection, printWarning } from '../utils/output-utils.js';
+import { runListEntity } from './entity-list.js';
+import { formatFileSize } from '../config/cli.constants.js';
+import { type Plugin } from '../types/index.js';
+import { type CommonFilterParams } from '../utils/list-command-utils.js';
+import { printWarning } from '../utils/output-utils.js';
 
 /**
  * Query parameters for the plugin list API endpoint.
@@ -59,136 +58,46 @@ export function listPlugins(program: Command): void {
     .option('--verify-ssl', 'Enable SSL certificate verification')
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
 
-    .action(async (options) => {
-      const executionId = printCommandHeader('List Plugins', 'Query Plugins');
-      const startTime = Date.now();
-
-      try {
-
-        // Build filter parameters (common + plugin-specific)
-        const filterParams: PluginFilterParams = {
-          ...buildCommonFilters(options),
-        };
-
-        // Plugin-specific filters
-        if (options.name) {
-          filterParams.name = options.name;
-        }
-
+    .action((options) => runListEntity<Plugin, PluginFilterParams>(program, options, {
+      labelPlural: 'Plugins',
+      responseKey: 'plugins',
+      listUrl: (config) => config.api.pluginListUrl,
+      commandName: 'list-plugins',
+      buildFilters: (options, base) => {
+        const filters: PluginFilterParams = { ...base };
+        if (options.name) filters.name = options.name as string;
         if (options.version) {
           // Validate semver format
           const versionPattern = /^(\^|~)?(\d+)\.(\d+)\.(\d+)(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$/;
-          if (!versionPattern.test(options.version)) {
+          if (!versionPattern.test(options.version as string)) {
             printWarning(`Version "${options.version}" may not be valid semver format`);
           }
-          filterParams.version = options.version;
+          filters.version = options.version as string;
         }
-
-        // Display active filters
-        const activeFilters: Record<string, unknown> = {};
-        if (filterParams.id) activeFilters.ID = filterParams.id;
-        if (filterParams.isActive !== undefined) activeFilters['Is Active'] = filterParams.isActive;
-        if (filterParams.name) activeFilters.Name = filterParams.name;
-        if (filterParams.version) activeFilters.Version = filterParams.version;
-
-        if (Object.keys(activeFilters).length > 0) {
-          printInfo('Active Filters');
-          printKeyValue(activeFilters);
-        } else {
-          printInfo('No filters applied - fetching all plugins');
-        }
-
-        displayPaginationInfo(filterParams);
-
-        // Security warning for SSL verification disabled
-        printSslWarning(options.verifySsl);
-
-        // Create authenticated API client
-        const client = createAuthenticatedClient(options);
-        const config = client.getConfig();
-
-        // Query plugins
-        console.log('');
-        printSection('Querying Plugins');
-        printInfo('Sending request to API...');
-
-        const requestStart = Date.now();
-        const response = await client.get<PluginListResponse>(
-          config.api.pluginListUrl,
-          filterParams as Record<string, unknown>,
-        );
-        const requestDuration = Date.now() - requestStart;
-
-        // Handle response
-        const { items: plugins, total, hasMore } = extractListResponse<Plugin>(response, 'plugins');
-
-        console.log('');
-        printSection('✓ Query Complete');
-
-        // Display results summary
-        displayListResults(plugins, total, hasMore, 'Plugins', requestDuration, filterParams);
-
-        // Display statistics
-        if (plugins.length > 0 && options.format === 'table') {
-          const activeCount = plugins.filter(p => p.isActive).length;
-          const publicCount = plugins.filter(p => p.isPublic === true).length;
-          const totalSize = plugins.reduce((sum, p) => sum + (p.fileSize || 0), 0);
-
-          console.log('');
-          printInfo('Statistics');
-          printKeyValue({
-            'Active Plugins': `${activeCount}/${plugins.length}`,
-            'Public Plugins': `${publicCount}/${plugins.length}`,
-            'Total Size': formatFileSize(totalSize),
-          });
-        }
-
-        // Output data in requested format
-        console.log('');
-        if (options.output) {
-          printInfo('Saving to file', {
-            path: options.output,
-            format: options.format,
-          });
-        }
-
-        // Format output data
-        const outputPlugins = options.showMetadata ? plugins : plugins.map(p => ({
-          'ID': p.id,
-          'Name': p.name,
-          'Version': p.version,
-          'Organization': p.organization,
-          'Active': p.isActive ? 'Yes' : 'No',
-          'Public': p.isPublic ? 'Yes' : 'No',
-          'Size': p.fileSize ? formatFileSize(p.fileSize) : 'N/A',
-          'Created At': p.createdAt || 'N/A',
-        }));
-
-        outputData(outputPlugins, {
-          format: options.format,
-          file: options.output,
-        });
-
-        // Performance metrics
-        console.log('');
-        printKeyValue({
-          'Execution ID': executionId,
-          'Total Duration': formatDuration(Date.now() - startTime),
-        });
-
-        console.log('');
-
-      } catch (error) {
-        handleError(error, ERROR_CODES.API_REQUEST, {
-          debug: program.opts().debug,
-          exit: true,
-          context: {
-            command: 'list-plugins',
-            executionId,
-            filters: options,
-            verifySsl: options.verifySsl,
-          },
-        });
-      }
-    });
+        return filters;
+      },
+      activeFilters: (filters) => {
+        const active: Record<string, unknown> = {};
+        if (filters.id) active.ID = filters.id;
+        if (filters.isActive !== undefined) active['Is Active'] = filters.isActive;
+        if (filters.name) active.Name = filters.name;
+        if (filters.version) active.Version = filters.version;
+        return active;
+      },
+      statistics: (plugins) => ({
+        'Active Plugins': `${plugins.filter(p => p.isActive).length}/${plugins.length}`,
+        'Public Plugins': `${plugins.filter(p => p.isPublic === true).length}/${plugins.length}`,
+        'Total Size': formatFileSize(plugins.reduce((sum, p) => sum + (p.fileSize || 0), 0)),
+      }),
+      rows: (plugins, options) => options.showMetadata ? plugins : plugins.map(p => ({
+        'ID': p.id,
+        'Name': p.name,
+        'Version': p.version,
+        'Organization': p.organization,
+        'Active': p.isActive ? 'Yes' : 'No',
+        'Public': p.isPublic ? 'Yes' : 'No',
+        'Size': p.fileSize ? formatFileSize(p.fileSize) : 'N/A',
+        'Created At': p.createdAt || 'N/A',
+      })),
+    }));
 }

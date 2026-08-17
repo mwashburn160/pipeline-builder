@@ -1,28 +1,16 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import https from 'https';
 import axios from 'axios';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { generateExecutionId, TIMEOUTS } from '../config/cli.constants.js';
+import { assertCredentialTlsAllowed, type AuthResponse, credentialHttpsAgent, postLogin, resolveCredentials, switchOrganization } from '../utils/auth-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printDebug, printError, printInfo, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import { checkAuthRateLimit, recordAuthFailure, recordAuthSuccess } from '../utils/rate-limiter.js';
-import { isProductionEnv } from '../utils/tls.js';
 
 const { bold, cyan, green, magenta } = pico;
-
-/**
- * Expected shape of the login/refresh API response.
- */
-interface LoginResponse {
-  success: boolean;
-  data: {
-    accessToken: string;
-    refreshToken: string;
-  };
-}
 
 /**
  * Registers the `login` command with the CLI program.
@@ -60,17 +48,12 @@ export function login(program: Command): void {
 
       // SECURITY: login/refresh POST plaintext passwords and JWTs. Never send them
       // over an unverified TLS connection in production — a MITM would harvest them.
-      // Mirrors the guard in config-loader / tls. In non-production, --no-verify-ssl
-      // is still honored (self-signed dev platforms).
-      if (options.verifySsl === false && isProductionEnv()) {
-        printError('Refusing to disable TLS verification in production (NODE_ENV=production) — credentials must not be transmitted over an unverified connection. Use a valid certificate, or unset NODE_ENV for local/self-signed development.');
-        process.exit(ERROR_CODES.AUTHENTICATION);
-      }
+      // In non-production, --no-verify-ssl is still honored (self-signed dev platforms).
+      assertCredentialTlsAllowed(options.verifySsl);
 
       // Credentials may come from flags OR the PLATFORM_IDENTIFIER/PLATFORM_PASSWORD
       // env vars (so the password need not appear in shell history / `ps`).
-      const identifier = options.identifier || process.env.PLATFORM_IDENTIFIER;
-      const password = options.password || process.env.PLATFORM_PASSWORD;
+      const { identifier, password } = resolveCredentials(options);
 
       try {
 
@@ -105,9 +88,7 @@ export function login(program: Command): void {
           });
         }
 
-        const httpsAgent = new https.Agent({
-          rejectUnauthorized: options.verifySsl ?? true,
-        });
+        const httpsAgent = credentialHttpsAgent(options.verifySsl);
 
         let token: string | undefined;
 
@@ -115,7 +96,7 @@ export function login(program: Command): void {
           const refreshUrl = `${options.url}/api/auth/refresh`;
           printDebug('POST', { url: refreshUrl });
 
-          const response = await axios.post<LoginResponse>(
+          const response = await axios.post<AuthResponse>(
             refreshUrl,
             { refreshToken: options.refresh },
             {
@@ -127,23 +108,14 @@ export function login(program: Command): void {
 
           token = response.data?.data?.accessToken;
         } else {
-          const loginUrl = `${options.url}/api/auth/login`;
-          printDebug('POST', { url: loginUrl });
-
-          const response = await axios.post<LoginResponse>(
-            loginUrl,
-            {
-              identifier,
-              password,
-            },
-            {
-              headers: { 'Content-Type': 'application/json' },
-              httpsAgent,
-              timeout: TIMEOUTS.HTTP_REQUEST,
-            },
-          );
-
-          token = response.data?.data?.accessToken;
+          // identifier/password validated non-null above (the `!isRefresh` guard).
+          token = await postLogin({
+            url: options.url,
+            identifier: identifier!,
+            password: password!,
+            httpsAgent,
+            timeout: TIMEOUTS.HTTP_REQUEST,
+          });
         }
 
         if (!token) {
@@ -160,33 +132,14 @@ export function login(program: Command): void {
             printInfo('Switching to organization', { orgId: options.org });
           }
 
-          const switchUrl = `${options.url}/api/auth/switch-org`;
-          printDebug('POST', { url: switchUrl });
-
-          const switchResponse = await axios.post<LoginResponse>(
-            switchUrl,
-            { organizationId: options.org },
-            {
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
-              },
-              httpsAgent,
-              timeout: TIMEOUTS.HTTP_REQUEST,
-            },
-          );
-
-          const switchedToken = switchResponse.data?.data?.accessToken;
-          if (!switchedToken) {
-            printError('Organization switch failed: no access token in response');
-            process.exit(ERROR_CODES.AUTHENTICATION);
-          }
-
-          token = switchedToken;
-
-          if (!quiet) {
-            printSuccess(`Switched to organization ${options.org}`);
-          }
+          token = await switchOrganization({
+            url: options.url,
+            orgId: options.org,
+            accessToken: token,
+            httpsAgent,
+            timeout: TIMEOUTS.HTTP_REQUEST,
+            quiet,
+          });
         }
 
         if (!quiet) {

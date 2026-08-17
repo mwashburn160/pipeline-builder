@@ -8,9 +8,10 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getIdentity: jest.fn(() => ({ orgId: 'fallback-org' })),
   sendError: jest.fn(),
+  sendQuotaExceeded: jest.fn(),
 }));
 
-const { sendError, getIdentity } = await import('@pipeline-builder/api-core');
+const { sendError, sendQuotaExceeded, getIdentity } = await import('@pipeline-builder/api-core');
 const { checkQuota } = await import('../src/api/check-quota.js');
 
 function mockReq(overrides: Record<string, unknown> = {}): any {
@@ -70,12 +71,14 @@ describe('checkQuota', () => {
 
     await middleware(req, res, next);
 
-    expect(sendError).toHaveBeenCalledWith(
+    // The 429 now routes through the shared sendQuotaExceeded (Retry-After +
+    // X-Quota-* headers), keeping the custom "contact your administrator" copy.
+    expect(sendQuotaExceeded).toHaveBeenCalledWith(
       res,
-      429,
+      'pipelines',
+      { type: 'pipelines', limit: 100, used: 100, remaining: 0 },
+      undefined,
       expect.stringContaining('Pipeline quota exceeded'),
-      'QUOTA_EXCEEDED',
-      { quota: { type: 'pipelines', limit: 100, used: 100, remaining: 0 } },
     );
     expect(next).not.toHaveBeenCalled();
   });
@@ -143,24 +146,24 @@ describe('checkQuota', () => {
 
     // Test 'plugins' label
     await checkQuota(mockQuotaService, 'plugins')(mockReq(), res, next);
-    expect(sendError).toHaveBeenCalledWith(
+    expect(sendQuotaExceeded).toHaveBeenCalledWith(
       res,
-      429,
+      'plugins',
+      expect.anything(),
+      undefined,
       expect.stringContaining('Plugin quota exceeded'),
-      expect.anything(),
-      expect.anything(),
     );
 
     jest.clearAllMocks();
 
     // Test 'apiCalls' label
     await checkQuota(mockQuotaService, 'apiCalls')(mockReq(), mockRes(), jest.fn());
-    expect(sendError).toHaveBeenCalledWith(
+    expect(sendQuotaExceeded).toHaveBeenCalledWith(
       expect.anything(),
-      429,
+      'apiCalls',
+      expect.anything(),
+      undefined,
       expect.stringContaining('API call quota exceeded'),
-      expect.anything(),
-      expect.anything(),
     );
   });
 });
