@@ -275,7 +275,7 @@ kube create namespace "$NAMESPACE"
 # then diverge. Mirrors the restricted expansion at the kustomize step below.
 # `grep -E '^[[:space:]]*(#|$)'` is POSIX (BSD/macOS-safe; `\s` is a GNU extension).
 CLEAN_ENV=$(mktemp); trap 'rm -f "$CLEAN_ENV"' EXIT
-grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | envsubst '${PLATFORM_FRONTEND_URL}' > "$CLEAN_ENV"
+grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | sed "s|[\$]{PLATFORM_FRONTEND_URL}|${PLATFORM_FRONTEND_URL}|g" > "$CLEAN_ENV"
 configmap app-env --from-env-file="$CLEAN_ENV"
 rm -f "$CLEAN_ENV"
 
@@ -366,7 +366,7 @@ bash "$BIN_DIR/ensure-binfmt.sh" "${PUBLISH_PLATFORM:-linux/amd64}"
 log "Applying Kubernetes manifests"
 # Restricted envsubst: ONLY ${BUILDKIT_MEMORY_LIMIT} is expanded, so runtime
 # shell tokens in inline configmaps (nginx ${NS}/$s, etc.) are left intact.
-kubectl kustomize "$K8S_DIR" | envsubst '${BUILDKIT_MEMORY_LIMIT}' | kubectl apply -f -
+kubectl kustomize "$K8S_DIR" | sed "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" | kubectl apply -f -
 
 log "Post-deploy fixups"
 REGISTRY_IP=$(kubectl get svc registry -n "$NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)

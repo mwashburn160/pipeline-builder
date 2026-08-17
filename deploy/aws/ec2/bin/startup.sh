@@ -219,7 +219,7 @@ pb_kube_apply create namespace "$NAMESPACE"
 # variable and silently blank/corrupt it in the ConfigMap. POSIX `[[:space:]]`
 # (not GNU-only `\s`) keeps the filter correct regardless of grep flavor.
 CLEAN_ENV=$(mktemp); trap 'rm -f "$CLEAN_ENV"' EXIT
-grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | envsubst '${PLATFORM_FRONTEND_URL} ${DOMAIN}' > "$CLEAN_ENV"
+grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | sed "s|[\$]{PLATFORM_FRONTEND_URL}|${PLATFORM_FRONTEND_URL}|g; s|[\$]{DOMAIN}|${DOMAIN}|g" > "$CLEAN_ENV"
 # This temp file holds every secret from .env. `mk kubectl` reads it as the
 # minikube user, so make it readable by that user only — not world (mktemp is 600
 # root, which the minikube-user kubectl couldn't read; 644 would expose secrets).
@@ -277,7 +277,7 @@ mk minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${DATA_DIR}/plugins-data 
 log "Applying Kubernetes manifests"
 # Restricted envsubst: ONLY ${BUILDKIT_MEMORY_LIMIT} is expanded, so runtime
 # shell tokens in inline configmaps (nginx ${NS}/$s, etc.) are left intact.
-mk kubectl kustomize "$K8S_DIR" | envsubst '${BUILDKIT_MEMORY_LIMIT}' | mk kubectl apply -f -
+mk kubectl kustomize "$K8S_DIR" | sed "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" | mk kubectl apply -f -
 
 log "Post-deploy fixups"
 mk minikube ssh --profile="$PROFILE" -- "sudo chown -R 1000:1000 ${DATA_DIR}/minio-data"

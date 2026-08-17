@@ -229,7 +229,7 @@ trap 'rm -f "$CLEAN_ENV"; [ -n "$CERT_DIR" ] && rm -rf "$CERT_DIR"' EXIT
 # An unrestricted envsubst would treat a literal `$` in any secret (bcrypt hash,
 # password) as a variable and silently blank/corrupt it. POSIX grep class
 # `[[:space:]]` (not the GNU-only `\s`) keeps this correct when run from a Mac.
-grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | envsubst '${PLATFORM_FRONTEND_URL} ${DOMAIN}' > "$CLEAN_ENV"
+grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | sed "s|[\$]{PLATFORM_FRONTEND_URL}|${PLATFORM_FRONTEND_URL}|g; s|[\$]{DOMAIN}|${DOMAIN}|g" > "$CLEAN_ENV"
 pb_app_env_configmap "$CLEAN_ENV"
 rm -f "$CLEAN_ENV"
 
@@ -412,7 +412,7 @@ log "Phase 7: apply workloads"
 # Restricted envsubst: ONLY our deploy tokens are expanded, so $host / $1$... in
 # the inline nginx/pgbouncer configmaps are left intact.
 kubectl kustomize "$K8S_DIR" \
-  | envsubst '${EFS_FILESYSTEM_ID} ${ACM_CERT_ARN} ${DOMAIN} ${ALB_SCHEME} ${BUILDKIT_MEMORY_LIMIT}' \
+  | sed "s|[\$]{EFS_FILESYSTEM_ID}|${EFS_FILESYSTEM_ID}|g; s|[\$]{ACM_CERT_ARN}|${ACM_CERT_ARN}|g; s|[\$]{DOMAIN}|${DOMAIN}|g; s|[\$]{ALB_SCHEME}|${ALB_SCHEME}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" \
   | kubectl apply -f -
 
 # Base plugin images are seeded by init-platform.sh (the post-deploy step),
