@@ -79,7 +79,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: compliance
-          image: ghcr.io/mwashburn160/compliance:3.4.143
+          image: ghcr.io/mwashburn160/compliance:3.4.144
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
