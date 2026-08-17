@@ -62,6 +62,7 @@ spec:
         app: mongodb
         app.kubernetes.io/component: database
     spec:
+      serviceAccountName: mongodb
       initContainers:
         # Fix keyfile permissions (MongoDB requires 400)
         - name: fix-keyfile-permissions

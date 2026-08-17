@@ -192,6 +192,8 @@ flowchart TB
 | **Reporting** | Execution reports + build analytics via EventBridge |
 | **Quota / Billing / Message** | Resource limits, subscriptions, and messaging (announcements, conversations, per-user direct messages, file/image attachments) |
 
+All service-to-service traffic runs through an **Istio ambient service mesh** — STRICT mutual TLS and identity-based L4 authorization between every service, on local, EC2, and EKS (see [Service Mesh]({{ '/docs/service-mesh.html' | relative_url }})).
+
 See [Architecture Flow]({{ '/docs/architecture-flow.html' | relative_url }}) for end-to-end request → build → deploy diagrams.
 
 ---

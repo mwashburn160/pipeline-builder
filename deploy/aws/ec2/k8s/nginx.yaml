@@ -49,6 +49,7 @@ spec:
         prometheus.io/path: "/metrics"
         prometheus.io/scheme: "http"
     spec:
+      serviceAccountName: nginx
       initContainers:
         # Wait for upstream Service DNS to resolve before starting nginx.
         #

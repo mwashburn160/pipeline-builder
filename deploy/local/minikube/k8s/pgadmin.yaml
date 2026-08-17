@@ -83,6 +83,7 @@ spec:
         app: pgadmin
         app.kubernetes.io/component: admin
     spec:
+      serviceAccountName: pgadmin
       initContainers:
         - name: wait-for-postgres
           image: busybox:1.38

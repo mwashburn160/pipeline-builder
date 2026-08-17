@@ -66,6 +66,27 @@ Back up the MinIO drives as part of DR (EKS: the 4 `data-minio-*` PVCs; ec2: `mi
 
 **Long-term metrics (Thanos) read path.** The sidecar only *uploads* Prometheus' 2h blocks to the `thanos` bucket; querying them back is served by two components (`thanos-query.yaml` on the k8s targets, equivalent services in docker-compose): a **store-gateway** (exposes the archived blocks over the Thanos StoreAPI, gRPC `10901`; local index cache is ephemeral) and a **querier** (Prometheus-compatible HTTP `9090` that fans out to the sidecar + store-gateway and de-duplicates). `PROMETHEUS_URL` points platform's Observability query endpoint at the **querier** (`http://thanos-query:9090`) so PromQL spans recent + archived history; set it back to `http://prometheus:9090` for recent-only. KEDA autoscaling deliberately still targets Prometheus directly (recent-only, lower latency).
 
+## Service mesh (Istio ambient)
+
+All targets run an Istio ambient mesh (STRICT mTLS + identity authz). Verify + operate:
+
+```bash
+kubectl get pods -n istio-system            # istiod, ztunnel, istio-cni Ready
+istioctl analyze -n pipeline-builder        # policy sanity
+istioctl ztunnel-config workloads           # every pod PROTOCOL=HBONE (enrolled)
+```
+
+- **A service 403s another**: the caller's `sa/<name>` is missing from the callee's
+  `AuthorizationPolicy` in `k8s/istio.yaml` — add it and re-apply. Every scraped app
+  service must list `prometheus`; every API must list `nginx`.
+- **Ingress broken after STRICT**: nginx external port not carved out (`8080` on aws;
+  `8080`+`8443` on local).
+- **Teardown**: `kubectl delete -k k8s/` removes the mesh policies but leaves
+  `istio-system` installed; `istioctl install` is idempotent so re-runs are safe.
+  `minikube delete` (local/ec2) / `eksctl delete cluster` (eks) wipe everything.
+
+See [Service Mesh](service-mesh.md) for the full troubleshooting table.
+
 ## Teardown
 
 - **docker:** `docker compose down` (data persists in `data/`); reset = `down && rm -rf data/`.

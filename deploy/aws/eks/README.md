@@ -98,6 +98,14 @@ the API calls and manifest/eksctl syntax are validated statically, but verify ag
 real account on first deploy. Specifically:
 
 - [ ] Confirm the `aws-efs-csi-driver` addon's node DaemonSet schedules on Auto Mode nodes.
+- [ ] **Istio ambient on Auto Mode** (AWS-recommended): after `setup.sh`, confirm
+      `istiod` (HA, 2 replicas), `ztunnel`, and `istio-cni-node` are Ready in `istio-system`,
+      then `istioctl ztunnel-config workloads` shows every `pipeline-builder` pod `HBONE`
+      **across all Auto Mode nodes**. Verify the node SecurityGroups allow node↔node HBONE
+      `:15008` (+ istiod xDS `:15012` / webhook `:15017`), and that a Karpenter scale-up
+      captures pods on a fresh node (ztunnel/istio-cni Ready first). If capture fails, AWS's
+      Auto Mode guidance may require `--set values.cni.cniConfDir/cniBinDir` in `setup.sh`.
+      See [docs/service-mesh.md](../../../docs/service-mesh.md).
 - [ ] First-deploy run of the SES phase (DKIM verification is async; the sandbox still
       applies — request production access + verify a real recipient to smoke-test).
 - [ ] Pod Identity CodePipeline grant: confirm the `default` SA role carries

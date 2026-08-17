@@ -4,6 +4,10 @@ metadata:
   name: pipeline-builder
   labels:
     app.kubernetes.io/part-of: pipeline-builder
+    # Enroll the namespace in the Istio ambient data plane. ztunnel captures
+    # every pod here (no sidecar, no restart) and enforces STRICT mTLS +
+    # AuthorizationPolicy from istio.yaml. See docs/service-mesh.md.
+    istio.io/dataplane-mode: ambient
 ---
 apiVersion: v1
 kind: ServiceAccount

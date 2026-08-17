@@ -45,6 +45,7 @@ This is the documentation index for **Pipeline Builder**, a multi-tenant platfor
 | [Compliance](compliance.md) | Per-org rule engine with 18 operators, computed fields, audit trail |
 | [Developer Portal](developer-portal.md) | Catalog ownership & My Services, golden-path templates, per-pipeline maturity scorecards |
 | [Roles & Permissions](permissions.md) | Permission catalog, built-in Roles, `requirePermission` enforcement, session invalidation |
+| [Service Mesh](service-mesh.md) | Istio ambient — STRICT mTLS + identity-based L4 authorization between all services (local, EC2, EKS) |
 | [Authentication & SSO](authentication.md) | OAuth social login (Google/GitHub/Facebook/Microsoft/GitLab/LinkedIn) + per-org enterprise SSO (OIDC, AWS Cognito), env config, provider registration |
 | [Error Handling](error-handling.md) | Error-to-HTTP convention — throw typed `AppError`s |
 | [Audit Events](audit-events.md) | Tamper-evident audit trail — hash-chain + `/audit/verify`, ingest security, durable spool, action catalog |

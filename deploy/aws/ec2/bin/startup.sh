@@ -18,6 +18,9 @@ CERT_DIR="$DEPLOY_DIR/certs"
 BIN_DIR="$(cd "$SCRIPT_DIR/../../../bin" && pwd)"   # deploy/bin (shared cert/key helpers)
 NAMESPACE="pipeline-builder"
 PROFILE="pipeline-builder"
+# Istio ambient mesh version (ambient-GA >= 1.24). istioctl must be installed on
+# the instance and on the minikube user's PATH (it runs via the `mk` wrapper).
+ISTIO_VERSION="${ISTIO_VERSION:-1.24.3}"
 # Persistent-storage layout. Honors PIPELINE_ROOT from the host (set by
 # UserData / bootstrap.sh) but defaults to /opt/pipeline for standalone
 # script invocations. The minikube VM mounts $DATA_DIR at the SAME path
@@ -123,7 +126,9 @@ TOTAL_MEM=$(($(grep MemTotal /proc/meminfo | awk '{print $2}') / 1024))
 MK_CPUS=$((TOTAL_CPU > 2 ? TOTAL_CPU - 1 : 2))
 # Memory: reserve 4 GiB for host (kernel + docker daemon + ssh/cron +
 # burst headroom) and give the rest to minikube — but never less than
-# 75% on small instances where 4 GiB would over-reserve.
+# 75% on small instances where 4 GiB would over-reserve. The Istio ambient
+# mesh (istiod + ztunnel) adds ~0.3-0.7G in istio-system, so t3.xlarge is the
+# recommended minimum with the mesh enabled; t3.large is tight.
 #   t3.large   (8G)   → max(6G,    8-4=4G)  = 6G   minikube,  2G  host
 #   t3.xlarge  (16G)  → max(12G,   16-4=12G) = 12G minikube,  4G  host
 #   t3.2xlarge (32G)  → max(24G,   32-4=28G) = 28G minikube,  4G  host  ← was 24G
@@ -174,6 +179,23 @@ mk kubectl -n kube-system patch deploy metrics-server --type=json \
 mk kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.16.1/keda-2.16.1.yaml
 mk kubectl wait --for=condition=Available deployment/keda-operator -n keda --timeout=120s 2>/dev/null || echo "  KEDA not ready yet"
 echo "  Addons + KEDA installed"
+
+# -- Istio ambient service mesh ----------------------------------------------
+# Installed BEFORE the app manifests so istio-cni + ztunnel are ready when pods
+# start. Single-node minikube (same substrate as local) — ambient installs
+# trivially. STRICT mTLS + AuthorizationPolicies live in k8s/istio.yaml; the
+# namespace is enrolled via the ambient label on namespace.yaml. Run as the
+# minikube user (mk) like the rest of the cluster. See docs/service-mesh.md.
+log "Installing Istio ambient mesh ($ISTIO_VERSION)"
+mk istioctl install --skip-confirmation \
+  --set profile=ambient \
+  --set meshConfig.extensionProviders[0].name=jaeger \
+  --set meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${NAMESPACE}.svc.cluster.local \
+  --set meshConfig.extensionProviders[0].opentelemetry.port=4317
+mk kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=180s 2>/dev/null || echo "  istiod not ready yet"
+mk kubectl rollout status daemonset/ztunnel -n istio-system --timeout=120s 2>/dev/null || echo "  ztunnel not ready yet"
+mk kubectl rollout status daemonset/istio-cni-node -n istio-system --timeout=120s 2>/dev/null || echo "  istio-cni not ready yet"
+echo "  Istio ambient installed (istiod + ztunnel + istio-cni). Recommend t3.xlarge+ with the mesh."
 
 # -- Namespace + ConfigMap + Secrets ------------------------------------------
 

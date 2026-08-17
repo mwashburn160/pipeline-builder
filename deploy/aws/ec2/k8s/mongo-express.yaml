@@ -39,6 +39,7 @@ spec:
         app: mongo-express
         app.kubernetes.io/component: admin
     spec:
+      serviceAccountName: mongo-express
       initContainers:
         - name: wait-for-mongodb
           image: busybox:1.38

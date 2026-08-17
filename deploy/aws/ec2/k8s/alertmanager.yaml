@@ -93,6 +93,7 @@ spec:
         app: alertmanager
         app.kubernetes.io/component: observability
     spec:
+      serviceAccountName: alertmanager
       automountServiceAccountToken: false
       securityContext:
         fsGroup: 65534

@@ -15,6 +15,10 @@ BIN_DIR="$(cd "$SCRIPT_DIR/../../../bin" && pwd)"   # deploy/bin (shared cert/ke
 NAMESPACE="pipeline-builder"
 PROFILE="pipeline-builder"
 DATA_DIR="$DEPLOY_DIR/data"
+# Istio ambient mesh version. Must be ambient-GA (>= 1.24). Overridable; bump to
+# the current stable at deploy time. The installed `istioctl` binary drives the
+# install — keep it on the same minor.
+ISTIO_VERSION="${ISTIO_VERSION:-1.24.3}"
 # VM-side mount target. Laptop-style /data/* to mirror local docker-compose
 # (host ./data/* → container /data/*). The minikube k8s hostPath manifests
 # use this same path. ec2's manifests use /opt/pipeline/pipeline-data
@@ -32,7 +36,7 @@ VM_DATA_DIR="/data"
 . "$BIN_DIR/mongo-keyfile.sh"
 
 # Fail fast with ONE actionable error if a required CLI tool is missing.
-preflight kubectl minikube openssl envsubst
+preflight kubectl minikube openssl envsubst istioctl
 
 # -- Helpers ------------------------------------------------------------------
 
@@ -176,6 +180,8 @@ if [ "$TOTAL_MEM" -lt "$RECOMMENDED_MEM" ]; then
   echo "  WARNING: the stack will run but builds may be slow and a 2nd plugin"
   echo "  WARNING: replica may not fit. Raise Docker Desktop memory (Settings ->"
   echo "  WARNING: Resources) to give minikube more headroom."
+  echo "  WARNING: the Istio ambient mesh adds ~0.3-0.7G (istiod + ztunnel in"
+  echo "  WARNING: istio-system, outside the namespace ResourceQuota)."
 fi
 
 MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size=30g --driver=docker --mount --mount-string="$DATA_DIR:$VM_DATA_DIR")
@@ -219,6 +225,27 @@ kubectl -n kube-system patch deploy metrics-server --type=json \
 kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.16.1/keda-2.16.1.yaml
 kubectl wait --for=condition=Available deployment/keda-operator -n keda --timeout=120s 2>/dev/null || echo "  KEDA not ready yet"
 echo "  Addons + KEDA installed"
+
+# -- Istio ambient service mesh ----------------------------------------------
+# Installed BEFORE the app manifests so istio-cni + ztunnel are ready when pods
+# start (ambient enrollment is dynamic, but starting pods after the CNI is up
+# avoids a "not captured until restart" edge case). The namespace is enrolled
+# via the `istio.io/dataplane-mode: ambient` label on namespace.yaml; STRICT
+# mTLS + AuthorizationPolicies live in k8s/istio.yaml. Sidecar-less: no per-pod
+# proxy, no changes to the hardened pod securityContexts. See docs/service-mesh.md.
+# NOTE: the `minikube addons enable istio` addon is stale 1.5-era sidecar mode —
+# we use istioctl with the ambient profile instead. The Jaeger extensionProvider
+# is pre-wired (inert at L4) so a future waypoint can emit mesh traces.
+log "Installing Istio ambient mesh ($ISTIO_VERSION)"
+istioctl install --skip-confirmation \
+  --set profile=ambient \
+  --set meshConfig.extensionProviders[0].name=jaeger \
+  --set meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${NAMESPACE}.svc.cluster.local \
+  --set meshConfig.extensionProviders[0].opentelemetry.port=4317
+kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=180s 2>/dev/null || echo "  istiod not ready yet"
+kubectl rollout status daemonset/ztunnel -n istio-system --timeout=120s 2>/dev/null || echo "  ztunnel not ready yet"
+kubectl rollout status daemonset/istio-cni-node -n istio-system --timeout=120s 2>/dev/null || echo "  istio-cni not ready yet"
+echo "  Istio ambient installed (istiod + ztunnel + istio-cni in istio-system)"
 
 # -- Namespace + Secrets + ConfigMaps -----------------------------------------
 

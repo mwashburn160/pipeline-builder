@@ -13,6 +13,11 @@ Pipeline Builder is a multi-team platform for creating AWS CodePipeline CI/CD pi
 
 ## System Architecture
 
+> **Service mesh**: every service-to-service and service-to-datastore hop shown
+> below runs over an [Istio ambient mesh](service-mesh.md) — STRICT mutual TLS +
+> identity-based L4 authorization (via the per-node `ztunnel`). The only plaintext
+> edges are the ALB/nginx TLS ingress and two PERMISSIVE carve-outs.
+
 ```mermaid
 flowchart TB
     subgraph Clients

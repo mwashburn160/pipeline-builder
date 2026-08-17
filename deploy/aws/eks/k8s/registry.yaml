@@ -43,6 +43,7 @@ spec:
         app: registry
         app.kubernetes.io/component: registry
     spec:
+      serviceAccountName: registry
       # Stateless API server — no need for the default ServiceAccount token
       # mounted at /var/run/secrets/kubernetes.io/serviceaccount/. Reduces blast
       # radius if the container is compromised (no kubelet API access).

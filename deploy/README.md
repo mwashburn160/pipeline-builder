@@ -45,6 +45,7 @@ pipeline-manager infra provision --repo --with-plugins           # add --prompt 
 - **Idempotent + re-run safe.** Cert/keyfile/secret generators skip-if-exists; provisioning guards `.env` regeneration so DB passwords aren't rotated out from under existing data.
 - **Platform matters for local builds.** On Apple Silicon, local plugin images build native `linux/arm64` (building `amd64` under QEMU segfaults the Rust base). AWS targets build `linux/amd64` for CodeBuild.
 - **`chmod 644` on TLS/JWT key files is intentional** (do not tighten). The Mongo keyfile is `600` (MongoDB requires it).
+- **Every target runs an Istio ambient service mesh** (STRICT mTLS + identity-based L4 authorization). The provisioning script installs it after KEDA; policies live in each tree's `k8s/istio.yaml`, and the namespace is enrolled via the `istio.io/dataplane-mode: ambient` label. `istioctl` is a required tool. Verify with `istioctl ztunnel-config workloads` (every pod `HBONE`). Full model + troubleshooting: [docs/service-mesh.md](../docs/service-mesh.md).
 
 ## Not covered here
 

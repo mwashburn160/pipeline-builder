@@ -8,11 +8,12 @@ namespace: pipeline-builder
 resources:
   - namespace.yaml
   - networkpolicy.yaml
+  - istio.yaml
   - resource-limits.yaml
   - mongodb.yaml
   - postgres.yaml
   - pgbouncer.yaml
-  - redis.yaml
+  - redis-sentinel.yaml
   - nginx.yaml
   - platform.yaml
   - pipeline.yaml

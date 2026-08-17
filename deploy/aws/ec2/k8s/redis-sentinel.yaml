@@ -110,6 +110,7 @@ spec:
     metadata:
       labels: { app: redis, app.kubernetes.io/component: cache }
     spec:
+      serviceAccountName: redis
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -189,6 +190,7 @@ spec:
     metadata:
       labels: { app: redis-sentinel, app.kubernetes.io/component: cache }
     spec:
+      serviceAccountName: redis-sentinel
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

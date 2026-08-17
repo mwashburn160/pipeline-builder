@@ -38,6 +38,7 @@ spec:
         app: redis
         app.kubernetes.io/component: cache
     spec:
+      serviceAccountName: redis
       securityContext:
         runAsNonRoot: true
         runAsUser: 999

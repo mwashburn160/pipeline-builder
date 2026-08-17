@@ -16,12 +16,13 @@ resources:
   # Core
   - namespace.yaml
   - networkpolicy.yaml
+  - istio.yaml
   - resource-limits.yaml
   # Data
   - mongodb.yaml
   - postgres.yaml
   - pgbouncer.yaml
-  - redis.yaml
+  - redis-sentinel.yaml
   # Gateway + app
   - nginx.yaml
   - platform.yaml

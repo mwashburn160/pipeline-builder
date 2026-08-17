@@ -87,6 +87,14 @@ is a Super Admin via implicit-all.
 Routes gate **writes** with permission middleware; a denied state-changing
 request also emits an [`authz.denied` audit event](audit-events.md#action-catalog).
 
+> **Not the same as the mesh.** This page covers **application** authorization —
+> per-org capability checks on API routes. Beneath it, the [Istio ambient service
+> mesh](service-mesh.md) enforces **network** authorization (L4, by service
+> identity): which *services* may reach which *services* at all. A request must
+> pass both — the mesh `AuthorizationPolicy` (can `sa/pipeline` reach `platform:3000`?)
+> and then `requirePermission` (does this user hold the capability?). Don't conflate
+> a mesh 403 (identity not allow-listed) with an app 403 (missing permission).
+
 | Middleware | Semantics |
 |------------|-----------|
 | `requirePermission(a, b, …)` | passes if the caller holds **any** of the listed permissions (Super Admin passes via implicit-all) |

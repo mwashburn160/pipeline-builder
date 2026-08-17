@@ -191,6 +191,7 @@ Every CodePipeline and CodeBuild state change flows through EventBridge into the
 ### Built for Production
 
 - **Zero-trust internal calls** — service-to-service HTTP uses short-lived JWTs minted via `signServiceToken()`; internal traffic satisfies the same `requireAuth` middleware as user requests (no per-route bypass)
+- **Service mesh (Istio ambient)** — STRICT mutual TLS and identity-based L4 authorization between every service on all deploy targets, layered beneath the app JWTs (see [Service Mesh](docs/service-mesh.md))
 - **Kubernetes-ready endpoints** — every service exposes `GET /health` (liveness), `GET /ready` (503 when any dependency is `disconnected`), `GET /warmup` (pre-opens connection pools), and `GET /metrics` (Prometheus scrape)
 - **Graceful degradation** — readiness reflects real dependency state; load balancers route around partially-failed services automatically
 
@@ -315,6 +316,7 @@ catalog; see [Post-Deploy: Initialize Platform](docs/README.md#post-deploy-initi
 | [Samples](docs/samples.md) | Pipeline configs and CDK patterns |
 | [Organization Benefits](docs/organization-benefits.md) | What orgs gain from standardizing on the platform |
 | [Architecture Flow](docs/architecture-flow.md) | End-to-end flow diagrams (request → build → deploy) |
+| [Service Mesh](docs/service-mesh.md) | Istio ambient — STRICT mTLS + identity authorization across all services |
 
 ### Developer Reference
 

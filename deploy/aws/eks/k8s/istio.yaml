@@ -1,0 +1,600 @@
+---
+# =============================================================================
+# Istio ambient service mesh — mTLS + identity-based L4 authorization (eks)
+# =============================================================================
+# EKS Auto Mode + Istio ambient (AWS-recommended). Same policy model as
+# deploy/local/minikube/k8s/istio.yaml (see it + docs/service-mesh.md). The
+# Auto-Mode/multi-node install specifics (istio-cni tolerations, HA istiod, node
+# SG :15008) live in bin/setup.sh, not here — these policies are node-agnostic.
+# eks deltas vs local:
+#   - nginx external carve-out is port 8080 only (the ALB terminates TLS and
+#     forwards plain HTTP to the nginx NodePort; there is no 8443 listener).
+#   - Redis runs as Sentinel HA (redis-sentinel.yaml): clients reach
+#     redis-sentinel:26379 for master discovery and redis:6379 for data, so both
+#     get AuthorizationPolicies and both `redis` + `redis-sentinel` identities are
+#     allowed (replication + gossip).
+#   - Per-org (`pb-org-*`) enterprise namespaces run build pods under
+#     sa/org-workload — allowed to the registry + image-registry build path via a
+#     namespace wildcard so STRICT doesn't 403 them.
+# =============================================================================
+
+# -- PeerAuthentication -------------------------------------------------------
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: pipeline-builder
+spec:
+  mtls:
+    mode: STRICT
+---
+# nginx ingress: the ALB (non-mesh) forwards plain HTTP to nginx:8080 and health-
+# checks :8080/health. Carve that port out of STRICT; nginx->upstream stays STRICT.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: nginx-ingress
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: nginx
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    "8080":
+      mode: PERMISSIVE
+---
+# KEDA (in the `keda` namespace, non-mesh) scrapes prometheus:9090 for the plugin
+# ScaledObject. Port-level PERMISSIVE keeps that working; in-mesh reads stay mTLS.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: prometheus-keda
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: prometheus
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    "9090":
+      mode: PERMISSIVE
+---
+# -- ServiceAccounts (one per workload; `default`, `prometheus`, `promtail`
+#    already exist elsewhere so are NOT recreated here) ----------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: platform, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: pipeline, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: plugin, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: message, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: quota, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: billing, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: compliance, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: reporting, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: frontend, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: image-registry, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: nginx, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: registry, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: postgres, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: pgbouncer, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: mongodb, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: redis, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: redis-sentinel, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: minio, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: jaeger, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: loki, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: alertmanager, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: thanos-query, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: thanos-store-gateway, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: mongo-express, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: pgadmin, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+# The db-backup CronJob (backup/backup-cronjob.yaml) already defines its own SA;
+# it is listed in the postgres/mongodb/minio allow-lists below. (SA object lives
+# in backup-cronjob.yaml, so it is not recreated here.)
+# -- AuthorizationPolicy: datastores (AUTHORITATIVE) -------------------------
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: postgres-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+              - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/message
+              - cluster.local/ns/pipeline-builder/sa/compliance
+              - cluster.local/ns/pipeline-builder/sa/reporting
+              - cluster.local/ns/pipeline-builder/sa/pgbouncer
+              - cluster.local/ns/pipeline-builder/sa/pgadmin
+              - cluster.local/ns/pipeline-builder/sa/db-backup
+      to:
+        - operation:
+            ports: ["5432"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: pgbouncer-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: pgbouncer
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+              - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/message
+              - cluster.local/ns/pipeline-builder/sa/compliance
+              - cluster.local/ns/pipeline-builder/sa/reporting
+      to:
+        - operation:
+            ports: ["6432"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: mongodb-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: mongodb
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/quota
+              - cluster.local/ns/pipeline-builder/sa/billing
+              - cluster.local/ns/pipeline-builder/sa/mongo-express
+              - cluster.local/ns/pipeline-builder/sa/db-backup
+      to:
+        - operation:
+            ports: ["27017"]
+---
+# Redis (Sentinel HA): clients reach redis:6379 for data; replication + Sentinel
+# monitoring add `redis` + `redis-sentinel` as in-mesh peers.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: redis-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: redis
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+              - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/message
+              - cluster.local/ns/pipeline-builder/sa/quota
+              - cluster.local/ns/pipeline-builder/sa/billing
+              - cluster.local/ns/pipeline-builder/sa/compliance
+              - cluster.local/ns/pipeline-builder/sa/reporting
+              - cluster.local/ns/pipeline-builder/sa/image-registry
+              - cluster.local/ns/pipeline-builder/sa/redis
+              - cluster.local/ns/pipeline-builder/sa/redis-sentinel
+      to:
+        - operation:
+            ports: ["6379"]
+---
+# Redis Sentinel: clients query :26379 for master discovery; Sentinels gossip
+# among themselves and reach the redis data nodes.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: redis-sentinel-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: redis-sentinel
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+              - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/message
+              - cluster.local/ns/pipeline-builder/sa/quota
+              - cluster.local/ns/pipeline-builder/sa/billing
+              - cluster.local/ns/pipeline-builder/sa/compliance
+              - cluster.local/ns/pipeline-builder/sa/reporting
+              - cluster.local/ns/pipeline-builder/sa/image-registry
+              - cluster.local/ns/pipeline-builder/sa/redis
+              - cluster.local/ns/pipeline-builder/sa/redis-sentinel
+      to:
+        - operation:
+            ports: ["26379"]
+---
+# Registry: `default` = crane push pods; `pb-org-*` = enterprise per-org build
+# pods (sa/org-workload) pushing images.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: registry-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: registry
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/image-registry
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+              - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/nginx
+              - cluster.local/ns/pipeline-builder/sa/default
+      to:
+        - operation:
+            ports: ["5000"]
+    - from:
+        - source:
+            namespaces: ["pb-org-*"]
+      to:
+        - operation:
+            ports: ["5000"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: minio-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: minio
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/message
+              - cluster.local/ns/pipeline-builder/sa/registry
+              - cluster.local/ns/pipeline-builder/sa/loki
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+              - cluster.local/ns/pipeline-builder/sa/thanos-store-gateway
+              - cluster.local/ns/pipeline-builder/sa/default
+              - cluster.local/ns/pipeline-builder/sa/db-backup
+      to:
+        - operation:
+            ports: ["9000"]
+---
+# -- AuthorizationPolicy: app APIs (each lists nginx + prometheus + callers) --
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: platform-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: platform
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+              - cluster.local/ns/pipeline-builder/sa/billing
+              - cluster.local/ns/pipeline-builder/sa/image-registry
+              - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+              - cluster.local/ns/pipeline-builder/sa/compliance
+              - cluster.local/ns/pipeline-builder/sa/message
+              - cluster.local/ns/pipeline-builder/sa/quota
+              - cluster.local/ns/pipeline-builder/sa/reporting
+      to:
+        - operation:
+            ports: ["3000"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: pipeline-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: pipeline
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/plugin
+      to:
+        - operation:
+            ports: ["3000"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: plugin-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: plugin
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+      to:
+        - operation:
+            ports: ["3000"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: message-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: message
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/billing
+              - cluster.local/ns/pipeline-builder/sa/compliance
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+              - cluster.local/ns/pipeline-builder/sa/plugin
+      to:
+        - operation:
+            ports: ["3000"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: quota-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: quota
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+              - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/message
+              - cluster.local/ns/pipeline-builder/sa/billing
+      to:
+        - operation:
+            ports: ["3000"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: billing-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: billing
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+              - cluster.local/ns/pipeline-builder/sa/platform
+      to:
+        - operation:
+            ports: ["3000"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: compliance-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: compliance
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+              - cluster.local/ns/pipeline-builder/sa/plugin
+      to:
+        - operation:
+            ports: ["3000"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: reporting-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: reporting
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+              - cluster.local/ns/pipeline-builder/sa/plugin
+      to:
+        - operation:
+            ports: ["3000"]
+---
+# image-registry: `pb-org-*` = per-org build pods requesting push tokens.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: image-registry-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: image-registry
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+              - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/platform
+      to:
+        - operation:
+            ports: ["3000"]
+    - from:
+        - source:
+            namespaces: ["pb-org-*"]
+      to:
+        - operation:
+            ports: ["3000"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: frontend-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: frontend
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+      to:
+        - operation:
+            ports: ["3000"]

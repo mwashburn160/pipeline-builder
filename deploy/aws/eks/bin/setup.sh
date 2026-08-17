@@ -29,6 +29,9 @@ DOMAIN="${DOMAIN:-}"
 HOSTED_ZONE_ID="${HOSTED_ZONE_ID:-}"
 DEPLOY_MODE="${DEPLOY_MODE:-private}"            # public (internet-facing ALB) | private (internal)
 NAMESPACE="${NAMESPACE:-pipeline-builder}"
+# Istio ambient mesh version (ambient-GA >= 1.24). AWS recommends EKS Auto Mode
+# + Istio ambient. Overridable; bump to current stable at deploy time.
+ISTIO_VERSION="${ISTIO_VERSION:-1.24.3}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 GHCR_USER="${GHCR_USER:-mwashburn160}"
 EKS_VERSION="${EKS_VERSION:-1.36}"               # pinned default for fresh installs; `latest` tracks newest, or --eks-version X
@@ -69,7 +72,7 @@ case "$DEPLOY_MODE" in public|private) ;; *) echo "ERROR: --deploy-mode must be 
 # eksctl is intentionally excluded — it's auto-installed below if missing.
 # shellcheck source=/dev/null
 . "$SCRIPT_DIR/../../../bin/common.sh"
-preflight aws kubectl openssl jq envsubst
+preflight aws kubectl openssl jq envsubst istioctl
 
 EMAIL_FROM="${EMAIL_FROM:-noreply@$DOMAIN}"
 SES_CONFIGURATION_SET="${CLUSTER_NAME}-email"    # stack-scoped so a 2nd cluster doesn't collide
@@ -367,6 +370,35 @@ log "Phase 6: KEDA operator"
 # "no matches for kind ScaledObject" (mirrors ec2/bin/startup.sh).
 kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.16.1/keda-2.16.1.yaml
 kubectl wait --for=condition=Available deployment/keda-operator -n keda --timeout=180s 2>/dev/null || echo "  KEDA not ready yet (the ScaledObject will reconcile once it is)"
+
+# ---- Phase 6b: Istio ambient service mesh ----------------------------------
+log "Phase 6b: Istio ambient mesh ($ISTIO_VERSION)"
+# AWS recommends EKS Auto Mode + Istio ambient. Installed BEFORE the workloads
+# so istio-cni + ztunnel are ready when app pods start; the namespace is enrolled
+# via the ambient label on namespace.yaml. STRICT mTLS + AuthorizationPolicies
+# live in k8s/istio.yaml (identical policy model to local/ec2). See docs/service-mesh.md.
+#
+# Auto Mode / multi-node specifics:
+#   - istio-cni + ztunnel run as privileged host-net DaemonSets. Their default
+#     tolerations (operator: Exists) already schedule them on every Auto Mode
+#     node; if AWS's guidance pins different CNI conf/bin dirs for the managed
+#     VPC CNI, add --set values.cni.cniConfDir=... / cniBinDir=... here.
+#   - istiod HA: 2 replicas across AZs (pilot.replicaCount=2).
+#   - Node SecurityGroups MUST allow node<->node HBONE :15008 (cross-node mTLS)
+#     plus istiod xDS :15012 / webhook :15017. Auto Mode manages the node SG —
+#     confirm these are permitted (see docs/aws-deployment.md).
+istioctl install --skip-confirmation \
+  --set profile=ambient \
+  --set values.pilot.replicaCount=2 \
+  --set meshConfig.extensionProviders[0].name=jaeger \
+  --set meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${NAMESPACE}.svc.cluster.local \
+  --set meshConfig.extensionProviders[0].opentelemetry.port=4317
+kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=180s 2>/dev/null || echo "  istiod not ready yet"
+kubectl rollout status daemonset/ztunnel -n istio-system --timeout=180s 2>/dev/null || echo "  ztunnel not ready yet"
+kubectl rollout status daemonset/istio-cni-node -n istio-system --timeout=180s 2>/dev/null || echo "  istio-cni not ready yet"
+# PodDisruptionBudget so an AZ/node drain never takes istiod to zero.
+kubectl -n istio-system create poddisruptionbudget istiod --selector=app=istiod --min-available=1 --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null || true
+echo "  Istio ambient installed (HA istiod + ztunnel + istio-cni)"
 
 # ---- Phase 7: apply workloads (kustomize overlay) --------------------------
 log "Phase 7: apply workloads"

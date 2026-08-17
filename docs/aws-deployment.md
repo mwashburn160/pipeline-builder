@@ -110,6 +110,26 @@ The underlying `bin/setup.sh` scripts remain the source of truth and can always 
 
 ---
 
+## Service mesh (Istio ambient)
+
+Both AWS targets run an **Istio ambient service mesh** (STRICT mTLS + identity-based
+L4 authorization between all services). `bin/setup.sh` (EKS) / `bin/startup.sh` (EC2)
+install it right after KEDA; policies live in `k8s/istio.yaml`. See
+[Service Mesh](service-mesh.md) for the full model. AWS-target specifics:
+
+- **EKS** uses **Auto Mode + ambient** (AWS-recommended). istiod runs HA (2 replicas
+  + PDB). The node SecurityGroups **must allow node↔node HBONE `:15008`** (cross-node
+  mTLS) plus istiod xDS `:15012` / webhook `:15017`. If AWS's Auto Mode guidance pins
+  different CNI conf/bin dirs, pass them via `--set values.cni.cniConfDir/cniBinDir`
+  in `setup.sh`. Validate capture across all nodes and under a Karpenter scale-up.
+- **EC2** is single-node Minikube; ambient installs trivially. The mesh adds
+  ~0.3–0.7 GiB (istiod + ztunnel), so **t3.xlarge is the recommended minimum**.
+- **Ingress**: the ALB terminates TLS (ACM) and forwards plain HTTP to `nginx:8080`,
+  which is carved out of STRICT (PERMISSIVE) — the ALB health check on `:8080/health`
+  rides the same carve-out.
+- **Redis** runs as Sentinel HA on both targets (`redis-sentinel.yaml`); clients reach
+  `redis-sentinel:26379` + `redis:6379`, both meshed.
+
 ## Deployment modes (public vs private)
 
 Either target (EC2 or EKS) deploys in one of two modes. **Both** put the compute in **private subnets** and terminate TLS at an ALB with a publicly-trusted, **DNS-validated ACM cert** — so both **require `--domain` + `--hosted-zone-id`** (the public Route 53 zone is where ACM validates the cert). The mode flips only the **ALB scheme** and the **DNS record**:

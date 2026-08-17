@@ -9,6 +9,7 @@ namespace: pipeline-builder
 resources:
   - namespace.yaml
   - networkpolicy.yaml
+  - istio.yaml
   - resource-limits.yaml
   - mongodb.yaml
   - postgres.yaml

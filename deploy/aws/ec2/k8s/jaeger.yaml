@@ -53,6 +53,7 @@ spec:
         app: jaeger
         app.kubernetes.io/component: observability
     spec:
+      serviceAccountName: jaeger
       securityContext:
         runAsUser: 10001
         runAsNonRoot: true

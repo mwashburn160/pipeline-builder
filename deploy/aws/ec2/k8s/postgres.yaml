@@ -87,6 +87,7 @@ spec:
         app: postgres
         app.kubernetes.io/component: database
     spec:
+      serviceAccountName: postgres
       securityContext:
         runAsNonRoot: false  # PostgreSQL image requires root for initdb
       containers:

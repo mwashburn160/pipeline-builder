@@ -182,7 +182,10 @@ spec:
 
 ---
 # =============================================================================
-# Postgres — ingress from platform, pipeline, plugin, message, pgadmin
+# Postgres — ingress from platform, pipeline, plugin, message, compliance,
+# reporting, pgbouncer, pgadmin. (Refreshed to match real DB-cred mounts and
+# the Istio AuthorizationPolicy in istio.yaml — the old list omitted
+# compliance/reporting/pgbouncer, which mount postgres-secret.)
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -200,7 +203,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [platform, pipeline, plugin, message, pgadmin]
+                values: [platform, pipeline, plugin, message, compliance, reporting, pgbouncer, pgadmin]
       ports:
         - port: 5432
 
@@ -230,7 +233,11 @@ spec:
 
 ---
 # =============================================================================
-# Redis — ingress from plugin
+# Redis — ingress from every service that embeds a Redis client. (Refreshed:
+# the old policy allowed only `plugin`, but the shared api-server layer uses
+# Redis for health/idempotency/SSE and each service runs its own BullMQ/queue
+# client — so pipeline/reporting/message/compliance/image-registry/quota/billing
+# and platform all connect. Matches the Istio AuthorizationPolicy in istio.yaml.)
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -245,8 +252,10 @@ spec:
   ingress:
     - from:
         - podSelector:
-            matchLabels:
-              app: plugin
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, pipeline, plugin, message, quota, billing, compliance, reporting, image-registry]
       ports:
         - port: 6379
 

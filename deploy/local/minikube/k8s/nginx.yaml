@@ -52,6 +52,7 @@ spec:
         prometheus.io/path: "/metrics"
         prometheus.io/scheme: "https"
     spec:
+      serviceAccountName: nginx
       initContainers:
         # See deploy/aws/ec2/k8s/nginx.yaml for full rationale.
         # Escape hatch: kubectl set env deployment/nginx SKIP_UPSTREAM_WAIT=true

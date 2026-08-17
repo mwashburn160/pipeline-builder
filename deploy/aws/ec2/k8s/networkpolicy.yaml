@@ -199,7 +199,9 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [platform, pipeline, plugin, message, pgadmin]
+                # Refreshed to match real DB-cred mounts + istio.yaml AuthZ:
+                # compliance/reporting/pgbouncer also connect to postgres.
+                values: [platform, pipeline, plugin, message, compliance, reporting, pgbouncer, pgadmin]
       ports:
         - port: 5432
 
@@ -229,25 +231,10 @@ spec:
 
 ---
 # =============================================================================
-# Redis — ingress from plugin
+# Redis — the allow-redis-ingress / allow-redis-sentinel-ingress NetworkPolicies
+# live in redis-sentinel.yaml (HA Redis is the ec2 default). Defining them here
+# too would duplicate the `allow-redis-ingress` resource name and fail kustomize.
 # =============================================================================
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-redis-ingress
-spec:
-  podSelector:
-    matchLabels:
-      app: redis
-  policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: plugin
-      ports:
-        - port: 6379
 
 ---
 # =============================================================================

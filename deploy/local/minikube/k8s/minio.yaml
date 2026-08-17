@@ -152,6 +152,7 @@ spec:
         app: minio
         app.kubernetes.io/component: minio
     spec:
+      serviceAccountName: minio
       automountServiceAccountToken: false
       securityContext:
         fsGroup: 1000

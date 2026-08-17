@@ -46,6 +46,7 @@ spec:
         app: loki
         app.kubernetes.io/component: observability
     spec:
+      serviceAccountName: loki
       securityContext:
         fsGroup: 10001
         runAsUser: 10001

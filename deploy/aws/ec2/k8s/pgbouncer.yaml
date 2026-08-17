@@ -75,6 +75,7 @@ spec:
       labels:
         app: pgbouncer
     spec:
+      serviceAccountName: pgbouncer
       containers:
         - name: pgbouncer
           image: edoburu/pgbouncer:v1.25.2-p0

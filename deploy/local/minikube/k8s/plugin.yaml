@@ -42,6 +42,7 @@ spec:
         prometheus.io/port: "3000"
         prometheus.io/path: "/metrics"
     spec:
+      serviceAccountName: plugin
       # The plugin pod orchestrates user-supplied Dockerfile builds via the
       # rootless buildkitd sidecar. The plugin doesn't talk to the k8s API, so
       # don't mount a service-account token — keeps the build sandbox from
@@ -341,6 +342,13 @@ spec:
   maxReplicaCount: 2
   pollingInterval: 15
   cooldownPeriod: 120
+  # The primary trigger reads queue depth from Prometheus. If Prometheus is
+  # unavailable (its scrape/query path is now part of the scale signal), hold a
+  # safe replica count instead of collapsing to minReplicaCount — a stalled
+  # scrape must not silently drain the build fleet.
+  fallback:
+    failureThreshold: 3
+    replicas: 2
   triggers:
     # Queue-driven primary signal.
     - type: prometheus
