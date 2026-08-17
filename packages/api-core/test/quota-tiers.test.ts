@@ -90,6 +90,19 @@ describe('QUOTA_TIERS', () => {
       },
     });
   });
+
+  it('unlimited tier has EVERY quota uncapped (-1)', () => {
+    // The billing-DISABLED default tier must meter nothing. Assert every limit
+    // field (derived from the shape, so a newly-added quota is covered too) is
+    // exactly -1. tierLimits() hardcodes this for `unlimited` and bypasses the
+    // QUOTA_TIER_UNLIMITED_* env reads, so no override can cap it.
+    const limits = QUOTA_TIERS.unlimited.limits as Record<string, number>;
+    const keys = Object.keys(limits);
+    expect(keys.length).toBeGreaterThan(0);
+    for (const k of keys) {
+      expect(limits[k]).toBe(-1);
+    }
+  });
 });
 
 describe('VALID_TIERS', () => {

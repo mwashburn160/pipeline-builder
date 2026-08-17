@@ -159,6 +159,10 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // load. A suite can override QUOTA_TIERS via `overrides` for shape-specific
     // assertions; DEFAULT_TIER stays 'developer' unless a suite overrides it.
     DEFAULT_TIER: 'developer',
+    // Opt-out default-on, mirroring the real api-core (BILLING_ENABLED != 'false').
+    // auth-service reads this to pick the system org's tier; a suite exercising the
+    // billing-off path overrides it to `() => false`.
+    isBillingEnabled: () => true,
     VALID_TIERS: [...MOCK_TIER_NAMES],
     STANDARD_TIERS: MOCK_TIER_NAMES.filter((t) => t !== 'unlimited'),
     TEAM_CAPABLE_TIERS: ['team', 'enterprise', 'unlimited'],

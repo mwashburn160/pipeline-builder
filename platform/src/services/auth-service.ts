@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { createLogger, QUOTA_TIERS, SYSTEM_ORG_ID, SYSTEM_ORG_SLUG } from '@pipeline-builder/api-core';
+import { createLogger, isBillingEnabled, QUOTA_TIERS, SYSTEM_ORG_ID, SYSTEM_ORG_SLUG, type QuotaTier } from '@pipeline-builder/api-core';
 import { seedDefaultRoles } from './roles-service.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -107,6 +107,14 @@ class AuthService {
         throw new Error(RESERVED_ORG_NAME);
       }
 
+      // The platform's own superadmin/support org is infra, never a paying
+      // customer, so it must not be metered when billing is OFF — match every
+      // other org in that mode and go fully `unlimited` (all quotas -1). When
+      // billing is ON, keep it on the top standard tier (`enterprise`) so it
+      // reconciles like a normal high-tier org. (Only meaningful for the system
+      // org; unused otherwise.)
+      const systemTier: QuotaTier = isBillingEnabled() ? 'enterprise' : 'unlimited';
+
       const orgData: Record<string, unknown> = {
         name: isSystemOrg ? SYSTEM_ORG_SLUG : effectiveOrgName,
         owner: user._id,
@@ -116,12 +124,11 @@ class AuthService {
         orgData._id = SYSTEM_ORG_ID; // fixed well-known ObjectId (cast from hex)
         orgData.slug = SYSTEM_ORG_SLUG;
         orgData.isSystem = true;
-        orgData.tier = 'enterprise';
-        // Seed the full enterprise preset. The old partial `{ plugins, pipelines,
-        // apiCalls }` left aiCalls/seats/storage/etc. to fall back to the
-        // DEFAULT_TIER schema default, so the "unlimited" system org silently got
-        // a finite aiCalls and seat cap.
-        orgData.quotas = { ...QUOTA_TIERS.enterprise.limits };
+        orgData.tier = systemTier;
+        // Seed the FULL tier preset — avoids the old bug where a partial
+        // `{ plugins, pipelines, apiCalls }` left aiCalls/seats/storage to fall
+        // back to a finite DEFAULT_TIER cap on the (meant-to-be-uncapped) org.
+        orgData.quotas = { ...QUOTA_TIERS[systemTier].limits };
       }
 
       const [org] = await Organization.create([orgData], { session });
@@ -149,7 +156,7 @@ class AuthService {
         role: 'owner',
         organizationId: orgId,
         organizationName: org.name,
-        planId: isSystemOrg ? 'enterprise' : (planId || 'developer'),
+        planId: isSystemOrg ? systemTier : (planId || 'developer'),
       };
     });
   }

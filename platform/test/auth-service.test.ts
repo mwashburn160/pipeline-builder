@@ -45,11 +45,17 @@ class MockUser {
   static findById = (...a: unknown[]) => mockUserFindById(...a);
 }
 
+// Toggleable billing state — the factory closes over this, so a test can flip it
+// to exercise the billing-OFF system-org path (tier → 'unlimited'). Defaults ON.
+let billingEnabled = true;
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   SYSTEM_ORG_SLUG: 'system',
   SYSTEM_ORG_ID: '000000000000000000000001',
+  isBillingEnabled: () => billingEnabled,
   QUOTA_TIERS: {
     enterprise: { limits: { plugins: -1, pipelines: -1, apiCalls: -1, aiCalls: -1, seats: -1, storage: -1 } },
+    unlimited: { limits: { plugins: -1, pipelines: -1, apiCalls: -1, aiCalls: -1, seats: -1, storage: -1 } },
   },
 }));
 
@@ -199,6 +205,29 @@ describe('AuthService.register', () => {
     expect(result.planId).toBe('enterprise');
     // seedDefaultGroups is told this is the system org (bootstraps superadmin).
     expect((mockSeedDefaultGroups.mock.calls[0] as any)[2]).toEqual({ isSystemOrg: true });
+  });
+
+  it('seeds the system org as UNLIMITED (uncapped) when billing is disabled', async () => {
+    // With billing OFF there is no metering surface, so the platform's own system
+    // org must not be capped — it goes fully `unlimited` (every quota -1) instead
+    // of the finite `enterprise` preset it would get with billing ON.
+    process.env.BOOTSTRAP_SUPERADMIN_EMAILS = 'alice@example.com';
+    mockUserExists.mockReturnValue({ session: () => Promise.resolve(null) });
+    billingEnabled = false;
+    try {
+      const result = await authService.register({ ...base, organizationName: 'System' });
+
+      const orgData = (mockOrgCreate.mock.calls[0] as any)[0][0];
+      expect(orgData.isSystem).toBe(true);
+      expect(orgData.tier).toBe('unlimited');
+      // Every seeded quota is uncapped.
+      for (const v of Object.values(orgData.quotas as Record<string, number>)) {
+        expect(v).toBe(-1);
+      }
+      expect(result.planId).toBe('unlimited');
+    } finally {
+      billingEnabled = true; // restore for the rest of the suite
+    }
   });
 
   it('propagates a mid-transaction failure and does not run later steps (tx aborts)', async () => {

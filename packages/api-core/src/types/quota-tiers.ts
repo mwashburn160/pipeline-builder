@@ -158,6 +158,16 @@ function envStr(name: string, fallback: string): string {
  * on k8s these flow in via the `app-env` ConfigMap (built from `.env`).
  */
 function tierLimits(tier: QuotaTier): QuotaTierLimits {
+  // `unlimited` is uncapped BY DEFINITION: EVERY quota is -1 and it is NOT
+  // env-overridable. Reading QUOTA_TIER_UNLIMITED_* here would let a stray env
+  // var silently cap the billing-DISABLED default tier — surfacing as a spurious
+  // "quota exceeded" on a deploy that meters nothing. Derive -1 for every field
+  // from the limits shape so a newly-added quota is uncapped here automatically.
+  if (tier === 'unlimited') {
+    const uncapped = { ...DEFAULT_TIER_LIMITS.unlimited };
+    for (const k of Object.keys(uncapped) as (keyof QuotaTierLimits)[]) uncapped[k] = -1;
+    return uncapped;
+  }
   const d = DEFAULT_TIER_LIMITS[tier];
   const T = tier.toUpperCase();
   return {
