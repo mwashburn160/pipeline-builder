@@ -18,16 +18,26 @@
  */
 
 import { createCacheService, fetchOrgNames, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { Config } from '@pipeline-builder/pipeline-core';
 
 /** Per-id name cache — org names change rarely; a short TTL keeps them fresh. */
 const orgNameCache = createCacheService('orgname:', 300);
 
-/** Platform org-lookup options for the message service (system-scoped token). */
+/**
+ * Platform org-lookup options for the message service (system-scoped token).
+ *
+ * The platform host/port are read straight from the environment (mirroring
+ * pipeline-core's `server-config.ts` defaults) rather than via pipeline-core's
+ * `Config` barrel ON PURPOSE: this helper runs on the hot message-read path, and
+ * importing `Config` would drag pipeline-core's whole config/billing graph into
+ * every read route's module graph. The two vars are stable and defaulted, so the
+ * direct read is both lighter and behaviourally identical.
+ */
 function nameLookupOptions() {
-  const { services } = Config.get('server');
   return {
-    service: { host: services.platformHost, port: services.platformPort },
+    service: {
+      host: process.env.PLATFORM_SERVICE_HOST || 'platform',
+      port: Number.parseInt(process.env.PLATFORM_SERVICE_PORT || '3000', 10),
+    },
     serviceName: 'message',
     // System-scoped service token: an internal read of the org registry, not a
     // tenant-scoped operation. Never carries an AWS account id.
@@ -93,7 +103,7 @@ export async function enrichWithOrgNames<T extends { orgId: string; recipientOrg
 
   return rows.map((r) => ({
     ...r,
-    orgName: names.get(r.orgId.toLowerCase()),
+    orgName: r.orgId ? names.get(r.orgId.toLowerCase()) : undefined,
     recipientOrgName:
       r.recipientOrgId && r.recipientOrgId !== '*' ? names.get(r.recipientOrgId.toLowerCase()) : undefined,
   }));
