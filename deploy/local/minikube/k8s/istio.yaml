@@ -315,6 +315,8 @@ spec:
         - source:
             principals:
               - cluster.local/ns/pipeline-builder/sa/message
+              # plugin stages upload/build-context ZIPs in the `plugins` bucket.
+              - cluster.local/ns/pipeline-builder/sa/plugin
               - cluster.local/ns/pipeline-builder/sa/registry
               - cluster.local/ns/pipeline-builder/sa/loki
               - cluster.local/ns/pipeline-builder/sa/prometheus

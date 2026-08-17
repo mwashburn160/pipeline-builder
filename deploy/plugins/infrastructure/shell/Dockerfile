@@ -16,7 +16,7 @@
 #   2. Use `curl ... | sh` to install via vendor script
 #   3. Switch to a tool-specific plugin (snyk-go, terraform, etc.)
 
-FROM pipeline-plugin-base:24.04
+FROM public.ecr.aws/docker/library/ubuntu:24.04
 
 WORKDIR /app
 CMD ["bash"]
