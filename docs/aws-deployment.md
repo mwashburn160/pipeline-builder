@@ -398,8 +398,10 @@ aws cloudformation deploy \
    - Updates OS, installs fail2ban, disables SSH password auth
    - Installs Docker, Minikube, kubectl
    - Generates `.env` with random secrets (JWT keys, DB passwords)
-   - Starts Minikube, deploys all K8s manifests
+   - Runs `startup.sh` — **creates** Minikube (fresh, no cluster yet), installs the mesh/KEDA, deploys all K8s manifests
    - Sets one iptables bridge: instance `:30080` → Minikube NodePort `30080` (the ALB target). TLS is terminated at the ALB (ACM) — no cert on the box.
+
+> **First boot always CREATES a fresh cluster** — `startup.sh` finds no existing profile, so it never prompts (the `RECREATE` prompt is TTY-gated and only reached on an *existing* cluster; a non-interactive UserData run has no TTY). If you later SSH onto the box and re-run `startup.sh` against a running/stopped cluster, it **resumes** by default; force a cluster rebuild with **`RECREATE=y sudo -u minikube deploy/aws/ec2/bin/startup.sh`**. The EC2 data lives on the host (`$DATA_DIR`), so a rebuild re-mounts the same data — to truly wipe, clear `$DATA_DIR` on the host first.
 
 ### Post-Deploy
 

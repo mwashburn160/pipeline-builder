@@ -11,7 +11,7 @@ Everything needed to stand up the Pipeline Builder platform, across four targets
 | **EC2** | [`aws/ec2/`](aws/ec2/) | one EC2 instance (CloudFormation) | Small single-node AWS deploy |
 | **EKS** | [`aws/eks/`](aws/eks/) | EKS Auto Mode (Bottlerocket) | Production, multi-node |
 
-Each target dir has a `bin/setup.sh` (bring the stack up) and `bin/shutdown.sh`; the AWS targets add `bootstrap.sh`/`startup.sh`. Each also ships a `.env.example`, a `README.md` with target-specific notes, and its manifests (`docker-compose.yml` / `k8s/`).
+Each target dir has a `bin/setup.sh` (bring the stack up) and `bin/shutdown.sh`. The single-node minikube-based targets (**local/minikube** + **aws/ec2**) also ship a `bin/startup.sh` — a fast **resume** of a stopped cluster (reconnect only, no re-provision); ec2 additionally has `bootstrap.sh` (first-boot instance provisioning via UserData). Each also ships a `.env.example`, a `README.md` with target-specific notes, and its manifests (`docker-compose.yml` / `k8s/`).
 
 ## The two-step flow
 
@@ -27,7 +27,7 @@ LOAD_PLUGINS=y deploy/bin/init-platform.sh docker     # target: docker|minikube|
 
 > **minikube on a small machine (~8-core laptop):** the full stack **+ the Istio mesh** doesn't fit in 8 vCPU. Run **`LEAN=1 deploy/local/minikube/bin/setup.sh`** to deploy the core stack + mesh only — it omits the optional observability/admin services (prometheus, thanos, loki, promtail, jaeger, alertmanager, mongo-express, pgadmin) and collapses every service to a single replica.
 >
-> **Overrides** (env vars on `setup.sh`): `DISK_SIZE=60g` (VM disk, default 30g), `ISTIO_VERSION=…` (mesh version), `LEAN=1` (above). Disk size and CPU/memory are applied at cluster **create** only — to change them, `minikube delete --profile=pipeline-builder` and re-run setup. Data lives on the minikube **VM disk** (survives `stop/start`, wiped by `delete`), not the host `data/` folder — see [docs/deploy-operations.md](../docs/deploy-operations.md#teardown).
+> **Overrides** (env vars on `setup.sh`): `DISK_SIZE=60g` (VM disk, default 30g), `ISTIO_VERSION=…` (mesh version), `LEAN=1` (above), `RECREATE=y` (when a cluster already exists, WIPE + rebuild instead of resuming — otherwise `setup.sh` prompts on a TTY and defaults to keeping data). Disk size and CPU/memory are applied at cluster **create** only. Data lives on the minikube **VM disk** (survives `stop/start` and a `shutdown.sh`/`startup.sh` cycle; wiped by `delete` or `RECREATE=y`), not the host `data/` folder — see [docs/deploy-operations.md](../docs/deploy-operations.md#teardown).
 
 Or provision a fresh machine end-to-end in one command (sparse-clones the repo, runs setup + init + post-steps):
 
