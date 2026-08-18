@@ -94,13 +94,27 @@ if [ "$#" -eq 0 ]; then
   echo "usage: apt-retry-install <pkg> [<pkg>...]" >&2
   exit 2
 fi
+# One combined update+install per attempt. Re-running `apt-get update` each time
+# (not just once up front) is deliberate: a regional apt mirror caught mid-sync
+# serves an internally-inconsistent Packages index — installs fail with
+# "Depends: X but it is not going to be installed" and retrying the SAME stale
+# index just fails identically. Re-updating lets a later attempt pick up the
+# finished snapshot. `_ok` tracks whether install actually succeeded so we can
+# fail hard below — a plain `cmd && break || { sleep; }` list swallows the final
+# attempt's failure under `set -e` (the `||` block exits 0), which would let a
+# never-installed package sail through as a false-green build step.
+_ok=0
 for i in 1 2 3 4 5; do
-  apt-get update && break || { echo "apt-get update attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }
+  if ! apt-get update; then
+    echo "apt-get update attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); continue
+  fi
+  if apt-get install -y --no-install-recommends "$@"; then _ok=1; break; fi
+  echo "apt-get install attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10))
 done
-for i in 1 2 3 4 5; do
-  apt-get install -y --no-install-recommends "$@" && break \
-    || { echo "apt-get install attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }
-done
+if [ "$_ok" != 1 ]; then
+  echo "apt-retry-install: FAILED to install after 5 attempts: $*" >&2
+  exit 1
+fi
 # Per-package verification was historically here but caused too many
 # false negatives:
 #   - Virtual packages (libz-dev provided by zlib1g-dev) — dpkg -s sees nothing
@@ -108,8 +122,8 @@ done
 #     (libgtk2.0-0 → libgtk2.0-0t64, libasound2 → libasound2t64, etc.)
 #     would fail the strict check even when apt installed the new name
 # Since we no longer use --fix-missing (silent partial install is gone)
-# and the apt-get install retry loop above only succeeds on a clean
-# exit, we trust apt's own exit code as the source of truth.
+# and the install loop above only sets _ok on a clean apt exit, we trust
+# apt's own exit code as the source of truth.
 rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb
 SCRIPT
 

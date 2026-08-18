@@ -192,8 +192,10 @@ _build_base_quiet() {
   local _tag="$1" _ctx="$2"
   local _start _elapsed _log _rc=0
   local _build_extra=""
-  # The root base image takes APT_MIRROR as a build arg; family bases
-  # don't (they inherit from a fully-installed base image, no apt needed).
+  # Only the root base image takes APT_MIRROR as a build arg. Family bases
+  # (cpp/rust/jvm/…) DO apt-install, but they build FROM plugin-base and inherit
+  # its already-rewritten apt sources, so they hit the same mirror without
+  # needing the arg re-passed.
   if [ "$(basename "$_ctx")" = "_plugin-base" ]; then
     local _mirror
     _mirror=$(_detect_apt_mirror)
