@@ -47,6 +47,11 @@ fi
 
 log() { echo ""; echo "=== $1 ==="; }
 
+# Shared helpers (preflight, ensure_istioctl). Sourcing common.sh cd's to /tmp —
+# every path here is absolute, so that's safe.
+# shellcheck source=../../../bin/common.sh
+. "$BIN_DIR/common.sh"
+
 # Shared Secret/ConfigMap creators (deploy/bin/k8s-resources.sh). PB_KUBECTL runs kubectl as
 # the minikube user via the `mk` function above, so applies happen as the cluster owner.
 PB_KUBECTL="mk kubectl"; PB_NAMESPACE="$NAMESPACE"
@@ -110,17 +115,12 @@ if [ -f "$DEPLOY_DIR/mongodb-keyfile" ]; then
   [ "$(id -u)" = "0" ] && chown minikube "$DEPLOY_DIR/mongodb-keyfile" 2>/dev/null || true
 fi
 
-# -- Preflight: istioctl ------------------------------------------------------
-# The Istio ambient mesh step drives `istioctl` (installed by bootstrap.sh Phase
-# 4). If it's missing the mesh step stalls with a cryptic error instead of a clear
-# one — fail fast here, matching the eks/minikube setup.sh preflight. Checked on
-# the minikube user's PATH since the mesh install runs via `mk`.
-if ! mk sh -c 'command -v istioctl' >/dev/null 2>&1; then
-  echo "ERROR: istioctl not found on PATH (required for the Istio ambient mesh)." >&2
-  echo "       bootstrap.sh Phase 4 installs it to /usr/local/bin — re-run bootstrap, or install:" >&2
-  echo "         curl -fsSL https://github.com/istio/istio/releases/download/${ISTIO_VERSION}/istioctl-${ISTIO_VERSION}-linux-amd64.tar.gz | tar -xz istioctl && sudo install -m0755 istioctl /usr/local/bin/istioctl" >&2
-  exit 1
-fi
+# -- istioctl (Istio ambient mesh) --------------------------------------------
+# Guarantee istioctl the SAME way as the eks/minikube targets: the shared
+# ensure_istioctl auto-installs $ISTIO_VERSION to /usr/local/bin if the box has
+# none (or too old). This runs as root on first boot (no sudo needed), and the
+# mesh install below runs it via `mk` (minikube user), which shares that PATH.
+ensure_istioctl "$ISTIO_VERSION"
 
 # -- Data directories ---------------------------------------------------------
 

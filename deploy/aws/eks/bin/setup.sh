@@ -72,7 +72,9 @@ case "$DEPLOY_MODE" in public|private) ;; *) echo "ERROR: --deploy-mode must be 
 # eksctl is intentionally excluded — it's auto-installed below if missing.
 # shellcheck source=/dev/null
 . "$SCRIPT_DIR/../../../bin/common.sh"
-preflight aws kubectl openssl jq envsubst istioctl
+preflight aws kubectl openssl jq envsubst
+# istioctl is NOT preflighted — ensure_istioctl (before the mesh install) auto-
+# installs the right version if it's missing. Same handling on every target.
 
 EMAIL_FROM="${EMAIL_FROM:-noreply@$DOMAIN}"
 SES_CONFIGURATION_SET="${CLUSTER_NAME}-email"    # stack-scoped so a 2nd cluster doesn't collide
@@ -387,13 +389,10 @@ log "Phase 6b: Istio ambient mesh ($ISTIO_VERSION)"
 #   - Node SecurityGroups MUST allow node<->node HBONE :15008 (cross-node mTLS)
 #     plus istiod xDS :15012 / webhook :15017. Auto Mode manages the node SG —
 #     confirm these are permitted (see docs/aws-deployment.md).
-# Ambient needs istioctl >= 1.24 (the `ambient` profile ships in the binary).
-_ic_ver="$(istioctl version --remote=false 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)"
-if [ -z "$_ic_ver" ] || [ "${_ic_ver%%.*}" -lt 1 ] || { [ "${_ic_ver%%.*}" -eq 1 ] && [ "${_ic_ver#*.}" -lt 24 ]; }; then
-  echo "ERROR: istioctl '${_ic_ver:-unknown}' is too old for ambient — need >= 1.24 (ISTIO_VERSION=$ISTIO_VERSION)." >&2
-  echo "       Upgrade: curl -L https://istio.io/downloadIstio | ISTIO_VERSION=$ISTIO_VERSION sh - && sudo mv istio-$ISTIO_VERSION/bin/istioctl /usr/local/bin/istioctl" >&2
-  exit 1
-fi
+# Ambient needs istioctl >= 1.24 (the `ambient` profile ships in the binary). The
+# shared ensure_istioctl guarantees it — auto-installing $ISTIO_VERSION if the host
+# has none (or too old); identical handling on every target (see common.sh).
+ensure_istioctl "$ISTIO_VERSION"
 istioctl install --skip-confirmation \
   --set profile=ambient \
   --set values.pilot.replicaCount=2 \

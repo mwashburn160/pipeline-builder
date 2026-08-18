@@ -175,18 +175,9 @@ install minikube-linux-amd64 /usr/local/bin/minikube
 rm -f minikube-linux-amd64
 echo "  minikube installed"
 
-# istioctl — startup.sh installs the Istio AMBIENT mesh with it, so it MUST be on
-# PATH before Phase 9 (startup.sh) runs; without it, startup.sh's version check
-# fails and the whole bring-up stalls at "Installing Istio ambient mesh". Version
-# tracks startup.sh's ISTIO_VERSION default (>= 1.24 for the ambient profile).
-echo "  Installing istioctl..."
-ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
-_ISTIO_ARCH=$(uname -m); case "$_ISTIO_ARCH" in x86_64) _ISTIO_ARCH=amd64 ;; aarch64) _ISTIO_ARCH=arm64 ;; esac
-curl -fsSL "https://github.com/istio/istio/releases/download/${ISTIO_VERSION}/istioctl-${ISTIO_VERSION}-linux-${_ISTIO_ARCH}.tar.gz" -o istioctl.tar.gz
-tar -xzf istioctl.tar.gz istioctl
-install -o root -g root -m 0755 istioctl /usr/local/bin/istioctl
-rm -f istioctl.tar.gz istioctl
-echo "  istioctl ${ISTIO_VERSION} installed"
+# NOTE: istioctl is NOT installed here — startup.sh (Phase 9) calls the shared
+# ensure_istioctl, which auto-installs $ISTIO_VERSION to /usr/local/bin (as root
+# here, so no sudo). Identical handling to the eks/minikube targets.
 
 # conntrack + socat (required by minikube). jq is required by the auto-init
 # path (init-platform builds the admin-register payload with it; load-pipelines

@@ -50,7 +50,9 @@ VM_DATA_DIR="/data"
 . "$BIN_DIR/mongo-keyfile.sh"
 
 # Fail fast with ONE actionable error if a required CLI tool is missing.
-preflight kubectl minikube openssl envsubst istioctl
+preflight kubectl minikube openssl envsubst
+# istioctl is NOT preflighted — ensure_istioctl (below, before the mesh install)
+# auto-installs the right version if it's missing. Same handling on every target.
 
 # -- Helpers ------------------------------------------------------------------
 
@@ -316,16 +318,10 @@ echo "  Addons + KEDA installed"
 # we use istioctl with the ambient profile instead. The Jaeger extensionProvider
 # is pre-wired (inert at L4) so a future waypoint can emit mesh traces.
 log "Installing Istio ambient mesh ($ISTIO_VERSION)"
-# Ambient needs istioctl >= 1.24 (the `ambient` profile ships in the binary).
-# The preflight only checks presence, so verify the version here — an old binary
-# otherwise dies with a cryptic "Asset profiles/ambient.yaml not found".
-_ic_ver="$(istioctl version --remote=false 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)"
-if [ -z "$_ic_ver" ] || [ "${_ic_ver%%.*}" -lt 1 ] || { [ "${_ic_ver%%.*}" -eq 1 ] && [ "${_ic_ver#*.}" -lt 24 ]; }; then
-  echo "ERROR: istioctl '${_ic_ver:-unknown}' is too old for ambient — need >= 1.24 (ISTIO_VERSION=$ISTIO_VERSION)." >&2
-  echo "       Upgrade: curl -L https://istio.io/downloadIstio | ISTIO_VERSION=$ISTIO_VERSION sh -" >&2
-  echo "                sudo mv istio-$ISTIO_VERSION/bin/istioctl /usr/local/bin/istioctl" >&2
-  exit 1
-fi
+# Ambient needs istioctl >= 1.24 (the `ambient` profile ships in the binary). The
+# shared ensure_istioctl guarantees it — auto-installing $ISTIO_VERSION if the host
+# has none (or too old); identical handling on every target (see common.sh).
+ensure_istioctl "$ISTIO_VERSION"
 istioctl install --skip-confirmation \
   --set profile=ambient \
   --set "meshConfig.extensionProviders[0].name=jaeger" \

@@ -130,6 +130,47 @@ preflight() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# ensure_istioctl <version> — guarantee an ambient-capable istioctl (>= 1.24) is
+# on PATH, auto-downloading <version> and installing it to /usr/local/bin when the
+# host has none (or too old). SHARED by every target's mesh install so istioctl is
+# handled identically everywhere (minikube / ec2 / eks). Uses sudo only when
+# /usr/local/bin isn't already writable (root — e.g. ec2 first boot — needs none).
+# OS/arch aware (linux|osx, amd64|arm64). Usage: `ensure_istioctl "$ISTIO_VERSION"`.
+# ---------------------------------------------------------------------------
+ensure_istioctl() {
+  local _want="${1:?ensure_istioctl needs an ISTIO_VERSION}"
+  # Already have an ambient-capable istioctl (>= 1.24) on PATH? Use it as-is.
+  local _have _maj _min
+  _have="$(istioctl version --remote=false 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+  if [ -n "$_have" ]; then
+    _maj="${_have%%.*}"; _min="${_have#*.}"
+    if [ "$_maj" -gt 1 ] || { [ "$_maj" -eq 1 ] && [ "$_min" -ge 24 ]; }; then
+      return 0
+    fi
+    echo "  istioctl $_have is too old for ambient (need >= 1.24) — installing $_want..."
+  else
+    echo "  istioctl not found — installing $_want..."
+  fi
+  local _os _arch _tmp
+  _os="$(uname -s | tr '[:upper:]' '[:lower:]')"; case "$_os" in darwin) _os=osx ;; esac
+  _arch="$(uname -m)"; case "$_arch" in x86_64) _arch=amd64 ;; arm64|aarch64) _arch=arm64 ;; esac
+  _tmp="$(mktemp -d)"
+  if ! curl -fsSL "https://github.com/istio/istio/releases/download/${_want}/istioctl-${_want}-${_os}-${_arch}.tar.gz" \
+       | tar -xz -C "$_tmp" istioctl 2>/dev/null; then
+    echo "ERROR: failed to download istioctl ${_want} (${_os}-${_arch})." >&2
+    echo "  Install it manually and re-run: https://istio.io/latest/docs/setup/getting-started/#download" >&2
+    rm -rf "$_tmp"; exit 1
+  fi
+  if [ -w /usr/local/bin ]; then
+    install -m 0755 "$_tmp/istioctl" /usr/local/bin/istioctl
+  else
+    sudo install -m 0755 "$_tmp/istioctl" /usr/local/bin/istioctl
+  fi
+  rm -rf "$_tmp"
+  echo "  istioctl ${_want} installed to /usr/local/bin"
+}
+
 # yq_buildargs — emit `--build-arg KEY=VALUE` flags for plugin-spec.yaml
 # Outputs nothing if `buildArgs` is absent. Quoting is yq's responsibility.
 yq_buildargs() {
