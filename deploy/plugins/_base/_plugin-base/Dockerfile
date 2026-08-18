@@ -28,33 +28,50 @@ FROM public.ecr.aws/docker/library/ubuntu:24.04
 # Avoid interactive prompts during apt-get install in any consumer.
 ENV DEBIAN_FRONTEND=noninteractive
 
-# APT mirror selection. Default is the global archive.ubuntu.com, which is
-# slow + flaky from EC2 (we've seen 600 B/s with mid-fetch drops). Build
-# orchestrator passes `--build-arg APT_MIRROR=<region>.ec2.archive.ubuntu.com`
-# when running inside EC2 so apt traffic stays in-region (free + fast).
+# APT mirror selection — PRIMARY = default canonical, FAILOVER = regional mirror.
+# The canonical archive.ubuntu.com / security.ubuntu.com stay the primary sources
+# (reliable, always-consistent source of truth). When the orchestrator passes
+# `--build-arg APT_MIRROR=<region>.ec2.archive.ubuntu.com` (running inside EC2),
+# the regional mirror is APPENDED as a second URI — a failover apt uses only when
+# the primary errors. apt tries URIs left-to-right, so we keep the reliable
+# default in front and never repeat the earlier failure where an inconsistent
+# regional mirror (caught mid-sync) was the SOLE source and hard-failed every
+# install with "Depends: X but it is not going to be installed".
 #
-# This mutation persists in the image layer, so EVERY plugin Dockerfile
-# that uses `FROM pipeline-plugin-base:24.04` inherits the regional mirror
-# automatically — no per-plugin Dockerfile change needed.
+# This mutation persists in the image layer, so EVERY plugin Dockerfile that
+# uses `FROM pipeline-plugin-base:24.04` inherits the failover automatically —
+# no per-plugin Dockerfile change needed.
 #
-# Both archive.ubuntu.com (main/universe/multiverse/restricted) AND
-# security.ubuntu.com (security updates) are redirected; Canonical's EC2
-# mirrors host both.
+# Both the archive (main/universe/multiverse/restricted) and security suites get
+# the regional failover appended; Canonical's EC2 mirrors host both.
 #
 # Set at build time:
 #   docker build --build-arg APT_MIRROR=us-east-1.ec2.archive.ubuntu.com ...
-# Default leaves the global mirror in place for local dev / non-AWS builds.
+# Default (no arg) leaves only the canonical mirror for local dev / non-AWS builds.
 ARG APT_MIRROR=""
 RUN if [ -n "$APT_MIRROR" ]; then \
-      _files="/etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list"; \
-      for _f in $_files; do \
-        [ -f "$_f" ] || continue; \
-        sed -i \
-          -e "s|http://archive.ubuntu.com/ubuntu|http://${APT_MIRROR}/ubuntu|g" \
-          -e "s|http://security.ubuntu.com/ubuntu|http://${APT_MIRROR}/ubuntu|g" \
+      # Deb822 (Ubuntu 24.04 default): append the regional mirror as a SECOND URI
+      # on each `URIs:` line, so canonical is tried first and the mirror is the
+      # failover. `.*http://…/ubuntu[^[:space:]]*` captures the canonical URI (incl.
+      # any trailing slash); \1 keeps it, then we append the mirror URI after it.
+      _f=/etc/apt/sources.list.d/ubuntu.sources; \
+      if [ -f "$_f" ]; then \
+        sed -i -E \
+          -e "s|^(URIs:[[:space:]].*http://archive\.ubuntu\.com/ubuntu[^[:space:]]*)|\1 http://${APT_MIRROR}/ubuntu|" \
+          -e "s|^(URIs:[[:space:]].*http://security\.ubuntu\.com/ubuntu[^[:space:]]*)|\1 http://${APT_MIRROR}/ubuntu|" \
           "$_f"; \
-      done; \
-      echo "APT mirror: ${APT_MIRROR} (both archive + security)"; \
+      fi; \
+      # Legacy one-line format (rare on noble): a `deb` line can't hold two URIs,
+      # so DUPLICATE each canonical line with a mirror variant right AFTER it —
+      # canonical stays primary, apt falls back to the mirror copy on error.
+      _f=/etc/apt/sources.list; \
+      if [ -f "$_f" ]; then \
+        sed -i -E \
+          -e "\|^deb .*http://archive\.ubuntu\.com/ubuntu|{p;s|http://archive\.ubuntu\.com/ubuntu|http://${APT_MIRROR}/ubuntu|}" \
+          -e "\|^deb .*http://security\.ubuntu\.com/ubuntu|{p;s|http://security\.ubuntu\.com/ubuntu|http://${APT_MIRROR}/ubuntu|}" \
+          "$_f"; \
+      fi; \
+      echo "APT sources: canonical (primary) + ${APT_MIRROR} (failover)"; \
     fi
 
 # Common deps used by ~all plugins. Order chosen to maximize layer caching
