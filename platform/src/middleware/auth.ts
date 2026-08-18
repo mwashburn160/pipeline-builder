@@ -150,6 +150,18 @@ export async function requireAuth(
       return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
     }
 
+    // Service principal (api-core `signServiceToken`, `sub: 'service:<name>'`).
+    // These are NOT backed by a User row — `User.findById('service:x')` below
+    // would throw a CastError (non-ObjectId) and reject every inter-service call,
+    // which silently broke all service→platform hierarchy/name lookups. A service
+    // token is a short-lived, JWT_SECRET-signed access token whose per-route
+    // authority is gated by `isServicePrincipal`; accept it here and skip the
+    // user/tokenVersion checks (there is no user/session to invalidate).
+    if (decoded.sub?.startsWith('service:')) {
+      req.user = decoded;
+      return next();
+    }
+
     // The ONLY DB read this path needs: the current tokenVersion, to reject
     // tokens minted before the last "invalidate all sessions" / role / permission
     // / membership change (every such change bumps tokenVersion). Everything else
