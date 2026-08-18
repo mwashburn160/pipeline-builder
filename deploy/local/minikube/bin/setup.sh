@@ -435,6 +435,15 @@ minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${VM_DATA_DIR}/plugins-data 
 # volumes aren't chowned by fsGroup on minikube. (Single-drive dev — no HA.)
 minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${VM_DATA_DIR}/minio-data && sudo chown -R 1000:1000 ${VM_DATA_DIR}/minio-data"
 
+# Raise inotify limits inside the node. promtail creates one inotify watch per
+# tailed log file; the full stack's pod count exceeds the default
+# max_user_instances=128 ("failed to make file target manager: too many open
+# files"), and prometheus's TSDB is inotify/mmap-heavy too. Set on the node (the
+# limit is user-namespace-scoped, so setting it inside the kicbase node is what
+# reaches these pods). `sysctl -w` isn't persistent across `minikube stop`, so
+# startup.sh re-applies it on resume.
+minikube ssh --profile="$PROFILE" -- "sudo sysctl -w fs.inotify.max_user_instances=512 fs.inotify.max_user_watches=524288" >/dev/null 2>&1 || true
+
 # Register QEMU/binfmt for cross-arch plugin builds (e.g. amd64 on an arm64 box).
 # No-op on Docker Desktop / same-arch. The minikube node shares the host (VM)
 # kernel's binfmt_misc, so registering it via host docker reaches the node too.

@@ -344,8 +344,18 @@ echo "========================================"
 echo "Phase 8: iptables port forwarding"
 echo "========================================"
 
-# Enable IP forwarding
-echo "net.ipv4.ip_forward = 1" > /etc/sysctl.d/99-pipeline-builder.conf
+# Enable IP forwarding + raise inotify limits. The minikube docker-driver node
+# shares this host's kernel (host user-namespace, no userns-remap), so these
+# host sysctls apply inside the cluster. inotify: promtail creates one watch per
+# tailed log file and the full stack's pod count blows past the default
+# max_user_instances=128 ("failed to make file target manager: too many open
+# files"); prometheus's TSDB is inotify/mmap-heavy too. Persisted so a reboot
+# (sysctl -p on boot) keeps them.
+cat > /etc/sysctl.d/99-pipeline-builder.conf <<'SYSCTL'
+net.ipv4.ip_forward = 1
+fs.inotify.max_user_instances = 512
+fs.inotify.max_user_watches = 524288
+SYSCTL
 sysctl -p /etc/sysctl.d/99-pipeline-builder.conf
 
 # Note: iptables DNAT rules are set AFTER minikube starts (in startup.sh)
