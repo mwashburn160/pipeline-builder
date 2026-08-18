@@ -39,6 +39,10 @@ interface RecipientPickerProps {
   onRecipientUserIdChange: (userId: string) => void;
   /** Server-side member search for the user typeahead. */
   fetchMembers: (orgId: string, search: string) => Promise<MemberOption[]>;
+  /** Cross-org directory search (#8) — resolve a typed query to messageable orgs
+   *  beyond the caller's own teams. Supplied only for sysadmins (who alone may
+   *  send cross-org); omitted ⇒ the combobox stays limited to `teamOptions`. */
+  searchTeams?: (query: string) => Promise<TeamOption[]>;
 }
 
 /** Friendly label for the well-known support alias. */
@@ -67,6 +71,7 @@ export function RecipientPicker({
   recipientUserId,
   onRecipientUserIdChange,
   fetchMembers,
+  searchTeams,
 }: RecipientPickerProps) {
   // Every configured support alias, primary first and labeled "Pipeline Builder
   // Support"; the rest labeled by their alias. Set (lowercased) drives the
@@ -132,13 +137,36 @@ export function RecipientPicker({
     [onRecipientOrgIdChange, recipientUserId, onRecipientUserIdChange, team],
   );
 
+  // Cross-org directory search (#8, sysadmin-only). As the user types, query the
+  // org directory (debounced) and merge the results BELOW the local teams. Guarded
+  // to an open dropdown + a ≥2-char query; races resolved with an ignore flag.
+  const [remoteTeams, setRemoteTeams] = useState<TeamOption[]>([]);
+  const [searchingTeams, setSearchingTeams] = useState(false);
+  const debouncedTeamFilter = useDebounce((team.filter || '').trim(), 250);
+  useEffect(() => {
+    if (!searchTeams || !team.open || debouncedTeamFilter.length < 2) {
+      setRemoteTeams([]);
+      return;
+    }
+    let ignore = false;
+    setSearchingTeams(true);
+    searchTeams(debouncedTeamFilter)
+      .then((rows) => { if (!ignore) setRemoteTeams(rows); })
+      .catch(() => { if (!ignore) setRemoteTeams([]); })
+      .finally(() => { if (!ignore) setSearchingTeams(false); });
+    return () => { ignore = true; };
+  }, [searchTeams, team.open, debouncedTeamFilter]);
+
   const teamMatches = useMemo(() => {
     const q = (team.filter || teamText).trim().toLowerCase();
-    if (!q) return allTeams;
-    return allTeams.filter(
-      (t) => t.label.toLowerCase().includes(q) || t.value.toLowerCase().includes(q),
-    );
-  }, [team.filter, teamText, allTeams]);
+    const local = !q
+      ? allTeams
+      : allTeams.filter((t) => t.label.toLowerCase().includes(q) || t.value.toLowerCase().includes(q));
+    // Append directory hits not already covered by a local team (dedupe by id).
+    const localVals = new Set(local.map((t) => t.value.toLowerCase()));
+    const remote = remoteTeams.filter((t) => !localVals.has(t.value.toLowerCase()));
+    return [...local, ...remote];
+  }, [team.filter, teamText, allTeams, remoteTeams]);
 
   // -- User combobox (optional) ---------------------------------------------
   const [userText, setUserText] = useState('');
@@ -203,7 +231,13 @@ export function RecipientPicker({
         {team.open && (
           <div role="listbox" id={team.listboxId} aria-label="Teams" className="absolute z-50 mt-1 w-full max-h-52 overflow-auto bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl shadow-lg text-sm">
             {teamMatches.length === 0 ? (
-              <div className="px-3 py-2 text-gray-500 dark:text-gray-400">No matching teams — type a full org id to send directly</div>
+              <div className="px-3 py-2 text-gray-500 dark:text-gray-400">
+                {searchingTeams
+                  ? 'Searching organizations…'
+                  : searchTeams
+                    ? 'No matching organizations — or type a full org id to send directly'
+                    : 'No matching teams — type a full org id to send directly'}
+              </div>
             ) : (
               teamMatches.map((opt, i) => (
                 <button

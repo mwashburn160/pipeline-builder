@@ -20,6 +20,9 @@ import api from '@/lib/api';
 import type { Message } from '@/types';
 import type { MemberOption } from '@/components/message/RecipientPicker';
 
+/** The system tenant's well-known org id (api-core SYSTEM_ORG_ID default). */
+const SYSTEM_ORG_ID = '000000000000000000000001';
+
 type MessageFilter = 'all' | 'conversations' | 'announcements';
 
 const FILTER_TABS: { key: MessageFilter; label: string }[] = [
@@ -89,6 +92,51 @@ export default function MessagesPage() {
   const [messageFilter, setMessageFilter] = useState<MessageFilter>('all');
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
 
+  const currentOrgId = user?.organizationId?.toLowerCase() || '';
+
+  // Client-side org id → name map for DISPLAY backfill. Prefers the authoritative
+  // `orgName`/`recipientOrgName` the server enriches onto each message, falls back
+  // to the caller's own org memberships, and special-cases the system support org.
+  // Lets the UI show a name even before/without server-side name resolution.
+  const orgNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const o of organizations) m.set(o.id.toLowerCase(), o.name);
+    for (const msg of messages) {
+      if (msg.orgName) m.set(msg.orgId.toLowerCase(), msg.orgName);
+      if (msg.recipientOrgName && msg.recipientOrgId !== '*') {
+        m.set(msg.recipientOrgId.toLowerCase(), msg.recipientOrgName);
+      }
+    }
+    if (!m.has(SYSTEM_ORG_ID)) m.set(SYSTEM_ORG_ID, 'Pipeline Builder Support');
+    return m;
+  }, [organizations, messages]);
+
+  const resolveOrgName = useCallback(
+    (id?: string | null): string | undefined => (id ? orgNameById.get(id.toLowerCase()) : undefined),
+    [orgNameById],
+  );
+
+  // Recent recipients (#1) — distinct counterparty orgs from the loaded inbox,
+  // most-recent first, for a one-tap quick-pick in compose. Excludes broadcasts
+  // and the caller's own org; labels resolve to names (id fallback).
+  const recentRecipients = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { value: string; label: string }[] = [];
+    for (const m of messages) {
+      if (m.messageType === 'announcement') continue;
+      const isMine = m.orgId.toLowerCase() === currentOrgId;
+      const otherId = isMine ? m.recipientOrgId : m.orgId;
+      const otherName = isMine ? m.recipientOrgName : m.orgName;
+      if (!otherId || otherId === '*') continue;
+      const key = otherId.toLowerCase();
+      if (key === currentOrgId || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ value: otherId, label: otherName || resolveOrgName(otherId) || otherId });
+      if (out.length >= 6) break;
+    }
+    return out;
+  }, [messages, currentOrgId, resolveOrgName]);
+
   const filteredMessages = useMemo(() => {
     let out = messages;
     if (messageFilter === 'announcements') {
@@ -143,6 +191,23 @@ export default function MessagesPage() {
     }
   }, []);
 
+  // Cross-org directory search (#8) backing the compose recipient combobox —
+  // SYSADMIN ONLY, since only sysadmins may message an org they don't belong to
+  // (the send-reachability gate is bypassed for isSystemAdmin). Reuses the
+  // sysadmin org roster (GET /api/organizations, supports `search`); best-effort.
+  const searchRecipients = useCallback(async (query: string): Promise<{ value: string; label: string }[]> => {
+    const q = query.trim();
+    if (!isSuperAdmin || !q) return [];
+    try {
+      const res = await api.listOrganizations({ search: q, limit: 10 });
+      return (res.data?.organizations ?? [])
+        .filter((o) => o.id.toLowerCase() !== currentOrgId)
+        .map((o) => ({ value: o.id, label: o.name }));
+    } catch {
+      return [];
+    }
+  }, [isSuperAdmin, currentOrgId]);
+
   // Upload one attachment; returns its metadata (id linked on send).
   const uploadAttachment = useCallback(async (file: File) => {
     const res = await api.uploadAttachment(file);
@@ -151,8 +216,6 @@ export default function MessagesPage() {
   }, []);
 
   if (!isReady || !user) return <LoadingPage />;
-
-  const currentOrgId = user.organizationId?.toLowerCase() || '';
 
   return (
     <DashboardLayout
@@ -265,6 +328,7 @@ export default function MessagesPage() {
                 onSelect={handleSelectMessage}
                 selectedId={selectedMessage?.id}
                 currentOrgId={currentOrgId}
+                resolveOrgName={resolveOrgName}
                 onDelete={canWrite ? handleDelete : undefined}
                 hasMore={hasMore}
                 loadingMore={loadingMore}
@@ -282,6 +346,8 @@ export default function MessagesPage() {
                 rootMessage={selectedMessage}
                 currentOrgId={currentOrgId}
                 currentUserId={user.id}
+                resolveOrgName={resolveOrgName}
+                fetchMembers={fetchMembers}
                 onBack={handleBack}
                 onThreadRead={markThreadAsRead}
                 onDelete={canWrite ? handleDelete : undefined}
@@ -313,6 +379,8 @@ export default function MessagesPage() {
         supportAliases={supportAliases}
         fetchMembers={fetchMembers}
         onUploadAttachment={uploadAttachment}
+        recentRecipients={recentRecipients}
+        searchRecipients={isSuperAdmin ? searchRecipients : undefined}
         recipientSuggestions={organizations
           .filter((o) => o.id.toLowerCase() !== currentOrgId)
           .map((o) => ({ value: o.id, label: o.name }))}

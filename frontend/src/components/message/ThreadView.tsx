@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Send, Megaphone, MessageCircle, AlertTriangle, AlertOctagon, Trash2, Paperclip, X, RefreshCw, Pencil, Check } from 'lucide-react';
+import { ArrowLeft, Send, Megaphone, MessageCircle, AlertTriangle, AlertOctagon, Trash2, Paperclip, X, RefreshCw, Pencil, Check, User, CheckCheck } from 'lucide-react';
 import { Textarea } from '@/components/ui/Textarea';
 import { IconButton } from '@/components/ui/IconButton';
 import { MessageAttachments } from '@/components/message/MessageAttachments';
 import { useAuth } from '@/hooks/useAuth';
+import type { MemberOption } from '@/components/message/RecipientPicker';
 import api from '@/lib/api';
 import type { Message, MessageAttachment } from '@/types';
 
@@ -27,6 +28,11 @@ interface ThreadViewProps {
   currentOrgId: string;
   /** The current user's id — gates the per-message "edit" affordance to the author. */
   currentUserId?: string;
+  /** Client-side org id → name backfill for the header (falls back to the id). */
+  resolveOrgName?: (id?: string | null) => string | undefined;
+  /** Server-side member search — used to resolve a direct-message target user id
+   *  to a display name (best-effort). Omitted ⇒ the raw id/"Direct" is shown. */
+  fetchMembers?: (orgId: string, search: string) => Promise<MemberOption[]>;
   /** Callback to navigate back to the message list (mobile). */
   onBack: () => void;
   /** Callback to mark the entire thread as read when opened. */
@@ -58,11 +64,37 @@ function PriorityBadge({ priority }: { priority: string }) {
 }
 
 /** Chat-style thread view displaying a conversation with reply input. */
-export function ThreadView({ rootMessage, currentOrgId, currentUserId, onBack, onThreadRead, onDelete }: ThreadViewProps) {
+export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOrgName, fetchMembers, onBack, onThreadRead, onDelete }: ThreadViewProps) {
   const { organizations } = useAuth();
   // The current org's own display name, for labelling optimistic (own) bubbles
   // before the server round-trip returns the resolved name.
   const currentOrgName = organizations.find((o) => o.id.toLowerCase() === currentOrgId.toLowerCase())?.name;
+
+  // The counterparty org name for the header: server-enriched field first, then
+  // the client-side backfill, then the raw id.
+  const isRootMine = rootMessage.orgId.toLowerCase() === currentOrgId.toLowerCase();
+  const counterpartyName = isRootMine
+    ? (rootMessage.recipientOrgName || resolveOrgName?.(rootMessage.recipientOrgId) || rootMessage.recipientOrgId)
+    : (rootMessage.orgName || resolveOrgName?.(rootMessage.orgId) || rootMessage.orgId);
+
+  // #4 — resolve a direct-message TARGET user id to a display name (best-effort).
+  // The target lives in rootMessage.recipientOrgId; a single members lookup maps
+  // its id → username. Fails soft (leaves the id/"Direct" as-is).
+  const [targetUserName, setTargetUserName] = useState<string>('');
+  useEffect(() => {
+    setTargetUserName('');
+    const targetId = rootMessage.recipientUserId;
+    if (!targetId || !fetchMembers || rootMessage.recipientOrgId === '*') return;
+    let ignore = false;
+    fetchMembers(rootMessage.recipientOrgId, '')
+      .then((rows) => {
+        if (ignore) return;
+        const hit = rows.find((m) => m.id === targetId);
+        if (hit) setTargetUserName(hit.username);
+      })
+      .catch(() => { /* best-effort */ });
+    return () => { ignore = true; };
+  }, [rootMessage.recipientUserId, rootMessage.recipientOrgId, fetchMembers]);
   const [thread, setThread] = useState<ThreadItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [replyContent, setReplyContent] = useState('');
@@ -257,12 +289,17 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, onBack, o
               <MessageCircle className="w-4 h-4 text-blue-500 flex-shrink-0" />
             )}
             <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
-              {rootMessage.messageType === 'announcement'
-                ? 'Announcement'
-                : rootMessage.orgId.toLowerCase() === currentOrgId.toLowerCase()
-                  ? (rootMessage.recipientOrgName || rootMessage.recipientOrgId)
-                  : (rootMessage.orgName || rootMessage.orgId)}
+              {rootMessage.messageType === 'announcement' ? 'Announcement' : counterpartyName}
             </h2>
+            {rootMessage.recipientUserId && (
+              <span
+                className="inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 flex-shrink-0"
+                title="Direct message — targeted at a specific user"
+              >
+                <User className="w-2.5 h-2.5" />
+                {targetUserName ? `Direct · ${targetUserName}` : 'Direct'}
+              </span>
+            )}
             <PriorityBadge priority={rootMessage.priority} />
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
@@ -297,6 +334,12 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, onBack, o
             // Author-only edit affordance: a settled (non-optimistic) message the
             // current user authored. Server re-checks authorship regardless.
             const canEdit = isMine && !isSending && !isFailed && !!currentUserId && msg.createdBy === currentUserId;
+            // #9 read receipt — a settled message I sent that the RECIPIENT org has
+            // stamped read (readBy is keyed by org id). Broadcasts ('*') have no
+            // single recipient, so they never show a receipt.
+            const seenByRecipient = isMine && !isSending && !isFailed
+              && !!msg.recipientOrgId && msg.recipientOrgId !== '*'
+              && !!msg.readBy?.[msg.recipientOrgId.toLowerCase()];
             return (
               <div
                 key={msg.id}
@@ -349,9 +392,14 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, onBack, o
                   {/* Optimistic bubbles hold no server id yet, so skip the
                       attachment fetch until the real row lands. */}
                   {!isSending && !isFailed && !isEditing && <MessageAttachments messageId={msg.id} attachments={msg.attachments} />}
-                  <div className={`text-xs mt-1 ${isMine ? 'text-blue-200' : 'text-gray-400 dark:text-gray-500'}`}>
-                    {isSending ? 'Sending…' : formatDateTime(msg.createdAt)}
-                    {msg.editedAt && !isSending && <span className="ml-1 italic">(edited)</span>}
+                  <div className={`text-xs mt-1 flex items-center gap-1 ${isMine ? 'text-blue-200' : 'text-gray-400 dark:text-gray-500'}`}>
+                    <span>{isSending ? 'Sending…' : formatDateTime(msg.createdAt)}</span>
+                    {msg.editedAt && !isSending && <span className="italic">(edited)</span>}
+                    {seenByRecipient && (
+                      <span className="ml-auto inline-flex items-center gap-0.5" title="Seen by the recipient">
+                        <CheckCheck className="w-3 h-3" /> Seen
+                      </span>
+                    )}
                   </div>
                 </div>
                 {isFailed && (

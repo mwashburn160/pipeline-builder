@@ -52,6 +52,13 @@ interface ComposeModalProps {
    *  team typeahead in the full-compose recipient picker (value = org id, label =
    *  name) and the support-only datalist. */
   recipientSuggestions?: ReadonlyArray<{ value: string; label: string }>;
+  /** Recently-messaged orgs (most-recent first) for a one-tap quick-pick above the
+   *  recipient field. Value = org id, label = name. */
+  recentRecipients?: ReadonlyArray<{ value: string; label: string }>;
+  /** Cross-org directory search (#8) — supplied only for sysadmins (who alone may
+   *  message an org they don't belong to). Feeds the recipient combobox so they can
+   *  find any org by name; omitted ⇒ compose stays limited to own/recent orgs. */
+  searchRecipients?: (query: string) => Promise<Array<{ value: string; label: string }>>;
   /** Support alias to prefill the "To" field with — sourced from the server's
    *  SUPPORT_ALIASES config (see `useFeatures().supportAlias`). Defaults to the
    *  well-known alias until config loads. */
@@ -76,7 +83,7 @@ function autoSubject(content: string): string {
 }
 
 /** Modal for composing and sending new messages or announcements to organizations. */
-export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, recipientSuggestions = [], supportAlias = DEFAULT_SUPPORT_ALIAS, supportAliases, fetchMembers, onUploadAttachment }: ComposeModalProps) {
+export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, recipientSuggestions = [], recentRecipients = [], searchRecipients, supportAlias = DEFAULT_SUPPORT_ALIAS, supportAliases, fetchMembers, onUploadAttachment }: ComposeModalProps) {
   // Every configured support alias (falls back to the single primary). Used both
   // to seed the picker and to recognize a support send regardless of which alias.
   const aliasList = supportAliases?.length ? supportAliases : [supportAlias];
@@ -93,6 +100,34 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
   const [content, setContent] = useState('');
   const [validationError, setValidationError] = useState('');
   const [isAnnouncement, setIsAnnouncement] = useState(false);
+  // Optional channel/inbox bucket for an org→org send (#7). Support sends set
+  // their own 'support' channel; this is for everything else. '' = no channel.
+  const [channel, setChannel] = useState('');
+  // Bumped to REMOUNT the RecipientPicker when a recent-recipient chip sets the
+  // org externally (the picker seeds its display text once per mount).
+  const [pickerKey, setPickerKey] = useState(0);
+
+  // Merge recent recipients (first) with the user's team suggestions, de-duped by
+  // id — feeds both the picker (so a recent org's NAME resolves) and the datalist.
+  const mergedSuggestions = (() => {
+    const seen = new Set<string>();
+    const out: { value: string; label: string }[] = [];
+    for (const o of [...recentRecipients, ...recipientSuggestions]) {
+      const k = o.value.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ value: o.value, label: o.label });
+    }
+    return out;
+  })();
+
+  /** Pick a recent recipient: set the org id + remount the picker to show its name. */
+  const pickRecent = (value: string) => {
+    setRecipientOrgId(value);
+    setRecipientUserId('');
+    setValidationError('');
+    setPickerKey((k) => k + 1);
+  };
   // Attachments uploaded (pending) for this compose — their ids are linked on send.
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -117,6 +152,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
     setAttachments([]);
     setValidationError('');
     setRecipientUserId('');
+    setChannel('');
     setIsAnnouncement(false);
   }, [isOpen]);
 
@@ -125,6 +161,13 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
   );
 
   const error = validationError || sendError || '';
+
+  // A concrete org recipient (not empty / support alias / broadcast) — gates the
+  // optional channel selector + the recent-recipient quick-pick.
+  const isConcreteRecipient = canWrite && !isAnnouncement && (() => {
+    const v = recipientOrgId.trim().toLowerCase();
+    return v !== '' && v !== '*' && !aliasSet.has(v);
+  })();
 
   if (!isOpen) return null;
 
@@ -158,9 +201,27 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
       return;
     }
 
-    // Only support-channel sends carry the channel field. Direct-to-
-    // teammate sends are org-to-org so they don't need a channel tag.
-    const channel = isSupportSend ? SUPPORT_CHANNEL : undefined;
+    // #6 recipient validation (full-compose, concrete-org only): catch a typo'd
+    // name that never resolved to an org. Accept a known team/recent org (by id)
+    // or a well-formed 24-hex org id; reject anything else BEFORE the round-trip.
+    if (canWrite && !isAnnouncement && !isSupportSend) {
+      const knownIds = new Set([...recentRecipients, ...recipientSuggestions].map((o) => o.value.toLowerCase()));
+      const isHexOrgId = /^[a-f0-9]{24}$/.test(recipient);
+      if (!isHexOrgId && !knownIds.has(recipient)) {
+        setValidationError('Pick a team from the list, or paste a valid organization id (24 hex characters).');
+        return;
+      }
+    }
+
+    // Channel: support sends use the reserved 'support' channel; other org→org
+    // sends may carry an optional operator-chosen channel (#7). Validate its shape
+    // (matches the server's a-z/0-9/-/_ rule) so a bad tag fails fast here.
+    const trimmedChannel = channel.trim().toLowerCase();
+    if (!isSupportSend && trimmedChannel && !/^[a-z0-9_-]{1,50}$/.test(trimmedChannel)) {
+      setValidationError('Channel may only contain lowercase letters, numbers, dashes and underscores.');
+      return;
+    }
+    const sendChannel = isSupportSend ? SUPPORT_CHANNEL : (trimmedChannel || undefined);
 
     // Per-user targeting applies ONLY to a full-compose, concrete-org
     // conversation — never a support send, broadcast, or support-only user.
@@ -175,7 +236,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
       subject: autoSubject(content),
       content: content.trim(),
       priority: 'normal',
-      ...(channel && { channel }),
+      ...(sendChannel && { channel: sendChannel }),
       ...(targetUserId && { recipientUserId: targetUserId }),
       ...(attachments.length ? { attachmentIds: attachments.map((a) => a.id) } : {}),
     });
@@ -189,6 +250,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
       setRecipientOrgId(supportAlias);
       setSupportRecipient(supportAlias);
       setRecipientUserId('');
+      setChannel('');
       setIsAnnouncement(false);
       setAttachments([]);
       onClose();
@@ -276,20 +338,44 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
             </div>
           )}
 
+          {/* Recent recipients (#1) — one-tap quick-pick of orgs you've messaged. */}
+          {canWrite && !isAnnouncement && recentRecipients.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              <span className="text-xs text-gray-400 dark:text-gray-500 self-center mr-0.5">Recent:</span>
+              {recentRecipients.map((r) => (
+                <button
+                  key={r.value}
+                  type="button"
+                  onClick={() => pickRecent(r.value)}
+                  className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                    recipientOrgId.toLowerCase() === r.value.toLowerCase()
+                      ? 'bg-blue-100 dark:bg-blue-900/40 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
+                      : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                  }`}
+                  title={`Message ${r.label}`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Recipient picker (full-compose users only): team typeahead + an
               optional per-user target with member typeahead. Falls back to a
-              free-text datalist input when no member-search fn is supplied. */}
+              name-labeled datalist input when no member-search fn is supplied. */}
           {canWrite && !isAnnouncement && (
             fetchMembers ? (
               <RecipientPicker
+                key={pickerKey}
                 supportAlias={supportAlias}
                 supportAliases={aliasList}
-                teamOptions={recipientSuggestions}
+                teamOptions={mergedSuggestions}
                 recipientOrgId={recipientOrgId}
                 onRecipientOrgIdChange={setRecipientOrgId}
                 recipientUserId={recipientUserId}
                 onRecipientUserIdChange={setRecipientUserId}
                 fetchMembers={fetchMembers}
+                searchTeams={searchRecipients}
               />
             ) : (
               <Input
@@ -297,10 +383,32 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
                 value={recipientOrgId}
                 onChange={(e) => setRecipientOrgId(e.target.value)}
                 list="compose-recipient-options"
-                placeholder="To: Organization ID"
+                placeholder="To: team name or organization id"
                 aria-label="Recipient organization"
               />
             )
+          )}
+
+          {/* Optional channel/inbox bucket for an org→org send (#7). */}
+          {isConcreteRecipient && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">Channel (optional):</span>
+              <Input
+                type="text"
+                value={channel}
+                onChange={(e) => setChannel(e.target.value)}
+                list="compose-channel-options"
+                placeholder="e.g. general, billing"
+                aria-label="Channel (optional)"
+                className="flex-1"
+              />
+              <datalist id="compose-channel-options">
+                <option value="general" />
+                <option value="billing" />
+                <option value="incident" />
+                <option value="help" />
+              </datalist>
+            </div>
           )}
 
           {/* Support-only user: pre-filled support recipient (editable; type
@@ -328,7 +436,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
                   {alias.toLowerCase() === supportAlias.toLowerCase() ? 'Pipeline Builder Support' : alias}
                 </option>
               ))}
-              {recipientSuggestions.map((opt) => (
+              {mergedSuggestions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>

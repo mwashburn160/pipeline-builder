@@ -13,6 +13,9 @@ interface MessageListProps {
   selectedId?: string;
   /** The current user's organization ID, used to determine sender display names. */
   currentOrgId: string;
+  /** Client-side org id → name backfill, used when the server didn't resolve
+   *  `orgName`/`recipientOrgName` onto the row (falls back to the id). */
+  resolveOrgName?: (id?: string | null) => string | undefined;
   /** Callback to delete a message by ID. */
   onDelete?: (id: string) => void;
   /** True when more inbox pages exist beyond what's rendered. */
@@ -29,15 +32,20 @@ interface MessageListProps {
 
 /**
  * Returns the display name for a message row: "Announcement", or the OTHER
- * party's org name (falling back to its id when the name isn't resolved). When
- * the current org is the sender, the other party is the recipient, and vice-versa.
+ * party's org name (server-enriched `*OrgName`, else the client-side
+ * `resolveOrgName` backfill, else the raw id). When the current org is the
+ * sender, the other party is the recipient, and vice-versa.
  */
-function getDisplayName(msg: Message, currentOrgId: string): string {
+function getDisplayName(
+  msg: Message,
+  currentOrgId: string,
+  resolveOrgName?: (id?: string | null) => string | undefined,
+): string {
   if (msg.messageType === 'announcement') return 'Announcement';
   if (msg.orgId.toLowerCase() === currentOrgId.toLowerCase()) {
-    return msg.recipientOrgName || msg.recipientOrgId;
+    return msg.recipientOrgName || resolveOrgName?.(msg.recipientOrgId) || msg.recipientOrgId;
   }
-  return msg.orgName || msg.orgId;
+  return msg.orgName || resolveOrgName?.(msg.orgId) || msg.orgId;
 }
 
 /**
@@ -54,7 +62,7 @@ function getAvatarLetters(name: string): string {
 }
 
 /** Scrollable inbox list displaying message previews with unread indicators. */
-export function MessageList({ messages, onSelect, selectedId, currentOrgId, onDelete, hasMore, loadingMore, onLoadMore, emptyTitle, emptyDescription }: MessageListProps) {
+export function MessageList({ messages, onSelect, selectedId, currentOrgId, resolveOrgName, onDelete, hasMore, loadingMore, onLoadMore, emptyTitle, emptyDescription }: MessageListProps) {
   if (messages.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -71,7 +79,7 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, onDe
   return (
     <div className="flex-1 overflow-y-auto">
       {messages.map((msg) => {
-        const displayName = getDisplayName(msg, currentOrgId);
+        const displayName = getDisplayName(msg, currentOrgId, resolveOrgName);
         const isAnnouncement = msg.messageType === 'announcement';
         const isSelected = selectedId === msg.id;
 
