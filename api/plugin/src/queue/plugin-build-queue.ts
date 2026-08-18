@@ -138,28 +138,61 @@ export async function getOrgTier(quotaService: QuotaService, orgId: string, auth
 export function getConnectionForDb(dbNum: number): Redis {
   let conn = connectionsByDb.get(dbNum);
   if (!conn) {
-    const redis = Config.get('redis');
-    const host = redis.host;
-    const port = redis.port;
+    // Redis Sentinel (HA) support. The ec2/eks deploys front Redis with Sentinel
+    // and set REDIS_SENTINELS (comma-separated host:port), leaving REDIS_HOST/PORT
+    // unset. Using Sentinel here fixes two failures the old standalone-only path hit:
+    //   1. A single-instance connection can't survive a Sentinel master failover.
+    //   2. Because a Service is named `redis`, Kubernetes injects the legacy link
+    //      var REDIS_PORT=tcp://<clusterIP>:6379 into every pod; loadRedisConfig's
+    //      parseInt(REDIS_PORT) then yields NaN → ERR_SOCKET_BAD_PORT and the queue
+    //      workers never connect. Sentinel mode never reads REDIS_PORT, so it's immune.
+    // (The main app Redis client already uses Sentinel via createEnvRedisClient; this
+    // brings the BullMQ connection to parity. Mirrors parseSentinels in api-core.)
+    const sentinels = (process.env.REDIS_SENTINELS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((entry) => {
+        const [h, p] = entry.split(':');
+        return { host: h, port: parseInt(p ?? '26379', 10) || 26379 };
+      })
+      .filter((s) => !!s.host);
 
-    conn = new Redis({
-      host,
-      port,
-      db: dbNum,
-      maxRetriesPerRequest: null, // Required by BullMQ
-    });
+    let logCtx: Record<string, unknown>;
+    if (sentinels.length > 0) {
+      const name = process.env.REDIS_SENTINEL_MASTER || 'mymaster';
+      conn = new Redis({
+        sentinels,
+        name,
+        db: dbNum,
+        maxRetriesPerRequest: null, // Required by BullMQ
+        ...(process.env.REDIS_PASSWORD ? { password: process.env.REDIS_PASSWORD } : {}),
+        ...(process.env.REDIS_SENTINEL_PASSWORD ? { sentinelPassword: process.env.REDIS_SENTINEL_PASSWORD } : {}),
+      });
+      logCtx = { mode: 'sentinel', master: name, sentinels: sentinels.length, db: dbNum };
+    } else {
+      const redis = Config.get('redis');
+      conn = new Redis({
+        host: redis.host,
+        port: redis.port,
+        db: dbNum,
+        maxRetriesPerRequest: null, // Required by BullMQ
+        ...(process.env.REDIS_PASSWORD ? { password: process.env.REDIS_PASSWORD } : {}),
+      });
+      logCtx = { mode: 'standalone', host: redis.host, port: redis.port, db: dbNum };
+    }
 
     conn.on('connect', () => {
-      logger.info('Redis connected', { host, port, db: dbNum });
+      logger.info('Redis connected', logCtx);
     });
     conn.on('error', (err: Error) => {
-      logger.error('Redis connection error', { error: err.message, host, port, db: dbNum });
+      logger.error('Redis connection error', { ...logCtx, error: err.message });
     });
     conn.on('close', () => {
-      logger.warn('Redis connection closed', { host, port, db: dbNum });
+      logger.warn('Redis connection closed', logCtx);
     });
     conn.on('reconnecting', () => {
-      logger.info('Redis reconnecting', { host, port, db: dbNum });
+      logger.info('Redis reconnecting', logCtx);
     });
 
     connectionsByDb.set(dbNum, conn);
