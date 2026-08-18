@@ -228,12 +228,28 @@ fi
 # Data stays on the VM disk (persists across stop/start). See the DOCKER_BUILD note above.
 MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size="$DISK_SIZE" --driver=docker)
 
-log "Starting Minikube"
-if ! minikube start "${MK_ARGS[@]}"; then
-  echo "  Retrying after cleanup..."
-  minikube delete --profile="$PROFILE" 2>/dev/null || true
-  cleanup_docker
-  minikube start "${MK_ARGS[@]}"
+# RESUME an existing cluster vs CREATE a fresh one. The sizing flags
+# (--cpus/--memory/--disk-size) are CREATE-TIME only — passing them to
+# `minikube start` on an EXISTING cluster can exit non-zero (e.g. "cannot change
+# the disk size of an existing cluster"), which would trip the delete-and-recreate
+# fallback below and WIPE the persistent /data disk. So when the profile already
+# exists we resume with JUST the profile (preserving all DB/minio data across
+# setup↔shutdown cycles); the sizing flags + destructive fallback are reserved for
+# a genuinely fresh create. A resume that fails is NOT auto-deleted — data safety
+# over convenience; the operator can `minikube delete` deliberately to rebuild.
+MK_PROFILE_DIR="${MINIKUBE_HOME:-$HOME/.minikube}/profiles/$PROFILE"
+
+if [ -f "$MK_PROFILE_DIR/config.json" ]; then
+  log "Resuming existing Minikube cluster (preserving /data)"
+  minikube start --profile="$PROFILE"
+else
+  log "Creating Minikube cluster"
+  if ! minikube start "${MK_ARGS[@]}"; then
+    echo "  Retrying after cleanup..."
+    minikube delete --profile="$PROFILE" 2>/dev/null || true
+    cleanup_docker
+    minikube start "${MK_ARGS[@]}"
+  fi
 fi
 
 # -- Wait for cluster ---------------------------------------------------------

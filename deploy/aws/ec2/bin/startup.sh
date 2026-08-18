@@ -144,14 +144,27 @@ MK_MEM_BY_RESERVE=$((TOTAL_MEM - 4096))
 MK_MEM=$(( MK_MEM_BY_RATIO > MK_MEM_BY_RESERVE ? MK_MEM_BY_RATIO : MK_MEM_BY_RESERVE ))
 echo "  System: ${TOTAL_CPU} CPUs, ${TOTAL_MEM}M RAM → Minikube: ${MK_CPUS} CPUs, ${MK_MEM}M"
 
-MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size="$DISK_SIZE" --driver=docker --mount --mount-string="$DATA_DIR:$DATA_DIR")
+# The host-data MOUNT must be re-established on EVERY start (it's how the node sees
+# the EC2 host's $DATA_DIR, where all DB/minio data lives); the sizing flags are
+# CREATE-ONLY.
+MK_MOUNT_ARGS=(--mount --mount-string="$DATA_DIR:$DATA_DIR")
+MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size="$DISK_SIZE" --driver=docker "${MK_MOUNT_ARGS[@]}")
 
 log "Starting Minikube"
-if ! mk minikube start "${MK_ARGS[@]}"; then
-  echo "  Retrying after cleanup..."
-  mk minikube delete --profile="$PROFILE" 2>/dev/null || true
-  cleanup_docker
-  mk minikube start "${MK_ARGS[@]}"
+# RESUME an existing cluster with just the mount (no create-only sizing flags —
+# those can exit non-zero on an existing cluster and trip the delete/recreate
+# fallback below; the recreate is disruptive and needless since $DATA_DIR is on
+# the host and survives regardless). A fresh cluster gets the full flags + fallback.
+if mk minikube profile list 2>/dev/null | grep -q "$PROFILE"; then
+  echo "  Resuming existing cluster (host data at $DATA_DIR preserved)"
+  mk minikube start --profile="$PROFILE" "${MK_MOUNT_ARGS[@]}"
+else
+  if ! mk minikube start "${MK_ARGS[@]}"; then
+    echo "  Retrying after cleanup..."
+    mk minikube delete --profile="$PROFILE" 2>/dev/null || true
+    cleanup_docker
+    mk minikube start "${MK_ARGS[@]}"
+  fi
 fi
 
 # -- Wait for cluster ---------------------------------------------------------
