@@ -161,17 +161,12 @@ pb_ensure_mongo_keyfile "$DEPLOY_DIR/mongodb-keyfile"
 # use `deploy/local/minikube/bin/backup.sh` (dumps via kubectl port-forward).
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$VM_DATA_DIR/plugins-data}"
 
-# -- Clean stale Docker state ------------------------------------------------
-
-log "Cleaning Docker state"
-if docker inspect "$PROFILE" >/dev/null 2>&1; then
-  for net in $(docker inspect "$PROFILE" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null); do
-    docker network inspect "$net" >/dev/null 2>&1 || { echo "  Stale network — removing container"; cleanup_docker; break; }
-  done
-fi
-docker network rm "$PROFILE" 2>/dev/null || true
-
 # -- Start Minikube -----------------------------------------------------------
+# NOTE: docker cleanup (removing a stale container/network) is deferred to the
+# create/recreate paths below — it must NEVER run before a RESUME. Removing the
+# `pipeline-builder` docker network here (as an earlier unconditional
+# `docker network rm` did) orphans the running cluster's container, so the resume
+# then fails with "failed to set up container networking: network … not found".
 
 log "Detecting resources"
 # Detect CPU and memory independently: `nproc` can be present on macOS via
@@ -267,6 +262,9 @@ if [ -f "$MK_PROFILE_DIR/config.json" ]; then
   esac
 else
   log "Creating Minikube cluster"
+  # Clear any orphaned container/network from a prior half-deleted run before the
+  # fresh create (there is no existing cluster to preserve on this path).
+  cleanup_docker
   if ! minikube start "${MK_ARGS[@]}"; then
     echo "  Retrying after cleanup..."
     minikube delete --profile="$PROFILE" 2>/dev/null || true

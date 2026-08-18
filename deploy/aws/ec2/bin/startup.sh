@@ -118,17 +118,12 @@ fi
 mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,prometheus,alertmanager},minio-data/{1,2,3,4},pgadmin-data,tmp} 2>/dev/null || true
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$DATA_DIR/plugins-data}"
 
-# -- Clean stale Docker state ------------------------------------------------
-
-log "Cleaning Docker state"
-if mk docker inspect "$PROFILE" >/dev/null 2>&1; then
-  for net in $(mk docker inspect "$PROFILE" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null); do
-    mk docker network inspect "$net" >/dev/null 2>&1 || { echo "  Removing container with stale network"; cleanup_docker; break; }
-  done
-fi
-mk docker network rm "$PROFILE" 2>/dev/null || true
-
 # -- Start Minikube -----------------------------------------------------------
+# NOTE: docker cleanup (removing a stale container/network) is deferred to the
+# create/recreate paths below — it must NEVER run before a RESUME. Removing the
+# `pipeline-builder` docker network here orphans the running cluster's container,
+# so the resume then fails with "failed to set up container networking:
+# network … not found".
 
 log "Detecting resources"
 TOTAL_CPU=$(nproc)
@@ -184,6 +179,8 @@ if mk minikube profile list 2>/dev/null | grep -q "$PROFILE"; then
       ;;
   esac
 else
+  # Fresh create — clear any orphaned container/network from a prior half-deleted run.
+  cleanup_docker
   if ! mk minikube start "${MK_ARGS[@]}"; then
     echo "  Retrying after cleanup..."
     mk minikube delete --profile="$PROFILE" 2>/dev/null || true
