@@ -141,8 +141,18 @@ preflight() {
 ensure_istioctl() {
   local _want="${1:?ensure_istioctl needs an ISTIO_VERSION}"
   # Already have an ambient-capable istioctl (>= 1.24) on PATH? Use it as-is.
-  local _have _maj _min
-  _have="$(istioctl version --remote=false 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+  local _have _maj _min _probe
+  # CLIENT-ONLY version probe. This runs BEFORE the cluster exists (ec2/minikube
+  # bring-up calls ensure_istioctl before `minikube start`), so it must never try
+  # to reach a control plane — a bare `istioctl version` blocks on the down/stale
+  # apiserver in the caller's kubeconfig and hangs the whole startup with zero
+  # output. Belt and suspenders: `--remote=false` asks for client-only, KUBECONFIG=
+  # /dev/null guarantees no context is found even if the flag is ignored, and a
+  # `timeout` (when available — Linux hosts always; macOS may lack it) caps any
+  # residual hang. If the probe is killed/empty we simply fall through to install.
+  _probe="istioctl version --remote=false"
+  command -v timeout >/dev/null 2>&1 && _probe="timeout 10 $_probe"
+  _have="$(KUBECONFIG=/dev/null $_probe 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)"
   if [ -n "$_have" ]; then
     _maj="${_have%%.*}"; _min="${_have#*.}"
     if [ "$_maj" -gt 1 ] || { [ "$_maj" -eq 1 ] && [ "$_min" -ge 24 ]; }; then
