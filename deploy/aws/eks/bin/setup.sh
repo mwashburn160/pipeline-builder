@@ -92,7 +92,11 @@ ALB_SCHEME=$([ "$DEPLOY_MODE" = public ] && echo internet-facing || echo interna
 # ---- Helpers ----
 log() { echo ""; echo "=== $1 ==="; }
 # Shared Secret/ConfigMap creators (deploy/bin/k8s-resources.sh) — plain kubectl, this namespace.
-PB_KUBECTL="kubectl"; PB_NAMESPACE="$NAMESPACE"
+# PB_KUBECTL/PB_NAMESPACE are consumed by the sourced k8s-resources.sh (cross-file use).
+# shellcheck disable=SC2034
+PB_KUBECTL="kubectl"
+# shellcheck disable=SC2034
+PB_NAMESPACE="$NAMESPACE"
 . "$SCRIPT_DIR/../../../bin/k8s-resources.sh"
 
 echo "=== EKS Auto Mode deploy: cluster=$CLUSTER_NAME region=$REGION mode=$DEPLOY_MODE k8s=$EKS_VERSION domain=$DOMAIN ==="

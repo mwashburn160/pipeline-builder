@@ -15,6 +15,14 @@ set -euo pipefail
 SCOPE='@pipeline-builder'
 REGISTRY='https://registry.npmjs.org'
 
+# Hard-require the tools this script drives. Without this, a CI runner missing
+# python3 (the JSON parser below) would exit non-zero mid-loop with a cryptic
+# error — or worse, a shell that tolerates it could report "all resolved" having
+# checked nothing (false green on a release gate). Fail fast and legibly.
+for _t in curl python3; do
+  command -v "$_t" >/dev/null 2>&1 || { echo "ERROR: '$_t' is required but not installed." >&2; exit 3; }
+done
+
 # npm CDN propagation can lag a few seconds after `pnpm publish`, so retry a
 # "missing" lookup before declaring a version genuinely unpublished (avoids a
 # false release failure on the publish→serve race). Existing versions return on

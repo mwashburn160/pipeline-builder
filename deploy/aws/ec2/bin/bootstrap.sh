@@ -360,7 +360,7 @@ echo "========================================"
 echo "Phase 9: Launch minikube startup"
 echo "========================================"
 
-# startup.sh now handles root-vs-minikube user internally via run_as_mk,
+# startup.sh handles root-vs-minikube user internally via its `mk` wrapper,
 # and sets up iptables when run as root, so we can call it directly.
 export DOMAIN
 export GHCR_TOKEN
@@ -416,7 +416,7 @@ if [ "${AUTO_INIT:-false}" = "true" ]; then
     BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_PIPELINES=y \
     PLATFORM_BASE_URL="https://${DOMAIN}" \
     PLATFORM_PASSWORD="$ADMIN_PASSWORD" \
-    DEPLOY_MODE="${DEPLOY_MODE:-public}" \
+    DEPLOY_MODE="${DEPLOY_MODE:-private}" \
     PIPELINE_VPC_ID="${PIPELINE_VPC_ID:-}" \
     PIPELINE_SUBNET_IDS="${PIPELINE_SUBNET_IDS:-}" \
     bash "${INSTALL_DIR}/deploy/bin/init-platform.sh" --continue-on-build-failure ec2 \

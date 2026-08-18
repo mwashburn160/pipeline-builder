@@ -265,7 +265,8 @@ JSON
 # just prints help and exits.
 _push_k8s() {
   local _tag="$1" _remote="$2" _jwt="$3"
-  local _podname="crane-push-$(date +%s)-$$"
+  local _podname
+  _podname="crane-push-$(date +%s)-$$"
   # The actual shell command the pod runs. Variables are expanded by
   # the *pod's* shell (not the host's), so they resolve against the env
   # block below at runtime. JSON-escape the double quotes so the cmd
@@ -355,7 +356,8 @@ _discover_existing() {
         || true
       ;;
     minikube|ec2|eks)
-      local _podname="crane-check-$(date +%s)-$$"
+      local _podname
+      _podname="crane-check-$(date +%s)-$$"
       # Inner shell command for the pod's `sh -c`. Must be JSON-escaped
       # before embedding in the override below — _check_cmd contains
       # literal `"` characters that would otherwise terminate the JSON

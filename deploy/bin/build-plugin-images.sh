@@ -99,8 +99,8 @@ while [ $# -gt 0 ]; do
       echo "  --dry-run            Show what would be built without building"
       echo "  --bases-only         Build + push base images only, skip per-plugin builds"
       echo "  --skip-bases         Trust prebuilt bases already in the registry; skip the base"
-      echo "                       docker build+push (also: BASES_PREBUILT=true). For Docker-less"
-      echo "                       hosts (e.g. a Docker-less host)."
+      echo "                       docker build+push (also: BASES_PREBUILT=true). For hosts with"
+      echo "                       no Docker daemon (e.g. a CI runner) where bases are seeded out-of-band."
       echo "  --category CATS      Comma-separated categories (e.g., language,security)"
       echo "  --max-image-size MB  Skip images larger than MB (default: 4096)"
       exit 0
@@ -383,7 +383,12 @@ if [ "$RESET" = true ]; then
   echo "=== Resetting all plugins to build_image ==="
   count=0
   for category_dir in "$PLUGINS_DIR"/*/; do
+    # `_*` dirs (e.g. `_base`) are infrastructure, not plugins — excluded from
+    # the upload/load flow everywhere else (see the `! -name '_*'` filter note
+    # above); skip them here too so reset never rewrites a base-image config.
+    case "$(basename "$category_dir")" in _*) continue ;; esac
     for plugin_dir in "$category_dir"*/; do
+      case "$(basename "$plugin_dir")" in _*) continue ;; esac
       config="$plugin_dir/config.yaml"
       [ -f "$config" ] || continue
 

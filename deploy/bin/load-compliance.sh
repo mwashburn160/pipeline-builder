@@ -62,8 +62,10 @@ for RULE_DIR in "$RULES_DIR"/*/; do
   TOTAL=$((TOTAL + 1))
   # Guard jq: a single malformed rule.json under `set -e` would abort the whole
   # compliance load with no failed-count and no summary. Count it + continue.
-  if ! NAME=$(jq -r '.name' "$RULE_FILE" 2>/dev/null); then
-    echo "  FAIL $(basename "$RULE_DIR") (invalid rule.json)"; FAILED=$((FAILED + 1)); continue
+  # jq -e: exit non-zero when .name is absent/null (plain -r yields the string
+  # "null" with exit 0, so a rule missing its name would POST as name="null").
+  if ! NAME=$(jq -er '.name' "$RULE_FILE" 2>/dev/null); then
+    echo "  FAIL $(basename "$RULE_DIR") (invalid rule.json or missing .name)"; FAILED=$((FAILED + 1)); continue
   fi
   post_with_retry "${PLATFORM_BASE_URL}/api/compliance/rules" "$RULE_FILE" "$NAME"
 done
@@ -83,8 +85,8 @@ for POLICY_DIR in "$POLICIES_DIR"/*/; do
   [ -f "$POLICY_FILE" ] || continue
 
   TOTAL=$((TOTAL + 1))
-  if ! NAME=$(jq -r '.name' "$POLICY_FILE" 2>/dev/null); then
-    echo "  FAIL $(basename "$POLICY_DIR") (invalid policy.json)"; FAILED=$((FAILED + 1)); continue
+  if ! NAME=$(jq -er '.name' "$POLICY_FILE" 2>/dev/null); then
+    echo "  FAIL $(basename "$POLICY_DIR") (invalid policy.json or missing .name)"; FAILED=$((FAILED + 1)); continue
   fi
   post_with_retry "${PLATFORM_BASE_URL}/api/compliance/policies" "$POLICY_FILE" "$NAME"
 done

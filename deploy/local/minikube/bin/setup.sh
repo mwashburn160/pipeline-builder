@@ -14,7 +14,9 @@ CERT_DIR="$DEPLOY_DIR/certs"
 BIN_DIR="$(cd "$SCRIPT_DIR/../../../bin" && pwd)"   # deploy/bin (shared cert/key helpers)
 NAMESPACE="pipeline-builder"
 PROFILE="pipeline-builder"
-DATA_DIR="$DEPLOY_DIR/data"
+# NOTE: no host DATA_DIR here — with the minikube docker driver the cluster's
+# persistent data lives INSIDE the VM at VM_DATA_DIR (/data), not under the host
+# deploy dir. See the VM_DATA_DIR mounts below.
 # Istio ambient mesh version. Must be ambient-GA (>= 1.24). Overridable; bump to
 # the current stable at deploy time. The installed `istioctl` binary drives the
 # install — keep it on the same minor.
@@ -144,7 +146,10 @@ if [ -z "$ENV_FILE" ]; then
 fi
 
 log "Loading environment from $ENV_FILE"
-set -a; . "$ENV_FILE"; set +a
+set -a
+# shellcheck source=/dev/null  # ENV_FILE is a runtime path, not statically analyzable
+. "$ENV_FILE"
+set +a
 # buildkitd sidecar memory limit (the build cgroup). Set in .env to override;
 # default 3072Mi — lower than the AWS tiers since this runs on a laptop.
 # envsubst has no `:-default`, so the fallback lives here.
@@ -208,7 +213,7 @@ MK_CPUS=$((TOTAL_CPU > 2 ? TOTAL_CPU - 1 : 2))
 MK_MEM_BY_RATIO=$((TOTAL_MEM * 75 / 100))
 MK_MEM_BY_RESERVE=$((TOTAL_MEM - 4096))
 MK_MEM=$(( MK_MEM_BY_RATIO > MK_MEM_BY_RESERVE ? MK_MEM_BY_RATIO : MK_MEM_BY_RESERVE ))
-echo "  System: ${TOTAL_CPU} CPUs, ${TOTAL_MEM}M → Minikube: ${MK_CPUS} CPUs, ${MK_MEM}M, 30g disk"
+echo "  System: ${TOTAL_CPU} CPUs, ${TOTAL_MEM}M → Minikube: ${MK_CPUS} CPUs, ${MK_MEM}M, ${DISK_SIZE} disk"
 
 # The full namespace (~3.3 cores of services) plus build pods is tight
 # under 8 GiB. Warn early with an actionable message rather than letting a

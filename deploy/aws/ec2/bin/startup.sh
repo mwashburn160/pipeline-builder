@@ -54,8 +54,18 @@ log() { echo ""; echo "=== $1 ==="; }
 
 # Shared Secret/ConfigMap creators (deploy/bin/k8s-resources.sh). PB_KUBECTL runs kubectl as
 # the minikube user via the `mk` function above, so applies happen as the cluster owner.
-PB_KUBECTL="mk kubectl"; PB_NAMESPACE="$NAMESPACE"
+# PB_KUBECTL/PB_NAMESPACE are consumed by the sourced k8s-resources.sh (shellcheck
+# can't see the cross-file use).
+# shellcheck disable=SC2034
+PB_KUBECTL="mk kubectl"
+# shellcheck disable=SC2034
+PB_NAMESPACE="$NAMESPACE"
 . "$BIN_DIR/k8s-resources.sh"
+
+# Fail fast if a core tool is missing. bootstrap.sh installs these on first boot;
+# a standalone re-run on a fresh box then gets ONE clear error instead of failing
+# deep in the bring-up. (istioctl is handled separately by ensure_istioctl.)
+preflight kubectl minikube docker openssl
 
 cleanup_docker() {
   mk docker rm -f "$PROFILE" 2>/dev/null || true
@@ -68,7 +78,10 @@ cleanup_docker() {
 [ -f "$DEPLOY_DIR/.env" ] || { echo "ERROR: No .env — run bootstrap.sh first" >&2; exit 1; }
 ENV_FILE="$DEPLOY_DIR/.env"
 log "Loading environment"
-set -a; . "$ENV_FILE"; set +a
+set -a
+# shellcheck source=/dev/null  # ENV_FILE is a runtime path, not statically analyzable
+. "$ENV_FILE"
+set +a
 # buildkitd sidecar memory limit (the build cgroup). Set in .env to override;
 # default 3Gi — fits every allowed instance (t3.xlarge 16G/~12G minikube up to
 # m5.4xlarge), leaving room for the rest of the single-node stack. envsubst has
@@ -240,13 +253,8 @@ echo "  Addons + KEDA installed"
 # namespace is enrolled via the ambient label on namespace.yaml. Run as the
 # minikube user (mk) like the rest of the cluster. See docs/service-mesh.md.
 log "Installing Istio ambient mesh ($ISTIO_VERSION)"
-# Ambient needs istioctl >= 1.24 (the `ambient` profile ships in the binary).
-_ic_ver="$(mk istioctl version --remote=false 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)"
-if [ -z "$_ic_ver" ] || [ "${_ic_ver%%.*}" -lt 1 ] || { [ "${_ic_ver%%.*}" -eq 1 ] && [ "${_ic_ver#*.}" -lt 24 ]; }; then
-  echo "ERROR: istioctl '${_ic_ver:-unknown}' is too old for ambient — need >= 1.24 (ISTIO_VERSION=$ISTIO_VERSION)." >&2
-  echo "       Upgrade: curl -L https://istio.io/downloadIstio | ISTIO_VERSION=$ISTIO_VERSION sh - ; put istioctl on the minikube user's PATH." >&2
-  exit 1
-fi
+# istioctl presence + version (>= 1.24) is already guaranteed by ensure_istioctl
+# above (shared with the eks/minikube targets) — go straight to the install.
 mk istioctl install --skip-confirmation \
   --set profile=ambient \
   --set "meshConfig.extensionProviders[0].name=jaeger" \

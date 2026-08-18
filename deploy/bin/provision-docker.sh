@@ -28,6 +28,8 @@ TARGET=""
 prev=""
 for a in "$@"; do
   case "$prev" in -t|--target) TARGET="$a" ;; esac
+  # Also accept the `--target=eks` / `-t=eks` equals form (argparse-style).
+  case "$a" in --target=*|-t=*) TARGET="${a#*=}" ;; esac
   prev="$a"
 done
 

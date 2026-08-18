@@ -72,8 +72,9 @@ _in_list() {
 validate_spec() {
   local specfile="$1"
   local plugin_dir="$2"
-  local plugin_name="$(basename "$plugin_dir")"
-  local category="$(basename "$(dirname "$plugin_dir")")"
+  local plugin_name category
+  plugin_name="$(basename "$plugin_dir")"
+  category="$(basename "$(dirname "$plugin_dir")")"
   local fqn="${category}/${plugin_name}"
   local all_pass=true
 
@@ -216,7 +217,8 @@ validate_dockerfile() {
   local dockerfile="$1"
   local plugin_dir="$2"
   local specfile="$3"
-  local fqn="$(basename "$(dirname "$plugin_dir")")/$(basename "$plugin_dir")"
+  local fqn
+  fqn="$(basename "$(dirname "$plugin_dir")")/$(basename "$plugin_dir")"
 
   if ! grep -q "^FROM " "$dockerfile" 2>/dev/null; then
     log_fail "Missing FROM instruction" "$fqn"
@@ -294,7 +296,8 @@ validate_dockerfile() {
 
 validate_config() {
   local plugin_dir="$1"
-  local fqn="$(basename "$(dirname "$plugin_dir")")/$(basename "$plugin_dir")"
+  local fqn
+  fqn="$(basename "$(dirname "$plugin_dir")")/$(basename "$plugin_dir")"
   local config="${plugin_dir}/config.yaml"
 
   if [ ! -f "$config" ]; then
@@ -313,8 +316,9 @@ validate_config() {
 
 test_plugin() {
   local plugin_dir="$1"
-  local plugin_name="$(basename "$plugin_dir")"
-  local category="$(basename "$(dirname "$plugin_dir")")"
+  local plugin_name category
+  plugin_name="$(basename "$plugin_dir")"
+  category="$(basename "$(dirname "$plugin_dir")")"
   local specfile="${plugin_dir}/plugin-spec.yaml"
   local dockerfile="${plugin_dir}/Dockerfile"
 
@@ -350,6 +354,13 @@ echo -e "${BLUE}Plugin Testing Framework${NC}"
 echo "========================"
 echo "  Plugins: ${PLUGINS_DIR}"
 echo "  Mode:    $([ "$SPEC_ONLY" = true ] && echo "spec-only" || echo "full")$([ "$BUILD_IMAGES" = true ] && echo " +docker-build" || echo "")"
+
+# --build reads the spec's optional smokeTest via yq and runs images via docker.
+# Assert both up front: without this a missing yq silently yields an empty
+# smokeTest (the test is skipped, reported green) instead of failing loudly.
+if [ "$BUILD_IMAGES" = true ]; then
+  preflight docker yq
+fi
 
 if [ -n "$SPECIFIC_PLUGIN" ]; then
   plugin_path="${PLUGINS_DIR}/${SPECIFIC_PLUGIN}"

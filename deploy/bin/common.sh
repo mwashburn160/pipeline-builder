@@ -582,6 +582,7 @@ check_url() {
 #   Uses/increments: PASSED, FAILED, ERRORS[], CHECK_TIMEOUT (default 15)
 # ---------------------------------------------------------------------------
 check_docker_image() {
+  local _img_repo _img_tag _api_result
   if docker manifest inspect "$1" > /dev/null 2>&1; then
     echo -e "    ${GREEN}OK${NC}  $2"
     PASSED=$((PASSED + 1))

@@ -272,11 +272,15 @@ if [ "$FORCE_REBUILD_ALL" = true ]; then
   BOOTSTRAP_ARGS="--force"
   BOOTSTRAP_FORCE_PUSH=true
 fi
-# shellcheck disable=SC2086  # $BOOTSTRAP_ARGS is intentionally word-split (empty or --force)
-case "$BUILD_BOOTSTRAP" in
-  y|Y|yes|true) DEPLOY_TARGET="$TARGET" FORCE_PUSH="$BOOTSTRAP_FORCE_PUSH" "$SCRIPT_DIR/build-codebuild-bootstrap.sh" $BOOTSTRAP_ARGS ;;
-  *)            echo "  Skipping CodeBuild bootstrap image." ;;
-esac
+# Reuse _truthy (case-insensitive) so BUILD_BOOTSTRAP agrees with the LOAD_*
+# toggles on what counts as "on" — the prior inline case missed mixed-case
+# values like `Yes`/`TRUE`.
+if _truthy "$BUILD_BOOTSTRAP"; then
+  # shellcheck disable=SC2086  # $BOOTSTRAP_ARGS is intentionally word-split (empty or --force)
+  DEPLOY_TARGET="$TARGET" FORCE_PUSH="$BOOTSTRAP_FORCE_PUSH" "$SCRIPT_DIR/build-codebuild-bootstrap.sh" $BOOTSTRAP_ARGS
+else
+  echo "  Skipping CodeBuild bootstrap image."
+fi
 
 # Gate a sample load on the backend services it actually talks to — beyond the
 # platform readiness already waited for above. The plugin upload and pipeline
@@ -417,6 +421,10 @@ if _truthy "$LOAD_PLUGINS"; then
     esac
     if [ -n "$_ports" ] && ! curl -s -k -o /dev/null --max-time 4 "$_probe" 2>/dev/null; then
       echo "  port-forward dropped during the build — re-establishing (svc/nginx $_ports)…"
+      # Reap the previous port-forward before reassigning TUNNEL_PID — a half-dead
+      # kubectl (probe failed but process lingering) would otherwise be orphaned and
+      # keep holding the local port, so the fresh port-forward can't bind it.
+      [ -n "${TUNNEL_PID:-}" ] && kill "$TUNNEL_PID" 2>/dev/null || true
       kubectl port-forward svc/nginx "$_ports" -n "$NAMESPACE" >/dev/null 2>&1 &
       TUNNEL_PID=$!
       sleep 3

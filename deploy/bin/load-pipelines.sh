@@ -52,7 +52,8 @@ done
 
 upload_pipeline_single() {
   local pipeline_dir="$1"
-  local dir_name="$(basename "$pipeline_dir")"
+  local dir_name
+  dir_name="$(basename "$pipeline_dir")"
 
   local BODY
   BODY=$(jq '.accessModifier = "public"' "${pipeline_dir}/pipeline.json") || {

@@ -10,7 +10,8 @@ set -euo pipefail
 # Usage:
 #   deploy/bin/verify-image-tags.sh [owner]        # default owner: mwashburn160
 #
-# Exit codes: 0 = every referenced tag exists · 1 = one or more missing · 2 = no refs.
+# Exit codes: 0 = every referenced tag exists · 1 = one or more missing · 2 = no refs
+#             · 3 = could not reach GHCR / obtain a pull token (infra error, not a verdict).
 # Public images work anonymously; to dodge GHCR's anonymous pull-token rate limits
 # (useful in CI / for a long image list), export a token — GHCR_TOKEN or GITHUB_TOKEN
 # (and optionally GHCR_USER / GITHUB_ACTOR for the username; any value works for ghcr,
@@ -44,7 +45,7 @@ for ref in "${REFS[@]}"; do
     | grep -o '"token":"[^"]*"' | cut -d'"' -f4 || true)"
   if [ -z "$tok" ]; then
     echo "ERROR: could not obtain a GHCR pull token for ${OWNER}/${repo} — check GHCR_TOKEN / network." >&2
-    exit 2
+    exit 3
   fi
   code="$(curl -fsS -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer ${tok}" \

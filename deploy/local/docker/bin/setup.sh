@@ -22,13 +22,9 @@ preflight docker openssl
 cd "$DEPLOY_DIR"
 
 # -----------------------------------------------------------------------
-# Verify prerequisites
+# Verify prerequisites (presence already asserted by `preflight docker` above;
+# this checks the daemon is actually reachable).
 # -----------------------------------------------------------------------
-if ! command -v docker >/dev/null 2>&1; then
-  echo "ERROR: docker is not installed or not in PATH" >&2
-  exit 1
-fi
-
 if ! docker info >/dev/null 2>&1; then
   echo "ERROR: Docker daemon is not running" >&2
   exit 1

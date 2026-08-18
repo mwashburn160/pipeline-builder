@@ -113,6 +113,14 @@ if [ -z "$GHCR_TOKEN" ]; then
   echo ""
 fi
 
+# This script drives CloudFormation from the operator's machine with the AWS
+# CLI — assert it's installed before we start echoing progress (a missing `aws`
+# would otherwise surface as a confusing "command not found" mid-deploy).
+command -v aws >/dev/null 2>&1 || {
+  echo "ERROR: the AWS CLI ('aws') is required but not installed — https://docs.aws.amazon.com/cli/" >&2
+  exit 1
+}
+
 echo "========================================"
 echo "Pipeline Builder - EC2 Deployment"
 echo "========================================"

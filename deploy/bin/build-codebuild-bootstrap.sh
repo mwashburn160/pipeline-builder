@@ -121,7 +121,7 @@ fi
 
 # ---- Publish ----
 # Reuse push-base-images.sh — it owns the per-target transport (docker
-# sidecar for local/eks, kubectl-run crane pod for minikube/ec2) and
+# sidecar for local, kubectl-run crane pod for minikube/ec2/eks) and
 # the registry token exchange. PUSH_TAGS overrides its discovery so we
 # don't also re-walk the plugin-base set.
 echo ""
