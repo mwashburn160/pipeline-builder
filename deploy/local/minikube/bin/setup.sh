@@ -28,6 +28,10 @@ LEAN="${LEAN:-0}"
 # cluster you must `minikube delete --profile=pipeline-builder` and re-run.
 # On the docker driver it's bounded by Docker Desktop's virtual-disk limit.
 DISK_SIZE="${DISK_SIZE:-30g}"
+# RECREATE: when an existing cluster is found, whether to WIPE it and start fresh.
+# Unset + a TTY → the script prompts (default: keep data). RECREATE=y wipes /data
+# and recreates (also lets sizing overrides like DISK_SIZE take effect); RECREATE=n
+# (or unset on a non-interactive run) resumes and preserves data.
 # In-VM data path for the k8s hostPath manifests. This is minikube's OWN
 # persistent disk (/data) — data survives stop/start but is NOT mirrored to the
 # host `data/` folder (minikube's /data shadows any host mount there, and DB data
@@ -231,17 +235,36 @@ MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size="
 # RESUME an existing cluster vs CREATE a fresh one. The sizing flags
 # (--cpus/--memory/--disk-size) are CREATE-TIME only — passing them to
 # `minikube start` on an EXISTING cluster can exit non-zero (e.g. "cannot change
-# the disk size of an existing cluster"), which would trip the delete-and-recreate
-# fallback below and WIPE the persistent /data disk. So when the profile already
-# exists we resume with JUST the profile (preserving all DB/minio data across
-# setup↔shutdown cycles); the sizing flags + destructive fallback are reserved for
-# a genuinely fresh create. A resume that fails is NOT auto-deleted — data safety
-# over convenience; the operator can `minikube delete` deliberately to rebuild.
+# the disk size of an existing cluster"), which would trip a delete-and-recreate
+# and WIPE the persistent /data disk. So an existing profile is RESUMED with just
+# the profile (preserving all DB/minio data across setup↔shutdown cycles), unless
+# the operator explicitly asks to recreate.
+#
+# RECREATE controls the existing-cluster path:
+#   unset + interactive TTY → prompt (default: resume/keep data)
+#   RECREATE=y|yes|true     → delete the cluster + WIPE /data, then create fresh
+#   RECREATE=n (or unset, non-interactive) → resume, keep data (safe default)
 MK_PROFILE_DIR="${MINIKUBE_HOME:-$HOME/.minikube}/profiles/$PROFILE"
+RECREATE="${RECREATE:-}"
 
 if [ -f "$MK_PROFILE_DIR/config.json" ]; then
-  log "Resuming existing Minikube cluster (preserving /data)"
-  minikube start --profile="$PROFILE"
+  # An existing cluster is present. Ask before doing anything destructive.
+  if [ -z "$RECREATE" ] && [ -t 0 ]; then
+    printf "An existing '%s' cluster was found. Recreate it (WIPES ALL DATA)? [y/N] " "$PROFILE"
+    read -r RECREATE
+  fi
+  case "$RECREATE" in
+    y|Y|yes|YES|true)
+      log "Recreating Minikube cluster (deleting existing + ALL data)"
+      minikube delete --profile="$PROFILE" 2>/dev/null || true
+      cleanup_docker
+      minikube start "${MK_ARGS[@]}"
+      ;;
+    *)
+      log "Resuming existing Minikube cluster (preserving /data)"
+      minikube start --profile="$PROFILE"
+      ;;
+  esac
 else
   log "Creating Minikube cluster"
   if ! minikube start "${MK_ARGS[@]}"; then

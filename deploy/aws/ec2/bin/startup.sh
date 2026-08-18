@@ -24,6 +24,10 @@ ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
 # Minikube VM disk size. Applied only at cluster CREATE — grow it by re-running
 # after a delete. Keep it within the instance's EBS data volume.
 DISK_SIZE="${DISK_SIZE:-40g}"
+# RECREATE: when an existing cluster is found, whether to rebuild it. Unset + a TTY
+# → prompt (default: resume). RECREATE=y rebuilds the cluster; RECREATE=n (or unset
+# on the usual headless run) resumes. Data lives on the host $DATA_DIR and is kept
+# either way — to truly wipe, clear $DATA_DIR on the host before re-running.
 # Persistent-storage layout. Honors PIPELINE_ROOT from the host (set by
 # UserData / bootstrap.sh) but defaults to /opt/pipeline for standalone
 # script invocations. The minikube VM mounts $DATA_DIR at the SAME path
@@ -150,14 +154,35 @@ echo "  System: ${TOTAL_CPU} CPUs, ${TOTAL_MEM}M RAM → Minikube: ${MK_CPUS} CP
 MK_MOUNT_ARGS=(--mount --mount-string="$DATA_DIR:$DATA_DIR")
 MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size="$DISK_SIZE" --driver=docker "${MK_MOUNT_ARGS[@]}")
 
-log "Starting Minikube"
 # RESUME an existing cluster with just the mount (no create-only sizing flags —
-# those can exit non-zero on an existing cluster and trip the delete/recreate
-# fallback below; the recreate is disruptive and needless since $DATA_DIR is on
-# the host and survives regardless). A fresh cluster gets the full flags + fallback.
+# those can exit non-zero on an existing cluster and trip a delete/recreate). A
+# fresh cluster gets the full flags + fallback.
+#
+# RECREATE controls the existing-cluster path (parity with the minikube target):
+#   unset + interactive TTY → prompt (default: resume); RECREATE=y|yes|true →
+#   rebuild the cluster; RECREATE=n (or unset, non-interactive — the usual headless
+#   bootstrap case) → resume. NOTE: $DATA_DIR lives on the EC2 HOST, so even a
+#   recreate re-mounts the SAME data — to truly wipe, clear $DATA_DIR on the host.
+RECREATE="${RECREATE:-}"
+
+log "Starting Minikube"
 if mk minikube profile list 2>/dev/null | grep -q "$PROFILE"; then
-  echo "  Resuming existing cluster (host data at $DATA_DIR preserved)"
-  mk minikube start --profile="$PROFILE" "${MK_MOUNT_ARGS[@]}"
+  if [ -z "$RECREATE" ] && [ -t 0 ]; then
+    printf "An existing '%s' cluster was found. Recreate it (rebuild cluster; host data at %s is kept)? [y/N] " "$PROFILE" "$DATA_DIR"
+    read -r RECREATE
+  fi
+  case "$RECREATE" in
+    y|Y|yes|YES|true)
+      log "Recreating Minikube cluster (host data at $DATA_DIR is preserved)"
+      mk minikube delete --profile="$PROFILE" 2>/dev/null || true
+      cleanup_docker
+      mk minikube start "${MK_ARGS[@]}"
+      ;;
+    *)
+      echo "  Resuming existing cluster (host data at $DATA_DIR preserved)"
+      mk minikube start --profile="$PROFILE" "${MK_MOUNT_ARGS[@]}"
+      ;;
+  esac
 else
   if ! mk minikube start "${MK_ARGS[@]}"; then
     echo "  Retrying after cleanup..."
