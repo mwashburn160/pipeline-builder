@@ -40,7 +40,14 @@ spec:
     requests.memory: 22Gi
     limits.cpu: "24"
     limits.memory: 28Gi
-    pods: "40"
+    # Headroom for TRANSIENT bootstrap pods, mirroring the requests.cpu 6→7 bump
+    # above. The steady stack fully scaled (image-registry HPA→5, plugin HPA→4 +
+    # ~24 base services + 3 buildkitd) sits near 40; at exactly 40 the crane-push /
+    # init pods that init-platform.sh spawns during the base-image push were
+    # rejected with "exceeded quota: pods=40". The extra 8 are small, short-lived
+    # pods (crane push/check, minio-init) — memory/cpu quota still bound real load.
+    # Was: 40 — left zero room for the push step once the HPAs had scaled up.
+    pods: "48"
     persistentvolumeclaims: "10"
 
 ---

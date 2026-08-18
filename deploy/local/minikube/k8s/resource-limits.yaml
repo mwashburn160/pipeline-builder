@@ -37,7 +37,11 @@ spec:
     requests.memory: 24Gi
     limits.cpu: "24"
     limits.memory: 48Gi
-    pods: "40"
+    # Headroom for TRANSIENT bootstrap pods, mirroring the requests.cpu 8→12 bump
+    # above. At exactly 40 the crane-push / init pods init-platform.sh spawns during
+    # the base-image push are rejected once the HPAs have scaled the steady stack to
+    # the cap ("exceeded quota: pods=40"). The extra 8 are small, short-lived pods.
+    pods: "48"
     persistentvolumeclaims: "10"
 
 ---
