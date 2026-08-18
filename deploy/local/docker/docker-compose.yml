@@ -396,7 +396,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:3.4.147'
+    image: 'ghcr.io/mwashburn160/plugin:3.4.148'
     container_name: plugin
     restart: always
     stop_grace_period: 10s
