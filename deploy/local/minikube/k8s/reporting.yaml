@@ -159,16 +159,11 @@ spec:
         target:
           type: Utilization
           averageUtilization: 70
-    # Memory metric — added alongside CPU so the HPA scales on whichever
-    # signal demands more replicas. 85% chosen to leave headroom for spikes
-    # (memory usually climbs slower than CPU; premature scale-up wastes
-    # resources). Matches the plugin ScaledObject's memory trigger.
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 85
+    # CPU-only autoscaling. A memory-utilization metric was removed: these
+    # services carry a large BASELINE heap, so idle memory sits near the target
+    # and adding replicas does not lower per-pod memory — the HPA would pin to
+    # maxReplicas forever and oversubscribe the single node. Scale on CPU (load-
+    # proportional) only.
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 120
