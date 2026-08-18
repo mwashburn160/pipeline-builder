@@ -60,6 +60,11 @@ port_forward() {
 log "Resuming Minikube (data preserved)"
 minikube start --profile="$PROFILE"
 
+# Re-apply the inotify limits (sysctl -w doesn't survive `minikube stop`). Without
+# this, promtail fails on resume with "too many open files" once the pod count
+# rebuilds. Mirrors the setup.sh block.
+minikube ssh --profile="$PROFILE" -- "sudo sysctl -w fs.inotify.max_user_instances=512 fs.inotify.max_user_watches=524288" >/dev/null 2>&1 || true
+
 log "Waiting for cluster"
 for i in $(seq 1 30); do
   kubectl cluster-info >/dev/null 2>&1 && break
