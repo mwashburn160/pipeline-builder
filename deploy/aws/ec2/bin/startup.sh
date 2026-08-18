@@ -110,6 +110,18 @@ if [ -f "$DEPLOY_DIR/mongodb-keyfile" ]; then
   [ "$(id -u)" = "0" ] && chown minikube "$DEPLOY_DIR/mongodb-keyfile" 2>/dev/null || true
 fi
 
+# -- Preflight: istioctl ------------------------------------------------------
+# The Istio ambient mesh step drives `istioctl` (installed by bootstrap.sh Phase
+# 4). If it's missing the mesh step stalls with a cryptic error instead of a clear
+# one — fail fast here, matching the eks/minikube setup.sh preflight. Checked on
+# the minikube user's PATH since the mesh install runs via `mk`.
+if ! mk sh -c 'command -v istioctl' >/dev/null 2>&1; then
+  echo "ERROR: istioctl not found on PATH (required for the Istio ambient mesh)." >&2
+  echo "       bootstrap.sh Phase 4 installs it to /usr/local/bin — re-run bootstrap, or install:" >&2
+  echo "         curl -fsSL https://github.com/istio/istio/releases/download/${ISTIO_VERSION}/istioctl-${ISTIO_VERSION}-linux-amd64.tar.gz | tar -xz istioctl && sudo install -m0755 istioctl /usr/local/bin/istioctl" >&2
+  exit 1
+fi
+
 # -- Data directories ---------------------------------------------------------
 
 # Pre-seed the hostPath dirs the manifests mount (all DirectoryOrCreate, so this
