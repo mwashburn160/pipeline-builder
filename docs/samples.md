@@ -21,19 +21,34 @@ This catalog indexes the ready-to-use pipeline configs and CDK examples shipped 
 
 ## Pipeline Samples
 
-Language-specific CI/CD pipelines based on well-known open source repos. Each sample demonstrates idiomatic build, test, security, and packaging stages for its language.
+Language-specific CI/CD pipelines built on small, real hello-world repos. Each sample is an intentionally minimal starting point — a build and/or security-scan stage — that you extend with tests, linting, and container packaging (see each sample's README).
 
 **Location:** [`deploy/samples/pipelines/`](../deploy/samples/pipelines/)
 
 | Sample | Language | Source Repo | Stages |
 |--------|----------|-------------|--------|
-| [react-javascript](../deploy/samples/pipelines/react-javascript/) | JS/TS | facebook/react | Build, Test, Lint, Security, Publish |
-| [spring-boot-java](../deploy/samples/pipelines/spring-boot-java/) | Java | spring-projects/spring-boot | Build, Test, Lint, Security |
-| [django-python](../deploy/samples/pipelines/django-python/) | Python | django/django | Test, Lint, Security, Publish |
-| [gin-golang](../deploy/samples/pipelines/gin-golang/) | Go | gin-gonic/gin | Build, Test, Lint, Security |
-| [axum-rust](../deploy/samples/pipelines/axum-rust/) | Rust | tokio-rs/axum | Build, Test, Lint, Security, Publish |
-| [rails-ruby](../deploy/samples/pipelines/rails-ruby/) | Ruby | rails/rails | Test, Lint, Security, Publish |
-| [aspnetcore-dotnet](../deploy/samples/pipelines/aspnetcore-dotnet/) | C#/.NET | dotnet/aspnetcore | Build, Test, Lint, Security, Publish |
+| [react-javascript](../deploy/samples/pipelines/react-javascript/) | JS/TS | sitek94/vite-deploy-demo | Build, Security |
+| [spring-boot-java](../deploy/samples/pipelines/spring-boot-java/) | Java | dstar55/docker-hello-world-spring-boot | Build |
+| [django-python](../deploy/samples/pipelines/django-python/) | Python | django-ve/django-helloworld | Security |
+| [gin-golang](../deploy/samples/pipelines/gin-golang/) | Go | lamhotsimamora/Hello-World-Golang-Gin | Build, Security |
+| [axum-rust](../deploy/samples/pipelines/axum-rust/) | Rust | ChiefTechDev/Rust-Axum-Hello-World | Build, Security |
+| [rails-ruby](../deploy/samples/pipelines/rails-ruby/) | Ruby | m9rc1n/hello-world-rails | Security |
+| [aspnetcore-dotnet](../deploy/samples/pipelines/aspnetcore-dotnet/) | C#/.NET | Azure-Samples/dotnetcore-docs-hello-world | Build, Security |
+
+### Prerequisite: GitHub source token
+
+All seven pipelines use a **GitHub (v1/OAuth) source**, which CodePipeline authenticates with an OAuth token in AWS Secrets Manager — **even for public repos**. When the source options omit a `token`, CDK looks up a secret named **`github-token`** by default; if it doesn't exist, the deploy fails at pipeline-creation time with `Secrets Manager can't find the specified secret. (ResourceNotFoundException)`.
+
+Create it once per account/region before deploying:
+
+```bash
+aws secretsmanager create-secret \
+  --name github-token \
+  --secret-string "ghp_YOUR_TOKEN_HERE" \
+  --region <your-region>
+```
+
+Use a PAT with `repo` + `admin:repo_hook` scopes (public repos: `public_repo` + `admin:repo_hook`). To follow the org-scoped naming standard (`pipeline-builder/{orgId}/{name}`) instead, store it at `pipeline-builder/<orgId>/github-token` and set the source `token` to `secretsmanager:pipeline-builder/<orgId>/github-token`. A [CodeStar/CodeConnections](cdk-usage.md#codestar-connection-github-bitbucket-gitlab) source avoids the token entirely.
 
 ### Patterns
 
