@@ -231,7 +231,8 @@ export function DashboardLayout({
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                {/* Cmd+K hint */}
+                {/* Search / command palette (⌘K) — icon button; the shortcut
+                    lives in the tooltip rather than a hard-to-see kbd chip. */}
                 <button
                   onClick={() => cmdkRef.current?.()}
                   aria-label="Open command palette"
