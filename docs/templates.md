@@ -65,6 +65,24 @@ Pipeline templates can only **self-reference** — one metadata key can interpol
 
 Templatable fields in a pipeline config: `projectName`, `metadata.*` string values, `vars.*` string values. Identity fields (`id`, `orgId`, `stages`, `plugins[]`) are **not** templatable.
 
+**Exception — the GitHub source token.** `synth.source.options.token` is templatable against the **pipeline scope** (`pipeline.*`, the same scope plugin specs see), so a secret reference can be parameterized per org:
+
+```json
+"synth": {
+  "source": {
+    "type": "github",
+    "options": {
+      "repo": "owner/repo",
+      "branch": "main",
+      "token": "secretsmanager:pipeline-builder/{{ pipeline.vars.orgId }}/github-token"
+    }
+  }
+},
+"vars": { "orgId": "<your-org-id>" }
+```
+
+It resolves at synth time to `secretsmanager:pipeline-builder/<your-org-id>/github-token`, which CodePipeline reads as the OAuth secret reference (only the reference — never the token value — lands in the template). Other source fields (`repo`, `branch`, etc.) stay literal.
+
 ### In a plugin spec (`plugin-spec.yaml`)
 
 Plugin templates see a richer scope assembled per-synth from the pipeline invoking the plugin.

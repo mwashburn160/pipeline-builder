@@ -12,6 +12,9 @@
   "props": {
     "project": "axum",
     "organization": "AcmeCorp",
+    "vars": {
+      "orgId": "REPLACE_WITH_YOUR_ORG_ID"
+    },
     "global": {
       "aws:cdk:pipelines:codepipeline:selfmutation": true,
       "aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation": true,
@@ -27,7 +30,8 @@
         "options": {
           "repo": "ChiefTechDev/Rust-Axum-Hello-World",
           "branch": "main",
-          "trigger": "NONE"
+          "trigger": "NONE",
+          "token": "secretsmanager:pipeline-builder/{{ pipeline.vars.orgId }}/github-token"
         }
       },
       "plugin": {

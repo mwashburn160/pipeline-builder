@@ -239,20 +239,10 @@ export class PipelineBuilder extends Construct {
       const artifactManager = new ArtifactManager();
       const synthAlias = this.config.plugin.alias ?? this.config.plugin.name;
 
-      // Scope exposed to plugin-spec templates as `pipeline.*`. Built once
-      // here so both the synth step and every stage step resolve against
-      // the same snapshot.
-      const pipelineScope: Record<string, unknown> = {
-        pipeline: {
-          projectName: this.config.project,
-          project: this.config.project,
-          orgId: this.config.organization,
-          organization: this.config.organization,
-          pipelineName: this.config.pipelineName,
-          metadata: this.config.metadata.merged,
-          vars: props.vars ?? {},
-        },
-      };
+      // Scope exposed to plugin-spec templates as `pipeline.*`. Sourced from the
+      // config so the synth step, every stage step, and the source token all
+      // resolve against the same snapshot (see PipelineConfiguration.getPipelineScope).
+      const pipelineScope = this.config.getPipelineScope();
 
       const synth = createCodeBuildStep({
         ...this.config.synthCustomization,

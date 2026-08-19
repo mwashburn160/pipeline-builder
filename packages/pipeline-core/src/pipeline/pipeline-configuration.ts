@@ -42,6 +42,8 @@ export class PipelineConfiguration {
   public readonly defaults: CodeBuildDefaults | undefined;
   public readonly synthCustomization: StepCustomization;
   public readonly stages: StageOptions[] | undefined;
+  /** Pipeline-level template variables, exposed to `{{ pipeline.vars.* }}`. */
+  public readonly vars: Record<string, unknown>;
 
   constructor(props: BuilderProps) {
     this.validateProps(props);
@@ -75,6 +77,27 @@ export class PipelineConfiguration {
       env: props.synth.env,
     };
     this.stages = props.stages;
+    this.vars = props.vars ?? {};
+  }
+
+  /**
+   * Template scope exposed as `pipeline.*` to pipeline configs, plugin specs, and
+   * the source builder. Built once here so every consumer — the synth step, each
+   * stage step, and the source token — resolves `{{ pipeline.* }}` against the
+   * identical snapshot (no drift between call sites).
+   */
+  getPipelineScope(): Record<string, unknown> {
+    return {
+      pipeline: {
+        projectName: this.project,
+        project: this.project,
+        orgId: this.organization,
+        organization: this.organization,
+        pipelineName: this.pipelineName,
+        metadata: this.metadata.merged,
+        vars: this.vars,
+      },
+    };
   }
 
   /**

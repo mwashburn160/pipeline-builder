@@ -13,6 +13,8 @@ import type { GitHubOptions, SourceType } from './source-types.js';
 import { UniqueId } from '../core/id-generator.js';
 import { unwrapSecret } from '../core/pipeline-helpers.js';
 import { TriggerType } from '../core/pipeline-types.js';
+import { resolveTemplates } from '../template/index.js';
+import { hasTemplate } from '../template/tokenizer.js';
 
 const log = createLogger('source-builder');
 
@@ -110,11 +112,26 @@ export class SourceBuilder {
    *   `SecretValue.unsafePlainText`, and a loud warning is emitted.
    */
   private resolveGitHubAuthentication(options: GitHubOptions): SecretValue | undefined {
-    const token = options.token;
+    let token = options.token;
     if (token === undefined) return undefined;
 
     // A SecretValue is already a reference (e.g. Secrets Manager) — never plaintext.
     if (typeof token !== 'string') return token;
+
+    // Synth-time templating: resolve `{{ pipeline.* }}` in the token against the
+    // pipeline scope (e.g. `secretsmanager:pipeline-builder/{{ pipeline.vars.orgId }}/
+    // github-token`) so the secret reference can be parameterized by pipeline vars —
+    // the only source field that is templatable. No-op when the token carries no
+    // template (a plain ARN, `secretsmanager:` ref, or plaintext resolves to itself).
+    if (hasTemplate(token)) {
+      const holder = { token };
+      const { errors } = resolveTemplates(holder, this.config.getPipelineScope(), (f) => f === 'token', 'pipeline');
+      if (errors.length > 0) {
+        const e = errors[0]!;
+        throw new Error(`GitHub source token template resolution failed at '${e.field ?? 'token'}': ${e.message}`);
+      }
+      token = holder.token;
+    }
 
     // A string that names a Secrets Manager secret is resolved to a reference so
     // only the pointer — not the token — is written to the template / CDK context.

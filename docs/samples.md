@@ -37,18 +37,21 @@ Language-specific CI/CD pipelines built on small, real hello-world repos. Each s
 
 ### Prerequisite: GitHub source token
 
-All seven pipelines use a **GitHub (v1/OAuth) source**, which CodePipeline authenticates with an OAuth token in AWS Secrets Manager — **even for public repos**. When the source options omit a `token`, CDK looks up a secret named **`github-token`** by default; if it doesn't exist, the deploy fails at pipeline-creation time with `Secrets Manager can't find the specified secret. (ResourceNotFoundException)`.
+All seven pipelines use a **GitHub (v1/OAuth) source**, which CodePipeline authenticates with an OAuth token in AWS Secrets Manager — **even for public repos**. If the token secret is missing, the deploy fails at pipeline-creation time with `Secrets Manager can't find the specified secret. (ResourceNotFoundException)`.
 
-Create it once per account/region before deploying:
+Each sample resolves the secret **per org** via [synth-time templating](templates.md): its `vars.orgId` feeds the source `token` (`secretsmanager:pipeline-builder/{{ pipeline.vars.orgId }}/github-token`), following the naming standard `pipeline-builder/{orgId}/{name}`. To use a sample:
+
+1. **Set `vars.orgId`** in the sample's `pipeline.json` to your org's ID (the UUID).
+2. **Create the matching secret** once per account/region:
 
 ```bash
 aws secretsmanager create-secret \
-  --name github-token \
+  --name "pipeline-builder/<orgId>/github-token" \
   --secret-string "ghp_YOUR_TOKEN_HERE" \
   --region <your-region>
 ```
 
-Use a PAT with `repo` + `admin:repo_hook` scopes (public repos: `public_repo` + `admin:repo_hook`). To follow the org-scoped naming standard (`pipeline-builder/{orgId}/{name}`) instead, store it at `pipeline-builder/<orgId>/github-token` and set the source `token` to `secretsmanager:pipeline-builder/<orgId>/github-token`. A [CodeStar/CodeConnections](cdk-usage.md#codestar-connection-github-bitbucket-gitlab) source avoids the token entirely.
+Use a PAT with `repo` + `admin:repo_hook` scopes (public repos: `public_repo` + `admin:repo_hook`). `<orgId>` must match the `vars.orgId` you set. **Simpler:** drop the `token` line + `vars` block and create a bare `github-token` secret (CDK's default lookup). **Recommended:** a [CodeStar/CodeConnections](cdk-usage.md#codestar-connection-github-bitbucket-gitlab) source avoids the token entirely.
 
 ### Patterns
 

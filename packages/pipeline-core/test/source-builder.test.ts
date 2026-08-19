@@ -32,13 +32,14 @@ const { UniqueId } = await import('../src/core/id-generator.js');
  * Build a source via SourceBuilder, wire it into a minimal CodePipeline, and
  * return the synthesized CloudFormation Template for assertion.
  */
-function synthSource(source: BuilderProps['synth']['source']): Template {
+function synthSource(source: BuilderProps['synth']['source'], extra?: Partial<BuilderProps>): Template {
   const stack = new Stack(new App(), 'SourceTestStack', {
     env: { account: '123456789012', region: 'us-east-1' },
   });
   const config = new PipelineConfiguration({
     project: 'checkout',
     organization: 'acme',
+    ...extra,
     synth: { source, plugin: { name: 'cdk-synth' } },
   } as BuilderProps);
 
@@ -137,6 +138,22 @@ describe('SourceBuilder', () => {
         expect(json).toContain('{{resolve:secretsmanager:github-token:SecretString:::}}');
         // The raw shorthand string itself is not what gets embedded verbatim.
         expect(json).not.toContain('"secretsmanager:github-token"');
+      });
+
+      it('resolves `{{ pipeline.vars.* }}` synth-time templates in the token to an org-scoped secret reference', () => {
+        const template = synthSource(
+          {
+            type: 'github',
+            options: { repo: 'acme/checkout', token: 'secretsmanager:pipeline-builder/{{ pipeline.vars.orgId }}/github-token' as any },
+          },
+          { vars: { orgId: 'org-abc-123' } },
+        );
+
+        const json = JSON.stringify(template.toJSON());
+        // The `{{ pipeline.vars.orgId }}` resolves at synth to the org-scoped path.
+        expect(json).toContain('{{resolve:secretsmanager:pipeline-builder/org-abc-123/github-token:SecretString:::}}');
+        // The unresolved template must not leak into the synthesized template.
+        expect(json).not.toContain('pipeline.vars.orgId');
       });
 
       it('passes a SecretValue token through as a reference (no plaintext)', () => {
