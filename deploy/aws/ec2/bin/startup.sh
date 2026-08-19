@@ -22,8 +22,11 @@ PROFILE="pipeline-builder"
 # the instance and on the minikube user's PATH (it runs via the `mk` wrapper).
 ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
 # Minikube VM disk size. Applied only at cluster CREATE — grow it by re-running
-# after a delete. Keep it within the instance's EBS data volume.
-DISK_SIZE="${DISK_SIZE:-40g}"
+# after a delete. Keep it within the instance's EBS data volume (500Gi default).
+# 80g leaves ~2x headroom over the steady node footprint (buildkit cache bounded
+# to ~16Gi by the buildkitd GC policy + container images + OS ≈ 35-40Gi); the
+# buildkit GC in plugin.yaml is what prevents unbounded growth, this is cushion.
+DISK_SIZE="${DISK_SIZE:-80g}"
 # RECREATE: when an existing cluster is found, whether to rebuild it. Unset + a TTY
 # → prompt (default: resume). RECREATE=y rebuilds the cluster; RECREATE=n (or unset
 # on the usual headless run) resumes. Data lives on the host $DATA_DIR and is kept

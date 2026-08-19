@@ -393,6 +393,16 @@ metadata:
   namespace: pipeline-builder
 data:
   buildkitd.toml: |
+    # Bound the local layer cache so it can't grow unbounded and fill the node
+    # disk over time — the single biggest disk consumer during build storms.
+    # buildkit GCs the OLDEST cache first to keep usage under maxUsedSpace while
+    # keeping minFreeSpace free on the volume; reservedSpace is never pruned.
+    [worker.oci]
+      gc = true
+      reservedSpace = "2GB"
+      maxUsedSpace = "8GB"
+      minFreeSpace = "4GB"
+
     [registry."docker.io"]
       mirrors = ["registry:5000"]
 

@@ -300,6 +300,9 @@ spec:
         # buildkitd's layer cache. emptyDir loses cache on pod restart —
         # acceptable for the EC2 single-node deploy. For multi-node, switch
         # to a PVC or the `--export-cache=type=registry` flag.
+        # sizeLimit is a kubelet-eviction BACKSTOP; the real bound is the
+        # buildkitd.toml GC policy (maxUsedSpace 8GB), which keeps actual usage
+        # well under this. 20Gi is a loose backstop; the GC keeps real usage ~8GB.
         - name: buildkit-cache
           emptyDir:
             sizeLimit: 20Gi
@@ -402,6 +405,18 @@ metadata:
   namespace: pipeline-builder
 data:
   buildkitd.toml: |
+    # Bound the local layer cache so it can't grow unbounded and fill the node
+    # disk over time — the single biggest disk consumer during build storms.
+    # Without this, the buildkit-cache emptyDir (sizeLimit 20Gi) × up to 2 plugin
+    # pods (KEDA) fills the whole node disk and trips DiskPressure evictions.
+    # buildkit GCs the OLDEST cache first to keep usage under maxUsedSpace while
+    # keeping minFreeSpace free on the volume; reservedSpace is never pruned.
+    [worker.oci]
+      gc = true
+      reservedSpace = "2GB"
+      maxUsedSpace = "8GB"
+      minFreeSpace = "4GB"
+
     [registry."docker.io"]
       mirrors = ["registry:5000"]
 
