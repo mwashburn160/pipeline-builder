@@ -98,7 +98,7 @@ export interface ResourceListProps<T> {
   emptyState: {
     icon: LucideIcon;
     title: string;
-    description: string;
+    description: ReactNode;
     action?: ReactNode;
   };
   /**
@@ -109,7 +109,7 @@ export interface ResourceListProps<T> {
   filteredEmptyState?: {
     icon: LucideIcon;
     title: string;
-    description: string;
+    description: ReactNode;
     action?: ReactNode;
   };
   /** Header for the error block. Default: "Failed to load". */

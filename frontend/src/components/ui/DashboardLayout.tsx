@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { Menu, X, Bell } from 'lucide-react';
+import { Menu, X, Bell, Search, HelpCircle } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFeatures } from '@/hooks/useFeatures';
@@ -235,10 +235,10 @@ export function DashboardLayout({
                 <button
                   onClick={() => cmdkRef.current?.()}
                   aria-label="Open command palette"
-                  title="Open command palette (⌘K)"
-                  className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 transition-colors"
+                  title="Search & commands (⌘K)"
+                  className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 >
-                  <kbd className="font-medium">⌘K</kbd>
+                  <Search className="w-5 h-5" />
                 </button>
                 {/* Notification bell — global unread-messages indicator. Mirrors
                     the Messages sidebar badge but stays visible on every page
@@ -254,6 +254,16 @@ export function DashboardLayout({
                       {unreadCount > 99 ? '99+' : unreadCount}
                     </span>
                   )}
+                </Link>
+                {/* Help — always available from the topbar (not buried in the
+                    collapsible Settings nav section). */}
+                <Link
+                  href="/dashboard/help"
+                  aria-label="Help"
+                  title="Help"
+                  className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                >
+                  <HelpCircle className="w-5 h-5" />
                 </Link>
                 {actions}
               </div>

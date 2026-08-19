@@ -7,6 +7,7 @@ import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { SegmentedFilter } from '@/components/ui/SegmentedFilter';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -392,21 +393,12 @@ export default function OrganizationsPage() {
           <option value="show">Deleted: shown</option>
           <option value="only">Deleted: only</option>
         </FilterSelect>
-        <div className="inline-flex items-center gap-1" role="group" aria-label="Filter by org scope">
-          {([['all', 'All'], ['top', 'Top-level'], ['team', 'Teams']] as const).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => list.updateFilter('scope', value)}
-              aria-pressed={String(list.filters.scope) === value}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${String(list.filters.scope) === value
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <SegmentedFilter
+          ariaLabel="Filter by org scope"
+          options={[{ value: 'all', label: 'All' }, { value: 'top', label: 'Top-level' }, { value: 'team', label: 'Teams' }]}
+          value={String(list.filters.scope)}
+          onChange={(v) => list.updateFilter('scope', v)}
+        />
       </div>
 
       {clientFacetActive && (

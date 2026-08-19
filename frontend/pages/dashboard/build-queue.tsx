@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import Link from 'next/link';
 import { formatError } from '@/lib/constants';
 import { motion } from 'framer-motion';
 import { Clock, Loader, CheckCircle2, XCircle, PauseCircle, RefreshCw, ChevronUp, ChevronDown, Inbox, AlertTriangle, Search } from 'lucide-react';
@@ -50,13 +51,25 @@ type SortDir = 'asc' | 'desc';
 
 interface TierRow { tier: string; waiting: number; active: number; completed: number; failed: number; delayed: number }
 
+// Muted-zero rendering: a 0 is greyed out so any non-zero count pops — failed in
+// red, delayed in amber. Turns a field of identical black zeros into scannable
+// signal (the "muted-common / loud-exception" pattern used across the tables).
+function tierCount(n: number, tone?: 'red' | 'amber') {
+  const cls = n === 0
+    ? 'text-gray-300 dark:text-gray-600'
+    : tone === 'red' ? 'text-red-600 dark:text-red-400 font-medium'
+      : tone === 'amber' ? 'text-amber-600 dark:text-amber-400 font-medium'
+        : 'text-gray-900 dark:text-gray-100';
+  return <span className={`tabular-nums ${cls}`}>{n}</span>;
+}
+
 const TIER_COLUMNS: Column<TierRow>[] = [
   { id: 'tier', header: 'Tier', cellClassName: 'font-mono text-xs', render: (r) => r.tier },
-  { id: 'waiting', header: 'Waiting', render: (r) => r.waiting },
-  { id: 'active', header: 'Active', render: (r) => r.active },
-  { id: 'completed', header: 'Completed', render: (r) => r.completed },
-  { id: 'failed', header: 'Failed', render: (r) => <span className={r.failed > 0 ? 'text-red-600 dark:text-red-400 font-medium' : ''}>{r.failed}</span> },
-  { id: 'delayed', header: 'Delayed', render: (r) => r.delayed },
+  { id: 'waiting', header: 'Waiting', render: (r) => tierCount(r.waiting) },
+  { id: 'active', header: 'Active', render: (r) => tierCount(r.active) },
+  { id: 'completed', header: 'Completed', render: (r) => tierCount(r.completed) },
+  { id: 'failed', header: 'Failed', render: (r) => tierCount(r.failed, 'red') },
+  { id: 'delayed', header: 'Delayed', render: (r) => tierCount(r.delayed, 'amber') },
 ];
 
 // ---------------------------------------------------------------------------
@@ -69,15 +82,17 @@ interface StatCardProps {
   icon: LucideIcon;
   accent: string;
   delay: number;
+  /** When set, the card becomes a link (e.g. Failed → the triage tab). */
+  href?: string;
 }
 
-function StatCard({ label, value, icon: Icon, accent, delay }: StatCardProps) {
-  return (
+function StatCard({ label, value, icon: Icon, accent, delay, href }: StatCardProps) {
+  const card = (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay }}
-      className="card flex items-center gap-4"
+      className={`card flex items-center gap-4 h-full ${href ? 'transition-colors hover:border-blue-400 dark:hover:border-blue-500' : ''}`}
     >
       <div className={`rounded-xl p-3 text-white ${accent}`}>
         <Icon className="w-6 h-6" />
@@ -94,6 +109,11 @@ function StatCard({ label, value, icon: Icon, accent, delay }: StatCardProps) {
       </div>
     </motion.div>
   );
+  return href ? (
+    <Link href={href} title={`View ${label.toLowerCase()} builds`} className="block rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500">
+      {card}
+    </Link>
+  ) : card;
 }
 
 // ---------------------------------------------------------------------------
@@ -370,6 +390,9 @@ export default function BuildQueuePage() {
   const [failedJobs, setFailedJobs] = useState<FailedJob[]>([]);
   const [dlqJobs, setDlqJobs] = useState<DlqJob[]>([]);
   const [showFailed, setShowFailed] = useState(false);
+  // When every tier is idle the per-tier table is a wall of zeros; collapse it
+  // to one line, with an opt-in expand.
+  const [showBreakdown, setShowBreakdown] = useState(false);
   const [showDlq, setShowDlq] = useState(false);
   const [replayingIds, setReplayingIds] = useState<Set<string>>(new Set());
   const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
@@ -501,11 +524,17 @@ export default function BuildQueuePage() {
   const health = queueHealth(status);
   const dlqTotal = status?.dlq ? (status.dlq.waiting + status.dlq.active + status.dlq.failed + status.dlq.delayed) : 0;
 
+  // Idle = no actionable work in any tier (completed is cumulative history, so
+  // it doesn't count toward "busy").
+  const tiersIdle = status?.tiers
+    ? Object.values(status.tiers).every((c) => ((c.waiting ?? 0) + (c.active ?? 0) + (c.failed ?? 0) + (c.delayed ?? 0)) === 0)
+    : false;
+
   const cards: Omit<StatCardProps, 'delay'>[] = [
     { label: 'Waiting', value: status?.waiting ?? null, icon: Clock, accent: 'bg-yellow-500' },
     { label: 'Active', value: status?.active ?? null, icon: Loader, accent: 'bg-blue-500' },
     { label: 'Completed', value: status?.completed ?? null, icon: CheckCircle2, accent: 'bg-green-500' },
-    { label: 'Failed', value: status?.failed ?? null, icon: XCircle, accent: 'bg-red-500' },
+    { label: 'Failed', value: status?.failed ?? null, icon: XCircle, accent: 'bg-red-500', href: '/dashboard/triage' },
     { label: 'Delayed', value: status?.delayed ?? null, icon: PauseCircle, accent: 'bg-gray-500' },
   ];
 
@@ -560,16 +589,32 @@ export default function BuildQueuePage() {
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Per-tier breakdown</h3>
             <span className="text-xs text-gray-500 dark:text-gray-400">One BullMQ queue per pricing tier</span>
           </div>
-          <div className="overflow-x-auto">
-            <DataTable
-              data={Object.entries(status.tiers).map(([tier, counts]) => ({ tier, ...counts }))}
-              columns={TIER_COLUMNS}
-              isLoading={false}
-              animated={false}
-              getRowKey={(r) => r.tier}
-              emptyState={{ icon: Inbox, title: 'No tiers', description: 'No per-tier breakdown available.' }}
-            />
-          </div>
+          {tiersIdle && !showBreakdown ? (
+            <div className="flex items-center justify-between gap-3 text-sm text-gray-500 dark:text-gray-400">
+              <span className="inline-flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-green-500" />
+                All {Object.keys(status.tiers).length} tiers idle — no waiting, active, failed, or delayed builds.
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowBreakdown(true)}
+                className="shrink-0 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Show full breakdown
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <DataTable
+                data={Object.entries(status.tiers).map(([tier, counts]) => ({ tier, ...counts }))}
+                columns={TIER_COLUMNS}
+                isLoading={false}
+                animated={false}
+                getRowKey={(r) => r.tier}
+                emptyState={{ icon: Inbox, title: 'No tiers', description: 'No per-tier breakdown available.' }}
+              />
+            </div>
+          )}
         </Card>
       )}
 

@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useOpenOnCreateQuery } from '@/hooks/useOpenOnCreateQuery';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
-import { Plus, GitBranch, Search, Trash2, X, Upload, Lock } from 'lucide-react';
+import { Plus, GitBranch, Search, Trash2, X, Upload } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFeatures } from '@/hooks/useFeatures';
 import { useListPage } from '@/hooks/useListPage';
@@ -12,6 +12,7 @@ import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
+import { TabBar } from '@/components/ui/TabBar';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -25,6 +26,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
 import { FilterBar } from '@/components/ui/FilterBar';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import { AccessCell } from '@/components/ui/AccessCell';
 import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import { DeployedPipelinesPanel } from '@/components/pipeline/DeployedPipelinesPanel';
@@ -32,6 +34,7 @@ import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import api from '@/lib/api';
 import type { BulkPipelineSpec, BulkCreateResult } from '@/lib/api/domains/pipelines';
 import { mapCommonParams, canWritePipeline } from '@/lib/resource-helpers';
+import { buildListSummary } from '@/lib/list-summary';
 import type { Pipeline, BuilderProps } from '@/types';
 
 // Maps a DataTable column id to the server-side sort field the pipelines list
@@ -121,23 +124,24 @@ export default function PipelinesPage() {
   // Always-on result feedback + current-page exception surfacing. The list is
   // server-paginated, so inactive/private counts are scoped to THIS page (hence
   // the "on this page" qualifier) — surfacing anomalies without claiming totals.
-  const listSummary = useMemo(() => {
-    if (list.isLoading) return undefined;
-    const shown = filteredPipelines.length;
-    const total = list.pagination.total;
-    const base = `Showing ${shown} of ${total} pipeline${total === 1 ? '' : 's'}`;
-    const inactive = filteredPipelines.filter((p) => !p.isActive).length;
-    const priv = filteredPipelines.filter((p) => p.accessModifier !== 'public').length;
-    const flags = [
-      inactive ? `${inactive} inactive` : null,
-      priv ? `${priv} private` : null,
-    ].filter(Boolean);
-    return flags.length ? `${base} · ${flags.join(' · ')} on this page` : base;
-  }, [filteredPipelines, list.isLoading, list.pagination.total]);
+  const listSummary = useMemo(
+    () => buildListSummary(filteredPipelines, list.pagination.total, {
+      noun: 'pipeline',
+      isLoading: list.isLoading,
+      flags: [
+        { label: 'inactive', pred: (p) => !p.isActive },
+        { label: 'private', pred: (p) => p.accessModifier !== 'public' },
+      ],
+    }),
+    [filteredPipelines, list.isLoading, list.pagination.total],
+  );
 
   // ── Create ──
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  // Active vs. Recently-deleted view (tabs). Restore is write-gated, so the tab
+  // only renders for writers.
+  const [deletedView, setDeletedView] = useState<'active' | 'deleted'>('active');
   const createForm = useFormState();
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
   const [editPipeline, setEditPipeline] = useState<Pipeline | null>(null);
@@ -358,13 +362,7 @@ export default function PipelinesPage() {
       id: 'access',
       header: 'Access',
       sortValue: (p) => p.accessModifier,
-      // Public is the common case → muted; private is the exception → make it
-      // legible with a lock so the eye catches what actually differs.
-      render: (p) => (
-        p.accessModifier === 'public'
-          ? <span className="text-xs text-gray-400 dark:text-gray-500">Public</span>
-          : <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-700 dark:text-gray-300"><Lock className="h-3 w-3" />Private</span>
-      ),
+      render: (p) => <AccessCell modifier={p.accessModifier} />,
     },
     {
       id: 'status',
@@ -466,6 +464,20 @@ export default function PipelinesPage() {
       <div className="page-section">
         <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="pipelines" orgName={user.organizationName} size="sm" />
 
+        {/* Active / Recently-deleted tabs (restore is write-gated). */}
+        {canWrite && (
+          <TabBar
+            className="mb-4"
+            items={[{ id: 'active', label: 'Active' }, { id: 'deleted', label: 'Recently deleted' }]}
+            activeId={deletedView}
+            onSelect={(id) => setDeletedView(id as 'active' | 'deleted')}
+          />
+        )}
+
+        {canWrite && deletedView === 'deleted' ? (
+          <RecentlyDeletedPanel resource="pipeline" onRestored={list.refresh} canRestoreRow={(r) => canWritePipeline(can, isSuperAdmin, r.accessModifier ?? 'private')} />
+        ) : (
+        <>
         <DeployedPipelinesPanel canWrite={canWrite} />
 
         {/* Sticky search + advanced-filter panel stays above the list shell.
@@ -556,13 +568,7 @@ export default function PipelinesPage() {
           />
         </ResourceList>
 
-        {/* Recently deleted — restore soft-deleted pipelines within the
-            retention window. Only for users who can write (restore is
-            pipelines:write + step-up gated). */}
-        {canWrite && (
-          <div className="mt-6">
-            <RecentlyDeletedPanel resource="pipeline" onRestored={list.refresh} canRestoreRow={(r) => canWritePipeline(can, isSuperAdmin, r.accessModifier ?? 'private')} />
-          </div>
+        </>
         )}
       </div>
 

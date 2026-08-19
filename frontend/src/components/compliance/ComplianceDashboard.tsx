@@ -6,6 +6,7 @@ import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { FilterSelect } from '@/components/ui/FilterSelect';
+import { PostureHeadline } from '@/components/ui/PostureHeadline';
 import { formatRelativeTime } from '@/lib/relative-time';
 import type { ComplianceAuditEntry, ComplianceRule } from '@/types/compliance';
 import { RESULT_STYLES } from '@/lib/compliance-styles';
@@ -56,12 +57,6 @@ const STAT_COLORS: Record<string, string> = {
   red: 'text-red-600 bg-red-50 dark:bg-red-900/20',
 };
 
-const POSTURE_TONE: Record<'red' | 'yellow' | 'green' | 'gray', string> = {
-  red: 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300',
-  yellow: 'border-yellow-300 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300',
-  green: 'border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300',
-  gray: 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 text-gray-600 dark:text-gray-300',
-};
 
 // Render a violation's expected/actual value (may be object/array/null) compactly.
 function fmtVal(x: unknown): string {
@@ -332,7 +327,6 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
       : totalChecks > 0
         ? { tone: 'green' as const, icon: ShieldCheck, title: 'All clear', detail: `All ${stats.pass} check${stats.pass === 1 ? '' : 's'} passing` }
         : { tone: 'gray' as const, icon: Shield, title: 'No checks yet', detail: 'Compliance check results will appear here' };
-  const PostureIcon = posture.icon;
 
   // Stat cards double as filters: results toggle the log filter, rules jumps tabs.
   const statCards = [
@@ -363,21 +357,13 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
   return (
     <div className="space-y-6">
       {/* Posture headline — answers "are we compliant?" at a glance */}
-      <div className={`flex items-center justify-between gap-4 rounded-lg border p-4 ${POSTURE_TONE[posture.tone]}`}>
-        <div className="flex items-center gap-3 min-w-0">
-          <PostureIcon className="h-6 w-6 shrink-0" />
-          <div className="min-w-0">
-            <div className="text-base font-semibold">{posture.title}</div>
-            <div className="text-xs opacity-80">{posture.detail}</div>
-          </div>
-        </div>
-        {totalChecks > 0 && (
-          <div className="text-right shrink-0">
-            <div className="text-2xl font-bold tabular-nums leading-none">{passRate}%</div>
-            <div className="text-[11px] uppercase tracking-wide opacity-70 mt-1">passing</div>
-          </div>
-        )}
-      </div>
+      <PostureHeadline
+        tone={posture.tone}
+        Icon={posture.icon}
+        title={posture.title}
+        detail={posture.detail}
+        rate={totalChecks > 0 ? passRate : undefined}
+      />
 
       {/* Stat cards — clickable: results filter the log below, rules opens the tab */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

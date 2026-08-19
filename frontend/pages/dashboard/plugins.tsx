@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useToast } from '@/components/ui/Toast';
 import { useOpenOnCreateQuery } from '@/hooks/useOpenOnCreateQuery';
 import { formatError } from '@/lib/constants';
-import { Search, Puzzle, Plus, Trash2, X, Upload, Star, Boxes, Lock } from 'lucide-react';
+import { Search, Puzzle, Plus, Trash2, X, Upload, Star, Boxes } from 'lucide-react';
 import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
 import type { PluginCategory } from '@/lib/help';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -14,6 +14,7 @@ import { useDelete } from '@/hooks/useDelete';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
+import { TabBar } from '@/components/ui/TabBar';
 import { Badge } from '@/components/ui/Badge';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
@@ -26,11 +27,13 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
 import { FilterBar } from '@/components/ui/FilterBar';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import { AccessCell } from '@/components/ui/AccessCell';
 import EditPluginModal from '@/components/plugin/EditPluginModal';
 import CreatePluginModal from '@/components/plugin/CreatePluginModal';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import api from '@/lib/api';
 import { mapCommonParams, canModify } from '@/lib/resource-helpers';
+import { buildListSummary } from '@/lib/list-summary';
 import { visitedPluginsKey } from '@/lib/onboarding';
 import { loadFavorites, toggleFavorite, hydrateFavoritesFromServer } from '@/lib/favorites';
 import type { Plugin } from '@/types';
@@ -200,6 +203,8 @@ export default function PluginsPage() {
 
   // "Show favorites only" quick-chip (client-side over the fetched page).
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  // Active vs. Recently-deleted view (tabs); the tab is write-gated like restore.
+  const [deletedView, setDeletedView] = useState<'active' | 'deleted'>('active');
 
   // Seed the name search from a `?q=` deep-link (e.g. ⌘K "find plugin X" or a
   // My Services plugin link) so the list lands filtered to that plugin.
@@ -245,19 +250,17 @@ export default function PluginsPage() {
 
   // Always-on result feedback + current-page exception surfacing (server-
   // paginated, so inactive/private counts are scoped to this page).
-  const listSummary = useMemo(() => {
-    if (list.isLoading) return undefined;
-    const shown = filteredPlugins.length;
-    const total = list.pagination.total;
-    const base = `Showing ${shown} of ${total} plugin${total === 1 ? '' : 's'}`;
-    const inactive = filteredPlugins.filter((p) => !p.isActive).length;
-    const priv = filteredPlugins.filter((p) => p.accessModifier !== 'public').length;
-    const flags = [
-      inactive ? `${inactive} inactive` : null,
-      priv ? `${priv} private` : null,
-    ].filter(Boolean);
-    return flags.length ? `${base} · ${flags.join(' · ')} on this page` : base;
-  }, [filteredPlugins, list.isLoading, list.pagination.total]);
+  const listSummary = useMemo(
+    () => buildListSummary(filteredPlugins, list.pagination.total, {
+      noun: 'plugin',
+      isLoading: list.isLoading,
+      flags: [
+        { label: 'inactive', pred: (p) => !p.isActive },
+        { label: 'private', pred: (p) => p.accessModifier !== 'public' },
+      ],
+    }),
+    [filteredPlugins, list.isLoading, list.pagination.total],
+  );
 
   // ── Bulk Operations ──
 
@@ -441,12 +444,7 @@ export default function PluginsPage() {
       id: 'access',
       header: 'Access',
       sortValue: (p) => p.accessModifier,
-      // Public is the common case → muted; private is the exception → legible + lock.
-      render: (p) => (
-        p.accessModifier === 'public'
-          ? <span className="text-xs text-gray-400 dark:text-gray-500">Public</span>
-          : <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-700 dark:text-gray-300"><Lock className="h-3 w-3" />Private</span>
-      ),
+      render: (p) => <AccessCell modifier={p.accessModifier} />,
     },
     {
       id: 'uri',
@@ -585,6 +583,20 @@ export default function PluginsPage() {
       <div className="page-section">
         <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="plugins" orgName={user.organizationName} size="sm" />
 
+        {/* Active / Recently-deleted tabs (restore is write-gated). */}
+        {canWrite && (
+          <TabBar
+            className="mb-4"
+            items={[{ id: 'active', label: 'Active' }, { id: 'deleted', label: 'Recently deleted' }]}
+            activeId={deletedView}
+            onSelect={(id) => setDeletedView(id as 'active' | 'deleted')}
+          />
+        )}
+
+        {canWrite && deletedView === 'deleted' ? (
+          <RecentlyDeletedPanel resource="plugin" onRestored={list.refresh} canRestoreRow={(r) => canModify(isSuperAdmin, r.accessModifier ?? 'private')} />
+        ) : (
+        <>
         {/* Sticky search + advanced-filter panel stays above the list shell.
             FilterBar is its own sticky surface with a "/" hotkey and a
             collapsible advanced panel — pulling it into ResourceList's
@@ -708,13 +720,7 @@ export default function PluginsPage() {
           />
         </ResourceList>
 
-        {/* Recently deleted — restore soft-deleted plugins within the retention
-            window. Only for users who can write (restore is plugins:write +
-            step-up gated). */}
-        {canWrite && (
-          <div className="mt-6">
-            <RecentlyDeletedPanel resource="plugin" onRestored={list.refresh} canRestoreRow={(r) => canModify(isSuperAdmin, r.accessModifier ?? 'private')} />
-          </div>
+        </>
         )}
       </div>
 

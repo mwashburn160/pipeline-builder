@@ -491,6 +491,9 @@ export interface PipelineTemplate {
   links?: EntityLink[];
   accessModifier: AccessModifier;
   isActive: boolean;
+  /** Soft-delete tombstone fields (set when deleted; powers "recently deleted"). */
+  deletedAt?: string | null;
+  deletedBy?: string | null;
 }
 
 /**

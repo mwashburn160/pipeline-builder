@@ -29,7 +29,7 @@ export interface DataTableProps<T> {
   emptyState: {
     icon: LucideIcon;
     title: string;
-    description: string;
+    description: ReactNode;
     action?: ReactNode;
   };
   getRowKey?: (item: T, index: number) => string;

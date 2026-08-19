@@ -47,5 +47,21 @@ export function pipelineTemplatesApi(core: ApiCore) {
     deletePipelineTemplate: async (id: string) => {
       return core.request<ApiResponse<{ message: string }>>(`/api/pipeline-templates/${id}`, { method: 'DELETE' });
     },
+
+    /** List the org's soft-deleted templates (tombstones), most-recent first —
+     *  powers the "recently deleted" restore UI. */
+    listDeletedTemplates: async (params?: Record<string, string>) => {
+      return core.request<ApiResponse<{ templates: PipelineTemplate[] }>>(`/api/pipeline-templates/deleted${buildQuery(params)}`);
+    },
+
+    /** Restore a soft-deleted template. Step-up gated (reverses a destructive
+     *  action): pass the token from StepUpModal; the api forwards it as the
+     *  `X-Step-Up-Token` header. */
+    restorePipelineTemplate: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ template: PipelineTemplate }>>(`/api/pipeline-templates/${id}/restore`, {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
   };
 }

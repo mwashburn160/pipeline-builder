@@ -61,6 +61,11 @@ export default function DashboardEditPage() {
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState<'private' | 'org' | 'public'>('private');
   const [panels, setPanels] = useState<Array<Omit<DashboardPanel, 'id' | 'dashboardId'>>>([]);
+  // Stable React keys kept lockstep with `panels`. Index keys break the
+  // controlled inputs when rows reorder/remove (typing in one row jumps to
+  // another) — same lockstep-id pattern EnvEditor/StepEditor use.
+  const panelKeySeq = useRef(0);
+  const [panelKeys, setPanelKeys] = useState<string[]>([]);
   const [layoutJson, setLayoutJson] = useState<Record<string, PanelCoords>>({});
   // editor defaults to drag-resize for new sessions, but anyone who
   // prefers the linear list still has it one click away.
@@ -122,6 +127,7 @@ export default function DashboardEditPage() {
         setDescription(d.description ?? '');
         setVisibility(d.visibility);
         setPanels(d.panels.map(({ id: _id, dashboardId: _did,...rest }) => rest));
+        setPanelKeys(d.panels.map(() => `panel-${panelKeySeq.current++}`));
         // layoutJson keys are `p-${position}` end-to-end (server keeps
         // whatever map we send). Position-based keys survive PUT — which
         // re-assigns panel ids — without invalidating the saved layout.
@@ -147,6 +153,13 @@ export default function DashboardEditPage() {
       [next[index], next[target]] = [next[target], next[index]];
       return next.map((p, i) => ({...p, position: i }));
     });
+    setPanelKeys((prev) => {
+      const target = index + delta;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
     setLayoutJson((prev) => {
       const target = index + delta;
       if (target < 0) return prev;
@@ -163,6 +176,7 @@ export default function DashboardEditPage() {
 
   const removePanel = useCallback((index: number) => {
     setPanels(prev => prev.filter((_, i) => i !== index).map((p, i) => ({...p, position: i })));
+    setPanelKeys((prev) => prev.filter((_, i) => i !== index));
     setLayoutJson((prev) => {
       // Shift any layoutJson entries past `index` down by one to match the
       // renumbered positions.
@@ -190,6 +204,7 @@ export default function DashboardEditPage() {
         vars: {},
       },
     ]);
+    setPanelKeys((prev) => [...prev, `panel-${panelKeySeq.current++}`]);
     // New panels have no saved coords — the grid driver computes a default
     // slot on render; no layoutJson update needed at insert time.
     setShowAddPanel(false);
@@ -392,7 +407,7 @@ export default function DashboardEditPage() {
           ) : (
             <ul className="divide-y divide-gray-200 dark:divide-gray-700">
               {panels.map((p, i) => (
-                <li key={i} className="px-4 py-3 flex items-center gap-3">
+                <li key={panelKeys[i] ?? i} className="px-4 py-3 flex items-center gap-3">
                   <div className="flex flex-col gap-0.5">
                     <IconButton
                       onClick={() => movePanel(i, -1)}

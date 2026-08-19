@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
-import { Cloud, Plus, RefreshCw, X, AlertTriangle } from 'lucide-react';
+import { Cloud, Plus, X, AlertTriangle, Search } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
@@ -14,7 +14,6 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import { IconButton } from '@/components/ui/IconButton';
 import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
@@ -121,6 +120,18 @@ export default function DeploymentsPage() {
   // Only real drift (renamed/orphaned) counts — 'unknown' means we couldn't
   // verify, so it must not inflate the count or trigger the reconcile banner.
   const driftCount = useMemo(() => deploymentRows.filter((r) => r.drift === 'renamed' || r.drift === 'orphaned').length, [deploymentRows]);
+
+  // Client-side search over the loaded rows (the list isn't paginated).
+  const [search, setSearch] = useState('');
+  const searchedRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return deploymentRows;
+    return deploymentRows.filter((r) =>
+      (r.pipelineName || '').toLowerCase().includes(q) ||
+      (r.pipelineId || '').toLowerCase().includes(q) ||
+      (r.stackName || '').toLowerCase().includes(q) ||
+      (r.region || '').toLowerCase().includes(q));
+  }, [deploymentRows, search]);
 
   const performRemove = async (row: DeploymentRow) => {
     setRemoving(row.id);
@@ -239,17 +250,13 @@ export default function DeploymentsPage() {
       title="Deployments"
       subtitle="Pipelines with a live deployment registered, and their drift against current definitions"
       actions={
-        <div className="flex items-center gap-2">
-          <IconButton onClick={fetchAll} title="Refresh" aria-label="Refresh deployments" disabled={loading}>
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          </IconButton>
-          {canWrite && (
-            <Button onClick={openRegister}>
-              <Plus className="w-4 h-4 mr-2" />
-              Register deployment
-            </Button>
-          )}
-        </div>
+        canWrite ? (
+          <Button onClick={openRegister}>
+            <Plus className="w-4 h-4 mr-2" />
+            Register deployment
+          </Button>
+        ) : undefined
+        /* Refresh lives on the list card (ResourceList.onRefresh) — no duplicate here. */
       }
     >
       <div className="page-section">
@@ -264,6 +271,21 @@ export default function DeploymentsPage() {
           </div>
         )}
 
+        {/* Search only appears once there's something to search. */}
+        {deploymentRows.length > 0 && (
+          <div className="relative mb-4 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by pipeline, stack, or region…"
+              aria-label="Search deployments"
+              className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        )}
+
         <ResourceList<DeploymentRow>
           loading={loading}
           error={error}
@@ -273,19 +295,27 @@ export default function DeploymentsPage() {
           emptyState={{
             icon: Cloud,
             title: 'No deployed pipelines yet',
-            description: 'Pipelines register here when `pipeline-manager pipeline deploy` succeeds, or register one manually.',
+            description: (
+              <>
+                Pipelines register here when <code className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-mono text-[0.85em]">pipeline-manager pipeline deploy</code> succeeds, or you register one manually. Once registered, we flag <strong className="font-semibold">drift</strong> — when a pipeline&apos;s config changes or is deleted after deployment — so you can reconcile.
+              </>
+            ),
             action: canWrite ? <Button onClick={openRegister}>Register deployment</Button> : undefined,
           }}
         >
           <DataTable
-            data={deploymentRows}
+            data={searchedRows}
             columns={columns}
             isLoading={loading}
             getRowKey={(r) => r.id}
-            emptyState={{
+            emptyState={search ? {
+              icon: Search,
+              title: 'No matches',
+              description: 'No deployments match your search.',
+            } : {
               icon: Cloud,
               title: 'No deployed pipelines yet',
-              description: 'Pipelines register here when `pipeline-manager pipeline deploy` succeeds.',
+              description: 'Pipelines register here when a deploy succeeds.',
             }}
           />
         </ResourceList>

@@ -16,7 +16,7 @@ import api from '@/lib/api';
 import { LOG_TIME_RANGES, LOG_LEVEL_COLORS } from '@/lib/constants';
 import { formatError } from '@/lib/constants';
 import { redactString } from '@/lib/redact';
-import { downloadJsonl } from '@/lib/csv-export';
+import { downloadJsonl, datedFilename } from '@/lib/csv-export';
 import type { LogEntry } from '@/types';
 
 /**
@@ -175,6 +175,13 @@ export default function LogsPage() {
     },
   ], []);
 
+  // Scope-aware empty state: "no logs" almost always means "none in the last 1h",
+  // so name the active range and offer a one-click widen / clear-filters.
+  const anyLogFilter = Boolean(debouncedSearch || serviceFilter || levelFilter);
+  const currentRangeLabel = (LOG_TIME_RANGES.find((r) => r.ms === timeRange)?.label ?? 'selected range').replace(/^Last /, '');
+  const widestRange = LOG_TIME_RANGES[LOG_TIME_RANGES.length - 1];
+  const widerRange = timeRange < widestRange.ms ? widestRange : null;
+
   if (!isReady || !user) return <LoadingPage />;
 
   return (
@@ -184,7 +191,7 @@ export default function LogsPage() {
       actions={
         <div className="flex items-center gap-2">
           <Button
-            onClick={() => downloadJsonl(entries, `logs-${new Date().toISOString().slice(0, 10)}`)}
+            onClick={() => downloadJsonl(entries, datedFilename('logs'))}
             disabled={entries.length === 0}
             variant="secondary"
             className="py-1.5 flex items-center gap-1.5"
@@ -199,7 +206,7 @@ export default function LogsPage() {
         </div>
       }
     >
-      <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="logs" orgName={user.organizationName} />
+      <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="logs" orgName={user.organizationName} size="sm" />
 
       <ErrorAlert message={error} onDismiss={() => setError(null)} />
 
@@ -272,7 +279,23 @@ export default function LogsPage() {
         emptyState={{
           icon: ScrollText,
           title: 'No logs found',
-          description: debouncedSearch || serviceFilter || levelFilter ? 'Try adjusting your filters.' : 'No log entries in the selected time range.',
+          description: anyLogFilter
+            ? `No matching logs in the last ${currentRangeLabel}.`
+            : `No log entries in the last ${currentRangeLabel} — the system may just be quiet.`,
+          action: (anyLogFilter || widerRange) ? (
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {anyLogFilter && (
+                <Button variant="secondary" onClick={() => { setSearchQuery(''); setServiceFilter(''); setLevelFilter(''); }}>
+                  Clear filters
+                </Button>
+              )}
+              {widerRange && (
+                <Button variant="secondary" onClick={() => setTimeRange(widerRange.ms)}>
+                  Search {widerRange.label}
+                </Button>
+              )}
+            </div>
+          ) : undefined,
         }}
         getRowKey={(entry, i) => `${entry.timestamp}-${i}`}
         onRowClick={(entry) => setSelected(entry)}
@@ -282,9 +305,11 @@ export default function LogsPage() {
         defaultSortDirection="desc"
       />
 
-      <div className="mt-4 text-sm text-gray-500 dark:text-gray-400">
-        Showing {entries.length} log {entries.length === 1 ? 'entry' : 'entries'}
-      </div>
+      {entries.length > 0 && (
+        <div className="mt-4 text-sm text-gray-500 dark:text-gray-400">
+          Showing {entries.length} log {entries.length === 1 ? 'entry' : 'entries'}
+        </div>
+      )}
 
       <LogDetailsDrawer entry={selected} onClose={() => setSelected(null)} />
     </DashboardLayout>

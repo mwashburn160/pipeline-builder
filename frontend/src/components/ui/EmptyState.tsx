@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 interface EmptyStateProps {
   icon: LucideIcon;
   title: string;
-  description: string;
+  description: React.ReactNode;
   action?: React.ReactNode;
   illustration?: IllustrationType;
 }

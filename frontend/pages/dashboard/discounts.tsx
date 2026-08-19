@@ -8,9 +8,10 @@ import { useDelete } from '@/hooks/useDelete';
 import { useOrgOptions } from '@/hooks/useOrgOptions';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { SegmentedFilter } from '@/components/ui/SegmentedFilter';
 import { Badge } from '@/components/ui/Badge';
 import { BillingAdminTabs } from '@/components/billing/BillingAdminTabs';
-import { Card } from '@/components/ui/Card';
+import { FeatureDisabledCard } from '@/components/ui/FeatureDisabledCard';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -420,34 +421,19 @@ export default function DiscountsPage() {
       <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
 
       {notEnabled ? (
-        <Card className="flex flex-col items-center text-center py-14">
-          <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-700/50 flex items-center justify-center">
-            <ShieldAlert className="w-9 h-9 text-gray-400 dark:text-gray-500" />
-          </div>
-          <h3 className="mt-4 text-base font-semibold text-gray-900 dark:text-gray-100">Discounts are not enabled</h3>
-          <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400 max-w-sm">
-            Discounts are not enabled in this deployment. Set <code className="font-mono">BILLING_DISCOUNTS_ENABLED</code> to
-            manage discounts here.
-          </p>
-        </Card>
+        <FeatureDisabledCard icon={ShieldAlert} title="Discounts are not enabled">
+          Discounts are not enabled in this deployment. Set <code className="font-mono">BILLING_DISCOUNTS_ENABLED</code> to
+          manage discounts here.
+        </FeatureDisabledCard>
       ) : (
         <>
           <div className="filter-bar flex flex-wrap items-center gap-2">
-            <div className="inline-flex items-center gap-1" role="group" aria-label="Filter by active state">
-              {([['all', 'All'], ['true', 'Active'], ['false', 'Inactive']] as const).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => list.updateFilter('active', value)}
-                  aria-pressed={String(list.filters.active) === value}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${String(list.filters.active) === value
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <SegmentedFilter
+              ariaLabel="Filter by active state"
+              options={[{ value: 'all', label: 'All' }, { value: 'true', label: 'Active' }, { value: 'false', label: 'Inactive' }]}
+              value={String(list.filters.active)}
+              onChange={(v) => list.updateFilter('active', v)}
+            />
           </div>
 
           <DataTable

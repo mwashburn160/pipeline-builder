@@ -74,3 +74,8 @@ export function downloadJsonl<T>(
   URL.revokeObjectURL(url);
   return rows.length;
 }
+
+/** `<prefix>-YYYY-MM-DD` filename for a dated export download. */
+export function datedFilename(prefix: string): string {
+  return `${prefix}-${new Date().toISOString().slice(0, 10)}`;
+}

@@ -11,7 +11,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { api } from '@/lib/api';
-import { downloadCsv } from '@/lib/csv-export';
+import { downloadCsv, datedFilename } from '@/lib/csv-export';
 import { Download } from 'lucide-react';
 
 interface TriageSample {
@@ -141,7 +141,7 @@ export default function TriagePage() {
                 })),
               ),
               ['category', 'pluginName', 'version', 'error', 'failedAt', 'source', 'jobId'],
-              `triage-${new Date().toISOString().slice(0, 10)}`,
+              datedFilename('triage'),
             )}
             className="inline-flex items-center gap-1"
             disabled={groups.length === 0}

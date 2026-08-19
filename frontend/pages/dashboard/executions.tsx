@@ -15,6 +15,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Activity, Filter, RefreshCw, XCircle, CheckCircle2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
@@ -29,22 +31,17 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { DateRangePicker } from '@/components/reports/ReportHelpers';
-import { downloadCsv } from '@/lib/csv-export';
+import { PostureHeadline } from '@/components/ui/PostureHeadline';
+import { downloadCsv, datedFilename } from '@/lib/csv-export';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { ExecutionCountRow } from '@/types';
 
 type StatusFilter = 'all' | 'failing' | 'succeeding';
 
-const POSTURE_TONE: Record<'red' | 'yellow' | 'green' | 'gray', string> = {
-  red: 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300',
-  yellow: 'border-yellow-300 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300',
-  green: 'border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300',
-  gray: 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 text-gray-600 dark:text-gray-300',
-};
-
 export default function ExecutionsPage() {
   const { isReady, user, can } = useAuthGuard();
+  const router = useRouter();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
   // Date-range scope (empty = all-time). Both bounds are optional and forwarded
@@ -178,6 +175,12 @@ export default function ExecutionsPage() {
     },
   ], []);
 
+  // "Pristine empty" = no runs at all AND no filters applied. In that case the
+  // posture banner + 0-value stat cards + search are all noise (three ways of
+  // saying "nothing here"), so collapse to a single empty state with a CTA.
+  const anyFilterActive = Boolean(search || status !== 'all' || dateFrom || dateTo || includeDescendants);
+  const pristineEmpty = !loading && !error && rows.length === 0 && !anyFilterActive;
+
   if (!isReady || !user) return <LoadingPage />;
 
   return (
@@ -200,7 +203,7 @@ export default function ExecutionsPage() {
                 last_execution: r.last_execution ?? '',
               })),
               ['pipeline', 'project', 'organization', 'total', 'succeeded', 'failed', 'canceled', 'last_execution'],
-              `executions-${new Date().toISOString().slice(0, 10)}`,
+              datedFilename('executions'),
             )}
             disabled={filtered.length === 0}
             className="inline-flex items-center gap-1"
@@ -216,22 +219,24 @@ export default function ExecutionsPage() {
     >
       <ErrorAlert message={error} />
 
+      {pristineEmpty ? (
+        <EmptyState
+          icon={Activity}
+          title="No executions yet"
+          description="Run a pipeline to generate results — run history and pass/fail health show up here."
+          action={<Button onClick={() => router.push('/dashboard/pipelines')}>Go to Pipelines</Button>}
+        />
+      ) : (
+      <>
       {/* Posture headline — answers "how are runs doing?" at a glance */}
-      <div className={`flex items-center justify-between gap-4 rounded-lg border p-4 mb-4 ${POSTURE_TONE[posture.tone]}`}>
-        <div className="flex items-center gap-3 min-w-0">
-          <posture.Icon className="h-6 w-6 shrink-0" />
-          <div className="min-w-0">
-            <div className="text-base font-semibold">{posture.title}</div>
-            <div className="text-xs opacity-80">{posture.detail}</div>
-          </div>
-        </div>
-        {summary.totalRuns > 0 && (
-          <div className="text-right shrink-0">
-            <div className="text-2xl font-bold tabular-nums leading-none">{successRate}%</div>
-            <div className="text-[11px] uppercase tracking-wide opacity-70 mt-1">passing</div>
-          </div>
-        )}
-      </div>
+      <PostureHeadline
+        tone={posture.tone}
+        Icon={posture.Icon}
+        title={posture.title}
+        detail={posture.detail}
+        rate={summary.totalRuns > 0 ? successRate : undefined}
+        className="mb-4"
+      />
 
       {/* Stat strip — at-a-glance health; cards double as filters */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
@@ -323,6 +328,8 @@ export default function ExecutionsPage() {
         defaultSortColumn="last"
         defaultSortDirection="desc"
       />
+      </>
+      )}
     </DashboardLayout>
   );
 }

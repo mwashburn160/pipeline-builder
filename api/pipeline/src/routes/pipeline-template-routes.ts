@@ -104,6 +104,17 @@ export function createPipelineTemplateRoutes(): Router {
     });
   }));
 
+  // GET /pipeline-templates/deleted — org's soft-deleted template tombstones
+  // (most-recently-deleted first), powering the "recently deleted" restore UI.
+  // Registered BEFORE `/:id` so the literal path isn't swallowed by the id matcher.
+  router.get('/deleted', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId }) => {
+    const { limit, offset } = parsePaginationParams(req.query as Record<string, unknown>);
+    const deleted = await pipelineTemplateService.findDeleted(orgId, { limit, offset });
+
+    ctx.log('COMPLETED', 'Listed deleted pipeline templates', { count: deleted.length });
+    return sendSuccess(res, 200, { templates: deleted.map(r => normalizeArrayFields(r, ['keywords'])) });
+  }));
+
   // GET /pipeline-templates/:id
   router.get('/:id', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');

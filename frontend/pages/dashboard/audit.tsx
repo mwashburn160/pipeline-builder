@@ -34,7 +34,7 @@ import { Button } from '@/components/ui/Button';
 import { FilterInput } from '@/components/ui/FilterInput';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { formatError } from '@/lib/constants';
-import { downloadCsv, downloadJsonl } from '@/lib/csv-export';
+import { downloadCsv, downloadJsonl, datedFilename } from '@/lib/csv-export';
 import { redactDetails } from '@/lib/redact';
 import type { AuditLogEvent, AuditChainVerification } from '@/types/audit';
 import api from '@/lib/api';
@@ -366,7 +366,7 @@ export default function AuditPage() {
                 details: e.details ? JSON.stringify(redactDetails(e.details)) : '',
               })),
               ['createdAt', 'action', 'outcome', 'actorId', 'actorEmail', 'actorRole', 'impersonatorId', 'orgId', 'affectedOrgId', 'targetType', 'targetId', 'groupId', 'ip', 'userAgent', 'requestId', 'traceId', 'details'],
-              `audit-page-${new Date().toISOString().slice(0, 10)}`,
+              datedFilename('audit-page'),
             )}
             variant="secondary"
             className="inline-flex items-center gap-1"
@@ -377,7 +377,7 @@ export default function AuditPage() {
           <Button
             onClick={() => downloadJsonl(
               events.map((e) => (e.details ? { ...e, details: redactDetails(e.details) } : e)),
-              `audit-page-${new Date().toISOString().slice(0, 10)}`,
+              datedFilename('audit-page'),
             )}
             variant="secondary"
             className="inline-flex items-center gap-1"

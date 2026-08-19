@@ -13,7 +13,7 @@ import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useLoadable } from '@/hooks/useLoadable';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
-import type { Pipeline, Plugin, Message } from '@/types';
+import type { Pipeline, Plugin, Message, PipelineTemplate } from '@/types';
 import type { ComplianceRule, CompliancePolicy } from '@/types/compliance';
 
 /** The subset of a soft-deleted pipeline/plugin the panel renders. */
@@ -22,8 +22,8 @@ interface DeletedRow {
   name: string;
   version?: string;
   accessModifier?: string;
-  deletedAt?: string;
-  deletedBy?: string;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
 }
 
 /**
@@ -32,7 +32,7 @@ interface DeletedRow {
  * (`POST …/:id/restore`) route — the panel is list-driven, so a resource with
  * only restore-by-id cannot appear here.
  */
-type Resource = 'pipeline' | 'plugin' | 'message' | 'compliance-rule' | 'compliance-policy';
+type Resource = 'pipeline' | 'plugin' | 'template' | 'message' | 'compliance-rule' | 'compliance-policy';
 
 /**
  * Per-resource registry: labels + a list-deleted loader (throws on failure so
@@ -52,6 +52,10 @@ function pipelineToRow(p: Pipeline): DeletedRow {
 
 function pluginToRow(p: Plugin): DeletedRow {
   return { id: p.id, name: p.name || p.id, version: p.version, accessModifier: p.accessModifier, deletedAt: p.deletedAt, deletedBy: p.deletedBy };
+}
+
+function templateToRow(t: PipelineTemplate): DeletedRow {
+  return { id: t.id, name: t.name || t.id, accessModifier: t.accessModifier, deletedAt: t.deletedAt, deletedBy: t.deletedBy };
 }
 
 function messageToRow(m: Message): DeletedRow {
@@ -84,6 +88,15 @@ const RESOURCES: Record<Resource, ResourceConfig> = {
       throw new Error('Failed to load deleted plugins');
     },
     restore: (id, stepUpToken) => api.restorePlugin(id, stepUpToken),
+  },
+  template: {
+    labels: { singular: 'template', plural: 'templates' },
+    load: async () => {
+      const res = await api.listDeletedTemplates();
+      if (res.success && res.data) return res.data.templates.map(templateToRow);
+      throw new Error('Failed to load deleted templates');
+    },
+    restore: (id, stepUpToken) => api.restorePipelineTemplate(id, stepUpToken),
   },
   message: {
     labels: { singular: 'message', plural: 'messages' },

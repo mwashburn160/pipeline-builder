@@ -18,6 +18,8 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { ResourceList } from '@/components/ui/ResourceList';
+import { TabBar } from '@/components/ui/TabBar';
+import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import { CreateTemplateModal } from '@/components/pipeline/CreateTemplateModal';
 import { ImportTemplateModal } from '@/components/pipeline/ImportTemplateModal';
 import api from '@/lib/api';
@@ -45,6 +47,7 @@ export default function TemplatesPage() {
   const canPublish = can('pipelines:publish');
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [deletedView, setDeletedView] = useState<'active' | 'deleted'>('active');
 
   // Delete state
   const [deleteTarget, setDeleteTarget] = useState<PipelineTemplate | null>(null);
@@ -213,6 +216,23 @@ export default function TemplatesPage() {
       }
     >
       <div className="page-section">
+        {/* Active / Recently-deleted tabs (restore is write-gated). */}
+        {canWrite && (
+          <TabBar
+            className="mb-4"
+            items={[{ id: 'active', label: 'Active' }, { id: 'deleted', label: 'Recently deleted' }]}
+            activeId={deletedView}
+            onSelect={(id) => setDeletedView(id as 'active' | 'deleted')}
+          />
+        )}
+
+        {canWrite && deletedView === 'deleted' ? (
+          <RecentlyDeletedPanel
+            resource="template"
+            onRestored={fetchAll}
+            canRestoreRow={(r) => (r.accessModifier === 'public' ? canPublish : canWrite)}
+          />
+        ) : (
         <ResourceList<PipelineTemplate>
           loading={loading}
           error={error}
@@ -270,6 +290,7 @@ export default function TemplatesPage() {
             ))}
           </div>
         </ResourceList>
+        )}
       </div>
 
       {selected && (

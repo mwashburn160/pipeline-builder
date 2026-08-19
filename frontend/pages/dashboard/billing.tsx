@@ -7,6 +7,7 @@ import { useBillingEnabledState } from '@/hooks/useBillingEnabled';
 import { TIER_KEYS } from '@/lib/tiers';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
+import { FeatureDisabledCard } from '@/components/ui/FeatureDisabledCard';
 import { Button } from '@/components/ui/Button';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import ReportTabs from '@/components/reports/ReportTabs';
@@ -358,12 +359,9 @@ export default function BillingPage() {
     return (
       <DashboardLayout title="Billing" subtitle="Plans, invoices, and payment details">
         <div className="page-section">
-          <Card className="flex flex-col items-center text-center py-14">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Billing is not enabled</h3>
-            <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400 max-w-sm">
-              The billing service is disabled in this deployment, so there are no plans or subscriptions to manage here.
-            </p>
-          </Card>
+          <FeatureDisabledCard title="Billing is not enabled">
+            The billing service is disabled in this deployment, so there are no plans or subscriptions to manage here.
+          </FeatureDisabledCard>
         </div>
       </DashboardLayout>
     );
