@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import Link from 'next/link';
 import { Cloud, Plus, RefreshCw, X, AlertTriangle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useToast } from '@/components/ui/Toast';
@@ -151,7 +152,19 @@ export default function DeploymentsPage() {
       header: 'Pipeline',
       render: (r) => (
         <div>
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{r.pipelineName}</div>
+          {/* Link to the pipeline detail — except when orphaned (config deleted),
+              where the link would 404, so show plain text and let the drift
+              badge explain. */}
+          {r.drift === 'orphaned' ? (
+            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{r.pipelineName}</div>
+          ) : (
+            <Link
+              href={`/dashboard/pipelines/${encodeURIComponent(r.pipelineId)}`}
+              className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
+            >
+              {r.pipelineName}
+            </Link>
+          )}
           <div className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate max-w-xs">{r.pipelineId}</div>
         </div>
       ),
@@ -240,7 +253,7 @@ export default function DeploymentsPage() {
       }
     >
       <div className="page-section">
-        <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="deployments" orgName={user.organizationName} />
+        <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="deployments" orgName={user.organizationName} size="sm" />
 
         {driftCount > 0 && (
           <div className="mb-4 rounded-lg border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 p-3 flex items-center gap-2 text-sm text-yellow-900 dark:text-yellow-200">

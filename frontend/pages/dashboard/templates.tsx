@@ -222,7 +222,22 @@ export default function TemplatesPage() {
           emptyState={{
             icon: LayoutTemplate,
             title: 'No templates yet',
-            description: 'Golden-path templates published to your org (or the shared system catalog) appear here.',
+            // Actionable empty state: explain the value, then offer the two ways
+            // in. Read-only users can't publish, so they get context instead of
+            // dead buttons.
+            description: canWrite
+              ? 'Golden-path templates let anyone spin up a governed pipeline by filling a few fields. Create one from an existing pipeline, or import a template file to get started.'
+              : 'Golden-path templates published to your org (or the shared system catalog) appear here. Ask an org admin to publish one.',
+            action: canWrite ? (
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <Button onClick={() => setShowCreate(true)}>
+                  <LayoutTemplate className="w-4 h-4 mr-1.5" /> Create your first template
+                </Button>
+                <Button variant="secondary" onClick={() => setShowImport(true)}>
+                  <Upload className="w-4 h-4 mr-1.5" /> Import
+                </Button>
+              </div>
+            ) : undefined,
           }}
         >
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

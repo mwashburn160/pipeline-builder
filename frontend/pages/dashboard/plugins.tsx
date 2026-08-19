@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useToast } from '@/components/ui/Toast';
 import { useOpenOnCreateQuery } from '@/hooks/useOpenOnCreateQuery';
 import { formatError } from '@/lib/constants';
-import { Search, Puzzle, Plus, Trash2, X, Upload, Star, Boxes } from 'lucide-react';
+import { Search, Puzzle, Plus, Trash2, X, Upload, Star, Boxes, Lock } from 'lucide-react';
 import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
 import type { PluginCategory } from '@/lib/help';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -243,6 +243,22 @@ export default function PluginsPage() {
   // Either an advanced/search filter or the favorites chip narrows the page.
   const hasActiveFilters = list.hasActiveFilters || showFavoritesOnly;
 
+  // Always-on result feedback + current-page exception surfacing (server-
+  // paginated, so inactive/private counts are scoped to this page).
+  const listSummary = useMemo(() => {
+    if (list.isLoading) return undefined;
+    const shown = filteredPlugins.length;
+    const total = list.pagination.total;
+    const base = `Showing ${shown} of ${total} plugin${total === 1 ? '' : 's'}`;
+    const inactive = filteredPlugins.filter((p) => !p.isActive).length;
+    const priv = filteredPlugins.filter((p) => p.accessModifier !== 'public').length;
+    const flags = [
+      inactive ? `${inactive} inactive` : null,
+      priv ? `${priv} private` : null,
+    ].filter(Boolean);
+    return flags.length ? `${base} · ${flags.join(' · ')} on this page` : base;
+  }, [filteredPlugins, list.isLoading, list.pagination.total]);
+
   // ── Bulk Operations ──
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -352,17 +368,26 @@ export default function PluginsPage() {
       render: (p) => {
         const used = pluginUsage[p.name] ?? 0;
         return (
-          <div>
-            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-              {p.name}
-              {!p.isActive && <Badge color="red" className="ml-2">Inactive</Badge>}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Name is the "view" click target (opens the detail modal), so the
+                  Actions column no longer needs a separate View link. Version
+                  folds in here as a chip → the standalone Version column hides. */}
+              <button
+                onClick={() => setViewPlugin(p)}
+                className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline text-left truncate"
+              >
+                {p.name}
+              </button>
+              {p.version && <span className="shrink-0 text-[11px] font-mono text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5">v{p.version}</span>}
+              {!p.isActive && <Badge color="red">Inactive</Badge>}
               {used > 0 && (
-                <span title={`Referenced by ${used} pipeline${used === 1 ? '' : 's'} in your org`} className="ml-2 inline-block">
+                <span title={`Referenced by ${used} pipeline${used === 1 ? '' : 's'} in your org`} className="inline-block">
                   <Badge color="blue">Used by {used}</Badge>
                 </span>
               )}
             </div>
-            {p.description && <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{p.description}</div>}
+            {p.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-md mt-0.5">{p.description}</div>}
           </div>
         );
       },
@@ -378,6 +403,10 @@ export default function PluginsPage() {
     {
       id: 'version',
       header: 'Version',
+      // Hidden by default: version now shows as a chip in the Name cell, so a
+      // standalone column (usually all "1.0.0") is redundant. Re-enable via the
+      // column toggle.
+      hidden: true,
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
       sortValue: (p) => p.version,
       render: (p) => <>{p.version}</>,
@@ -412,7 +441,12 @@ export default function PluginsPage() {
       id: 'access',
       header: 'Access',
       sortValue: (p) => p.accessModifier,
-      render: (p) => <Badge color={p.accessModifier === 'public' ? 'green' : 'gray'}>{p.accessModifier}</Badge>,
+      // Public is the common case → muted; private is the exception → legible + lock.
+      render: (p) => (
+        p.accessModifier === 'public'
+          ? <span className="text-xs text-gray-400 dark:text-gray-500">Public</span>
+          : <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-700 dark:text-gray-300"><Lock className="h-3 w-3" />Private</span>
+      ),
     },
     {
       id: 'uri',
@@ -488,27 +522,29 @@ export default function PluginsPage() {
       render: (plugin) => {
         const parsed = isSuperAdmin ? parsePluginUri(plugin.uri) : null;
         return (
-          <div className="flex items-center space-x-3">
-            <button onClick={() => setViewPlugin(plugin)} className="action-link">View</button>
+          // Decrowded: the name is now the "view" target, so View is dropped.
+          // Edit stays a link; registry cross-link + delete are icons (delete
+          // muted, red-on-hover, guarded by the confirm modal).
+          <div className="flex items-center gap-1">
             {canWrite && canModify(isSuperAdmin, plugin.accessModifier) && (
               <button onClick={() => setEditPlugin(plugin)} className="action-link">Edit</button>
             )}
-            {/* Sysadmin-only registry cross-link — closes the
-                Plugins↔Registry navigation loop so an operator looking at
-                a plugin row can jump straight to its image without
-                hand-typing the path. */}
+            {/* Sysadmin-only registry cross-link — closes the Plugins↔Registry
+                navigation loop so an operator can jump straight to the image. */}
             {parsed && (
               <Link
                 href={`/dashboard/registry?repo=${encodeURIComponent(parsed.repo)}&tag=${encodeURIComponent(parsed.tag)}`}
-                className="action-link inline-flex items-center gap-1"
                 title={`Browse ${plugin.uri} in the registry`}
+                aria-label="View in registry"
+                className="inline-flex items-center justify-center h-8 w-8 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:text-blue-400 dark:hover:bg-blue-900/20 transition-colors"
               >
-                <Boxes className="w-3.5 h-3.5" />
-                In registry
+                <Boxes className="w-4 h-4" />
               </Link>
             )}
             {canWrite && canModify(isSuperAdmin, plugin.accessModifier) && (
-              <button onClick={() => del.open(plugin)} className="action-link-danger">Delete</button>
+              <IconButton tone="danger" title="Delete plugin" aria-label="Delete plugin" onClick={() => del.open(plugin)}>
+                <Trash2 className="h-4 w-4" />
+              </IconButton>
             )}
           </div>
         );
@@ -547,7 +583,7 @@ export default function PluginsPage() {
       }
     >
       <div className="page-section">
-        <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="plugins" orgName={user.organizationName} />
+        <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="plugins" orgName={user.organizationName} size="sm" />
 
         {/* Sticky search + advanced-filter panel stays above the list shell.
             FilterBar is its own sticky surface with a "/" hotkey and a
@@ -562,7 +598,7 @@ export default function PluginsPage() {
           onToggleAdvanced={() => setShowAdvanced(!showAdvanced)}
           advancedFilterCount={list.advancedFilterCount}
           onClearAll={clearAllFilters}
-          summary={!list.isLoading && hasActiveFilters ? `Showing ${filteredPlugins.length} of ${list.pagination.total} plugins` : undefined}
+          summary={listSummary}
           advancedContent={
             <>
               <FilterInput type="text" aria-label="Filter by keyword" value={list.filters.keyword} onChange={(e) => list.updateFilter('keyword', e.target.value)} placeholder="Keyword..." className="max-w-[160px]" />

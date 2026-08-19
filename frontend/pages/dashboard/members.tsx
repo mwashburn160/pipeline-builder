@@ -405,7 +405,7 @@ export default function MembersPage() {
         </div>
       }
     >
-      <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="team members" />
+      <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="team members" size="sm" />
 
       {seatUsage && (() => {
         const unlimited = seatUsage.limit === -1;

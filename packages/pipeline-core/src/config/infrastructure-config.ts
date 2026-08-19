@@ -2,11 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import path from 'path';
-import { Duration, RemovalPolicy } from 'aws-cdk-lib';
-import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
-import { RetentionDays } from 'aws-cdk-lib/aws-logs';
 import type { AWSConfig, BuildConfig, ComplianceConfig, DatabaseConfig, ObservabilityConfig, PluginBuildConfig, RedisConfig, RegistryConfig } from './config-types.js';
-import { getComputeType } from '../core/pipeline-helpers.js';
 
 /**
  * Load Docker registry configuration from environment variables.
@@ -167,12 +163,10 @@ export function loadDockerConfig(): BuildConfig {
 export function loadAWSConfig(): AWSConfig {
   return {
     lambda: {
-      runtime: parseRuntime(process.env.LAMBDA_RUNTIME || 'nodejs24.x'),
-      timeout: Duration.seconds(parseInt(process.env.LAMBDA_TIMEOUT || '900', 10)),
+      runtime: process.env.LAMBDA_RUNTIME || 'nodejs24.x',
+      timeoutSeconds: parseInt(process.env.LAMBDA_TIMEOUT || '900', 10),
       memorySize: parseInt(process.env.LAMBDA_MEMORY_SIZE || '512', 10),
-      architecture: process.env.LAMBDA_ARCHITECTURE === 'x86_64'
-        ? Architecture.X86_64
-        : Architecture.ARM_64,
+      architecture: process.env.LAMBDA_ARCHITECTURE === 'x86_64' ? 'x86_64' : 'arm64',
       reservedConcurrentExecutions: process.env.LAMBDA_RESERVED_CONCURRENCY
         ? parseInt(process.env.LAMBDA_RESERVED_CONCURRENCY, 10)
         : undefined,
@@ -180,43 +174,35 @@ export function loadAWSConfig(): AWSConfig {
 
     logging: {
       groupName: process.env.LOG_GROUP_NAME || '/pipeline-builder/logs',
-      retention: parseRetention(process.env.LOG_RETENTION || '7'),
-      removalPolicy: process.env.LOG_REMOVAL_POLICY === 'RETAIN'
-        ? RemovalPolicy.RETAIN
-        : RemovalPolicy.DESTROY,
+      retentionDays: parseRetentionDays(process.env.LOG_RETENTION || '7'),
+      removalPolicy: process.env.LOG_REMOVAL_POLICY === 'RETAIN' ? 'retain' : 'destroy',
     },
 
     codeBuild: {
-      computeType: getComputeType(process.env.CODEBUILD_COMPUTE_TYPE || 'SMALL'),
+      computeType: (process.env.CODEBUILD_COMPUTE_TYPE || 'SMALL').toUpperCase(),
       defaultImage: process.env.CODEBUILD_DEFAULT_IMAGE || 'pipeline-bootstrap:1.0',
     },
   };
 }
 
 /**
- * Parse Lambda runtime string into a CDK Runtime enum value.
- *
- * @param runtime - Runtime string (e.g. `'nodejs24.x'`)
- * @returns CDK Runtime enum; falls back to NODEJS_24_X for unknown values
+ * Valid CloudWatch Logs retention periods, in days. Mirrors the day counts of
+ * CDK's `RetentionDays` enum (whose members ARE the day counts), but written out
+ * so this module stays free of `aws-cdk-lib`  see the note on {@link AWSConfig}.
+ * `0` is CDK's `INFINITE` (never expire).
  */
-function parseRuntime(runtime: string): Runtime {
-  const runtimeMap: Record<string, Runtime> = {
-    'nodejs24.x': Runtime.NODEJS_24_X,
-  };
-  return runtimeMap[runtime] || Runtime.NODEJS_24_X;
-}
+const VALID_RETENTION_DAYS = new Set([
+  0, 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731,
+  1096, 1827, 2192, 2557, 2922, 3288, 3653,
+]);
 
 /**
- * Parse log retention days string into a CDK RetentionDays enum value.
- * RetentionDays enum values are the numeric day counts themselves,
- * so we parse the string and check if it's a valid enum member.
+ * Parse a log-retention string into a valid CloudWatch retention day count.
  *
  * @param days - Retention period in days as a string (e.g. `'30'`)
- * @returns CDK RetentionDays enum; falls back to ONE_DAY for unknown values
+ * @returns the day count; falls back to 1 day for unknown/invalid values
  */
-const VALID_RETENTION_DAYS = new Set(Object.values(RetentionDays).filter((v): v is number => typeof v === 'number'));
-
-function parseRetention(days: string): RetentionDays {
+function parseRetentionDays(days: string): number {
   const parsed = parseInt(days, 10);
-  return VALID_RETENTION_DAYS.has(parsed) ? parsed as RetentionDays : RetentionDays.ONE_DAY;
+  return VALID_RETENTION_DAYS.has(parsed) ? parsed : 1;
 }

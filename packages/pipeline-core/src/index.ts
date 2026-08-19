@@ -4,34 +4,33 @@
 /**
  * @module @pipeline-builder/pipeline-core
  *
- * Application configuration, pipeline domain types, and CDK constructs.
+ * Application configuration, pipeline domain types, and the template engine.
+ *
+ * This entry point is deliberately FREE of `aws-cdk-lib`. The CDK constructs live
+ * behind a separate subpath — `@pipeline-builder/pipeline-core/cdk` — because the
+ * API services consume this package for config and domain types only, and an
+ * `export *` of the constructs from here put the whole of `aws-cdk-lib` on the
+ * import graph of every service that read so much as a port number. Anything that
+ * imports `aws-cdk-lib`, at type level or value level, belongs in `cdk.ts`.
  *
  * **Config**
- * - Config  application configuration singleton (environment-driven)
- * - ConfigTypes  typed configuration interfaces
+ * - Config — application configuration singleton (environment-driven)
+ * - ConfigTypes — typed configuration interfaces
  *
  * **Types**
- * - PipelineType, ComputeType, AccessModifier, PluginType  pipeline domain enums
- * - NetworkTypes, RoleTypes, SecurityGroupTypes  infrastructure type definitions
- * - SourceTypes, StepTypes  pipeline source and step configuration types
- * - IdGenerator  deterministic ID generation
- *
- * **CDK Constructs**
- * - PipelineBuilder  top-level CDK pipeline construct
- * - StageBuilder  pipeline stage composition
- * - PipelineConfiguration  pipeline config resolution
- * - PluginLookup  plugin resolution for pipeline steps
- * - ArtifactManager  build artifact management
+ * - PipelineType, ComputeType, AccessModifier, PluginType — pipeline domain enums
+ * - RoleTypes, SecurityGroupTypes — infrastructure type definitions
+ * - PluginSpec — a plugin's declared contract
+ * - IdGenerator — deterministic ID generation
  *
  * **Helpers**
- * - replaceNonAlphanumeric, extractMetadataEnv  string and metadata utilities
- * - buildConfigFromMetadata, metadataForCodePipeline, etc.  metadata builders
+ * - replaceNonAlphanumeric, extractMetadataEnv — string and metadata utilities
  *
  * **Re-exports from api-core**
  * - ErrorCode, createLogger
  *
  * The Postgres/Drizzle data layer (db, schema, CrudService, query builders,
- * filter/compliance types, etc.) is NOT re-exported here  import those
+ * filter/compliance types, etc.) is NOT re-exported here — import those
  * directly from `@pipeline-builder/pipeline-data`.
  */
 
@@ -44,19 +43,13 @@ export { parsePlatformBaseUrl } from './config/infrastructure-config.js';
 
 // Core types (public surface)
 export * from './core/pipeline-types.js';
-export * from './core/network-types.js';
 export * from './core/role-types.js';
 export * from './core/security-group-types.js';
 export * from './core/id-generator.js';
-export { replaceNonAlphanumeric, extractMetadataEnv } from './core/pipeline-helpers.js';
-export {
-  buildConfigFromMetadata,
-  metadataForCodePipeline,
-  metadataForCodeBuildStep,
-  metadataForShellStep,
-  metadataForBuildEnvironment,
-} from './core/metadata-builder.js';
-export * from './core/artifact-manager.js';
+export { replaceNonAlphanumeric, extractMetadataEnv } from './core/metadata-helpers.js';
+
+// Plugin domain type (the synth-time authoring types live in the `/cdk` entry)
+export * from './pipeline/plugin-spec.js';
 
 // Re-export from api-core (only items consumed by external packages)
 export {
@@ -64,13 +57,5 @@ export {
   createLogger,
 } from '@pipeline-builder/api-core';
 
-// Pipeline (CDK constructs)
-export * from './pipeline/source-types.js';
-export * from './pipeline/step-types.js';
-export * from './pipeline/stage-builder.js';
-export * from './pipeline/pipeline-builder.js';
-export * from './pipeline/plugin-lookup.js';
-export { PipelineConfiguration } from './pipeline/pipeline-configuration.js';
-
-// Template engine  synth-time scripting for pipeline config + plugin specs
+// Template engine — synth-time scripting for pipeline config + plugin specs
 export * from './template/index.js';

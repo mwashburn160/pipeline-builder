@@ -799,9 +799,6 @@ importers:
       '@pipeline-builder/api-server':
         specifier: workspace:*
         version: link:../packages/api-server
-      '@pipeline-builder/pipeline-core':
-        specifier: workspace:*
-        version: link:../packages/pipeline-core
       framer-motion:
         specifier: 12.43.0
         version: 12.43.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -1145,15 +1142,9 @@ importers:
       '@pipeline-builder/pipeline-data':
         specifier: workspace:*
         version: link:../pipeline-data
-      aws-cdk-lib:
-        specifier: 2.263.0
-        version: 2.263.0(constructs@10.7.0)
       axios:
         specifier: 1.19.0
         version: 1.19.0
-      constructs:
-        specifier: 10.7.0
-        version: 10.7.0
       jsonwebtoken:
         specifier: 9.0.3
         version: 9.0.3
@@ -1188,6 +1179,12 @@ importers:
       '@typescript/native':
         specifier: npm:typescript@^7.0.2
         version: typescript@7.0.2
+      aws-cdk-lib:
+        specifier: 2.263.0
+        version: 2.263.0(constructs@10.7.0)
+      constructs:
+        specifier: 10.7.0
+        version: 10.7.0
       copyfiles:
         specifier: 2.4.1
         version: 2.4.1
@@ -1354,6 +1351,9 @@ importers:
       commander:
         specifier: 15.0.0
         version: 15.0.0
+      constructs:
+        specifier: 10.7.0
+        version: 10.7.0
       figlet:
         specifier: 1.11.4
         version: 1.11.4

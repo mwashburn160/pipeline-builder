@@ -235,3 +235,14 @@ export interface CodeCommitOptions {
    */
   readonly trigger?: TriggerType;
 }
+
+/**
+ * Union type of all supported pipeline source types
+ *
+ * Supported sources:
+ * - S3SourceConfig: Source code from S3 bucket
+ * - GitHubSourceConfig: Source code from GitHub repository
+ * - CodeStarSourceConfig: Source code via CodeStar connection (GitHub, Bitbucket, GitLab)
+ * - CodeCommitSourceConfig: Source code from AWS CodeCommit repository
+ */
+export type SourceType = S3SourceConfig | GitHubSourceConfig | CodeStarSourceConfig | CodeCommitSourceConfig;

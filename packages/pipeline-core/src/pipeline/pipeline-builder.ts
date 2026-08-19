@@ -19,6 +19,7 @@ import { SourceBuilder } from './source-builder.js';
 import { StageBuilder } from './stage-builder.js';
 import type { StageOptions, SynthOptions } from './step-types.js';
 import { Config, CoreConstants } from '../config/app-config.js';
+import { lambdaRuntime, lambdaTimeout } from '../config/aws-config-cdk.js';
 import type { RegistryConfig } from '../config/config-types.js';
 import { ArtifactManager } from '../core/artifact-manager.js';
 import { UniqueId } from '../core/id-generator.js';
@@ -32,7 +33,7 @@ import {
 } from '../core/metadata-builder.js';
 import type { CodeBuildDefaults } from '../core/network-types.js';
 import { resolveNetwork, networkConfigFromEnv } from '../core/network.js';
-import { createCodeBuildStep, resolveDefaultBuildImage } from '../core/pipeline-helpers.js';
+import { createCodeBuildStep, getComputeType, resolveDefaultBuildImage } from '../core/pipeline-helpers.js';
 import { MetadataKeys, TriggerType } from '../core/pipeline-types.js';
 import type { MetaDataType } from '../core/pipeline-types.js';
 import type { RoleConfig } from '../core/role-types.js';
@@ -206,8 +207,8 @@ export class PipelineBuilder extends Construct {
           platformUrl: serverConfig.platformUrl,
           uniqueId,
           orgId: props.orgId,
-          runtime: awsConfig.lambda.runtime,
-          timeout: awsConfig.lambda.timeout,
+          runtime: lambdaRuntime(awsConfig.lambda.runtime),
+          timeout: lambdaTimeout(awsConfig.lambda.timeoutSeconds),
           reservedConcurrentExecutions: awsConfig.lambda.reservedConcurrentExecutions,
           resolvedPlugins: props.resolvedPlugins,
         },
@@ -234,7 +235,7 @@ export class PipelineBuilder extends Construct {
       const plugin = props.resolvedPlugins?.[synthCacheKey]
         ? pluginLookup.plugin(this.config.plugin)
         : pluginLookup.bootstrap();
-      const defaultComputeType = awsConfig.codeBuild.computeType;
+      const defaultComputeType = getComputeType(awsConfig.codeBuild.computeType);
       const artifactManager = new ArtifactManager();
       const synthAlias = this.config.plugin.alias ?? this.config.plugin.name;
 

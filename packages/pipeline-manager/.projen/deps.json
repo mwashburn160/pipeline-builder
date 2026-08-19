@@ -129,6 +129,11 @@
       "type": "runtime"
     },
     {
+      "name": "constructs",
+      "version": "10.7.0",
+      "type": "runtime"
+    },
+    {
       "name": "figlet",
       "version": "1.11.4",
       "type": "runtime"

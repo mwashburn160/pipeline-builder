@@ -10,37 +10,14 @@ import { CodeBuildStep, ManualApprovalStep, ShellStep } from 'aws-cdk-lib/pipeli
 import type { Construct } from 'constructs';
 import type { ArtifactKey } from './artifact-manager.js';
 import { metadataForShellStep, metadataForCodeBuildStep, metadataForBuildEnvironment, networkConfigFromMetadata } from './metadata-builder.js';
+import { extractMetadataEnv, merge } from './metadata-helpers.js';
 import { resolveNetwork } from './network.js';
-import { PluginType, ComputeType, type MetaDataType, CDK_METADATA_PREFIX } from './pipeline-types.js';
+import { PluginType, ComputeType, type MetaDataType } from './pipeline-types.js';
 import { Config, CoreConstants } from '../config/app-config.js';
 import type { CodeBuildStepOptions, StepCustomization } from '../pipeline/step-types.js';
 import { resolvePluginTemplates } from '../template/plugin-resolver.js';
 
 const log = createLogger('pipeline-helpers');
-
-/**
- * Merge multiple metadata objects into one. Later sources override earlier ones.
- */
-export function merge(...sources: Array<Partial<MetaDataType>>): MetaDataType {
-  return Object.assign({}, ...sources) as MetaDataType;
-}
-
-/**
- * Extract non-namespaced metadata keys as environment variable strings.
- * Keys starting with 'aws:cdk:' are reserved for CDK construct props
- * (processed by metadata extraction functions) and are excluded here.
- *
- * All values are converted to strings for CodeBuild compatibility.
- */
-export function extractMetadataEnv(metadata: MetaDataType): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(metadata)) {
-    if (!key.startsWith(CDK_METADATA_PREFIX)) {
-      env[key] = String(value);
-    }
-  }
-  return env;
-}
 
 /**
  * Build environment variables from plugin config, merged metadata, and custom env.
@@ -68,19 +45,6 @@ function buildEnv(plugin: Plugin, metadata: MetaDataType, customEnv?: Record<str
  *
  * Only applied to build commands, not install commands (install failures should always stop the build).
  */
-/** Plugin categories whose failure must NEVER be masked. A scan/security step that
- *  exits non-zero has to fail the pipeline (repo rule: a failed scan is red, never a
- *  false-green `|| true`), so such a plugin's failureBehavior is forced to 'fail'
- *  regardless of what the plugin or step authored. */
-const FAIL_FAST_CATEGORIES = /scan|security|sast|dast|vuln|secret/i;
-
-/** Resolve the effective failureBehavior: a scan/security-category plugin is pinned
- *  to 'fail'; otherwise the authored value (default 'fail'). */
-export function resolveFailureBehavior(category?: string, authored?: 'fail' | 'warn' | 'ignore'): 'fail' | 'warn' | 'ignore' {
-  if (category && FAIL_FAST_CATEGORIES.test(category)) return 'fail';
-  return authored ?? 'fail';
-}
-
 function wrapCommandsForFailureBehavior(commands: string[], behavior?: 'fail' | 'warn' | 'ignore'): string[] {
   if (!behavior || behavior === 'fail') return commands;
 
@@ -674,16 +638,6 @@ export function getComputeType(input: string | CDKComputeType = 'SMALL'): CDKCom
     return CDKComputeType.SMALL;
   }
   return result;
-}
-
-/**
- * Replaces all characters that are not letters or numbers with the specified value
- * @param input - The string to process
- * @param replaceValue - The character(s) to replace non-alphanumeric characters with (default: '_')
- * @returns The string with non-alphanumeric characters replaced
- */
-export function replaceNonAlphanumeric(input: string, replaceValue: string = '_'): string {
-  return input.replace(/[^a-zA-Z0-9]/g, replaceValue);
 }
 
 /**

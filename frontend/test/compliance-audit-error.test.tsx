@@ -3,7 +3,9 @@
 
 /**
  * ComplianceDashboard overview: a failed audit-log fetch must show an error +
- * retry banner instead of the swallowed-error "No audit entries found" state.
+ * retry banner instead of the swallowed-error empty state ("No check results
+ * recorded yet."), which would read as "nothing happened" rather than "the
+ * fetch broke".
  */
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -42,7 +44,7 @@ describe('ComplianceDashboard — audit fetch error', () => {
 
     expect(await screen.findByText(/failed to load audit log/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
-    expect(screen.queryByText(/no audit entries found/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no check results recorded yet/i)).not.toBeInTheDocument();
   });
 
   it('clears the banner and refetches on Retry', async () => {
@@ -54,6 +56,6 @@ describe('ComplianceDashboard — audit fetch error', () => {
     fireEvent.click(screen.getByRole('button', { name: /retry/i }));
 
     await waitFor(() => expect(screen.queryByText(/failed to load audit log/i)).not.toBeInTheDocument());
-    expect(screen.getByText(/no audit entries found/i)).toBeInTheDocument();
+    expect(screen.getByText(/no check results recorded yet/i)).toBeInTheDocument();
   });
 });

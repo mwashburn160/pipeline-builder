@@ -9,10 +9,10 @@ import { Bucket } from 'aws-cdk-lib/aws-s3';
 import { CodePipelineSource } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
 import type { PipelineConfiguration } from './pipeline-configuration.js';
-import type { GitHubOptions } from './source-types.js';
+import type { GitHubOptions, SourceType } from './source-types.js';
 import { UniqueId } from '../core/id-generator.js';
 import { unwrapSecret } from '../core/pipeline-helpers.js';
-import { TriggerType, type SourceType } from '../core/pipeline-types.js';
+import { TriggerType } from '../core/pipeline-types.js';
 
 const log = createLogger('source-builder');
 

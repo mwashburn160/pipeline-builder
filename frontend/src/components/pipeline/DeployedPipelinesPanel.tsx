@@ -95,7 +95,9 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
           <>
             <Cloud className="w-4 h-4 text-blue-500" />
             <span>Deployed pipelines</span>
-            {loaded && <span className="ml-2 text-xs text-gray-500">{rows.length}</span>}
+            {loaded && <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[11px] font-semibold rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{rows.length}</span>}
+            {/* Always-visible purpose hint so the collapsed panel isn't a mystery. */}
+            <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500 hidden sm:inline">pipelines registered to a live deploy target</span>
             {open && (
               <button
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); fetchRegistry(); }}

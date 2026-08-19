@@ -52,7 +52,8 @@ jest.unstable_mockModule('../src/core/network.js', () => ({
   resolveNetwork: jest.fn(() => ({})),
 }));
 
-const { merge, replaceNonAlphanumeric, extractMetadataEnv, createCodeBuildStep } = await import('../src/core/pipeline-helpers.js');
+const { merge, replaceNonAlphanumeric, extractMetadataEnv } = await import('../src/core/metadata-helpers.js');
+const { createCodeBuildStep } = await import('../src/core/pipeline-helpers.js');
 
 describe('merge', () => {
   it('should merge multiple metadata objects', () => {

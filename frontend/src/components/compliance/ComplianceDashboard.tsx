@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
-import { Shield, CheckCircle, AlertTriangle, XCircle, Activity, Clock, BookOpen, ShieldOff, Scan, Sparkles, FileText, Filter, Bell } from 'lucide-react';
+import { Shield, ShieldCheck, CheckCircle, AlertTriangle, XCircle, Activity, Clock, BookOpen, ShieldOff, Scan, Sparkles, FileText, Filter, Bell, ChevronDown } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { StatusPill } from '@/components/ui/StatusPill';
@@ -25,17 +25,28 @@ const NotificationPreferencesManager = lazy(() => import('./NotificationPreferen
 
 type Tab = 'overview' | 'rules' | 'policies' | 'subscriptions' | 'enforced' | 'exemptions' | 'scans' | 'schedules' | 'templates' | 'notifications';
 
-const TABS: { id: Tab; label: string; icon: typeof Shield }[] = [
-  { id: 'overview', label: 'Overview', icon: Activity },
-  { id: 'rules', label: 'Rules', icon: Shield },
-  { id: 'policies', label: 'Policies', icon: FileText },
-  { id: 'subscriptions', label: 'Catalog', icon: BookOpen },
-  { id: 'enforced', label: 'Enforced', icon: CheckCircle },
-  { id: 'exemptions', label: 'Exemptions', icon: ShieldOff },
-  { id: 'scans', label: 'Scans', icon: Scan },
-  { id: 'schedules', label: 'Schedules', icon: Clock },
-  { id: 'templates', label: 'Templates', icon: Sparkles },
-  { id: 'notifications', label: 'Notifications', icon: Bell },
+const TAB_META: Record<Tab, { label: string; icon: typeof Shield }> = {
+  overview: { label: 'Overview', icon: Activity },
+  rules: { label: 'Rules', icon: Shield },
+  policies: { label: 'Policies', icon: FileText },
+  subscriptions: { label: 'Catalog', icon: BookOpen },
+  enforced: { label: 'Enforced', icon: CheckCircle },
+  exemptions: { label: 'Exemptions', icon: ShieldOff },
+  scans: { label: 'Scans', icon: Scan },
+  schedules: { label: 'Schedules', icon: Clock },
+  templates: { label: 'Templates', icon: Sparkles },
+  notifications: { label: 'Notifications', icon: Bell },
+};
+
+// Group the 10 tabs so the nav reads as organized sections instead of a flat
+// run: overview · rule definitions · scanning · exemptions · settings. State
+// model is unchanged (each button still setTab(id)); the grouping is visual.
+const TAB_GROUPS: Tab[][] = [
+  ['overview'],
+  ['rules', 'policies', 'subscriptions', 'enforced', 'templates'],
+  ['scans', 'schedules'],
+  ['exemptions'],
+  ['notifications'],
 ];
 
 const STAT_COLORS: Record<string, string> = {
@@ -44,6 +55,34 @@ const STAT_COLORS: Record<string, string> = {
   yellow: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20',
   red: 'text-red-600 bg-red-50 dark:bg-red-900/20',
 };
+
+const POSTURE_TONE: Record<'red' | 'yellow' | 'green' | 'gray', string> = {
+  red: 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300',
+  yellow: 'border-yellow-300 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300',
+  green: 'border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300',
+  gray: 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 text-gray-600 dark:text-gray-300',
+};
+
+// Render a violation's expected/actual value (may be object/array/null) compactly.
+function fmtVal(x: unknown): string {
+  if (x === null || x === undefined) return '∅';
+  if (typeof x === 'object') { try { return JSON.stringify(x); } catch { return String(x); } }
+  return String(x);
+}
+
+// A row's `violations` are loosely typed (Record<string, unknown>[]); read the
+// fields we display defensively so a shape drift can't crash the drill-in.
+function readViolation(raw: Record<string, unknown>) {
+  return {
+    ruleName: String(raw.ruleName ?? raw.ruleId ?? 'Rule'),
+    field: raw.field != null ? String(raw.field) : '',
+    operator: raw.operator != null ? String(raw.operator) : '',
+    severity: raw.severity != null ? String(raw.severity) : '',
+    message: raw.message != null ? String(raw.message) : '',
+    expectedValue: raw.expectedValue,
+    actualValue: raw.actualValue,
+  };
+}
 
 function TabSpinner() {
   return <div className="flex justify-center py-12"><div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" /></div>;
@@ -187,18 +226,26 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
 
   return (
     <div className="space-y-6">
-      {/* Tabs */}
-      <nav className="flex gap-1 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
-        {TABS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setTab(id)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
-              tab === id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
-          >
-            <Icon className="h-4 w-4" /> {label}
-          </button>
+      {/* Tabs — grouped with dividers for scanability */}
+      <nav className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+        {TAB_GROUPS.map((group, gi) => (
+          <div key={gi} className="flex items-center gap-1">
+            {gi > 0 && <span aria-hidden className="mx-1.5 h-5 w-px bg-gray-200 dark:bg-gray-700 shrink-0" />}
+            {group.map((id) => {
+              const { label, icon: Icon } = TAB_META[id];
+              return (
+                <button
+                  key={id}
+                  onClick={() => setTab(id)}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                    tab === id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                  }`}
+                >
+                  <Icon className="h-4 w-4" /> {label}
+                </button>
+              );
+            })}
+          </div>
         ))}
       </nav>
 
@@ -214,6 +261,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
             auditResult={auditResult}
             onTargetChange={setAuditTarget}
             onResultChange={setAuditResult}
+            onGoToRules={() => setTab('rules')}
             auditDateFrom={auditDateFrom}
             auditDateTo={auditDateTo}
             onDateFromChange={setAuditDateFrom}
@@ -260,6 +308,7 @@ interface OverviewProps {
   auditResult: string;
   onTargetChange: (v: string) => void;
   onResultChange: (v: string) => void;
+  onGoToRules: () => void;
   auditDateFrom: string;
   auditDateTo: string;
   onDateFromChange: (v: string) => void;
@@ -269,32 +318,103 @@ interface OverviewProps {
   onAuditPageSizeChange: (limit: number) => void;
 }
 
-function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditResult, onTargetChange, onResultChange, auditDateFrom, auditDateTo, onDateFromChange, onDateToChange, auditPagination, onAuditPageChange, onAuditPageSizeChange }: OverviewProps) {
+function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditResult, onTargetChange, onResultChange, onGoToRules, auditDateFrom, auditDateTo, onDateFromChange, onDateToChange, auditPagination, onAuditPageChange, onAuditPageSizeChange }: OverviewProps) {
+  // Inline drill-in: which row is expanded to show its violations/metadata.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const totalChecks = stats.pass + stats.warn + stats.block;
+  const passRate = totalChecks > 0 ? Math.round((stats.pass / totalChecks) * 100) : 100;
+
+  // Posture: the single "are we compliant?" headline — worst signal wins.
+  const posture = stats.block > 0
+    ? { tone: 'red' as const, icon: XCircle, title: `${stats.block} blocked`, detail: `${stats.warn} warning${stats.warn === 1 ? '' : 's'} · ${passRate}% passing` }
+    : stats.warn > 0
+      ? { tone: 'yellow' as const, icon: AlertTriangle, title: `${stats.warn} warning${stats.warn === 1 ? '' : 's'}`, detail: `No blocks · ${passRate}% passing` }
+      : totalChecks > 0
+        ? { tone: 'green' as const, icon: ShieldCheck, title: 'All clear', detail: `All ${stats.pass} check${stats.pass === 1 ? '' : 's'} passing` }
+        : { tone: 'gray' as const, icon: Shield, title: 'No checks yet', detail: 'Compliance check results will appear here' };
+  const PostureIcon = posture.icon;
+
+  // Stat cards double as filters: results toggle the log filter, rules jumps tabs.
+  const statCards = [
+    { key: 'rules', icon: Shield, label: 'Active Rules', value: stats.rules, color: 'blue', result: null as string | null, onClick: onGoToRules },
+    { key: 'pass', icon: CheckCircle, label: 'Passed', value: stats.pass, color: 'green', result: 'pass', onClick: () => onResultChange(auditResult === 'pass' ? '' : 'pass') },
+    { key: 'warn', icon: AlertTriangle, label: 'Warnings', value: stats.warn, color: 'yellow', result: 'warn', onClick: () => onResultChange(auditResult === 'warn' ? '' : 'warn') },
+    { key: 'block', icon: XCircle, label: 'Blocked', value: stats.block, color: 'red', result: 'block', onClick: () => onResultChange(auditResult === 'block' ? '' : 'block') },
+  ];
+
+  // Date-range presets — nobody wants to type two dates for "this week".
+  const presets: { label: string; days: number | null }[] = [
+    { label: '24h', days: 1 },
+    { label: '7d', days: 7 },
+    { label: '30d', days: 30 },
+    { label: 'All', days: null },
+  ];
+  const applyPreset = (days: number | null) => {
+    if (days === null) { onDateFromChange(''); onDateToChange(''); return; }
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - days);
+    onDateFromChange(from.toISOString().slice(0, 10));
+    onDateToChange(to.toISOString().slice(0, 10));
+  };
+  const allDatesActive = !auditDateFrom && !auditDateTo;
+  const filtersActive = Boolean(auditResult || auditTarget || auditDateFrom || auditDateTo);
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {([
-          { icon: Shield, label: 'Active Rules', value: stats.rules, color: 'blue' },
-          { icon: CheckCircle, label: 'Passed', value: stats.pass, color: 'green' },
-          { icon: AlertTriangle, label: 'Warnings', value: stats.warn, color: 'yellow' },
-          { icon: XCircle, label: 'Blocked', value: stats.block, color: 'red' },
-        ] as const).map(({ icon: Icon, label, value, color }) => (
-          <div key={label} className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
-            <div className="flex items-center gap-3">
-              <div className={`rounded-lg p-2 ${STAT_COLORS[color]}`}><Icon className="h-5 w-5" /></div>
-              <div>
-                <div className="text-2xl font-bold text-gray-900 dark:text-white">{value}</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">{label}</div>
-              </div>
-            </div>
+      {/* Posture headline — answers "are we compliant?" at a glance */}
+      <div className={`flex items-center justify-between gap-4 rounded-lg border p-4 ${POSTURE_TONE[posture.tone]}`}>
+        <div className="flex items-center gap-3 min-w-0">
+          <PostureIcon className="h-6 w-6 shrink-0" />
+          <div className="min-w-0">
+            <div className="text-base font-semibold">{posture.title}</div>
+            <div className="text-xs opacity-80">{posture.detail}</div>
           </div>
-        ))}
+        </div>
+        {totalChecks > 0 && (
+          <div className="text-right shrink-0">
+            <div className="text-2xl font-bold tabular-nums leading-none">{passRate}%</div>
+            <div className="text-[11px] uppercase tracking-wide opacity-70 mt-1">passing</div>
+          </div>
+        )}
+      </div>
+
+      {/* Stat cards — clickable: results filter the log below, rules opens the tab */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {statCards.map(({ key, icon: Icon, label, value, color, result, onClick }) => {
+          const active = result != null && auditResult === result;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={onClick}
+              aria-pressed={result != null ? active : undefined}
+              title={result != null ? (active ? 'Clear filter' : `Show ${label.toLowerCase()} checks`) : 'View rules'}
+              className={`text-left rounded-lg border bg-white dark:bg-gray-900 p-4 transition-colors hover:border-gray-300 dark:hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                active ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200 dark:border-gray-700'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`rounded-lg p-2 ${STAT_COLORS[color]}`}><Icon className="h-5 w-5" /></div>
+                <div>
+                  <div className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{value}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">{label}</div>
+                </div>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-            <Activity className="h-4 w-4" /> Recent Checks
+            <Activity className="h-4 w-4" /> Recent check results
+            {auditResult && (
+              <button onClick={() => onResultChange('')} className="text-xs font-normal text-blue-600 hover:underline">
+                {auditResult} only · clear
+              </button>
+            )}
           </h3>
           <div className="flex flex-wrap items-center gap-2">
             <Filter className="h-3.5 w-3.5 text-gray-400" />
@@ -317,7 +437,24 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
               <option value="warn">Warn</option>
               <option value="block">Block</option>
             </FilterSelect>
-            {/* Date-range scope (empty = unbounded). */}
+            {/* Date range: quick presets + custom inputs (empty = unbounded). */}
+            <div className="inline-flex rounded border border-gray-300 dark:border-gray-600 overflow-hidden">
+              {presets.map(p => {
+                const isActive = p.days === null && allDatesActive;
+                return (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => applyPreset(p.days)}
+                    className={`px-2 py-1 text-xs border-l first:border-l-0 border-gray-300 dark:border-gray-600 ${
+                      isActive ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
             <input
               type="date"
               value={auditDateFrom}
@@ -343,25 +480,75 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
             <button onClick={onRetryAudit} className="underline hover:no-underline shrink-0">Retry</button>
           </div>
         ) : audit.length === 0 ? (
-          <div className="text-center py-4 text-sm text-gray-400">No audit entries found.</div>
+          <div className="text-center py-6 text-sm text-gray-400">
+            {filtersActive ? 'No checks match these filters.' : 'No check results recorded yet.'}
+          </div>
         ) : (
           <>
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               {audit.map(entry => {
                 const r = RESULT_STYLES[entry.result] || RESULT_STYLES.pass;
+                const expanded = expandedId === entry.id;
+                const violations = Array.isArray(entry.violations) ? entry.violations : [];
                 return (
-                  <div key={entry.id} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800 last:border-0">
-                    <div className="flex items-center gap-3">
-                      <StatusPill className={`${r.bg} ${r.text}`}>{r.label}</StatusPill>
-                      <span className="text-sm text-gray-900 dark:text-white">{entry.entityName || entry.entityId || 'Unknown'}</span>
-                      <span className="text-xs text-gray-400">({entry.target})</span>
-                    </div>
-                    <span
-                      className="flex items-center gap-1 text-xs text-gray-400"
-                      title={new Date(entry.createdAt).toLocaleString()}
+                  <div key={entry.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedId(expanded ? null : entry.id)}
+                      aria-expanded={expanded}
+                      className="w-full flex items-center justify-between gap-3 py-2 px-2 -mx-2 rounded text-left hover:bg-gray-50 dark:hover:bg-gray-800/50"
                     >
-                      <Clock className="h-3 w-3" /> {formatRelativeTime(entry.createdAt)}
-                    </span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <ChevronDown className={`h-3.5 w-3.5 text-gray-400 shrink-0 transition-transform ${expanded ? '' : '-rotate-90'}`} />
+                        <StatusPill className={`${r.bg} ${r.text}`}>{r.label}</StatusPill>
+                        <span className="text-sm text-gray-900 dark:text-white truncate">{entry.entityName || entry.entityId || 'Unknown'}</span>
+                        <span className="text-[11px] uppercase tracking-wide text-gray-400 border border-gray-200 dark:border-gray-700 rounded px-1.5 py-0.5 shrink-0">{entry.target}</span>
+                        {violations.length > 0 && (
+                          <span className="text-[11px] text-red-500 dark:text-red-400 shrink-0">{violations.length} violation{violations.length === 1 ? '' : 's'}</span>
+                        )}
+                      </div>
+                      <span
+                        className="flex items-center gap-1 text-xs text-gray-400 shrink-0"
+                        title={new Date(entry.createdAt).toLocaleString()}
+                      >
+                        <Clock className="h-3 w-3" /> {formatRelativeTime(entry.createdAt)}
+                      </span>
+                    </button>
+                    {expanded && (
+                      <div className="ml-5 mb-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3 text-xs space-y-2">
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-gray-500 dark:text-gray-400">
+                          <span><span className="font-medium text-gray-700 dark:text-gray-300">Action:</span> <code>{entry.action}</code></span>
+                          <span><span className="font-medium text-gray-700 dark:text-gray-300">Rules evaluated:</span> {entry.ruleCount}</span>
+                          <span title={new Date(entry.createdAt).toLocaleString()}><span className="font-medium text-gray-700 dark:text-gray-300">When:</span> {new Date(entry.createdAt).toLocaleString()}</span>
+                          {entry.entityId && <span><span className="font-medium text-gray-700 dark:text-gray-300">Entity ID:</span> <code className="break-all">{entry.entityId}</code></span>}
+                          {entry.scanId && <span><span className="font-medium text-gray-700 dark:text-gray-300">Scan:</span> <code className="break-all">{entry.scanId}</code></span>}
+                        </div>
+                        {violations.length > 0 ? (
+                          <div className="space-y-1.5">
+                            <div className="font-medium text-gray-700 dark:text-gray-300">{violations.length} violation{violations.length === 1 ? '' : 's'}</div>
+                            {violations.map((raw, i) => {
+                              const v = readViolation(raw);
+                              return (
+                                <div key={i} className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-medium text-gray-900 dark:text-white">{v.ruleName}</span>
+                                    {v.severity && <span className="text-[10px] uppercase tracking-wide text-gray-400 border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5">{v.severity}</span>}
+                                  </div>
+                                  {v.message && <div className="text-gray-600 dark:text-gray-400 mt-0.5">{v.message}</div>}
+                                  {(v.field || v.operator) && (
+                                    <div className="text-gray-500 dark:text-gray-500 mt-1">
+                                      <code>{v.field}</code> {v.operator} — expected <code className="text-gray-700 dark:text-gray-300">{fmtVal(v.expectedValue)}</code>, got <code className="text-red-600 dark:text-red-400">{fmtVal(v.actualValue)}</code>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="text-gray-500 dark:text-gray-400">No violations — all {entry.ruleCount} rule{entry.ruleCount === 1 ? '' : 's'} passed.</div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}

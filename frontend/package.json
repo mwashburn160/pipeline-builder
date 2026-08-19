@@ -41,7 +41,6 @@
   "dependencies": {
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
-    "@pipeline-builder/pipeline-core": "workspace:*",
     "framer-motion": "12.43.0",
     "lucide-react": "1.28.0",
     "next": "^16.1.6",
@@ -66,7 +65,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.4.187",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",

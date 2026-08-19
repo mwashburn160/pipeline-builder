@@ -208,7 +208,7 @@ export default function RolesPage() {
         ) : undefined
       }
     >
-      <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="roles" />
+      <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="roles" size="sm" />
 
       <div className="mb-4 flex items-start gap-2 px-3 py-2 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 text-xs text-gray-600 dark:text-gray-400">
         <ShieldCheck className="w-3.5 h-3.5 text-gray-400 shrink-0 mt-0.5" />

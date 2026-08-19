@@ -20,6 +20,10 @@ import { PackageProject } from './projenrc/package';
 const branch = 'main';
 const pnpmVersion = '10.33.0';
 const constructsVersion = '10.7.0';
+// The `constructs` range pipeline-core declares as a PEER dep. Kept equal to
+// aws-cdk-lib's own `constructs` peer range so a consumer that satisfies
+// aws-cdk-lib always satisfies pipeline-core too  no second copy can appear.
+const constructsPeerRange = '10.5.0';
 // TypeScript 7 (native Go compiler) transition via the dual-package pattern:
 // the `typescript` package is aliased to the 6.x-compatible `@typescript/typescript6`
 // so API consumers (ts-jest's ConfigSet, typescript-eslint, editors) keep the classic
@@ -374,16 +378,41 @@ const pipelineCore = new PackageProject({
   deps: [
     `@pipeline-builder/api-core@${pkg.apiCore}`,
     `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
-    `constructs@${constructsVersion}`, `aws-cdk-lib@${cdkVersion}`,
     'jsonwebtoken@9.0.3', 'axios@1.19.0', 'uuid@14.0.1',
   ],
+  // `aws-cdk-lib` / `constructs` are PEER deps, not regular deps  the standard
+  // shape for a published CDK construct library. As regular deps they were a
+  // correctness bug: pipeline-core pinned `constructs` exactly, so any consumer
+  // resolving a different 10.x (npm satisfies aws-cdk-lib's own `constructs:
+  // ^10.5.0` peer by hoisting the latest) got a SECOND nested copy. A construct
+  // built by core's copy then blew up when passed as scope to a construct built
+  // by aws-cdk-lib's copy (`scope.node._scopes is not iterable`). As peers, core
+  // never brings its own copy  it always uses the consumer's, so duplication is
+  // structurally impossible rather than a matter of keeping pins in lockstep.
+  // The `constructs` range deliberately MIRRORS aws-cdk-lib's own peer range, so
+  // anything satisfying aws-cdk-lib necessarily satisfies core.
+  peerDeps: [`constructs@^${constructsPeerRange}`, `aws-cdk-lib@^${cdkVersion}`],
+  // Don't let projen auto-pin the peers as devDeps at the range minimum  we
+  // build and test against the exact versions the apps ship.
+  peerDependencyOptions: { pinnedDevDependency: false },
   devDeps: [
+    `constructs@${constructsVersion}`, `aws-cdk-lib@${cdkVersion}`,
     '@types/node@26.1.2', '@types/aws-lambda@8.10.162', '@types/jsonwebtoken@9.0.10',
     '@aws-sdk/client-secrets-manager@3.1101.0', 'copyfiles@2.4.1',
   ],
 });
 pipelineCore.eslint?.addRules(rules);
 pipelineCore.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
+// Two entry points. The root is free of `aws-cdk-lib` (config, domain types, template
+// engine) so the API services that import it never load the CDK; `/cdk` carries the
+// constructs and the synth-time authoring types. `./lib/*` stays open because tests
+// deep-import concrete modules (e.g. billing mocks `lib/config/entitlements.js`).
+pipelineCore.package.addField('exports', {
+  '.': { types: './lib/index.d.ts', default: './lib/index.js' },
+  './cdk': { types: './lib/cdk.d.ts', default: './lib/cdk.js' },
+  './lib/*': './lib/*',
+  './package.json': './package.json',
+});
 addPackageMetadata(pipelineCore, 'AWS CDK construct library for Pipeline Builder: the Builder construct that assembles plugin specs into a CodePipeline stack, PluginLookup custom resource, pipeline/plugin domain types, and shared configuration.');
 if (pipelineCore.jest) pipelineCore.jest.config.maxWorkers = 1;
 pipelineCore.postCompileTask.exec('copyfiles -f ./pnpm-lock.yaml lib/handlers/ --verbose --error');
@@ -479,7 +508,12 @@ const manager = new ManagerProject({
     `@pipeline-builder/api-core@${pkg.apiCore}`,
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     `@pipeline-builder/ai-core@${pkg.aiCore}`,
-    `typescript@${typescriptVersion}`, `aws-cdk-lib@${cdkVersion}`,
+    // The manager is the only package that imports `@pipeline-builder/pipeline-core/cdk`,
+    // so it alone carries the cdk pins and is what satisfies pipeline-core's peer ranges.
+    // `constructs` is pinned explicitly even though nothing here imports it directly:
+    // left implicit, npm resolves aws-cdk-lib's `constructs: ^10.5.0` peer to the latest
+    // 10.x, which is what produced the `scope.node._scopes is not iterable` crash.
+    `typescript@${typescriptVersion}`, `aws-cdk-lib@${cdkVersion}`, `constructs@${constructsVersion}`,
     '@aws-sdk/client-cloudformation@3.1101.0', '@aws-sdk/client-lambda@3.1101.0',
     '@aws-sdk/client-secrets-manager@3.1101.0', '@aws-sdk/client-sts@3.1101.0',
     'form-data@4.0.6', 'commander@15.0.0', 'figlet@1.11.4',
@@ -571,7 +605,9 @@ const frontend = new FrontEndProject({
   deps: [
     `@pipeline-builder/api-core@${pkg.apiCore}`,
     `@pipeline-builder/api-server@${pkg.apiServer}`,
-    `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
+    // No `pipeline-core` here on purpose: the frontend re-declares the shapes it
+    // needs (see `src/types/index.ts`, `src/lib/metadata-keys.ts`) rather than
+    // importing them, so the dep was dead weight in the Next build.
     'next@16.2.12', 'react@19.2.8', 'react-dom@19.2.8',
     'lucide-react@1.28.0', 'tailwindcss@4.3.3', 'framer-motion@12.43.0',
     // drag-resize on the dashboard editor. Loaded only on the editor

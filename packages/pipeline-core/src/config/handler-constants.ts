@@ -5,10 +5,15 @@
  * Leaf constants for the PluginLookup Lambda handler.
  *
  * Deliberately dependency-free (only `process.env` reads, no imports) so the
- * handler's esbuild bundle does NOT transitively reach `app-config.ts` →
- * `infrastructure-config.ts` → `aws-cdk-lib`. Bundling all of aws-cdk-lib into
- * the Lambda OOM-kills esbuild (hundreds of MB, SIGKILL during cold-start
- * synth). The handler imports THIS module, not `CoreConstants`.
+ * handler's esbuild bundle stays small — it does not drag in the whole config
+ * machinery via `app-config.ts`. The handler imports THIS module, not
+ * `CoreConstants`.
+ *
+ * This originally guarded a much sharper edge: `app-config.ts` →
+ * `infrastructure-config.ts` → `aws-cdk-lib`, which OOM-killed esbuild
+ * (hundreds of MB, SIGKILL during cold-start synth). That chain is gone —
+ * `infrastructure-config.ts` is now CDK-free and the constructs live behind the
+ * `/cdk` entry point — but the dependency-free contract is still worth keeping.
  *
  * `CoreConstants` (app-config.ts) re-exports these so synth-side consumers
  * (api-server, server-config) keep using `CoreConstants.HANDLER_*` unchanged —

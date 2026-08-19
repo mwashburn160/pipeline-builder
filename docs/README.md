@@ -128,7 +128,7 @@ See the [API Reference](api-reference.md) for the full endpoint list.
 
 ```typescript
 import { App, Stack } from 'aws-cdk-lib';
-import { PipelineBuilder } from '@pipeline-builder/pipeline-core';
+import { PipelineBuilder } from '@pipeline-builder/pipeline-core/cdk';
 
 const app = new App();
 const stack = new Stack(app, 'MyPipelineStack', {

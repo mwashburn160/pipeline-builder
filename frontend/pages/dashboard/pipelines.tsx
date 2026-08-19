@@ -1,8 +1,9 @@
 import { useState, useMemo, useCallback } from 'react';
+import Link from 'next/link';
 import { useOpenOnCreateQuery } from '@/hooks/useOpenOnCreateQuery';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
-import { Plus, GitBranch, Search, Trash2, X, Upload } from 'lucide-react';
+import { Plus, GitBranch, Search, Trash2, X, Upload, Lock } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFeatures } from '@/hooks/useFeatures';
 import { useListPage } from '@/hooks/useListPage';
@@ -116,6 +117,23 @@ export default function PipelinesPage() {
   // Backend already returns the right scope (own org + system-public catalog)
   // for non-admins. No client-side filter — see resource-helpers.mapCommonParams.
   const filteredPipelines = list.data;
+
+  // Always-on result feedback + current-page exception surfacing. The list is
+  // server-paginated, so inactive/private counts are scoped to THIS page (hence
+  // the "on this page" qualifier) — surfacing anomalies without claiming totals.
+  const listSummary = useMemo(() => {
+    if (list.isLoading) return undefined;
+    const shown = filteredPipelines.length;
+    const total = list.pagination.total;
+    const base = `Showing ${shown} of ${total} pipeline${total === 1 ? '' : 's'}`;
+    const inactive = filteredPipelines.filter((p) => !p.isActive).length;
+    const priv = filteredPipelines.filter((p) => p.accessModifier !== 'public').length;
+    const flags = [
+      inactive ? `${inactive} inactive` : null,
+      priv ? `${priv} private` : null,
+    ].filter(Boolean);
+    return flags.length ? `${base} · ${flags.join(' · ')} on this page` : base;
+  }, [filteredPipelines, list.isLoading, list.pagination.total]);
 
   // ── Create ──
 
@@ -292,9 +310,21 @@ export default function PipelinesPage() {
       header: 'Name',
       sortValue: (p) => p.pipelineName || '',
       render: (p) => (
-        <div>
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{p.pipelineName}</div>
-          {p.description && <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{p.description}</div>}
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            {/* Name links to the pipeline detail; project folds in as a mono chip
+                so the standalone Project column can stay hidden (see below). */}
+            <Link
+              href={`/dashboard/pipelines/${encodeURIComponent(p.id)}`}
+              className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline truncate"
+            >
+              {p.pipelineName}
+            </Link>
+            {p.project && (
+              <span className="shrink-0 text-[11px] font-mono text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5">{p.project}</span>
+            )}
+          </div>
+          {p.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-md mt-0.5">{p.description}</div>}
         </div>
       ),
     },
@@ -309,6 +339,9 @@ export default function PipelinesPage() {
     {
       id: 'project',
       header: 'Project',
+      // Hidden by default: the project now shows as a chip in the Name cell, so
+      // a standalone column is redundant. Re-enable via the column toggle.
+      hidden: true,
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
       sortValue: (p) => p.project,
       render: (p) => <>{p.project}</>,
@@ -325,13 +358,24 @@ export default function PipelinesPage() {
       id: 'access',
       header: 'Access',
       sortValue: (p) => p.accessModifier,
-      render: (p) => <Badge color={p.accessModifier === 'public' ? 'green' : 'gray'}>{p.accessModifier}</Badge>,
+      // Public is the common case → muted; private is the exception → make it
+      // legible with a lock so the eye catches what actually differs.
+      render: (p) => (
+        p.accessModifier === 'public'
+          ? <span className="text-xs text-gray-400 dark:text-gray-500">Public</span>
+          : <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-700 dark:text-gray-300"><Lock className="h-3 w-3" />Private</span>
+      ),
     },
     {
       id: 'status',
       header: 'Status',
       sortValue: (p) => p.isActive,
-      render: (p) => <Badge color={p.isActive ? 'green' : 'red'}>{p.isActive ? 'Active' : 'Inactive'}</Badge>,
+      // Active (common) → subtle dot; Inactive (exception) → loud red badge.
+      render: (p) => (
+        p.isActive
+          ? <span className="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"><span className="h-1.5 w-1.5 rounded-full bg-green-500" />Active</span>
+          : <Badge color="red">Inactive</Badge>
+      ),
     },
     {
       id: 'default',
@@ -376,16 +420,18 @@ export default function PipelinesPage() {
       header: 'Actions',
       cellClassName: 'text-sm',
       render: (pipeline) => (
-        <div className="flex items-center space-x-3">
-          {canWritePipeline(can, isSuperAdmin, pipeline.accessModifier) ? (
+        canWritePipeline(can, isSuperAdmin, pipeline.accessModifier) ? (
+          <div className="flex items-center gap-1">
             <button onClick={() => setEditPipeline(pipeline)} className="action-link">Edit</button>
-          ) : (
-            <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
-          )}
-          {canWritePipeline(can, isSuperAdmin, pipeline.accessModifier) && (
-            <button onClick={() => del.open(pipeline)} className="action-link-danger">Delete</button>
-          )}
-        </div>
+            {/* Delete as a muted icon (red only on hover, guarded by a confirm
+                modal) so it doesn't sit as loud red text a click from Edit. */}
+            <IconButton tone="danger" title="Delete pipeline" aria-label="Delete pipeline" onClick={() => del.open(pipeline)}>
+              <Trash2 className="h-4 w-4" />
+            </IconButton>
+          </div>
+        ) : (
+          <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
+        )
       ),
     },
   ], [isSuperAdmin, canWrite, canBulk, can, selectedIds, toggleSelect]);
@@ -418,7 +464,7 @@ export default function PipelinesPage() {
       }
     >
       <div className="page-section">
-        <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="pipelines" orgName={user.organizationName} />
+        <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="pipelines" orgName={user.organizationName} size="sm" />
 
         <DeployedPipelinesPanel canWrite={canWrite} />
 
@@ -435,7 +481,7 @@ export default function PipelinesPage() {
           onToggleAdvanced={() => setShowAdvanced(!showAdvanced)}
           advancedFilterCount={list.advancedFilterCount}
           onClearAll={list.clearFilters}
-          summary={!list.isLoading && list.hasActiveFilters ? `Showing ${filteredPipelines.length} of ${list.pagination.total} pipelines` : undefined}
+          summary={listSummary}
           advancedContent={
             <>
               <FilterInput type="text" aria-label="Filter by project" value={list.filters.project} onChange={(e) => list.updateFilter('project', e.target.value)} placeholder="Project..." className="max-w-[160px]" />

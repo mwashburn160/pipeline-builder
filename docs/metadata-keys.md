@@ -226,7 +226,8 @@ metadata: {
 ## Example
 
 ```typescript
-import { PipelineBuilder, MetadataKeys } from '@pipeline-builder/pipeline-core';
+import { MetadataKeys } from '@pipeline-builder/pipeline-core';
+import { PipelineBuilder } from '@pipeline-builder/pipeline-core/cdk';
 import { Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 
 const codeBuildRole = new Role(stack, 'CodeBuildRole', {

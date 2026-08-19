@@ -2,10 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { QuotaTier, QuotaTierLimits } from '@pipeline-builder/api-core';
-import type { Duration, RemovalPolicy } from 'aws-cdk-lib';
-import type { ComputeType } from 'aws-cdk-lib/aws-codebuild';
-import type { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
-import type { RetentionDays } from 'aws-cdk-lib/aws-logs';
 import type { Algorithm } from 'jsonwebtoken';
 
 /**
@@ -194,21 +190,36 @@ export interface ComplianceConfig {
   readonly digestLockTtlMs: number;
 }
 
+/**
+ * AWS infrastructure configuration.
+ *
+ * Deliberately expressed in PLAIN DATA (numbers, strings, string unions) rather
+ * than CDK value objects (`Duration`, `Runtime`, `RetentionDays`, ...). Config is
+ * loaded by every service, but only the CDK entry point (`@pipeline-builder/
+ * pipeline-core/cdk`) builds stacks  typing this block with CDK classes put
+ * `aws-cdk-lib` on the import graph of `Config`, and therefore of every API
+ * service that reads so much as a port number. Conversion to CDK objects happens
+ * at the construct boundary in `config/aws-config-cdk.ts`.
+ */
 export interface AWSConfig {
   readonly lambda: {
-    readonly runtime: Runtime;
-    readonly timeout: Duration;
+    /** Lambda runtime identifier, e.g. `'nodejs24.x'` (env: `LAMBDA_RUNTIME`). */
+    readonly runtime: string;
+    /** Function timeout in seconds (env: `LAMBDA_TIMEOUT`). */
+    readonly timeoutSeconds: number;
     readonly memorySize: number;
-    readonly architecture: Architecture;
+    readonly architecture: 'arm64' | 'x86_64';
     readonly reservedConcurrentExecutions?: number;
   };
   readonly logging: {
     readonly groupName: string;
-    readonly retention: RetentionDays;
-    readonly removalPolicy: RemovalPolicy;
+    /** CloudWatch retention in days; `0` means never expire (env: `LOG_RETENTION`). */
+    readonly retentionDays: number;
+    readonly removalPolicy: 'retain' | 'destroy';
   };
   readonly codeBuild: {
-    readonly computeType: ComputeType;
+    /** CodeBuild compute type name, e.g. `'SMALL'` (env: `CODEBUILD_COMPUTE_TYPE`). */
+    readonly computeType: string;
     /**
      * Image used for CodeBuild steps that don't have a plugin-baked image
      * (cold-start synth bootstrap, ShellSteps with no registry, and

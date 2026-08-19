@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { BuilderProps } from './pipeline-builder.js';
-import type { CodeCommitOptions, CodeStarOptions, GitHubOptions, S3Options } from './source-types.js';
+import type { CodeCommitOptions, CodeStarOptions, GitHubOptions, S3Options, SourceType } from './source-types.js';
 import type { PluginOptions, StageOptions, StepCustomization } from './step-types.js';
 import { CoreConstants } from '../config/app-config.js';
+import { merge, replaceNonAlphanumeric } from '../core/metadata-helpers.js';
 import type { CodeBuildDefaults, NetworkConfig } from '../core/network-types.js';
-import { merge, replaceNonAlphanumeric } from '../core/pipeline-helpers.js';
-import type { MetaDataType, SourceType } from '../core/pipeline-types.js';
+import type { MetaDataType } from '../core/pipeline-types.js';
 import { TriggerType } from '../core/pipeline-types.js';
 
 /**

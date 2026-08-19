@@ -8,7 +8,8 @@ import { PluginLookup } from './plugin-lookup.js';
 import type { StageOptions } from './step-types.js';
 import type { ArtifactManager } from '../core/artifact-manager.js';
 import { UniqueId } from '../core/id-generator.js';
-import { createCodeBuildStep, merge, resolveFailureBehavior } from '../core/pipeline-helpers.js';
+import { merge, resolveFailureBehavior } from '../core/metadata-helpers.js';
+import { createCodeBuildStep } from '../core/pipeline-helpers.js';
 import type { MetaDataType } from '../core/pipeline-types.js';
 
 /**

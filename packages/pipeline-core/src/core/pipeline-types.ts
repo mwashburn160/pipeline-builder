@@ -1,7 +1,6 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { CodeCommitSourceConfig, CodeStarSourceConfig, GitHubSourceConfig, S3SourceConfig } from '../pipeline/source-types.js';
 
 // Re-export shared types from api-core for convenience
 export { AccessModifier, ComputeType, PluginType, type MetaDataType } from '@pipeline-builder/api-core';
@@ -21,16 +20,6 @@ export const TriggerType = {
 } as const;
 export type TriggerType = (typeof TriggerType)[keyof typeof TriggerType];
 
-/**
- * Union type of all supported pipeline source types
- *
- * Supported sources:
- * - S3SourceConfig: Source code from S3 bucket
- * - GitHubSourceConfig: Source code from GitHub repository
- * - CodeStarSourceConfig: Source code via CodeStar connection (GitHub, Bitbucket, GitLab)
- * - CodeCommitSourceConfig: Source code from AWS CodeCommit repository
- */
-export type SourceType = S3SourceConfig | GitHubSourceConfig | CodeStarSourceConfig | CodeCommitSourceConfig;
 
 /**
  * Constants for metadata keys to avoid string typos.

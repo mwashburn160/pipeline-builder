@@ -37,7 +37,7 @@ function RecentChangesStrip() {
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
           <History className="w-4 h-4 text-gray-400" />
-          Recent compliance activity
+          Recent changes
         </h2>
         <Link href="/dashboard/audit?action=compliance" className="action-link text-xs">
           Full audit log →
@@ -58,7 +58,7 @@ function RecentChangesStrip() {
                 <Badge
                   color={e.result === 'pass' ? 'green' : e.result === 'warn' ? 'yellow' : 'red'}
                 >
-                  {e.result}
+                  {e.result.charAt(0).toUpperCase() + e.result.slice(1)}
                 </Badge>
                 <span className="text-gray-800 dark:text-gray-200 truncate">
                   <code className="text-xs">{e.action}</code>
