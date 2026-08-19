@@ -108,7 +108,7 @@ Parameters:
       Initial platform admin password used by AutoInit (identifier
       admin@internal). Leave EMPTY (default) to have the instance generate a
       strong RANDOM password on first boot and write it to a root-only file
-      (retrieve via SSM: `sudo cat /opt/pipeline/pipeline-data/.admin-credentials`)
+      (retrieve via SSM: `sudo cat /home/minikube/.admin-credentials`)
       — it is never written to the logs. Set a value to choose your own. Change
       it after first login (especially in public mode).
 

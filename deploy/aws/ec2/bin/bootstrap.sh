@@ -410,7 +410,14 @@ if [ "${AUTO_INIT:-false}" = "true" ]; then
   ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
   if [ -z "$ADMIN_PASSWORD" ]; then
     ADMIN_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-32)"
-    CRED_FILE="$PIPELINE_DATA_DIR/.admin-credentials"
+    # Store in the minikube user's HOME, NOT under $PIPELINE_DATA_DIR: the data
+    # dir is bind-mounted into the minikube node (--mount-string), so anything at
+    # its root is reachable from the cluster's hostPath surface. /home/minikube is
+    # on the root volume and never mounted into a pod, keeping the secret off that
+    # surface. (Trade-off: it does not survive an instance/root-volume replacement
+    # — but the admin account lives in Postgres on the EBS data volume, so a fresh
+    # bootstrap regenerates, or reset the password.)
+    CRED_FILE="/home/minikube/.admin-credentials"
     ( umask 177; printf 'identifier=%s\npassword=%s\n' "admin@internal" "$ADMIN_PASSWORD" > "$CRED_FILE" )
     chown minikube:minikube "$CRED_FILE" 2>/dev/null || true
     echo "  Generated a random initial admin password (identifier admin@internal)."
