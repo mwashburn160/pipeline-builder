@@ -11,6 +11,7 @@ import RoleSection from './sections/RoleSection';
 import StagesSection from './sections/StagesSection';
 import CollapsibleSection from './editors/CollapsibleSection';
 import MetadataEditor from './editors/MetadataEditor';
+import VarsEditor from './editors/VarsEditor';
 import WizardStepper from './WizardStepper';
 import { WIZARD_STEPS, validateStep, getStepStatuses } from '@/lib/wizard-validation';
 
@@ -28,6 +29,10 @@ export interface FormBuilderTabRef {
   canProceed: () => boolean;
   /** Navigates to a specific wizard step by index. */
   goToStep: (step: number) => void;
+  /** Replace the form state from a hand-edited BuilderProps (raw-JSON escape hatch).
+   *  Description/keywords are pipeline fields (not part of `props`), so they're
+   *  preserved. Returns an error string on invalid props, else null. */
+  loadFromProps: (props: unknown) => string | null;
 }
 
 /** Props for {@link FormBuilderTab}. */
@@ -94,6 +99,21 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
         setVisitedSteps((prev) => new Set([...prev, step]));
         onStepChange?.(step);
       },
+      loadFromProps: (props: unknown): string | null => {
+        if (!props || typeof props !== 'object' || Array.isArray(props)) {
+          return 'JSON must be an object (the pipeline `props`).';
+        }
+        try {
+          const next = propsToFormState(props as Record<string, unknown>);
+          // description/keywords are pipeline-record fields, not part of `props` —
+          // preserve whatever the user has in those inputs.
+          dispatch({ type: 'REPLACE', value: { ...next, description: state.description, keywords: state.keywords } });
+          setValidationErrors({});
+          return null;
+        } catch (err) {
+          return err instanceof Error ? err.message : 'Failed to apply JSON to the form.';
+        }
+      },
     }));
 
     const handleStepClick = (index: number) => {
@@ -134,8 +154,7 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
               Key-value variables exposed to <code>{'{{ pipeline.vars.* }}'}</code> templates in
               this pipeline and its plugin steps (e.g. an org id for a per-org secret path).
             </p>
-            <MetadataEditor
-              label="Variables"
+            <VarsEditor
               value={state.vars}
               onChange={(v) => dispatch({ type: 'SET_VARS', value: v })}
               disabled={disabled}

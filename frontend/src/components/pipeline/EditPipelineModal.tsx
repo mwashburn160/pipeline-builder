@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { Textarea } from '@/components/ui/Textarea';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
@@ -46,6 +47,8 @@ export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onS
   const [success, setSuccess] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [previewJson, setPreviewJson] = useState<string | null>(null);
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const [jsonApplied, setJsonApplied] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
 
   const formRef = useRef<FormBuilderTabRef>(null);
@@ -98,11 +101,37 @@ export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onS
 
   const handlePreview = () => {
     clearError();
+    setJsonError(null);
+    setJsonApplied(false);
     const props = formRef.current?.getPropsPreview() ?? null;
     if (props) {
       setPreviewJson(formatJSON(props));
       setShowPreview(true);
     }
+  };
+
+  // Apply hand-edited JSON back into the form (raw-JSON escape hatch). Parses the
+  // textarea, feeds it through the same props→form conversion the loader uses, then
+  // re-renders the JSON from the normalized form so the two stay in sync.
+  const handleApplyJson = () => {
+    setJsonError(null);
+    setJsonApplied(false);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(previewJson ?? '');
+    } catch (err) {
+      setJsonError(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    const err = formRef.current?.loadFromProps(parsed) ?? 'Form not ready';
+    if (err) {
+      setJsonError(err);
+      return;
+    }
+    // Reflect the normalized form back into the editor.
+    const normalized = formRef.current?.getPropsPreview() ?? null;
+    if (normalized) setPreviewJson(formatJSON(normalized));
+    setJsonApplied(true);
   };
 
   const handleNext = () => {
@@ -179,20 +208,38 @@ export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onS
     </div>
   );
 
-  const jsonPreview = showPreview && previewJson ? (
+  const jsonPreview = showPreview && previewJson !== null ? (
     <div className="border-t border-gray-200 dark:border-gray-700">
       <div className="flex items-center justify-between px-6 py-2 bg-gray-100 dark:bg-gray-800">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">JSON Preview</span>
-        <button
-          onClick={() => setShowPreview(false)}
-          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-sm transition-colors"
-        >
-          Close
-        </button>
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Edit JSON <span className="font-normal text-gray-400">— edit the pipeline `props` directly, then Apply</span></span>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleApplyJson}
+            disabled={loading}
+            className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            Apply to form
+          </button>
+          <button
+            onClick={() => setShowPreview(false)}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-sm transition-colors"
+          >
+            Close
+          </button>
+        </div>
       </div>
-      <pre className="px-6 py-4 text-xs font-mono text-gray-800 dark:text-gray-200 overflow-x-auto max-h-64 overflow-y-auto bg-gray-50 dark:bg-gray-900">
-        {previewJson}
-      </pre>
+      <div className="px-6 py-3 bg-gray-50 dark:bg-gray-900">
+        <Textarea
+          value={previewJson}
+          onChange={(e) => { setPreviewJson(e.target.value); setJsonError(null); setJsonApplied(false); }}
+          rows={14}
+          spellCheck={false}
+          className="font-mono text-xs w-full"
+          disabled={loading}
+        />
+        {jsonError && <p className="mt-2 text-xs text-red-600 dark:text-red-400" role="alert">{jsonError}</p>}
+        {jsonApplied && !jsonError && <p className="mt-2 text-xs text-green-600 dark:text-green-400">Applied to the form. Review the wizard, then Save.</p>}
+      </div>
     </div>
   ) : undefined;
 
@@ -203,7 +250,7 @@ export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onS
         onClick={handlePreview}
         disabled={loading || fetching}
       >
-        Preview JSON
+        {showPreview ? 'Refresh JSON' : 'Edit JSON'}
       </Button>
 
       <div className="flex items-center space-x-3">

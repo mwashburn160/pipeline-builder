@@ -54,4 +54,16 @@ describe('pipeline vars round-trip (form builder)', () => {
     const source = (props?.synth as { source: { options: { token: string } } }).source;
     expect(source.options.token).toBe('secretsmanager:pipeline-builder/{{ pipeline.vars.orgId }}/github-token');
   });
+
+  // Mirrors the "Edit JSON" escape hatch (loadFromProps): a hand-edited props
+  // object flows through propsToFormState → assemble and the edits round-trip.
+  it('round-trips hand-edited JSON (added var + changed value)', () => {
+    const edited = {
+      ...rawProps,
+      vars: { orgId: 'org-real-123', region: 'us-west-2' }, // changed orgId + new var
+    };
+    const state = propsToFormState(edited as Record<string, unknown>);
+    const { props } = assembleBuilderProps(state, { skipValidation: true });
+    expect(props?.vars).toEqual({ orgId: 'org-real-123', region: 'us-west-2' });
+  });
 });

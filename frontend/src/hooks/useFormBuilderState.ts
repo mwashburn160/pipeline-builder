@@ -60,7 +60,9 @@ type Action =
   | { type: 'REMOVE_STEP'; stageIndex: number; stepIndex: number }
   | { type: 'SET_STEP'; stageIndex: number; stepIndex: number; step: FormStep }
   // Reset
-  | { type: 'RESET' };
+  | { type: 'RESET' }
+  // Replace the entire form state (e.g. applying hand-edited raw JSON back to the form)
+  | { type: 'REPLACE'; value: FormBuilderState };
 
 // ─── Reducer ───────────────────────────────────────────────────
 
@@ -169,6 +171,9 @@ function formReducer(state: FormBuilderState, action: Action): FormBuilderState 
 
     case 'RESET':
       return createInitialFormState();
+
+    case 'REPLACE':
+      return action.value;
 
     default:
       return state;
