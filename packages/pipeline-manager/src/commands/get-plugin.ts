@@ -5,8 +5,8 @@ import { Command } from 'commander';
 import pico from 'picocolors';
 import { runGetEntity } from './entity-get.js';
 import { formatFileSize } from '../config/cli.constants.js';
-import { withSslOptions } from '../utils/command-utils.js';
 import { type Plugin } from '../types/index.js';
+import { withSslOptions } from '../utils/command-utils.js';
 
 const { bold, green } = pico;
 

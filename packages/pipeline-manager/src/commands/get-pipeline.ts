@@ -4,8 +4,8 @@
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { runGetEntity } from './entity-get.js';
-import { withSslOptions } from '../utils/command-utils.js';
 import { type Pipeline } from '../types/index.js';
+import { withSslOptions } from '../utils/command-utils.js';
 
 const { bold, green } = pico;
 

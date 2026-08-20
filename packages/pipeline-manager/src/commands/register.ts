@@ -6,7 +6,6 @@ import { type Pipeline, type PipelineResponse } from '../types/index.js';
 import { createAuthenticatedClient, printCommandHeader, printSslWarning, withRegionOption, withSslOptions } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
-import { extractSingleResponse } from '../utils/response-utils.js';
 import {
   buildRegistryPayload,
   clearPendingIntent,
@@ -14,6 +13,7 @@ import {
   writePendingIntent,
   type RegistryPayload,
 } from '../utils/registry.js';
+import { extractSingleResponse } from '../utils/response-utils.js';
 
 /**
  * Registers the `register` command with the CLI program.

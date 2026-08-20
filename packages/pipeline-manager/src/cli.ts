@@ -5,7 +5,6 @@
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { program } from 'commander';
-import { preflightCommandTools } from './utils/preflight.js';
 import { auditStacks } from './commands/audit-stacks.js';
 import { auditTokens } from './commands/audit-tokens.js';
 import { bootstrap } from './commands/bootstrap.js';
@@ -40,6 +39,7 @@ import {
 import { banner, miniBanner } from './utils/banner.js';
 import { ERROR_CODES, handleError } from './utils/error-handler.js';
 import { printInfo, printError, printWarning, printDebug, printSection } from './utils/output-utils.js';
+import { preflightCommandTools } from './utils/preflight.js';
 
 /**
  * CLI initialization options
