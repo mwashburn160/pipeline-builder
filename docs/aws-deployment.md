@@ -888,6 +888,38 @@ This creates a CloudFormation stack (`pipeline-builder-events`) containing:
 - **SQS queue** with dead-letter queue for failed events
 - **Lambda handler** that authenticates via Secrets Manager and POSTs events to the reporting API
 
+#### What is (and isn't) forwarded to the platform
+
+The Lambda runs **inside your AWS account** and forwards only **pipeline-execution
+telemetry** — enough to compute success rates, stage/action timing, and DORA metrics.
+
+> **Not forwarded — stays in your AWS account:**
+> - **Your AWS account number** — explicitly stripped from every event (`delete detail.account`).
+> - **The pipeline ARN** (`arn:aws:codepipeline:<region>:<account>:<name>`) — built only as a
+>   transient handle to resolve the pipeline's `PIPELINE_EVENT_ID` tag via
+>   `codepipeline:ListTagsForResource`, then discarded; never stored or sent.
+> - **AWS credentials / IAM** and any account-identifying details.
+>
+> The platform stores **no AWS account id** anywhere (schemas, JWTs, and APIs are
+> account-id-free by design), so there is nothing to mask.
+
+**Forwarded payload** (`POST /api/reports/events`, batched):
+
+| Field | Notes |
+|---|---|
+| `pipelineId` | The **platform** pipeline id (from the `PIPELINE_EVENT_ID` tag) — not the ARN |
+| `eventSource` / `eventType` | `codepipeline` · `PIPELINE`/`STAGE`/`ACTION` |
+| `status` | CodePipeline state (`SUCCEEDED`/`FAILED`/…) |
+| `idempotencyKey` | Deterministic dedupe key from the event's own identity (no PII) |
+| `executionId` · `stageName` · `actionName` | Execution GUID + stage/action names |
+| `errorMessage` | Human-readable failure summary (capped), on failures |
+| `startedAt` · `completedAt` · `durationMs` | Timing |
+| `commitSha` · `commitRef` | Source revision (DORA deploy attribution) |
+| `environment` | From the pipeline's `Environment` tag |
+| `detail` | Raw CodePipeline event detail **with `account` removed** (log URL / error code for drill-down) |
+
+Reference: [`@pipeline-builder/pipeline-events`](../packages/pipeline-events/README.md#data-forwarded-to-the-platform).
+
 ### 4. Verify Reporting
 
 ```bash

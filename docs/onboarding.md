@@ -151,6 +151,12 @@ pipeline-manager infra setup-events --region us-east-1
 
 It creates the `pipeline-builder-events` stack (EventBridge rule + SQS + DLQ + Lambda).
 The Lambda authenticates via the Secrets Manager token from Step 5 — so run Step 5 first.
+
+> **Privacy:** the Lambda runs inside your AWS account and forwards only execution
+> telemetry (pipeline id, stage/action, status, timing, commit). Your **AWS account
+> number and the pipeline ARN are never forwarded** — see
+> [What is (and isn't) forwarded](aws-deployment.md#what-is-and-isnt-forwarded-to-the-platform).
+
 Full detail: [Deploy EventBridge Reporting Infrastructure](aws-deployment.md#3-deploy-eventbridge-reporting-infrastructure) · [DORA Metrics](dora-metrics.md).
 
 ---

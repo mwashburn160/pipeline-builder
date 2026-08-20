@@ -178,7 +178,7 @@ Sign in with email + password, a social provider, or corporate SSO — side by s
 
 ### Execution Analytics
 
-Every CodePipeline and CodeBuild state change flows through EventBridge into the reporting service.
+Every CodePipeline and CodeBuild state change flows through EventBridge into the reporting service. The ingestion Lambda runs **inside your AWS account** and forwards only execution telemetry — your **AWS account number and pipeline ARNs are never forwarded** ([what's forwarded](docs/aws-deployment.md#what-is-and-isnt-forwarded-to-the-platform)).
 
 - Execution counts and success rates per organization / project
 - Duration percentiles (p50, p90, p99)

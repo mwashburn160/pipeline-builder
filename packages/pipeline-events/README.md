@@ -15,6 +15,43 @@ AWS Lambda handler for [Pipeline Builder](https://mwashburn160.github.io/pipelin
 
 CodeBuild `Build State` events are skipped: a build project can be shared across pipelines, so there is no clean 1:1 mapping to a pipeline id.
 
+## Data forwarded to the platform
+
+The Lambda forwards **only pipeline-execution telemetry** — enough to compute
+success rates, stage/action timing, and DORA metrics. It runs **inside your AWS
+account**; the reporting service only ever receives the normalized payload below.
+
+### NOT forwarded (stays in your AWS account)
+
+- **AWS account number** — explicitly stripped from every event (`delete detail.account`).
+- **The pipeline ARN** (`arn:aws:codepipeline:<region>:<account>:<name>`) — built only as a
+  transient handle to look up the pipeline's `PIPELINE_EVENT_ID` tag, then discarded; it is
+  never stored or sent.
+- **AWS credentials / IAM** and any account-identifying identifiers.
+
+The platform stores no AWS account id anywhere (schemas, JWTs, and APIs are account-id-free
+by design), so there is nothing to mask.
+
+### Forwarded payload (per event)
+
+`POST /api/reports/events` with a batch of:
+
+| Field | Type | Notes |
+|---|---|---|
+| `pipelineId` | string | The **platform** pipeline id (from the `PIPELINE_EVENT_ID` tag) — not the ARN |
+| `eventSource` | `codepipeline` | |
+| `eventType` | `PIPELINE` \| `STAGE` \| `ACTION` | |
+| `status` | enum | The CodePipeline state (`SUCCEEDED`/`FAILED`/…) |
+| `idempotencyKey` | string | Deterministic dedupe key derived from the event's own identity (no PII) |
+| `executionId` | string? | CodePipeline execution GUID |
+| `stageName` / `actionName` | string? | |
+| `errorMessage` | string? | Human-readable failure summary (capped), on failures |
+| `startedAt` / `completedAt` | ISO 8601? | Event timestamps |
+| `durationMs` | number? | |
+| `commitSha` / `commitRef` | string? | Source revision — DORA deploy attribution |
+| `environment` | string? | From the pipeline's `Environment` tag |
+| `detail` | object | The raw CodePipeline event detail **with `account` removed** — carries the execution result (log URL, error code) for drill-down |
+
 ## Key exports
 
 | Export | Purpose |
