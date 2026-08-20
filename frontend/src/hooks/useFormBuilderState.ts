@@ -29,6 +29,7 @@ type Action =
   | { type: 'SET_DESCRIPTION'; value: string }
   | { type: 'SET_KEYWORDS'; value: string }
   | { type: 'SET_GLOBAL_METADATA'; value: MetadataEntry[] }
+  | { type: 'SET_VARS'; value: MetadataEntry[] }
   // Defaults
   | { type: 'SET_DEFAULTS_ENABLED'; value: boolean }
   | { type: 'SET_DEFAULTS_NETWORK_TYPE'; value: FormBuilderState['defaults']['networkType'] }
@@ -85,6 +86,8 @@ function formReducer(state: FormBuilderState, action: Action): FormBuilderState 
 
     case 'SET_GLOBAL_METADATA':
       return { ...state, global: action.value };
+    case 'SET_VARS':
+      return { ...state, vars: action.value };
 
     // Defaults
     case 'SET_DEFAULTS_ENABLED':

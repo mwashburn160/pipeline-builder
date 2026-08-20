@@ -3,7 +3,7 @@
 
 import { execSync } from 'child_process';
 import path from 'path';
-import { printError } from './output-utils.js';
+import { printError, printSuccess } from './output-utils.js';
 
 /**
  * Path to dist/boilerplate.js. tsc emits commands at dist/commands/, so
@@ -20,29 +20,24 @@ export interface CdkInfo {
 }
 
 /**
- * Checks whether the AWS CDK CLI is installed and returns its version.
+ * Checks whether a CLI tool is installed and returns its version output.
  *
- * Tries `cdk --version` first. If that fails (typically because the user has
- * cdk on PATH via their shell rc but execSync's default `/bin/sh` doesn't
- * source it), falls back to running through the user's interactive shell
- * (`$SHELL -i -c`) so node version managers like nvm/asdf and homebrew paths
- * become visible.
+ * Tries `<tool> <versionArg>` first. If that fails (typically because the tool
+ * is on PATH via the user's shell rc but execSync's default `/bin/sh` doesn't
+ * source it), falls back to running through the user's login+interactive shell
+ * (`$SHELL -ilc`) so node version managers like nvm/asdf and homebrew paths
+ * become visible. stdin is ignored so an interactive shell can't block on input.
  */
-export function getCdkInfo(): CdkInfo {
+export function getToolInfo(tool: string, versionArg = '--version'): CdkInfo {
+  const cmd = `${tool} ${versionArg}`;
   try {
-    const output = execSync('cdk --version', { encoding: 'utf-8', stdio: 'pipe' });
+    const output = execSync(cmd, { encoding: 'utf-8', stdio: 'pipe' });
     return { available: true, version: output.trim() };
   } catch (firstError) {
-    // Fallback: run through the user's shell as login + interactive (`-ilc`) so
-    // it actually sources their profile/rc (nvm/asdf/homebrew PATH). The previous
-    // `shell: userShell` option only changed which binary ran `-c` (still
-    // non-login/non-interactive → rc not sourced). stdin is ignored so an
-    // interactive shell can't block waiting for input. Skip when SHELL is unset
-    // or /bin/sh (same as the default attempt above).
     const userShell = process.env.SHELL;
     if (userShell && !userShell.endsWith('/sh')) {
       try {
-        const output = execSync(`${userShell} -ilc 'cdk --version'`, {
+        const output = execSync(`${userShell} -ilc '${cmd}'`, {
           encoding: 'utf-8',
           stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -57,6 +52,13 @@ export function getCdkInfo(): CdkInfo {
       error: firstError instanceof Error ? firstError.message : 'Unknown error',
     };
   }
+}
+
+/**
+ * Checks whether the AWS CDK CLI is installed and returns its version.
+ */
+export function getCdkInfo(): CdkInfo {
+  return getToolInfo('cdk');
 }
 
 /**
@@ -76,6 +78,41 @@ export function ensureCdkAvailable(): void {
   printError('AWS CDK is not installed or not accessible');
   console.log('Install CDK with: npm install -g aws-cdk');
   throw new Error('AWS CDK not found');
+}
+
+/**
+ * Asserts that the local toolchain CDK needs to bundle the PluginLookup Lambda
+ * is present. Synth builds that Lambda via `NodejsFunction` (esbuild); when
+ * esbuild isn't on PATH, CDK silently falls back to **Docker bundling**, which
+ * can't resolve the handler's cross-directory imports and dies with an opaque
+ * `Could not resolve "axios"` / `"../config/handler-constants.js"`. pnpm is also
+ * required because the handler's lockfile is `pnpm-lock.yaml`, so CDK drives
+ * esbuild through pnpm. Fail fast here with the fix instead of deep in a bundle.
+ *
+ * Bypass with `SKIP_BUNDLER_CHECK=1` (e.g. an environment that intentionally
+ * bundles in Docker with a working mount scope).
+ */
+export function ensureBundlerAvailable(): void {
+  if (process.env.SKIP_BUNDLER_CHECK === '1') return;
+
+  const missing = ['esbuild', 'pnpm'].filter((tool) => !getToolInfo(tool).available);
+  if (missing.length === 0) {
+    printSuccess('Bundler (esbuild + pnpm) is available');
+    return;
+  }
+
+  printError(`Missing local bundling prerequisite${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}`);
+  console.log('');
+  console.log('Synth bundles the PluginLookup Lambda via esbuild (CDK NodejsFunction).');
+  console.log('Without esbuild + pnpm on PATH, CDK falls back to Docker bundling, which');
+  console.log('fails with: Could not resolve "axios" / "../config/handler-constants.js".');
+  console.log('');
+  console.log('Install with:');
+  console.log('  npm install -g esbuild@0.28.1 pnpm@10.33.0');
+  console.log('');
+  console.log('Docs: pipeline-manager.md#prerequisites-for-local-pipeline-deploys');
+  console.log('(Set SKIP_BUNDLER_CHECK=1 to bypass this check.)');
+  throw new Error(`Missing bundler prerequisites: ${missing.join(', ')}`);
 }
 
 /**

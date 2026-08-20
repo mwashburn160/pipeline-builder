@@ -128,6 +128,21 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
           </div>
         </CollapsibleSection>
 
+        <CollapsibleSection title="Pipeline Variables" hasContent={state.vars.length > 0}>
+          <div className="mt-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+              Key-value variables exposed to <code>{'{{ pipeline.vars.* }}'}</code> templates in
+              this pipeline and its plugin steps (e.g. an org id for a per-org secret path).
+            </p>
+            <MetadataEditor
+              label="Variables"
+              value={state.vars}
+              onChange={(v) => dispatch({ type: 'SET_VARS', value: v })}
+              disabled={disabled}
+            />
+          </div>
+        </CollapsibleSection>
+
         <DefaultsSection
           defaults={state.defaults}
           onEnabledChange={(v) => dispatch({ type: 'SET_DEFAULTS_ENABLED', value: v })}

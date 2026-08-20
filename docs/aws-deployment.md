@@ -797,6 +797,8 @@ Use `--force` on `init-platform.sh` to rebuild the base images and the CodeBuild
 
 The **bootstrap image** backs `CODEBUILD_DEFAULT_IMAGE` — the fallback runtime CodeBuild uses for the synth step and for any plugin step whose own image isn't resolved. `build-codebuild-bootstrap.sh` builds it with Docker and publishes it to the platform's registry. `provision --build-bootstrap` runs this for you; run it directly to refresh the image after a CLI/Dockerfile change.
 
+> The bootstrap image bakes in **aws-cdk + esbuild + pnpm** so synth bundles the PluginLookup Lambda locally (no Docker-in-Docker). If you instead run `cdk synth` / `pipeline deploy` **on your own machine**, you need those same tools on `PATH` — otherwise bundling fails with `Could not resolve "axios"`. See [Pipeline Manager → local deploy prerequisites](pipeline-manager.md#prerequisites-for-local-pipeline-deploys).
+
 ```bash
 cd deploy/bin
 

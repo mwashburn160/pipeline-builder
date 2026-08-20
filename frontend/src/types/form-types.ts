@@ -147,6 +147,11 @@ export interface FormBuilderState {
   /** Metadata entries applied to every stage/step in the pipeline. */
   global: MetadataEntry[];
 
+  // Pipeline variables
+  /** Pipeline-level template variables, exposed to `{{ pipeline.vars.* }}` in the
+   *  pipeline config and plugin specs (e.g. a per-org secret path). */
+  vars: MetadataEntry[];
+
   // Defaults
   /** Default network, security group, and metadata applied to steps that don't override them. */
   defaults: {
@@ -289,6 +294,7 @@ export function createInitialFormState(): FormBuilderState {
     description: '',
     keywords: '',
     global: [],
+    vars: [],
     defaults: {
       enabled: false,
       networkType: 'none',

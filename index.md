@@ -249,6 +249,7 @@ Browse the full docs at **[{{ '/docs/' | relative_url }}]({{ '/docs/' | relative
 | Guide | Description |
 |-------|-------------|
 | [Overview]({{ '/docs/' | relative_url }}) | Key concepts, usage guides, operational how-to |
+| [Content Index]({{ '/docs/content-index.html' | relative_url }}) | A–Z keyword/topic index — find where any subject is documented |
 | [Pipeline Manager CLI]({{ '/docs/pipeline-manager.html' | relative_url }}) | The `pipeline-manager` CLI — provision the platform, build/deploy pipelines, manage plugins |
 | [Developer Guide]({{ '/docs/developer-guide.html' | relative_url }}) | Cut-and-paste pipeline examples for 7 languages |
 | [Samples]({{ '/docs/samples.html' | relative_url }}) | Pipeline configs and CDK patterns |

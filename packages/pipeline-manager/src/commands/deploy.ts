@@ -9,7 +9,7 @@ import pico from 'picocolors';
 import { assertShellSafe } from '../config/cli.constants.js';
 import { type Pipeline } from '../types/index.js';
 import { auditLog } from '../utils/audit-log.js';
-import { ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
+import { ensureBundlerAvailable, ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
 import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { ensureOutputDirectory, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
@@ -81,6 +81,8 @@ export function deploy(program: Command): void {
 
         ensureCdkAvailable();
         printSuccess('AWS CDK is available');
+
+        ensureBundlerAvailable();
 
         let pipeline: Pipeline;
         let propsWithIds: Record<string, unknown>;

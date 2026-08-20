@@ -29,6 +29,11 @@ export function pipelineTemplatesApi(core: ApiCore) {
       );
     },
 
+    /** Fetch a single template by id (full record, incl. props + inputs). */
+    getPipelineTemplate: async (id: string) => {
+      return core.request<ApiResponse<{ template: PipelineTemplate }>>(`/api/pipeline-templates/${id}`);
+    },
+
     createPipelineTemplate: async (data: {
       name: string;
       description?: string;
@@ -40,6 +45,24 @@ export function pipelineTemplatesApi(core: ApiCore) {
     }) => {
       return core.request<ApiResponse<{ template: PipelineTemplate }>>('/api/pipeline-templates', {
         method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+
+    /** Partial-update an existing template (name/description/keywords/category/
+     *  access/props/inputs/isActive). Mirrors PUT /api/pipeline-templates/:id. */
+    updatePipelineTemplate: async (id: string, data: {
+      name?: string;
+      description?: string;
+      keywords?: string[];
+      category?: string;
+      accessModifier?: 'public' | 'private';
+      props?: BuilderProps;
+      inputs?: PipelineTemplate['inputs'];
+      isActive?: boolean;
+    }) => {
+      return core.request<ApiResponse<{ template: PipelineTemplate }>>(`/api/pipeline-templates/${id}`, {
+        method: 'PUT',
         body: JSON.stringify(data),
       });
     },

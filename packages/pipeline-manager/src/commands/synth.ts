@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { assertShellSafe } from '../config/cli.constants.js';
 import { auditLog } from '../utils/audit-log.js';
-import { ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
+import { ensureBundlerAvailable, ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
@@ -106,6 +106,8 @@ export function synth(program: Command): void {
 
         ensureCdkAvailable();
         printSuccess('AWS CDK is available');
+
+        ensureBundlerAvailable();
 
         // Build cdk synth command
         if (options.output) assertShellSafe(options.output, 'output');

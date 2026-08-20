@@ -285,6 +285,8 @@ export interface Plugin {
 
   // Build configuration
   env: Record<string, string>;
+  /** Docker build args, templatable via `{{ pipeline.* }}` (e.g. `{{ pipeline.vars.* }}`). */
+  buildArgs?: Record<string, string>;
   installCommands: string[];
   commands: string[];
   
@@ -324,6 +326,8 @@ export interface BuilderProps {
   organization: string;
   pipelineName?: string;
   global?: Record<string, string | number | boolean>;
+  /** Pipeline-level template variables, exposed to `{{ pipeline.vars.* }}`. */
+  vars?: Record<string, string | number | boolean>;
   defaults?: Record<string, unknown>;
   role?: Record<string, unknown>;
   synth: Record<string, unknown>;

@@ -59,6 +59,13 @@ new PipelineBuilder(stack, 'MyPipeline', {
 });
 ```
 
+> **Prerequisite for `cdk synth` / `cdk deploy`:** synth bundles the PluginLookup
+> Lambda via `NodejsFunction` (esbuild). Install **esbuild** + **pnpm** (the
+> handler's lockfile) on `PATH`, or CDK falls back to Docker bundling and fails
+> with `Could not resolve "axios"` / `"../config/handler-constants.js"`:
+> `npm install -g esbuild@0.28.1 pnpm@10.33.0`. See
+> [Pipeline Manager → local deploy prerequisites](pipeline-manager.md#prerequisites-for-local-pipeline-deploys).
+
 ---
 
 ## BuilderProps Reference

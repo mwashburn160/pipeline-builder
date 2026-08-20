@@ -39,6 +39,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
   const [pluginType, setPluginType] = useState(plugin.pluginType);
   const [computeType, setComputeType] = useState(plugin.computeType);
   const [env, setEnv] = useState(formatJSON(plugin.env || {}));
+  const [buildArgs, setBuildArgs] = useState(formatJSON(plugin.buildArgs || {}));
   const [installCommands, setInstallCommands] = useState(plugin.installCommands?.join('\n') || '');
   const [commands, setCommands] = useState(plugin.commands?.join('\n') || '');
   const [isActive, setIsActive] = useState(plugin.isActive);
@@ -83,6 +84,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
     setPluginType(fullPlugin.pluginType);
     setComputeType(fullPlugin.computeType);
     setEnv(formatJSON(fullPlugin.env || {}));
+    setBuildArgs(formatJSON(fullPlugin.buildArgs || {}));
     setInstallCommands(fullPlugin.installCommands?.join('\n') || '');
     setCommands(fullPlugin.commands?.join('\n') || '');
     setIsActive(fullPlugin.isActive);
@@ -108,6 +110,9 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
     const parsedEnv = env.trim() ? safeJSONParse<Record<string, string> | null>(env, null) : {};
     if (parsedEnv === null) { setValidationError('Invalid JSON in env field'); return; }
 
+    const parsedBuildArgs = buildArgs.trim() ? safeJSONParse<Record<string, string> | null>(buildArgs, null) : {};
+    if (parsedBuildArgs === null) { setValidationError('Invalid JSON in build args field'); return; }
+
     const parsedSecrets = secrets.trim() ? safeJSONParse<Array<{ name: string; required: boolean; description?: string }> | null>(secrets, null) : [];
     if (parsedSecrets === null) { setValidationError('Invalid JSON in secrets field'); return; }
 
@@ -131,6 +136,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
       pluginType,
       computeType,
       env: parsedEnv,
+      buildArgs: parsedBuildArgs,
       installCommands: installCommands.split('\n').filter(c => c.trim()),
       commands: commands.split('\n').filter(c => c.trim()),
       isActive,
@@ -275,6 +281,9 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Build Configuration</h3>
             <FormField label="Environment Variables (JSON)" className="mb-3">
               <Textarea value={env} onChange={(e) => setEnv(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder='{"API_URL": "https://api.example.com"}' />
+            </FormField>
+            <FormField label="Build Args (JSON)" hint="Docker build args; templatable via {{ pipeline.vars.* }}" className="mb-3">
+              <Textarea value={buildArgs} onChange={(e) => setBuildArgs(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder='{"APP_ENV": "{{ pipeline.vars.env }}"}' />
             </FormField>
             <FormField label="Install Commands (one per line)" className="mb-3">
               <Textarea value={installCommands} onChange={(e) => setInstallCommands(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder={"npm install\npip install -r requirements.txt"} />

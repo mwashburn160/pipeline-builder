@@ -144,6 +144,7 @@ export function pluginsApi(core: ApiCore) {
       pluginType?: string;
       computeType?: string;
       env?: Record<string, string>;
+      buildArgs?: Record<string, string>;
       installCommands?: string[];
       commands?: string[];
       accessModifier?: 'public' | 'private';

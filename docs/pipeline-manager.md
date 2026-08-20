@@ -48,6 +48,36 @@ pipeline-manager <command> --help  # full flag reference for any command
 pipeline-manager version           # CLI version info
 ```
 
+### Prerequisites for local pipeline deploys
+
+`pipeline synth` / `pipeline deploy` (and running `cdk deploy` directly) synthesize
+the pipeline stack, which bundles the **PluginLookup Lambda** via CDK's
+`NodejsFunction` (esbuild). `pipeline synth`/`deploy` **preflight this for you** —
+they check `esbuild` + `pnpm` are on `PATH` and fail fast with the fix below rather
+than letting the build die deep in an opaque bundling error. (Bypass the check with
+`SKIP_BUNDLER_CHECK=1`.) If **esbuild** isn't on `PATH`, CDK silently falls back
+to **Docker bundling**, which can't resolve the handler's `axios` / `../config`
+imports and fails with:
+
+```
+esbuild cannot run locally. Switching to Docker bundling
+✘ [ERROR] Could not resolve "axios"
+✘ [ERROR] Could not resolve "../config/handler-constants.js"
+```
+
+Install esbuild **and** pnpm (the handler's lockfile is `pnpm-lock.yaml`, so CDK
+uses pnpm to run esbuild) — plus the CDK CLI — globally, matching the versions the
+CodeBuild bootstrap image bakes in:
+
+```bash
+npm install -g esbuild@0.28.1 pnpm@10.33.0 aws-cdk@2.1126.0
+```
+
+With esbuild on `PATH`, `NodejsFunction` bundles **locally** (no Docker) and the
+Lambda resolves correctly. In CodeBuild this is handled for you — the bootstrap
+image ships these tools (see
+[AWS deployment → CodeBuild bootstrap image](aws-deployment.md#build-the-codebuild-bootstrap-image-build-codebuild-bootstrapsh)).
+
 ---
 
 ## Quick start
@@ -187,6 +217,7 @@ Environment variables override the resolved config. `auth login` persists your a
 | `AWS_REGION` | Yes (for deploy) | Target AWS region for `pipeline synth` / `pipeline deploy` / `infra provision` teardown |
 | `CLI_CONFIG_PATH` | No | Override the project config file path (default `./config.yml`) |
 | `UPLOAD_TIMEOUT` | No | Override the plugin-upload request timeout (ms) |
+| `SKIP_BUNDLER_CHECK` | No | Set to `1` to skip the `esbuild` + `pnpm` preflight before `pipeline synth`/`deploy` (see [local deploy prerequisites](#prerequisites-for-local-pipeline-deploys)) |
 | `TLS_REJECT_UNAUTHORIZED` | No | Set to `0` to skip TLS verification (ignored in `NODE_ENV=production`) |
 | `ANTHROPIC_API_KEY` (or other provider key) | No | Enables `infra provision`'s natural-language `--prompt` parsing + failure diagnosis |
 | `AI_PROVIDER` / `AI_MODEL` | No | Provider + model for `infra provision` (`anthropic` \| `openai` \| `google` \| `xai` \| `bedrock`) |

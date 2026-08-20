@@ -202,6 +202,11 @@ export function propsToFormState(rawProps: AnyRecord): FormBuilderState {
     base.global = parseMetadataEntries(rawProps.global);
   }
 
+  // Pipeline variables
+  if (rawProps.vars) {
+    base.vars = parseMetadataEntries(rawProps.vars);
+  }
+
   // Defaults
   if (rawProps.defaults) {
     const d = rawProps.defaults as AnyRecord;

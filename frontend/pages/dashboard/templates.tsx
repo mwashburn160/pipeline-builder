@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
-import { LayoutTemplate, RefreshCw, Sparkles, Upload, Trash2 } from 'lucide-react';
+import { LayoutTemplate, RefreshCw, Sparkles, Upload, Trash2, Pencil } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
@@ -21,6 +21,7 @@ import { ResourceList } from '@/components/ui/ResourceList';
 import { TabBar } from '@/components/ui/TabBar';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import { CreateTemplateModal } from '@/components/pipeline/CreateTemplateModal';
+import EditTemplateModal from '@/components/pipeline/EditTemplateModal';
 import { ImportTemplateModal } from '@/components/pipeline/ImportTemplateModal';
 import api from '@/lib/api';
 import type { PipelineTemplate, TemplateInput } from '@/types';
@@ -52,6 +53,9 @@ export default function TemplatesPage() {
   // Delete state
   const [deleteTarget, setDeleteTarget] = useState<PipelineTemplate | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Edit state
+  const [editTarget, setEditTarget] = useState<PipelineTemplate | null>(null);
 
   // Deleting a PUBLIC (shared) template needs pipelines:publish; a private one
   // needs pipelines:write — mirrors the backend gate on DELETE /pipeline-templates/:id.
@@ -269,6 +273,16 @@ export default function TemplatesPage() {
                     <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300">{t.category}</span>
                     {canDelete(t) && (
                       <IconButton
+                        onClick={() => setEditTarget(t)}
+                        title="Edit template"
+                        aria-label={`Edit template ${t.name}`}
+                        tone="primary"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </IconButton>
+                    )}
+                    {canDelete(t) && (
+                      <IconButton
                         onClick={() => setDeleteTarget(t)}
                         title="Delete template"
                         aria-label={`Delete template ${t.name}`}
@@ -364,6 +378,15 @@ export default function TemplatesPage() {
           canPublish={canPublish}
           onClose={() => setShowImport(false)}
           onImported={fetchAll}
+        />
+      )}
+
+      {editTarget && (
+        <EditTemplateModal
+          template={editTarget}
+          canPublish={canPublish}
+          onClose={() => setEditTarget(null)}
+          onSaved={fetchAll}
         />
       )}
 

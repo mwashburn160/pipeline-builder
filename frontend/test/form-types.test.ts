@@ -106,6 +106,7 @@ describe('createInitialFormState', () => {
     expect(state.description).toBe('');
     expect(state.keywords).toBe('');
     expect(state.global).toEqual([]);
+    expect(state.vars).toEqual([]);
   });
 
   it('should have correct defaults section', () => {

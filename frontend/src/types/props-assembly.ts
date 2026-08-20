@@ -315,6 +315,9 @@ export function assembleBuilderProps(
   // Global metadata
   const globalMeta = assembleMetadata(state.global);
 
+  // Pipeline variables (same key-value-type shape as metadata)
+  const varsAssembled = assembleMetadata(state.vars);
+
   // Stages
   let stages: Record<string, unknown>[] | undefined;
   if (state.stages.length > 0) {
@@ -357,6 +360,7 @@ export function assembleBuilderProps(
     organization: state.organization.trim(),
     ...(state.pipelineName && { pipelineName: state.pipelineName }),
     ...(globalMeta && { global: globalMeta }),
+    ...(varsAssembled && { vars: varsAssembled }),
     ...(defaults && { defaults }),
     ...(role && { role }),
     synth,

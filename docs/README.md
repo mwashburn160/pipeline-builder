@@ -57,6 +57,7 @@ This is the documentation index for **Pipeline Builder**, a multi-tenant platfor
 
 | Document | Description |
 |----------|-------------|
+| [Content Index](content-index.md) | A–Z keyword/topic index — find where any subject is documented |
 | [API Reference](api-reference.md) | REST endpoints for pipelines, plugins, compliance, reporting, AI |
 | [Metadata Keys](metadata-keys.md) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Template Syntax](templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
