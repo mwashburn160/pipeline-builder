@@ -96,6 +96,10 @@ describe('ReportsPage — fetch error banner', () => {
 
     render(<ReportsPage />);
 
+    // DORA fetches now live on the dedicated, feature-gated DORA tab (not the
+    // default pipelines/overview view) — navigate there to trigger the trend fetch.
+    fireEvent.click(await screen.findByRole('button', { name: /dora/i }));
+
     expect(await screen.findByText('Trend service down')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
   });

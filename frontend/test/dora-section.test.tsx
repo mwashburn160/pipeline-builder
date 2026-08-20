@@ -93,11 +93,18 @@ beforeEach(() => {
   getReportEnvironments.mockReset().mockResolvedValue({ data: { environments: [] } });
 });
 
+/** DORA now lives on its own feature-gated top tab (not the pipelines/overview
+ *  view). Click it to mount the DORA panel + trigger its fetches. */
+const goToDora = async () => {
+  fireEvent.click(await screen.findByRole('button', { name: /^dora$/i }));
+};
+
 describe('ReportsPage — DORA section', () => {
   it('renders 4 DORA cards with humanized MTTR and an approximation-labelled lead time', async () => {
     getDora.mockResolvedValue(baseDora);
 
     render(<ReportsPage />);
+    await goToDora();
 
     expect(await screen.findByText('Deployment Frequency')).toBeInTheDocument();
     expect(screen.getByText('Change Failure Rate')).toBeInTheDocument();
@@ -118,6 +125,7 @@ describe('ReportsPage — DORA section', () => {
     getDora.mockResolvedValue(baseDora);
 
     render(<ReportsPage />);
+    await goToDora();
 
     await screen.findByText('Deployment Frequency');
     // elite (lead time) + high (deploy freq + MTTR) + medium (CFR) bands surface as pills.
@@ -130,6 +138,7 @@ describe('ReportsPage — DORA section', () => {
     getDora.mockResolvedValue(baseDora);
 
     render(<ReportsPage />);
+    await goToDora();
 
     await screen.findByText('Deployment Frequency');
     // Window renders as "Jun … – Jul …, 2026" (locale/TZ-formatted — assert the
@@ -147,6 +156,7 @@ describe('ReportsPage — DORA section', () => {
     });
 
     render(<ReportsPage />);
+    await goToDora();
 
     expect(await screen.findByText('Time to Restore (MTTR)')).toBeInTheDocument();
     expect(screen.getByText('0/0 incidents restored')).toBeInTheDocument();
@@ -154,48 +164,35 @@ describe('ReportsPage — DORA section', () => {
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2);
   });
 
-  it('hides the DORA section when advanced_reporting is disabled', async () => {
+  it('does not render a DORA tab when advanced_reporting is disabled', async () => {
     mockDoraEnabled = false;
-    getDora.mockResolvedValue(baseDora);
-
-    render(<ReportsPage />);
-
-    // With DORA gated off and no other overview data, the empty state renders.
-    // Assert the DORA heading is absent and the gated fetches were never issued.
-    await screen.findByText('No pipeline data yet');
-    expect(screen.queryByText('DORA Metrics')).not.toBeInTheDocument();
-    expect(screen.queryByText('Deployment Frequency')).not.toBeInTheDocument();
-    expect(getDora).not.toHaveBeenCalled();
-    expect(getDoraTrend).not.toHaveBeenCalled();
-  });
-
-  it('shows the DORA section when advanced_reporting is enabled', async () => {
-    getDora.mockResolvedValue(baseDora);
-
-    render(<ReportsPage />);
-
-    expect(await screen.findByText('DORA Metrics')).toBeInTheDocument();
-    expect(getDora).toHaveBeenCalled();
-    expect(getDoraTrend).toHaveBeenCalled();
-  });
-
-  it('renders the locked upsell + CTA (and no DORA cards / no fetch) when not entitled', async () => {
-    mockDoraEnabled = false;
-    // Overview has execution data so the section area renders (the upsell sits
-    // where the DORA section would be, not in the zero-data empty state).
     getExecutionCount.mockResolvedValue({ data: { pipelines: [pipelineRow('p1', 'Pipe One')] } });
     getDora.mockResolvedValue(baseDora);
 
     render(<ReportsPage />);
 
-    // CTA deep-links to the add-on on billing.
-    const cta = await screen.findByRole('link', { name: /unlock advanced reporting/i });
-    expect(cta).toHaveAttribute('href', '/dashboard/billing?highlight=advanced_reporting');
-    // The real DORA section is NOT rendered — its run-based footnote (which the
-    // blurred teaser does not include) is absent — and the gated fetches never fire.
-    expect(screen.queryByText(/These are run-based/i)).not.toBeInTheDocument();
+    // Overview renders (Executions stat), but there's no DORA tab to click and
+    // the gated fetches never fire.
+    await screen.findByText('Executions');
+    expect(screen.queryByRole('button', { name: /^dora$/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('DORA Metrics')).not.toBeInTheDocument();
     expect(getDora).not.toHaveBeenCalled();
     expect(getDoraTrend).not.toHaveBeenCalled();
+  });
+
+  it('shows a DORA tab that mounts the section + fires the fetches when entitled', async () => {
+    getDora.mockResolvedValue(baseDora);
+
+    render(<ReportsPage />);
+    // The tab exists when entitled; DORA doesn't fetch until it's opened.
+    expect(await screen.findByRole('button', { name: /^dora$/i })).toBeInTheDocument();
+    expect(getDora).not.toHaveBeenCalled();
+
+    await goToDora();
+
+    expect(await screen.findByText('DORA Metrics')).toBeInTheDocument();
+    expect(getDora).toHaveBeenCalled();
+    expect(getDoraTrend).toHaveBeenCalled();
   });
 
   it('forwards pipelineId to getDora + getDoraTrend when a pipeline is picked', async () => {
@@ -203,6 +200,7 @@ describe('ReportsPage — DORA section', () => {
     getDora.mockResolvedValue(baseDora);
 
     render(<ReportsPage />);
+    await goToDora();
     await screen.findByText('DORA Metrics');
 
     getDora.mockClear();
@@ -222,6 +220,7 @@ describe('ReportsPage — DORA section', () => {
     getDora.mockResolvedValue(baseDora);
 
     render(<ReportsPage />);
+    await goToDora();
     await screen.findByText('DORA Metrics');
 
     const picker = screen.getByLabelText(/filter dora by pipeline/i) as HTMLSelectElement;
@@ -233,6 +232,7 @@ describe('ReportsPage — DORA section', () => {
     getDora.mockResolvedValue(baseDora);
 
     render(<ReportsPage />);
+    await goToDora();
     await screen.findByText('DORA Metrics');
 
     getDora.mockClear();
@@ -252,6 +252,7 @@ describe('ReportsPage — DORA section', () => {
     ]);
 
     render(<ReportsPage />);
+    await goToDora();
 
     // Section heading + the role="img" summary conveyed to assistive tech.
     await screen.findByText('Deployment Trend');
@@ -271,6 +272,7 @@ describe('ReportsPage — DORA section', () => {
     });
 
     render(<ReportsPage />);
+    await goToDora();
 
     await screen.findByText('Deployment Frequency');
     expect(screen.getByText(/Scoped to deployments · prod/)).toBeInTheDocument();
@@ -285,6 +287,7 @@ describe('ReportsPage — DORA section', () => {
     getDora.mockResolvedValue(undefined);
 
     render(<ReportsPage />);
+    await goToDora();
 
     // Bug 1: heading + scope controls stay mounted even with no dora, so the
     // user can still clear an over-narrow filter.
@@ -301,6 +304,7 @@ describe('ReportsPage — DORA section', () => {
     getDora.mockResolvedValue(baseDora);
 
     render(<ReportsPage />);
+    await goToDora();
     await screen.findByText('DORA Metrics');
 
     getDora.mockClear();

@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Isolation smoke tests for the extracted PipelineOverview tab. The DORA
- * sub-behaviors (fetch wiring, debounce) are covered by the page-level
- * dora-section tests; here we assert the three render branches (loading
- * skeleton, empty state, data) and that the collapsed `doraScope` bag reaches
- * DoraScopeControls when entitled.
+ * Isolation smoke tests for the PipelineOverview tab. DORA moved out to its own
+ * feature-gated tab (see dora-report-isolation + dora-section tests); this file
+ * asserts only PipelineOverview's three render branches (loading skeleton, empty
+ * state, data).
  */
 
 import { render, screen } from '@testing-library/react';
@@ -20,17 +19,9 @@ const execRow: ExecutionCountRow = {
 };
 const timelineRow: TimelineEntry = { period: '2026-07-01T00:00:00.000Z', succeeded: 8, failed: 2, canceled: 0, success_pct: 80 };
 
-const doraScope = {
-  pipelineId: '', environment: '', deploysOnly: false,
-  onPipelineChange: jest.fn(), onEnvironmentChange: jest.fn(),
-  onEnvironmentCommit: jest.fn(), onDeploysOnlyChange: jest.fn(),
-};
-
 const baseProps = {
-  executions: [] as ExecutionCountRow[], pipelineOptions: [] as { id: string; name: string }[],
-  environmentOptions: [] as string[],
+  executions: [] as ExecutionCountRow[],
   timeline: [] as TimelineEntry[],
-  dora: null, doraTrend: [], doraEnabled: false, doraScope,
 };
 
 describe('PipelineOverview (isolation)', () => {
@@ -51,25 +42,12 @@ describe('PipelineOverview (isolation)', () => {
     expect(screen.getByText('Success Rate')).toBeInTheDocument();
     expect(screen.getByText('80.0%')).toBeInTheDocument();
     expect(screen.getByText('Execution Timeline')).toBeInTheDocument();
-    // Stacked timeline bar total surfaces for the single period.
     expect(screen.getByText('Success Rate Trend')).toBeInTheDocument();
   });
 
-  it('forwards the doraScope bag to the scope controls when entitled', () => {
-    render(<PipelineOverview {...baseProps} loading={false} executions={[execRow]} doraEnabled />);
-    expect(screen.getByLabelText(/filter dora by pipeline/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/filter dora by environment/i)).toBeInTheDocument();
-  });
-
-  it('seeds the environment datalist with defaults merged with observed environments (deduped)', () => {
-    const { container } = render(
-      <PipelineOverview {...baseProps} loading={false} executions={[execRow]} doraEnabled
-        environmentOptions={['prod-eu', 'production']} />,
-    );
-    const options = [...container.querySelectorAll('#dora-environments option')].map((o) => o.getAttribute('value'));
-    // Observed first, then defaults; "production" appears once (case-insensitive dedup).
-    expect(options[0]).toBe('prod-eu');
-    expect(options).toContain('staging');
-    expect(options.filter((v) => v?.toLowerCase() === 'production')).toHaveLength(1);
+  it('does not render any DORA controls (they live on the DORA tab now)', () => {
+    render(<PipelineOverview {...baseProps} loading={false} executions={[execRow]} />);
+    expect(screen.queryByLabelText(/filter dora by pipeline/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('DORA Metrics')).not.toBeInTheDocument();
   });
 });
