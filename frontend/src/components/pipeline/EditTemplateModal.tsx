@@ -178,7 +178,13 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
       setJsonError(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
-    const err = formRef.current?.loadFromProps(parsed) ?? 'Form not ready';
+    if (!formRef.current) {
+      setJsonError('Form not ready');
+      return;
+    }
+    // loadFromProps returns an error string on failure, or null on success — so check
+    // the ref separately above (a successful null must NOT be read as "not ready").
+    const err = formRef.current.loadFromProps(parsed);
     if (err) {
       setJsonError(err);
       return;
