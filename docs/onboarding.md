@@ -49,9 +49,11 @@ don't run `init-platform.sh`, `store-token`, or `setup-events` by hand:
 > [What `infra provision` handles](pipeline-manager.md#what-infra-provision-handles).
 
 > **Per organization:** the `store-token` secret is scoped per org
-> (`pipeline-builder/{orgId}/platform`), so run `--with-events` (or the manual Steps 5–6)
-> **again for each new organization** you onboard — the initial provision covers only the
-> first org's token.
+> (`pipeline-builder/{orgId}/platform`). `--with-events` covers only the org you provisioned
+> with. For **each new organization** you onboard, don't re-provision — run the standalone
+> [`pipeline-manager infra store-token`](#step-5-store-the-service-token-aws-targets) and
+> [`pipeline-manager infra setup-events`](#step-6-set-up-event-reporting-aws-targets)
+> commands (Steps 5–6) to mint and wire that org's token.
 
 **After provisioning, skip straight to [Step 2 — Create your organization](#step-2-create-your-organization).**
 Steps 1, 5, and 6 below are the **manual equivalents** — for when you deployed the
