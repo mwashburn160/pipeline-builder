@@ -10,6 +10,7 @@ import { createAttachmentRoutes } from './routes/attachment-routes.js';
 import { createCreateMessageRoutes } from './routes/create-message.js';
 import { createDeleteMessageRoutes } from './routes/delete-message.js';
 import { createInternalOrgPurgeRoutes } from './routes/internal-org-purge.js';
+import { createPurgeMessageRoutes } from './routes/purge-message.js';
 import { createReadMessageRoutes } from './routes/read-messages.js';
 import { createRestoreMessageRoutes } from './routes/restore-message.js';
 import { createUpdateMessageRoutes } from './routes/update-message.js';
@@ -122,6 +123,13 @@ app.use('/messages', createDeleteMessageRoutes(sseManager));
 // Undo a soft-delete within the retention window; step-up-gated because it
 // reverses a destructive action.
 app.use('/messages', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), requireStepUp, createRestoreMessageRoutes());
+
+// -- Purge route — auth + orgId + messages:write + step-up --------------------
+// Manual permanent hard-delete of an already-soft-deleted tombstone. Same
+// write authority as restore AND step-up-gated like restore: purge is a
+// destructive finalization, so it re-verifies the caller's password. The
+// frontend sends the step-up token in the same header restore uses.
+app.use('/messages', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), requireStepUp, createPurgeMessageRoutes());
 
 // Internal org-purge (service-to-service): the platform cascade calls
 // DELETE /messages/internal/org/:orgId/attachments to reclaim the org's MinIO

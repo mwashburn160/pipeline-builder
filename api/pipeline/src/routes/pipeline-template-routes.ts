@@ -19,6 +19,7 @@ import {
   requirePublicAccess,
   requireStepUp,
   loadAndRestore,
+  loadAndPurge,
   PipelineTemplateFilterSchema,
   PipelineTemplateCreateSchema,
   PipelineTemplateUpdateSchema,
@@ -319,6 +320,31 @@ export function createPipelineTemplateRoutes(): Router {
       details: { name: restored.name },
     });
     return sendSuccess(res, 200, { template: normalizeArrayFields(restored, ['keywords']) });
+  }));
+
+  // POST /pipeline-templates/:id/purge — permanently hard-delete a soft-deleted
+  // tombstone on demand (the manual counterpart to the retention sweep).
+  // Step-up-gated (a permanent destructive action), mirroring the restore route;
+  // mirrors the DELETE authority (auth + orgId + pipelines:write, +pipelines:publish
+  // for public templates) plus a step-up re-verify. As a distinct route path
+  // (/:id/purge vs the restore route's /:id/restore) its `requireStepUp` runs
+  // only for this path, so the single-use step-up jti is consumed exactly once.
+  router.post('/:id/purge', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), requireStepUp, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const result = await loadAndPurge(req, res, orgId, pipelineTemplateService, 'Template', 'pipelines:publish');
+    if (!result) return;
+    const { existing, purgedId } = result;
+
+    ctx.log('COMPLETED', 'Purged pipeline template', { id: purgedId });
+    emitPipelineAudit({
+      action: 'pipeline_template.purge',
+      actorId: req.user?.sub ?? userId ?? 'system',
+      orgId,
+      affectedOrgId: existing.orgId,
+      targetType: 'pipeline_template',
+      targetId: purgedId,
+      details: { name: existing.name },
+    });
+    return sendSuccess(res, 200, {}, 'Template permanently deleted.');
   }));
 
   return router;

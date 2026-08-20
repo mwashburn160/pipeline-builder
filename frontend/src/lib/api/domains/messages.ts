@@ -174,5 +174,14 @@ export function messagesApi(core: ApiCore) {
         headers: core.stepUpHeader(stepUpToken),
       });
     },
+
+    /** Permanently hard-delete a soft-deleted message tombstone (bypasses the retention
+     *  window). Irreversible + step-up gated like restore: pass the re-verified token. */
+    purgeMessage: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<undefined>>(`/api/messages/${id}/purge`, {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
   };
 }

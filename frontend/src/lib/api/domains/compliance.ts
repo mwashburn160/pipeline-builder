@@ -82,6 +82,15 @@ export function complianceApi(core: ApiCore) {
       });
     },
 
+    /** Permanently hard-delete a soft-deleted rule tombstone (bypasses the retention
+     *  window). Irreversible + step-up gated like restore: pass the re-verified token. */
+    purgeComplianceRule: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<undefined>>(`/api/compliance/rules/${id}/purge`, {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
     /** Validate plugin attributes against compliance rules (dry-run) */
     dryRunPluginCompliance: async (attributes: Record<string, unknown>) => {
       return core.request<ApiResponse<ComplianceCheckResult>>('/api/compliance/validate/plugin/dry-run', {
@@ -147,6 +156,15 @@ export function complianceApi(core: ApiCore) {
      *  from StepUpModal; the api forwards it as the `X-Step-Up-Token` header. */
     restoreCompliancePolicy: async (id: string, stepUpToken?: string) => {
       return core.request<ApiResponse<undefined>>(`/api/compliance/policies/${id}/restore`, {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
+    /** Permanently hard-delete a soft-deleted policy tombstone (bypasses the retention
+     *  window). Irreversible + step-up gated like restore: pass the re-verified token. */
+    purgeCompliancePolicy: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<undefined>>(`/api/compliance/policies/${id}/purge`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });

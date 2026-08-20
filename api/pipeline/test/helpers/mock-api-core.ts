@@ -60,6 +60,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     DEFAULT_PAGE_LIMIT: 100,
     closeLeaderLock: async () => undefined,
     loadAndRestore: async () => null,
+    loadAndPurge: async () => null,
     REPORT_INTERVALS: ['day', 'week', 'month'],
     scrubAwsIdentifiers: <T>(v: T): T => v,
     createScheduler: () => ({ start: () => undefined, stop: () => undefined }),

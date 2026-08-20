@@ -10,6 +10,7 @@ import { createBulkPluginRoutes } from './routes/bulk-plugin.js';
 import { createDeletePluginRoutes } from './routes/delete-plugin.js';
 import { createDeployGeneratedPluginRoutes } from './routes/deploy-generated-plugin.js';
 import { createGeneratePluginRoutes } from './routes/generate-plugin.js';
+import { createPurgePluginRoutes } from './routes/purge-plugin.js';
 import { createQueueStatusRoutes } from './routes/queue-status.js';
 import { createReadPluginRoutes } from './routes/read-plugins.js';
 import { createRestorePluginRoutes } from './routes/restore-plugin.js';
@@ -75,6 +76,15 @@ app.use('/plugins', ...createAuthenticatedWithOrgRoute(), requirePermission('plu
 
 // -- Restore route — auth + orgId + plugins:write + step-up -------------------
 app.use('/plugins', ...createAuthenticatedWithOrgRoute(), requirePermission('plugins:write'), requireStepUp, createRestorePluginRoutes());
+
+// -- Purge route — auth + orgId + plugins:write + step-up --------------------
+// Manual, on-demand permanent hard-delete of an already soft-deleted tombstone
+// (finalizes what the retention sweep would do later). Same write authority as
+// restore, and — like restore — behind `requireStepUp`: purge is an
+// irreversible destructive act, so it requires a password re-verify in addition
+// to the frontend confirm dialog. The frontend sends the step-up token in the
+// same header restore uses.
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(), requirePermission('plugins:write'), requireStepUp, createPurgePluginRoutes());
 
 // -- Bulk routes — auth + orgId + plugins:write + bulk_operations feature gate -
 app.use('/plugins', ...createAuthenticatedWithOrgRoute(), requirePermission('plugins:write'), requireFeature('bulk_operations'), createBulkPluginRoutes());

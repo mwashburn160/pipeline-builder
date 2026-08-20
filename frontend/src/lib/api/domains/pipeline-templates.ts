@@ -86,5 +86,14 @@ export function pipelineTemplatesApi(core: ApiCore) {
         headers: core.stepUpHeader(stepUpToken),
       });
     },
+
+    /** Permanently hard-delete a soft-deleted template tombstone (bypasses the retention
+     *  window). Irreversible + step-up gated like restore: pass the re-verified token. */
+    purgePipelineTemplate: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<undefined>>(`/api/pipeline-templates/${id}/purge`, {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
   };
 }

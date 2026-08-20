@@ -11,6 +11,7 @@ import { createDeletePipelineRoutes } from './routes/delete-pipeline.js';
 import { createExecutionRoutes } from './routes/executions.js';
 import { createGeneratePipelineRoutes } from './routes/generate-pipeline.js';
 import { createPipelineTemplateRoutes } from './routes/pipeline-template-routes.js';
+import { createPurgePipelineRoutes } from './routes/purge-pipeline.js';
 import { createReadPipelineRoutes } from './routes/read-pipelines.js';
 import { createRegistryRoutes } from './routes/registry.js';
 import { createRestorePipelineRoutes } from './routes/restore-pipeline.js';
@@ -74,10 +75,21 @@ app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requirePermission('p
 // -- Delete route — auth + orgId + pipelines:write ---------------------------
 app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), createDeletePipelineRoutes());
 
-// -- Restore route — auth + orgId + pipelines:write + step-up -----------------
-// Undo a soft-delete within the retention window; step-up (re-verify) gated
-// because it reverses a destructive action.
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), requireStepUp, createRestorePipelineRoutes());
+// -- Purge + Restore routes — auth + orgId + pipelines:write + step-up --------
+// Both are permanently-consequential soft-delete operations and BOTH require a
+// step-up (password re-verify) beyond pipelines:write:
+//   - Purge:   permanent hard-delete of an already soft-deleted tombstone
+//              (finalizes what the retention sweep would remove anyway).
+//   - Restore: undo a soft-delete within the retention window.
+// They share ONE mount so the single-use `requireStepUp` gate runs exactly once
+// per request. `requireStepUp` consumes the step-up token's `jti` a single time;
+// mounting purge and restore as two separate step-up-gated mounts would
+// double-consume it for whichever router is second (that request first falls
+// through the other mount's step-up layer, then hits its own), 401'ing every
+// call as a STEP_UP_REPLAY. With one shared chain a POST /:id/purge is served by
+// the purge router and a POST /:id/restore falls through it to the restore
+// router, each having cleared auth + orgId + pipelines:write + step-up once.
+app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), requireStepUp, createPurgePipelineRoutes(), createRestorePipelineRoutes());
 
 // -- Golden-path pipeline templates (list/get/instantiate + author) ----------
 // Middleware is applied per-route inside the router (reads: auth+org; writes:

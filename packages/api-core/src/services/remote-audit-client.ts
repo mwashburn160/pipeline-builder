@@ -45,6 +45,9 @@ export const REMOTE_AUDIT_ACTIONS = [
   // source upload, and deploy-to-cluster. `targetId` is the plugin id.
   'plugin.delete',
   'plugin.restore',
+  // Manual purge: permanent hard-delete of a soft-deleted plugin tombstone on
+  // demand (finalizes what the retention sweep would otherwise do later).
+  'plugin.purge',
   'plugin.update',
   'plugin.upload',
   'plugin.deploy',
@@ -60,10 +63,15 @@ export const REMOTE_AUDIT_ACTIONS = [
   'pipeline.update',
   'pipeline.delete',
   'pipeline.restore',
+  // Manual purge: permanent hard-delete of a soft-deleted pipeline /
+  // pipeline_template tombstone on demand (finalizes what the retention sweep
+  // would otherwise do later). `targetId` is the purged id.
+  'pipeline.purge',
   'pipeline_template.create',
   'pipeline_template.update',
   'pipeline_template.delete',
   'pipeline_template.restore',
+  'pipeline_template.purge',
   'pipeline.execution.start',
   'pipeline.execution.cancel',
   // CodePipeline ARN-registry config (api/pipeline registry route) — registering /
@@ -88,10 +96,15 @@ export const REMOTE_AUDIT_ACTIONS = [
   'compliance.rule.update',
   'compliance.rule.delete',
   'compliance.rule.restore',
+  // Manual on-demand hard-delete (PURGE) of a soft-deleted rule/policy tombstone —
+  // the caller-initiated counterpart to the retention sweep's auto-purge. Destroys
+  // the tombstone permanently, so it carries the durable, tamper-evident trail.
+  'compliance.rule.purge',
   'compliance.policy.create',
   'compliance.policy.update',
   'compliance.policy.delete',
   'compliance.policy.restore',
+  'compliance.policy.purge',
   'compliance.scan-schedule.create',
   'compliance.scan-schedule.update',
   'compliance.scan-schedule.delete',
@@ -112,6 +125,10 @@ export const REMOTE_AUDIT_ACTIONS = [
   'message.announcement.create',
   'message.delete',
   'message.restore',
+  // Manual on-demand PURGE (permanent hard-delete) of an already-soft-deleted
+  // message tombstone — the destructive finalizer the retention sweep would
+  // otherwise perform at the purge deadline. `details` carry metadata only.
+  'message.purge',
   // Billing (api/billing) — subscription + entitlement mutations, mirrored to the
   // central audit trail (these also write to the service-local billing_events
   // collection). `details` carry plan/tier/addon ids only — never card/payment

@@ -91,6 +91,44 @@ export default function AuditPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Org id → display name lookup, so org references render as `name (id)`
+  // instead of a bare ObjectId. Fetched once on mount (sysadmin only — the
+  // org-list endpoint is sysadmin-scoped; org-admins only ever see their own
+  // org's events and degrade to bare ids). Failure is non-fatal: an empty map
+  // just falls back to showing the id alone.
+  const [orgNames, setOrgNames] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    if (!isReady || !isSuperAdmin) return;
+    // Guard against api surfaces that don't stub the org list (e.g. tests).
+    if (typeof api.listOrganizations !== 'function') return;
+    let cancelled = false;
+    api.listOrganizations({ limit: 200 }).then((res) => {
+      if (cancelled) return;
+      if (res.success && res.data?.organizations) {
+        const map = new Map<string, string>();
+        for (const org of res.data.organizations) {
+          if (org.id && org.name) map.set(org.id, org.name);
+        }
+        setOrgNames(map);
+      }
+    }).catch(() => { /* degrade gracefully — show bare ids, no error spam */ });
+    return () => { cancelled = true; };
+  }, [isReady, isSuperAdmin]);
+
+  // Render an org reference as `name (id)`, keeping the id copyable via
+  // CopyableId. Unknown/unresolved orgs fall back to the bare id (no
+  // "undefined (id)").
+  const renderOrgRef = (id: string) => {
+    const name = orgNames.get(id);
+    if (!name) return <CopyableId value={id} size="sm" />;
+    return (
+      <span className="inline-flex items-center gap-1">
+        <span className="whitespace-nowrap">{name}</span>
+        <span className="inline-flex items-center">(<CopyableId value={id} size="sm" />)</span>
+      </span>
+    );
+  };
+
   // Hash-chain tamper-verify (sysadmin only). Runs against the org currently in
   // scope — the affected-org filter when set, else the sysadmin's own org.
   const verifyOrgId = affectedOrgId || user?.organizationId || '';
@@ -214,7 +252,7 @@ export default function AuditPage() {
           </Button>
           {verifyOrgId && (
             <span className="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
-              org <CopyableId value={verifyOrgId} size="sm" />
+              org {renderOrgRef(verifyOrgId)}
             </span>
           )}
           {verifyError && (
@@ -490,10 +528,10 @@ export default function AuditPage() {
                     <span className="inline-flex items-center gap-1">via <CopyableId value={event.impersonatorId} size="sm" /></span>
                   )}
                   {event.orgId && event.orgId !== user.organizationId && (
-                    <span className="inline-flex items-center gap-1">org <CopyableId value={event.orgId} size="sm" /></span>
+                    <span className="inline-flex items-center gap-1">org {renderOrgRef(event.orgId)}</span>
                   )}
                   {event.affectedOrgId && event.affectedOrgId !== event.orgId && (
-                    <span className="inline-flex items-center gap-1">affected <CopyableId value={event.affectedOrgId} size="sm" /></span>
+                    <span className="inline-flex items-center gap-1">affected {renderOrgRef(event.affectedOrgId)}</span>
                   )}
                   {event.targetType && (
                     <span className="inline-flex items-center gap-1">
@@ -559,8 +597,8 @@ export default function AuditPage() {
               <CopyableId value={selected.actorId} size="sm" />
             </dd>
             {selected.impersonatorId && (<><dt className="text-gray-500 dark:text-gray-400">Impersonator</dt><dd><CopyableId value={selected.impersonatorId} size="sm" /></dd></>)}
-            {selected.orgId && (<><dt className="text-gray-500 dark:text-gray-400">Org</dt><dd><CopyableId value={selected.orgId} size="sm" /></dd></>)}
-            {selected.affectedOrgId && (<><dt className="text-gray-500 dark:text-gray-400">Affected org</dt><dd><CopyableId value={selected.affectedOrgId} size="sm" /></dd></>)}
+            {selected.orgId && (<><dt className="text-gray-500 dark:text-gray-400">Org</dt><dd>{renderOrgRef(selected.orgId)}</dd></>)}
+            {selected.affectedOrgId && (<><dt className="text-gray-500 dark:text-gray-400">Affected org</dt><dd>{renderOrgRef(selected.affectedOrgId)}</dd></>)}
             {selected.targetType && (
               <>
                 <dt className="text-gray-500 dark:text-gray-400">Target</dt>

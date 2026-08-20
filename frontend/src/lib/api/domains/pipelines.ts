@@ -101,6 +101,15 @@ export function pipelinesApi(core: ApiCore) {
       });
     },
 
+    /** Permanently hard-delete a soft-deleted pipeline tombstone (bypasses the retention
+     *  window). Irreversible + step-up gated like restore: pass the re-verified token. */
+    purgePipeline: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<undefined>>(`/api/pipelines/${id}/purge`, {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
     bulkDeletePipelines: async (ids: string[]) => {
       return core.request<ApiResponse<{ deleted: number; ids: string[] }>>('/api/pipelines/bulk/delete', {
         method: 'POST',

@@ -183,6 +183,15 @@ export function pluginsApi(core: ApiCore) {
       });
     },
 
+    /** Permanently hard-delete a soft-deleted plugin tombstone (bypasses the retention
+     *  window). Irreversible + step-up gated like restore: pass the re-verified token. */
+    purgePlugin: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<undefined>>(`/api/plugins/${id}/purge`, {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
     bulkDeletePlugins: async (ids: string[]) => {
       return core.request<ApiResponse<{ deleted: number; ids: string[] }>>('/api/plugins/bulk/delete', {
         method: 'POST',

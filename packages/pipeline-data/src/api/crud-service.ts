@@ -1048,4 +1048,51 @@ export abstract class CrudService<
 
     return purgedIds.length;
   }
+
+  /**
+   * On-demand hard-delete of a SINGLE tombstone by id — the manual counterpart
+   * to the retention sweep's `purgeExpired`. Permanently removes the row ONLY
+   * when it is a genuine tombstone (`isActive=false` + `deletedAt IS NOT NULL`),
+   * optionally pinned to `orgId` (an orgId-less sysadmin context spans orgs,
+   * matching restore/delete). Runs the same `onBeforePurge` dependent teardown
+   * inside the tx and the same `onAfterPurge` side-effects as the sweep.
+   *
+   * Ignores `purgeAfter`: a manual purge finalizes an already-soft-deleted item
+   * immediately rather than waiting for the retention deadline. Returns the
+   * purged id, or null when there is no such tombstone (already active, purged,
+   * out of scope, or unknown) so the route can 404.
+   */
+  async purgeById(id: string, orgId?: string): Promise<string | null> {
+    if (!this.cols.deletedAt) return null;
+    const conditions = this.tombstoneConditions(orgId, id);
+
+    const purgedId = await withTenantTx(async (tx) => {
+      const [doomed] = await tx
+        // `as any`: cols.id is the base `AnyColumn`, which drizzle's typed
+        // select-field map doesn't accept directly (same friction elsewhere).
+        .select({ id: this.cols.id as any })
+        .from(this.schema)
+        .where(and(...conditions))
+        .limit(1)
+        .then(r => (r as Array<{ id: unknown }>).map(d => String(d.id)));
+
+      if (!doomed) return null;
+
+      // Dependent teardown in the same tx (FK-blocking children can't strand
+      // the parent) — identical to the sweep's per-batch path.
+      await this.onBeforePurge([doomed], tx);
+      await tx.delete(this.schema).where(inArray(this.cols.id, [doomed]));
+      return doomed;
+    });
+
+    if (purgedId) {
+      try {
+        await this.onAfterPurge([purgedId]);
+      } catch (err) {
+        this._logger.warn('Lifecycle hook failed', { error: String(err) });
+      }
+    }
+
+    return purgedId;
+  }
 }

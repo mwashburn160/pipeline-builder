@@ -26,6 +26,8 @@ import { createExemptionRoutes } from './routes/exemptions.js';
 import { createNotificationPreferenceRoutes } from './routes/notification-preferences.js';
 import { createReadPolicyRoutes } from './routes/read-policies.js';
 import { createReadRuleRoutes } from './routes/read-rules.js';
+import { createPurgePolicyRoutes } from './routes/purge-policies.js';
+import { createPurgeRuleRoutes } from './routes/purge-rules.js';
 import { createRestorePolicyRoutes } from './routes/restore-policies.js';
 import { createRestoreRuleRoutes } from './routes/restore-rules.js';
 import { createScanScheduleRoutes } from './routes/scan-schedules.js';
@@ -84,6 +86,10 @@ rulesRouter.use(createDeleteRuleRoutes());
 // Restore (POST /:id/restore) sits after the write-permission gate; the route
 // adds requireStepUp itself (the composite chain has no step-up).
 rulesRouter.use(createRestoreRuleRoutes());
+// Purge (POST /:id/purge) — permanent hard-delete of an already-soft-deleted
+// tombstone. Same write-permission gate; the route adds requireStepUp itself
+// (like restore) since purge is an irreversible destructive action.
+rulesRouter.use(createPurgeRuleRoutes());
 app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), rulesRouter);
 
 // Published rules catalog (auth + org, rate limited)
@@ -119,6 +125,10 @@ policiesRouter.use(createCreatePolicyRoutes());
 policiesRouter.use(createUpdatePolicyRoutes());
 policiesRouter.use(createDeletePolicyRoutes());
 policiesRouter.use(createRestorePolicyRoutes());
+// Purge (POST /:id/purge) — permanent hard-delete of a soft-deleted policy
+// tombstone. Write-permission gated; the route adds requireStepUp (see rules
+// purge above).
+policiesRouter.use(createPurgePolicyRoutes());
 app.use('/compliance/policies', ...createProtectedRoute(quotaService, 'apiCalls'), policiesRouter);
 
 // Rule templates (auth + org)

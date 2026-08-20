@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useState } from 'react';
-import { History, RotateCcw } from 'lucide-react';
+import { History, RotateCcw, Trash2 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Badge } from '@/components/ui/Badge';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -44,6 +45,9 @@ interface ResourceConfig {
   labels: { singular: string; plural: string };
   load: () => Promise<DeletedRow[]>;
   restore: (id: string, stepUpToken?: string) => Promise<{ success: boolean }>;
+  /** Permanently hard-delete a tombstone before the retention sweep would. Step-up
+   *  gated like restore (irreversible destruction): the re-verified token is forwarded. */
+  purge: (id: string, stepUpToken?: string) => Promise<{ success: boolean }>;
 }
 
 function pipelineToRow(p: Pipeline): DeletedRow {
@@ -79,6 +83,7 @@ const RESOURCES: Record<Resource, ResourceConfig> = {
       throw new Error('Failed to load deleted pipelines');
     },
     restore: (id, stepUpToken) => api.restorePipeline(id, stepUpToken),
+    purge: (id, stepUpToken) => api.purgePipeline(id, stepUpToken),
   },
   plugin: {
     labels: { singular: 'plugin', plural: 'plugins' },
@@ -88,6 +93,7 @@ const RESOURCES: Record<Resource, ResourceConfig> = {
       throw new Error('Failed to load deleted plugins');
     },
     restore: (id, stepUpToken) => api.restorePlugin(id, stepUpToken),
+    purge: (id, stepUpToken) => api.purgePlugin(id, stepUpToken),
   },
   template: {
     labels: { singular: 'template', plural: 'templates' },
@@ -97,6 +103,7 @@ const RESOURCES: Record<Resource, ResourceConfig> = {
       throw new Error('Failed to load deleted templates');
     },
     restore: (id, stepUpToken) => api.restorePipelineTemplate(id, stepUpToken),
+    purge: (id, stepUpToken) => api.purgePipelineTemplate(id, stepUpToken),
   },
   message: {
     labels: { singular: 'message', plural: 'messages' },
@@ -106,6 +113,7 @@ const RESOURCES: Record<Resource, ResourceConfig> = {
       throw new Error('Failed to load deleted messages');
     },
     restore: (id, stepUpToken) => api.restoreMessage(id, stepUpToken),
+    purge: (id, stepUpToken) => api.purgeMessage(id, stepUpToken),
   },
   'compliance-rule': {
     labels: { singular: 'rule', plural: 'rules' },
@@ -115,6 +123,7 @@ const RESOURCES: Record<Resource, ResourceConfig> = {
       throw new Error('Failed to load deleted rules');
     },
     restore: (id, stepUpToken) => api.restoreComplianceRule(id, stepUpToken),
+    purge: (id, stepUpToken) => api.purgeComplianceRule(id, stepUpToken),
   },
   'compliance-policy': {
     labels: { singular: 'policy', plural: 'policies' },
@@ -124,6 +133,7 @@ const RESOURCES: Record<Resource, ResourceConfig> = {
       throw new Error('Failed to load deleted policies');
     },
     restore: (id, stepUpToken) => api.restoreCompliancePolicy(id, stepUpToken),
+    purge: (id, stepUpToken) => api.purgeCompliancePolicy(id, stepUpToken),
   },
 };
 
@@ -152,6 +162,9 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
   const [restoring, setRestoring] = useState<string | null>(null);
   // Hold the row awaiting a step-up re-verify; the restore runs in executeRestore.
   const [pendingRestore, setPendingRestore] = useState<DeletedRow | null>(null);
+  // Hold the row awaiting a purge confirm; the permanent delete runs in executePurge.
+  const [pendingPurge, setPendingPurge] = useState<DeletedRow | null>(null);
+  const [purging, setPurging] = useState<string | null>(null);
 
   // Registry-driven loader — each resource's `load` narrows its own response
   // shape and throws on failure so useLoadable surfaces it.
@@ -181,6 +194,29 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
     }
   };
 
+  // Purge = permanent hard-delete, step-up gated like restore (the re-verified
+  // token is forwarded). Unlike restore it does NOT call onRestored — the item is
+  // gone, not returned to the main list; the panel's own `load()` refreshes the list.
+  const executePurge = async (stepUpToken: string) => {
+    if (!pendingPurge) return;
+    const { id, name } = pendingPurge;
+    setPurging(id);
+    try {
+      const res = await config.purge(id, stepUpToken);
+      if (res.success) {
+        toast.success(`Permanently deleted ${labels.singular} "${name}"`);
+        void load();
+      } else {
+        toast.error(`Failed to purge ${labels.singular}`);
+      }
+    } catch (err) {
+      toast.error(formatError(err, `Failed to purge ${labels.singular}`));
+    } finally {
+      setPurging(null);
+      setPendingPurge(null);
+    }
+  };
+
   const columns: Column<DeletedRow>[] = [
     {
       id: 'name',
@@ -201,16 +237,31 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
       id: 'actions',
       header: '',
       cellClassName: 'text-right',
+      // Restore AND purge share the same backend gate — both need `:write`, plus
+      // `:publish` for a PUBLIC tombstone. So the per-row publish gate hides BOTH
+      // together (a write-but-not-publish user would 403 on either against a public
+      // row), keeping the UI honest rather than offering a button that will 403.
       render: (r) => (canRestoreRow && !canRestoreRow(r) ? null : (
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={() => setPendingRestore(r)}
-          disabled={restoring === r.id}
-          className="gap-1 text-blue-600 hover:text-blue-700"
-        >
-          <RotateCcw className="w-3.5 h-3.5" /> Restore
-        </Button>
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => setPendingRestore(r)}
+            disabled={restoring === r.id}
+            className="gap-1 text-blue-600 hover:text-blue-700"
+          >
+            <RotateCcw className="w-3.5 h-3.5" /> Restore
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => setPendingPurge(r)}
+            disabled={purging === r.id}
+            className="gap-1 text-red-600 hover:text-red-700"
+          >
+            <Trash2 className="w-3.5 h-3.5" /> Purge
+          </Button>
+        </div>
       )),
     },
   ];
@@ -231,6 +282,14 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
           action={`Re-confirm your password to restore the ${labels.singular} "${pendingRestore.name}".`}
           onConfirmed={executeRestore}
           onClose={() => setPendingRestore(null)}
+        />
+      )}
+
+      {pendingPurge && (
+        <StepUpModal
+          action={`Re-confirm your password to PERMANENTLY delete the ${labels.singular} "${pendingPurge.name}". This is irreversible — it cannot be undone.`}
+          onConfirmed={executePurge}
+          onClose={() => setPendingPurge(null)}
         />
       )}
 
