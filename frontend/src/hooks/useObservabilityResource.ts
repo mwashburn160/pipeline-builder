@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useReportPanelHealth } from './useObservabilityHealth';
 
 /** Default panel refresh cadence — Prometheus/Loki scrape intervals are 15-30s
  *  so any tighter than this would mostly return identical samples. */
@@ -29,6 +30,11 @@ export function useObservabilityResource<T>(
   const abortRef = useRef<AbortController | null>(null);
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
+  // Report this panel's degraded state up to a page-level ObservabilityHealthProvider
+  // (no-op when there's no provider). Kept in a ref so it doesn't widen fetchOnce's deps.
+  const report = useReportPanelHealth();
+  const reportRef = useRef(report);
+  reportRef.current = report;
 
   const fetchOnce = useCallback(async () => {
     // Background tabs throttle timers and the data is stale anyway — skip
@@ -41,11 +47,16 @@ export function useObservabilityResource<T>(
       const res = await fetcherRef.current(controller.signal);
       if (controller.signal.aborted) return;
       setState({ data: res ?? null, loading: false, error: null });
+      // A degraded envelope means the backend (Prometheus/Loki) was unreachable.
+      const degraded = Boolean(res && typeof res === 'object' && (res as { degraded?: boolean }).degraded);
+      reportRef.current(cacheKey, degraded);
     } catch (err) {
       if (controller.signal.aborted) return;
       setState({ data: null, loading: false, error: err as Error });
+      // A hard error isn't a degraded-but-reachable result — clear this panel's flag.
+      reportRef.current(cacheKey, false);
     }
-  }, []);
+  }, [cacheKey]);
 
   useEffect(() => {
     setState({ data: null, loading: true, error: null });
@@ -59,6 +70,9 @@ export function useObservabilityResource<T>(
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
       abortRef.current?.abort();
+      // Drop this panel's health entry so a removed/re-keyed panel can't keep the
+      // page-level "degraded" banner up after it's gone.
+      reportRef.current(cacheKey, false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- cacheKey captures the relevant deps; fetchOnce is stable
   }, [cacheKey, intervalMs]);

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 
 const logger = createLogger('log-service');
@@ -39,6 +39,8 @@ interface LogQueryResult {
   stats: {
     entriesReturned: number;
     query: string;
+    /** True when the log backend (Loki) was unreachable and this is a degraded empty result. */
+    degraded?: boolean;
   };
 }
 
@@ -165,11 +167,25 @@ async function lokiFetch<T>(path: string, params?: Record<string, string>, tenan
   } catch (error) {
     clearTimeout(timeoutId);
 
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Loki request timed out');
-    }
-    throw error;
+    // A "Loki returned <status>" error means Loki IS reachable but rejected the
+    // request (e.g. a bad LogQL) — a real error, re-thrown as-is for a 5xx.
+    if (error instanceof Error && error.message.startsWith('Loki returned ')) throw error;
+    // Timeout or a connection-level failure (DNS/ECONNREFUSED) means Loki is
+    // unreachable — the normal case on a LEAN deploy, which omits Loki. Tag it so
+    // read paths can degrade to an empty result instead of surfacing a 500.
+    const message = error instanceof Error && error.name === 'AbortError'
+      ? 'Loki request timed out'
+      : `Loki unreachable: ${errorMessage(error)}`;
+    throw Object.assign(new Error(message), { code: LOKI_UNAVAILABLE });
   }
+}
+
+/** Marker on errors from an unreachable/absent Loki (vs. a reachable-but-errored one). */
+export const LOKI_UNAVAILABLE = 'LOKI_UNAVAILABLE';
+
+/** True when `err` came from an unreachable Loki — callers degrade to empty results. */
+export function isLokiUnavailable(err: unknown): boolean {
+  return Boolean(err && typeof err === 'object' && (err as { code?: string }).code === LOKI_UNAVAILABLE);
 }
 
 /**
@@ -226,7 +242,18 @@ class LogService {
     // that org's tenant namespace. Org-blind admin queries (when params.orgId
     // is empty) fall back to `system` and require the operator to also
     // configure cross-tenant query permissions in Loki overrides.
-    const response = await lokiFetch<LokiQueryResponse>('/loki/api/v1/query_range', lokiParams, params.orgId);
+    let response: LokiQueryResponse;
+    try {
+      response = await lokiFetch<LokiQueryResponse>('/loki/api/v1/query_range', lokiParams, params.orgId);
+    } catch (err) {
+      // LEAN deploys omit Loki — degrade to an empty, `degraded`-flagged result so the
+      // Logs page renders an empty state instead of a 500.
+      if (isLokiUnavailable(err)) {
+        logger.warn('Loki unavailable — returning no log entries');
+        return { entries: [], stats: { entriesReturned: 0, query, degraded: true } };
+      }
+      throw err;
+    }
 
     // Transform Loki response into flat entry list
     const entries: LogEntry[] = [];
@@ -258,14 +285,24 @@ class LogService {
    * across the per-org streams (see docs/plans/f-2-6-loki-multitenant.md).
    */
   async getServiceNames(): Promise<string[]> {
-    const response = await lokiFetch<LokiLabelResponse>('/loki/api/v1/label/service_name/values', undefined, 'system');
-    return response.data || [];
+    try {
+      const response = await lokiFetch<LokiLabelResponse>('/loki/api/v1/label/service_name/values', undefined, 'system');
+      return response.data || [];
+    } catch (err) {
+      if (isLokiUnavailable(err)) { logger.warn('Loki unavailable — returning no service names'); return []; }
+      throw err;
+    }
   }
 
   /** Get available log levels from Loki. */
   async getLogLevels(): Promise<string[]> {
-    const response = await lokiFetch<LokiLabelResponse>('/loki/api/v1/label/level/values', undefined, 'system');
-    return response.data || [];
+    try {
+      const response = await lokiFetch<LokiLabelResponse>('/loki/api/v1/label/level/values', undefined, 'system');
+      return response.data || [];
+    } catch (err) {
+      if (isLokiUnavailable(err)) { logger.warn('Loki unavailable — returning no log levels'); return []; }
+      throw err;
+    }
   }
 }
 

@@ -27,10 +27,11 @@ export interface InstantSample {
   labels: Record<string, string>;
 }
 
-/** Response shape from `GET /api/observability/query`. */
+/** Response shape from `GET /api/observability/query`. `degraded` marks a metrics
+ *  backend (Prometheus/Thanos) that was unreachable — e.g. a LEAN deploy. */
 export type ObservabilityQueryResponse =
-  | { samples: InstantSample[] }
-  | { series: DataSeries[]; range: string; step: string };
+  | { samples: InstantSample[]; degraded?: boolean }
+  | { series: DataSeries[]; range: string; step: string; degraded?: boolean };
 
 /** A single log entry from `GET /api/observability/logs` (streams response). */
 export interface ObservabilityLogEntry {
@@ -40,10 +41,11 @@ export interface ObservabilityLogEntry {
   labels: Record<string, string>;
 }
 
-/** Response shape from `GET /api/observability/logs`. */
+/** Response shape from `GET /api/observability/logs`. `degraded` marks a Loki backend
+ *  that was unreachable — e.g. a LEAN deploy. */
 export type ObservabilityLogsResponse =
-  | { entries: ObservabilityLogEntry[]; range: string }
-  | { series: DataSeries[]; range: string; step: string };
+  | { entries: ObservabilityLogEntry[]; range: string; degraded?: boolean }
+  | { series: DataSeries[]; range: string; step: string; degraded?: boolean };
 
 /** Optional templated params accepted by `GET /api/observability/logs`. */
 export interface ObservabilityLogsParams {
@@ -75,6 +77,9 @@ export interface Alert {
 /** Response shape from `GET /api/observability/alerts`. */
 export interface AlertsResponse {
   alerts: Alert[];
+  /** True when the alerting backend (Alertmanager) was unreachable — e.g. a LEAN
+   *  deploy that omits it — and this is a degraded empty result, not a genuine "no alerts". */
+  degraded?: boolean;
 }
 
 /** A single silence rule. */
@@ -91,6 +96,8 @@ export interface Silence {
 /** Response shape from `GET /api/observability/silences`. */
 export interface SilencesResponse {
   silences: Silence[];
+  /** True when Alertmanager was unreachable (e.g. a LEAN deploy) — degraded empty result. */
+  degraded?: boolean;
 }
 
 /** Single catalog entry as exposed by `GET /api/observability/catalog`. The

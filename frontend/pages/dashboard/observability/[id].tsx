@@ -14,7 +14,9 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Button } from '@/components/ui/Button';
 import { LinkButton } from '@/components/ui/LinkButton';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { WarningAlert } from '@/components/ui/WarningAlert';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { ObservabilityHealthProvider, useObservabilityHealth } from '@/hooks/useObservabilityHealth';
 import { LinePanel } from '@/components/observability/LinePanel';
 import { StackedBarPanel } from '@/components/observability/StackedBarPanel';
 import { StatPanel } from '@/components/observability/StatPanel';
@@ -98,6 +100,21 @@ function PanelRenderer({ panel, range, urlFilters }: { panel: DashboardPanel; ra
     default:
       return <LinePanel title={panel.title} queryKey={panel.queryKey} range={range} span={span} groupBy={groupBy} format={format} vars={vars} />;
   }
+}
+
+/** Page-level "monitoring backend unavailable" banner, driven by the aggregate
+ * degraded signal the panels report through ObservabilityHealthProvider. Must be
+ * rendered inside that provider. Invisible unless at least one panel is degraded. */
+function ObservabilityDegradedBanner() {
+  const degraded = useObservabilityHealth();
+  return (
+    <WarningAlert
+      className="mb-4"
+      message={degraded
+        ? 'Monitoring backend unavailable — Prometheus/Loki are not reachable (this deployment may be running in LEAN mode, which omits them). Panels below show no data.'
+        : undefined}
+    />
+  );
 }
 
 /**
@@ -282,15 +299,18 @@ export default function DashboardPage() {
         // present; dashboards without saved coords fall back to
         // span-derived defaults inside DashboardLayoutGrid.buildLayout.
         // Drag/resize disabled here -- edits happen on /edit. Lazy-loaded grid lib.
-        <div ref={gridContainerRef}>
-          <DashboardLayoutGrid
-            panels={dashboard.panels.map((p) => ({ id: `p-${p.position}`, title: p.title, span: p.span }))}
-            layoutJson={dashboard.layoutJson}
-            renderPanel={(_panel, i) => <PanelRenderer panel={dashboard.panels[i]} range={range} urlFilters={urlFilters} />}
-            width={gridWidth}
-            readOnly
-          />
-        </div>
+        <ObservabilityHealthProvider>
+          <ObservabilityDegradedBanner />
+          <div ref={gridContainerRef}>
+            <DashboardLayoutGrid
+              panels={dashboard.panels.map((p) => ({ id: `p-${p.position}`, title: p.title, span: p.span }))}
+              layoutJson={dashboard.layoutJson}
+              renderPanel={(_panel, i) => <PanelRenderer panel={dashboard.panels[i]} range={range} urlFilters={urlFilters} />}
+              width={gridWidth}
+              readOnly
+            />
+          </div>
+        </ObservabilityHealthProvider>
       )}
 
       {pendingDelete && (

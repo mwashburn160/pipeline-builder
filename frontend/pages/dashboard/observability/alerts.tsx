@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { WarningAlert } from '@/components/ui/WarningAlert';
 import { api, getErrorMessage } from '@/lib/api';
 import type { Alert, Silence } from '@/types/observability';
 import { formatRelativeTime } from '@/lib/relative-time';
@@ -61,6 +62,10 @@ export default function AlertsPage() {
   const [silences, setSilences] = useState<Silence[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // True when the backend returned a degraded (empty) result because Alertmanager
+  // was unreachable — e.g. a LEAN deploy that omits it. Distinguishes "no alerts"
+  // from "can't see alerts" so an empty panel isn't misread as all-clear.
+  const [degraded, setDegraded] = useState(false);
   const [silenceTarget, setSilenceTarget] = useState<Alert | null>(null);
 
   const refresh = useCallback(async () => {
@@ -72,6 +77,7 @@ export default function AlertsPage() {
       ]);
       setAlerts(alertsRes.data?.alerts ?? []);
       setSilences(silencesRes.data?.silences ?? []);
+      setDegraded(Boolean(alertsRes.data?.degraded || silencesRes.data?.degraded));
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -146,6 +152,11 @@ export default function AlertsPage() {
         <ErrorAlert message={error} />
       ) : (
         <div className="space-y-6">
+          <WarningAlert
+            message={degraded
+              ? 'Monitoring backend unavailable — Alertmanager is not reachable (this deployment may be running in LEAN mode, which omits it). Alerts and silences can’t be shown.'
+              : undefined}
+          />
           {sortedAlerts.length === 0 ? (
             <div className="rounded border border-gray-200 dark:border-gray-700 p-6 text-center text-sm text-gray-500 dark:text-gray-400">
               No alerts firing. ☀️

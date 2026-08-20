@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { WarningAlert } from '@/components/ui/WarningAlert';
 import { LogDetailsDrawer } from '@/components/observability/LogDetailsDrawer';
 import api from '@/lib/api';
 import { LOG_TIME_RANGES, LOG_LEVEL_COLORS } from '@/lib/constants';
@@ -54,6 +55,10 @@ export default function LogsPage() {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // True when the backend returned a degraded (empty) result because Loki was
+  // unreachable — e.g. a LEAN deploy that omits it. Keeps an empty table from
+  // being misread as "the system is quiet".
+  const [degraded, setDegraded] = useState(false);
   // Currently-open drawer entry; null means the drawer is closed.
   const [selected, setSelected] = useState<LogEntry | null>(null);
 
@@ -97,6 +102,7 @@ export default function LogsPage() {
       const response = await api.getLogs(params);
       if (fetchGenRef.current !== gen) return; // superseded
       setEntries(response.data?.entries || []);
+      setDegraded(Boolean(response.data?.stats?.degraded));
     } catch (err) {
       if (fetchGenRef.current === gen) setError(formatError(err, 'Failed to load logs'));
     } finally {
@@ -209,6 +215,12 @@ export default function LogsPage() {
       <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="logs" orgName={user.organizationName} size="sm" />
 
       <ErrorAlert message={error} onDismiss={() => setError(null)} />
+
+      <WarningAlert
+        message={degraded
+          ? 'Log backend unavailable — Loki is not reachable (this deployment may be running in LEAN mode, which omits it). No logs can be shown.'
+          : undefined}
+      />
 
       {/* Level quick-filters — one-click jumps to a single severity. The backend
           `level` param is single-value, so these set (or toggle off) levelFilter

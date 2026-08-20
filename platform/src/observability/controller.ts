@@ -15,7 +15,9 @@
  * Error mapping:
  *   - Unknown catalog key                       → 400
  *   - Upstream Prom/Loki 4xx (syntax-error)     → 500 (catalog bug, not user input)
- *   - Upstream unreachable / timeout            → 502
+ *   - Upstream unreachable / timeout (READS)    → 200 with an empty body + `degraded: true`
+ *       (a LEAN deploy omits prometheus/loki/alertmanager/thanos, so a dashboard reads a
+ *        clean empty state instead of erroring; writes below still surface 502)
  *   - Valid query returning empty result        → 200 with `{datapoints: []}` / `{entries: []}`
  */
 
@@ -88,6 +90,22 @@ function sendUpstreamError(res: Response, err: unknown): void {
   sendError(res, 502, 'Upstream observability backend unreachable');
 }
 
+/**
+ * Read-endpoint degradation. An `unreachable` backend — the normal case on a LEAN
+ * deploy, which omits prometheus/loki/alertmanager/thanos — yields the given empty
+ * body with `degraded: true` and a 200, so dashboards render a clean empty state
+ * instead of a 502. A reachable-but-erroring backend (`upstream-4xx`) still surfaces
+ * as an error via sendUpstreamError. Returns true when it degraded.
+ */
+function sendReadResultOrDegrade(res: Response, err: unknown, emptyBody: Record<string, unknown>): void {
+  const e = err as { kind?: string };
+  if (e.kind === 'unreachable') {
+    sendSuccess(res, 200, { ...emptyBody, degraded: true });
+    return;
+  }
+  sendUpstreamError(res, err);
+}
+
 
 /**
  * GET /api/observability/query — Prometheus instant or range query by key.
@@ -151,7 +169,13 @@ export const observabilityQuery = withController('Observability query', async (r
     }
     sendError(res, 400, `Query key source '${entry.source}' is not supported here`);
   } catch (err) {
-    sendUpstreamError(res, err);
+    // Degrade to the empty shape the frontend expects for this query kind.
+    if (entry.source === 'prometheus-instant') {
+      sendReadResultOrDegrade(res, err, { samples: [] });
+    } else {
+      const range = parseRange(req.query.range) ?? '1h';
+      sendReadResultOrDegrade(res, err, { series: [], range, step: stepForRange(range) });
+    }
   }
 });
 
@@ -215,7 +239,11 @@ export const observabilityLogs = withController('Observability logs', async (req
       sendSuccess(res, 200, { series, range, step });
     }
   } catch (err) {
-    sendUpstreamError(res, err);
+    // Match the shape chosen above (streams → entries, matrix → series).
+    const empty = (entry.kind ? entry.kind === 'stream' : /^\s*\{/.test(entry.query) && !/count_over_time|sum\s|topk\(/.test(entry.query))
+      ? { entries: [], range }
+      : { series: [], range, step: stepForRange(range) };
+    sendReadResultOrDegrade(res, err, empty);
   }
 });
 
@@ -261,7 +289,7 @@ export const observabilityAlerts = withController('Observability alerts', async 
       : all.filter(a => a.labels.org_id === orgId);
     sendSuccess(res, 200, { alerts: visible });
   } catch (err) {
-    sendUpstreamError(res, err);
+    sendReadResultOrDegrade(res, err, { alerts: [] });
   }
 });
 
@@ -286,7 +314,7 @@ export const observabilitySilencesList = withController('Observability silences 
       : silences.filter(s => s.matchers.some(m => m.name === 'org_id' && m.value === orgId));
     sendSuccess(res, 200, { silences: visible });
   } catch (err) {
-    sendUpstreamError(res, err);
+    sendReadResultOrDegrade(res, err, { silences: [] });
   }
 });
 
