@@ -10,7 +10,7 @@ import { assertShellSafe } from '../config/cli.constants.js';
 import { type Pipeline } from '../types/index.js';
 import { auditLog } from '../utils/audit-log.js';
 import { executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
-import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync } from '../utils/command-utils.js';
+import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync, withProfileOption, withRegionOption, withSslOptions } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { ensureOutputDirectory, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import { fetchPipelineProps, printResolvedOrExit } from '../utils/pipeline-config.js';
@@ -35,18 +35,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * @param program - The root Commander program instance to attach the command to.
  */
 export function deploy(program: Command): void {
-  program
-    .command('deploy')
-    .description('Deploy pipeline by ID using AWS CDK, or --local-spec to deploy a local pipeline.json without the platform')
-    .option('-i, --id <id>', 'Pipeline ID (fetches config from the platform)')
-    .option('--local-spec <path>', 'Path to a local pipeline.json — deploys without contacting the platform (no auth, no compliance, no plugin lookup)')
-    .option('--profile <profile>', 'AWS profile', 'default')
-    .option('--require-approval <approval>', 'Approval level: never|any-change|broadening', 'never')
-    .option('--output <dir>', 'CDK output directory', 'cdk.out')
-    .option('--store-tokens', 'Authenticate using token from AWS Secrets Manager (requires PLATFORM_SECRET_NAME env var)', false)
-    .option('--region <region>', 'AWS region (for --store-tokens)')
-    .option('--verify-ssl', 'Enable SSL certificate verification')
-    .option('--no-verify-ssl', 'Disable SSL certificate verification')
+  withSslOptions(
+    withRegionOption(
+      withProfileOption(program
+        .command('deploy')
+        .description('Deploy pipeline by ID using AWS CDK, or --local-spec to deploy a local pipeline.json without the platform')
+        .option('-i, --id <id>', 'Pipeline ID (fetches config from the platform)')
+        .option('--local-spec <path>', 'Path to a local pipeline.json — deploys without contacting the platform (no auth, no compliance, no plugin lookup)'))
+        .option('--require-approval <approval>', 'Approval level: never|any-change|broadening', 'never')
+        .option('--output <dir>', 'CDK output directory', 'cdk.out')
+        .option('--store-tokens', 'Authenticate using token from AWS Secrets Manager (requires PLATFORM_SECRET_NAME env var)', false),
+    ),
+  )
     .option('--show-resolved', 'Print the resolved pipeline config (with {{ ... }} templates expanded) and exit without deploying', false)
     .action(async (options) => {
       const executionId = printCommandHeader('Pipeline Deploy');

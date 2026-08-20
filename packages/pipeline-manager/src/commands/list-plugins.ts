@@ -5,6 +5,7 @@ import { Command } from 'commander';
 import { runListEntity } from './entity-list.js';
 import { formatFileSize } from '../config/cli.constants.js';
 import { type Plugin } from '../types/index.js';
+import { withSslOptions } from '../utils/command-utils.js';
 import { type CommonFilterParams } from '../utils/list-command-utils.js';
 import { printWarning } from '../utils/output-utils.js';
 
@@ -36,15 +37,15 @@ interface PluginFilterParams extends CommonFilterParams {
  * ```
  */
 export function listPlugins(program: Command): void {
-  program
+  withSslOptions(program
     .command('list')
     .description('Query plugins with comprehensive filters')
 
     // Common filter options
     .option('--id <id>', 'Filter by plugin ID (can specify multiple with commas)')
     .option('--is-active <boolean>', 'Filter by active status (true/false)')
-    .option('--limit <number>', 'Maximum number of results (1-1000)', parseInt, 50)
-    .option('--offset <number>', 'Number of results to skip', parseInt, 0)
+    .option('--limit <number>', 'Maximum number of results (1-1000)', (v) => parseInt(v, 10), 50)
+    .option('--offset <number>', 'Number of results to skip', (v) => parseInt(v, 10), 0)
     .option('--sort <sort>', 'Sort format: field:direction (e.g., name:asc, createdAt:desc)')
 
     // Plugin-specific filter options
@@ -54,9 +55,7 @@ export function listPlugins(program: Command): void {
     // Output options
     .option('-f, --format <format>', 'Output format (json, yaml, table, csv)', 'table')
     .option('-o, --output <file>', 'Save output to file')
-    .option('--show-metadata', 'Include full metadata in output (json/yaml only)', false)
-    .option('--verify-ssl', 'Enable SSL certificate verification')
-    .option('--no-verify-ssl', 'Disable SSL certificate verification')
+    .option('--show-metadata', 'Include full metadata in output (json/yaml only)', false))
 
     .action((options) => runListEntity<Plugin, PluginFilterParams>(program, options, {
       labelPlural: 'Plugins',

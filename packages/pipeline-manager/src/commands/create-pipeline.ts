@@ -8,9 +8,10 @@ import ora from 'ora';
 import pico from 'picocolors';
 import { formatDuration, formatFileSize, FILE_SIZE_LIMITS } from '../config/cli.constants.js';
 import { type Pipeline, type PipelineResponse, type CreatePipelineRequest } from '../types/index.js';
-import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils.js';
+import { printCommandHeader, printSslWarning, createAuthenticatedClient, withSslOptions } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { ensureOutputDirectory, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { extractSingleResponse } from '../utils/response-utils.js';
 
 const { bold, cyan, dim, green } = pico;
 
@@ -24,7 +25,7 @@ const { bold, cyan, dim, green } = pico;
  * @param program - The root Commander program instance to attach the command to.
  */
 export function createPipeline(program: Command): void {
-  program
+  withSslOptions(program
     .command('create')
     .description('Create a new pipeline with the provided configuration')
     .requiredOption('-f, --file <file>', 'Path to pipeline properties JSON file')
@@ -34,9 +35,7 @@ export function createPipeline(program: Command): void {
     .option('-a, --access <modifier>', 'Access modifier (public|private)', 'private')
     .option('--default', 'Set as default pipeline', false)
     .option('--active', 'Set pipeline as active', true)
-    .option('--no-active', 'Create the pipeline as inactive')
-    .option('--verify-ssl', 'Enable SSL certificate verification')
-    .option('--no-verify-ssl', 'Disable SSL certificate verification')
+    .option('--no-active', 'Create the pipeline as inactive'))
     .option('--dry-run', 'Validate inputs without creating pipeline', false)
     .action(async (options) => {
       const executionId = printCommandHeader('Create Pipeline', 'Creating Pipeline');

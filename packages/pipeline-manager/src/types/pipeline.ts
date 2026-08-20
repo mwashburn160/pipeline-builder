@@ -141,33 +141,3 @@ export interface CreatePipelineRequest {
 export interface PipelineResponse {
   pipeline: Pipeline;
 }
-
-/**
- * Paginated response returned by the pipeline list API endpoint.
- */
-export interface PipelineListResponse {
-  /**
-   * List of pipelines
-   */
-  pipelines: Pipeline[];
-
-  /**
-   * Total number of pipelines (for pagination)
-   */
-  total: number;
-
-  /**
-   * Current page number
-   */
-  page: number;
-
-  /**
-   * Number of items per page
-   */
-  limit: number;
-
-  /**
-   * Whether there are more pages
-   */
-  hasMore: boolean;
-}

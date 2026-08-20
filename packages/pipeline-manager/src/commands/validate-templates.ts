@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { Command } from 'commander';
 import YAML from 'yaml';
-import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync } from '../utils/command-utils.js';
+import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync, withSslOptions } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printError, printInfo, printSuccess, printWarning } from '../utils/output-utils.js';
 
@@ -25,14 +25,12 @@ interface ValidateOptions {
  *   pipeline-manager template validate --file ./plugin-spec.yaml
  */
 export function validateTemplatesCommand(program: Command): void {
-  program
+  withSslOptions(program
     .command('validate')
     .description('Parse and validate {{ ... }} templates in a pipeline or plugin spec')
     .option('--pipeline <id>', 'Validate the pipeline with this ID')
     .option('--plugin <name:version>', 'Validate the plugin with this name and version')
-    .option('--file <path>', 'Validate a local plugin-spec.yaml or pipeline.json file')
-    .option('--verify-ssl', 'Enable SSL certificate verification')
-    .option('--no-verify-ssl', 'Disable SSL certificate verification')
+    .option('--file <path>', 'Validate a local plugin-spec.yaml or pipeline.json file'))
     .action(async (options: ValidateOptions) => {
       const executionId = printCommandHeader('Validate Templates');
       try {

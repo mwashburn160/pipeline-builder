@@ -22,9 +22,7 @@ describe('cli constants', () => {
   describe('TIMEOUTS', () => {
     it('should have expected timeout values', () => {
       expect(TIMEOUTS.HTTP_REQUEST).toBe(30000);
-      expect(TIMEOUTS.CDK_COMMAND).toBe(0);
       expect(TIMEOUTS.HEALTH_CHECK).toBe(5000);
-      expect(TIMEOUTS.UPLOAD).toBe(300000);
     });
   });
 

@@ -3,7 +3,8 @@
 
 import { CloudFormationClient, DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
 import { Command } from 'commander';
-import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils.js';
+import { applyAwsProfile, resolveAwsRegion } from '../utils/aws-env.js';
+import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning, withProfileOption, withRegionOption, withSslOptions } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printError, printInfo, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 
@@ -59,24 +60,29 @@ const ACTIVE_STATUSES = [
  * ```
  */
 export function auditStacks(program: Command): void {
-  program
-    .command('stacks')
-    .description('Diff CloudFormation stacks vs pipeline_registry to find orphaned or missing CDK deployments')
-    .option('--region <region>', 'AWS region (defaults to AWS_REGION env)')
-    .option('--profile <profile>', 'AWS CLI profile', 'default')
-    .option('--org <orgId>', 'Filter both registry and stack scan to a single org')
-    .option('--json', 'Output results as JSON', false)
-    .option('--verify-ssl', 'Enable SSL certificate verification')
-    .option('--no-verify-ssl', 'Disable SSL certificate verification')
+  withSslOptions(
+    withProfileOption(
+      withRegionOption(program
+        .command('stacks')
+        .description('Diff CloudFormation stacks vs pipeline_registry to find orphaned or missing CDK deployments')),
+    )
+      .option('--org <orgId>', 'Filter both registry and stack scan to a single org')
+      .option('--json', 'Output results as JSON', false),
+  )
     .action(async (options) => {
-      const executionId = printCommandHeader('Audit Stacks');
+      const executionId = printCommandHeader('Audit Stacks', undefined, { quiet: options.json });
       printSslWarning(options.verifySsl);
 
-      const region = options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1';
+      const region = resolveAwsRegion(options.region);
+      // Honor --profile for the SDK CloudFormation client below (without this, the
+      // scan always hit the default account and could diff the registry against
+      // the WRONG account's stacks → bogus orphaned/missing findings).
+      applyAwsProfile(options.profile);
 
       try {
         // Fetch the platform's view of registered pipelines.
-        printInfo('Fetching pipeline registry from platform', { org: options.org ?? '(all)' });
+        // Progress goes to stdout, so suppress it in --json mode to keep the JSON payload clean for piping.
+        if (!options.json) printInfo('Fetching pipeline registry from platform', { org: options.org ?? '(all)' });
         const client = await createAuthenticatedClientAsync(options);
         const registryRes = await client.get<{ entries: RegistryEntry[] }>(
           `/api/pipelines/registry${options.org ? `?orgId=${encodeURIComponent(options.org)}` : ''}`,
@@ -89,7 +95,7 @@ export function auditStacks(program: Command): void {
         // active stack WITH its tags in one paginated sweep — avoiding the N+1
         // DescribeStacks-per-stack the old ListStacks path needed (ListStacks omits tags)
         // and the API throttling it caused on accounts with many stacks.
-        printInfo('Listing CloudFormation stacks', { region });
+        if (!options.json) printInfo('Listing CloudFormation stacks', { region });
         const cfn = new CloudFormationClient({ region });
         const stacks: StackInfo[] = [];
         const activeStatuses = new Set(ACTIVE_STATUSES);

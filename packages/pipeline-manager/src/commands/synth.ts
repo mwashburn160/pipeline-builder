@@ -7,7 +7,7 @@ import { Command } from 'commander';
 import { assertShellSafe } from '../config/cli.constants.js';
 import { auditLog } from '../utils/audit-log.js';
 import { executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
-import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils.js';
+import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning, withProfileOption, withRegionOption, withSslOptions } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import { fetchPipelineProps, printResolvedOrExit } from '../utils/pipeline-config.js';
@@ -60,23 +60,23 @@ async function fetchPipelineConfig(
  * ```
  */
 export function synth(program: Command): void {
-  program
-    .command('synth')
-    .description('Run CDK synthesis using pipeline configuration')
-    .option('-i, --id <id>', 'Pipeline ID (or set PIPELINE_ID env var)')
-    .option('--store-tokens', 'Authenticate using token from AWS Secrets Manager (requires PLATFORM_SECRET_NAME env var)', false)
-    .option('--output <dir>', 'CDK output directory', 'cdk.out')
-    .option('--profile <profile>', 'AWS profile')
-    .option('--region <region>', 'AWS region (for --store-tokens)')
-    .option('--quiet', 'Suppress CDK output', false)
-    .option('--no-notices', 'Suppress CDK notices')
-    .option('--verbose', 'Show verbose CDK output', false)
-    .option('--json', 'Output result as JSON', false)
-    .option('--verify-ssl', 'Enable SSL certificate verification')
-    .option('--no-verify-ssl', 'Disable SSL certificate verification')
+  withSslOptions(
+    withRegionOption(
+      withProfileOption(program
+        .command('synth')
+        .description('Run CDK synthesis using pipeline configuration')
+        .option('-i, --id <id>', 'Pipeline ID (or set PIPELINE_ID env var)')
+        .option('--store-tokens', 'Authenticate using token from AWS Secrets Manager (requires PLATFORM_SECRET_NAME env var)', false)
+        .option('--output <dir>', 'CDK output directory', 'cdk.out')),
+    )
+      .option('--quiet', 'Suppress CDK output', false)
+      .option('--no-notices', 'Suppress CDK notices')
+      .option('--verbose', 'Show verbose CDK output', false)
+      .option('--json', 'Output result as JSON', false),
+  )
     .option('--show-resolved', 'Print the resolved pipeline config (with {{ ... }} templates expanded) and exit without running CDK', false)
     .action(async (options) => {
-      const executionId = printCommandHeader('CDK Synthesis');
+      const executionId = printCommandHeader('CDK Synthesis', undefined, { quiet: options.json });
 
       try {
         const pipelineId = options.id || process.env.PIPELINE_ID;

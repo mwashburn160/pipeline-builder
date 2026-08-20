@@ -33,6 +33,7 @@ jest.unstable_mockModule('../src/utils/command-utils.js', () => ({
   printCommandHeader: () => 'EXEC-TEST',
   printSslWarning: jest.fn(),
   createAuthenticatedClientAsync: mockCreateAuthenticatedClientAsync,
+  withSslOptions: (cmd: unknown) => cmd,
 }));
 
 jest.unstable_mockModule('../src/utils/error-handler.js', () => ({

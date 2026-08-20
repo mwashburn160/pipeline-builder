@@ -7,7 +7,8 @@ import { createAuthenticatedClient, printCommandHeader, printSslWarning } from '
 import { type Config } from '../utils/config-loader.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { buildCommonFilters, type CommonFilterParams, displayListResults, displayPaginationInfo } from '../utils/list-command-utils.js';
-import { extractListResponse, outputData, printInfo, printKeyValue, printSection } from '../utils/output-utils.js';
+import { outputData, printInfo, printKeyValue, printSection } from '../utils/output-utils.js';
+import { extractListResponse } from '../utils/response-utils.js';
 
 /**
  * Per-entity configuration for {@link runListEntity}. Captures everything that

@@ -53,6 +53,15 @@ describe('printCommandHeader', () => {
     printCommandHeader('Deploy');
     expect(printSection).toHaveBeenCalledWith('Deploy');
   });
+
+  it('suppresses all decorative output when quiet (still returns the id) — keeps --json stdout clean', () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation();
+    const id = printCommandHeader('Status', undefined, { quiet: true });
+    expect(id).toBe('ABCD1234');
+    expect(printSection).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
+    logSpy.mockRestore();
+  });
 });
 
 describe('printSslWarning', () => {

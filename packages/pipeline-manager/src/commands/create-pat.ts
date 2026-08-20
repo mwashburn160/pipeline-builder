@@ -4,13 +4,14 @@
 import axios from 'axios';
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { generateExecutionId, TIMEOUTS } from '../config/cli.constants.js';
+import { TIMEOUTS } from '../config/cli.constants.js';
 import { assertCredentialTlsAllowed, credentialHttpsAgent, postLogin, resolveCredentials, switchOrganization } from '../utils/auth-utils.js';
+import { printCommandHeader, withSslOptions } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { printDebug, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { printDebug, printError, printInfo, printKeyValue, printSuccess, printWarning } from '../utils/output-utils.js';
 import { checkAuthRateLimit, recordAuthFailure, recordAuthSuccess } from '../utils/rate-limiter.js';
 
-const { bold, cyan, green, magenta, yellow } = pico;
+const { bold, green, yellow } = pico;
 
 /** Step-up response — a short-lived (60s) JWT bound to the user's sub. */
 interface StepUpResponse {
@@ -54,7 +55,7 @@ const MAX_EXPIRES_DAYS = 365;
  * ```
  */
 export function createPat(program: Command): void {
-  program
+  withSslOptions(program
     .command('pat')
     .description('Create a named Personal Access Token (long-lived CLI/automation credential)')
     .requiredOption('--name <name>', 'Human-readable token name (e.g. ci-deploy)')
@@ -63,13 +64,9 @@ export function createPat(program: Command): void {
     .option('-u, --identifier <identifier>', 'Username or email')
     .option('-p, --password <password>', 'Password (prefer PLATFORM_PASSWORD env)')
     .option('--org <orgId>', 'Bind the token to a specific organization (switches active org)')
-    .option('--url <url>', 'Platform base URL', process.env.PLATFORM_BASE_URL || 'https://localhost:8443')
-    .option('--verify-ssl', 'Enable SSL certificate verification')
-    .option('--no-verify-ssl', 'Disable SSL certificate verification')
+    .option('--url <url>', 'Platform base URL', process.env.PLATFORM_BASE_URL || 'https://localhost:8443'))
     .option('--quiet', 'Only print the export statement (useful for eval)')
     .action(async (options) => {
-      const executionId = generateExecutionId();
-
       // SECURITY: this POSTs a plaintext password (login + step-up). Never send it
       // over an unverified TLS connection in production — a MITM would harvest it.
       // Mirrors the guard in `login`. Non-production still honors --no-verify-ssl.
@@ -79,6 +76,11 @@ export function createPat(program: Command): void {
       // password need not appear in shell history / `ps`).
       const { identifier, password } = resolveCredentials(options);
       const quiet = options.quiet ?? false;
+      const executionId = printCommandHeader(
+        'Create Personal Access Token',
+        'Create Personal Access Token',
+        { quiet },
+      );
 
       try {
         // Validate name.
@@ -117,9 +119,6 @@ export function createPat(program: Command): void {
         }
 
         if (!quiet) {
-          printSection('Create Personal Access Token');
-          console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold('Create Personal Access Token'))}`);
-          console.log('');
           printInfo('Authenticating', { identifier, url: options.url, verifySsl: options.verifySsl });
         }
 

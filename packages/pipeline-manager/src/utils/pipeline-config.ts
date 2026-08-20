@@ -8,7 +8,8 @@
  */
 
 import type { ApiClient } from './api-client.js';
-import { extractSingleResponse, printInfo } from './output-utils.js';
+import { printInfo } from './output-utils.js';
+import { extractSingleResponse } from './response-utils.js';
 import { resolvePluginsForProps } from './plugin-resolver.js';
 import { bakePlatformRegistry } from './registry.js';
 import type { Pipeline } from '../types/pipeline.js';

@@ -9,9 +9,10 @@ import ora from 'ora';
 import pico from 'picocolors';
 import { FILE_SIZE_LIMITS, formatFileSize } from '../config/cli.constants.js';
 import { type Plugin, type PluginResponse } from '../types/index.js';
-import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils.js';
+import { printCommandHeader, printSslWarning, createAuthenticatedClient, withSslOptions } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError, ValidationError } from '../utils/error-handler.js';
-import { extractSingleResponse, fileExists, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { fileExists, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { extractSingleResponse } from '../utils/response-utils.js';
 
 const { bold, green } = pico;
 
@@ -34,7 +35,7 @@ const { bold, green } = pico;
  * ```
  */
 export function uploadPlugin(program: Command): void {
-  program
+  withSslOptions(program
     .command('upload')
     .description('Upload and deploy a plugin package')
     .requiredOption('-f, --file <file>', 'Path to plugin ZIP file')
@@ -43,9 +44,7 @@ export function uploadPlugin(program: Command): void {
     .option('-v, --version <version>', 'Plugin version (optional, extracted from package if not provided)')
     .option('--public', 'Make plugin publicly accessible', false)
     .option('--active', 'Set plugin as active', true)
-    .option('--no-active', 'Upload the plugin as inactive')
-    .option('--verify-ssl', 'Enable SSL certificate verification')
-    .option('--no-verify-ssl', 'Disable SSL certificate verification')
+    .option('--no-active', 'Upload the plugin as inactive'))
     .option('--dry-run', 'Validate file without uploading', false)
     .action(async (options) => {
       const executionId = printCommandHeader('Upload Plugin');

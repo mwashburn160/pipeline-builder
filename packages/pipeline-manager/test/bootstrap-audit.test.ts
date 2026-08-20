@@ -56,7 +56,10 @@ describe('bootstrap audit-log (account-id persistence prevention)', () => {
     bootstrap(program);
 
     await program.parseAsync(
-      ['bootstrap', '--account', ACCOUNT_ID, '--region', 'us-east-1'],
+      // --profile has no built-in default anymore (it uses withProfileOption, which
+      // pins none so the standard AWS credential chain works), so pass it explicitly
+      // to exercise the "safe metadata is still recorded" assertion below.
+      ['bootstrap', '--account', ACCOUNT_ID, '--region', 'us-east-1', '--profile', 'default'],
       { from: 'user' },
     );
 

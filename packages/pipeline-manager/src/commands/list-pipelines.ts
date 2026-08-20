@@ -5,6 +5,7 @@ import { Command } from 'commander';
 import { runListEntity } from './entity-list.js';
 import { validateBoolean } from '../config/cli.constants.js';
 import { type Pipeline } from '../types/index.js';
+import { withSslOptions } from '../utils/command-utils.js';
 import { type CommonFilterParams } from '../utils/list-command-utils.js';
 
 /**
@@ -39,7 +40,7 @@ interface PipelineFilterParams extends CommonFilterParams {
  * ```
  */
 export function listPipelines(program: Command): void {
-  program
+  withSslOptions(program
     .command('list')
     .description('Query pipelines with comprehensive filters')
 
@@ -48,8 +49,8 @@ export function listPipelines(program: Command): void {
     .option('--access-modifier <modifier>', 'Filter by access modifier (public/private)')
     .option('--is-default <boolean>', 'Filter by default status (true/false)')
     .option('--is-active <boolean>', 'Filter by active status (true/false)')
-    .option('--limit <number>', 'Maximum number of results (1-1000)', parseInt, 50)
-    .option('--offset <number>', 'Number of results to skip', parseInt, 0)
+    .option('--limit <number>', 'Maximum number of results (1-1000)', (v) => parseInt(v, 10), 50)
+    .option('--offset <number>', 'Number of results to skip', (v) => parseInt(v, 10), 0)
     .option('--sort <sort>', 'Sort format: field:direction (e.g., pipelineName:asc, createdAt:desc)')
 
     // Pipeline-specific filter options
@@ -60,9 +61,7 @@ export function listPipelines(program: Command): void {
     // Output options
     .option('-f, --format <format>', 'Output format (json, yaml, table, csv)', 'table')
     .option('-o, --output <file>', 'Save output to file')
-    .option('--show-props', 'Include pipeline properties in output (json/yaml only)', false)
-    .option('--verify-ssl', 'Enable SSL certificate verification')
-    .option('--no-verify-ssl', 'Disable SSL certificate verification')
+    .option('--show-props', 'Include pipeline properties in output (json/yaml only)', false))
 
     .action((options) => runListEntity<Pipeline, PipelineFilterParams>(program, options, {
       labelPlural: 'Pipelines',

@@ -3,7 +3,7 @@
 
 import { describe, it, expect, jest } from '@jest/globals';
 
-import { extractListResponse } from '../src/utils/output-utils.js';
+import { extractListResponse } from '../src/utils/response-utils.js';
 
 // Tests
 

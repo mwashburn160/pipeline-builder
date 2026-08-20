@@ -11,8 +11,9 @@ import { Command } from 'commander';
 import { APP_VERSION, validateNumber } from '../config/cli.constants.js';
 import { auditLog } from '../utils/audit-log.js';
 import { decodeTokenPayload } from '../utils/auth-guard.js';
+import { resolveAwsRegion } from '../utils/aws-env.js';
 import { upsertSecret, getSecretArn } from '../utils/aws-secrets.js';
-import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils.js';
+import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning, withProfileOption, withRegionOption, withSslOptions } from '../utils/command-utils.js';
 import { toEventBridgeCron } from '../utils/cron.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
@@ -123,28 +124,28 @@ async function deployRenewSchedule(opts: {
  * ```
  */
 export function storeToken(program: Command): void {
-  program
-    .command('store-token')
-    .description('Generate JWT token and store in AWS Secrets Manager for CDK deployments')
-    .option('-e, --email <email>', 'Login email (skips PLATFORM_TOKEN requirement)')
-    .option('-p, --password <password>', 'Login password (used with --email)')
-    .option('--days <days>', 'Token lifetime in days', '30')
-    .option('--scope <scope>', 'Mint a narrow-scope machine token (e.g. "reporting:ingest") and store it at a scope-specific secret path instead of the shared platform secret')
-    .option('--dry-run', 'Show what would be stored without writing to Secrets Manager', false)
-    .option('--region <region>', 'AWS region (default: us-east-1, or AWS_REGION env)')
-    .option('--profile <profile>', 'AWS CLI profile', 'default')
-    .option('--schedule', 'Also deploy the daily token-renewal stack that auto-renews this token (off by default)', false)
-    .option('--cron <expr>', 'Renewal schedule as a 5-field cron, used with --schedule (default: TOKEN_RENEW_SCHEDULE env or "0 0 * * *"; min every 15 minutes)')
-    .option('--json', 'Output result as JSON', false)
-    .option('--verify-ssl', 'Enable SSL certificate verification')
-    .option('--no-verify-ssl', 'Disable SSL certificate verification')
+  withSslOptions(
+    withProfileOption(
+      withRegionOption(program
+        .command('store-token')
+        .description('Generate JWT token and store in AWS Secrets Manager for CDK deployments')
+        .option('-e, --email <email>', 'Login email (skips PLATFORM_TOKEN requirement)')
+        .option('-p, --password <password>', 'Login password (used with --email)')
+        .option('--days <days>', 'Token lifetime in days', '30')
+        .option('--scope <scope>', 'Mint a narrow-scope machine token (e.g. "reporting:ingest") and store it at a scope-specific secret path instead of the shared platform secret')
+        .option('--dry-run', 'Show what would be stored without writing to Secrets Manager', false)),
+    )
+      .option('--schedule', 'Also deploy the daily token-renewal stack that auto-renews this token (off by default)', false)
+      .option('--cron <expr>', 'Renewal schedule as a 5-field cron, used with --schedule (default: TOKEN_RENEW_SCHEDULE env or "0 0 * * *"; min every 15 minutes)')
+      .option('--json', 'Output result as JSON', false),
+  )
     .action(async (options) => {
-      const executionId = printCommandHeader('Store Token');
+      const executionId = printCommandHeader('Store Token', undefined, { quiet: options.json });
 
       try {
         printSslWarning(options.verifySsl);
 
-        const region = options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1';
+        const region = resolveAwsRegion(options.region);
 
         const days = validateNumber(options.days, 'days', 1, 365);
         const expiresInSeconds = days * 24 * 60 * 60;

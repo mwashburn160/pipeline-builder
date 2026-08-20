@@ -41,6 +41,8 @@ describe('assertScheduleInterval — 15-minute guard', () => {
     '*/14 * * * *', // every 14 minutes
     '0,10 * * * *', // 10-minute gap
     '0,50 * * * *', // 50 then 10 (cyclic) → 10-minute gap
+    '0/5 * * * *', // n/step form: fires every 5 min — must NOT bypass the guard
+    '5/10 * * * *', // 5,15,25,… → 10-minute gap
   ])('rejects sub-15-minute schedule: %s', (expr) => {
     expect(() => assertScheduleInterval(expr)).toThrow(/minimum is 15/);
   });
@@ -52,6 +54,7 @@ describe('assertScheduleInterval — 15-minute guard', () => {
     '0 * * * *', // hourly
     '0,30 * * * *', // 30-minute gap
     '0,45 * * * *', // gaps 45 and 15 → ok
+    '0/20 * * * *', // n/step form: 0,20,40 → 20-minute gap, allowed
   ])('allows >=15-minute schedule: %s', (expr) => {
     expect(() => assertScheduleInterval(expr)).not.toThrow();
   });

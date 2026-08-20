@@ -196,7 +196,11 @@ export async function runDeployWithRetry(
   aiOpts: { provider?: string; model?: string },
   opts: { retries?: string; yes?: boolean },
 ): Promise<{ succeeded: boolean; runParams: Record<string, unknown> }> {
-  const maxAttempts = 1 + Math.max(0, parseInt(opts.retries ?? '', 10) || 0);
+  // Bound retries so an unattended `--yes` run can't auto-re-run a 15–30 min
+  // deploy an unbounded number of times on a persistently-retryable signature.
+  const MAX_RETRIES = 5;
+  const requestedRetries = Math.max(0, parseInt(opts.retries ?? '', 10) || 0);
+  const maxAttempts = 1 + Math.min(requestedRetries, MAX_RETRIES);
   let runParams: Record<string, unknown> = params;
   let succeeded = false;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {

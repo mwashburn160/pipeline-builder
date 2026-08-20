@@ -68,7 +68,10 @@ export async function ensurePlatformToken(options: PlatformSecretOptions): Promi
   const rejectUnauthorized = options.verifySsl === false ? false : apiConfig.api.rejectUnauthorized;
   const loginResponse = await axios.post(
     `${apiConfig.api.baseUrl}/api/auth/login`,
-    { email: loginEmail, password: loginPassword },
+    // The server's loginSchema requires `identifier` (email OR username), not
+    // `email` — sending `email` fails zod validation with a 400. Mirror the
+    // canonical `postLogin` body.
+    { identifier: loginEmail, password: loginPassword },
     {
       httpsAgent: rejectUnauthorized === false
         ? new (await import('https')).Agent({ rejectUnauthorized: false })

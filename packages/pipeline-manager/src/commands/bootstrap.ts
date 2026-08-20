@@ -6,7 +6,7 @@ import pico from 'picocolors';
 import { ENV_VARS, assertShellSafe } from '../config/cli.constants.js';
 import { auditLog } from '../utils/audit-log.js';
 import { executeCdkShellCommand } from '../utils/cdk-utils.js';
-import { printCommandHeader } from '../utils/command-utils.js';
+import { printCommandHeader, withProfileOption, withRegionOption } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printError, printInfo, printKeyValue, printSection } from '../utils/output-utils.js';
 
@@ -42,9 +42,14 @@ export function buildBootstrapCommand(options: {
   trust?: string;
   cloudformationExecutionPolicies?: string;
 }): string {
+  // Every value below is interpolated into a string run via `execSync` (a shell),
+  // so validate ALL operator-supplied inputs — not just account/region/profile.
   assertShellSafe(options.account, 'account');
   assertShellSafe(options.region, 'region');
   if (options.profile) assertShellSafe(options.profile, 'profile');
+  if (options.qualifier) assertShellSafe(options.qualifier, 'qualifier');
+  if (options.trust) assertShellSafe(options.trust, 'trust');
+  if (options.cloudformationExecutionPolicies) assertShellSafe(options.cloudformationExecutionPolicies, 'cloudformation-execution-policies');
 
   const parts: string[] = [
     'cdk',
@@ -80,18 +85,18 @@ export function buildBootstrapCommand(options: {
  * @param program - The root Commander program instance to attach the command to.
  */
 export function bootstrap(program: Command): void {
-  program
-    .command('bootstrap')
-    .description('Bootstrap AWS CDK toolkit stack in target account/region')
-    .option('--account <id>', 'AWS account ID (defaults to AWS_ACCOUNT_ID or CDK_DEFAULT_ACCOUNT env)')
-    .option('--region <region>', 'AWS region (defaults to AWS_REGION or CDK_DEFAULT_REGION env)')
-    .option('--profile <profile>', 'AWS CLI profile', 'default')
+  withProfileOption(
+    withRegionOption(program
+      .command('bootstrap')
+      .description('Bootstrap AWS CDK toolkit stack in target account/region')
+      .option('--account <id>', 'AWS account ID (defaults to AWS_ACCOUNT_ID or CDK_DEFAULT_ACCOUNT env)')),
+  )
     .option('--qualifier <qualifier>', 'Bootstrap qualifier for environment isolation')
     .option('--trust <accounts>', 'Comma-separated account IDs to trust for cross-account deployments')
     .option('--cloudformation-execution-policies <arns>', 'IAM policy ARNs for CloudFormation execution role')
     .option('--json', 'Output result as JSON', false)
     .action(async (options) => {
-      const executionId = printCommandHeader('CDK Bootstrap');
+      const executionId = printCommandHeader('CDK Bootstrap', undefined, { quiet: options.json });
 
       try {
         // Never persist the AWS account id to the on-disk audit log (~/.pipeline-manager/audit.log).

@@ -158,7 +158,8 @@ function registerCommands(): void {
     .option('--quiet', 'Minimal output (errors only)', false)
     .option('--no-color', 'Disable colored output', false)
     .addHelpText('after', `
-Command groups  auth      Authenticate and manage credentials (login, pat)
+Command groups:
+  auth      Authenticate and manage credentials (login, pat)
   pipeline  Create, inspect, and deploy pipelines (create, list, get, register, synth, deploy)
   plugin    Author, validate, and publish plugins (new, validate, upload, get, list)
   template  Validate {{ ... }} templates (validate)
@@ -167,13 +168,15 @@ Command groups  auth      Authenticate and manage credentials (login, pat)
   org       Organization data operations (export)
   status / version / completions
 
-Environment Variables  ${ENV_VARS.PLATFORM_TOKEN} Authentication token (required)
+Environment Variables:
+  ${ENV_VARS.PLATFORM_TOKEN} Authentication token (required)
   ${ENV_VARS.PLATFORM_BASE_URL} API base URL (optional)
   ${ENV_VARS.CLI_CONFIG_PATH} Config file path (optional)
   ${ENV_VARS.TLS_REJECT_UNAUTHORIZED} Disable SSL verification if '0'
   ${ENV_VARS.DEBUG} Enable debug mode if 'true'
 
-Examples  $ ${APP_NAME} version
+Examples:
+  $ ${APP_NAME} version
   $ ${APP_NAME} auth login -u me@example.com
   $ ${APP_NAME} pipeline list --project my-app
   $ ${APP_NAME} pipeline get --id pipe-123 --format json

@@ -3,9 +3,10 @@
 
 import { Command } from 'commander';
 import { type Pipeline, type PipelineResponse } from '../types/index.js';
-import { createAuthenticatedClient, printCommandHeader, printSslWarning } from '../utils/command-utils.js';
+import { createAuthenticatedClient, printCommandHeader, printSslWarning, withRegionOption, withSslOptions } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { extractSingleResponse } from '../utils/response-utils.js';
 import {
   buildRegistryPayload,
   clearPendingIntent,
@@ -50,14 +51,11 @@ import {
  * ```
  */
 export function register(program: Command): void {
-  program
+  withSslOptions(withRegionOption(program
     .command('register')
     .description('Register a deployed pipeline ARN with the platform (retry path for failed registrations)')
-    .option('-i, --id <id>', 'Pipeline ID to register (re-derives ARN from STS)')
-    .option('--region <region>', 'AWS region (defaults to AWS_REGION env)')
-    .option('--no-drain', 'Skip draining pending intents from prior failed deploys')
-    .option('--verify-ssl', 'Enable SSL certificate verification')
-    .option('--no-verify-ssl', 'Disable SSL certificate verification')
+    .option('-i, --id <id>', 'Pipeline ID to register (re-derives ARN from STS)'))
+    .option('--no-drain', 'Skip draining pending intents from prior failed deploys'))
     .action(async (options) => {
       const executionId = printCommandHeader('Register Pipeline');
       printSslWarning(options.verifySsl);

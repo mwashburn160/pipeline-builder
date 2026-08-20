@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { createAuthenticatedClient, printCommandHeader, printExecutionSummary, printSslWarning, validateEntityId } from '../utils/command-utils.js';
+import { createAuthenticatedClient, printCommandHeader, printExecutionSummary, printSslWarning, validateEntityId, withSslOptions } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
 
@@ -34,13 +34,11 @@ const { bold, green } = pico;
  * ```
  */
 export function orgExport(program: Command): void {
-  program
+  withSslOptions(program
     .command('export')
     .description('Export an organization\'s data as JSON (GDPR portability, ).')
     .requiredOption('-i, --id <id>', 'Organization ID to export')
-    .option('-o, --output <file>', 'Output file path (default: org-<id>-export.json in CWD)')
-    .option('--verify-ssl', 'Enable SSL certificate verification')
-    .option('--no-verify-ssl', 'Disable SSL certificate verification')
+    .option('-o, --output <file>', 'Output file path (default: org-<id>-export.json in CWD)'))
     .action(async (options) => {
       const executionId = printCommandHeader('Org Export');
 

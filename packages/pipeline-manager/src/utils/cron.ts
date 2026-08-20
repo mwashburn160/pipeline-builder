@@ -39,7 +39,11 @@ function expandMinuteField(field: string): number[] {
       lo = parseInt(ends[0] ?? '', 10);
       hi = parseInt(ends[1] ?? '', 10);
     } else {
-      lo = hi = parseInt(rangePart, 10);
+      lo = parseInt(rangePart, 10);
+      // With a step (`n/step`), cron's implicit range runs to the end of the field,
+      // so `0/5` fires at 0,5,…,55 — expand to [n, 59] so the interval guard sees
+      // the true spacing. Without a step, a bare number is a single minute.
+      hi = stepPart !== undefined ? 59 : lo;
     }
     if (!Number.isInteger(lo) || !Number.isInteger(hi) || lo < 0 || hi > 59 || lo > hi) {
       throw new Error(`Invalid minute field: "${part}"`);

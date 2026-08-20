@@ -4,8 +4,9 @@
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Command } from 'commander';
 import { decodeTokenPayload } from '../utils/auth-guard.js';
+import { resolveAwsRegion } from '../utils/aws-env.js';
 import { getSecretValue, listSecrets } from '../utils/aws-secrets.js';
-import { printCommandHeader } from '../utils/command-utils.js';
+import { printCommandHeader, withProfileOption, withRegionOption } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printError, printInfo, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 
@@ -36,17 +37,17 @@ interface TokenAuditEntry {
  * ```
  */
 export function auditTokens(program: Command): void {
-  program
-    .command('tokens')
-    .description('Scan stored platform tokens in AWS Secrets Manager and report upcoming expirations')
-    .option('--region <region>', 'AWS region (defaults to AWS_REGION env)')
-    .option('--profile <profile>', 'AWS CLI profile', 'default')
+  withProfileOption(
+    withRegionOption(program
+      .command('tokens')
+      .description('Scan stored platform tokens in AWS Secrets Manager and report upcoming expirations')),
+  )
     .option('--warn-days <days>', 'Flag tokens expiring within N days as at-risk', '7')
     .option('--prefix <prefix>', 'Secrets Manager name prefix to scan', `${CoreConstants.SECRETS_PATH_PREFIX}/`)
     .option('--json', 'Output results as JSON', false)
     .action(async (options) => {
-      const executionId = printCommandHeader('Audit Tokens');
-      const region = options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1';
+      const executionId = printCommandHeader('Audit Tokens', undefined, { quiet: options.json });
+      const region = resolveAwsRegion(options.region);
       const warnDays = parseInt(options.warnDays, 10);
       if (!Number.isFinite(warnDays) || warnDays < 0) {
         printError('Invalid --warn-days value', { provided: options.warnDays });
@@ -54,7 +55,8 @@ export function auditTokens(program: Command): void {
       }
 
       try {
-        printInfo('Listing secrets', { region, prefix: options.prefix });
+        // Progress goes to stdout, so suppress it in --json mode to keep the JSON payload clean for piping.
+        if (!options.json) printInfo('Listing secrets', { region, prefix: options.prefix });
         const { secrets, truncated } = await listSecrets(options.prefix, { region, profile: options.profile });
         if (truncated) {
           // A truncated sweep means an expiring token past the cap could be missed —

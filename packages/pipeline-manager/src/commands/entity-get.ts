@@ -7,7 +7,8 @@ import { type OutputFormat } from '../config/cli.constants.js';
 import { ApiClient } from '../utils/api-client.js';
 import { createAuthenticatedClient, printCommandHeader, printExecutionSummary, printSslWarning, validateEntityId } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { extractSingleResponse, outputData, printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
+import { outputData, printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
+import { extractSingleResponse } from '../utils/response-utils.js';
 
 const { dim } = pico;
 

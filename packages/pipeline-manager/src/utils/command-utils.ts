@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { type Command } from 'commander';
 import pico from 'picocolors';
 import { ApiClient } from './api-client.js';
 import { getSecretValue } from './aws-secrets.js';
@@ -13,13 +14,42 @@ const { bold, cyan, green, magenta } = pico;
 /**
  * Print command header with section title and execution ID.
  * Returns the execution ID for use in error handlers and summaries.
+ *
+ * Pass `{ quiet: true }` to suppress the decorative output while still getting the
+ * id — used both by `--quiet` callers and by `--json` commands (so the banner
+ * doesn't land on stdout ahead of the JSON payload and break `… --json | jq`).
  */
-export function printCommandHeader(title: string, subtitle?: string): string {
+export function printCommandHeader(title: string, subtitle?: string, opts?: { quiet?: boolean }): string {
   const executionId = generateExecutionId();
-  printSection(title);
-  console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold(subtitle || title))}`);
-  console.log('');
+  if (!opts?.quiet) {
+    printSection(title);
+    console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold(subtitle || title))}`);
+    console.log('');
+  }
   return executionId;
+}
+
+/** Attach the standard `--verify-ssl` / `--no-verify-ssl` pair. The two together
+ *  give Commander an explicit tri-state `options.verifySsl` (true/false/undefined).
+ *  Returns the command so it composes: `withSslOptions(program.command('x'))…`. */
+export function withSslOptions<T extends Command>(cmd: T): T {
+  return cmd
+    .option('--verify-ssl', 'Enable SSL certificate verification')
+    .option('--no-verify-ssl', 'Disable SSL certificate verification') as T;
+}
+
+/** Attach the standard `--region <region>` option (one canonical description).
+ *  Region resolution (flag → AWS_REGION → CDK_DEFAULT_REGION → us-east-1) lives in
+ *  aws-env.resolveAwsRegion. */
+export function withRegionOption<T extends Command>(cmd: T): T {
+  return cmd.option('--region <region>', 'AWS region (defaults to AWS_REGION / CDK_DEFAULT_REGION / us-east-1)') as T;
+}
+
+/** Attach the standard `--profile <profile>` option (one canonical description).
+ *  No default is pinned so the AWS default credential chain (env vars, SSO, roles)
+ *  works out of the box; --profile only selects a shared profile when set. */
+export function withProfileOption<T extends Command>(cmd: T): T {
+  return cmd.option('--profile <profile>', 'AWS CLI profile (defaults to the standard AWS credential chain)') as T;
 }
 
 /**

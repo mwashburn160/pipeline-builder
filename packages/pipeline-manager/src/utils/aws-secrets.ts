@@ -10,7 +10,8 @@ import {
   GetSecretValueCommand,
   ListSecretsCommand,
 } from '@aws-sdk/client-secrets-manager';
-import { printInfo, printSuccess, printWarning } from './output-utils.js';
+import { applyAwsProfile, resolveAwsRegion } from './aws-env.js';
+import { printInfo, printSuccess } from './output-utils.js';
 
 /**
  * Options for Secrets Manager operations.
@@ -21,27 +22,11 @@ export interface SecretsOptions {
 }
 
 function createClient(options: SecretsOptions): SecretsManagerClient {
-  // Leave `credentials` unset so the SDK's standard provider chain resolves them:
-  // environment variables (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY /
-  // AWS_SESSION_TOKEN) take precedence when set, otherwise the shared
-  // ~/.aws/config + ~/.aws/credentials files (honoring AWS_PROFILE). An explicit
-  // --profile selects which shared profile to read — but only when env-var creds
-  // and an inherited AWS_PROFILE aren't already present, so env vars always win
-  // and we never clobber the caller's environment. Region resolves the same way
-  // (flag → AWS_REGION / CDK_DEFAULT_REGION).
-  if (options.profile && !process.env.AWS_ACCESS_KEY_ID && !process.env.AWS_PROFILE) {
-    process.env.AWS_PROFILE = options.profile;
-  } else if (options.profile && options.profile !== 'default') {
-    // The flag was set to a non-default profile but ambient env creds win — surface
-    // it so an explicit --profile that silently has no effect isn't a surprise.
-    printWarning(
-      `--profile ${options.profile} ignored: existing AWS credentials in the environment ` +
-      `(${process.env.AWS_ACCESS_KEY_ID ? 'AWS_ACCESS_KEY_ID' : 'AWS_PROFILE'}) take precedence.`,
-    );
-  }
-  return new SecretsManagerClient({
-    region: options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1',
-  });
+  // Leave `credentials` unset so the SDK's standard provider chain resolves them
+  // (env vars win, else the shared profile). See applyAwsProfile for the exact
+  // --profile precedence, and resolveAwsRegion for the region fallback.
+  applyAwsProfile(options.profile);
+  return new SecretsManagerClient({ region: resolveAwsRegion(options.region) });
 }
 
 /**

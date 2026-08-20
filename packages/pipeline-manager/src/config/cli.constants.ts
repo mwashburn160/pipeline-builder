@@ -37,9 +37,7 @@ export type OutputFormat = 'table' | 'json' | 'yaml' | 'csv';
  */
 export const TIMEOUTS = {
   HTTP_REQUEST: 30000,
-  CDK_COMMAND: 0,
   HEALTH_CHECK: 5000,
-  UPLOAD: 300000,
 } as const;
 
 /**
@@ -58,7 +56,6 @@ export const ENV_VARS = {
   PLATFORM_BASE_URL: 'PLATFORM_BASE_URL',
   CLI_CONFIG_PATH: 'CLI_CONFIG_PATH',
   TLS_REJECT_UNAUTHORIZED: 'TLS_REJECT_UNAUTHORIZED',
-  AWS_PROFILE: 'AWS_PROFILE',
   AWS_REGION: 'AWS_REGION',
   DEBUG: 'DEBUG',
 } as const;

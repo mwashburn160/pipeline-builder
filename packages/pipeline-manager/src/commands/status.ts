@@ -25,7 +25,7 @@ export function status(program: Command): void {
     .description('Show environment and connectivity status')
     .option('--json', 'Output result as JSON', false)
     .action(async (options) => {
-      const executionId = printCommandHeader('Status');
+      const executionId = printCommandHeader('Status', undefined, { quiet: options.json });
 
       try {
         const results: Record<string, string> = {};

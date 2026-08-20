@@ -4,13 +4,14 @@
 import axios from 'axios';
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { generateExecutionId, TIMEOUTS } from '../config/cli.constants.js';
+import { TIMEOUTS } from '../config/cli.constants.js';
 import { assertCredentialTlsAllowed, type AuthResponse, credentialHttpsAgent, postLogin, resolveCredentials, switchOrganization } from '../utils/auth-utils.js';
+import { printCommandHeader, withSslOptions } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { printDebug, printError, printInfo, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { printDebug, printError, printInfo, printSuccess, printWarning } from '../utils/output-utils.js';
 import { checkAuthRateLimit, recordAuthFailure, recordAuthSuccess } from '../utils/rate-limiter.js';
 
-const { bold, cyan, green, magenta } = pico;
+const { green } = pico;
 
 /**
  * Registers the `login` command with the CLI program.
@@ -31,20 +32,23 @@ const { bold, cyan, green, magenta } = pico;
  * ```
  */
 export function login(program: Command): void {
-  program
+  withSslOptions(program
     .command('login')
     .description('Authenticate with the platform and obtain a PLATFORM_TOKEN')
     .option('-u, --identifier <identifier>', 'Username or email')
     .option('-p, --password <password>', 'Password')
     .option('--refresh <refreshToken>', 'Use a refresh token instead of login credentials')
     .option('--org <orgId>', 'Switch to a specific organization after login')
-    .option('--url <url>', 'Platform base URL', process.env.PLATFORM_BASE_URL || 'https://localhost:8443')
-    .option('--verify-ssl', 'Enable SSL certificate verification')
-    .option('--no-verify-ssl', 'Disable SSL certificate verification')
+    .option('--url <url>', 'Platform base URL', process.env.PLATFORM_BASE_URL || 'https://localhost:8443'))
     .option('--quiet', 'Only print the export statement (useful for eval)')
     .action(async (options) => {
-      const executionId = generateExecutionId();
       const isRefresh = !!options.refresh;
+      const quiet = options.quiet ?? false;
+      const executionId = printCommandHeader(
+        isRefresh ? 'Token Refresh' : 'Login',
+        isRefresh ? 'Token Refresh' : 'Platform Authentication',
+        { quiet },
+      );
 
       // SECURITY: login/refresh POST plaintext passwords and JWTs. Never send them
       // over an unverified TLS connection in production — a MITM would harvest them.
@@ -55,6 +59,7 @@ export function login(program: Command): void {
       // env vars (so the password need not appear in shell history / `ps`).
       const { identifier, password } = resolveCredentials(options);
 
+      let loginSucceeded = false;
       try {
 
         // Validate required options
@@ -75,12 +80,7 @@ export function login(program: Command): void {
           }
         }
 
-        const quiet = options.quiet ?? false;
-
         if (!quiet) {
-          printSection(isRefresh ? 'Token Refresh' : 'Login');
-          console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold(isRefresh ? 'Token Refresh' : 'Platform Authentication'))}`);
-          console.log('');
           printInfo(isRefresh ? 'Refreshing access token' : 'Authenticating', {
             ...(identifier ? { identifier } : {}),
             url: options.url,
@@ -125,6 +125,10 @@ export function login(program: Command): void {
         }
 
         if (!isRefresh) recordAuthSuccess(identifier, options.url);
+        // Past this point authentication has already succeeded — a later failure
+        // (e.g. the --org switch below) must NOT be recorded as an auth failure,
+        // or a valid-credential user would accrue toward brute-force lockout.
+        loginSucceeded = true;
 
         // Switch to a specific organization if --org is provided
         if (options.org) {
@@ -164,7 +168,9 @@ export function login(program: Command): void {
         // Key the failure to (identifier, url) like the check/success/no-token
         // paths — a bad-password 401 throws to here, so keying it to the shared
         // default bucket meant brute-force attempts never accrued toward lockout.
-        if (!isRefresh) recordAuthFailure(identifier, options.url);
+        // Skip when login already succeeded (a failed post-login --org switch is
+        // not an authentication failure).
+        if (!isRefresh && !loginSucceeded) recordAuthFailure(identifier, options.url);
         // Provide a clear failure message for auth errors
         if (axios.isAxiosError(error)) {
           const status = error.response?.status;

@@ -9,7 +9,8 @@ import path from 'path';
 import { CloudFormationClient, DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
 import { LambdaClient, UpdateFunctionCodeCommand } from '@aws-sdk/client-lambda';
 import { Command } from 'commander';
-import { printCommandHeader } from '../utils/command-utils.js';
+import { applyAwsProfile, resolveAwsRegion } from '../utils/aws-env.js';
+import { printCommandHeader, withProfileOption, withRegionOption } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
 import { resolvePlatformSecretName } from '../utils/platform-secret.js';
@@ -35,20 +36,25 @@ const PACKAGE_NAME = '@pipeline-builder/pipeline-events';
  * Idempotent — running again updates the stack and code.
  */
 export function setupEvents(program: Command): void {
-  program
-    .command('setup-events')
-    .description('Deploy EventBridge event ingestion infrastructure for pipeline reporting')
-    .option('--package-version <version>', 'pipeline-events package version (default: latest)')
-    .option('-e, --email <email>', 'Login email to mint a token when PLATFORM_TOKEN is unset (for deriving the secret name)')
-    .option('-p, --password <password>', 'Login password (used with --email)')
-    .option('--region <region>', 'AWS region (default: us-east-1, or AWS_REGION env)')
-    .option('--profile <profile>', 'AWS CLI profile', 'default')
+  withProfileOption(
+    withRegionOption(program
+      .command('setup-events')
+      .description('Deploy EventBridge event ingestion infrastructure for pipeline reporting')
+      .option('--package-version <version>', 'pipeline-events package version (default: latest)')
+      .option('-e, --email <email>', 'Login email to mint a token when PLATFORM_TOKEN is unset (for deriving the secret name)')
+      .option('-p, --password <password>', 'Login password (used with --email)')),
+  )
     .option('--scoped-ingest', 'Point the ingestion Lambda at the dedicated least-privilege reporting-ingest secret (provision it first: `store-token --scope reporting:ingest --schedule`). The reporting service always requires the `reporting:ingest` scope on POST /reports/events.')
     .action(async (options) => {
       const executionId = printCommandHeader('Setup Event Ingestion');
 
       try {
-        const region = options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1';
+        const region = resolveAwsRegion(options.region);
+        // Honor --profile for the SDK Lambda/CloudFormation clients below. The
+        // `cloudformation deploy` CLI call already gets --profile; without this the
+        // SDK clients hit the DEFAULT account → deploy and code-update/outputs
+        // target different accounts (silent split-brain).
+        applyAwsProfile(options.profile);
 
         const platformUrl = process.env.PLATFORM_BASE_URL;
         if (!platformUrl) {

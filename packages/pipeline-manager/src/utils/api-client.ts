@@ -85,7 +85,7 @@ export class ApiClient {
       printDebug('API error response body', { data });
 
       let message = `API request failed with status ${status}`;
-      if (data && typeof data === 'object' && 'message' in data) {
+      if (data && typeof data === 'object' && 'message' in data && typeof (data as { message: unknown }).message === 'string') {
         message = (data as { message: string }).message;
       }
 

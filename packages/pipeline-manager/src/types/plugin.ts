@@ -162,33 +162,3 @@ export interface Plugin extends PluginBase {
 export interface PluginResponse {
   plugin: Plugin;
 }
-
-/**
- * Paginated response returned by the plugin list API endpoint.
- */
-export interface PluginListResponse {
-  /**
-   * List of plugins
-   */
-  plugins: Plugin[];
-
-  /**
-   * Total number of plugins (for pagination)
-   */
-  total: number;
-
-  /**
-   * Current page number
-   */
-  page: number;
-
-  /**
-   * Number of items per page
-   */
-  limit: number;
-
-  /**
-   * Whether there are more pages
-   */
-  hasMore: boolean;
-}

@@ -5,6 +5,7 @@ import { Command } from 'commander';
 import pico from 'picocolors';
 import { runGetEntity } from './entity-get.js';
 import { formatFileSize } from '../config/cli.constants.js';
+import { withSslOptions } from '../utils/command-utils.js';
 import { type Plugin } from '../types/index.js';
 
 const { bold, green } = pico;
@@ -20,14 +21,14 @@ const { bold, green } = pico;
  * ```
  */
 export function getPlugin(program: Command): void {
-  program
-    .command('get')
-    .description('Get a single plugin by ID')
-    .requiredOption('-i, --id <id>', 'Plugin ID')
-    .option('-f, --format <format>', 'Output format (json, yaml, table)', 'json')
-    .option('-o, --output <file>', 'Save output to file')
-    .option('--verify-ssl', 'Enable SSL certificate verification')
-    .option('--no-verify-ssl', 'Disable SSL certificate verification')
+  withSslOptions(
+    program
+      .command('get')
+      .description('Get a single plugin by ID')
+      .requiredOption('-i, --id <id>', 'Plugin ID')
+      .option('-f, --format <format>', 'Output format (json, yaml, table)', 'json')
+      .option('-o, --output <file>', 'Save output to file'),
+  )
     .option('--show-metadata', 'Show full plugin metadata in table format', false)
     .action((options) => runGetEntity<Plugin>(program, options, {
       label: 'Plugin',
