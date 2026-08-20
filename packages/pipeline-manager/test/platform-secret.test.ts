@@ -47,7 +47,7 @@ describe('ensurePlatformToken — pre-auth inline login', () => {
     mockPost.mockResolvedValue({ data: { data: { accessToken: 'fresh.jwt.token' } } });
 
     await expect(
-      ensurePlatformToken({ email: 'admin@example.com', password: 'pw' }),
+      ensurePlatformToken({ identifier: 'admin@example.com', password: 'pw' }),
     ).resolves.toBeUndefined();
 
     // Login POST targeted the token-optionally resolved base URL.
@@ -58,7 +58,7 @@ describe('ensurePlatformToken — pre-auth inline login', () => {
 
   it('is a no-op when PLATFORM_TOKEN is already set', async () => {
     process.env.PLATFORM_TOKEN = 'existing';
-    await ensurePlatformToken({ email: 'a@b.c', password: 'pw' });
+    await ensurePlatformToken({ identifier: 'a@b.c', password: 'pw' });
     expect(mockPost).not.toHaveBeenCalled();
   });
 
@@ -73,7 +73,7 @@ describe('ensurePlatformToken — pre-auth inline login', () => {
     process.env.PLATFORM_BASE_URL = 'https://api.example.com';
 
     await expect(
-      ensurePlatformToken({ email: 'admin@example.com', password: 'pw', verifySsl: false }),
+      ensurePlatformToken({ identifier: 'admin@example.com', password: 'pw', verifySsl: false }),
     ).rejects.toThrow(/production/i);
 
     // The guard fires BEFORE any network call — the password never leaves.
@@ -87,7 +87,7 @@ describe('ensurePlatformToken — pre-auth inline login', () => {
     mockPost.mockResolvedValue({ data: { data: { accessToken: 'fresh.jwt.token' } } });
 
     await expect(
-      ensurePlatformToken({ email: 'admin@example.com', password: 'pw', verifySsl: false }),
+      ensurePlatformToken({ identifier: 'admin@example.com', password: 'pw', verifySsl: false }),
     ).resolves.toBeUndefined();
 
     expect(mockPost).toHaveBeenCalledTimes(1);

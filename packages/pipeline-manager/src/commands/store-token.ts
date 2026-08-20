@@ -129,8 +129,8 @@ export function storeToken(program: Command): void {
       withRegionOption(program
         .command('store-token')
         .description('Generate JWT token and store in AWS Secrets Manager for CDK deployments')
-        .option('-e, --email <email>', 'Login email (skips PLATFORM_TOKEN requirement)')
-        .option('-p, --password <password>', 'Login password (used with --email)')
+        .option('-u, --identifier <identifier>', 'Username or email (skips PLATFORM_TOKEN requirement)')
+        .option('-p, --password <password>', 'Login password (used with --identifier)')
         .option('--days <days>', 'Token lifetime in days', '30')
         .option('--scope <scope>', 'Mint a narrow-scope machine token (e.g. "reporting:ingest") and store it at a scope-specific secret path instead of the shared platform secret')
         .option('--dry-run', 'Show what would be stored without writing to Secrets Manager', false)),

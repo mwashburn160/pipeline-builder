@@ -41,8 +41,8 @@ export function setupEvents(program: Command): void {
       .command('setup-events')
       .description('Deploy EventBridge event ingestion infrastructure for pipeline reporting')
       .option('--package-version <version>', 'pipeline-events package version (default: latest)')
-      .option('-e, --email <email>', 'Login email to mint a token when PLATFORM_TOKEN is unset (for deriving the secret name)')
-      .option('-p, --password <password>', 'Login password (used with --email)')),
+      .option('-u, --identifier <identifier>', 'Username or email to mint a token when PLATFORM_TOKEN is unset (for deriving the secret name)')
+      .option('-p, --password <password>', 'Login password (used with --identifier)')),
   )
     .option('--scoped-ingest', 'Point the ingestion Lambda at the dedicated least-privilege reporting-ingest secret (provision it first: `store-token --scope reporting:ingest --schedule`). The reporting service always requires the `reporting:ingest` scope on POST /reports/events.')
     .action(async (options) => {

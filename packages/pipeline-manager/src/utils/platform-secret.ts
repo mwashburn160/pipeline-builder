@@ -18,7 +18,8 @@ import { assertSslDisableAllowed } from './tls.js';
 
 /** Login/secret options shared across the platform-secret helpers. */
 export interface PlatformSecretOptions {
-  readonly email?: string;
+  /** Login identifier (username OR email) — matches `auth login` / `auth pat`. */
+  readonly identifier?: string;
   readonly password?: string;
   readonly verifySsl?: boolean;
 }
@@ -39,22 +40,22 @@ export function resolveSecretName(token: string): string {
 
 /**
  * Ensure `process.env.PLATFORM_TOKEN` is set. No-op if it already is. Otherwise,
- * if login creds are available (`--email/--password` or `PLATFORM_IDENTIFIER`/
+ * if login creds are available (`--identifier/--password` or `PLATFORM_IDENTIFIER`/
  * `PLATFORM_PASSWORD` env — the env path lets `provision` pass creds without
  * putting the password on the command line), log in and set PLATFORM_TOKEN.
  */
 export async function ensurePlatformToken(options: PlatformSecretOptions): Promise<void> {
   if (process.env.PLATFORM_TOKEN) return;
-  const loginEmail = options.email || process.env.PLATFORM_IDENTIFIER;
+  const loginIdentifier = options.identifier || process.env.PLATFORM_IDENTIFIER;
   const loginPassword = options.password || process.env.PLATFORM_PASSWORD;
-  if (!loginEmail || !loginPassword) return;
+  if (!loginIdentifier || !loginPassword) return;
 
   if (options.password) {
     printWarning('Passing --password on the command line can expose it via shell history; prefer the PLATFORM_PASSWORD env var.');
   }
 
   printSection('Login');
-  printInfo('Authenticating with email/password...');
+  printInfo('Authenticating with identifier/password...');
   // Resolve the base URL WITHOUT demanding a token — this login step runs
   // pre-auth (no PLATFORM_TOKEN yet), so `getConfig()` would throw here. The
   // token-optional loader still honors config files + PLATFORM_BASE_URL/TLS env.
@@ -71,7 +72,7 @@ export async function ensurePlatformToken(options: PlatformSecretOptions): Promi
     // The server's loginSchema requires `identifier` (email OR username), not
     // `email` — sending `email` fails zod validation with a 400. Mirror the
     // canonical `postLogin` body.
-    { identifier: loginEmail, password: loginPassword },
+    { identifier: loginIdentifier, password: loginPassword },
     {
       httpsAgent: rejectUnauthorized === false
         ? new (await import('https')).Agent({ rejectUnauthorized: false })
@@ -100,7 +101,7 @@ export async function resolvePlatformSecretName(options: PlatformSecretOptions):
     throw new Error(
       'Cannot derive the platform secret name: no PLATFORM_TOKEN and no login creds. '
       + 'Set PLATFORM_SECRET_NAME, or provide login creds '
-      + '(--email/--password or PLATFORM_IDENTIFIER/PLATFORM_PASSWORD).',
+      + '(--identifier/--password or PLATFORM_IDENTIFIER/PLATFORM_PASSWORD).',
     );
   }
   return resolveSecretName(process.env.PLATFORM_TOKEN);
