@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import type { OrgQuotaResponse, DisplayedQuotaType } from '@/types';
 import { fmtNum } from '@/lib/format';
 import { QuotaCard } from './QuotaCard';
+import { CurrentTierPanel } from './CurrentTierPanel';
 import { QUOTA_KEYS, QUOTA_META, TIER_PRESETS, pillClassFor } from './constants';
 
 /** One at-risk quota dimension for the caller's own org (from `getOrgAtRisk`). */
@@ -103,6 +104,7 @@ export function QuotasReadOnly({
             )}
           </div>
         )}
+        {!loading && orgData && <CurrentTierPanel tier={tier} />}
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[0, 1, 2, 3].map((i) => (

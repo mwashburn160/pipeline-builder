@@ -20,7 +20,7 @@ import { Select } from '@/components/ui/Select';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { Activity, Search, ArrowLeft, Download, ShieldCheck, ShieldAlert, ShieldQuestion, Ban } from 'lucide-react';
+import { Activity, Search, ArrowLeft, Download, ShieldCheck, ShieldAlert, ShieldQuestion, Ban, SlidersHorizontal, ChevronDown, X } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -63,6 +63,9 @@ export default function AuditPage() {
   const [to, setTo] = useState<string>('');
   const [offset, setOffset] = useState(0);
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
+  // The full filter panel is collapsed by default to reclaim vertical space;
+  // an active-filter count badge on the toggle signals when filters are on.
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -117,6 +120,25 @@ export default function AuditPage() {
   const deniedActive = action === DENIED_ACTION;
   const toggleDenied = () => {
     setAction((prev) => (prev === DENIED_ACTION ? '' : DENIED_ACTION));
+    setOffset(0);
+  };
+
+  // Count of applied filter fields — surfaced as a badge on the (collapsed)
+  // filter toggle so users know a scope is in effect without expanding it.
+  const activeFilterCount = [
+    action, actorId, requestId, outcome, targetType, from, to,
+    isSuperAdmin && affectedOrgId,
+  ].filter(Boolean).length;
+
+  const clearFilters = () => {
+    setAction('');
+    setActorId('');
+    setRequestId('');
+    setOutcome('');
+    setTargetType('');
+    setFrom('');
+    setTo('');
+    setAffectedOrgId('');
     setOffset(0);
   };
 
@@ -220,8 +242,31 @@ export default function AuditPage() {
 
       <ErrorAlert message={error} className="mb-4" />
 
-      {/* Quick filters */}
+      {/* Toolbar: collapsible-filter toggle + quick filters. Keeps the tall
+          input grid out of the way until the user reaches for it. */}
       <div className="mb-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setFiltersOpen((o) => !o)}
+          aria-expanded={filtersOpen}
+          aria-controls="audit-filter-panel"
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+            activeFilterCount > 0
+              ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+              : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+          }`}
+          title={filtersOpen ? 'Hide filters' : 'Show filters'}
+        >
+          <SlidersHorizontal className="w-3.5 h-3.5" />
+          Filters
+          {activeFilterCount > 0 && (
+            <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-blue-600 text-white text-[10px] font-semibold dark:bg-blue-500">
+              {activeFilterCount}
+            </span>
+          )}
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${filtersOpen ? 'rotate-180' : ''}`} />
+        </button>
+
         <button
           type="button"
           onClick={toggleDenied}
@@ -236,10 +281,22 @@ export default function AuditPage() {
           <Ban className="w-3.5 h-3.5" />
           Denied attempts
         </button>
+
+        {activeFilterCount > 0 && (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            title="Clear all filters"
+          >
+            <X className="w-3.5 h-3.5" /> Clear filters
+          </button>
+        )}
       </div>
 
-      {/* Filter bar */}
-      <div className="filter-bar grid grid-cols-1 md:grid-cols-3 gap-2">
+      {/* Filter bar — collapsed by default (see toggle above). */}
+      {filtersOpen && (
+      <div id="audit-filter-panel" className="filter-bar grid grid-cols-1 md:grid-cols-3 gap-2">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
           <FilterInput
@@ -321,6 +378,7 @@ export default function AuditPage() {
           />
         )}
       </div>
+      )}
 
       {loading && (
         <Card className="mt-2 overflow-hidden">
@@ -407,47 +465,55 @@ export default function AuditPage() {
                 aria-label={`View audit event: ${event.action}`}
                 className="group px-4 py-3 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 focus:bg-gray-50 dark:focus:bg-gray-800/50 focus:outline-none transition-colors"
               >
+                {/* Primary line: action + plain-language actor + time. This is
+                    the scan line — no opaque ids compete for attention here. */}
                 <div className="flex items-baseline justify-between gap-2">
-                  <span className="inline-flex items-center gap-1.5 min-w-0">
+                  <span className="inline-flex items-baseline gap-1.5 min-w-0 flex-wrap">
                     <code className="text-xs font-medium text-blue-600 dark:text-blue-400 underline decoration-dotted underline-offset-2 group-hover:decoration-solid">{event.action}</code>
                     {event.outcome === 'failure' && <Badge color="red">failed</Badge>}
+                    <span className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      by {event.actorEmail || `${event.actorId.slice(0, 8)}…`}
+                      {event.actorRole && <span className="text-gray-400 dark:text-gray-500"> · {event.actorRole}</span>}
+                      {event.impersonatorId && <span className="text-gray-400 dark:text-gray-500"> (impersonated)</span>}
+                    </span>
                   </span>
                   <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
                     <RelativeTime value={event.createdAt} />
                   </span>
                 </div>
-                <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 flex flex-wrap gap-x-3 gap-y-1 items-center">
-                  <span className="inline-flex items-center gap-1">
-                    Actor: <CopyableId value={event.actorId} display={event.actorEmail || event.actorId} size="sm" />
-                    {event.actorRole && <span className="text-gray-400 dark:text-gray-500">({event.actorRole})</span>}
-                  </span>
+                {/* Secondary line: the ids, de-emphasized. CopyableId truncates
+                    and offers one compact copy affordance apiece. Org id is
+                    suppressed when it's just the org already in scope. */}
+                <div className="mt-1 text-[11px] text-gray-400 dark:text-gray-500 flex flex-wrap gap-x-3 gap-y-1 items-center">
+                  <span className="inline-flex items-center gap-1">actor <CopyableId value={event.actorId} size="sm" /></span>
                   {event.impersonatorId && (
                     <span className="inline-flex items-center gap-1">via <CopyableId value={event.impersonatorId} size="sm" /></span>
                   )}
-                  {event.orgId && <span className="inline-flex items-center gap-1">Org: <CopyableId value={event.orgId} size="sm" /></span>}
+                  {event.orgId && event.orgId !== user.organizationId && (
+                    <span className="inline-flex items-center gap-1">org <CopyableId value={event.orgId} size="sm" /></span>
+                  )}
                   {event.affectedOrgId && event.affectedOrgId !== event.orgId && (
-                    <span className="inline-flex items-center gap-1">Affected: <CopyableId value={event.affectedOrgId} size="sm" /></span>
+                    <span className="inline-flex items-center gap-1">affected <CopyableId value={event.affectedOrgId} size="sm" /></span>
                   )}
                   {event.targetType && (
                     <span className="inline-flex items-center gap-1">
-                      Target: <code>{event.targetType}</code>
+                      <code>{event.targetType}</code>
                       {event.targetId && <>: <CopyableId value={event.targetId} size="sm" /></>}
                     </span>
                   )}
-                  {event.ip && <span>IP: <code>{event.ip}</code></span>}
                   {event.requestId && (
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); setRequestId(event.requestId!); setOffset(0); }}
-                      className="inline-flex items-center gap-1 hover:underline"
+                      className="inline-flex items-center gap-1 hover:underline hover:text-gray-600 dark:hover:text-gray-300"
                       title="Filter to this request's correlation id"
                     >
-                      Req: <code>{event.requestId.slice(0, 8)}</code>
+                      req <code>{event.requestId.slice(0, 8)}</code>
                     </button>
                   )}
                 </div>
                 {event.details && Object.keys(event.details).length > 0 && (
-                  <p className="mt-1 text-xs text-gray-400 dark:text-gray-500 font-mono truncate">
+                  <p className="mt-1 text-[11px] text-gray-400/80 dark:text-gray-500/80 font-mono truncate">
                     {JSON.stringify(redactDetails(event.details))}
                   </p>
                 )}

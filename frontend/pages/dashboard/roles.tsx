@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/Input';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ModalFooter } from '@/components/ui/ModalFooter';
-import { ORG_ASSIGNABLE_CATEGORIES, permissionLabel, roleDisplayName } from '@/lib/permissions';
+import { ORG_ASSIGNABLE_CATEGORIES, PERMISSION_CATALOG, permissionLabel, roleDisplayName } from '@/lib/permissions';
 import api from '@/lib/api';
 import type { OrganizationRole, RoleGrant } from '@/types';
 
@@ -33,6 +33,27 @@ const ROLE_LABEL: Record<RoleGrant, string> = {
   member: 'standard access',
 };
 
+// Permission id → category, and the catalog's category display order, used to
+// render a compact "Pipelines 3 · Compliance 2 · …" summary instead of the full
+// chip wall. Unknown ids fall into a trailing "Other" bucket.
+const PERMISSION_CATEGORY = new Map(PERMISSION_CATALOG.map((p) => [p.id, p.category]));
+const CATEGORY_ORDER = PERMISSION_CATALOG.reduce<string[]>((acc, p) => {
+  if (!acc.includes(p.category)) acc.push(p.category);
+  return acc;
+}, []);
+
+/** Grouped per-category counts for a role's permissions, in catalog order. */
+function summarizePermissions(perms: string[]): { category: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const id of perms) {
+    const cat = PERMISSION_CATEGORY.get(id) ?? 'Other';
+    counts.set(cat, (counts.get(cat) ?? 0) + 1);
+  }
+  const ordered = CATEGORY_ORDER.filter((c) => counts.has(c));
+  if (counts.has('Other')) ordered.push('Other');
+  return ordered.map((category) => ({ category, count: counts.get(category)! }));
+}
+
 export default function RolesPage() {
   const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'roles:manage' });
   // Capability to manage Roles — role admins/owners (via their bundle) and
@@ -44,6 +65,16 @@ export default function RolesPage() {
   const [roles, setRoles] = useState<OrganizationRole[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Roles whose full permission chip list is expanded (collapsed by default —
+  // each role shows a compact category-count summary until toggled open).
+  const [expandedPerms, setExpandedPerms] = useState<Set<string>>(new Set());
+  const togglePermsExpanded = (id: string) =>
+    setExpandedPerms((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
 
   // Add-member modal (scoped to one Role).
   const [addToRole, setAddToRole] = useState<OrganizationRole | null>(null);
@@ -242,7 +273,8 @@ export default function RolesPage() {
             const isSuperRole = r.grantsRole === 'superadmin';
             return (
               <Card key={r.id}>
-                <div className="flex items-start justify-between gap-2 mb-3">
+                {/* Identity header — role name, kind badge, one-line summary + actions */}
+                <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2 flex-wrap">
                       {isSuperRole ? <ShieldAlert className="w-4 h-4 text-red-500" /> : <ShieldCheck className="w-4 h-4 text-gray-400" />}
@@ -252,20 +284,18 @@ export default function RolesPage() {
                         : <Badge color="blue">custom</Badge>}
                     </h2>
                     {r.description && (
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{r.description}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{r.description}</p>
                     )}
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      {r.system ? ROLE_LABEL[r.grantsRole] : `${r.permissions.length} permission${r.permissions.length === 1 ? '' : 's'}`} · {r.members.length} member{r.members.length === 1 ? '' : 's'}
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 inline-flex items-center gap-1.5">
+                      <span className="font-medium text-gray-600 dark:text-gray-300">
+                        {r.system ? ROLE_LABEL[r.grantsRole] : `${r.permissions.length} permission${r.permissions.length === 1 ? '' : 's'}`}
+                      </span>
+                      <span className="text-gray-300 dark:text-gray-600">·</span>
+                      <span className="inline-flex items-center gap-1">
+                        <Users className="w-3 h-3 text-gray-400" />
+                        {r.members.length} member{r.members.length === 1 ? '' : 's'}
+                      </span>
                     </p>
-                    {r.permissions.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-1.5">
-                        {r.permissions.map((p) => (
-                          <span key={p} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
-                            <KeyRound className="w-2.5 h-2.5 text-gray-400" />{permissionLabel(p)}
-                          </span>
-                        ))}
-                      </div>
-                    )}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {editable && !r.system && (
@@ -286,6 +316,47 @@ export default function RolesPage() {
                   </div>
                 </div>
 
+                {/* Permissions — compact category-count summary, expandable to the full chip list */}
+                {r.permissions.length > 0 && (() => {
+                  const expanded = expandedPerms.has(r.id);
+                  const summary = summarizePermissions(r.permissions);
+                  return (
+                    <div className="mt-3 rounded-md border border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/30 px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-gray-400 min-w-0">
+                          <KeyRound className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                          {summary.map((s, i) => (
+                            <span key={s.category} className="inline-flex items-center gap-1 whitespace-nowrap">
+                              {i > 0 && <span className="text-gray-300 dark:text-gray-600">·</span>}
+                              <span>{s.category}</span>
+                              <span className="font-semibold text-gray-700 dark:text-gray-200">{s.count}</span>
+                            </span>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => togglePermsExpanded(r.id)}
+                          aria-expanded={expanded}
+                          className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline shrink-0"
+                        >
+                          {expanded ? 'Hide' : 'Show all'}
+                        </button>
+                      </div>
+                      {expanded && (
+                        <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+                          {r.permissions.map((p) => (
+                            <span key={p} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                              <KeyRound className="w-2.5 h-2.5 text-gray-400" />{permissionLabel(p)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Members */}
+                <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
                 {r.members.length === 0 ? (
                   <p className="text-xs text-gray-400 dark:text-gray-500 italic">No members.</p>
                 ) : (
@@ -318,6 +389,7 @@ export default function RolesPage() {
                     })}
                   </ul>
                 )}
+                </div>
               </Card>
             );
           })}

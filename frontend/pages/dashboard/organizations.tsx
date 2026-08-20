@@ -1,6 +1,6 @@
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { formatError } from '@/lib/constants';
-import { Building2, Search, KeyRound, FileDown, ShieldCheck, ExternalLink, Plus, Layers, RotateCcw } from 'lucide-react';
+import { Building2, Search, KeyRound, FileDown, ShieldCheck, ExternalLink, Plus, Layers, RotateCcw, MoreHorizontal, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
@@ -16,14 +16,15 @@ import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { InfoAlert } from '@/components/ui/InfoAlert';
-import { WarningAlert } from '@/components/ui/WarningAlert';
 import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { useToast } from '@/components/ui/Toast';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { TabBar } from '@/components/ui/TabBar';
 import { Pagination } from '@/components/ui/Pagination';
+import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import { useDelete } from '@/hooks/useDelete';
 import { OrgKmsConfigModal } from '@/components/admin/OrgKmsConfigModal';
 import { OrgIdpConfigModal } from '@/components/admin/OrgIdpConfigModal';
@@ -33,9 +34,138 @@ import api from '@/lib/api';
 import { Organization } from '@/types';
 import type { OrganizationListItem } from '@/lib/api/domains/organizations';
 
+/**
+ * Trash / "Deleted items" resources exposed in the admin restore view. Keys are
+ * the exact `resource` keys the shared `RecentlyDeletedPanel` registry supports
+ * (each has a backend list-deleted + restore route); labels are display-only.
+ * `as const` keeps the union assignable to the panel's internal `Resource` type.
+ */
+const TRASH_RESOURCES = [
+  { key: 'pipeline', label: 'Pipelines' },
+  { key: 'plugin', label: 'Plugins' },
+  { key: 'template', label: 'Templates' },
+  { key: 'message', label: 'Messages' },
+  { key: 'compliance-rule', label: 'Compliance rules' },
+  { key: 'compliance-policy', label: 'Compliance policies' },
+] as const;
+type TrashResource = (typeof TRASH_RESOURCES)[number]['key'];
+
+/**
+ * Per-row overflow menu for the less-common admin actions (KMS, IdP, tier,
+ * namespace) with Delete separated below as the destructive action. Rendered
+ * with fixed positioning off the trigger's rect so the menu isn't clipped by
+ * the table's `overflow-x-auto` scroll container.
+ */
+function RowActionsMenu({
+  canKms, canIdp, onKms, onIdp, onTier, onNamespace, onDelete,
+}: {
+  canKms: boolean;
+  canIdp: boolean;
+  onKms: () => void;
+  onIdp: () => void;
+  onTier: () => void;
+  onNamespace: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current?.contains(e.target as Node) || btnRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    // The menu is fixed-positioned off a rect snapshot; any scroll/resize would
+    // desync it, so just close on those rather than re-measuring.
+    const onMove = () => setOpen(false);
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('resize', onMove);
+    };
+  }, [open]);
+
+  const toggle = () => {
+    if (!open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setCoords({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    }
+    setOpen((o) => !o);
+  };
+
+  const run = (fn: () => void) => () => { setOpen(false); fn(); };
+
+  const itemClass = 'w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors';
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={toggle}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="More actions"
+        className="inline-flex items-center justify-center w-8 h-8 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+      >
+        <MoreHorizontal className="w-4 h-4" />
+      </button>
+      {open && (
+        <div
+          ref={menuRef}
+          role="menu"
+          style={{ position: 'fixed', top: coords.top, right: coords.right, zIndex: 50 }}
+          className="w-56 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl text-left"
+        >
+          {canKms && (
+            <button type="button" role="menuitem" onClick={run(onKms)} className={itemClass}>
+              <KeyRound className="w-3.5 h-3.5 text-gray-400" /> KMS config
+            </button>
+          )}
+          {canIdp && (
+            <button type="button" role="menuitem" onClick={run(onIdp)} className={itemClass}>
+              <ShieldCheck className="w-3.5 h-3.5 text-gray-400" /> SSO / IdP config
+            </button>
+          )}
+          <button type="button" role="menuitem" onClick={run(onTier)} className={itemClass}>
+            <Layers className="w-3.5 h-3.5 text-gray-400" /> Change tier
+          </button>
+          <button type="button" role="menuitem" onClick={run(onNamespace)} className={itemClass}>
+            <FileDown className="w-3.5 h-3.5 text-gray-400" /> Namespace YAML
+          </button>
+          <div className="my-1 border-t border-gray-100 dark:border-gray-700" />
+          <button
+            type="button"
+            role="menuitem"
+            onClick={run(onDelete)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" /> Delete organization
+          </button>
+          <p className="px-3 pt-1 pb-1.5 text-[11px] leading-snug text-gray-400 dark:text-gray-500">
+            Removes all members from the org (users aren&apos;t deleted). Cannot be undone.
+          </p>
+        </div>
+      )}
+    </>
+  );
+}
+
 /** Organization management page (system admin only). Lists all organizations with delete capability. */
 export default function OrganizationsPage() {
   const { user, isReady, isAuthenticated, isSuperAdmin, can } = useAuthGuard({ requireSystemAdmin: true });
+
+  // Top-level view: the org list vs. the aggregated "Deleted items" (trash)
+  // restore surface. The trash tab is a System-Admin surface, gated on the same
+  // system-admin context that guards every destructive action on this page.
+  const [tab, setTab] = useState<'organizations' | 'deleted'>('organizations');
+  const [trashResource, setTrashResource] = useState<TrashResource>('pipeline');
 
   const list = useListPage<OrganizationListItem>({
     fields: [
@@ -282,7 +412,10 @@ export default function OrganizationsPage() {
             </button>
           </div>
         ) : (
-          <div className="flex justify-end gap-3">
+          // Primary action (Details) stays visible; the less-common admin
+          // actions and the destructive Delete collapse into an overflow menu
+          // so the row reads cleanly.
+          <div className="flex justify-end items-center gap-2">
             <Link
               href={`/dashboard/admin/orgs/${org.id}`}
               className="action-link inline-flex items-center gap-1"
@@ -290,39 +423,15 @@ export default function OrganizationsPage() {
             >
               <ExternalLink className="w-3.5 h-3.5" /> Details
             </Link>
-            {can('org:kms') && (
-              <button
-                onClick={() => setKmsOrg(org)}
-                className="action-link inline-flex items-center gap-1"
-                title="Manage per-org KMS config"
-              >
-                <KeyRound className="w-3.5 h-3.5" /> KMS
-              </button>
-            )}
-            {can('org:idp') && (
-              <button
-                onClick={() => setIdpOrg(org)}
-                className="action-link inline-flex items-center gap-1"
-                title="Manage SSO / IdP config"
-              >
-                <ShieldCheck className="w-3.5 h-3.5" /> IdP
-              </button>
-            )}
-            <button
-              onClick={() => openTier(org)}
-              className="action-link inline-flex items-center gap-1"
-              title="Change pricing tier"
-            >
-              <Layers className="w-3.5 h-3.5" /> Tier
-            </button>
-            <button
-              onClick={() => setPendingYamlOrg(org)}
-              className="action-link inline-flex items-center gap-1"
-              title="Download k8s namespace YAML"
-            >
-              <FileDown className="w-3.5 h-3.5" /> Namespace
-            </button>
-            <button onClick={() => del.open(org)} className="action-link-danger">Delete</button>
+            <RowActionsMenu
+              canKms={can('org:kms')}
+              canIdp={can('org:idp')}
+              onKms={() => setKmsOrg(org)}
+              onIdp={() => setIdpOrg(org)}
+              onTier={() => openTier(org)}
+              onNamespace={() => setPendingYamlOrg(org)}
+              onDelete={() => del.open(org)}
+            />
           </div>
         )
       ),
@@ -344,6 +453,40 @@ export default function OrganizationsPage() {
     >
       <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
 
+      <TabBar
+        items={[
+          { id: 'organizations', label: 'Organizations' },
+          { id: 'deleted', label: 'Deleted items' },
+        ]}
+        activeId={tab}
+        onSelect={(id) => setTab(id as 'organizations' | 'deleted')}
+      />
+
+      {tab === 'deleted' ? (
+        // Aggregated trash view: pick a resource kind, then reuse the shared
+        // restore panel + its list-deleted/restore APIs. System-admin only
+        // (the whole page is), matching the gating on the destructive actions.
+        isSuperAdmin ? (
+          <div className="space-y-4">
+            <SegmentedFilter
+              ariaLabel="Choose a deleted resource type to restore"
+              options={TRASH_RESOURCES.map((r) => ({ value: r.key, label: r.label }))}
+              value={trashResource}
+              onChange={(v) => setTrashResource(v)}
+            />
+            <RecentlyDeletedPanel
+              // key forces a fresh mount per resource so the panel reloads its
+              // list when the selector changes.
+              key={trashResource}
+              resource={trashResource}
+              onRestored={() => { /* trash view has no main list to refresh; the panel reloads itself */ }}
+            />
+          </div>
+        ) : (
+          <InfoAlert message="You do not have permission to view deleted items." />
+        )
+      ) : (
+      <>
       <div className="filter-bar flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[16rem]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
@@ -394,6 +537,7 @@ export default function OrganizationsPage() {
           <option value="only">Deleted: only</option>
         </FilterSelect>
         <SegmentedFilter
+          className="ml-auto"
           ariaLabel="Filter by org scope"
           options={[{ value: 'all', label: 'All' }, { value: 'top', label: 'Top-level' }, { value: 'team', label: 'Teams' }]}
           value={String(list.filters.scope)}
@@ -419,12 +563,8 @@ export default function OrganizationsPage() {
       {!list.isLoading && list.pagination.total > 0 && (
         <Pagination pagination={list.pagination} onPageChange={list.handlePageChange} onPageSizeChange={list.handlePageSizeChange} />
       )}
-
-      {/* Warning */}
-      <WarningAlert
-        className="mt-6"
-        message="Deleting an organization removes all members from it. This action cannot be undone. Users are not deleted but will no longer belong to any organization."
-      />
+      </>
+      )}
 
       {createOpen && (
         <Modal

@@ -14,6 +14,7 @@ import { formatError } from '@/lib/constants';
 import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType, User } from '@/types';
 import { QuotaCard } from './QuotaCard';
 import { OrgListItem } from './OrgListItem';
+import { CurrentTierPanel } from './CurrentTierPanel';
 import { QUOTA_KEYS, TIER_KEYS, TIER_PRESETS, pillClassFor } from './constants';
 
 /**
@@ -233,17 +234,32 @@ export function QuotasAdmin({
             )}
 
             {!loading && orgData && (
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                 {orgData.name} &middot; <span className="font-mono">{orgData.slug}</span>
               </p>
+            )}
+
+            {/* Always-correct current tier — includes tiers (e.g. `unlimited`)
+                that the selector below never highlights. */}
+            {!loading && orgData && (
+              <CurrentTierPanel
+                tier={orgData.tier || 'developer'}
+                pendingTier={editTier}
+                selectorBelow={isSuperAdmin}
+              />
             )}
 
             {/* Tier selector — system admin only */}
             {!loading && orgData && isSuperAdmin && (
               <div className="mb-8">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
-                  Plan Tier
-                </h2>
+                <div className="mb-3">
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                    Change plan tier
+                  </h2>
+                  <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                    Selecting a tier fills in its preset limits below. Save to apply.
+                  </p>
+                </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {TIER_KEYS.map((tier) => {
                     const preset = TIER_PRESETS[tier];
@@ -287,7 +303,7 @@ export function QuotasAdmin({
                 Quota Usage
                 {isSuperAdmin && (
                   <span className="font-normal normal-case tracking-normal ml-2 text-gray-400 dark:text-gray-500">
-                    — edit limits below each card
+                    — edit each limit in its card
                   </span>
                 )}
               </h2>

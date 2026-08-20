@@ -87,6 +87,9 @@ describe('AuditPage — denied-attempts quick filter', () => {
   it('sets the action filter to authz.denied when toggled on, and clears it when toggled off', async () => {
     render(<AuditPage />);
     const chip = await screen.findByRole('button', { name: /denied attempts/i });
+    // The action filter now lives in a collapsible panel (collapsed by default) —
+    // open it so the input is mounted and its value is inspectable.
+    fireEvent.click(screen.getByRole('button', { name: /^filters$/i }));
     const actionInput = screen.getByPlaceholderText(/filter by action/i) as HTMLInputElement;
 
     expect(actionInput.value).toBe('');

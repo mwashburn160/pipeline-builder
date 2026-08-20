@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
-import { Shield, ShieldCheck, CheckCircle, AlertTriangle, XCircle, Activity, Clock, BookOpen, ShieldOff, Scan, Sparkles, FileText, Filter, Bell, ChevronDown } from 'lucide-react';
+import Link from 'next/link';
+import { Shield, ShieldCheck, CheckCircle, AlertTriangle, XCircle, Activity, Clock, BookOpen, ShieldOff, Scan, Sparkles, FileText, Filter, Bell, ChevronDown, History, SlidersHorizontal } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { StatusPill } from '@/components/ui/StatusPill';
+import { TabBar } from '@/components/ui/TabBar';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { PostureHeadline } from '@/components/ui/PostureHeadline';
 import { formatRelativeTime } from '@/lib/relative-time';
@@ -39,15 +41,16 @@ const TAB_META: Record<Tab, { label: string; icon: typeof Shield }> = {
   notifications: { label: 'Notifications', icon: Bell },
 };
 
-// Group the 10 tabs so the nav reads as organized sections instead of a flat
-// run: overview · rule definitions · scanning · exemptions · settings. State
-// model is unchanged (each button still setTab(id)); the grouping is visual.
-const TAB_GROUPS: Tab[][] = [
-  ['overview'],
-  ['rules', 'policies', 'subscriptions', 'enforced', 'templates'],
-  ['scans', 'schedules'],
-  ['exemptions'],
-  ['notifications'],
+// Two-level navigation: 4 top-level SECTIONS instead of a flat run of 10 tabs, so
+// the top level stays scannable and related panels live together. The `tab` state
+// model is UNCHANGED — each sub-tab still `setTab(id)`; the section is just derived
+// from the active tab, and a sub-tab row shows only for a section with >1 member.
+type Section = 'overview' | 'definitions' | 'scanning' | 'settings';
+const SECTIONS: { id: Section; label: string; icon: typeof Shield; tabs: Tab[] }[] = [
+  { id: 'overview', label: 'Overview', icon: Activity, tabs: ['overview'] },
+  { id: 'definitions', label: 'Rules & policies', icon: Shield, tabs: ['rules', 'policies', 'subscriptions', 'enforced', 'templates'] },
+  { id: 'scanning', label: 'Scanning', icon: Scan, tabs: ['scans', 'schedules'] },
+  { id: 'settings', label: 'Settings', icon: SlidersHorizontal, tabs: ['exemptions', 'notifications'] },
 ];
 
 const STAT_COLORS: Record<string, string> = {
@@ -219,30 +222,55 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
     setEditorRule(undefined);
   };
 
+  // Derive the active top-level section from the current tab, and the sub-tabs to
+  // offer beneath it. Overview has no sub-tabs (its section holds only itself).
+  const activeSection = SECTIONS.find(s => s.tabs.includes(tab)) ?? SECTIONS[0];
+  const subTabs = activeSection.tabs.length > 1 ? activeSection.tabs : [];
+
   return (
-    <div className="space-y-6">
-      {/* Tabs — grouped with dividers for scanability */}
-      <nav className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
-        {TAB_GROUPS.map((group, gi) => (
-          <div key={gi} className="flex items-center gap-1">
-            {gi > 0 && <span aria-hidden className="mx-1.5 h-5 w-px bg-gray-200 dark:bg-gray-700 shrink-0" />}
-            {group.map((id) => {
-              const { label, icon: Icon } = TAB_META[id];
-              return (
-                <button
-                  key={id}
-                  onClick={() => setTab(id)}
-                  className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
-                    tab === id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-                  }`}
-                >
-                  <Icon className="h-4 w-4" /> {label}
-                </button>
-              );
-            })}
-          </div>
-        ))}
+    <div className="space-y-4">
+      {/* Level 1 — top-level sections (4, not a flat run of 10 tabs). */}
+      <nav className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700 overflow-x-auto" aria-label="Compliance sections">
+        {SECTIONS.map(({ id, label, icon: Icon, tabs }) => {
+          const active = activeSection.id === id;
+          return (
+            <button
+              key={id}
+              onClick={() => { if (!active) setTab(tabs[0]); }}
+              aria-current={active ? 'page' : undefined}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                active ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+              }`}
+            >
+              <Icon className="h-4 w-4" /> {label}
+            </button>
+          );
+        })}
       </nav>
+
+      {/* Level 2 — sub-tabs for the active section (hidden for Overview). */}
+      {subTabs.length > 0 && (
+        <nav className="flex items-center gap-1 flex-wrap" aria-label={`${activeSection.label} views`}>
+          {subTabs.map((id) => {
+            const { label, icon: Icon } = TAB_META[id];
+            const active = tab === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setTab(id)}
+                aria-current={active ? 'page' : undefined}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                  active
+                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                    : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" /> {label}
+              </button>
+            );
+          })}
+        </nav>
+      )}
 
       {/* Content */}
       <Suspense fallback={<TabSpinner />}>
@@ -294,6 +322,50 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
   );
 }
 
+/**
+ * Compact, action-oriented "Recent changes" feed — the second tab of the Overview
+ * activity panel. Reads the same compliance audit trail as "Recent check results"
+ * but leads with the action verb (create/update/delete) and stays unfiltered/most-
+ * recent, so it answers "what changed lately?" at a glance. `changes === null` = loading.
+ */
+function ChangesFeed({ changes, error, onRetry }: { changes: ComplianceAuditEntry[] | null; error: string | null; onRetry: () => void }) {
+  if (error) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-2 text-sm text-red-700 dark:text-red-300">
+        <span>{error}</span>
+        <button onClick={onRetry} className="underline hover:no-underline shrink-0">Retry</button>
+      </div>
+    );
+  }
+  if (changes === null) return <TabSpinner />;
+  if (changes.length === 0) {
+    return <div className="text-center py-6 text-sm text-gray-400">No compliance changes recorded yet.</div>;
+  }
+  return (
+    <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+      {changes.map(e => {
+        const r = RESULT_STYLES[e.result] || RESULT_STYLES.pass;
+        const violations = Array.isArray(e.violations) ? e.violations : [];
+        return (
+          <li key={e.id} className="py-2 flex items-baseline justify-between gap-2 text-sm">
+            <div className="min-w-0 flex items-baseline gap-2">
+              <StatusPill className={`${r.bg} ${r.text}`}>{r.label}</StatusPill>
+              <span className="text-gray-800 dark:text-gray-200 truncate">
+                <code className="text-xs">{e.action}</code>
+                {e.entityName && <span className="text-gray-500 dark:text-gray-400"> on {e.entityName}</span>}
+              </span>
+              {violations.length > 0 && (
+                <span className="text-xs text-red-500 dark:text-red-400 shrink-0">{violations.length} violation{violations.length === 1 ? '' : 's'}</span>
+              )}
+            </div>
+            <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatRelativeTime(e.createdAt)}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 interface OverviewProps {
   stats: { rules: number; pass: number; warn: number; block: number };
   audit: ComplianceAuditEntry[];
@@ -316,6 +388,27 @@ interface OverviewProps {
 function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditResult, onTargetChange, onResultChange, onGoToRules, auditDateFrom, auditDateTo, onDateFromChange, onDateToChange, auditPagination, onAuditPageChange, onAuditPageSizeChange }: OverviewProps) {
   // Inline drill-in: which row is expanded to show its violations/metadata.
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Activity panel tabs: the rich, filterable "Recent check results" feed and a
+  // compact, action-oriented "Recent changes" list (create/update/delete). Both
+  // read the compliance audit trail; changes are fetched lazily the first time
+  // that tab is opened (unfiltered, most-recent) so the default view costs nothing.
+  const [activityTab, setActivityTab] = useState<'checks' | 'changes'>('checks');
+  const [changes, setChanges] = useState<ComplianceAuditEntry[] | null>(null);
+  const [changesError, setChangesError] = useState<string | null>(null);
+  useEffect(() => {
+    if (activityTab !== 'changes' || changes !== null) return;
+    let cancelled = false;
+    setChangesError(null);
+    api.getComplianceAuditLog({ limit: 10 })
+      .then(res => {
+        if (cancelled) return;
+        if (res.success && res.data) setChanges(res.data.entries);
+        else setChangesError(res.message || 'Failed to load recent changes');
+      })
+      .catch(() => { if (!cancelled) setChangesError('Failed to load recent changes'); });
+    return () => { cancelled = true; };
+  }, [activityTab, changes]);
   const totalChecks = stats.pass + stats.warn + stats.block;
   const passRate = totalChecks > 0 ? Math.round((stats.pass / totalChecks) * 100) : 100;
 
@@ -376,7 +469,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
               onClick={onClick}
               aria-pressed={result != null ? active : undefined}
               title={result != null ? (active ? 'Clear filter' : `Show ${label.toLowerCase()} checks`) : 'View rules'}
-              className={`text-left rounded-lg border bg-white dark:bg-gray-900 p-4 transition-colors hover:border-gray-300 dark:hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              className={`text-left rounded-lg border bg-white dark:bg-gray-900 p-4 shadow-sm transition hover:border-gray-300 hover:shadow dark:hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                 active ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200 dark:border-gray-700'
               }`}
             >
@@ -392,16 +485,27 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
         })}
       </div>
 
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
-        <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-            <Activity className="h-4 w-4" /> Recent check results
-            {auditResult && (
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3 pb-3 border-b border-gray-100 dark:border-gray-800 gap-2 flex-wrap">
+          <div className="flex items-center gap-3 flex-wrap">
+            <TabBar
+              items={[{ id: 'checks', label: 'Recent check results' }, { id: 'changes', label: 'Recent changes' }]}
+              activeId={activityTab}
+              onSelect={(id) => setActivityTab(id as 'checks' | 'changes')}
+            />
+            {activityTab === 'checks' && auditResult && (
               <button onClick={() => onResultChange('')} className="text-xs font-normal text-blue-600 hover:underline">
                 {auditResult} only · clear
               </button>
             )}
-          </h3>
+            <Link
+              href="/dashboard/audit?action=compliance"
+              className="action-link text-xs inline-flex items-center gap-1"
+            >
+              <History className="h-3.5 w-3.5" /> Full audit log →
+            </Link>
+          </div>
+          {activityTab === 'checks' && (
           <div className="flex flex-wrap items-center gap-2">
             <Filter className="h-3.5 w-3.5 text-gray-400" />
             <FilterSelect
@@ -459,8 +563,11 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
               aria-label="Audit log to date"
             />
           </div>
+          )}
         </div>
-        {auditError ? (
+        {activityTab === 'changes' ? (
+          <ChangesFeed changes={changes} error={changesError} onRetry={() => { setChanges(null); setChangesError(null); }} />
+        ) : auditError ? (
           <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-2 text-sm text-red-700 dark:text-red-300">
             <span>{auditError}</span>
             <button onClick={onRetryAudit} className="underline hover:no-underline shrink-0">Retry</button>
@@ -487,6 +594,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
                       <div className="flex items-center gap-2 min-w-0">
                         <ChevronDown className={`h-3.5 w-3.5 text-gray-400 shrink-0 transition-transform ${expanded ? '' : '-rotate-90'}`} />
                         <StatusPill className={`${r.bg} ${r.text}`}>{r.label}</StatusPill>
+                        <span className="text-[11px] font-medium text-gray-400 dark:text-gray-500 shrink-0">{entry.action}</span>
                         <span className="text-sm text-gray-900 dark:text-white truncate">{entry.entityName || entry.entityId || 'Unknown'}</span>
                         <span className="text-[11px] uppercase tracking-wide text-gray-400 border border-gray-200 dark:border-gray-700 rounded px-1.5 py-0.5 shrink-0">{entry.target}</span>
                         {violations.length > 0 && (
