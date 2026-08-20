@@ -48,9 +48,15 @@ don't run `init-platform.sh`, `store-token`, or `setup-events` by hand:
 > **local/minikube** `provision` runs it for you. See
 > [What `infra provision` handles](pipeline-manager.md#what-infra-provision-handles).
 
+> **Per organization:** the `store-token` secret is scoped per org
+> (`pipeline-builder/{orgId}/platform`), so run `--with-events` (or the manual Steps 5–6)
+> **again for each new organization** you onboard — the initial provision covers only the
+> first org's token.
+
 **After provisioning, skip straight to [Step 2 — Create your organization](#step-2-create-your-organization).**
 Steps 1, 5, and 6 below are the **manual equivalents** — for when you deployed the
-platform by hand (raw `bin/setup.sh` + `init-platform.sh`) instead of via `provision`.
+platform by hand (raw `bin/setup.sh` + `init-platform.sh`) or are onboarding an
+additional organization.
 
 ---
 
