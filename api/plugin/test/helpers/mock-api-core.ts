@@ -60,6 +60,18 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     DEFAULT_PAGE_LIMIT: 100,
     closeLeaderLock: async () => undefined,
     loadAndRestore: async () => null,
+    loadAndPurge: async () => null,
+    getParam: (params: Record<string, string>, key: string) => params?.[key],
+    // Route-response + access helpers, so a test that mounts the REAL index.js
+    // (full route graph) resolves them without re-stubbing each one. Suites that
+    // assert on responses still override these (overrides spread last).
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    requirePublicAccess: () => passThroughMiddleware,
+    sendSuccess: (res: any, statusCode: number, data?: unknown) => res.status(statusCode).json({ success: true, statusCode, data }),
+    sendBadRequest: (res: any, message: string) => res.status(400).json({ success: false, message }),
+    sendError: (res: any, statusCode: number, message: string) => res.status(statusCode).json({ success: false, message }),
+    sendEntityNotFound: (res: any, entity?: string) => res.status(404).json({ success: false, message: `${entity ?? 'Entity'} not found` }),
+    /* eslint-enable @typescript-eslint/no-explicit-any */
     REPORT_INTERVALS: ['day', 'week', 'month'],
     scrubAwsIdentifiersFromString: (s: string) => s,
     scrubAwsIdentifiers: <T>(v: T): T => v,

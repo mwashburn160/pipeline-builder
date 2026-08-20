@@ -59,6 +59,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   createApp: () => ({ app, sseManager: {} }),
   runServer: jest.fn(),
+  // Pass the handler through — this suite inspects mount/middleware wiring, not
+  // handler behavior. Needed since the (real) purge/restore routes use withRoute.
+  withRoute: (handler: unknown) => handler,
   createProtectedRoute: () => [],
   createAuthenticatedWithOrgRoute: () => [],
   attachRequestContext: () => (_req: unknown, _res: unknown, next: () => void) => next(),

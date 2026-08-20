@@ -162,10 +162,12 @@ export type AuditAction =
   | 'pipeline.update'
   | 'pipeline.delete'
   | 'pipeline.restore'
+  | 'pipeline.purge'
   | 'pipeline_template.create'
   | 'pipeline_template.update'
   | 'pipeline_template.delete'
   | 'pipeline_template.restore'
+  | 'pipeline_template.purge'
   | 'pipeline.execution.start'
   | 'pipeline.execution.cancel'
   | 'pipeline.registry.register'
@@ -174,6 +176,7 @@ export type AuditAction =
   // that complements the already-audited builds. Posted to the ingest.
   | 'plugin.delete'
   | 'plugin.restore'
+  | 'plugin.purge'
   | 'plugin.update'
   | 'plugin.upload'
   | 'plugin.deploy'
@@ -194,10 +197,12 @@ export type AuditAction =
   | 'compliance.rule.update'
   | 'compliance.rule.delete'
   | 'compliance.rule.restore'
+  | 'compliance.rule.purge'
   | 'compliance.policy.create'
   | 'compliance.policy.update'
   | 'compliance.policy.delete'
   | 'compliance.policy.restore'
+  | 'compliance.policy.purge'
   | 'compliance.scan-schedule.create'
   | 'compliance.scan-schedule.update'
   | 'compliance.scan-schedule.delete'
@@ -213,6 +218,7 @@ export type AuditAction =
   | 'message.announcement.create'
   | 'message.delete'
   | 'message.restore'
+  | 'message.purge'
   // Billing (api/billing) — subscription + entitlement mutations, mirrored to
   // the central trail (also in the service-local billing_events collection).
   | 'billing.subscription.cancel'
@@ -333,16 +339,19 @@ export const ALL_AUDIT_ACTIONS = [
   'pipeline.update',
   'pipeline.delete',
   'pipeline.restore',
+  'pipeline.purge',
   'pipeline_template.create',
   'pipeline_template.update',
   'pipeline_template.delete',
   'pipeline_template.restore',
+  'pipeline_template.purge',
   'pipeline.execution.start',
   'pipeline.execution.cancel',
   'pipeline.registry.register',
   'pipeline.registry.deregister',
   'plugin.delete',
   'plugin.restore',
+  'plugin.purge',
   'plugin.update',
   'plugin.upload',
   'plugin.deploy',
@@ -359,10 +368,12 @@ export const ALL_AUDIT_ACTIONS = [
   'compliance.rule.update',
   'compliance.rule.delete',
   'compliance.rule.restore',
+  'compliance.rule.purge',
   'compliance.policy.create',
   'compliance.policy.update',
   'compliance.policy.delete',
   'compliance.policy.restore',
+  'compliance.policy.purge',
   'compliance.scan-schedule.create',
   'compliance.scan-schedule.update',
   'compliance.scan-schedule.delete',
@@ -374,6 +385,7 @@ export const ALL_AUDIT_ACTIONS = [
   'message.announcement.create',
   'message.delete',
   'message.restore',
+  'message.purge',
   'billing.subscription.cancel',
   'billing.subscription.delete',
   'billing.tier.override',
