@@ -156,8 +156,10 @@ supported on both **minikube** and **ec2** (they share the minikube substrate):
 LEAN=1 ./deploy/local/minikube/bin/setup.sh
 # clean restart: minikube delete --profile=pipeline-builder, then re-run
 
-# ec2 (smaller instance, e.g. t3.large / 8 GiB instead of t3.xlarge)
+# ec2 (fits a t3.xlarge / 4 vCPU instead of requiring t3.2xlarge)
 LEAN=1 sudo -E bash deploy/aws/ec2/bin/startup.sh   # -E preserves LEAN through sudo
+# ...or at launch: set the CFN `Lean` param — LEAN=1 deploy/aws/ec2/bin/setup.sh
+#    (or: pipeline-manager infra provision --target ec2 --lean --instance-type t3.xlarge)
 ```
 
 LEAN omits the optional observability/admin services (prometheus, thanos, loki,

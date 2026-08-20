@@ -375,6 +375,8 @@ echo "========================================"
 export DOMAIN
 export GHCR_TOKEN
 export GHCR_USER
+# LEAN passthrough (from UserData's `Lean` stack param); unset => startup.sh defaults off.
+export LEAN
 
 bash "${DEPLOY_DIR}/bin/startup.sh"
 

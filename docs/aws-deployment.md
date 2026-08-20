@@ -123,11 +123,13 @@ install it right after KEDA; policies live in `k8s/istio.yaml`. See
   different CNI conf/bin dirs, pass them via `--set values.cni.cniConfDir/cniBinDir`
   in `setup.sh`. Validate capture across all nodes and under a Karpenter scale-up.
 - **EC2** is single-node Minikube; ambient installs trivially. The mesh adds
-  ~0.3–0.7 GiB (istiod + ztunnel), so **t3.xlarge is the recommended minimum** for the
-  full stack. To run a **smaller instance** (e.g. t3.large / 8 GiB), deploy with
-  **`LEAN=1`** — it drops the optional observability/admin services and single-replicas
-  every workload so the core stack + mesh fits: `LEAN=1 sudo -E bash deploy/aws/ec2/bin/startup.sh`
-  (`-E` preserves the env through `sudo`). See [Service Mesh: LEAN mode](service-mesh.md#lean-mode-trimming-the-footprint).
+  ~0.3–0.7 GiB (istiod + ztunnel); the **full stack + mesh wants t3.2xlarge** (the
+  default). To run a **t3.xlarge** instead, deploy with **`LEAN=1`** — it drops the
+  optional observability/admin services and single-replicas every workload so the core
+  stack + mesh fits. Set it at launch (CFN `Lean` param): `LEAN=1 deploy/aws/ec2/bin/setup.sh`
+  (or `pipeline-manager infra provision --target ec2 --lean --instance-type t3.xlarge`),
+  or on the box: `LEAN=1 sudo -E bash deploy/aws/ec2/bin/startup.sh` (`-E` preserves the
+  env through `sudo`). See [Service Mesh: LEAN mode](service-mesh.md#lean-mode-trimming-the-footprint).
 - **Ingress**: the ALB terminates TLS (ACM) and forwards plain HTTP to `nginx:8080`,
   which is carved out of STRICT (PERMISSIVE) — the ALB health check on `:8080/health`
   rides the same carve-out.
@@ -309,7 +311,8 @@ aws cloudformation describe-stacks --stack-name pipeline-builder \
 | `GhcrToken` | Yes | — | GHCR token for pulling images |
 | `DomainName` | **Yes** | — | FQDN — ACM cert + Route 53 alias to the ALB |
 | `HostedZoneId` | **Yes** | — | Public Route 53 zone ID (ACM DNS validation + alias) |
-| `InstanceType` | No | `t3.2xlarge` | EC2 instance type (8 vCPU / 32 GiB; full stack fits with the default ResourceQuota) |
+| `InstanceType` | No | `t3.2xlarge` | EC2 instance type (8 vCPU / 32 GiB; full stack fits with the default ResourceQuota). Use `t3.xlarge` only with `Lean=true`. |
+| `Lean` | No | `false` | When `true`, omit the optional observability/admin services + single-replica everything so the core stack + mesh fits a `t3.xlarge`. Pair with `InstanceType=t3.xlarge`. See [Service Mesh: LEAN mode](service-mesh.md#lean-mode-trimming-the-footprint). |
 | `EbsVolumeSize` | No | `60` | Root volume size in GiB (OS, binaries) |
 | `DataVolumeSize` | No | `500` | Data volume size in GiB (`/opt/pipeline`, gp3 encrypted) — Docker, plugins, registry, databases. Lower to ~200 for slim/`build_image` deploys. |
 | `GitRepo` | No | *(this repo)* | Git repository URL |

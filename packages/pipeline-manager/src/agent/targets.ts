@@ -88,6 +88,10 @@ const CLUSTER_NAME: InputSpec = { flag: 'cluster-name', key: 'clusterName', desc
 // both keys explicitly — see the param-assembly there.
 const AUTO_INIT: InputSpec = { flag: 'auto-init', key: 'autoInit', description: 'ec2/eks: the deploy self-runs init-platform (register + all loads) — the DEFAULT on AWS', boolean: true };
 const NO_AUTO_INIT: InputSpec = { flag: 'no-auto-init', key: 'noAutoInit', description: 'ec2/eks: skip the deploy-managed auto-init and run init-platform manually instead', boolean: true };
+// ec2 only: LEAN drops the optional observability/admin services so the core stack +
+// mesh fits a t3.xlarge instead of t3.2xlarge. Flows through the CFN `Lean` param into
+// the instance's startup.sh. (minikube reads LEAN as an env var; eks doesn't support it.)
+const LEAN: InputSpec = { flag: 'lean', key: 'lean', description: 'ec2: trim optional observability/admin services so the stack fits a t3.xlarge (pair with --instance-type t3.xlarge)', boolean: true };
 
 // SES / email family — shared by ec2 + eks. SES is provisioned BY DEFAULT
 // on AWS deploys; `--no-email` is the opt-out (`--email` is a harmless no-op kept
@@ -154,7 +158,7 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     entrypoint: 'bin/setup.sh',
     sparsePaths: ['deploy/aws/ec2'],
     required: [KEY_PAIR, DOMAIN, HOSTED_ZONE],
-    optional: [REGION, DEPLOY_MODE, GHCR_TOKEN, INSTANCE_TYPE, STACK_NAME, AUTO_INIT, NO_AUTO_INIT, ...EMAIL],
+    optional: [REGION, DEPLOY_MODE, GHCR_TOKEN, INSTANCE_TYPE, STACK_NAME, AUTO_INIT, NO_AUTO_INIT, LEAN, ...EMAIL],
     postDeploy: './deploy/bin/init-platform.sh ec2  # auto-runs on the instance by default; --no-auto-init to do it manually',
     cost: '~$140-265/mo',
     bestFor: 'Dev / staging',

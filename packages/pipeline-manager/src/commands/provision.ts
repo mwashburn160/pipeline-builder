@@ -496,6 +496,7 @@ export function provision(program: Command): void {
     .option('--deploy-mode <mode>', 'public | private (EC2/EKS)')
     .option('--key-pair <name>', 'EC2 key pair (EC2)')
     .option('--instance-type <type>', 'EC2 instance type (EC2)')
+    .option('--lean', 'EC2: trim optional observability/admin services so the core stack + mesh fits a t3.xlarge (pair with --instance-type t3.xlarge)')
     .option('--ghcr-token <token>', 'GitHub PAT (read:packages) — masked in output')
     .option('--email', 'Enable SES transactional email (on by default for AWS)')
     .option('--no-email', 'Skip SES (transactional email is provisioned by default on AWS)')
@@ -557,6 +558,9 @@ export function provision(program: Command): void {
           deployMode: options.deployMode,
           keyPair: options.keyPair,
           instanceType: options.instanceType,
+          // ec2 LEAN mode (boolean) → assembleCommand emits `--lean`, which setup.sh
+          // forwards to the CFN `Lean` param. Only ec2's spec lists it; other targets ignore it.
+          lean: options.lean === true,
           // Deploy-time resource identity: ec2 emits --stack-name (key stackName), eks emits
           // --cluster-name (key clusterName). Both also drive teardown. Undefined → defaults.
           stackName: options.stackName,

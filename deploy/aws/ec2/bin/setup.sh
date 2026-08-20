@@ -38,6 +38,11 @@ HOSTED_ZONE_ID="${HOSTED_ZONE_ID:-}"
 KEY_PAIR_NAME="${KEY_PAIR_NAME:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 INSTANCE_TYPE="${INSTANCE_TYPE:-}"
+# LEAN mode: pass LEAN=1 (or true) to launch a trimmed stack — the CFN `Lean` param
+# flows through UserData into startup.sh, which omits the optional observability/admin
+# services so the core stack + mesh fits a t3.xlarge instead of t3.2xlarge. Normalize
+# any truthy spelling to the "true"/"false" the template's AllowedValues expect.
+case "${LEAN:-}" in 1|true|TRUE|True|yes|y) LEAN=true ;; *) LEAN=false ;; esac
 # Transactional email via SES. ENABLED BY DEFAULT — the SES identity + DKIM +
 # instance-role grant + app EMAIL_ENABLED are provisioned together. Pass --no-email
 # to skip it. NOTE: a fresh SES account is sandboxed (verified recipients only)
@@ -76,6 +81,7 @@ while [[ $# -gt 0 ]]; do
     --alert-email) ALERT_EMAIL="$2"; shift 2 ;;
     --auto-init) AUTO_INIT="true"; shift ;;
     --no-auto-init) AUTO_INIT="false"; shift ;;
+    --lean) LEAN="true"; shift ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -164,6 +170,7 @@ BASE_PARAMS=(
   "EmailFromName=${EMAIL_FROM_NAME}"
   "AlertEmail=${ALERT_EMAIL}"
   "AutoInit=${AUTO_INIT}"
+  "Lean=${LEAN}"
 )
 [ -n "$DOMAIN" ]         && BASE_PARAMS+=("DomainName=${DOMAIN}")
 [ -n "$HOSTED_ZONE_ID" ] && BASE_PARAMS+=("HostedZoneId=${HOSTED_ZONE_ID}")

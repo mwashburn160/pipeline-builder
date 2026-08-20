@@ -24,9 +24,11 @@ ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
 # LEAN=1 drops the optional observability + admin services (prometheus, thanos,
 # loki, promtail, jaeger, alertmanager, mongo-express, pgadmin) from the apply and
 # collapses workloads to a single replica, so the core stack + Istio mesh fits a
-# SMALLER instance (e.g. t3.large / 8 GiB) instead of needing t3.xlarge. Core
-# services + DBs are unaffected. Full stack is the default (LEAN=0) for t3.xlarge+.
+# SMALLER instance (t3.xlarge / 4 vCPU) instead of needing t3.2xlarge. Core services
+# + DBs are unaffected. Full stack is the default (LEAN=0) for t3.2xlarge+.
+# Accept the CFN/boolean spellings too (the `Lean` stack param passes true/false).
 LEAN="${LEAN:-0}"
+case "$LEAN" in 1|true|TRUE|True|yes|y) LEAN=1 ;; *) LEAN=0 ;; esac
 # Minikube VM disk size. Applied only at cluster CREATE — grow it by re-running
 # after a delete. Keep it within the instance's EBS data volume (500Gi default).
 # 80g leaves ~2x headroom over the steady node footprint (buildkit cache bounded
