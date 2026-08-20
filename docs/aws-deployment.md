@@ -123,7 +123,11 @@ install it right after KEDA; policies live in `k8s/istio.yaml`. See
   different CNI conf/bin dirs, pass them via `--set values.cni.cniConfDir/cniBinDir`
   in `setup.sh`. Validate capture across all nodes and under a Karpenter scale-up.
 - **EC2** is single-node Minikube; ambient installs trivially. The mesh adds
-  ~0.3–0.7 GiB (istiod + ztunnel), so **t3.xlarge is the recommended minimum**.
+  ~0.3–0.7 GiB (istiod + ztunnel), so **t3.xlarge is the recommended minimum** for the
+  full stack. To run a **smaller instance** (e.g. t3.large / 8 GiB), deploy with
+  **`LEAN=1`** — it drops the optional observability/admin services and single-replicas
+  every workload so the core stack + mesh fits: `LEAN=1 sudo -E bash deploy/aws/ec2/bin/startup.sh`
+  (`-E` preserves the env through `sudo`). See [Service Mesh: LEAN mode](service-mesh.md#lean-mode-trimming-the-footprint).
 - **Ingress**: the ALB terminates TLS (ACM) and forwards plain HTTP to `nginx:8080`,
   which is carved out of STRICT (PERMISSIVE) — the ALB health check on `:8080/health`
   rides the same carve-out.

@@ -144,21 +144,27 @@ eks adds: confirm capture across all Auto Mode nodes, node SecurityGroups allow
 node↔node `:15008` (HBONE), and a Karpenter scale-up captures pods on fresh nodes
 (ztunnel/istio-cni Ready first).
 
-## Local footprint (LEAN mode)
+## LEAN mode (trimming the footprint)
 
 The mesh adds ~1 CPU (istiod + ztunnel + istio-cni) on top of the app stack. On an
-~8-core laptop the **full** stack + mesh exceeds 8 vCPU and pods sit Pending (and can
-starve the minikube apiserver). Run minikube with **`LEAN=1`**:
+~8-core node the **full** stack + mesh exceeds 8 vCPU and pods sit Pending (and can
+starve the apiserver). **`LEAN=1`** trims the deploy so the core stack + mesh fits —
+supported on both **minikube** and **ec2** (they share the minikube substrate):
 
 ```bash
+# minikube (~8-core laptop)
 LEAN=1 ./deploy/local/minikube/bin/setup.sh
 # clean restart: minikube delete --profile=pipeline-builder, then re-run
+
+# ec2 (smaller instance, e.g. t3.large / 8 GiB instead of t3.xlarge)
+LEAN=1 sudo -E bash deploy/aws/ec2/bin/startup.sh   # -E preserves LEAN through sudo
 ```
 
 LEAN omits the optional observability/admin services (prometheus, thanos, loki,
-promtail, jaeger, alertmanager, mongo-express, pgadmin) and collapses every service to
-a single replica, leaving the core stack + mesh room to schedule. The full stack is the
-default (LEAN=0) for larger machines; ec2/eks are unaffected.
+promtail, jaeger, alertmanager, mongo-express, pgadmin) and collapses every workload to
+a single replica, leaving the core stack + mesh room to schedule. Both targets drive the
+same `lean_filter` over the kustomize stream. The full stack is the default (LEAN=0) for
+larger machines; **eks** is unaffected (Karpenter provisions more nodes instead).
 
 ## Troubleshooting
 

@@ -115,7 +115,7 @@ the links below.
 
 - **Language plugins / version managers** — [Language Plugins](plugins/language.md)
 - **Lead time (DORA caveat)** — [DORA Metrics: Lead Time caveat](dora-metrics.md#lead-time-caveat-roadmap)
-- **LEAN mode (local mesh footprint)** — [Service Mesh: Local footprint (LEAN mode)](service-mesh.md#local-footprint-lean-mode)
+- **LEAN mode (trim footprint — minikube & ec2)** — [Service Mesh: LEAN mode](service-mesh.md#lean-mode-trimming-the-footprint)
 
 ## M
 

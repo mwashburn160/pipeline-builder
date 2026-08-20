@@ -21,6 +21,12 @@ PROFILE="pipeline-builder"
 # Istio ambient mesh version (ambient-GA >= 1.24). istioctl must be installed on
 # the instance and on the minikube user's PATH (it runs via the `mk` wrapper).
 ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
+# LEAN=1 drops the optional observability + admin services (prometheus, thanos,
+# loki, promtail, jaeger, alertmanager, mongo-express, pgadmin) from the apply and
+# collapses workloads to a single replica, so the core stack + Istio mesh fits a
+# SMALLER instance (e.g. t3.large / 8 GiB) instead of needing t3.xlarge. Core
+# services + DBs are unaffected. Full stack is the default (LEAN=0) for t3.xlarge+.
+LEAN="${LEAN:-0}"
 # Minikube VM disk size. Applied only at cluster CREATE — grow it by re-running
 # after a delete. Keep it within the instance's EBS data volume (500Gi default).
 # 80g leaves ~2x headroom over the steady node footprint (buildkit cache bounded
@@ -49,6 +55,31 @@ else
 fi
 
 log() { echo ""; echo "=== $1 ==="; }
+
+# lean_filter — with LEAN=1, drop the optional observability/admin workloads from
+# the kustomize stream (their Deployment/StatefulSet/DaemonSet/Service/PV/PVC/HPA/
+# PDB/ServiceAccount/ConfigMap docs) so no pods schedule for them. Kept: everything
+# else, incl. AuthZ/NetworkPolicy docs that merely reference them (harmless, no pod).
+# With LEAN=0 it's a pass-through (cat). Pure awk/sed — runs on the host side of the
+# apply pipe (the apply itself still goes through `mk kubectl`).
+lean_filter() {
+  if [ "$LEAN" != "1" ]; then cat; return; fi
+  awk '
+    function emit(  o,d) {
+      o = (nm ~ /^(prometheus|loki|thanos-query|thanos-store-gateway|alertmanager|promtail|jaeger|mongo-express|pgadmin)(-.*)?$/)
+      d = (kd ~ /^(Deployment|StatefulSet|DaemonSet|Service|PersistentVolume|PersistentVolumeClaim|HorizontalPodAutoscaler|PodDisruptionBudget|ServiceAccount|ConfigMap|ClusterRole|ClusterRoleBinding|Role|RoleBinding)$/)
+      if (buf != "" && !(o && d)) printf "---\n%s", buf
+      buf=""; kd=""; nm=""
+    }
+    /^---$/ { emit(); next }
+    { buf = buf $0 "\n"; if ($1=="kind:") kd=$2; if ($0 ~ /^  name: / && nm=="") nm=$2 }
+    END { emit() }
+  ' | sed -E 's/^(  replicas:) [0-9]+/\1 1/; s/^(  (min|max)Replicas:) [0-9]+/\1 1/; s/^(  (min|max)ReplicaCount:) [0-9]+/\1 1/'
+  # ^ also collapse every workload/HPA/ScaledObject to a single replica: on a lean
+  #   (smaller) instance the core stack + mesh already fills the node, so 2nd replicas
+  #   just sit Pending. (spec-level fields are 2-space; the ScaledObject `fallback`
+  #   replicas is deeper-indented and intentionally left alone.)
+}
 
 # Shared helpers (preflight, ensure_istioctl). Sourcing common.sh cd's to /tmp —
 # every path here is absolute, so that's safe.
@@ -336,9 +367,11 @@ pb_create_config_maps "$DEPLOY_DIR" "$CONFIG_DIR" "$NGINX_DIR"
 mk minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${DATA_DIR}/plugins-data && sudo chown -R 1000:1000 ${DATA_DIR}/plugins-data"
 
 log "Applying Kubernetes manifests"
+[ "$LEAN" = "1" ] && echo "  LEAN=1 — omitting optional observability + admin services (prometheus/thanos/loki/promtail/jaeger/alertmanager/mongo-express/pgadmin)"
 # Restricted envsubst: ONLY ${BUILDKIT_MEMORY_LIMIT} is expanded, so runtime
 # shell tokens in inline configmaps (nginx ${NS}/$s, etc.) are left intact.
-mk kubectl kustomize "$K8S_DIR" | sed "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" | mk kubectl apply -f -
+# lean_filter drops optional workloads when LEAN=1 (pass-through otherwise).
+mk kubectl kustomize "$K8S_DIR" | sed "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" | lean_filter | mk kubectl apply -f -
 
 log "Post-deploy fixups"
 mk minikube ssh --profile="$PROFILE" -- "sudo chown -R 1000:1000 ${DATA_DIR}/minio-data"
@@ -388,6 +421,9 @@ fi
 
 log "Access URLs (via the ALB — TLS terminated there with the ACM cert)"
 echo "  Application:   https://${DOMAIN}"
-echo "  Mongo Express: https://${DOMAIN}/mongo-express/"
-echo "  pgAdmin:       https://${DOMAIN}/pgadmin/"
+# mongo-express / pgAdmin are omitted under LEAN=1 (no service behind these paths).
+if [ "$LEAN" != "1" ]; then
+  echo "  Mongo Express: https://${DOMAIN}/mongo-express/"
+  echo "  pgAdmin:       https://${DOMAIN}/pgadmin/"
+fi
 echo "  Credentials: see $ENV_FILE"
