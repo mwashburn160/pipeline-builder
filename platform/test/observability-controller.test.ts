@@ -8,7 +8,8 @@
  *  - sysadmin gate (403 for non-sysadmin)
  *  - 400 for unknown catalog keys / wrong-source key (Prom key on /logs etc.)
  *  - 500 on upstream 4xx (catalog bug, not user input)
- *  - 502 on upstream unreachable
+ *  - 200 + empty `degraded:true` envelope on upstream unreachable (LEAN deploys
+ *    omit prometheus/loki, so reads degrade rather than 502)
  *  - 200 + correct envelope shape for instant + range queries
  *  - templated Loki params reach the client unchanged (sanitization is
  *    in catalog.substituteVars, separately tested)
@@ -167,11 +168,16 @@ describe('observabilityQuery', () => {
     expect(res._status).toBe(500);
   });
 
-  it('returns 502 on upstream unreachable', async () => {
+  it('degrades to an empty 200 (degraded:true) when the metrics backend is unreachable', async () => {
+    // A LEAN deploy omits Prometheus, so an unreachable backend is expected — a read
+    // returns an empty, degraded result instead of a 502 so dashboards render an empty state.
     mockPromQueryRange.mockRejectedValue({ kind: 'unreachable', message: 'ECONNREFUSED' });
     const res = makeRes();
     await observabilityQuery(makeReq({ key: 'plugin_builds_per_min', range: '1h' }), res);
-    expect(res._status).toBe(502);
+    expect(res._status).toBe(200);
+    const body = res._body as { data: { series: unknown[]; degraded?: boolean } };
+    expect(body.data.degraded).toBe(true);
+    expect(body.data.series).toHaveLength(0);
   });
 });
 
@@ -295,10 +301,14 @@ describe('observabilityLogs', () => {
     expect(mockLokiStreams.mock.calls[0][3]).toBe(50);
   });
 
-  it('returns 502 on Loki unreachable', async () => {
+  it('degrades to an empty 200 (degraded:true) when Loki is unreachable', async () => {
+    // A LEAN deploy omits Loki — a read degrades to an empty, degraded result rather than 502.
     mockLokiStreams.mockRejectedValue({ kind: 'unreachable', message: 'ECONNREFUSED' });
     const res = makeRes();
     await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }), res);
-    expect(res._status).toBe(502);
+    expect(res._status).toBe(200);
+    const body = res._body as { data: { entries: unknown[]; degraded?: boolean } };
+    expect(body.data.degraded).toBe(true);
+    expect(body.data.entries).toHaveLength(0);
   });
 });

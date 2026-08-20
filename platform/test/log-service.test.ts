@@ -121,6 +121,16 @@ describe('log-service', () => {
       await expect(queryLogs({})).rejects.toThrow(/Loki returned 500/);
     });
 
+    it('degrades to an empty degraded result when Loki is unreachable', async () => {
+      // A connection-level failure (fetch rejects) is how an absent Loki (LEAN deploy)
+      // presents — queryLogs returns empty entries flagged degraded rather than throwing.
+      global.fetch = jest.fn().mockRejectedValue(new Error('ECONNREFUSED')) as unknown as typeof fetch;
+
+      const result = await queryLogs({});
+      expect(result.entries).toEqual([]);
+      expect(result.stats.degraded).toBe(true);
+    });
+
     it('should default direction to backward', async () => {
       const fetchMock = jest.fn().mockResolvedValue({
         ok: true,
@@ -153,6 +163,11 @@ describe('log-service', () => {
 
       const result = await getServiceNames();
       expect(result).toEqual([]);
+    });
+
+    it('returns empty when Loki is unreachable', async () => {
+      global.fetch = jest.fn().mockRejectedValue(new Error('ECONNREFUSED')) as unknown as typeof fetch;
+      expect(await getServiceNames()).toEqual([]);
     });
   });
 
