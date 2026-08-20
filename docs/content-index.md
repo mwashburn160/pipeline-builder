@@ -78,6 +78,7 @@ the links below.
 - **EKS deployment** — [AWS Deployment: EKS](aws-deployment.md#eks), [EKS vs other k8s targets](aws-deployment.md#eks-vs-the-other-k8s-targets)
 - **Egress (external, allow-any)** — [Service Mesh: External egress](service-mesh.md#external-egress)
 - **Email / SES (sending, bounces, sandbox)** — [AWS Deployment: Email (SES)](aws-deployment.md#email-ses), [Env vars: Email](environment-variables.md#email)
+- **Event reporting / `setup-events` (EventBridge → SQS → Lambda)** — [Onboarding: Set up event reporting](onboarding.md#step-6-set-up-event-reporting-aws-targets), [AWS: EventBridge Reporting](aws-deployment.md#3-deploy-eventbridge-reporting-infrastructure)
 - **Encryption (per-team secret, KMS)** — [Metadata Keys: Encryption](metadata-keys.md#encryption), [Env vars: Multi-team secret encryption](environment-variables.md#multi-team-secret-encryption)
 - **Environment variables (full reference)** — [Environment Variables](environment-variables.md)
 - **Error handling / typed errors / error catalog** — [Error Handling Convention](error-handling.md), [Template error catalog](templates.md#error-catalog)
@@ -133,11 +134,13 @@ the links below.
 
 - **OAuth / social login** — [Authentication: OAuth social login](authentication.md#oauth-social-login-platform-wide), [Env vars: OAuth](environment-variables.md#oauth-social-login-optional)
 - **OIDC (enterprise SSO, IAM role trust)** — [Authentication: Per-org SSO (OIDC)](authentication.md#per-org-enterprise-sso-oidc), [CDK: Role Types](cdk-usage.md#role-types)
+- **Onboarding a new organization (initial login → PAT → events)** — [Onboarding](onboarding.md)
 - **Organizations / teams / hierarchy** — [Docs: Organizations](README.md#organizations), [Organization Benefits](organization-benefits.md), [Permissions: Teams](permissions.md#teams)
 
 ## P
 
 - **Pagination & limits** — [Env vars: Pagination & Limits](environment-variables.md#pagination-limits), [API: Common Query Parameters](api-reference.md#common-query-parameters)
+- **PAT / Personal Access Token (CLI/automation credential)** — [Onboarding: Create a PAT](onboarding.md#step-4-create-a-personal-access-token-pat), [Pipeline Manager: auth](pipeline-manager.md#auth-infrastructure)
 - **Permissions / RBAC / roles** — [Roles & Permissions](permissions.md), [Permission catalog](permissions.md#permission-catalog)
 - **Pipeline creation (5 ways)** — [Developer Guide: Five Ways](developer-guide.md#five-ways-to-create-a-pipeline), [Docs: Creating Pipelines](README.md#creating-pipelines)
 - **Plugins (catalog, categories, structure)** — [Plugin Catalog](plugins/README.md), [Categories](plugins/README.md#categories), by type: [AI](plugins/ai.md) · [Artifact](plugins/artifact.md) · [Deploy](plugins/deploy.md) · [Infrastructure](plugins/infrastructure.md) · [Language](plugins/language.md) · [Monitoring](plugins/monitoring.md) · [Notification](plugins/notification.md) · [Quality](plugins/quality.md) · [Security](plugins/security.md) · [Testing](plugins/testing.md)
@@ -165,6 +168,7 @@ the links below.
 - **Scheduled pipelines (cron/EventBridge)** — [CDK: Scheduled Pipelines](cdk-usage.md#scheduled-pipelines)
 - **Scopes (compliance / metadata scope levels)** — [Compliance: Scopes](compliance.md#scopes), [Metadata: Scope Levels](metadata-keys.md#scope-levels)
 - **Secrets — usage & injection** — [CDK: Secrets Management](cdk-usage.md#secrets-management), [Plugins: How Secrets Work](plugins/README.md#how-secrets-work), [Env vars](environment-variables.md#authentication)
+- **Service token (`store-token`, JWT in Secrets Manager)** — [Onboarding: Store the service token](onboarding.md#step-5-store-the-service-token-aws-targets), [AWS: Store Service Credentials](aws-deployment.md#2-store-service-credentials)
 - **Secret naming convention (`pipeline-builder/{orgId}/{name}`)** — [Plugins: Naming Convention](plugins/README.md#naming-convention)
 - **Secrets — rotation runbook** — [Deploy Operations: Rotation runbook](deploy-operations.md#rotation-runbook-there-is-deliberately-no-blind---rotate-flag)
 - **Security plugins (SAST, SCA, secret detection)** — [Security Plugins](plugins/security.md)
@@ -218,6 +222,7 @@ the links below.
 | [environment-variables](environment-variables.md) | Every env var by subsystem |
 | [error-handling](error-handling.md) | Typed `AppError` convention |
 | [metadata-keys](metadata-keys.md) | All `aws:cdk:*` and step/pipeline metadata keys |
+| [onboarding](onboarding.md) | New-org walkthrough: initial login → org → members → PAT → store-token → setup-events → first pipeline |
 | [organization-benefits](organization-benefits.md) | Value story, orgs/teams/billing, impact by role |
 | [permissions](permissions.md) | RBAC model, permission catalog, enforcement, sessions |
 | [pipeline-manager](pipeline-manager.md) | CLI install, commands, workflows |

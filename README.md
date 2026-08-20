@@ -308,42 +308,58 @@ catalog; see [Post-Deploy: Initialize Platform](docs/README.md#post-deploy-initi
 
 ## Documentation
 
-### Getting Started
+Full docs hub: **[docs/](docs/README.md)** — grouped by task. Looking for a term? **[Content Index](docs/content-index.md)** (A–Z).
+
+### Start here
 
 | Document | Description |
 |----------|-------------|
-| [Overview](docs/README.md) | Key concepts, usage guides, operational how-to |
-| [Content Index](docs/content-index.md) | A–Z keyword/topic index — find where any subject is documented |
-| [Pipeline Manager CLI](docs/pipeline-manager.md) | The `pipeline-manager` CLI — provision the platform, build/deploy pipelines, manage plugins, run audits |
-| [Developer Guide](docs/developer-guide.md) | Cut-and-paste pipeline examples for 7 languages |
-| [Samples](docs/samples.md) | Pipeline configs and CDK patterns |
-| [Organization Benefits](docs/organization-benefits.md) | What orgs gain from standardizing on the platform |
-| [Architecture Flow](docs/architecture-flow.md) | End-to-end flow diagrams (request → build → deploy) |
-| [Service Mesh](docs/service-mesh.md) | Istio ambient — STRICT mTLS + identity authorization across all services |
+| [Documentation hub](docs/README.md) | The full index, grouped: Build · Govern · Operate · Reference |
+| [Onboarding a New Organization](docs/onboarding.md) | First admin: login → org → members → PAT → `store-token` → `setup-events` → first pipeline |
+| [Pipeline Manager CLI](docs/pipeline-manager.md) | The `pipeline-manager` CLI — provision the platform, build/deploy pipelines, run audits |
+| [AWS Deployment](docs/aws-deployment.md) | Deploy to EC2 / EKS — modes, post-deploy setup, reporting, teardown |
 
-### Developer Reference
+### Build
 
 | Document | Description |
 |----------|-------------|
-| [API Reference](docs/api-reference.md) | REST endpoints, query params, curl examples |
-| [Developer Portal](docs/developer-portal.md) | Catalog ownership & My Services, golden-path templates, per-pipeline maturity scorecards |
-| [Roles & Permissions](docs/permissions.md) | Permission catalog, built-in Roles, `requirePermission` enforcement, session invalidation |
-| [Authentication & SSO](docs/authentication.md) | OAuth social login (Google/GitHub/Facebook/Microsoft/GitLab/LinkedIn) + per-org enterprise SSO (OIDC, AWS Cognito) |
+| [Developer Guide](docs/developer-guide.md) | Five ways to create a pipeline + cut-and-paste patterns for 7 languages |
 | [CDK Usage](docs/cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
-| [Metadata Keys](docs/metadata-keys.md) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
-| [Template Syntax](docs/templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
+| [Template Syntax](docs/templates.md) | `{{ ... }}` synth-time interpolation + golden-path templates |
+| [Metadata Keys](docs/metadata-keys.md) | Typed CodePipeline / CodeBuild / networking / IAM configuration keys |
 | [Plugin Catalog](docs/plugins/README.md) | 119 pre-built plugins across 10 categories |
+| [Developer Portal](docs/developer-portal.md) | Catalog ownership & My Services, golden-path templates, maturity scorecards |
+| [Samples](docs/samples.md) | Ready-to-load pipeline configs for 7 languages + CDK patterns |
 
-### Operations
+### Govern
 
 | Document | Description |
 |----------|-------------|
-| [AWS Deployment](docs/aws-deployment.md) | EC2 and EKS deployment guides |
-| [Environment Variables](docs/environment-variables.md) | Full config reference for all services |
-| [Compliance](docs/compliance.md) | Rule engine, validation, audit trail |
-| [Audit Events](docs/audit-events.md) | Tamper-evident audit trail — hash-chain + `/audit/verify`, ingest security, durable spool, action catalog |
-| [Billing Add-on Bundles](docs/billing-bundles.md) | Stackable add-ons that raise an account's pooled caps and unlock features |
-| [Billing Discounts](docs/billing-discounts.md) | Coupon codes + usage credits — unforgeable AES-GCM tokens, one-time/recurring/credit, system-grant or self-service redemption |
+| [Organization Benefits](docs/organization-benefits.md) | What orgs gain from standardizing on the platform |
+| [Roles & Permissions](docs/permissions.md) | Permission catalog, built-in Roles, enforcement, session invalidation |
+| [Compliance](docs/compliance.md) | Per-org rule engine — validation, enforcement, audit trail |
+| [Authentication & SSO](docs/authentication.md) | OAuth social login + per-org enterprise SSO (OIDC, AWS Cognito) |
+| [Audit Events](docs/audit-events.md) | Tamper-evident hash-chained trail, `/audit/verify`, action catalog |
+| [Billing Add-on Bundles](docs/billing-bundles.md) | Stackable add-ons that raise pooled caps and unlock features |
+| [Billing Discounts](docs/billing-discounts.md) | Coupon codes + usage credits — one-time/recurring/credit, grant or self-serve |
+
+### Operate
+
+| Document | Description |
+|----------|-------------|
+| [AWS Deployment](docs/aws-deployment.md) | EC2 / EKS deploy, post-deploy setup, reporting infra, drift detection |
+| [Deploy Operations](docs/deploy-operations.md) | Runbook — preflight, secrets rotation, backups & DR, teardown |
+| [Service Mesh](docs/service-mesh.md) | Istio ambient — STRICT mTLS + identity-based L4 authorization |
+| [Environment Variables](docs/environment-variables.md) | Every configuration variable, by subsystem |
+| [DORA Metrics](docs/dora-metrics.md) | Deploy frequency, change-failure rate, MTTR, lead-time proxy |
+
+### Reference
+
+| Document | Description |
+|----------|-------------|
+| [Content Index](docs/content-index.md) | A–Z keyword/topic index — find where any subject is documented |
+| [API Reference](docs/api-reference.md) | REST endpoints, query params, curl examples |
+| [Architecture Flow](docs/architecture-flow.md) | End-to-end flow diagrams (request → build → deploy) |
 
 ---
 

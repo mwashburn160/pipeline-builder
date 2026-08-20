@@ -10,14 +10,24 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 
 ## Overview
 
-This is the documentation index for **Pipeline Builder**, a multi-tenant platform for building AWS CodePipeline CI/CD pipelines from reusable, containerized plugins. It links every setup, usage, and reference guide — deployment, pipeline and plugin authoring (dashboard, CLI, API, CDK, or AI), organizations and RBAC, compliance, billing, and architecture. First time? Work through [Getting Started](#getting-started) then [Creating Pipelines](#creating-pipelines); if you're evaluating for a team, skip ahead to [Architecture](#architecture) and [Organizations](#organizations).
+This is the documentation index for **Pipeline Builder**, a multi-tenant platform for building AWS CodePipeline CI/CD pipelines from reusable, containerized plugins. It links every setup, usage, and reference guide — grouped by task below. New here? Follow the path in **[Start Here](#start-here)**. Evaluating for a team? Skip to [Architecture](#architecture) and [Organizations](#organizations). Looking for a specific term? Use the **[Content Index](content-index.md)** (A–Z).
 
-## Getting Started
+---
 
-1. **Deploy** — choose [Local](../deploy/local/docker/), [Minikube](../deploy/local/minikube/), [EC2, or EKS](aws-deployment.md)
-2. **Register** — create an admin user and organization
-3. **Load plugins** — upload from `deploy/plugins/` or create your own
-4. **Build pipelines** — use the dashboard, CLI, API, or AI prompt
+## Start Here
+
+**The path from zero to a working pipeline:**
+
+1. **Deploy the platform** — [Local](../deploy/local/docker/) / [Minikube](../deploy/local/minikube/) for eval, or [EC2 / EKS](aws-deployment.md) for real use. The recommended installer is [`infra provision`](pipeline-manager.md#installing-the-platform-infra-provision).
+2. **Onboard your organization** — [**Onboarding a New Organization**](onboarding.md) walks the full flow: initial admin login → create org → invite members → create a PAT → store the service token → set up event reporting → first pipeline.
+3. **Build pipelines** — dashboard, AI prompt, CLI, REST API, or CDK (see [Build](#build) below).
+
+| Guide | For |
+|-------|-----|
+| [**Onboarding a New Organization**](onboarding.md) | First admin: login, org, members, PAT, `store-token`, `setup-events`, first pipeline |
+| [AWS Deployment](aws-deployment.md) | Deploy to EC2 / EKS — modes, post-deploy setup, reporting, teardown |
+| [Pipeline Manager (CLI)](pipeline-manager.md) | The `pipeline-manager` CLI — `infra provision`, build/deploy pipelines, audits |
+| [Deploy Operations](deploy-operations.md) | Ops runbook — preflight, secrets rotation, backups, teardown |
 
 ---
 
@@ -33,38 +43,60 @@ This is the documentation index for **Pipeline Builder**, a multi-tenant platfor
 
 ---
 
-## Guides
+## Guides by task
 
-### How-To
+### Build
+
+Author and ship pipelines and plugins.
 
 | Document | Description |
 |----------|-------------|
-| [AWS Deployment](aws-deployment.md) | EC2 and EKS deployment, post-deploy setup, drift detection |
-| [Pipeline Manager (CLI)](pipeline-manager.md) | `pipeline-manager` CLI — install the platform (`infra provision`), build/deploy pipelines, manage plugins, run audits |
+| [Developer Guide](developer-guide.md) | Five ways to create a pipeline + cut-and-paste plugin patterns for 7 languages |
 | [CDK Usage](cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
-| [Compliance](compliance.md) | Per-org rule engine with 18 operators, computed fields, audit trail |
+| [Template Syntax](templates.md) | `{{ ... }}` synth-time interpolation for pipeline configs + plugin specs, and golden-path templates |
+| [Metadata Keys](metadata-keys.md) | Typed CodePipeline / CodeBuild / networking / IAM configuration keys |
+| [Plugin Catalog](plugins/README.md) | 119 pre-built plugins across 10 categories, and how to author your own |
 | [Developer Portal](developer-portal.md) | Catalog ownership & My Services, golden-path templates, per-pipeline maturity scorecards |
-| [Roles & Permissions](permissions.md) | Permission catalog, built-in Roles, `requirePermission` enforcement, session invalidation |
-| [Service Mesh](service-mesh.md) | Istio ambient — STRICT mTLS + identity-based L4 authorization between all services (local, EC2, EKS) |
-| [Authentication & SSO](authentication.md) | OAuth social login (Google/GitHub/Facebook/Microsoft/GitLab/LinkedIn) + per-org enterprise SSO (OIDC, AWS Cognito), env config, provider registration |
-| [Error Handling](error-handling.md) | Error-to-HTTP convention — throw typed `AppError`s |
-| [Audit Events](audit-events.md) | Tamper-evident audit trail — hash-chain + `/audit/verify`, ingest security, durable spool, action catalog |
-| [DORA Metrics](dora-metrics.md) | Deployment frequency, change failure rate, MTTR + performance-level bands and an approximate lead-time proxy (Enterprise, or the Advanced Reporting add-on) |
-| [Environment Variables](environment-variables.md) | Configuration reference for all services |
-| [Samples](samples.md) | Pipeline configs for 7 languages and CDK patterns |
+| [Samples](samples.md) | Ready-to-load pipeline configs for 7 languages + CDK patterns |
+
+### Govern
+
+Organizations, access, policy, and billing.
+
+| Document | Description |
+|----------|-------------|
+| [Organizations & Teams](#organizations) | Isolation boundary, org creation, the org → team hierarchy |
+| [Roles & Permissions](permissions.md) | Permission catalog, built-in Roles, enforcement, session invalidation |
+| [Compliance](compliance.md) | Per-org rule engine — 18 operators, computed fields, enforcement, audit trail |
+| [Authentication & SSO](authentication.md) | OAuth social login + per-org enterprise SSO (OIDC / Cognito) |
+| [Audit Events](audit-events.md) | Tamper-evident hash-chained trail, `/audit/verify`, action catalog |
+| [Billing Add-on Bundles](billing-bundles.md) | Stackable add-ons that raise pooled caps (seats, pipelines, plugins, storage) |
+| [Billing Discounts](billing-discounts.md) | Coupon codes + usage credits — one-time/recurring/credit, grant or self-serve |
+
+### Operate
+
+Run, secure, and observe the platform.
+
+| Document | Description |
+|----------|-------------|
+| [AWS Deployment](aws-deployment.md) | EC2 / EKS deploy, post-deploy setup, reporting infra, drift detection |
+| [Deploy Operations](deploy-operations.md) | Runbook — preflight, secrets rotation, backups & DR, teardown |
+| [Service Mesh](service-mesh.md) | Istio ambient — STRICT mTLS + identity-based L4 authZ (local, EC2, EKS) |
+| [Environment Variables](environment-variables.md) | Every configuration variable, by subsystem |
+| [DORA Metrics](dora-metrics.md) | Deploy frequency, change-failure rate, MTTR, lead-time proxy (Enterprise / Advanced Reporting) |
 
 ### Reference
+
+Look things up.
 
 | Document | Description |
 |----------|-------------|
 | [Content Index](content-index.md) | A–Z keyword/topic index — find where any subject is documented |
 | [API Reference](api-reference.md) | REST endpoints for pipelines, plugins, compliance, reporting, AI |
-| [Metadata Keys](metadata-keys.md) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
-| [Template Syntax](templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
-| [Plugin Catalog](plugins/README.md) | 119 pre-built plugins across 10 categories |
-| [Org → Team Hierarchy](#teams-org--team-hierarchy) | Teams nested one level under a parent org — RBAC, visibility, quota, and compliance inheritance |
-| [Billing Add-on Bundles](billing-bundles.md) | Stackable add-ons that raise an account's pooled caps (seats, pipelines, plugins, storage) and unlock features |
-| [Billing Discounts](billing-discounts.md) | Coupon codes + usage credits — unforgeable tokens, one-time/recurring/credit, system-grant or self-service redemption |
+| [Template Syntax](templates.md) | Full `{{ ... }}` grammar, scopes, filters, error catalog |
+| [Metadata Keys](metadata-keys.md) | The complete typed metadata-key reference |
+| [Error Handling](error-handling.md) | Error-to-HTTP convention — throw typed `AppError`s |
+| [Architecture Flow](architecture-flow.md) | End-to-end flows: plugin build, pipeline create, synth, execution |
 
 ---
 

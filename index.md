@@ -244,40 +244,55 @@ From there:
 
 Browse the full docs at **[{{ '/docs/' | relative_url }}]({{ '/docs/' | relative_url }})**, or read the source on **[GitHub](https://github.com/mwashburn160/pipeline-builder)**.
 
-### Getting Started
+### Start here
 
 | Guide | Description |
 |-------|-------------|
-| [Overview]({{ '/docs/' | relative_url }}) | Key concepts, usage guides, operational how-to |
+| [Documentation hub]({{ '/docs/' | relative_url }}) | The full index, grouped: Build · Govern · Operate · Reference |
+| [Onboarding a New Organization]({{ '/docs/onboarding.html' | relative_url }}) | First admin: login → org → members → PAT → `store-token` → `setup-events` → first pipeline |
 | [Content Index]({{ '/docs/content-index.html' | relative_url }}) | A–Z keyword/topic index — find where any subject is documented |
-| [Pipeline Manager CLI]({{ '/docs/pipeline-manager.html' | relative_url }}) | The `pipeline-manager` CLI — provision the platform, build/deploy pipelines, manage plugins |
-| [Developer Guide]({{ '/docs/developer-guide.html' | relative_url }}) | Cut-and-paste pipeline examples for 7 languages |
-| [Samples]({{ '/docs/samples.html' | relative_url }}) | Pipeline configs and CDK patterns |
-| [Organization Benefits]({{ '/docs/organization-benefits.html' | relative_url }}) | What orgs gain from standardizing on the platform |
-| [Architecture Flow]({{ '/docs/architecture-flow.html' | relative_url }}) | End-to-end flow diagrams (request → build → deploy) |
+| [Pipeline Manager CLI]({{ '/docs/pipeline-manager.html' | relative_url }}) | The `pipeline-manager` CLI — provision the platform, build/deploy pipelines |
+| [AWS Deployment]({{ '/docs/aws-deployment.html' | relative_url }}) | Deploy to EC2 / EKS — modes, post-deploy setup, teardown |
 
-### Developer Reference
+### Build
+
+| Guide | Description |
+|-------|-------------|
+| [Developer Guide]({{ '/docs/developer-guide.html' | relative_url }}) | Five ways to create a pipeline + cut-and-paste patterns for 7 languages |
+| [CDK Usage]({{ '/docs/cdk-usage.html' | relative_url }}) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
+| [Template Syntax]({{ '/docs/templates.html' | relative_url }}) | Synth-time `{{ ... }}` interpolation + golden-path templates |
+| [Metadata Keys]({{ '/docs/metadata-keys.html' | relative_url }}) | Typed CodePipeline / CodeBuild / networking / IAM configuration keys |
+| [Plugin Catalog]({{ '/docs/plugins/' | relative_url }}) | 119 pre-built plugins across 10 categories |
+| [Developer Portal]({{ '/docs/developer-portal.html' | relative_url }}) | Catalog ownership & My Services, golden-path templates, maturity scorecards |
+| [Samples]({{ '/docs/samples.html' | relative_url }}) | Ready-to-load pipeline configs for 7 languages + CDK patterns |
+
+### Govern
+
+| Guide | Description |
+|-------|-------------|
+| [Organization Benefits]({{ '/docs/organization-benefits.html' | relative_url }}) | What orgs gain from standardizing on the platform |
+| [Roles & Permissions]({{ '/docs/permissions.html' | relative_url }}) | Permission catalog, built-in Roles, enforcement, session invalidation |
+| [Compliance]({{ '/docs/compliance.html' | relative_url }}) | Per-org rule engine — validation, enforcement, audit trail |
+| [Authentication & SSO]({{ '/docs/authentication.html' | relative_url }}) | OAuth social login + per-org enterprise SSO (OIDC, AWS Cognito) |
+| [Audit Events]({{ '/docs/audit-events.html' | relative_url }}) | Tamper-evident trail — hash-chain + verify, ingest security, durable spool |
+| [Billing Add-on Bundles]({{ '/docs/billing-bundles.html' | relative_url }}) | Stackable add-ons that raise pooled caps and unlock features |
+| [Billing Discounts]({{ '/docs/billing-discounts.html' | relative_url }}) | Coupon codes + usage credits — one-time, recurring, or credit |
+
+### Operate
+
+| Guide | Description |
+|-------|-------------|
+| [AWS Deployment]({{ '/docs/aws-deployment.html' | relative_url }}) | EC2 / EKS deploy, post-deploy setup, reporting infra, drift detection |
+| [Deploy Operations]({{ '/docs/deploy-operations.html' | relative_url }}) | Runbook — preflight, secrets rotation, backups & DR, teardown |
+| [Service Mesh]({{ '/docs/service-mesh.html' | relative_url }}) | Istio ambient — STRICT mTLS + identity-based L4 authorization |
+| [Environment Variables]({{ '/docs/environment-variables.html' | relative_url }}) | Every configuration variable, by subsystem |
+| [DORA Metrics]({{ '/docs/dora-metrics.html' | relative_url }}) | Deployment frequency, change failure rate, MTTR, lead-time proxy, trend |
+
+### Reference
 
 | Guide | Description |
 |-------|-------------|
 | [API Reference]({{ '/docs/api-reference.html' | relative_url }}) | REST endpoints for pipelines, plugins, compliance, reporting, and AI |
-| [Developer Portal]({{ '/docs/developer-portal.html' | relative_url }}) | Catalog ownership & My Services, golden-path templates, per-pipeline maturity scorecards |
-| [Roles & Permissions]({{ '/docs/permissions.html' | relative_url }}) | Permission catalog, built-in Roles, enforcement, session invalidation |
-| [Authentication & SSO]({{ '/docs/authentication.html' | relative_url }}) | OAuth social login (Google/GitHub/Facebook/Microsoft/GitLab/LinkedIn) + per-org enterprise SSO (OIDC, AWS Cognito) |
-| [CDK Usage]({{ '/docs/cdk-usage.html' | relative_url }}) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
-| [Metadata Keys]({{ '/docs/metadata-keys.html' | relative_url }}) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
-| [Template Syntax]({{ '/docs/templates.html' | relative_url }}) | Synth-time interpolation for pipeline configs and plugin specs |
+| [Template Syntax]({{ '/docs/templates.html' | relative_url }}) | Full `{{ ... }}` grammar, scopes, filters, error catalog |
 | [Error Handling]({{ '/docs/error-handling.html' | relative_url }}) | Error-to-HTTP convention — throw typed `AppError`s |
-| [Plugin Catalog]({{ '/docs/plugins/' | relative_url }}) | 119 pre-built plugins across 10 categories |
-
-### Operations
-
-| Guide | Description |
-|-------|-------------|
-| [AWS Deployment]({{ '/docs/aws-deployment.html' | relative_url }}) | EC2 and EKS deployment, post-deploy setup |
-| [Environment Variables]({{ '/docs/environment-variables.html' | relative_url }}) | Full config reference for all services |
-| [Compliance]({{ '/docs/compliance.html' | relative_url }}) | Per-org rule engine with 18 operators, computed fields, audit trail |
-| [Audit Events]({{ '/docs/audit-events.html' | relative_url }}) | Tamper-evident trail — hash-chain + verify, ingest security, durable spool |
-| [DORA Metrics]({{ '/docs/dora-metrics.html' | relative_url }}) | Deployment frequency, change failure rate, MTTR, lead-time proxy, trend |
-| [Billing Add-on Bundles]({{ '/docs/billing-bundles.html' | relative_url }}) | Stackable add-ons that raise pooled caps and unlock features |
-| [Billing Discounts]({{ '/docs/billing-discounts.html' | relative_url }}) | Coupon codes + usage credits — one-time, recurring, or credit |
+| [Architecture Flow]({{ '/docs/architecture-flow.html' | relative_url }}) | End-to-end flow diagrams (request → build → deploy) |
