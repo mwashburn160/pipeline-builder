@@ -5,6 +5,7 @@
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { program } from 'commander';
+import { preflightCommandTools } from './utils/preflight.js';
 import { auditStacks } from './commands/audit-stacks.js';
 import { auditTokens } from './commands/audit-tokens.js';
 import { bootstrap } from './commands/bootstrap.js';
@@ -183,6 +184,12 @@ Examples  $ ${APP_NAME} version
 
 Run '${APP_NAME} <group> --help' to see a group's subcommands.
 `);
+
+  // Fail-fast preflight: before ANY command's action runs, verify the local
+  // tools that command needs. Commander skips this for --help/--version and for
+  // help output, so those always work; API-only commands declare no requirements
+  // and pass through untouched.
+  program.hook('preAction', (_thisCommand, actionCommand) => preflightCommandTools(actionCommand));
 
   // Top-level meta commands (no namespace).
   version(program);

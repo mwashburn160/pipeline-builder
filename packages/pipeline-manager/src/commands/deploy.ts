@@ -9,7 +9,7 @@ import pico from 'picocolors';
 import { assertShellSafe } from '../config/cli.constants.js';
 import { type Pipeline } from '../types/index.js';
 import { auditLog } from '../utils/audit-log.js';
-import { ensureBundlerAvailable, ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
+import { executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
 import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { ensureOutputDirectory, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
@@ -79,10 +79,8 @@ export function deploy(program: Command): void {
         // validation for ALL outbound TLS, including the AWS SDK.
         relaxTlsForCli(options.verifySsl, printWarning);
 
-        ensureCdkAvailable();
-        printSuccess('AWS CDK is available');
-
-        ensureBundlerAvailable();
+        // Local-tool prerequisites (cdk + esbuild/pnpm) are verified up front by
+        // the CLI's preAction hook, so by here they're guaranteed present.
 
         let pipeline: Pipeline;
         let propsWithIds: Record<string, unknown>;

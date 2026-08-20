@@ -5,10 +5,10 @@ import { Command } from 'commander';
 import pico from 'picocolors';
 import { ENV_VARS, assertShellSafe } from '../config/cli.constants.js';
 import { auditLog } from '../utils/audit-log.js';
-import { ensureCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils.js';
+import { executeCdkShellCommand } from '../utils/cdk-utils.js';
 import { printCommandHeader } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
+import { printError, printInfo, printKeyValue, printSection } from '../utils/output-utils.js';
 
 const { bold, cyan, dim } = pico;
 
@@ -117,8 +117,7 @@ export function bootstrap(program: Command): void {
           cloudformationExecutionPolicies: options.cloudformationExecutionPolicies || '(none)',
         });
 
-        ensureCdkAvailable();
-        printSuccess('AWS CDK is available');
+        // CDK availability is verified up front by the CLI's preAction hook.
 
         // Build bootstrap command
         const command = buildBootstrapCommand({

@@ -3,7 +3,7 @@
 
 import { execSync } from 'child_process';
 import path from 'path';
-import { printError, printSuccess } from './output-utils.js';
+import { printError } from './output-utils.js';
 
 /**
  * Path to dist/boilerplate.js. tsc emits commands at dist/commands/, so
@@ -96,10 +96,7 @@ export function ensureBundlerAvailable(): void {
   if (process.env.SKIP_BUNDLER_CHECK === '1') return;
 
   const missing = ['esbuild', 'pnpm'].filter((tool) => !getToolInfo(tool).available);
-  if (missing.length === 0) {
-    printSuccess('Bundler (esbuild + pnpm) is available');
-    return;
-  }
+  if (missing.length === 0) return;
 
   printError(`Missing local bundling prerequisite${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}`);
   console.log('');

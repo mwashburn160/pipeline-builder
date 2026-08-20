@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { assertShellSafe } from '../config/cli.constants.js';
 import { auditLog } from '../utils/audit-log.js';
-import { ensureBundlerAvailable, ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
+import { executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
@@ -104,10 +104,8 @@ export function synth(program: Command): void {
           throw new Error('Pipeline ID is required. Use --id <id> or set PIPELINE_ID env var.');
         }
 
-        ensureCdkAvailable();
-        printSuccess('AWS CDK is available');
-
-        ensureBundlerAvailable();
+        // Local-tool prerequisites (cdk + esbuild/pnpm) are verified up front by
+        // the CLI's preAction hook, so by here they're guaranteed present.
 
         // Build cdk synth command
         if (options.output) assertShellSafe(options.output, 'output');

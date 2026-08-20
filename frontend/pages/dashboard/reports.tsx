@@ -2,7 +2,7 @@ import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { GitBranch, Puzzle, AlertTriangle } from 'lucide-react';
+import { GitBranch, Puzzle, AlertTriangle, Gauge } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -14,6 +14,7 @@ const ReportTabs = dynamic(() => import('@/components/reports/ReportTabs'), {
 });
 import { DateRangePicker, AutoRefresh } from '@/components/reports/ReportHelpers';
 import { PipelineOverview } from '@/components/reports/PipelineOverview';
+import { DoraReport } from '@/components/reports/DoraReport';
 import { PipelinePerformance } from '@/components/reports/PipelinePerformance';
 import { PipelineFailures } from '@/components/reports/PipelineFailures';
 import { PluginOverview } from '@/components/reports/PluginOverview';
@@ -30,13 +31,14 @@ import type { ExecutionCountRow } from '@/types';
 import type { DoraMetrics, DoraTrendPoint } from '@/lib/api/domains/reporting';
 
 // ─── Tab Config ─────────────────────────────────────────
-type TopTab = 'pipelines' | 'plugins';
+type TopTab = 'pipelines' | 'plugins' | 'dora';
 type PipelineSubTab = 'overview' | 'performance' | 'failures';
 type PluginSubTab = 'overview' | 'builds' | 'versions';
 
 const TOP_TABS: { id: TopTab; label: string; icon: typeof GitBranch }[] = [
   { id: 'pipelines', label: 'Pipelines', icon: GitBranch },
   { id: 'plugins', label: 'Plugins', icon: Puzzle },
+  // DORA is appended in the render only when `advanced_reporting` is entitled.
 ];
 
 const PIPELINE_TABS: { id: PipelineSubTab; label: string }[] = [
@@ -85,16 +87,24 @@ export default function ReportsPage() {
   const [pipelineTab, setPipelineTab] = useState<PipelineSubTab>('overview');
   const [pluginTab, setPluginTab] = useState<PluginSubTab>('overview');
 
-  // Honor ?tab=plugins|pipelines on load and on browser back/forward, so the
-  // tab is deep-linkable (e.g. from the command palette or a shared URL).
+  // Honor ?tab=plugins|pipelines|dora on load and on browser back/forward, so the
+  // tab is deep-linkable (e.g. from the command palette or a shared URL). `dora`
+  // is only honored when entitled — otherwise it's ignored (falls back to the
+  // default), and the guard effect below also demotes it if entitlement is lost.
   useEffect(() => {
     if (!router.isReady) return;
     const raw = router.query.tab;
     const tab = Array.isArray(raw) ? raw[0] : raw;
-    if (tab === 'plugins' || tab === 'pipelines') {
+    if (tab === 'plugins' || tab === 'pipelines' || (tab === 'dora' && doraEnabled)) {
       setTopTab((prev) => (prev === tab ? prev : tab));
     }
-  }, [router.isReady, router.query.tab]);
+  }, [router.isReady, router.query.tab, doraEnabled]);
+
+  // Demote off the DORA tab if the entitlement isn't (or is no longer) present —
+  // e.g. a deep-link or a tier/bundle change while the tab is open.
+  useEffect(() => {
+    if (topTab === 'dora' && !doraEnabled) setTopTab('pipelines');
+  }, [topTab, doraEnabled]);
 
   // Switch the top-level tab and reflect it in the URL (shallow — no data
   // refetch from the route change; the effects below already key off topTab).
@@ -191,54 +201,14 @@ export default function ReportsPage() {
         if (pipelineTab === 'overview') {
           // `timeline` and `successRateTrend` both derive from the success-rate
           // response — fetch it once and feed both (was two identical requests).
-          // DORA + its trend share this batch so they flow through the same
-          // request-generation guard + error banner; when the feature is off we
-          // resolve them locally (no HTTP call → no 403) while keeping the tuple
-          // shape stable.
-          // DORA scoping filters — omit each param when unset so the backend
-          // keeps its org-wide, run-basis default. `deploysOnly` narrows the
-          // basis to deployment-scoped counting.
-          const doraScope: { pipelineId?: string; environment?: string; deploysOnly?: boolean } = {};
-          if (doraPipelineId) doraScope.pipelineId = doraPipelineId;
-          if (doraEnvironmentApplied.trim()) doraScope.environment = doraEnvironmentApplied.trim();
-          if (doraDeploysOnly) doraScope.deploysOnly = true;
-          const doraReq = doraEnabled
-            ? api.getDora({ ...dateParams, ...rollup, ...doraScope })
-            : Promise.resolve<DoraMetrics | undefined>(undefined);
-          const doraTrendReq = doraEnabled
-            ? api.getDoraTrend({ interval: timeInterval, ...dateParams, ...rollup, ...doraScope })
-            : Promise.resolve<DoraTrendPoint[]>([]);
-          // Populate the per-pipeline picker from the registry (all pipelines,
-          // run or not). Ungated by date range; the picker is auxiliary, so a
-          // failure here must NOT trip the shared error banner — swallow it to
-          // `undefined` rather than letting it surface as a rejected slice.
-          const pipelineListReq = doraEnabled
-            ? api.listPipelines({ limit: '200' }).catch(() => undefined)
-            : Promise.resolve(undefined);
-          // Distinct environments observed in the window — seeds the env
-          // datalist. Auxiliary like the pipeline picker, so swallow failures.
-          const envListReq = doraEnabled
-            ? api.getReportEnvironments({ ...dateParams, ...rollup }).catch(() => undefined)
-            : Promise.resolve(undefined);
           const results = await Promise.allSettled([
             api.getExecutionCount({ ...dateParams, ...rollup }), api.getSuccessRate({ interval: timeInterval, ...dateParams, ...rollup }),
-            doraReq, doraTrendReq, pipelineListReq, envListReq,
           ]);
           if (reqId !== reqIdRef.current) return;
           settled = results;
-          const [execRes, successRateRes, doraRes, doraTrendRes, pipelineListRes, envListRes] = results;
+          const [execRes, successRateRes] = results;
           if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
           if (successRateRes.status === 'fulfilled') setTimeline(successRateRes.value.data?.timeline || []);
-          if (doraRes.status === 'fulfilled') setDora(doraRes.value ?? null);
-          if (doraTrendRes.status === 'fulfilled') setDoraTrend(doraTrendRes.value ?? []);
-          if (pipelineListRes.status === 'fulfilled' && pipelineListRes.value) {
-            setPipelineOptions(
-              (pipelineListRes.value.data?.pipelines ?? []).map((p) => ({ id: p.id, name: p.pipelineName || p.project })),
-            );
-          }
-          if (envListRes.status === 'fulfilled' && envListRes.value) {
-            setEnvironmentOptions(envListRes.value.data?.environments ?? []);
-          }
         } else if (pipelineTab === 'performance') {
           const results = await Promise.allSettled([
             api.getExecutionCount({ ...dateParams, ...rollup }), api.getPipelineDuration({ ...dateParams, ...rollup }), api.getStageBottlenecks(dateParams),
@@ -259,6 +229,40 @@ export default function ReportsPage() {
           if (stageRes.status === 'fulfilled') setStageFailures(stageRes.value.data?.stages || []);
           if (actionRes.status === 'fulfilled') setActionFailures(actionRes.value.data?.actions || []);
           if (errorRes.status === 'fulfilled') setErrors(errorRes.value.data?.errors || []);
+        }
+      } else if (topTab === 'dora') {
+        // DORA (delivery analytics) — only reachable when entitled (the tab is
+        // hidden otherwise + the guard effect demotes it), so no per-request
+        // feature gate is needed here. DORA scoping filters: omit each param when
+        // unset so the backend keeps its org-wide, run-basis default; `deploysOnly`
+        // narrows the basis to deployment-scoped counting.
+        const doraScope: { pipelineId?: string; environment?: string; deploysOnly?: boolean } = {};
+        if (doraPipelineId) doraScope.pipelineId = doraPipelineId;
+        if (doraEnvironmentApplied.trim()) doraScope.environment = doraEnvironmentApplied.trim();
+        if (doraDeploysOnly) doraScope.deploysOnly = true;
+        // The pipeline picker (registry) + env datalist are auxiliary — swallow
+        // their failures to `undefined` so they never trip the shared error banner.
+        // `getExecutionCount` fills the picker with since-deleted pipelines that ran.
+        const results = await Promise.allSettled([
+          api.getDora({ ...dateParams, ...rollup, ...doraScope }),
+          api.getDoraTrend({ interval: timeInterval, ...dateParams, ...rollup, ...doraScope }),
+          api.getExecutionCount({ ...dateParams, ...rollup }),
+          api.listPipelines({ limit: '200' }).catch(() => undefined),
+          api.getReportEnvironments({ ...dateParams, ...rollup }).catch(() => undefined),
+        ]);
+        if (reqId !== reqIdRef.current) return;
+        settled = results;
+        const [doraRes, doraTrendRes, execRes, pipelineListRes, envListRes] = results;
+        if (doraRes.status === 'fulfilled') setDora(doraRes.value ?? null);
+        if (doraTrendRes.status === 'fulfilled') setDoraTrend(doraTrendRes.value ?? []);
+        if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
+        if (pipelineListRes.status === 'fulfilled' && pipelineListRes.value) {
+          setPipelineOptions(
+            (pipelineListRes.value.data?.pipelines ?? []).map((p) => ({ id: p.id, name: p.pipelineName || p.project })),
+          );
+        }
+        if (envListRes.status === 'fulfilled' && envListRes.value) {
+          setEnvironmentOptions(envListRes.value.data?.environments ?? []);
         }
       } else {
         if (pluginTab === 'overview') {
@@ -329,7 +333,7 @@ export default function ReportsPage() {
       maxWidth="7xl"
       actions={
         <div className="flex items-center gap-3">
-          {canRollup && hasTeams && topTab === 'pipelines' && (
+          {canRollup && hasTeams && (topTab === 'pipelines' || topTab === 'dora') && (
             <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Aggregate pipeline analytics across this organization and its teams">
               <Checkbox
                 checked={includeDescendants}
@@ -375,9 +379,11 @@ export default function ReportsPage() {
     >
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="page-section space-y-6">
 
-        {/* ═══════ Top-level tabs: Pipelines / Plugins ═══════ */}
+        {/* ═══════ Top-level tabs: Pipelines / Plugins / DORA ═══════ */}
+        {/* DORA is a peer tab, shown only when `advanced_reporting` is entitled
+            (by tier or add-on bundle). */}
         <div className="flex gap-2">
-          {TOP_TABS.map((tab) => {
+          {[...TOP_TABS, ...(doraEnabled ? [{ id: 'dora' as TopTab, label: 'DORA', icon: Gauge }] : [])].map((tab) => {
             const Icon = tab.icon;
             const active = topTab === tab.id;
             return (
@@ -414,21 +420,7 @@ export default function ReportsPage() {
               <PipelineOverview
                 loading={loading}
                 executions={executions}
-                pipelineOptions={pipelineOptions}
-                environmentOptions={environmentOptions}
                 timeline={timeline}
-                dora={dora}
-                doraTrend={doraTrend}
-                doraEnabled={doraEnabled}
-                doraScope={{
-                  pipelineId: doraPipelineId,
-                  environment: doraEnvironment,
-                  deploysOnly: doraDeploysOnly,
-                  onPipelineChange: setDoraPipelineId,
-                  onEnvironmentChange: setDoraEnvironment,
-                  onEnvironmentCommit: setDoraEnvironmentApplied,
-                  onDeploysOnlyChange: setDoraDeploysOnly,
-                }}
               />
             )}
 
@@ -440,6 +432,27 @@ export default function ReportsPage() {
               <PipelineFailures loading={loading} stageFailures={stageFailures} actionFailures={actionFailures} errors={errors} />
             )}
           </>
+        )}
+
+        {/* ═══════════════════ DORA (feature-gated) ═══════════════════ */}
+        {topTab === 'dora' && doraEnabled && (
+          <DoraReport
+            loading={loading}
+            dora={dora}
+            doraTrend={doraTrend}
+            pipelineOptions={pipelineOptions}
+            executions={executions}
+            environmentOptions={environmentOptions}
+            doraScope={{
+              pipelineId: doraPipelineId,
+              environment: doraEnvironment,
+              deploysOnly: doraDeploysOnly,
+              onPipelineChange: setDoraPipelineId,
+              onEnvironmentChange: setDoraEnvironment,
+              onEnvironmentCommit: setDoraEnvironmentApplied,
+              onDeploysOnlyChange: setDoraDeploysOnly,
+            }}
+          />
         )}
 
         {/* ═══════════════════ PLUGINS ═══════════════════ */}
