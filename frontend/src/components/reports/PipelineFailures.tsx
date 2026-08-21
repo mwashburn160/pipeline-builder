@@ -17,7 +17,7 @@ export function PipelineFailures({ loading, stageFailures, actionFailures, error
   const hasFailData = stageFailures.length > 0 || actionFailures.length > 0 || errors.length > 0;
 
   if (loading && !hasFailData) return <TwoColumnSkeleton />;
-  if (!loading && !hasFailData) return <EmptyState icon={GitBranch} title="No failure data" description="No stage failures, action failures, or errors recorded for this period." illustration="pipelines" />;
+  if (!loading && !hasFailData) return <EmptyState icon={GitBranch} title="No failure data" description="No executions in this window — no stage failures, action failures, or errors recorded for this period." illustration="pipelines" />;
 
   return (
     <>

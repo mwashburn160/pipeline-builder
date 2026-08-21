@@ -94,11 +94,19 @@ export function DoraReport({
 
   return (
     <div>
-      <SectionHeading>DORA Metrics</SectionHeading>
-      {/* Heading + scope controls render whenever entitled — NOT gated on `dora`,
-          so a scope that returns no data can still be cleared (the controls would
-          otherwise unmount, trapping the user in an active filter). The metric
-          cards + sparkline still gate on `dora`. */}
+      {/* Heading + a compact coverage stat on one row, with the scope controls
+          directly below — NOT gated on `dora`, so a scope that returns no data can
+          still be cleared (the controls would otherwise unmount, trapping the user
+          in an active filter). The metric cards + sparkline still gate on `dora`. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <SectionHeading>DORA Metrics</SectionHeading>
+        {dora && (
+          <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums" title="Registered pipelines vs. those that actually deployed in this window">
+            {dora.coverage.registered} registered {dora.coverage.registered === 1 ? 'pipeline' : 'pipelines'} &middot; {dora.coverage.deploying} deploying
+            {dora.coverage.withoutDeploys > 0 ? <> &middot; {dora.coverage.withoutDeploys} idle</> : null}
+          </span>
+        )}
+      </div>
       <DoraScopeControls
         pipelines={doraPipelineOptions}
         environmentOptions={environmentOptions}
@@ -211,16 +219,6 @@ export function DoraReport({
               })}
             </div>
           )}
-
-          {/* Coverage reconciliation note — registered pipelines vs. those that
-              actually deployed / produced no deploys in-window (so an empty DF
-              isn't mistaken for a gap). */}
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
-            Coverage: {dora.coverage.registered} registered {dora.coverage.registered === 1 ? 'pipeline' : 'pipelines'}, {dora.coverage.deploying} deploying
-            {dora.coverage.withoutDeploys > 0
-              ? `, ${dora.coverage.withoutDeploys} with no deploys in this window`
-              : ''}.
-          </p>
 
           {doraTrend.length > 0 && (
             <div className="mt-4">

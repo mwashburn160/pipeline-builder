@@ -19,7 +19,7 @@ export function PluginOverview({ loading, pluginSummary, distribution }: PluginO
   const maxDistCount = Math.max(1, ...Object.values(typeDistribution), ...Object.values(computeDistribution));
 
   if (loading && !hasPluginOverview) return <StatCardSkeleton count={5} />;
-  if (!loading && !hasPluginOverview) return <EmptyState icon={Puzzle} title="No plugin data yet" description="Create and build plugins to see inventory stats and distribution here." illustration="plugins" />;
+  if (!loading && !hasPluginOverview) return <EmptyState icon={Puzzle} title="No plugin data yet" description="No plugins in this window — create and build plugins to see inventory stats and distribution here." illustration="plugins" />;
   if (!hasPluginOverview || !pluginSummary) return null;
 
   return (

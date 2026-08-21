@@ -26,7 +26,7 @@ export function PluginBuilds({ loading, buildTimeline, buildDurations, buildFail
   const hasBuildsData = buildTimeline.length > 0 || buildDurations.length > 0 || buildFailures.length > 0;
 
   if (loading && !hasBuildsData) return <TwoColumnSkeleton />;
-  if (!loading && !hasBuildsData) return <EmptyState icon={Puzzle} title="No build data yet" description="Build some plugins to see success rates, durations, and failures." illustration="plugins" />;
+  if (!loading && !hasBuildsData) return <EmptyState icon={Puzzle} title="No build data yet" description="No builds in this window — build some plugins to see success rates, durations, and failures." illustration="plugins" />;
 
   return (
     <>

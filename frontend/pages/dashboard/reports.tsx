@@ -1,6 +1,5 @@
-import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { GitBranch, Puzzle, AlertTriangle, Gauge } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -8,55 +7,29 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { FilterSelect } from '@/components/ui/FilterSelect';
-
-const ReportTabs = dynamic(() => import('@/components/reports/ReportTabs'), {
-  loading: () => <LoadingPage />,
-});
-import { DateRangePicker, AutoRefresh, DoraUpsell } from '@/components/reports/ReportHelpers';
-import { PipelineOverview } from '@/components/reports/PipelineOverview';
-import { DoraReport } from '@/components/reports/DoraReport';
-import { BuildHealthPanel } from '@/components/reports/BuildHealth';
-import { PipelinePerformance } from '@/components/reports/PipelinePerformance';
-import { PipelineFailures } from '@/components/reports/PipelineFailures';
-import { PluginOverview } from '@/components/reports/PluginOverview';
-import { PluginBuilds } from '@/components/reports/PluginBuilds';
-import { PluginVersions } from '@/components/reports/PluginVersions';
-import type {
-  TimelineEntry, DurationStat, StageFailure, StageBottleneck, ErrorEntry, ActionFailure,
-  PluginSummary, PluginVersion as PluginVersionRow, BuildSuccessEntry, BuildDurationStat, BuildFailure, PluginDistribution,
-} from '@/components/reports/types';
+import { DateRangePicker, AutoRefresh } from '@/components/reports/ReportHelpers';
+import { PipelinesTab } from '@/components/reports/tabs/PipelinesTab';
+import { PluginsTab } from '@/components/reports/tabs/PluginsTab';
+import { DoraTab } from '@/components/reports/tabs/DoraTab';
+import {
+  useReportRetention, type SharedFilters, type TabDataStatus,
+} from '@/components/reports/useReportData';
 import { useFeatures } from '@/hooks/useFeatures';
 import api from '@/lib/api';
-import { formatError } from '@/lib/constants';
-import type { ExecutionCountRow } from '@/types';
-import type { DoraMetrics, DoraTrendPoint, DeploymentRow, BuildHealth } from '@/lib/api/domains/reporting';
 
 // ─── Tab Config ─────────────────────────────────────────
 type TopTab = 'pipelines' | 'plugins' | 'dora';
-type PipelineSubTab = 'overview' | 'performance' | 'failures';
-type PluginSubTab = 'overview' | 'builds' | 'versions';
 
 const TOP_TABS: { id: TopTab; label: string; icon: typeof GitBranch }[] = [
   { id: 'pipelines', label: 'Pipelines', icon: GitBranch },
   { id: 'plugins', label: 'Plugins', icon: Puzzle },
-  // DORA is appended in the render only when `advanced_reporting` is entitled.
-];
-
-const PIPELINE_TABS: { id: PipelineSubTab; label: string }[] = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'performance', label: 'Performance' },
-  { id: 'failures', label: 'Failures' },
-];
-
-const PLUGIN_TABS: { id: PluginSubTab; label: string }[] = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'builds', label: 'Builds' },
-  { id: 'versions', label: 'Versions' },
+  { id: 'dora', label: 'DORA', icon: Gauge },
 ];
 
 // Quick date-range presets. Each maps to a rolling window ending today; the
 // bounds are computed client-side as `YYYY-MM-DD` (the format the native date
-// inputs / backend from|to expect).
+// inputs / backend from|to expect). A preset wider than the active tab's cap is
+// clamped (with an inline note) rather than issuing an over-range request.
 const DATE_PRESETS: { label: string; days: number }[] = [
   { label: 'Last 7d', days: 7 },
   { label: 'Last 30d', days: 30 },
@@ -78,22 +51,53 @@ function presetRange(days: number): { from: string; to: string } {
   return { from: isoDay(from), to: isoDay(to) };
 }
 
+/** Parse a `YYYY-MM-DD` string as LOCAL midnight (matches {@link isoDay}), so
+ *  clamp arithmetic doesn't drift by a day against the native date inputs. */
+function parseDay(s: string): Date {
+  return new Date(`${s}T00:00:00`);
+}
+
+/** Whole days between a `YYYY-MM-DD` bound and an anchor date (anchor − from). */
+function spanDays(from: string, anchor: Date): number {
+  return Math.round((anchor.getTime() - parseDay(from).getTime()) / 86_400_000);
+}
+
+/**
+ * Clamp a requested `from` to the tab's effective cap so the frontend never
+ * issues an over-range request. Returns the (possibly narrowed) `from` and
+ * whether it was clamped. An empty `from` is left as-is (the backend applies its
+ * default window, which is within retention).
+ */
+function clampFrom(from: string, to: string, maxDays: number): { from: string; clamped: boolean } {
+  if (!from) return { from: '', clamped: false };
+  const anchor = to ? parseDay(to) : new Date();
+  if (Number.isNaN(anchor.getTime()) || Number.isNaN(parseDay(from).getTime())) return { from, clamped: false };
+  if (spanDays(from, anchor) > maxDays) {
+    const c = new Date(anchor);
+    c.setDate(c.getDate() - maxDays);
+    return { from: isoDay(c), clamped: true };
+  }
+  return { from, clamped: false };
+}
+
+/** Extract the backend range-cap (N days) from its "exceeds maximum of N days" error. */
+function rangeCapFromError(error: string | null): number | null {
+  if (!error) return null;
+  const m = /exceeds maximum of (\d+) days/i.exec(error);
+  return m ? Number(m[1]) : null;
+}
+
 // ─── Page ───────────────────────────────────────────────
 export default function ReportsPage() {
   const { user, isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'reports:read' });
   const router = useRouter();
-  // DORA / advanced delivery analytics is a paid-tier entitlement. Gates both the
-  // section render and the fetches (skip the request to avoid a pointless 403).
+  // DORA / advanced delivery analytics is a paid-tier entitlement. Gates the tab
+  // body (non-entitled → upsell teaser) and the fetches (skip to avoid a 403).
   const doraEnabled = useFeatures().isEnabled('advanced_reporting');
 
   const [topTab, setTopTab] = useState<TopTab>('pipelines');
-  const [pipelineTab, setPipelineTab] = useState<PipelineSubTab>('overview');
-  const [pluginTab, setPluginTab] = useState<PluginSubTab>('overview');
 
-  // Honor ?tab=plugins|pipelines|dora on load and on browser back/forward, so the
-  // tab is deep-linkable (e.g. from the command palette or a shared URL). The
-  // DORA tab is always present — non-entitled users land on the upsell teaser
-  // instead of the metrics — so `dora` is honored regardless of entitlement.
+  // Honor ?tab=plugins|pipelines|dora on load and on browser back/forward.
   useEffect(() => {
     if (!router.isReady) return;
     const raw = router.query.tab;
@@ -103,8 +107,8 @@ export default function ReportsPage() {
     }
   }, [router.isReady, router.query.tab]);
 
-  // Switch the top-level tab and reflect it in the URL (shallow — no data
-  // refetch from the route change; the effects below already key off topTab).
+  // Switch the top-level tab and reflect it in the URL (shallow — the active tab
+  // component keys its own fetch off its filters, so no route-driven refetch).
   const changeTopTab = useCallback((id: TopTab) => {
     setTopTab(id);
     void router.replace(
@@ -113,254 +117,52 @@ export default function ReportsPage() {
       { shallow: true },
     );
   }, [router]);
+
   const [timeInterval, setTimeInterval] = useState<'day' | 'week' | 'month'>('week');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [loading, setLoading] = useState(true);
-  // First fetch error for the active tab. `Promise.allSettled` never rejects, so
-  // without this a backend failure would silently render as an empty state ("No
-  // data yet") — indistinguishable from a genuinely empty dataset.
-  const [error, setError] = useState<string | null>(null);
   // Org → team rollup: only admins/owners can aggregate child-team analytics, and
-  // the toggle only appears when the org actually parents teams (flat orgs see no
-  // extra control). Backend independently gates the rollup to admins.
+  // the toggle only appears when the org actually parents teams.
   const [includeDescendants, setIncludeDescendants] = useState(false);
   const [hasTeams, setHasTeams] = useState(false);
-  // Gate on the actual `reports:rollup` permission (a read-visibility scope), not a
-  // hardcoded role — so a custom role granting it works and admins without it don't.
   const canRollup = can('reports:rollup');
 
-  // Pipeline data
-  const [executions, setExecutions] = useState<ExecutionCountRow[]>([]);
-  // `timeline` feeds both the Execution Timeline and the Success Rate Trend —
-  // they derive from the same success-rate response (was two identical slices).
-  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
-  const [dora, setDora] = useState<DoraMetrics | null>(null);
-  const [doraTrend, setDoraTrend] = useState<DoraTrendPoint[]>([]);
-  // DORA scoping (entitled users only). Empty pipeline/environment ⇒ omit the
-  // param (backend defaults to org-wide). DORA is always deploy-basis — there is
-  // no run-basis fallback, so no deployments-only toggle.
-  const [doraPipelineId, setDoraPipelineId] = useState('');
-  // `doraEnvironment` is the live input value; `doraEnvironmentApplied` is the
-  // committed value that actually feeds the fetch. Typing updates only the
-  // former (keeping the input responsive); a short debounce — plus an immediate
-  // commit on blur/Enter — promotes it to the latter, so a request isn't fired
-  // per keystroke (which would also reset the AutoRefresh timer each time).
-  const [doraEnvironment, setDoraEnvironment] = useState('');
-  const [doraEnvironmentApplied, setDoraEnvironmentApplied] = useState('');
-  // Recent deploy executions for the scoped pipeline — the deploy list that
-  // carries the mark-failed/restored row actions. Only fetched when a single
-  // pipeline is scoped (the outcome endpoint keys on an executionId).
-  const [deployments, setDeployments] = useState<DeploymentRow[]>([]);
-  // Per-pipeline build health (Phase 6) — a standard (every-tier) stage breakdown
-  // rendered next to DORA, keyed by the scoped pipeline. Only fetched when a
-  // single pipeline is scoped (the endpoint requires a pipelineId).
-  const [buildHealth, setBuildHealth] = useState<BuildHealth | null>(null);
-  // Full pipeline list for the DORA per-pipeline picker — sourced from the
-  // pipeline registry (not execution history), so a pipeline that exists but has
-  // never run is still selectable. Merged with execution-derived names in
-  // PipelineOverview so a since-deleted pipeline with historical events can also
-  // be scoped. Fetched only when DORA is entitled.
-  const [pipelineOptions, setPipelineOptions] = useState<{ id: string; name: string }[]>([]);
-  // Deploy environments actually observed in the window — merged with sensible
-  // defaults to seed the DORA environment datalist. Fetched only when entitled.
-  const [environmentOptions, setEnvironmentOptions] = useState<string[]>([]);
-  const [durations, setDurations] = useState<DurationStat[]>([]);
-  const [bottlenecks, setBottlenecks] = useState<StageBottleneck[]>([]);
-  const [stageFailures, setStageFailures] = useState<StageFailure[]>([]);
-  const [actionFailures, setActionFailures] = useState<ActionFailure[]>([]);
-  const [errors, setErrors] = useState<ErrorEntry[]>([]);
+  // Per-tab effective date-range caps (event vs DORA retention), read once.
+  const retention = useReportRetention();
+  // A per-tab cap the backend told us about (via a range error) that is TIGHTER
+  // than the client's retention estimate — used as the safety-net clamp.
+  const [serverCap, setServerCap] = useState<Partial<Record<TopTab, number>>>({});
 
-  // Plugin data
-  const [pluginSummary, setPluginSummary] = useState<PluginSummary | null>(null);
-  const [distribution, setDistribution] = useState<PluginDistribution[]>([]);
-  const [buildTimeline, setBuildTimeline] = useState<BuildSuccessEntry[]>([]);
-  const [buildDurations, setBuildDurations] = useState<BuildDurationStat[]>([]);
-  const [buildFailures, setBuildFailures] = useState<BuildFailure[]>([]);
-  const [pluginVersions, setPluginVersions] = useState<PluginVersionRow[]>([]);
-  const reqIdRef = useRef(0);
+  // Loading / error / refetch reported up by the active tab (drives the shared
+  // banner + the refresh control). Only the mounted tab reports.
+  const [status, setStatus] = useState<TabDataStatus>({ loading: true, error: null, refetch: () => {} });
+  const onStatus = useCallback((s: TabDataStatus) => setStatus(s), []);
 
-  const fetchData = useCallback(async () => {
-    // Request-generation guard: rapidly switching tabs/filters fires overlapping
-    // fetches, and Promise.allSettled resolves regardless of order — without this
-    // a slower, superseded response could overwrite the newer tab's slices. Only
-    // the latest invocation is allowed to write state / clear `loading`.
-    const reqId = ++reqIdRef.current;
-    setLoading(true);
-    setError(null);
-    // Collects the settled results of whichever branch runs, so a rejected fetch
-    // can be surfaced as an error banner rather than silently dropped.
-    let settled: PromiseSettledResult<unknown>[] = [];
-    const dateParams: Record<string, string> = {};
-    if (dateFrom) dateParams.from = dateFrom;
-    if (dateTo) dateParams.to = dateTo;
-    // Execution count, success-rate, duration and DORA all support a hierarchy
-    // rollup (their backend queries accept the org subtree); the others
-    // (bottlenecks, failures, plugin reports) are single-org. `rollup` is an
-    // empty object when off so the param is omitted.
-    const rollup = includeDescendants ? { includeDescendants: true } : {};
+  // Effective max for the active tab: retention estimate, floored by any tighter
+  // cap the backend reported.
+  const baseMax = topTab === 'dora' ? retention.doraMax : retention.eventMax;
+  const effectiveMax = serverCap[topTab] != null ? Math.min(baseMax, serverCap[topTab] as number) : baseMax;
 
-    try {
-      if (topTab === 'pipelines') {
-        if (pipelineTab === 'overview') {
-          // `timeline` and `successRateTrend` both derive from the success-rate
-          // response — fetch it once and feed both (was two identical requests).
-          const results = await Promise.allSettled([
-            api.getExecutionCount({ ...dateParams, ...rollup }), api.getSuccessRate({ interval: timeInterval, ...dateParams, ...rollup }),
-          ]);
-          if (reqId !== reqIdRef.current) return;
-          settled = results;
-          const [execRes, successRateRes] = results;
-          if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
-          if (successRateRes.status === 'fulfilled') setTimeline(successRateRes.value.data?.timeline || []);
-        } else if (pipelineTab === 'performance') {
-          const results = await Promise.allSettled([
-            api.getExecutionCount({ ...dateParams, ...rollup }), api.getPipelineDuration({ ...dateParams, ...rollup }), api.getStageBottlenecks(dateParams),
-          ]);
-          if (reqId !== reqIdRef.current) return;
-          settled = results;
-          const [execRes, durationRes, bottleneckRes] = results;
-          if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
-          if (durationRes.status === 'fulfilled') setDurations(durationRes.value.data?.pipelines || []);
-          if (bottleneckRes.status === 'fulfilled') setBottlenecks(bottleneckRes.value.data?.stages || []);
-        } else {
-          const results = await Promise.allSettled([
-            api.getStageFailures(dateParams), api.getActionFailures(dateParams), api.getExecutionErrors({ limit: 10, ...dateParams }),
-          ]);
-          if (reqId !== reqIdRef.current) return;
-          settled = results;
-          const [stageRes, actionRes, errorRes] = results;
-          if (stageRes.status === 'fulfilled') setStageFailures(stageRes.value.data?.stages || []);
-          if (actionRes.status === 'fulfilled') setActionFailures(actionRes.value.data?.actions || []);
-          if (errorRes.status === 'fulfilled') setErrors(errorRes.value.data?.errors || []);
-        }
-      } else if (topTab === 'dora' && doraEnabled) {
-        // DORA (delivery analytics) — the tab is always present, but non-entitled
-        // users get the upsell teaser (rendered below) and NO fetch fires (this
-        // branch is entitlement-gated to avoid a pointless 403). DORA scoping
-        // filters: omit each param when unset so the backend keeps its org-wide
-        // default. DORA is always deploy-basis (no deploysOnly param).
-        const doraScope: { pipelineId?: string; environment?: string } = {};
-        if (doraPipelineId) doraScope.pipelineId = doraPipelineId;
-        if (doraEnvironmentApplied.trim()) doraScope.environment = doraEnvironmentApplied.trim();
-        // The pipeline picker (registry) + env datalist are auxiliary — swallow
-        // their failures to `undefined` so they never trip the shared error banner.
-        // `getExecutionCount` fills the picker with since-deleted pipelines that ran.
-        // The deploy list (mark failed/restored) is per-pipeline — the outcome
-        // endpoint keys on an executionId — so only fetch it when a single
-        // pipeline is scoped. Best-effort: swallow failures so it never trips
-        // the shared error banner.
-        const deployListReq = doraPipelineId
-          ? api.listPipelineExecutions(doraPipelineId, { ...dateParams, ...rollup, limit: 25 }).catch(() => undefined)
-          : Promise.resolve(undefined);
-        // Build health (every-tier, ungated) is per-pipeline — fetch only when a
-        // single pipeline is scoped. Best-effort: swallow failures so it never
-        // trips the shared error banner (it renders next to, not inside, DORA).
-        const buildHealthReq = doraPipelineId
-          ? api.getBuildHealth(doraPipelineId, { ...dateParams, ...rollup }).catch(() => undefined)
-          : Promise.resolve(undefined);
-        const results = await Promise.allSettled([
-          api.getDora({ ...dateParams, ...rollup, ...doraScope }),
-          api.getDoraTrend({ interval: timeInterval, ...dateParams, ...rollup, ...doraScope }),
-          api.getExecutionCount({ ...dateParams, ...rollup }),
-          api.listPipelines({ limit: '200' }).catch(() => undefined),
-          api.getReportEnvironments({ ...dateParams, ...rollup }).catch(() => undefined),
-          deployListReq,
-          buildHealthReq,
-        ]);
-        if (reqId !== reqIdRef.current) return;
-        settled = results;
-        const [doraRes, doraTrendRes, execRes, pipelineListRes, envListRes, deployRes, buildHealthRes] = results;
-        if (doraRes.status === 'fulfilled') setDora(doraRes.value ?? null);
-        if (doraTrendRes.status === 'fulfilled') setDoraTrend(doraTrendRes.value ?? []);
-        if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
-        if (pipelineListRes.status === 'fulfilled' && pipelineListRes.value) {
-          setPipelineOptions(
-            (pipelineListRes.value.data?.pipelines ?? []).map((p) => ({ id: p.id, name: p.pipelineName || p.project })),
-          );
-        }
-        if (envListRes.status === 'fulfilled' && envListRes.value) {
-          setEnvironmentOptions(envListRes.value.data?.environments ?? []);
-        }
-        setDeployments(
-          deployRes.status === 'fulfilled' && deployRes.value ? deployRes.value.data?.executions ?? [] : [],
-        );
-        setBuildHealth(
-          buildHealthRes.status === 'fulfilled' && buildHealthRes.value ? buildHealthRes.value : null,
-        );
-      } else if (topTab === 'dora') {
-        // On the DORA tab without entitlement — the upsell teaser renders below
-        // and no fetch is issued (nothing to settle).
-      } else {
-        if (pluginTab === 'overview') {
-          const results = await Promise.allSettled([api.getPluginSummary(), api.getPluginDistribution()]);
-          if (reqId !== reqIdRef.current) return;
-          settled = results;
-          const [sumRes, distRes] = results;
-          if (sumRes.status === 'fulfilled') setPluginSummary(sumRes.value.data?.summary || null);
-          if (distRes.status === 'fulfilled') setDistribution(distRes.value.data?.distribution || []);
-        } else if (pluginTab === 'builds') {
-          const results = await Promise.allSettled([
-            api.getBuildSuccessRate({ interval: timeInterval, ...dateParams }), api.getBuildDuration(dateParams), api.getBuildFailures({ limit: 10, ...dateParams }),
-          ]);
-          if (reqId !== reqIdRef.current) return;
-          settled = results;
-          const [timelineRes, durRes, failRes] = results;
-          if (timelineRes.status === 'fulfilled') setBuildTimeline(timelineRes.value.data?.timeline || []);
-          if (durRes.status === 'fulfilled') setBuildDurations(durRes.value.data?.plugins || []);
-          if (failRes.status === 'fulfilled') setBuildFailures(failRes.value.data?.failures || []);
-        } else {
-          const results = await Promise.allSettled([api.getPluginVersions()]);
-          if (reqId !== reqIdRef.current) return;
-          settled = results;
-          const [verRes] = results;
-          if (verRes.status === 'fulfilled') setPluginVersions(verRes.value.data?.plugins || []);
-        }
-      }
-      // Surface the first rejected fetch so a backend failure shows a retry
-      // banner instead of masquerading as an empty ("No data yet") state.
-      const firstRejected = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected');
-      if (firstRejected) setError(formatError(firstRejected.reason, 'Failed to load report data'));
-    } finally {
-      if (reqId === reqIdRef.current) setLoading(false);
+  // Clamp the requested range to the tab cap so no over-range request is issued.
+  const { from: clampedFrom, clamped } = clampFrom(dateFrom, dateTo, effectiveMax);
+
+  // Safety net: if a range error still comes back (retention estimate was too
+  // generous), record the backend's tighter cap → re-clamp → the active tab
+  // refetches within bounds. Guarded so it applies once (no loop).
+  useEffect(() => {
+    const cap = rangeCapFromError(status.error);
+    if (cap != null && serverCap[topTab] !== cap) {
+      setServerCap((prev) => ({ ...prev, [topTab]: cap }));
     }
-  }, [topTab, pipelineTab, pluginTab, timeInterval, dateFrom, dateTo, includeDescendants, doraEnabled, doraPipelineId, doraEnvironmentApplied]);
+  }, [status.error, topTab, serverCap]);
 
-  useEffect(() => {
-    if (isAuthenticated) fetchData();
-  }, [isAuthenticated, fetchData]);
+  // A range error is handled by the clamp note, not the red banner (no dead-end).
+  const isRangeError = rangeCapFromError(status.error) != null;
 
-  // Environment a marked outcome is attributed to: the applied env filter when
-  // set, otherwise the DORA headline (`production`). Post-deploy CFR + MTTR are
-  // computed per environment, so the attribution has to be explicit.
-  const markEnvironment = doraEnvironmentApplied.trim() || 'production';
-
-  // Mark a deploy execution failed/restored, then refetch so the DORA cards +
-  // deploy list reflect the new outcome. Errors surface on the shared banner.
-  const handleMarkOutcome = useCallback(
-    async (executionId: string, outcome: 'failed' | 'restored') => {
-      try {
-        await api.markDeploymentOutcome(executionId, {
-          outcome,
-          at: new Date().toISOString(),
-          environment: markEnvironment,
-        });
-        await fetchData();
-      } catch (e) {
-        setError(formatError(e, 'Failed to record deployment outcome'));
-      }
-    },
-    [markEnvironment, fetchData],
+  const filters: SharedFilters = useMemo(
+    () => ({ dateFrom: clampedFrom, dateTo, interval: timeInterval, includeDescendants }),
+    [clampedFrom, dateTo, timeInterval, includeDescendants],
   );
-
-  // Debounce the environment filter: promote the live input to the committed
-  // value ~400ms after typing stops (blur/Enter commit immediately via the
-  // control), so each keystroke doesn't fire its own getDora/getDoraTrend pair.
-  useEffect(() => {
-    if (doraEnvironment === doraEnvironmentApplied) return;
-    const t = setTimeout(() => setDoraEnvironmentApplied(doraEnvironment), 400);
-    return () => clearTimeout(t);
-  }, [doraEnvironment, doraEnvironmentApplied]);
 
   // Detect whether the active org parents any teams (subtree larger than self),
   // so the rollup toggle only shows when there's something to roll up.
@@ -376,13 +178,15 @@ export default function ReportsPage() {
 
   if (!isReady || !user) return <LoadingPage />;
 
+  const tabNoun = topTab === 'dora' ? 'DORA' : topTab === 'plugins' ? 'plugin' : 'pipeline';
+
   return (
     <DashboardLayout
       title="Reports"
       subtitle="Pipeline execution analytics and plugin build insights"
       maxWidth="7xl"
       actions={
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 justify-end">
           {canRollup && hasTeams && (topTab === 'pipelines' || topTab === 'dora') && (
             <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Aggregate pipeline analytics across this organization and its teams">
               <Checkbox
@@ -392,9 +196,8 @@ export default function ReportsPage() {
               Include child teams
             </label>
           )}
-          {/* Quick presets — set the same dateFrom/dateTo the manual picker drives.
-              The active preset (whose rolling window matches the current bounds) is
-              highlighted. */}
+          {/* Presets — set the same dateFrom/dateTo the manual picker drives. A
+              preset wider than the tab cap still clamps (with the note below). */}
           <div className="flex items-center gap-1">
             {DATE_PRESETS.map((p) => {
               const range = presetRange(p.days);
@@ -423,17 +226,15 @@ export default function ReportsPage() {
             <option value="week">Weekly</option>
             <option value="month">Monthly</option>
           </FilterSelect>
-          <AutoRefresh onRefresh={fetchData} loading={loading} />
+          <AutoRefresh onRefresh={status.refetch} loading={status.loading} />
         </div>
       }
     >
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="page-section space-y-6">
 
         {/* ═══════ Top-level tabs: Pipelines / Plugins / DORA ═══════ */}
-        {/* DORA is always a peer tab; non-entitled users land on the upsell teaser
-            (rendered below) instead of the metrics. */}
         <div className="flex gap-2">
-          {[...TOP_TABS, { id: 'dora' as TopTab, label: 'DORA', icon: Gauge }].map((tab) => {
+          {TOP_TABS.map((tab) => {
             const Icon = tab.icon;
             const active = topTab === tab.id;
             return (
@@ -453,93 +254,27 @@ export default function ReportsPage() {
           })}
         </div>
 
-        {/* Inline error + retry — a failed fetch would otherwise look like empty data. */}
-        {error && !loading && (
+        {/* Subtle clamp note — the requested window was narrowed to the tab's
+            retention cap (a quiet inline note, NOT a red dead-end error). */}
+        {(clamped || isRangeError) && (
+          <p className="text-xs text-gray-500 dark:text-gray-400" role="status">
+            Showing the last {effectiveMax} days — the maximum for {tabNoun} reports.
+          </p>
+        )}
+
+        {/* Inline error + retry — a failed fetch would otherwise look like empty
+            data. Range errors are handled by the clamp note above, not here. */}
+        {status.error && !status.loading && !isRangeError && (
           <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-2 text-sm text-red-700 dark:text-red-300">
-            <span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 shrink-0" />{error}</span>
-            <button onClick={fetchData} className="underline hover:no-underline shrink-0">Retry</button>
+            <span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 shrink-0" />{status.error}</span>
+            <button onClick={status.refetch} className="underline hover:no-underline shrink-0">Retry</button>
           </div>
         )}
 
-        {/* ═══════════════════ PIPELINES ═══════════════════ */}
-        {topTab === 'pipelines' && (
-          <>
-            <ReportTabs tabs={PIPELINE_TABS} activeTab={pipelineTab} onTabChange={(id) => setPipelineTab(id as PipelineSubTab)} />
-
-            {pipelineTab === 'overview' && (
-              <PipelineOverview
-                loading={loading}
-                executions={executions}
-                timeline={timeline}
-              />
-            )}
-
-            {pipelineTab === 'performance' && (
-              <PipelinePerformance loading={loading} executions={executions} durations={durations} bottlenecks={bottlenecks} />
-            )}
-
-            {pipelineTab === 'failures' && (
-              <PipelineFailures loading={loading} stageFailures={stageFailures} actionFailures={actionFailures} errors={errors} />
-            )}
-          </>
-        )}
-
-        {/* ═══════════════════ DORA ═══════════════════ */}
-        {/* Entitled → the metrics; non-entitled → the upsell teaser (no dead-end). */}
-        {topTab === 'dora' && (doraEnabled ? (
-          <>
-            <DoraReport
-              loading={loading}
-              dora={dora}
-              doraTrend={doraTrend}
-              pipelineOptions={pipelineOptions}
-              executions={executions}
-              environmentOptions={environmentOptions}
-              deployments={deployments}
-              deployPipelineSelected={!!doraPipelineId}
-              markEnvironment={markEnvironment}
-              canMark={can('reports:read')}
-              onMarkOutcome={handleMarkOutcome}
-              requestedFrom={dateFrom}
-              doraScope={{
-                pipelineId: doraPipelineId,
-                environment: doraEnvironment,
-                onPipelineChange: setDoraPipelineId,
-                onEnvironmentChange: setDoraEnvironment,
-                // Commit both the live + applied value so a pivot (env pill click)
-                // also updates the visible filter input, not just the fetch.
-                onEnvironmentCommit: (v) => { setDoraEnvironment(v); setDoraEnvironmentApplied(v); },
-              }}
-            />
-            {/* Build Health — standard (every-tier) per-stage breakdown, rendered
-                NEXT TO DORA and keyed by the same scoped pipeline. */}
-            <BuildHealthPanel
-              loading={loading}
-              buildHealth={buildHealth}
-              pipelineSelected={!!doraPipelineId}
-            />
-          </>
-        ) : (
-          <DoraUpsell />
-        ))}
-
-        {/* ═══════════════════ PLUGINS ═══════════════════ */}
-        {topTab === 'plugins' && (
-          <>
-            <ReportTabs tabs={PLUGIN_TABS} activeTab={pluginTab} onTabChange={(id) => setPluginTab(id as PluginSubTab)} />
-
-            {pluginTab === 'overview' && (
-              <PluginOverview loading={loading} pluginSummary={pluginSummary} distribution={distribution} />
-            )}
-
-            {pluginTab === 'builds' && (
-              <PluginBuilds loading={loading} buildTimeline={buildTimeline} buildDurations={buildDurations} buildFailures={buildFailures} />
-            )}
-
-            {pluginTab === 'versions' && (
-              <PluginVersions loading={loading} pluginVersions={pluginVersions} />
-            )}
-          </>
+        {topTab === 'pipelines' && <PipelinesTab filters={filters} onStatus={onStatus} />}
+        {topTab === 'plugins' && <PluginsTab filters={filters} onStatus={onStatus} />}
+        {topTab === 'dora' && (
+          <DoraTab filters={filters} enabled={doraEnabled} canMark={can('reports:read')} onStatus={onStatus} />
         )}
 
       </motion.div>

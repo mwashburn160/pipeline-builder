@@ -48,7 +48,7 @@ export function PipelinePerformance({ loading, executions, durations, bottleneck
   const hasPerfData = executions.length > 0 || durations.length > 0;
 
   if (loading && !hasPerfData) return <TwoColumnSkeleton />;
-  if (!loading && !hasPerfData) return <EmptyState icon={GitBranch} title="No performance data yet" description="Run some pipelines to see duration and bottleneck analytics." illustration="pipelines" />;
+  if (!loading && !hasPerfData) return <EmptyState icon={GitBranch} title="No performance data yet" description="No executions in this window — run some pipelines to see duration and bottleneck analytics." illustration="pipelines" />;
 
   return (
     <>

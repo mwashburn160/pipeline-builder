@@ -28,7 +28,7 @@ export function PipelineOverview({
   const hasOverviewData = executions.length > 0 || timeline.length > 0;
 
   if (loading && !hasOverviewData) return <><StatCardSkeleton count={4} /><SectionCardSkeleton lines={5} /></>;
-  if (!loading && !hasOverviewData) return <EmptyState icon={GitBranch} title="No pipeline data yet" description="Run some pipelines to see execution analytics here." illustration="pipelines" />;
+  if (!loading && !hasOverviewData) return <EmptyState icon={GitBranch} title="No pipeline data yet" description="No executions in this window — run some pipelines to see execution analytics here." illustration="pipelines" />;
 
   return (
     <>
