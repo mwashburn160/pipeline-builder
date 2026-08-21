@@ -28,6 +28,22 @@ function toCsvRow(values: ReadonlyArray<unknown>): string {
 }
 
 /**
+ * Trigger a browser download of `blob` saved as `filename`. Handles the
+ * object-URL lifecycle (create → click → revoke) so callers don't each
+ * re-implement (and occasionally leak) the anchor dance.
+ */
+export function triggerBlobDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/**
  * Render `rows` as CSV and trigger a browser download.
  *
  * - `headers` controls column order. Cells not present in a row become empty strings.
@@ -45,14 +61,7 @@ export function downloadCsv<T extends Record<string, unknown>>(
   const csv = [headerLine, ...dataLines].join('\n');
 
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename.endsWith('.csv') ? filename : `${filename}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  triggerBlobDownload(blob, filename.endsWith('.csv') ? filename : `${filename}.csv`);
   return rows.length;
 }
 
@@ -64,14 +73,7 @@ export function downloadJsonl<T>(
   if (rows.length === 0) return 0;
   const body = rows.map((row) => JSON.stringify(row)).join('\n');
   const blob = new Blob([body], { type: 'application/x-ndjson;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename.endsWith('.jsonl') ? filename : `${filename}.jsonl`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  triggerBlobDownload(blob, filename.endsWith('.jsonl') ? filename : `${filename}.jsonl`);
   return rows.length;
 }
 

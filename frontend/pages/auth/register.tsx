@@ -13,6 +13,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Button } from '@/components/ui/Button';
 import type { Plan } from '@/types';
 import api from '@/lib/api';
+import { formatCents } from '@/lib/format';
 import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/lib/site-url';
 
 // sessionStorage key carrying the OAuth "intent" across the provider redirect.
@@ -32,7 +33,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 const providerLabel = (p: string) => PROVIDER_LABELS[p] ?? (p.charAt(0).toUpperCase() + p.slice(1));
 
 function formatPrice(cents: number): string {
-  return cents === 0 ? 'Free' : `$${(cents / 100).toFixed(2)}/mo`;
+  return cents === 0 ? 'Free' : `${formatCents(cents)}/mo`;
 }
 
 /** A selectable tier card — surfaces the plan's description + top limits so a

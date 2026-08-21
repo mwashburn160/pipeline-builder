@@ -1,5 +1,6 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { formatError } from '@/lib/constants';
+import { triggerBlobDownload } from '@/lib/csv-export';
 import { Building2, Search, KeyRound, FileDown, ShieldCheck, ExternalLink, Plus, Layers, RotateCcw, MoreHorizontal, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -329,15 +330,7 @@ export default function OrganizationsPage() {
       const yaml = await api.getOrgNamespaceYaml(org.id, stepUpToken);
       // Browser-side download — render endpoint returns text/yaml with a
       // Content-Disposition header but we set our own to be explicit.
-      const blob = new Blob([yaml], { type: 'application/yaml' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `pb-org-${org.slug ?? org.id}.yaml`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      triggerBlobDownload(new Blob([yaml], { type: 'application/yaml' }), `pb-org-${org.slug ?? org.id}.yaml`);
     } catch (err) {
       list.setError(formatError(err, 'Failed to download namespace YAML'));
     }

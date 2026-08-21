@@ -38,6 +38,7 @@ import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { formatError } from '@/lib/constants';
 import { redactString } from '@/lib/redact';
+import { triggerBlobDownload } from '@/lib/csv-export';
 import { TIER_KEYS, getTierMeta } from '@/lib/tiers';
 import api from '@/lib/api';
 import type { Organization, OrgIdpConfigDto } from '@/types';
@@ -198,15 +199,7 @@ export default function OrgDetailPage() {
     setExporting(true);
     try {
       const json = await api.exportOrganization(org.id);
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `org-${org.slug ?? org.id}-export.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      triggerBlobDownload(new Blob([json], { type: 'application/json' }), `org-${org.slug ?? org.id}-export.json`);
       toast.success('Organization data exported');
     } catch (e) {
       setError(formatError(e, 'Failed to export organization data'));
@@ -219,15 +212,7 @@ export default function OrgDetailPage() {
     if (!org) return;
     try {
       const yaml = await api.getOrgNamespaceYaml(org.id, stepUpToken);
-      const blob = new Blob([yaml], { type: 'application/yaml' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `pb-org-${org.slug ?? org.id}.yaml`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      triggerBlobDownload(new Blob([yaml], { type: 'application/yaml' }), `pb-org-${org.slug ?? org.id}.yaml`);
       toast.success('Namespace YAML downloaded');
     } catch (e) {
       setError(formatError(e, 'Failed to download namespace YAML'));

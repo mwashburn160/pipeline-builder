@@ -12,7 +12,7 @@ import { QUOTA_META } from './constants';
  * @param used - Current usage count.
  * @param limit - Quota limit (-1 for unlimited).
  */
-export function StatusBadge({ used, limit }: { used: number; limit: number }) {
+function StatusBadge({ used, limit }: { used: number; limit: number }) {
   const { label, color } = statusInfo(used, limit);
   return (
     <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${statusStyles[color]}`}>
@@ -138,7 +138,7 @@ export function QuotaCard({
  * Renders nothing when used is 0 (no signal to project from) or when
  * the projected total is comfortably under the limit.
  */
-export function UsageForecast({
+function UsageForecast({
   used,
   limit,
   resetAt,

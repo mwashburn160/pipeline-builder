@@ -98,7 +98,7 @@ export function buildLayout(
 /** Convert react-grid-layout's `Layout` (array of items) back into the
  * `layoutJson` map shape the API expects. Drops any incoming `minW/minH` so we
  * don't pin defaults the user didn't explicitly set. */
-export function layoutToJson(layout: Layout): Record<string, PanelCoords> {
+function layoutToJson(layout: Layout): Record<string, PanelCoords> {
   const out: Record<string, PanelCoords> = {};
   for (const l of layout) {
     out[l.i] = { x: l.x, y: l.y, w: l.w, h: l.h };
