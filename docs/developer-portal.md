@@ -55,7 +55,7 @@ A **pipeline template** is a parameterized starter: its body is a `BuilderProps`
 Each pipeline has a **maturity scorecard** — a single 0–100 score and an A–F grade that blends two dimensions the platform already computes:
 
 - **Compliance posture** — the pipeline is dry-run against the org's compliance rules; the score is the pass ratio (a warning counts as half a violation).
-- **Delivery performance** — the four per-pipeline **DORA** bands (deployment frequency, change-failure rate, time-to-restore, lead-time proxy) over the trailing 30 days, mapped Elite→Low to points.
+- **Delivery performance** — the four per-pipeline **DORA** bands (deployment frequency, change-failure rate, time-to-restore, measured lead time) over the trailing 30 days, mapped Elite→Low to points.
 
 The two dimensions are weighted 50/50; either is independently nullable, so a pipeline with no rules or no run history scores on whichever dimension has data. The scorecard surfaces as a card on the pipeline detail page.
 

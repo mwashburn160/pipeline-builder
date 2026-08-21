@@ -94,9 +94,9 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
             <Band label="Deploy frequency" level={scorecard.dora.deploymentFrequency} />
             <Band label="Change failure rate" level={scorecard.dora.changeFailureRate} />
             <Band label="Time to restore" level={scorecard.dora.meanTimeToRestore} />
-            <Band label="Lead time (proxy)" level={scorecard.dora.leadTime} />
+            <Band label="Lead time" level={scorecard.dora.leadTime} />
           </div>
-          <p className="text-[11px] text-gray-400">DORA basis: {scorecard.dora.basis}. Lead time is a run-time proxy.</p>
+          <p className="text-[11px] text-gray-400">DORA basis: deploy-stage. Lead time is measured (commit → deploy); shown for the production environment.</p>
         </div>
       )}
     </Card>

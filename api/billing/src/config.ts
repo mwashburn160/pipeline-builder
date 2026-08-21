@@ -93,6 +93,16 @@ export interface AppConfig {
     host: string;
     port: number;
   };
+  /**
+   * Reporting service — receives the retention-entitlement sync leg
+   * (`PUT /api/reports/retention-sync/:orgId`). Retention is NOT a quota-service
+   * type; billing pushes the effective event/dora retention here so the reporting
+   * sweep + query cap honor the account's tier baseline + purchased bundles.
+   */
+  reportingService: {
+    host: string;
+    port: number;
+  };
   marketplace: MarketplaceConfig;
   stripe: StripeConfig;
   discounts: DiscountConfig;
@@ -187,6 +197,11 @@ export const config: AppConfig = {
     port: parseInt(process.env.MESSAGE_SERVICE_PORT || '3000', 10),
   },
 
+  reportingService: {
+    host: process.env.REPORTING_SERVICE_HOST || 'reporting',
+    port: parseInt(process.env.REPORTING_SERVICE_PORT || '3000', 10),
+  },
+
   paymentGracePeriodDays: parseInt(process.env.PAYMENT_GRACE_PERIOD_DAYS || '7', 10),
   renewalReminderDays: parseInt(process.env.RENEWAL_REMINDER_DAYS || '7', 10),
   lifecycleCheckIntervalMs: parseInt(process.env.BILLING_LIFECYCLE_CHECK_INTERVAL_MS || '3600000', 10),
@@ -219,6 +234,11 @@ export const config: AppConfig = {
         storage_pack: 'storage_pack',
         audit_log: 'audit_log',
         sso: 'sso',
+        // Phase 8 retention add-ons (metered "packs purchased"). The reporting
+        // retention-sync leg carries the effective days; these dimensions meter
+        // the purchase for Marketplace-billed accounts.
+        retention_pack: 'RetentionPack',
+        dora_history_pack: 'DoraHistoryPack',
       } as Record<string, string>,
       'AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP',
     ),

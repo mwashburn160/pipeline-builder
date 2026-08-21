@@ -15,6 +15,14 @@
  */
 import { jest } from '@jest/globals';
 
+/**
+ * Records every cache key the mocked `createCacheService().getOrSet` is asked
+ * for, in call order. Suites that assert cache-key construction (e.g. the DORA
+ * window must be part of the key so overrides don't collide) read + reset this.
+ * Harmless to suites that ignore it.
+ */
+export const cacheKeyLog: string[] = [];
+
 /** The 4-method logger stub every suite repeats; a fresh set of spies per call. */
 export const loggerMock = () => ({
   info: jest.fn(),
@@ -83,7 +91,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       return value;
     },
     createCacheService: () => ({
-      getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
+      getOrSet: (key: string, factory: () => Promise<unknown>) => { cacheKeyLog.push(key); return factory(); },
       invalidatePattern: () => Promise.resolve(0),
     }),
     ...overrides,

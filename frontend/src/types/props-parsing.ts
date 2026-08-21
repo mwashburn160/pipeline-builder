@@ -319,6 +319,7 @@ export function propsToFormState(rawProps: AnyRecord): FormBuilderState {
         id: nextFormId(),
         stageName: String(stage.stageName || ''),
         alias: String(stage.alias || ''),
+        environment: String(stage.environment || ''),
         steps: Array.isArray(stage.steps) ? parseSteps(stage.steps) : [createEmptyStep()],
       };
     });

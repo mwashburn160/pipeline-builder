@@ -38,12 +38,18 @@ describe('getDora', () => {
   it('omits empty params and unwraps data.dora', async () => {
     const dora: DoraMetrics = {
       window: { from: '2026-01-01', to: '2026-01-31' },
-      basis: 'deploy',
       filters: { pipelineId: null, environment: 'production' },
-      deploymentFrequency: { deployments: 8, perDay: 0.27, level: 'high' },
-      changeFailureRate: { failed: 2, total: 8, pct: 25, level: 'medium' },
-      meanTimeToRestore: { failures: 2, restored: 2, avgSeconds: 3720, level: 'high' },
-      leadTime: { deployments: 8, medianSeconds: 300, approx: true, level: 'elite' },
+      headline: 'production',
+      environments: [
+        {
+          environment: 'production',
+          deploymentFrequency: { deployments: 8, perDay: 0.27 },
+          leadTime: { deployments: 8, medianSeconds: 300, level: 'elite' },
+          changeFailureRate: { rate: 25, deployTimeFailures: 1, postDeployFailures: 1, attempts: 8, level: 'medium' },
+        },
+      ],
+      meanTimeToRestore: { medianSeconds: 3720, incidents: 2, restored: 2 },
+      coverage: { registered: 3, deploying: 2, withoutDeploys: 1 },
     };
     const { api, calls } = makeApi({ dora });
     const result = await api.getDora();
@@ -52,11 +58,39 @@ describe('getDora', () => {
   });
 });
 
+describe('markDeploymentOutcome', () => {
+  it('POSTs to /api/reports/deployments/:executionId/outcome with the outcome body', async () => {
+    const calls: string[] = [];
+    let captured: { method?: string; body?: string } | undefined;
+    const core = {
+      request: jest.fn((path: string, opts?: { method?: string; body?: string }) => {
+        calls.push(path);
+        captured = opts;
+        return Promise.resolve({ success: true, data: { message: 'ok' } });
+      }),
+    } as unknown as ApiCore;
+    const api = reportingApi(core);
+    await api.markDeploymentOutcome('exec-1/2', {
+      outcome: 'failed',
+      at: '2026-08-20T00:00:00.000Z',
+      environment: 'production',
+    });
+    // executionId is URL-encoded into the path.
+    expect(calls[0]).toBe('/api/reports/deployments/exec-1%2F2/outcome');
+    expect(captured?.method).toBe('POST');
+    expect(JSON.parse(captured?.body ?? '{}')).toEqual({
+      outcome: 'failed',
+      at: '2026-08-20T00:00:00.000Z',
+      environment: 'production',
+    });
+  });
+});
+
 describe('getDoraTrend', () => {
   it('GETs /api/reports/execution/dora/trend with interval + filter params and unwraps data.trend', async () => {
     const trend: DoraTrendPoint[] = [
-      { period: '2026-01-01', deployments: 3, failed: 1, total: 3, changeFailurePct: 33 },
-      { period: '2026-01-08', deployments: 5, failed: 0, total: 5, changeFailurePct: 0 },
+      { period: '2026-01-01', deployments: 3, failed: 1, total: 3 },
+      { period: '2026-01-08', deployments: 5, failed: 0, total: 5 },
     ];
     const { api, calls } = makeApi({ trend });
     const result = await api.getDoraTrend({ interval: 'week', from: '2026-01-01', to: '2026-01-31', includeDescendants: true });

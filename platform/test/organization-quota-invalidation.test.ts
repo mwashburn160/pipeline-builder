@@ -29,6 +29,10 @@ const limits = (seats: number, plugins: number) => ({
   alertRules: -1,
   alertDestinations: -1,
   idpConfigs: -1,
+  // BILLING-OWNED retention dims — present in every tier preset but MUST NOT be
+  // reseeded onto the org doc's `quotas` (they live only on `dora_settings`).
+  eventRetentionDays: 30,
+  doraRetentionDays: 180,
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -96,7 +100,7 @@ jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
   publishUsersRevocation: mockPublishUsersRevocation,
 }));
 
-const { setTier, setSeatLimit } = await import('../src/services/organization-quota.js');
+const { setTier, setSeatLimit, updateQuotas } = await import('../src/services/organization-quota.js');
 
 /** A Mongoose-shaped org doc for setTier (awaited directly by findById). */
 function makeOrgDoc(initial: { _id: string; tier?: string; parentOrgId?: string; quotas?: unknown }) {
@@ -391,5 +395,52 @@ describe('setSeatLimit — tier downgrade invalidation (billing tier push)', () 
     expect(result).toBeNull();
     expect(tokenBump()).toBeUndefined();
     expect(mockPublishUsersRevocation).toHaveBeenCalledWith([]);
+  });
+});
+
+describe('quota reseed — billing-owned retention dims are EXCLUDED', () => {
+  /** findById(...).select('featureEntitlements tier').session().lean() → current. */
+  const currentDoc = (tier: string, features: string[] = []) =>
+    mockOrgFindById.mockReturnValue({
+      select: () => ({ session: () => ({ lean: () => Promise.resolve({ tier, featureEntitlements: features }) }) }),
+    });
+
+  it('setSeatLimit tier-push does NOT write eventRetentionDays/doraRetentionDays onto the org doc', async () => {
+    currentDoc('team'); // team → pro downgrade triggers the non-seat reseed
+
+    await setSeatLimit('root-1', 5, undefined, 'pro');
+
+    const set = (mockOrgUpdateOne.mock.calls[0][1] as any).$set;
+    // Non-retention dims reseed as before...
+    expect(set['quotas.plugins']).toBe(100);
+    // ...but the two retention dims are NEVER copied onto the org doc.
+    expect(set['quotas.eventRetentionDays']).toBeUndefined();
+    expect(set['quotas.doraRetentionDays']).toBeUndefined();
+  });
+
+  it('setTier reseed strips eventRetentionDays/doraRetentionDays from org.quotas', async () => {
+    const doc = makeOrgDoc({ _id: 'root-1', tier: 'team', quotas: { plugins: 500, seats: 5 } });
+    mockOrgFindById.mockResolvedValue(doc);
+
+    await setTier('root-1', 'pro'); // reseeds org.quotas from pro's base
+
+    // The reseeded quotas carry the flow dims but neither retention dim.
+    expect(doc.quotas).toBeDefined();
+    expect((doc.quotas as any).plugins).toBe(100);
+    expect((doc.quotas as any).eventRetentionDays).toBeUndefined();
+    expect((doc.quotas as any).doraRetentionDays).toBeUndefined();
+  });
+
+  it('updateQuotas seeding a missing quotas doc excludes the retention dims', async () => {
+    // Fresh org with no quotas yet → the service seeds from the tier preset.
+    const doc = makeOrgDoc({ _id: 'root-1', tier: 'pro', quotas: undefined });
+    mockOrgFindById.mockResolvedValue(doc);
+
+    await updateQuotas('root-1', { plugins: 42 } as any, 'Bearer t');
+
+    expect((doc.quotas as any).eventRetentionDays).toBeUndefined();
+    expect((doc.quotas as any).doraRetentionDays).toBeUndefined();
+    // The applied override still landed.
+    expect((doc.quotas as any).plugins).toBe(42);
   });
 });

@@ -188,6 +188,17 @@ describe('loadBillingConfig', () => {
       });
     });
 
+    it('caps the retention packs at their maxQuantity (730-day retention ceiling)', () => {
+      const { bundles } = loadBillingConfig();
+      // Standard Retention Pack: 30 + 7×90 = 660 ≤ 730.
+      expect(bundles.find((x) => x.id === 'retention_pack')?.maxQuantity).toBe(7);
+      // DORA History Pack: 180 + 1×365 = 545 ≤ 730.
+      expect(bundles.find((x) => x.id === 'dora_history_pack')?.maxQuantity).toBe(1);
+      // Bundles without a cap leave maxQuantity absent (unbounded).
+      expect(bundles.find((x) => x.id === 'seat_pack')?.maxQuantity).toBeUndefined();
+      expect(bundles.find((x) => x.id === 'pipeline_pack')?.maxQuantity).toBeUndefined();
+    });
+
     it('overrides a bundle price from the environment', () => {
       process.env.BILLING_BUNDLE_SEAT_PACK_MONTHLY = '3000';
       process.env.BILLING_BUNDLE_SEAT_PACK_ANNUAL = '30000';

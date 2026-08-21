@@ -33,6 +33,8 @@ describe('QUOTA_TIERS', () => {
         alertDestinations: 10,
         idpConfigs: 1,
         seats: 1,
+        eventRetentionDays: 30,
+        doraRetentionDays: 180,
       },
     });
   });
@@ -51,6 +53,8 @@ describe('QUOTA_TIERS', () => {
         alertDestinations: 50,
         idpConfigs: 5,
         seats: 1,
+        eventRetentionDays: 30,
+        doraRetentionDays: 180,
       },
     });
   });
@@ -69,6 +73,8 @@ describe('QUOTA_TIERS', () => {
         alertDestinations: -1,
         idpConfigs: 5,
         seats: 10,
+        eventRetentionDays: 30,
+        doraRetentionDays: 180,
       },
     });
   });
@@ -87,6 +93,8 @@ describe('QUOTA_TIERS', () => {
         alertDestinations: -1,
         idpConfigs: -1,
         seats: 25,
+        eventRetentionDays: 30,
+        doraRetentionDays: 180,
       },
     });
   });
@@ -152,6 +160,8 @@ describe('getTierLimits', () => {
     alertDestinations: 10,
     idpConfigs: 1,
     seats: 1,
+    eventRetentionDays: 30,
+    doraRetentionDays: 180,
   };
   it('should return limits for valid tiers', () => {
     expect(getTierLimits('developer')).toEqual(developerLimits);
@@ -166,6 +176,8 @@ describe('getTierLimits', () => {
       alertDestinations: 50,
       idpConfigs: 5,
       seats: 1,
+      eventRetentionDays: 30,
+      doraRetentionDays: 180,
     });
     expect(getTierLimits('team')).toEqual({
       plugins: 100,
@@ -178,6 +190,8 @@ describe('getTierLimits', () => {
       alertDestinations: -1,
       idpConfigs: 5,
       seats: 10,
+      eventRetentionDays: 30,
+      doraRetentionDays: 180,
     });
     expect(getTierLimits('enterprise')).toEqual({
       plugins: 250,
@@ -190,6 +204,8 @@ describe('getTierLimits', () => {
       alertDestinations: -1,
       idpConfigs: -1,
       seats: 25,
+      eventRetentionDays: 30,
+      doraRetentionDays: 180,
     });
   });
 

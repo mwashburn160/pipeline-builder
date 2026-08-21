@@ -12,17 +12,23 @@ import {
 
 type Level = 'elite' | 'high' | 'medium' | 'low' | null;
 
-/** Minimal DoraMetrics with the four band levels set. */
+/** Minimal DoraMetrics (per-environment shape). Every per-env band — deployment
+ *  frequency INCLUDED — now carries its own `level` in the response, and the
+ *  scorecard consumes it directly (no re-derivation from `perDay`). */
 function dora(levels: [Level, Level, Level, Level]): any {
   const [df, cfr, mttr, lt] = levels;
   return {
     window: { from: '', to: '' },
-    basis: 'run',
     filters: { pipelineId: null, environment: null },
-    deploymentFrequency: { deployments: 0, perDay: 0, level: df },
-    changeFailureRate: { failed: 0, total: 0, pct: 0, level: cfr },
-    meanTimeToRestore: { failures: 0, restored: 0, avgSeconds: null, level: mttr },
-    leadTime: { deployments: 0, medianSeconds: null, approx: true, level: lt },
+    headline: 'production',
+    environments: [{
+      environment: 'production',
+      deploymentFrequency: { deployments: 0, perDay: 0, level: df },
+      leadTime: { deployments: 0, medianSeconds: null, level: lt },
+      changeFailureRate: { rate: 0, deployTimeFailures: 0, postDeployFailures: 0, attempts: 0, level: cfr },
+    }],
+    meanTimeToRestore: { incidents: 0, restored: 0, medianSeconds: null, level: mttr },
+    coverage: { registered: 0, deploying: 0, withoutDeploys: 0 },
   };
 }
 
@@ -90,5 +96,15 @@ describe('buildScorecard', () => {
     expect(sc.dora.score).toBe(100);
     expect(sc.score).toBe(100);
     expect(sc.grade).toBe('A');
+  });
+
+  it('consumes deploymentFrequency.level from the RESPONSE (not re-derived from perDay)', () => {
+    // perDay=0 would derive `null`/`low`, but the response level is authoritative:
+    // the scorecard must report exactly what /dora computed.
+    const d = dora(['high', null, null, null]);
+    d.environments[0].deploymentFrequency = { deployments: 5, perDay: 0, level: 'high' };
+    const sc = buildScorecard('p3', d, { rulesEvaluated: 0, violations: 0, warnings: 0 }, 'now');
+    expect(sc.dora.deploymentFrequency).toBe('high');
+    expect(sc.dora.score).toBe(80); // only the DF band present → 80
   });
 });

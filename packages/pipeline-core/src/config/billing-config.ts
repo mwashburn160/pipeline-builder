@@ -12,7 +12,7 @@
  *   BILLING_PLAN_{TIER}_DESCRIPTION   (plain string)
  *   BILLING_PLAN_{TIER}_FEATURES      (JSON string array)
  *
- * All defaults match the original hardcoded seed data for backward compatibility.
+ * All defaults match the original hardcoded seed data.
  */
 import { QUOTA_TIERS, TIER_FEATURES, FEATURE_METADATA, VALID_TIERS, STANDARD_TIERS, isValidTier, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
 import type { BillingConfig, BillingPlanConfig, BundleConfig, ComboDiscountConfig } from './config-types.js';
@@ -329,7 +329,7 @@ function loadBundles(): BundleConfig[] {
     monthly: number,
     availableForTiers: QuotaTier[],
     sortOrder: number,
-    extra: { features?: string[]; stackable?: boolean } = {},
+    extra: { features?: string[]; stackable?: boolean; maxQuantity?: number } = {},
   ): BundleConfig => {
     // Resolve monthly first so the annual fallback tracks a `_MONTHLY` override
     // (annual ≈ 10× the *effective* monthly, not the hardcoded default).
@@ -340,6 +340,7 @@ function loadBundles(): BundleConfig[] {
       description,
       grants: applyGrantOverride(id, grants),
       ...(extra.features ? { features: extra.features } : {}),
+      ...(extra.maxQuantity !== undefined ? { maxQuantity: extra.maxQuantity } : {}),
       prices: {
         monthly: resolvedMonthly,
         annual: envCents(process.env[`BILLING_BUNDLE_${id.toUpperCase()}_ANNUAL`], resolvedMonthly * 10),
@@ -377,5 +378,17 @@ function loadBundles(): BundleConfig[] {
     // no teams to break down). Priced at $30/mo ($300/yr) — parity with DORA, its
     // analytics sibling. Overridable via BILLING_BUNDLE_TEAM_USAGE_ANALYTICS_MONTHLY/_ANNUAL.
     b('team_usage_analytics', 'Team Usage Analytics', 'Per-team usage breakdown across the org → team subtree (all quota dimensions)', {}, 3000, ['pro', 'team'], 9, { features: ['team_usage_analytics'], stackable: false }),
+    // Retention packs (docs/billing-bundles.md). Stackable capacity packs that
+    // raise the reporting retention entitlement billing syncs to reporting's
+    // `dora_settings`. NOT quota-metered flow — `eventRetentionDays`/`doraRetentionDays`
+    // are absent from VALID_QUOTA_TYPES, so they never ride the quota-service leg.
+    // Standard Retention Pack: +90d standard-event retention (base 30 → 120 → 210…).
+    // Capped at 7 (30 + 7×90 = 660 ≤ the 730-day retention ceiling).
+    b('retention_pack', 'Standard Retention Pack (+90d)', '90 additional days of standard pipeline-event retention', { eventRetentionDays: 90 }, 1500, ALL, 10, { maxQuantity: 7 }),
+    // DORA History Pack: +365d DORA retention AND per-org report-query window (the
+    // window cap tracks doraRetentionDays). Only meaningful with Advanced Reporting
+    // — INCLUDED in Enterprise, an add-on on developer/pro/team. Capped at 1
+    // (180 + 365 = 545 ≤ the 730-day retention ceiling).
+    b('dora_history_pack', 'DORA History Pack (+365d)', '365 additional days of DORA history + report-query window (requires Advanced Reporting)', { doraRetentionDays: 365 }, 3000, ALL, 11, { maxQuantity: 1 }),
   ];
 }

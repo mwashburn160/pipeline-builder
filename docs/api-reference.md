@@ -334,8 +334,12 @@ Pipeline execution and plugin build analytics. Time ranges default to the last 3
 | `GET` | `/reports/execution/stage-failures` | Stage failure heatmap |
 | `GET` | `/reports/execution/stage-bottlenecks` | Slowest stages per pipeline |
 | `GET` | `/reports/execution/errors` | Error categorization (top N) |
-| `GET` | `/reports/execution/dora` | DORA metrics with performance-level bands + an approximate lead-time proxy (`reports:read` **+ `advanced_reporting` feature** — Enterprise, or the Advanced Reporting add-on; `from`, `to`, `includeDescendants` needs `reports:rollup`; optional `pipelineId`, `environment`, `deploysOnly`). See [DORA Metrics](dora-metrics.md) |
+| `GET` | `/reports/execution/dora` | **Per-environment** DORA metrics (headline `production`) with performance-level bands: deploy-basis frequency, **measured** lead time (commit→deploy; `unknown` when unresolved — no proxy), two-class change-failure rate, production MTTR, coverage (`reports:read` **+ `advanced_reporting` feature** — Enterprise, or the Advanced Reporting add-on; `from`, `to`, `includeDescendants` needs `reports:rollup`; optional `pipelineId`, `environment`). See [DORA Metrics](dora-metrics.md) |
 | `GET` | `/reports/execution/dora/trend` | DORA deployment-frequency + change-failure trend bucketed by `interval` (same gates/scoping as `/dora`) |
+| `GET` | `/reports/execution/build-health` | Per-pipeline **build health** — per-stage success rate + p50/p90/p99 timing (`reports:read`; **not** `advanced_reporting` — standard on every tier; `pipelineId`, `from`, `to`) |
+| `POST` | `/reports/deployments/:executionId/outcome` | Mark a **successful** production deploy as `failed`/`restored` (feeds post-deploy CFR + real MTTR); `reports:read` **+ `advanced_reporting`** |
+| `POST` | `/reports/incidents` | Ingest a production **incident** `{incidentId, environment, openedAt, resolvedAt?, severity}` from your monitoring → automated post-deploy CFR/MTTR. Machine **`reporting:ingest`** scope, idempotent on `(org, incidentId)`. See [Incident Webhook](incidents-webhook.md) |
+| `POST` | `/reports/ingest-health` | The ingestion Lambda's delivery-health heartbeat `{forwarded, dropped, lastEventAt}`. Machine **`reporting:ingest`** scope |
 | `GET` | `/reports/plugins/summary` | Plugin inventory stats |
 | `GET` | `/reports/plugins/build-success-rate` | Docker build success rate over time |
 | `GET` | `/reports/plugins/build-duration` | Build time per plugin |

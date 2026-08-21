@@ -41,7 +41,7 @@ class PipelineRegistryService {
 
   /**
    * Upsert a registry row by pipelineId (the stable key the events Lambda
-   * resolves from the `PIPELINE_EVENT_ID` tag). Enforces two tenancy guards:
+   * resolves from the `pb.pipeline-id` tag). Enforces two tenancy guards:
    *   1. The caller's org must own `pipelineId` (prevents claiming other orgs'
    *      pipeline IDs).
    *   2. Any existing registry row for `pipelineId` must belong to the caller's

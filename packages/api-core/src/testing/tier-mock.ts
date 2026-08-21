@@ -44,6 +44,8 @@ const uncappedLimits = (): QuotaTierLimits => ({
   alertRules: -1,
   alertDestinations: -1,
   idpConfigs: -1,
+  eventRetentionDays: -1,
+  doraRetentionDays: -1,
 });
 
 const titleCase = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);

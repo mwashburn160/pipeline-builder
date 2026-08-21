@@ -66,6 +66,49 @@ groups:
           summary: "Plugin build success rate below 90% for org {{ $labels.org_id }}"
           description: "5-min success rate is {{ $value | humanizePercentage }} over the last 10 minutes."
 
+      # ---- Pipeline deploy / stage failures (DORA events, Phase 3b) ----
+      # Fed by the reporting service's ingest metrics (scraped from the
+      # reporting pod). `pipeline_deploy_result_total` is incremented per
+      # deploy-stage execution the forwarder marks with an `environment`
+      # (derived from the pipeline's `pb.deploys` tag); `result` is
+      # succeeded|failed. `pipeline_stage_result_total` is the same, one
+      # series per (pipeline, stage, environment).
+      - alert: PipelineDeployFailed
+        # A `production` deploy stage failed. This is the DORA headline signal
+        # (deploy-time change failure), so it pages rather than warns. `increase`
+        # over 5m fires on any new failure; `by (org_id)` routes to the org and
+        # keeps one series per tenant.
+        expr: |
+          sum by (org_id) (increase(pipeline_deploy_result_total{environment="production",result="failed",org_id=~".+"}[5m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: pipeline
+          tenancy: org
+        annotations:
+          summary: "Production deploy failed for org {{ $labels.org_id }}"
+          description: "{{ $value | humanize }} production deploy-stage failure(s) in the last 5 minutes. Check the pipeline's deploy stage in CodePipeline."
+
+      - alert: PipelineStageFailureRateHigh
+        # Per-org stage success-rate aggregation across ALL stages (not just
+        # deploys), mirroring PluginBuildFailureRateHigh. `by (org_id)` produces
+        # one series per org; alerts fire per org and carry that org_id for
+        # relay routing. Warns rather than pages — a broad-but-not-outage signal.
+        expr: |
+          (
+            sum by (org_id) (rate(pipeline_stage_result_total{result="succeeded",org_id=~".+"}[5m]))
+            /
+            clamp_min(sum by (org_id) (rate(pipeline_stage_result_total{org_id=~".+"}[5m])), 1)
+          ) < 0.9
+        for: 10m
+        labels:
+          severity: warning
+          component: pipeline
+          tenancy: org
+        annotations:
+          summary: "Pipeline stage success rate below 90% for org {{ $labels.org_id }}"
+          description: "5-min stage success rate is {{ $value | humanizePercentage }} over the last 10 minutes — inspect recent pipeline executions."
+
       # per-plugin variants of the org-wide alert above. The
       # `plugin_builds_total` counter carries `plugin_name` so groupings
       # `by (org_id, plugin_name)` produce one series per (org, plugin)

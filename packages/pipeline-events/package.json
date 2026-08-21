@@ -90,7 +90,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "3.4.94",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },
@@ -149,6 +149,8 @@
     ],
     "moduleNameMapper": {
       "^uuid$": "<rootDir>/../../jest-uuid-stub.js",
+      "^@aws-sdk/client-sqs$": "<rootDir>/test/aws-sdk-stub.js",
+      "^@aws-sdk/client-codecommit$": "<rootDir>/test/aws-sdk-stub.js",
       "^(\\.{1,2}/.*)\\.js$": "$1"
     }
   },

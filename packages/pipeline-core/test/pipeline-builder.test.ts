@@ -25,7 +25,14 @@ import type { BuilderProps } from '../src/pipeline/pipeline-builder.js';
 // (intentional) in-cluster-pull-host guardrail. Set before any Config.get('aws').
 process.env.CODEBUILD_DEFAULT_IMAGE = 'aws/codebuild/standard:8.0';
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+// Persistent logger so synth-time warnings (last-stage attribution, pb.deploys
+// overflow) can be asserted. The default mock hands each createLogger() call a
+// fresh spy set, which would lose the warning before a test could inspect it.
+const warnSpy = jest.fn();
+const sharedLogger = { info: jest.fn(), warn: warnSpy, error: jest.fn(), debug: jest.fn() };
+jest.unstable_mockModule('@pipeline-builder/api-core', () =>
+  apiCoreMock({ createLogger: () => sharedLogger }),
+);
 
 // Stub the heavy PluginLookup construct (real one bundles a Lambda).
 jest.unstable_mockModule('../src/pipeline/plugin-lookup.js', async () => {
@@ -113,7 +120,7 @@ describe('PipelineBuilder', () => {
       });
     });
 
-    it('applies the operations-essential tags (and OrgId / PIPELINE_EVENT_ID when provided)', () => {
+    it('applies the operations-essential tags (and OrgId / pb.pipeline-id when provided)', () => {
       const { template } = build(baseProps({ orgId: 'org-42', pipelineId: 'pl-99' }));
 
       const pipelines = template.findResources('AWS::CodePipeline::Pipeline');
@@ -125,9 +132,11 @@ describe('PipelineBuilder', () => {
           { Key: 'project', Value: 'my_project' },
           { Key: 'organization', Value: 'my_org' },
           { Key: 'OrgId', Value: 'org-42' },
-          { Key: 'PIPELINE_EVENT_ID', Value: 'pl-99' },
+          { Key: 'pb.pipeline-id', Value: 'pl-99' },
         ]),
       );
+      // The old event-reporting tag name is gone (no back-compat).
+      expect(tags.some((t: { Key: string }) => t.Key === 'PIPELINE_EVENT_ID')).toBe(false);
     });
 
     it('does not emit an OrgId tag when orgId is omitted', () => {
@@ -135,22 +144,108 @@ describe('PipelineBuilder', () => {
       const pipelines = template.findResources('AWS::CodePipeline::Pipeline');
       const tags = (Object.values(pipelines)[0] as any).Properties.Tags as Array<{ Key: string }>;
       expect(tags.some(t => t.Key === 'OrgId')).toBe(false);
-      expect(tags.some(t => t.Key === 'PIPELINE_EVENT_ID')).toBe(false);
+      expect(tags.some(t => t.Key === 'pb.pipeline-id')).toBe(false);
     });
 
-    it('applies an Environment tag when environment is provided (DORA attribution)', () => {
+    it('derives pb.deploys from the pipeline-level environment (single-env, one stage)', () => {
+      const { template } = build(baseProps({
+        environment: 'production',
+        stages: [{ stageName: 'Deploy-prod', steps: [{ plugin: { name: 'cdk-synth' } }] }],
+      }));
+      const pipelines = template.findResources('AWS::CodePipeline::Pipeline');
+      const tags = (Object.values(pipelines)[0] as any).Properties.Tags;
+      expect(tags).toEqual(
+        expect.arrayContaining([{ Key: 'pb.deploys', Value: 'Deploy-prod:production' }]),
+      );
+      // The old pipeline-level Environment tag is gone (no back-compat).
+      expect(tags.some((t: { Key: string }) => t.Key === 'Environment')).toBe(false);
+    });
+
+    it('falls back to a literal Deploy stage for single-env when no stage can be named', () => {
       const { template } = build(baseProps({ environment: 'production' }));
       const pipelines = template.findResources('AWS::CodePipeline::Pipeline');
       const tags = (Object.values(pipelines)[0] as any).Properties.Tags;
       expect(tags).toEqual(
-        expect.arrayContaining([{ Key: 'Environment', Value: 'production' }]),
+        expect.arrayContaining([{ Key: 'pb.deploys', Value: 'Deploy:production' }]),
       );
     });
 
-    it('does not emit an Environment tag when environment is omitted', () => {
+    it('derives pb.deploys from per-stage environment (multi-env)', () => {
+      const { template } = build(baseProps({
+        stages: [
+          { stageName: 'Deploy-stg', environment: 'staging', steps: [{ plugin: { name: 'cdk-synth' } }] },
+          { stageName: 'Build', steps: [{ plugin: { name: 'cdk-synth' } }] },
+          { stageName: 'Deploy-prod', environment: 'production', steps: [{ plugin: { name: 'cdk-synth' } }] },
+        ],
+      }));
+      const pipelines = template.findResources('AWS::CodePipeline::Pipeline');
+      const tags = (Object.values(pipelines)[0] as any).Properties.Tags;
+      expect(tags).toEqual(
+        expect.arrayContaining([
+          { Key: 'pb.deploys', Value: 'Deploy-stg:staging+Deploy-prod:production' },
+        ]),
+      );
+    });
+
+    it('attributes a pipeline-level environment to the LAST stage of a multi-stage pipeline (with a synth warning)', () => {
+      warnSpy.mockClear();
+      const { template } = build(baseProps({
+        environment: 'production',
+        stages: [
+          { stageName: 'Build', steps: [{ plugin: { name: 'cdk-synth' } }] },
+          { stageName: 'Test', steps: [{ plugin: { name: 'cdk-synth' } }] },
+          { stageName: 'Ship', steps: [{ plugin: { name: 'cdk-synth' } }] },
+        ],
+      }));
+      const pipelines = template.findResources('AWS::CodePipeline::Pipeline');
+      const tags = (Object.values(pipelines)[0] as any).Properties.Tags;
+      // Last stage ("Ship") is the deploy — not the never-matching literal "Deploy".
+      expect(tags).toEqual(
+        expect.arrayContaining([{ Key: 'pb.deploys', Value: 'Ship:production' }]),
+      );
+      // Synth warning recommends explicit per-stage environment.
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('attributed to the last stage'),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Ship'));
+    });
+
+    it('caps the pb.deploys tag value at 256 chars, keeping the production pair and dropping overflow (with a warning)', () => {
+      warnSpy.mockClear();
+      // Many per-stage-env pairs whose joined length far exceeds 256 chars.
+      const many = Array.from({ length: 8 }, (_, i) => ({
+        stageName: `DeployStageNumber${i}`,
+        environment: `environment-region-number-${i}`,
+        steps: [{ plugin: { name: 'cdk-synth' } }],
+      }));
+      // The production (headline) pair is LAST — it must survive the cap, first.
+      many.push({
+        stageName: 'ProdDeploy',
+        environment: 'production',
+        steps: [{ plugin: { name: 'cdk-synth' } }],
+      });
+      const { template } = build(baseProps({ stages: many }));
+      const pipelines = template.findResources('AWS::CodePipeline::Pipeline');
+      const tags = (Object.values(pipelines)[0] as any).Properties.Tags as Array<{ Key: string; Value: string }>;
+      const deploys = tags.find(t => t.Key === 'pb.deploys');
+      expect(deploys).toBeDefined();
+      const value = deploys!.Value;
+      // Never exceeds AWS's 256-char tag-value limit.
+      expect(value.length).toBeLessThanOrEqual(256);
+      // Headline/production pair is kept, and placed first.
+      expect(value.startsWith('ProdDeploy:production')).toBe(true);
+      // At least one overflow pair was dropped (fewer than all 9 pairs remain).
+      expect(value.split('+').length).toBeLessThan(9);
+      // A synth warning names the 256-char cap and the dropped pairs.
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('256'));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('dropped'));
+    });
+
+    it('does not emit pb.deploys or Environment when no environment is declared', () => {
       const { template } = build(baseProps());
       const pipelines = template.findResources('AWS::CodePipeline::Pipeline');
       const tags = (Object.values(pipelines)[0] as any).Properties.Tags as Array<{ Key: string }>;
+      expect(tags.some(t => t.Key === 'pb.deploys')).toBe(false);
       expect(tags.some(t => t.Key === 'Environment')).toBe(false);
     });
 

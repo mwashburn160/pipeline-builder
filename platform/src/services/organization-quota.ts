@@ -23,6 +23,41 @@ const QUOTA_TYPES = ['plugins', 'pipelines', 'apiCalls', 'aiCalls'] as const;
 export type QuotaTypeKey = (typeof QUOTA_TYPES)[number];
 
 /**
+ * BILLING-OWNED retention dimensions persisted ONLY to `dora_settings` (via the
+ * billing→reporting retention-sync leg). They must NEVER land on the org doc's
+ * `quotas`, so every reseed strips them from the tier preset.
+ */
+const RETENTION_DIMS = ['eventRetentionDays', 'doraRetentionDays'] as const;
+
+/**
+ * Tier-preset dimensions that must NEVER be copied onto the org doc's `quotas`
+ * when reseeding from a `QUOTA_TIERS[tier].limits` preset:
+ *   - `seats` is preserved separately — it is the one dim a bundle raises
+ *     directly on the org doc, so the reseed sets it from billing's effective
+ *     entitlement (tier base + bundles), never clobbers it with the bare base.
+ *   - the {@link RETENTION_DIMS} live only on `dora_settings`, never here.
+ * Used by setSeatLimit's degraded reseed (which skips `seats` too because it
+ * writes seats separately); the keep-max reseed paths use {@link stripRetentionDims}.
+ */
+const RESEED_EXCLUDED_DIMS: ReadonlySet<string> = new Set<string>(['seats', ...RETENTION_DIMS]);
+
+/**
+ * Strip the billing-owned {@link RETENTION_DIMS} from a reseeded quota preset,
+ * in place. For the reseed paths (setTier / updateQuotas) that PRESERVE `seats`
+ * via keep-max, so — unlike setSeatLimit's per-dim skip — only the retention
+ * dims are removed here.
+ */
+function stripRetentionDims(quotas: Record<string, unknown>): void {
+  for (const dim of RETENTION_DIMS) delete quotas[dim];
+}
+
+/** Added/removed feature-entitlement delta (order-independent) for the audit trail. */
+export interface FeatureDelta {
+  added: string[];
+  removed: string[];
+}
+
+/**
  * Invalidate every ACTIVE member's outstanding access tokens for `organizationId`
  * (a single org id, or an array spanning an account subtree) by bumping their
  * `tokenVersion` inside the caller's transaction.
@@ -157,7 +192,7 @@ export async function setSeatLimit(
   seats: number,
   features?: string[],
   tier?: QuotaTier,
-): Promise<{ rootOrgId: string; seats: number } | null> {
+): Promise<{ rootOrgId: string; seats: number; featureDelta?: FeatureDelta } | null> {
   const { rootOrgId } = await resolveOrgLineage(orgId);
   const set: Record<string, unknown> = { 'quotas.seats': seats };
   // Account-level purchased feature entitlements (bundles) also live on the
@@ -180,6 +215,11 @@ export async function setSeatLimit(
     // `featureEntitlements` onto every descendant team — see the propagate guard.
     let featuresChanged = false;
     let tierDowngrade = false;
+    // The added/removed feature delta (order-independent), so the audit trail can
+    // reconstruct WHICH entitlements a sync granted or revoked — e.g. a DORA
+    // (advanced_reporting) access grant/revoke — not just the resulting set.
+    // Undefined when `features` was not part of this call (no entitlement change).
+    let featureDelta: FeatureDelta | undefined;
     // The org subtree a feature/tier change propagates to (root + descendant
     // teams). Defaults to the root alone; widened below once the descendant
     // scope is resolved, so the token-invalidation bump covers EXACTLY the orgs
@@ -198,6 +238,10 @@ export async function setSeatLimit(
       // Set inequality: a removal (shrink) OR a differing size (an add). A
       // reorder of the same members leaves both false → no descendant rewrite.
       featuresChanged = featureShrink || currentFeatures.size !== nextFeatures.size;
+      // Capture the concrete added/removed delta for the audit trail.
+      const added = [...nextFeatures].filter((f) => !currentFeatures.has(f));
+      const removed = [...currentFeatures].filter((f) => !nextFeatures.has(f));
+      featureDelta = { added, removed };
     }
     // Billing pushes the account tier alongside seats/features so a plan
     // DOWNGRADE invalidates stale tokens here (the JWT re-derives tier-included
@@ -223,7 +267,7 @@ export async function setSeatLimit(
       const base = QUOTA_TIERS[tier]?.limits;
       if (base) {
         for (const [dim, value] of Object.entries(base)) {
-          if (dim === 'seats') continue;
+          if (RESEED_EXCLUDED_DIMS.has(dim)) continue;
           set[`quotas.${dim}`] = value;
         }
       }
@@ -270,7 +314,7 @@ export async function setSeatLimit(
           : featureShrink ? 'feature_shrink' : 'tier_downgrade',
       });
     }
-    return { rootOrgId, seats };
+    return { rootOrgId, seats, featureDelta };
   });
   // Post-commit: publish the affected members' now-current tokenVersion.
   await publishUsersRevocation(bumpedMemberIds);
@@ -421,6 +465,8 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
     // never rides setTier — billing pushes it through `setSeatLimit` — so
     // keep-max here can't strand a removed seat bundle.
     const reseeded = { ...QUOTA_TIERS[newTier].limits };
+    // Keep the billing-owned retention dims off the persisted quota doc.
+    stripRetentionDims(reseeded as Record<string, unknown>);
     const currentSeats = org.quotas?.seats;
     if (typeof currentSeats === 'number' && typeof reseeded.seats === 'number') {
       if (currentSeats === -1) {
@@ -541,9 +587,12 @@ export async function updateQuotas(id: string, quotaLimits: QuotaLimitsInput, au
   // is what makes the response + the fallback read correct.
   if (!org.quotas) {
     // Same lockstep rationale as setTier — spread the full QuotaTierLimits shape
-    // so we don't drop newer fields.
+    // so we don't drop newer fields, then strip the billing-owned retention dims
+    // (they live only on `dora_settings`, never on the org doc's `quotas`).
     const tierKey = (org.tier as QuotaTier | undefined) ?? 'developer';
-    org.quotas = { ...QUOTA_TIERS[tierKey].limits };
+    const seeded = { ...QUOTA_TIERS[tierKey].limits };
+    stripRetentionDims(seeded as Record<string, unknown>);
+    org.quotas = seeded;
   }
   for (const [key, value] of Object.entries(quotaLimits)) {
     if (value !== undefined) {

@@ -12,9 +12,10 @@ import { FilterSelect } from '@/components/ui/FilterSelect';
 const ReportTabs = dynamic(() => import('@/components/reports/ReportTabs'), {
   loading: () => <LoadingPage />,
 });
-import { DateRangePicker, AutoRefresh } from '@/components/reports/ReportHelpers';
+import { DateRangePicker, AutoRefresh, DoraUpsell } from '@/components/reports/ReportHelpers';
 import { PipelineOverview } from '@/components/reports/PipelineOverview';
 import { DoraReport } from '@/components/reports/DoraReport';
+import { BuildHealthPanel } from '@/components/reports/BuildHealth';
 import { PipelinePerformance } from '@/components/reports/PipelinePerformance';
 import { PipelineFailures } from '@/components/reports/PipelineFailures';
 import { PluginOverview } from '@/components/reports/PluginOverview';
@@ -28,7 +29,7 @@ import { useFeatures } from '@/hooks/useFeatures';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import type { ExecutionCountRow } from '@/types';
-import type { DoraMetrics, DoraTrendPoint } from '@/lib/api/domains/reporting';
+import type { DoraMetrics, DoraTrendPoint, DeploymentRow, BuildHealth } from '@/lib/api/domains/reporting';
 
 // ─── Tab Config ─────────────────────────────────────────
 type TopTab = 'pipelines' | 'plugins' | 'dora';
@@ -60,6 +61,8 @@ const DATE_PRESETS: { label: string; days: number }[] = [
   { label: 'Last 7d', days: 7 },
   { label: 'Last 30d', days: 30 },
   { label: 'Last 90d', days: 90 },
+  { label: 'Last 180d', days: 180 },
+  { label: 'Last 365d', days: 365 },
 ];
 
 /** Format a Date as a local `YYYY-MM-DD` string (matches the native date input value). */
@@ -88,23 +91,17 @@ export default function ReportsPage() {
   const [pluginTab, setPluginTab] = useState<PluginSubTab>('overview');
 
   // Honor ?tab=plugins|pipelines|dora on load and on browser back/forward, so the
-  // tab is deep-linkable (e.g. from the command palette or a shared URL). `dora`
-  // is only honored when entitled — otherwise it's ignored (falls back to the
-  // default), and the guard effect below also demotes it if entitlement is lost.
+  // tab is deep-linkable (e.g. from the command palette or a shared URL). The
+  // DORA tab is always present — non-entitled users land on the upsell teaser
+  // instead of the metrics — so `dora` is honored regardless of entitlement.
   useEffect(() => {
     if (!router.isReady) return;
     const raw = router.query.tab;
     const tab = Array.isArray(raw) ? raw[0] : raw;
-    if (tab === 'plugins' || tab === 'pipelines' || (tab === 'dora' && doraEnabled)) {
+    if (tab === 'plugins' || tab === 'pipelines' || tab === 'dora') {
       setTopTab((prev) => (prev === tab ? prev : tab));
     }
-  }, [router.isReady, router.query.tab, doraEnabled]);
-
-  // Demote off the DORA tab if the entitlement isn't (or is no longer) present —
-  // e.g. a deep-link or a tier/bundle change while the tab is open.
-  useEffect(() => {
-    if (topTab === 'dora' && !doraEnabled) setTopTab('pipelines');
-  }, [topTab, doraEnabled]);
+  }, [router.isReady, router.query.tab]);
 
   // Switch the top-level tab and reflect it in the URL (shallow — no data
   // refetch from the route change; the effects below already key off topTab).
@@ -141,8 +138,8 @@ export default function ReportsPage() {
   const [dora, setDora] = useState<DoraMetrics | null>(null);
   const [doraTrend, setDoraTrend] = useState<DoraTrendPoint[]>([]);
   // DORA scoping (entitled users only). Empty pipeline/environment ⇒ omit the
-  // param (backend defaults to org-wide, run-basis). `deploysOnly` flips the
-  // basis to deployment-scoped when the pipeline emits deploy markers.
+  // param (backend defaults to org-wide). DORA is always deploy-basis — there is
+  // no run-basis fallback, so no deployments-only toggle.
   const [doraPipelineId, setDoraPipelineId] = useState('');
   // `doraEnvironment` is the live input value; `doraEnvironmentApplied` is the
   // committed value that actually feeds the fetch. Typing updates only the
@@ -151,7 +148,14 @@ export default function ReportsPage() {
   // per keystroke (which would also reset the AutoRefresh timer each time).
   const [doraEnvironment, setDoraEnvironment] = useState('');
   const [doraEnvironmentApplied, setDoraEnvironmentApplied] = useState('');
-  const [doraDeploysOnly, setDoraDeploysOnly] = useState(false);
+  // Recent deploy executions for the scoped pipeline — the deploy list that
+  // carries the mark-failed/restored row actions. Only fetched when a single
+  // pipeline is scoped (the outcome endpoint keys on an executionId).
+  const [deployments, setDeployments] = useState<DeploymentRow[]>([]);
+  // Per-pipeline build health (Phase 6) — a standard (every-tier) stage breakdown
+  // rendered next to DORA, keyed by the scoped pipeline. Only fetched when a
+  // single pipeline is scoped (the endpoint requires a pipelineId).
+  const [buildHealth, setBuildHealth] = useState<BuildHealth | null>(null);
   // Full pipeline list for the DORA per-pipeline picker — sourced from the
   // pipeline registry (not execution history), so a pipeline that exists but has
   // never run is still selectable. Merged with execution-derived names in
@@ -230,29 +234,43 @@ export default function ReportsPage() {
           if (actionRes.status === 'fulfilled') setActionFailures(actionRes.value.data?.actions || []);
           if (errorRes.status === 'fulfilled') setErrors(errorRes.value.data?.errors || []);
         }
-      } else if (topTab === 'dora') {
-        // DORA (delivery analytics) — only reachable when entitled (the tab is
-        // hidden otherwise + the guard effect demotes it), so no per-request
-        // feature gate is needed here. DORA scoping filters: omit each param when
-        // unset so the backend keeps its org-wide, run-basis default; `deploysOnly`
-        // narrows the basis to deployment-scoped counting.
-        const doraScope: { pipelineId?: string; environment?: string; deploysOnly?: boolean } = {};
+      } else if (topTab === 'dora' && doraEnabled) {
+        // DORA (delivery analytics) — the tab is always present, but non-entitled
+        // users get the upsell teaser (rendered below) and NO fetch fires (this
+        // branch is entitlement-gated to avoid a pointless 403). DORA scoping
+        // filters: omit each param when unset so the backend keeps its org-wide
+        // default. DORA is always deploy-basis (no deploysOnly param).
+        const doraScope: { pipelineId?: string; environment?: string } = {};
         if (doraPipelineId) doraScope.pipelineId = doraPipelineId;
         if (doraEnvironmentApplied.trim()) doraScope.environment = doraEnvironmentApplied.trim();
-        if (doraDeploysOnly) doraScope.deploysOnly = true;
         // The pipeline picker (registry) + env datalist are auxiliary — swallow
         // their failures to `undefined` so they never trip the shared error banner.
         // `getExecutionCount` fills the picker with since-deleted pipelines that ran.
+        // The deploy list (mark failed/restored) is per-pipeline — the outcome
+        // endpoint keys on an executionId — so only fetch it when a single
+        // pipeline is scoped. Best-effort: swallow failures so it never trips
+        // the shared error banner.
+        const deployListReq = doraPipelineId
+          ? api.listPipelineExecutions(doraPipelineId, { ...dateParams, ...rollup, limit: 25 }).catch(() => undefined)
+          : Promise.resolve(undefined);
+        // Build health (every-tier, ungated) is per-pipeline — fetch only when a
+        // single pipeline is scoped. Best-effort: swallow failures so it never
+        // trips the shared error banner (it renders next to, not inside, DORA).
+        const buildHealthReq = doraPipelineId
+          ? api.getBuildHealth(doraPipelineId, { ...dateParams, ...rollup }).catch(() => undefined)
+          : Promise.resolve(undefined);
         const results = await Promise.allSettled([
           api.getDora({ ...dateParams, ...rollup, ...doraScope }),
           api.getDoraTrend({ interval: timeInterval, ...dateParams, ...rollup, ...doraScope }),
           api.getExecutionCount({ ...dateParams, ...rollup }),
           api.listPipelines({ limit: '200' }).catch(() => undefined),
           api.getReportEnvironments({ ...dateParams, ...rollup }).catch(() => undefined),
+          deployListReq,
+          buildHealthReq,
         ]);
         if (reqId !== reqIdRef.current) return;
         settled = results;
-        const [doraRes, doraTrendRes, execRes, pipelineListRes, envListRes] = results;
+        const [doraRes, doraTrendRes, execRes, pipelineListRes, envListRes, deployRes, buildHealthRes] = results;
         if (doraRes.status === 'fulfilled') setDora(doraRes.value ?? null);
         if (doraTrendRes.status === 'fulfilled') setDoraTrend(doraTrendRes.value ?? []);
         if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
@@ -264,6 +282,15 @@ export default function ReportsPage() {
         if (envListRes.status === 'fulfilled' && envListRes.value) {
           setEnvironmentOptions(envListRes.value.data?.environments ?? []);
         }
+        setDeployments(
+          deployRes.status === 'fulfilled' && deployRes.value ? deployRes.value.data?.executions ?? [] : [],
+        );
+        setBuildHealth(
+          buildHealthRes.status === 'fulfilled' && buildHealthRes.value ? buildHealthRes.value : null,
+        );
+      } else if (topTab === 'dora') {
+        // On the DORA tab without entitlement — the upsell teaser renders below
+        // and no fetch is issued (nothing to settle).
       } else {
         if (pluginTab === 'overview') {
           const results = await Promise.allSettled([api.getPluginSummary(), api.getPluginDistribution()]);
@@ -297,11 +324,34 @@ export default function ReportsPage() {
     } finally {
       if (reqId === reqIdRef.current) setLoading(false);
     }
-  }, [topTab, pipelineTab, pluginTab, timeInterval, dateFrom, dateTo, includeDescendants, doraEnabled, doraPipelineId, doraEnvironmentApplied, doraDeploysOnly]);
+  }, [topTab, pipelineTab, pluginTab, timeInterval, dateFrom, dateTo, includeDescendants, doraEnabled, doraPipelineId, doraEnvironmentApplied]);
 
   useEffect(() => {
     if (isAuthenticated) fetchData();
   }, [isAuthenticated, fetchData]);
+
+  // Environment a marked outcome is attributed to: the applied env filter when
+  // set, otherwise the DORA headline (`production`). Post-deploy CFR + MTTR are
+  // computed per environment, so the attribution has to be explicit.
+  const markEnvironment = doraEnvironmentApplied.trim() || 'production';
+
+  // Mark a deploy execution failed/restored, then refetch so the DORA cards +
+  // deploy list reflect the new outcome. Errors surface on the shared banner.
+  const handleMarkOutcome = useCallback(
+    async (executionId: string, outcome: 'failed' | 'restored') => {
+      try {
+        await api.markDeploymentOutcome(executionId, {
+          outcome,
+          at: new Date().toISOString(),
+          environment: markEnvironment,
+        });
+        await fetchData();
+      } catch (e) {
+        setError(formatError(e, 'Failed to record deployment outcome'));
+      }
+    },
+    [markEnvironment, fetchData],
+  );
 
   // Debounce the environment filter: promote the live input to the committed
   // value ~400ms after typing stops (blur/Enter commit immediately via the
@@ -380,10 +430,10 @@ export default function ReportsPage() {
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="page-section space-y-6">
 
         {/* ═══════ Top-level tabs: Pipelines / Plugins / DORA ═══════ */}
-        {/* DORA is a peer tab, shown only when `advanced_reporting` is entitled
-            (by tier or add-on bundle). */}
+        {/* DORA is always a peer tab; non-entitled users land on the upsell teaser
+            (rendered below) instead of the metrics. */}
         <div className="flex gap-2">
-          {[...TOP_TABS, ...(doraEnabled ? [{ id: 'dora' as TopTab, label: 'DORA', icon: Gauge }] : [])].map((tab) => {
+          {[...TOP_TABS, { id: 'dora' as TopTab, label: 'DORA', icon: Gauge }].map((tab) => {
             const Icon = tab.icon;
             const active = topTab === tab.id;
             return (
@@ -434,26 +484,44 @@ export default function ReportsPage() {
           </>
         )}
 
-        {/* ═══════════════════ DORA (feature-gated) ═══════════════════ */}
-        {topTab === 'dora' && doraEnabled && (
-          <DoraReport
-            loading={loading}
-            dora={dora}
-            doraTrend={doraTrend}
-            pipelineOptions={pipelineOptions}
-            executions={executions}
-            environmentOptions={environmentOptions}
-            doraScope={{
-              pipelineId: doraPipelineId,
-              environment: doraEnvironment,
-              deploysOnly: doraDeploysOnly,
-              onPipelineChange: setDoraPipelineId,
-              onEnvironmentChange: setDoraEnvironment,
-              onEnvironmentCommit: setDoraEnvironmentApplied,
-              onDeploysOnlyChange: setDoraDeploysOnly,
-            }}
-          />
-        )}
+        {/* ═══════════════════ DORA ═══════════════════ */}
+        {/* Entitled → the metrics; non-entitled → the upsell teaser (no dead-end). */}
+        {topTab === 'dora' && (doraEnabled ? (
+          <>
+            <DoraReport
+              loading={loading}
+              dora={dora}
+              doraTrend={doraTrend}
+              pipelineOptions={pipelineOptions}
+              executions={executions}
+              environmentOptions={environmentOptions}
+              deployments={deployments}
+              deployPipelineSelected={!!doraPipelineId}
+              markEnvironment={markEnvironment}
+              canMark={can('reports:read')}
+              onMarkOutcome={handleMarkOutcome}
+              requestedFrom={dateFrom}
+              doraScope={{
+                pipelineId: doraPipelineId,
+                environment: doraEnvironment,
+                onPipelineChange: setDoraPipelineId,
+                onEnvironmentChange: setDoraEnvironment,
+                // Commit both the live + applied value so a pivot (env pill click)
+                // also updates the visible filter input, not just the fetch.
+                onEnvironmentCommit: (v) => { setDoraEnvironment(v); setDoraEnvironmentApplied(v); },
+              }}
+            />
+            {/* Build Health — standard (every-tier) per-stage breakdown, rendered
+                NEXT TO DORA and keyed by the same scoped pipeline. */}
+            <BuildHealthPanel
+              loading={loading}
+              buildHealth={buildHealth}
+              pipelineSelected={!!doraPipelineId}
+            />
+          </>
+        ) : (
+          <DoraUpsell />
+        ))}
 
         {/* ═══════════════════ PLUGINS ═══════════════════ */}
         {topTab === 'plugins' && (

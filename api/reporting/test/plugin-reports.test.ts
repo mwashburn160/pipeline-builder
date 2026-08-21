@@ -89,6 +89,15 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
     getBuildSuccessRate: mockGetBuildSuccessRate,
     getBuildDuration: mockGetBuildDuration,
     getBuildFailures: mockGetBuildFailures,
+    // Phase 8: the per-org build reports resolve the org's effective retention
+    // cap (resolveOrgMaxRangeMs) before parsing the date range. Default org (no
+    // override) → the env-default event window.
+    getIncidentSettings: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({
+      eventRetentionDays: null,
+      doraRetentionDays: null,
+      defaultEventRetentionDays: 30,
+      defaultDoraRetentionDays: 180,
+    }),
   },
 }));
 

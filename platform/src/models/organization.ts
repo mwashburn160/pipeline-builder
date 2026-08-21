@@ -204,6 +204,37 @@ const quotaUsageSchema = new Schema<QuotaUsage>(
   { _id: false },
 );
 
+/**
+ * Compile-time key-coverage guard for the persisted `quotas` sub-document.
+ *
+ * The Mongoose `quotas` block below persists every FLOW quota dimension but
+ * DELIBERATELY EXCLUDES the two BILLING-OWNED retention dims
+ * (`eventRetentionDays` / `doraRetentionDays`): those live only on the
+ * reporting store's `dora_settings` (written by the billing→reporting
+ * retention-sync leg), never on the org doc — and platform's quota reseeds
+ * skip them (see `RESEED_EXCLUDED_DIMS` in organization-quota.ts).
+ *
+ * `PERSISTED_QUOTA_KEYS` must list EXACTLY the keys the schema block persists.
+ * The `satisfies` clause rejects any typo, stale, or retention key; the
+ * `_AllPersistedKeysCovered` assertion rejects a MISSING one. Together they
+ * make adding a new non-retention dimension to `QuotaTierLimits` (in api-core)
+ * a real COMPILE ERROR here until it is added both to the schema block and to
+ * this list — the lockstep the old (false) "missing-field compile error"
+ * comment only claimed to have.
+ */
+type PersistedQuotaKey = Exclude<keyof QuotaTierLimits, 'eventRetentionDays' | 'doraRetentionDays'>;
+const PERSISTED_QUOTA_KEYS = [
+  'plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes',
+  'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs', 'seats',
+] as const satisfies readonly PersistedQuotaKey[];
+type _AllPersistedKeysCovered =
+  Exclude<PersistedQuotaKey, (typeof PERSISTED_QUOTA_KEYS)[number]> extends never
+    ? true
+    : ['MISSING quota key in organizationSchema.quotas', Exclude<PersistedQuotaKey, (typeof PERSISTED_QUOTA_KEYS)[number]>];
+const _persistedQuotaKeysExhaustive: _AllPersistedKeysCovered = true;
+void _persistedQuotaKeysExhaustive;
+void PERSISTED_QUOTA_KEYS;
+
 const organizationSchema = new Schema<OrganizationDocument>(
   {
     _id: {
@@ -267,10 +298,13 @@ const organizationSchema = new Schema<OrganizationDocument>(
       index: true,
     },
     // Defaults sourced from `QUOTA_TIERS[DEFAULT_TIER].limits` (the
-    // DEFAULT_QUOTA_TIER preset) so every countable resource in `QuotaTierLimits` is here
-    // without hand-syncing values. Adding a new limit in api-core surfaces
-    // a missing-field compile error on the `quotas: QuotaLimits` interface
-    // (because `QuotaLimits = QuotaTierLimits`).
+    // DEFAULT_QUOTA_TIER preset) so every persisted FLOW quota tracks the preset
+    // without hand-syncing values. The two BILLING-OWNED retention dims
+    // (`eventRetentionDays` / `doraRetentionDays`) are INTENTIONALLY EXCLUDED —
+    // they live only on the reporting store's `dora_settings`, never on the org
+    // doc (see `PERSISTED_QUOTA_KEYS` above, which enforces exactly this set at
+    // compile time). Adding any OTHER new limit to `QuotaTierLimits` in api-core
+    // is a compile error at `PERSISTED_QUOTA_KEYS` until it is added here too.
     quotas: {
       plugins: {
         type: Number,

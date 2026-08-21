@@ -32,7 +32,7 @@ export interface Scorecard {
   };
   dora: {
     score: number | null;
-    basis: 'deploy' | 'run';
+    basis: 'deploy';
     deploymentFrequency: DoraLevel;
     changeFailureRate: DoraLevel;
     meanTimeToRestore: DoraLevel;
@@ -49,13 +49,25 @@ const BAND_POINTS: Record<Exclude<DoraLevel, null>, number> = {
   low: 30,
 };
 
-/** Average of the present DORA bands' points (null when every band is null). */
+/** The headline environment's metrics (`production`, else the first), or undefined
+ *  when the pipeline has no deploy-attributed environment in the window. Deployment
+ *  frequency / lead time / CFR are per-environment in the DORA response. */
+function headlineEnv(d: DoraMetrics): DoraMetrics['environments'][number] | undefined {
+  return d.environments.find(e => e.environment === d.headline) ?? d.environments[0];
+}
+
+/** Average of the present DORA bands' points (null when every band is null).
+ *  Scored on the headline environment: deploy frequency, CFR, lead time (all
+ *  per-env), plus production MTTR. Every per-env band — deployment frequency
+ *  included — carries its own `level` in the DoraMetrics response, so we consume
+ *  it directly rather than re-deriving the DF band from `perDay`. */
 export function doraScoreFromMetrics(d: DoraMetrics): number | null {
+  const env = headlineEnv(d);
   const levels: DoraLevel[] = [
-    d.deploymentFrequency.level,
-    d.changeFailureRate.level,
+    env?.deploymentFrequency.level ?? null,
+    env?.changeFailureRate.level ?? null,
     d.meanTimeToRestore.level,
-    d.leadTime.level,
+    env?.leadTime.level ?? null,
   ];
   const points = levels.filter((l): l is Exclude<DoraLevel, null> => l !== null).map(l => BAND_POINTS[l]);
   if (points.length === 0) return null;
@@ -101,6 +113,7 @@ export function buildScorecard(
   const cScore = complianceScore(compliance);
   const dScore = doraScoreFromMetrics(dora);
   const overall = combineScore(cScore, dScore);
+  const env = headlineEnv(dora);
   return {
     pipelineId,
     score: overall,
@@ -113,11 +126,12 @@ export function buildScorecard(
     },
     dora: {
       score: dScore,
-      basis: dora.basis,
-      deploymentFrequency: dora.deploymentFrequency.level,
-      changeFailureRate: dora.changeFailureRate.level,
+      // Deploy-basis is the only mode now (run-basis removed); lead time is MEASURED.
+      basis: 'deploy',
+      deploymentFrequency: env?.deploymentFrequency.level ?? null,
+      changeFailureRate: env?.changeFailureRate.level ?? null,
       meanTimeToRestore: dora.meanTimeToRestore.level,
-      leadTime: dora.leadTime.level,
+      leadTime: env?.leadTime.level ?? null,
     },
     computedAt,
   };

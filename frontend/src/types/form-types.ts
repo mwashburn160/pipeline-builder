@@ -126,6 +126,14 @@ export interface FormStage {
   id: string;
   stageName: string;
   alias: string;
+  /**
+   * Deployment environment this stage targets (e.g. `production`, `staging`).
+   * Blank = not a deploy stage. When set, pipeline-core folds it into the
+   * `pb.deploys` tag so the forwarder attributes this stage's executions to a
+   * deployment environment (drives DORA deployment frequency / CFR). `production`
+   * is the DORA headline environment.
+   */
+  environment: string;
   steps: FormStep[];
 }
 
@@ -278,7 +286,7 @@ export function createEmptyStep(): FormStep {
  * @returns An empty {@link FormStage} with a unique ID.
  */
 export function createEmptyStage(): FormStage {
-  return { id: nextFormId(), stageName: '', alias: '', steps: [createEmptyStep()] };
+  return { id: nextFormId(), stageName: '', alias: '', environment: '', steps: [createEmptyStep()] };
 }
 
 /**

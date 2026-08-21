@@ -208,6 +208,75 @@ async function pushSeatLimitToPlatform(
   }
 }
 
+/** Absolute retention ceiling (days) — mirrors reporting's RETENTION_MAX_DAYS. */
+const RETENTION_MAX_DAYS = 730;
+
+/** Clamp an effective retention to the 730-day ceiling; `-1` (unlimited) passes
+ *  through untouched. Defensive: bundle `maxQuantity` already bounds purchases,
+ *  but the sync leg clamps too so a mis-configured baseline can never push
+ *  reporting past its own ceiling. */
+function clampRetentionDays(v: number): number {
+  return v === -1 ? -1 : Math.min(v, RETENTION_MAX_DAYS);
+}
+
+/**
+ * Push the effective RETENTION entitlement to the reporting service. Retention
+ * is NOT a quota-service type (it's absent from `VALID_QUOTA_TYPES`) — it rides
+ * `QuotaTierLimits` only to reuse the tier-baseline + bundle-grant math, then
+ * syncs to reporting's `dora_settings`. `eventRetentionDays`/`doraRetentionDays`
+ * are the EFFECTIVE values (tier base + bundles; `-1` = unlimited). Mirrors
+ * `pushSeatLimitToPlatform` EXACTLY: same createSafeClient handshake, the same
+ * `authHeader || billingServiceAuth(orgId)` service-token fallback, and the same
+ * `{ Authorization, 'x-org-id': orgId }` headers so reporting authorizes the
+ * billing service token identically to platform's seat-limit route. Best-effort
+ * with an audit row on failure; reporting resolves the org to its root.
+ */
+async function pushRetentionToReporting(
+  orgId: string,
+  limits: { eventRetentionDays: number; doraRetentionDays: number },
+  authHeader: string,
+  subscriptionId?: string,
+): Promise<boolean> {
+  const eventRetentionDays = clampRetentionDays(limits.eventRetentionDays);
+  const doraRetentionDays = clampRetentionDays(limits.doraRetentionDays);
+  try {
+    const client = createSafeClient({
+      host: config.reportingService.host,
+      port: config.reportingService.port,
+      timeout: getBillingTimeout(),
+    });
+    const effectiveAuth = authHeader || billingServiceAuth(orgId);
+    const response = await client.put(
+      `/api/reports/retention-sync/${orgId}`,
+      { eventRetentionDays, doraRetentionDays },
+      { headers: { 'Authorization': effectiveAuth, 'x-org-id': orgId } },
+    );
+    if (response && response.statusCode < 400) {
+      logger.info('Synced retention to reporting', { orgId, eventRetentionDays, doraRetentionDays });
+      return true;
+    }
+    logger.error('Failed to sync retention to reporting', {
+      orgId, eventRetentionDays, doraRetentionDays, statusCode: response?.statusCode,
+    });
+    await createBillingEvent(orgId, 'subscription_updated', {
+      reason: 'retention_sync_failed', eventRetentionDays, doraRetentionDays, statusCode: response?.statusCode,
+    }, subscriptionId);
+    return false;
+  } catch (error) {
+    logger.error('Error syncing retention to reporting', { orgId, eventRetentionDays, doraRetentionDays, error });
+    // Symmetry with the non-2xx branch (and pushSeatLimitToPlatform): write a
+    // `retention_sync_failed` audit row so support can see the local billing
+    // state drifted from reporting even when the call THREW rather than 4xx/5xx'd.
+    await createBillingEvent(orgId, 'subscription_updated', {
+      reason: 'retention_sync_failed',
+      eventRetentionDays,
+      doraRetentionDays,
+      error: error instanceof Error ? error.message : String(error),
+    }, subscriptionId);
+    return false;
+  }
+}
+
 /** The active add-on bundle catalog (env-driven, from pipeline-core config). */
 export function getBundleCatalog(): readonly BundleConfig[] {
   return (Config.get('billing') as BillingConfig | undefined)?.bundles ?? [];
@@ -619,9 +688,11 @@ export async function checkEntitlementOvercap(
 
 /**
  * Sync an account's EFFECTIVE entitlements (tier + add-on bundles) with a
- * TWO-TARGET fan-out (docs/billing-bundles.md §5): the 9 tracked quota limits go
- * to the quota service; SEATS go to platform (quota has no `seats`). Both target
- * the subscription's org (root-scoped). Returns true only if both legs succeed.
+ * THREE-TARGET fan-out (docs/billing-bundles.md §5): the 9 tracked quota limits
+ * go to the quota service; SEATS go to platform (quota has no `seats`); RETENTION
+ * (event/dora days) goes to reporting (retention isn't a quota type — it rides
+ * `QuotaTierLimits` only to reuse the base+bundle math). All three target the
+ * subscription's org (root-scoped). Returns true only if all legs succeed.
  */
 export async function syncEntitlements(
   orgId: string,
@@ -632,16 +703,22 @@ export async function syncEntitlements(
 ): Promise<boolean> {
   const { limits, features } = effectiveEntitlements(tier, addons, getBundleCatalog());
   // The 9 tracked types go to quota; `seats` + purchased feature entitlements
-  // go to platform (platform owns both).
+  // go to platform (platform owns both); retention days go to reporting.
   const tracked: Record<string, number> = {};
   for (const t of VALID_QUOTA_TYPES) tracked[t] = limits[t];
 
-  const [quotaOk, seatOk] = await Promise.all([
+  const [quotaOk, seatOk, retentionOk] = await Promise.all([
     syncTierToQuotaService(orgId, tier, authHeader, subscriptionId, tracked),
     pushSeatLimitToPlatform(orgId, limits.seats, features, authHeader, subscriptionId, tier),
+    pushRetentionToReporting(
+      orgId,
+      { eventRetentionDays: limits.eventRetentionDays, doraRetentionDays: limits.doraRetentionDays },
+      authHeader,
+      subscriptionId,
+    ),
   ]);
 
-  const ok = quotaOk && seatOk;
+  const ok = quotaOk && seatOk && retentionOk;
   if (!ok) {
     // Every caller currently fires-and-forgets this result — the user's
     // subscription mutation succeeds regardless (by design). Centralise the
@@ -649,11 +726,15 @@ export async function syncEntitlements(
     // drift: log at error level AND emit a distinct, aggregatable metric so SRE
     // can alert + reconcile. The failing leg(s) also wrote a `billing_events`
     // audit row (reason quota_sync_failed / seat_sync_failed) inside
-    // syncTierToQuotaService / pushSeatLimitToPlatform, so the drift is both
-    // metered and auditable without failing the request.
-    const leg = !quotaOk && !seatOk ? 'both' : !quotaOk ? 'quota' : 'seat';
-    logger.error('Entitlement sync incomplete — local billing state may have drifted from quota/platform', {
-      orgId, tier, subscriptionId, quotaOk, seatOk, leg,
+    // syncTierToQuotaService / pushSeatLimitToPlatform / pushRetentionToReporting,
+    // so the drift is both metered and auditable without failing the request.
+    const leg = [
+      !quotaOk ? 'quota' : null,
+      !seatOk ? 'seat' : null,
+      !retentionOk ? 'reporting' : null,
+    ].filter(Boolean).join('+');
+    logger.error('Entitlement sync incomplete — local billing state may have drifted from quota/platform/reporting', {
+      orgId, tier, subscriptionId, quotaOk, seatOk, retentionOk, leg,
     });
     incCounter('billing_quota_sync_failed_total', { leg });
   }

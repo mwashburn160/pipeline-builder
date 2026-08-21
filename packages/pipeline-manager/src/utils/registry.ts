@@ -91,7 +91,7 @@ const PENDING_INTENTS_DIR = join(homedir(), '.pipeline-manager', 'pending-regist
 /**
  * Build a RegistryPayload from the platform's pipeline metadata. No AWS calls
  * and no ARN/account: the events Lambda attributes events via the pipeline's
- * `PIPELINE_EVENT_ID` tag (= pipelineId), so the registry only needs the stable
+ * `pb.pipeline-id` tag (= pipelineId), so the registry only needs the stable
  * pipelineId + display metadata.
  */
 export async function buildRegistryPayload(

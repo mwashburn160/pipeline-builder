@@ -13,7 +13,11 @@ const _descLogger = createLogger('reporting-rollup');
 // check is defense-in-depth — the route is the security boundary.
 
 export const MAX_REPORT_LIMIT = 1000;
-const MAX_REPORT_RANGE_DAYS = 365;
+// Absolute retention ceiling (days). A per-org effective window (tier baseline +
+// purchased retention bundles) narrows this per request via
+// `resolveOrgRetentionWindow`; this constant is the hard ceiling an `-1` (unlimited)
+// org — and the system-admin cross-org reports — clamp to.
+export const MAX_REPORT_RANGE_DAYS = 730;
 export const MAX_REPORT_RANGE_MS = MAX_REPORT_RANGE_DAYS * 24 * 60 * 60 * 1000;
 
 /** Patterns that match common credential leakage in error messages. */

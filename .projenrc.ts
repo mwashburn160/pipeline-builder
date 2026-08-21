@@ -516,6 +516,9 @@ const manager = new ManagerProject({
     `typescript@${typescriptVersion}`, `aws-cdk-lib@${cdkVersion}`, `constructs@${constructsVersion}`,
     '@aws-sdk/client-cloudformation@3.1101.0', '@aws-sdk/client-lambda@3.1101.0',
     '@aws-sdk/client-secrets-manager@3.1101.0', '@aws-sdk/client-sts@3.1101.0',
+    // `infra redrive-events` calls SQS StartMessageMoveTask (DLQ → main queue) —
+    // the manual fallback for the events Lambda's self-healing redrive.
+    '@aws-sdk/client-sqs@3.1101.0',
     'form-data@4.0.6', 'commander@15.0.0', 'figlet@1.11.4',
     'axios@1.19.0', 'progress@2.0.3', 'picocolors@1.1.1', 'yaml@2.9.0', 'ora@9.4.1',
     'zod@4.4.3',

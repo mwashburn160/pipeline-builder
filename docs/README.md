@@ -83,7 +83,8 @@ Run, secure, and observe the platform.
 | [Deploy Operations](deploy-operations.md) | Runbook — preflight, secrets rotation, backups & DR, teardown |
 | [Service Mesh](service-mesh.md) | Istio ambient — STRICT mTLS + identity-based L4 authZ (local, EC2, EKS) |
 | [Environment Variables](environment-variables.md) | Every configuration variable, by subsystem |
-| [DORA Metrics](dora-metrics.md) | Deploy frequency, change-failure rate, MTTR, lead-time proxy (Enterprise / Advanced Reporting) |
+| [DORA Metrics](dora-metrics.md) | Deploy frequency, change-failure rate, MTTR, measured lead time, build health (Enterprise / Advanced Reporting) |
+| [Incident Webhook](incidents-webhook.md) | Point PagerDuty/Datadog/Alertmanager at the platform (native Alertmanager adapter, self-serve token, per-org window, admin UI) for automated post-deploy CFR + real MTTR |
 
 ### Reference
 

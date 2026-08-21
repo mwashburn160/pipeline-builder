@@ -32,6 +32,7 @@ import {
   LayoutTemplate,
   Code,
   Inbox,
+  Siren,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -205,6 +206,9 @@ export const NAV_SECTIONS: NavSection[] = [
       // permission (split out of `org:settings`) AND the `sso` tier entitlement;
       // the page + backend re-enforce both.
       { title: 'Single Sign-On', href: '/dashboard/settings/sso', icon: Fingerprint, requiredPermission: 'org:idp', requiredFeature: 'sso' },
+      // Org-admin incident-reporting setup (DORA post-deploy CFR + MTTR). Admin-only
+      // config surface, gated on the `advanced_reporting` entitlement (like DORA).
+      { title: 'Incident Reporting', href: '/dashboard/settings/incident-reporting', icon: Siren, adminOnly: true, requiredFeature: 'advanced_reporting' },
       { title: 'Notifications', href: '/dashboard/notifications', icon: Bell },
       { title: 'API Tokens', href: '/dashboard/tokens', icon: KeyRound },
       { title: 'API Catalog', href: '/dashboard/api-catalog', icon: Code },

@@ -48,8 +48,16 @@ export function createScorecardRoutes(quotaService: QuotaService): Router {
     const to = new Date();
     const from = new Date(to.getTime() - SCORECARD_WINDOW_MS);
 
+    // Thread the org's incident→deploy correlation-window override into the DORA
+    // compute so the scorecard's CFR/MTTR (post-deploy correlation) match what the
+    // `/dora` report shows for the same org (both then key the same cache entry).
+    const { incidentWindowHours } = await reportingService.getIncidentSettings(orgId);
+
     // Per-pipeline DORA (in-process).
-    const dora = await reportingService.getDoraMetrics(orgId, from.toISOString(), to.toISOString(), [orgId], { pipelineId: id });
+    const dora = await reportingService.getDoraMetrics(orgId, from.toISOString(), to.toISOString(), [orgId], {
+      pipelineId: id,
+      incidentWindowHours: incidentWindowHours ?? undefined,
+    });
 
     // Compliance posture — dry-run the pipeline against the org's rules. Fail-soft:
     // if compliance is unavailable, score on DORA alone (rulesEvaluated stays 0).

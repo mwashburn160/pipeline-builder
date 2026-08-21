@@ -145,4 +145,37 @@ describe('updateOrganizationSeatLimit — feature-flag whitelist', () => {
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockSetSeatLimit).not.toHaveBeenCalled();
   });
+
+  it('records the features added/removed DELTA in the audit (DORA grant/revoke reconstructable)', async () => {
+    const res = mockRes();
+    mockSetSeatLimit.mockResolvedValue({
+      rootOrgId: 'root-1',
+      seats: 5,
+      featureDelta: { added: ['advanced_reporting'], removed: ['sso'] },
+    });
+
+    await call(req({ seats: 5, features: ['advanced_reporting'] }), res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const auditDetails = (mockAudit.mock.calls[0][2] as any).details;
+    expect(auditDetails.featuresAdded).toEqual(['advanced_reporting']);
+    expect(auditDetails.featuresRemoved).toEqual(['sso']);
+    expect(auditDetails.features).toEqual(['advanced_reporting']);
+  });
+
+  it('omits the delta fields when the entitlement set did not change (empty delta)', async () => {
+    const res = mockRes();
+    mockSetSeatLimit.mockResolvedValue({
+      rootOrgId: 'root-1',
+      seats: 5,
+      featureDelta: { added: [], removed: [] },
+    });
+
+    await call(req({ seats: 5, features: ['sso'] }), res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const auditDetails = (mockAudit.mock.calls[0][2] as any).details;
+    expect(auditDetails.featuresAdded).toBeUndefined();
+    expect(auditDetails.featuresRemoved).toBeUndefined();
+  });
 });

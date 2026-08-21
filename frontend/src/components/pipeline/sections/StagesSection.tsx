@@ -14,8 +14,8 @@ interface StagesSectionProps {
   onAddStage: () => void;
   /** Callback to remove a stage at the given index. */
   onRemoveStage: (index: number) => void;
-  /** Callback when a stage's name or alias changes. */
-  onStageFieldChange: (index: number, field: 'stageName' | 'alias', value: string) => void;
+  /** Callback when a stage's name, alias, or environment changes. */
+  onStageFieldChange: (index: number, field: 'stageName' | 'alias' | 'environment', value: string) => void;
   /** Callback to add a new empty step to a stage. */
   onAddStep: (stageIndex: number) => void;
   /** Callback to remove a step from a stage. */
@@ -82,6 +82,31 @@ export default function StagesSection({
                     disabled={disabled}
                   />
                 </FormField>
+              </div>
+
+              {/* Deploy environment: when set, pipeline-core folds `<stageName>:<env>`
+                  into the `pb.deploys` tag, marking this stage a deployment for DORA
+                  (frequency / change-failure). Blank = not a deploy stage.
+                  `production` is the DORA headline environment. */}
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  label="Environment"
+                  hint="Set to mark this stage a deployment (e.g. production). Blank = not a deploy stage."
+                >
+                  <Input
+                    type="text"
+                    list={`stage-environments-${stage.id}`}
+                    value={stage.environment}
+                    onChange={(e) => onStageFieldChange(stageIdx, 'environment', e.target.value)}
+                    placeholder="e.g. production (optional)"
+                    disabled={disabled}
+                  />
+                </FormField>
+                <datalist id={`stage-environments-${stage.id}`}>
+                  {['production', 'staging', 'development', 'preview', 'qa'].map((env) => (
+                    <option key={env} value={env} />
+                  ))}
+                </datalist>
               </div>
 
               {errors[`stages.${stageIdx}.steps`] && (

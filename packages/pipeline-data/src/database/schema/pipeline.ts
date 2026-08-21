@@ -3,7 +3,7 @@
 
 import { AccessModifier, SYSTEM_ORG_ID, type Criticality, type EntityLabels, type EntityLink, type Lifecycle, type MetaDataType, type OwnerType } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
-import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { bigint, boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
 /**
  * Pipeline builder configuration properties stored in database.
@@ -158,7 +158,7 @@ export const pipelineRegistry = pgTable('pipeline_registry', {
   id: uuid('id').primaryKey().defaultRandom(),
   // The platform's pipeline record id — a STABLE uuid created with the pipeline
   // record, known at CDK synth, and applied to the live CodePipeline as the
-  // `PIPELINE_EVENT_ID` tag. The events Lambda reads that tag and reports
+  // `pb.pipeline-id` tag. The events Lambda reads that tag and reports
   // against this id, so it IS the event join key (replacing the masked ARN —
   // it carries no AWS account/region, so no masking is needed). Unique: one
   // registry row per pipeline + the upsert key for (re)registration.
@@ -217,6 +217,12 @@ export const pipelineEvent = pgTable('pipeline_events', {
   commitSha: varchar('commit_sha', { length: 255 }),
   commitRef: varchar('commit_ref', { length: 255 }),
   environment: varchar('environment', { length: 255 }),
+  // DORA true-lead-time attribution (Phase 4). The forwarder resolves the source
+  // commit range in-account and reports the OLDEST unshipped commit's timestamp
+  // + how many commits shipped. Both nullable — events whose source type/token
+  // can't be resolved leave them NULL and lead time reports `unknown`.
+  commitTimestamp: timestamp('commit_timestamp', { withTimezone: true }),
+  commitCount: integer('commit_count'),
   detail: jsonb('detail').$type<Record<string, unknown>>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
@@ -271,7 +277,112 @@ export const pipelineEvent = pgTable('pipeline_events', {
   // join-driven scan by pipeline_id. MIGRATION REQUIRED: drizzle-kit generate.
   pipelineTypeStartedIdx: index('event_pipeline_type_started_idx')
     .on(table.pipelineId, table.eventType, table.startedAt),
+  // DORA deploy-basis scan (Phase 1): deployment frequency / deploy-time CFR /
+  // lead time all group deploy-stage events by environment over a completed_at
+  // window. This composite serves that grouped org-scoped scan directly.
+  // MIGRATION REQUIRED: drizzle-kit generate.
+  orgEnvCompletedIdx: index('event_org_env_completed_idx')
+    .on(table.orgId, table.environment, table.completedAt),
 }));
+
+/**
+ * Manual post-deploy outcome markers (Phase 2). A user marks a deployment
+ * `failed` (production incident linked to a deploy) or `restored` (recovered).
+ * These feed the DORA post-deploy Change Failure Rate component and the real
+ * MTTR (restored − deployed). Correlated to a deploy execution by `executionId`.
+ *
+ * @table deployment_outcomes
+ */
+export const deploymentOutcome = pgTable('deployment_outcomes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  executionId: varchar('execution_id', { length: 255 }).notNull(),
+  orgId: varchar('org_id', { length: 255 }).notNull(),
+  environment: varchar('environment', { length: 255 }),
+  outcome: varchar('outcome', { length: 20 }).$type<'failed' | 'restored'>().notNull(),
+  at: timestamp('at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  orgEnvIdx: index('deployment_outcomes_org_env_idx').on(table.orgId, table.environment),
+  executionIdx: index('deployment_outcomes_execution_idx').on(table.executionId),
+  // Idempotent re-marking: one row per (execution, outcome). Re-posting the same
+  // outcome for a deploy is a no-op/refresh (onConflictDoUpdate the `at`), so a
+  // failed→restored pair is two rows while a duplicate POST doesn't double-count.
+  executionOutcomeUnique: uniqueIndex('deployment_outcomes_execution_outcome_unique')
+    .on(table.executionId, table.outcome),
+}));
+
+/**
+ * Per-org ingestion health (Phase 3). The AWS events Lambda periodically posts
+ * forwarded/dropped counters + the last event timestamp so the Reports UI can
+ * show whether events are flowing / stale / dropping. One row per org.
+ *
+ * @table ingest_health
+ */
+export const ingestHealth = pgTable('ingest_health', {
+  orgId: varchar('org_id', { length: 255 }).primaryKey(),
+  lastEventAt: timestamp('last_event_at', { withTimezone: true }),
+  forwarded: bigint('forwarded', { mode: 'number' }),
+  dropped: bigint('dropped', { mode: 'number' }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * Production incidents ingested from the org's incident tooling (Phase 5). The
+ * user points their Alertmanager / PagerDuty / Datadog webhook at
+ * `POST /api/reports/incidents` (machine `reporting:ingest` scope). Each incident
+ * carries its external id, the affected `environment`, when it opened, and when
+ * it was resolved (nullable — a later resolve updates it). DORA correlates each
+ * incident to the most recent successful deploy to `environment` within
+ * `DORA_INCIDENT_WINDOW_HOURS`, turning it into an automated post-deploy failure
+ * (Change Failure Rate) and a real recovery time (`resolved_at − opened_at` MTTR).
+ * `incident_id` is UNIQUE per org so a resolve re-post is an idempotent upsert.
+ *
+ * @table incidents
+ */
+export const incident = pgTable('incidents', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // External incident id from the source system (PagerDuty/Datadog/Alertmanager).
+  // Unique PER ORG (see incidentOrgUnique) — the idempotency + upsert key.
+  incidentId: varchar('incident_id', { length: 255 }).notNull(),
+  orgId: varchar('org_id', { length: 255 }).notNull(),
+  // Affected deploy environment (e.g. "production"). Correlated to a deploy env.
+  environment: varchar('environment', { length: 255 }).notNull(),
+  openedAt: timestamp('opened_at', { withTimezone: true }).notNull(),
+  // NULL while the incident is open; a later resolve webhook sets it (idempotent
+  // upsert). `resolved_at − opened_at` is the real MTTR for the correlated deploy.
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  severity: varchar('severity', { length: 50 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  // Correlation scan: most-recent-deploy-before-open lookups group by (org, env)
+  // and range on opened_at.
+  orgEnvOpenedIdx: index('incidents_org_env_opened_idx').on(table.orgId, table.environment, table.openedAt),
+  // Idempotent upsert / dedup: one row per (org, incident_id). A resolve re-post
+  // updates resolved_at instead of inserting a duplicate.
+  orgIncidentUnique: uniqueIndex('incidents_org_incident_unique').on(table.orgId, table.incidentId),
+}));
+
+/**
+ * Per-org DORA computation + retention overrides. One row per org (org_id PK).
+ * `incidentWindowHours` (Phase 5b) overrides the global `DORA_INCIDENT_WINDOW_HOURS`
+ * used to correlate an ingested incident to the most recent successful deploy.
+ * `eventRetentionDays` / `doraRetentionDays` (Phase 7) override the global reporting
+ * retention windows for the split sweep — standard events (`environment IS NULL`)
+ * vs DORA source (deploy stages + `deployment_outcomes` + `incidents`). Any NULL /
+ * absent value falls back to its env default. Set self-serve by an org admin via
+ * `PUT /api/reports/settings/incidents`. This table is itself never purged.
+ *
+ * @table dora_settings
+ */
+export const doraSettings = pgTable('dora_settings', {
+  orgId: varchar('org_id', { length: 255 }).primaryKey(),
+  incidentWindowHours: integer('incident_window_hours'),
+  // Phase 7 retention overrides (days). NULL ⇒ use the global env default
+  // (REPORTING_EVENT_RETENTION_DAYS / REPORTING_DORA_RETENTION_DAYS).
+  eventRetentionDays: integer('event_retention_days'),
+  doraRetentionDays: integer('dora_retention_days'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
 
 /**
  * TypeScript types representing database rows
@@ -284,6 +395,18 @@ export type PipelineRegistryInsert = typeof pipelineRegistry.$inferInsert;
 
 export type PipelineEvent = typeof pipelineEvent.$inferSelect;
 export type PipelineEventInsert = typeof pipelineEvent.$inferInsert;
+
+export type DeploymentOutcome = typeof deploymentOutcome.$inferSelect;
+export type DeploymentOutcomeInsert = typeof deploymentOutcome.$inferInsert;
+
+export type IngestHealth = typeof ingestHealth.$inferSelect;
+export type IngestHealthInsert = typeof ingestHealth.$inferInsert;
+
+export type Incident = typeof incident.$inferSelect;
+export type IncidentInsert = typeof incident.$inferInsert;
+
+export type DoraSettings = typeof doraSettings.$inferSelect;
+export type DoraSettingsInsert = typeof doraSettings.$inferInsert;
 
 /**
  * Helper types for working with partial updates

@@ -185,7 +185,7 @@ Every CodePipeline and CodeBuild state change flows through EventBridge into the
 - Stage-level failure heatmaps — see which stages fail most across the organization
 - Error categorization — build vs test vs deploy failures
 - Per-organization cost attribution
-- [DORA metrics](docs/dora-metrics.md) — deployment frequency, change failure rate, MTTR, and a lead-time proxy with Elite/High/Medium/Low performance bands and a trend sparkline (median successful run time — an approximation, **not** true commit→production lead time)
+- [DORA metrics](docs/dora-metrics.md) — deployment frequency, change failure rate, MTTR, and **measured** commit→deploy lead time, with Elite/High/Medium/Low performance bands and a trend sparkline. Lead time needs the in-account commit enrichment enabled via `setup-events --with-dora` — **why enable it:** the other three metrics work without it, but lead time reads `unknown` until it's on; it's off by default because it adds an SCM + `github-token`-secret call per deploy (see [DORA metrics](docs/dora-metrics.md))
 - [Developer portal](docs/developer-portal.md) — catalog ownership + *My Services*, golden-path templates you instantiate by filling inputs (still governed by compliance + quota), and a per-pipeline maturity scorecard (compliance posture + DORA → A–F grade)
 
 ### Built for Production
@@ -351,7 +351,7 @@ Full docs hub: **[docs/](docs/README.md)** — grouped by task. Looking for a te
 | [Deploy Operations](docs/deploy-operations.md) | Runbook — preflight, secrets rotation, backups & DR, teardown |
 | [Service Mesh](docs/service-mesh.md) | Istio ambient — STRICT mTLS + identity-based L4 authorization |
 | [Environment Variables](docs/environment-variables.md) | Every configuration variable, by subsystem |
-| [DORA Metrics](docs/dora-metrics.md) | Deploy frequency, change-failure rate, MTTR, lead-time proxy |
+| [DORA Metrics](docs/dora-metrics.md) | Deploy frequency, change-failure rate, MTTR, measured lead time |
 
 ### Reference
 

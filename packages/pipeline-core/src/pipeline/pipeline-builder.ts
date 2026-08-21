@@ -55,6 +55,114 @@ function parseNotificationEvents(value: unknown): string[] {
 }
 
 /**
+ * Sanitize a single `pb.deploys` token (stage name or environment) to
+ * CodePipeline-tag-safe characters. `:` and `+` are the pair/list delimiters, so
+ * they (and any other disallowed char) are stripped to `-` inside a token to
+ * keep the value unambiguously parseable and JSON-free.
+ */
+function tagSafeToken(value: string): string {
+  return value.replace(/[^A-Za-z0-9._/@=-]/g, '-');
+}
+
+/** AWS tag-value hard limit; `pb.deploys` must never exceed this. */
+const MAX_TAG_VALUE_LENGTH = 256;
+
+/** A resolved deploy attribution: a sanitized `<stage>:<env>` token plus its env. */
+interface DeployPair {
+  readonly str: string;
+  readonly env: string;
+}
+
+/**
+ * Build the `pb.deploys` tag value: `<stage>:<env>` pairs joined by `+`.
+ *
+ * A stage is a deploy iff it declares an `environment`. Precedence:
+ *  - Multi-env: any stage with a per-stage `environment` — list each such stage.
+ *  - Single-env: no per-stage environment but a pipeline-level `environment` —
+ *    attribute it to the sole stage (`<onlyStage>:<env>`), the LAST stage of a
+ *    multi-stage pipeline (deploys are conventionally the final stage — emitted
+ *    with a synth warning recommending explicit per-stage `environment`), or a
+ *    literal `Deploy:<env>` when there are no stages to name.
+ *
+ * The assembled value is capped at AWS's 256-char tag-value limit (D6): the
+ * headline/production pair is kept first and trailing overflow pairs are dropped
+ * with a synth warning naming them. Never returns a value longer than 256 chars.
+ *
+ * Returns undefined when nothing declares an environment (no deploy signal).
+ */
+function buildDeploysTag(props: BuilderProps): string | undefined {
+  const stages = props.stages ?? [];
+  const stagesWithEnv = stages.filter(s => typeof s.environment === 'string' && s.environment.length > 0);
+
+  let pairs: DeployPair[];
+  if (stagesWithEnv.length > 0) {
+    pairs = stagesWithEnv.map(s => ({
+      str: `${tagSafeToken(s.stageName)}:${tagSafeToken(s.environment as string)}`,
+      env: s.environment as string,
+    }));
+  } else if (props.environment) {
+    let stageName: string;
+    if (stages.length === 1) {
+      stageName = stages[0].stageName;
+    } else if (stages.length > 1) {
+      // Pipeline-level environment on a multi-stage pipeline: attribute it to the
+      // LAST stage (deploys are conventionally final) rather than an unmatched
+      // literal `Deploy`. Warn so authors move to explicit per-stage `environment`.
+      stageName = stages[stages.length - 1].stageName;
+      createLogger('pipeline-builder').warn(
+        `Pipeline-level environment "${props.environment}" attributed to the last stage ` +
+        `"${stageName}" of a ${stages.length}-stage pipeline. Declare a per-stage ` +
+        '`environment` on the actual deploy stage(s) for precise DORA attribution.',
+      );
+    } else {
+      stageName = 'Deploy';
+    }
+    pairs = [{ str: `${tagSafeToken(stageName)}:${tagSafeToken(props.environment)}`, env: props.environment }];
+  } else {
+    return undefined;
+  }
+
+  return capDeploysValue(pairs);
+}
+
+/**
+ * Join `pb.deploys` pairs with `+`, capped at {@link MAX_TAG_VALUE_LENGTH}. When
+ * the full value would exceed the cap, the headline/production pair is placed
+ * first and only the leading pairs that fit are kept; the trailing overflow pairs
+ * are dropped and named in a synth warning. Never emits more than 256 chars.
+ */
+function capDeploysValue(pairs: DeployPair[]): string {
+  const full = pairs.map(p => p.str).join('+');
+  if (full.length <= MAX_TAG_VALUE_LENGTH) return full;
+
+  // Prioritize the headline pair — the production deploy if present, else the
+  // first pair — so a cap never drops the most operationally-significant deploy.
+  const headlineIdx = pairs.findIndex(p => p.env.toLowerCase() === 'production');
+  const ordered = headlineIdx > 0
+    ? [pairs[headlineIdx], ...pairs.filter((_, i) => i !== headlineIdx)]
+    : pairs;
+
+  const kept: string[] = [];
+  const dropped: string[] = [];
+  for (const p of ordered) {
+    const candidate = kept.length === 0 ? p.str : `${kept.join('+')}+${p.str}`;
+    if (candidate.length <= MAX_TAG_VALUE_LENGTH) {
+      kept.push(p.str);
+    } else {
+      dropped.push(p.str);
+    }
+  }
+
+  createLogger('pipeline-builder').warn(
+    `pb.deploys tag value exceeded the ${MAX_TAG_VALUE_LENGTH}-char AWS tag-value limit; ` +
+    `dropped ${dropped.length} deploy pair(s): ${dropped.join(', ')}. ` +
+    'These environments will not produce DORA deploy signals — reduce stage/environment ' +
+    'name lengths or split into separate pipelines.',
+  );
+  return kept.join('+');
+}
+
+/**
  * Configuration properties for the PipelineBuilder construct
  */
 export interface BuilderProps {
@@ -65,10 +173,13 @@ export interface BuilderProps {
   readonly organization: string;
 
   /**
-   * Optional deploy environment (e.g. `production`, `staging`). When set, it is
-   * applied as an `Environment` tag on the pipeline so the events Lambda can
-   * attribute CodePipeline state-change events to a real deployment for DORA
-   * metrics. Purely additive — omit it and behavior is unchanged.
+   * Optional deploy environment (e.g. `production`, `staging`) for the
+   * single-environment case. When set (and no stage declares its own
+   * `environment`), pipeline-core derives the `pb.deploys` tag from it, marking
+   * the sole stage — or the LAST stage of a multi-stage pipeline (with a synth
+   * warning), or a literal `Deploy` stage when there are no stages to name — as
+   * the deploy for DORA metrics. For multi-environment pipelines, declare
+   * `environment` per stage instead (see `StageOptions.environment`).
    */
   readonly environment?: string;
 
@@ -333,14 +444,16 @@ export class PipelineBuilder extends Construct {
       // tag to attribute CodePipeline state-change events to the pipeline without
       // ever handling the ARN/account. See packages/pipeline-events.
       if (props.pipelineId) {
-        Tags.of(this.pipeline).add('PIPELINE_EVENT_ID', props.pipelineId);
+        Tags.of(this.pipeline).add('pb.pipeline-id', props.pipelineId);
       }
-      // Optional deploy-environment attribution for DORA metrics. Mirrors the
-      // PIPELINE_EVENT_ID tag: applied at synth so it's present from stack
-      // creation, and read by the events Lambda from the same ListTags call.
-      // Absent when `environment` is unset — legacy pipelines report unchanged.
-      if (props.environment) {
-        Tags.of(this.pipeline).add('Environment', props.environment);
+      // Deploy-environment attribution for DORA metrics. `pb.deploys` lists every
+      // deploy stage as `<stageName>:<environment>` pairs joined by `+`, read by
+      // the events Lambda from the same ListTags call to mark which stages are
+      // deploys and to which environment. Absent when no environment is declared
+      // — such pipelines produce no DORA deploy signal until they re-synth.
+      const deploysTag = buildDeploysTag(props);
+      if (deploysTag) {
+        Tags.of(this.pipeline).add('pb.deploys', deploysTag);
       }
       if (props.tags) {
         for (const [key, value] of Object.entries(props.tags)) {

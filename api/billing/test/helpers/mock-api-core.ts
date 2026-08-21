@@ -61,7 +61,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     SYSTEM_ORG_ID: '000000000000000000000001',
     // billing-helpers.syncEntitlements reads the tier's seat limit to sync it to
     // platform (the seat leg of the two-target fan-out).
-    getTierLimits: (_tier: string) => ({
+    getTierLimits: (tier: string) => ({
       seats: 10,
       plugins: 50,
       pipelines: 5,
@@ -72,6 +72,10 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       alertRules: 50,
       alertDestinations: 10,
       idpConfigs: 1,
+      // Phase 8 retention baselines — standard tiers 30/180; `unlimited` -1
+      // (the retention leg pushes these effective values to reporting).
+      eventRetentionDays: tier === 'unlimited' ? -1 : 30,
+      doraRetentionDays: tier === 'unlimited' ? -1 : 180,
     }),
     VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs'],
     // Tier→feature map — billing-helpers.pruneTierIncludedFeatureAddons reads this

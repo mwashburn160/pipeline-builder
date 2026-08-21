@@ -300,6 +300,13 @@ export interface BundleConfig {
   readonly prices: BillingPlanPrices;
   /** True for stackable resource packs; false for a boolean feature bundle. */
   readonly stackable: boolean;
+  /**
+   * Maximum purchasable quantity for a stackable pack. Enforced by the addon
+   * purchase/preview route (`quantity ≤ maxQuantity`, reject over-cap). Used to
+   * keep retention packs under the 730-day retention ceiling (e.g. the Standard
+   * Retention Pack caps at 7 so 30 + 7×90 = 660 ≤ 730). Absent ⇒ unbounded.
+   */
+  readonly maxQuantity?: number;
   /** Base tiers this bundle is offered to. */
   readonly availableForTiers: readonly QuotaTier[];
   readonly isActive: boolean;

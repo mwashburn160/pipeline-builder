@@ -61,7 +61,7 @@ export function createRegistryRoutes(): Router {
 
     const v = validation.value;
     // No ARN/account is stored: the events Lambda resolves the pipeline's
-    // `PIPELINE_EVENT_ID` tag (= pipelineId) and reports against it, so the
+    // `pb.pipeline-id` tag (= pipelineId) and reports against it, so the
     // registry only needs the stable pipelineId + display metadata.
     ctx.log('INFO', 'Registering pipeline for event reporting', { pipelineId: v.pipelineId });
 

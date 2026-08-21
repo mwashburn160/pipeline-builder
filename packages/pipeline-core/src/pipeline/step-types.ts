@@ -154,6 +154,15 @@ export interface StageOptions {
 
   /** Build steps to execute within this stage */
   readonly steps: StageStepOptions[];
+
+  /**
+   * Deploy environment this stage targets (e.g. `production`, `staging`).
+   * Declaring it marks the stage as a **deploy** for DORA metrics: pipeline-core
+   * lists every such stage in the `pb.deploys` tag as `<stageName>:<environment>`
+   * so the events Lambda can attribute deployments per environment. Omit it and
+   * the stage is not treated as a deploy.
+   */
+  readonly environment?: string;
 }
 
 /**

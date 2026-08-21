@@ -206,6 +206,15 @@ pipeline-manager infra setup-events --region us-east-1
 It creates the `pipeline-builder-events` stack (EventBridge rule + SQS + DLQ + Lambda).
 The Lambda authenticates via the Secrets Manager token from Step 5 — so run Step 5 first.
 
+> **Measured lead time (optional — `--with-dora`):** add `--with-dora` to also resolve
+> source commit timestamps in your AWS account, so the Reports page shows **measured**
+> commit→deploy lead time (the fourth DORA metric). **Why it's a separate opt-in:**
+> deployment frequency, change-failure rate, and MTTR all work without it — only lead
+> time needs it, and it's off by default because it adds an SCM call + a `github-token`
+> secret read on every deploy event (latency/cost). Enable it for orgs on the
+> **Advanced Reporting** add-on; with it off, lead time simply reports `unknown`. Re-run
+> `setup-events --with-dora` any time to toggle.
+
 > **Privacy:** the Lambda runs inside your AWS account and forwards only execution
 > telemetry (pipeline id, stage/action, status, timing, commit). Your **AWS account
 > number and the pipeline ARN are never forwarded** — see

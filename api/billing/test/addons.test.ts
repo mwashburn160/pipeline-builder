@@ -91,6 +91,8 @@ const CATALOG = [
   { id: 'audit_log', name: 'Audit Log', description: 'Audit logging', isActive: true, stackable: false, availableForTiers: ['team', 'enterprise'], prices: { monthly: 2000, annual: 20000 }, grants: {}, features: ['audit_log'] },
   { id: 'legacy_pack', name: 'Legacy', description: 'retired', isActive: false, stackable: true, availableForTiers: ['pro'], prices: { monthly: 500, annual: 5000 }, grants: {}, features: [] },
   { id: 'free_feature', name: 'Free Feature', description: 'no charge', isActive: true, stackable: false, availableForTiers: ['pro'], prices: { monthly: 0, annual: 0 }, grants: {}, features: ['free_feature'] },
+  // D7: a stackable retention pack capped at maxQuantity (30 + 7×90 = 660 ≤ 730).
+  { id: 'retention_pack', name: 'Retention Pack', description: '+90d', isActive: true, stackable: true, availableForTiers: ['pro', 'team', 'enterprise'], prices: { monthly: 1500, annual: 15000 }, grants: { eventRetentionDays: 90 }, features: [], maxQuantity: 7 },
 ];
 
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
@@ -250,7 +252,7 @@ describe('GET /bundles', () => {
     await handler(mockReq(), mockRes());
     const [, , payload] = mockSendSuccess.mock.calls[0];
     // pro tier → seat_pack + free_feature (audit_log is team+, legacy_pack is inactive)
-    expect(payload.bundles.map((b: any) => b.id)).toEqual(['seat_pack', 'free_feature']);
+    expect(payload.bundles.map((b: any) => b.id)).toEqual(['seat_pack', 'free_feature', 'retention_pack']);
     expect(payload.selfService).toBe(true);
   });
 
@@ -259,7 +261,7 @@ describe('GET /bundles', () => {
     mockBundleSelfServiceAllowed.mockReturnValue(false);
     await handler(mockReq(), mockRes());
     const [, , payload] = mockSendSuccess.mock.calls[0];
-    expect(payload.bundles.map((b: any) => b.id)).toEqual(['seat_pack', 'free_feature']);
+    expect(payload.bundles.map((b: any) => b.id)).toEqual(['seat_pack', 'free_feature', 'retention_pack']);
     expect(payload.selfService).toBe(false);
   });
 });
@@ -339,6 +341,21 @@ describe('POST /subscriptions/:id/addons (add)', () => {
     await handler(mockReq({ body: { bundleId: 'seat_pack', quantity: 1 } }), mockRes());
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 409, expect.any(String), 'ADDON_OVER_CAP', { overages });
     expect(mockSyncEntitlements).not.toHaveBeenCalled();
+  });
+
+  it('400s a retention bundle purchased past its maxQuantity ceiling (D7) and does not sync', async () => {
+    withActiveSub(); // pro tier — retention_pack (maxQuantity 7) is available
+    await handler(mockReq({ body: { bundleId: 'retention_pack', quantity: 8 } }), mockRes());
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.stringContaining('capped at 7'), 'VALIDATION_ERROR');
+    expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    expect(mockCheckEntitlementOvercap).not.toHaveBeenCalled();
+  });
+
+  it('allows a retention bundle exactly AT its maxQuantity', async () => {
+    const sub = withActiveSub();
+    await handler(mockReq({ body: { bundleId: 'retention_pack', quantity: 7 } }), mockRes());
+    expect(sub.addons).toEqual([{ bundleId: 'retention_pack', quantity: 7 }]);
+    expect(mockSyncEntitlements).toHaveBeenCalled();
   });
 
   it('402s a paid increase when the account has no payment method on file', async () => {
@@ -529,5 +546,11 @@ describe('POST /subscriptions/:id/addons/preview', () => {
     const [, , payload] = mockSendSuccess.mock.calls[0];
     expect(payload.addons).toEqual([{ bundleId: 'seat_pack', quantity: 2 }]);
     expect(payload.effectiveLimits).toEqual({ seats: 10, plugins: 20 });
+  });
+
+  it('400s a preview of a retention bundle over its maxQuantity ceiling (D7)', async () => {
+    withActiveSub();
+    await handler(mockReq({ body: { bundleId: 'retention_pack', quantity: 8 } }), mockRes());
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.stringContaining('capped at 7'), 'VALIDATION_ERROR');
   });
 });

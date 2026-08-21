@@ -55,7 +55,7 @@ type Action =
   // Stages
   | { type: 'ADD_STAGE' }
   | { type: 'REMOVE_STAGE'; index: number }
-  | { type: 'SET_STAGE_FIELD'; index: number; field: 'stageName' | 'alias'; value: string }
+  | { type: 'SET_STAGE_FIELD'; index: number; field: 'stageName' | 'alias' | 'environment'; value: string }
   | { type: 'ADD_STEP'; stageIndex: number }
   | { type: 'REMOVE_STEP'; stageIndex: number; stepIndex: number }
   | { type: 'SET_STEP'; stageIndex: number; stepIndex: number; step: FormStep }

@@ -10,6 +10,7 @@ import {
   setSeatLimit,
   setTier,
   updateQuotas,
+  type FeatureDelta,
   type QuotaLimitsInput,
   type QuotaStatus,
   type QuotaTypeKey,
@@ -294,7 +295,7 @@ class OrganizationService {
     seats: number,
     features?: string[],
     tier?: QuotaTier,
-  ): Promise<{ rootOrgId: string; seats: number } | null> {
+  ): Promise<{ rootOrgId: string; seats: number; featureDelta?: FeatureDelta } | null> {
     return setSeatLimit(orgId, seats, features, tier);
   }
 

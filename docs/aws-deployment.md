@@ -903,7 +903,7 @@ telemetry** — enough to compute success rates, stage/action timing, and DORA m
 > **Not forwarded — stays in your AWS account:**
 > - **Your AWS account number** — explicitly stripped from every event (`delete detail.account`).
 > - **The pipeline ARN** (`arn:aws:codepipeline:<region>:<account>:<name>`) — built only as a
->   transient handle to resolve the pipeline's `PIPELINE_EVENT_ID` tag via
+>   transient handle to resolve the pipeline's `pb.pipeline-id` tag via
 >   `codepipeline:ListTagsForResource`, then discarded; never stored or sent.
 > - **AWS credentials / IAM** and any account-identifying details.
 >
@@ -914,15 +914,14 @@ telemetry** — enough to compute success rates, stage/action timing, and DORA m
 
 | Field | Notes |
 |---|---|
-| `pipelineId` | The **platform** pipeline id (from the `PIPELINE_EVENT_ID` tag) — not the ARN |
+| `pipelineId` | The **platform** pipeline id (from the `pb.pipeline-id` tag) — not the ARN |
 | `eventSource` / `eventType` | `codepipeline` · `PIPELINE`/`STAGE`/`ACTION` |
 | `status` | CodePipeline state (`SUCCEEDED`/`FAILED`/…) |
-| `idempotencyKey` | Deterministic dedupe key from the event's own identity (no PII) |
 | `executionId` · `stageName` · `actionName` | Execution GUID + stage/action names |
 | `errorMessage` | Human-readable failure summary (capped), on failures |
 | `startedAt` · `completedAt` · `durationMs` | Timing |
-| `commitSha` · `commitRef` | Source revision (DORA deploy attribution) |
-| `environment` | From the pipeline's `Environment` tag |
+| `commitSha` · `commitRef` · `commitTimestamp` · `commitCount` | Source revision + commit time/count for measured lead time (DORA), when `--with-dora` is enabled |
+| `environment` | The deploy stage's env, from the pipeline's `pb.deploys` tag |
 | `detail` | Raw CodePipeline event detail **with `account` removed** (log URL / error code for drill-down) |
 
 Reference: [`@pipeline-builder/pipeline-events`](../packages/pipeline-events/README.md#data-forwarded-to-the-platform).
@@ -945,15 +944,15 @@ aws lambda get-function --function-name pipeline-builder-event-ingestion \
 ### How Reporting Works
 
 ```
-Synth  → CDK tags the CodePipeline `PIPELINE_EVENT_ID=<pipelineId>` (stable, set at creation)
+Synth  → CDK tags the CodePipeline `pb.pipeline-id=<pipelineId>` (+ `pb.deploys`) (stable, set at creation)
 Deploy → pipeline-manager registers the pipeline (by pipelineId) in pipeline_registry
 Execute → CodePipeline runs → EventBridge captures state changes
-Ingest  → SQS → Lambda resolves the PIPELINE_EVENT_ID tag → POST /api/reports/events (keyed by pipelineId)
+Ingest  → SQS → Lambda resolves the pb.pipeline-id tag → POST /api/reports/events (keyed by pipelineId)
 Store   → Reporting API matches the registry by pipelineId → inserts into pipeline_events
 View    → Dashboard Reports page or GET /api/reports/...
 ```
 
-> The pipeline ARN and AWS account number **never leave AWS** — the Lambda attributes events via the pipeline's `PIPELINE_EVENT_ID` tag (= the opaque `pipelineId`), so nothing sensitive is stored and there is no masking key to manage. The Lambda's execution role needs `codepipeline:ListTagsForResource`.
+> The pipeline ARN and AWS account number **never leave AWS** — the Lambda attributes events via the pipeline's `pb.pipeline-id` tag (= the opaque `pipelineId`), so nothing sensitive is stored and there is no masking key to manage. The Lambda's execution role needs `codepipeline:ListTagsForResource`.
 
 > Plugin Docker builds are captured automatically by the plugin service (no EventBridge needed).
 

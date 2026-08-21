@@ -29,8 +29,13 @@ const app = {
 // final argument (the router) regardless of the shared '/reports' prefix.
 const ROUTERS = {
   events: { __router: 'events' },
+  ingestHealth: { __router: 'ingest-health' },
+  incidents: { __router: 'incidents' },
+  deployments: { __router: 'deployments' },
   execution: { __router: 'execution' },
   plugins: { __router: 'plugins' },
+  settings: { __router: 'settings' },
+  retentionSync: { __router: 'retention-sync' },
 } as const;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -47,9 +52,20 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 }));
 
 jest.unstable_mockModule('../src/routes/event-ingest.js', () => ({ createEventIngestRoutes: () => ROUTERS.events }));
+jest.unstable_mockModule('../src/routes/ingest-health.js', () => ({ createIngestHealthRoutes: () => ROUTERS.ingestHealth }));
+jest.unstable_mockModule('../src/routes/incidents.js', () => ({ createIncidentRoutes: () => ROUTERS.incidents }));
+jest.unstable_mockModule('../src/routes/deployment-outcomes.js', () => ({ createDeploymentOutcomeRoutes: () => ROUTERS.deployments }));
 jest.unstable_mockModule('../src/routes/execution-reports.js', () => ({ createExecutionReportRoutes: () => ROUTERS.execution }));
 jest.unstable_mockModule('../src/routes/plugin-reports.js', () => ({ createPluginReportRoutes: () => ROUTERS.plugins }));
+jest.unstable_mockModule('../src/routes/report-settings.js', () => ({ createReportSettingsRoutes: () => ROUTERS.settings }));
+jest.unstable_mockModule('../src/routes/retention-sync.js', () => ({ createRetentionSyncRoutes: () => ROUTERS.retentionSync }));
 jest.unstable_mockModule('../src/services/audit.js', () => ({ getAuditClient: () => ({ record: jest.fn() }) }));
+// Retention sweep (Phase 7) is wired at boot; stub it so this wiring test doesn't
+// pull in pipeline-data / start a real scheduler.
+jest.unstable_mockModule('../src/services/reporting-retention.js', () => ({
+  startReportingRetention: jest.fn(),
+  stopReportingRetention: jest.fn(),
+}));
 
 await import('../src/index.js');
 
@@ -83,6 +99,43 @@ describe('src/index.ts — reports:read enforcement', () => {
     // Ingest is a machine write path (reporting:ingest scope), not a dashboard
     // read — gating it with reports:read would be a regression.
     expect(readGate(mountFor(ROUTERS.events))).toBeUndefined();
+  });
+
+  it('does NOT gate the ingest-health mount with reports:read', () => {
+    // Also a machine write path (reporting:ingest scope), authorized in-router.
+    expect(readGate(mountFor(ROUTERS.ingestHealth))).toBeUndefined();
+  });
+
+  it('does NOT gate the incidents mount with reports:read', () => {
+    // Incident webhook is a machine write path (reporting:ingest scope), authorized
+    // in-router — mirrors ingest-health. The DORA reads that consume incidents carry
+    // the advanced_reporting gate; the ingest itself must not require reports:read.
+    expect(readGate(mountFor(ROUTERS.incidents))).toBeUndefined();
+  });
+
+  it('does NOT gate the retention-sync mount with reports:read', () => {
+    // Inbound billing → reporting retention sync is a machine WRITE path
+    // (service-principal / system-admin guard runs inside the router, mirroring
+    // platform's seat-limit sync). Gating it with reports:read — or any org-user
+    // permission — would reject the billing service token.
+    expect(readGate(mountFor(ROUTERS.retentionSync))).toBeUndefined();
+  });
+
+  it('mounts the report-settings routes behind requirePermission("reports:read")', () => {
+    // Per-org reporting config (incident window) is user-facing + DORA-gated:
+    // reports:read at the mount (advanced_reporting too); the PUT adds an
+    // org-admin org:settings gate inside the router.
+    const gate = readGate(mountFor(ROUTERS.settings));
+    expect(gate).toBeDefined();
+    expect(gate.__allowService).toBe(false);
+  });
+
+  it('mounts the deployment-outcome write behind requirePermission("reports:read")', () => {
+    // The mark failed/restored WRITE is user-facing and DORA-gated: same
+    // reports:read gate as the DORA reads (advanced_reporting is applied too).
+    const gate = readGate(mountFor(ROUTERS.deployments));
+    expect(gate).toBeDefined();
+    expect(gate.__allowService).toBe(false);
   });
 
   describe('gate behavior', () => {

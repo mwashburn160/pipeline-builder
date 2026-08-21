@@ -487,7 +487,18 @@ export const updateOrganizationSeatLimit = withController('Update organization s
     targetType: 'organization',
     targetId: id,
     affectedOrgId: result.rootOrgId,
-    details: { seats: body.seats, ...(features ? { features } : {}), ...(tier ? { tier } : {}) },
+    // Record the features added/removed DELTA (not just the resulting set) so a
+    // DORA (advanced_reporting) access grant/revoke — or any bundle entitlement
+    // change — is reconstructable from the audit trail alone.
+    details: {
+      seats: body.seats,
+      ...(features ? { features } : {}),
+      ...(result.featureDelta &&
+      (result.featureDelta.added.length > 0 || result.featureDelta.removed.length > 0)
+        ? { featuresAdded: result.featureDelta.added, featuresRemoved: result.featureDelta.removed }
+        : {}),
+      ...(tier ? { tier } : {}),
+    },
   });
   logger.info('Seat limit synced', { orgId: id, rootOrgId: result.rootOrgId, seats: body.seats, features, tier, by: req.user!.sub });
   sendSuccess(res, 200, result, 'Seat limit updated');

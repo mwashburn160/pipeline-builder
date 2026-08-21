@@ -36,7 +36,7 @@ effective[quota] = tierBase[quota] + Σ (bundle.grant[quota] × quantity)
 - **Feature bundles** (Audit Log, SSO) add a capability rather than a number; they are not stackable.
 - Effective limits are **pooled at the account root** and shared across the root's teams — see [pooling](#pooling-across-teams).
 
-Billing computes the effective entitlement and syncs it to the enforcing services: the nine tracked quota types go to the **quota service**, while `seats` and purchased features (`audit_log`, `sso`) go to the **platform service** (`PUT /organization/{orgId}/seat-limit`). Both target the account root.
+Billing computes the effective entitlement and syncs it to the enforcing services: the nine tracked quota types go to the **quota service**, `seats` and purchased features (`audit_log`, `sso`) go to the **platform service** (`PUT /organization/{orgId}/seat-limit`), and the effective **retention** windows go to the **reporting service** (`PUT /api/reports/retention-sync/{orgId}`, writing `dora_settings`). All target the account root. (Retention is not one of the nine flow quotas — it reuses the tier-baseline + bundle-grant math but rides its own reporting sync leg.)
 
 ---
 
@@ -52,6 +52,8 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly. Every p
 | **API Pack** | +1,000,000 API calls / period | $20 | $200 | all tiers | ✅ |
 | **AI Pack** | +5,000 AI calls / period | $75 | $750 | all tiers | ✅ |
 | **Storage Pack** | +50 GB registry storage | $25 | $250 | all tiers | ✅ |
+| **Standard Retention Pack** | +90 days standard pipeline-event retention | $15 | $150 | all tiers | ✅ |
+| **DORA History Pack** | +365 days DORA history **and** +365 days on the per-org report-query window | $30 | $300 | all tiers | ✅ |
 | **Audit Log** | unlocks the `audit_log` feature | $20 | $200 | Pro | ❌ |
 | **SSO / IdP** | unlocks `sso` + up to 5 IdP configs | $40 | $400 | Pro | ❌ |
 | **Advanced Reporting (DORA)** | unlocks the `advanced_reporting` feature | $30 | $300 | Developer, Pro, Team | ❌ |
@@ -59,6 +61,8 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly. Every p
 
 Notes:
 - **API Pack** is available on every tier, since all tiers now have a finite API-call cap (Team 2M, Enterprise 10M) that can be topped up.
+- **Retention is a tier-aware, bundle-extendable entitlement.** Each tier carries a baseline reporting-retention window — paid tiers default to **30 days** for standard pipeline events and **180 days** for DORA source, while the **unlimited** tier is **unlimited retention** (`-1`, history is never swept). The two retention packs stack the same way every other pack does — effective retention = tier baseline + Σ(pack grant × quantity). Billing computes that effective window and **syncs it to the reporting service** (`dora_settings.event_retention_days` / `dora_retention_days`), a sync leg alongside quotas → quota service and seats/features → platform. Buy **Standard Retention Pack ×2** for +180 days of standard-event history.
+- The **DORA History Pack** also widens the per-org report-query window (which now tracks retention, capped at an absolute 730 days) — so a pack holder can actually query the extended range, not just retain the raw rows. It only does anything useful alongside **Advanced Reporting (DORA)**, which is included on Enterprise and an add-on on Developer/Pro/Team.
 - **Audit Log**, **SSO**, **Advanced Reporting**, and **Team Usage Analytics** are the "buy up a capability without changing tier" path. Each is standard from a given tier up (Audit Log and SSO from Team; Advanced Reporting and Team Usage Analytics from Enterprise), and the bundle lets a lower tier add it à la carte — so the add-on is offered only to the tiers that don't already include it (Audit Log/SSO → Pro; Advanced Reporting → Developer/Pro/Team; Team Usage Analytics → Pro/Team, since Developer has no teams to break down).
 
 ---
@@ -125,7 +129,7 @@ Bundles are only offered when the operator enables them, and each bundle's econo
 | `BILLING_BUNDLE_<ID>_TIERS` | JSON array of tiers allowed to buy the bundle |
 | `BILLING_COMBO_<COMBO>_MONTHLY` / `_ANNUAL` | Override a combo's combined price (cents) — e.g. `BILLING_COMBO_ANALYTICS_SUITE_MONTHLY` |
 
-`<ID>` is the bundle id upper-cased: `SEAT_PACK`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `AUDIT_LOG`, `SSO`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`. `<COMBO>` is the combo id upper-cased: `ANALYTICS_SUITE`, `TEAM_GROWTH`.
+`<ID>` is the bundle id upper-cased: `SEAT_PACK`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `AUDIT_LOG`, `SSO`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`. `<COMBO>` is the combo id upper-cased: `ANALYTICS_SUITE`, `TEAM_GROWTH`. Under AWS Marketplace the retention packs meter as the `RetentionPack` / `DoraHistoryPack` dimensions.
 
 > **AWS Marketplace:** when the billing provider is `aws-marketplace`, self-service bundle purchase is disabled — entitlements flow from Marketplace instead, and add-on charges are reported as **metered usage** (`BatchMeterUsage`). Combo credits (and other usage-credit discounts) realize on Marketplace by **withholding metered usage** when `BILLING_METERING_ENABLED` is on — see [Billing Discounts → AWS Marketplace](billing-discounts.md#aws-marketplace--private-offers-handled-in-aws-not-in-app). See [Environment Variables](environment-variables.md#billing) for the full billing configuration.
 

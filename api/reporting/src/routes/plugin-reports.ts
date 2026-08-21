@@ -14,6 +14,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
+import { parseOrgReportRange } from '../helpers/retention-cap.js';
 import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubField, rollupIds } from '../helpers.js';
 
 export function createPluginReportRoutes(): Router {
@@ -40,14 +41,14 @@ export function createPluginReportRoutes(): Router {
   router.get('/build-success-rate', withRoute(async ({ req, res, orgId }) => {
     const interval = parseReportInterval(req.query);
     if (typeof interval === 'object') return sendBadRequest(res, interval.error, ErrorCode.VALIDATION_ERROR);
-    const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
+    const range = await parseOrgReportRange(req.query, orgId, 'event');
     if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     const orgIds = await rollupIds(req, orgId);
     sendSuccess(res, 200, { timeline: await reportingService.getBuildSuccessRate(orgId, interval, range.from, range.to, orgIds) });
   }));
 
   router.get('/build-duration', withRoute(async ({ req, res, orgId }) => {
-    const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
+    const range = await parseOrgReportRange(req.query, orgId, 'event');
     if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     const orgIds = await rollupIds(req, orgId);
     sendSuccess(res, 200, { plugins: await reportingService.getBuildDuration(orgId, range.from, range.to, orgIds) });

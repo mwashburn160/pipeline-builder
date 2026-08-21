@@ -34,6 +34,18 @@ export interface QuotaTierLimits {
    * when active members + pending invites would exceed this).
    */
   seats: number;
+  /**
+   * Reporting retention in DAYS — NOT a flow quota (never decremented, absent
+   * from `VALID_QUOTA_TYPES`): these ride the tier-baseline + bundle-grant math
+   * purely as an entitlement the billing service syncs to reporting's
+   * `dora_settings`. -1 = unlimited (the sweep skips the org entirely).
+   *   `eventRetentionDays` — non-deploy `pipeline_events` (STAGE/ACTION/build).
+   *   `doraRetentionDays`  — deploy events + `deployment_outcomes` + `incidents`,
+   *                          and the per-org report-query window for DORA routes.
+   * Extendable via the `retention_pack` / `dora_history_pack` add-on bundles.
+   */
+  eventRetentionDays: number;
+  doraRetentionDays: number;
 }
 
 /** Full preset for a single tier (label + limits). */
@@ -78,6 +90,8 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     alertDestinations: 10,
     idpConfigs: 1,
     seats: 1,
+    eventRetentionDays: 30,
+    doraRetentionDays: 180,
   },
   // Pro = one power user, individual pricing.
   pro: {
@@ -91,6 +105,8 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     alertDestinations: 50,
     idpConfigs: 5,
     seats: 1,
+    eventRetentionDays: 30,
+    doraRetentionDays: 180,
   },
   // Team = collaboration tier; the seat limit (10) is the real differentiator
   // over Pro. Limits sit between Pro and Enterprise.
@@ -105,6 +121,8 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     alertDestinations: -1,
     idpConfigs: 5,
     seats: 10,
+    eventRetentionDays: 30,
+    doraRetentionDays: 180,
   },
   // Enterprise: org-wide, high seat cap. FAIR-USE — cost drivers (apiCalls,
   // aiCalls, storageBytes) capped high so one account can't run up unbounded
@@ -120,6 +138,8 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     alertDestinations: -1,
     idpConfigs: -1,
     seats: 25,
+    eventRetentionDays: 30,
+    doraRetentionDays: 180,
   },
   // Unlimited: EVERY quota uncapped (-1). The default when billing is disabled
   // (no enforcement surface) — never shown/selectable when billing is enabled.
@@ -134,6 +154,8 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     alertDestinations: -1,
     idpConfigs: -1,
     seats: -1,
+    eventRetentionDays: -1,
+    doraRetentionDays: -1,
   },
 };
 
@@ -181,6 +203,8 @@ function tierLimits(tier: QuotaTier): QuotaTierLimits {
     alertDestinations: envInt(`QUOTA_TIER_${T}_ALERT_DESTINATIONS`, d.alertDestinations),
     idpConfigs: envInt(`QUOTA_TIER_${T}_IDP_CONFIGS`, d.idpConfigs),
     seats: envInt(`QUOTA_TIER_${T}_SEATS`, d.seats),
+    eventRetentionDays: envInt(`QUOTA_TIER_${T}_EVENT_RETENTION_DAYS`, d.eventRetentionDays),
+    doraRetentionDays: envInt(`QUOTA_TIER_${T}_DORA_RETENTION_DAYS`, d.doraRetentionDays),
   };
 }
 

@@ -63,6 +63,19 @@ describe('AddonGrid — feature discoverability', () => {
     render(<AddonGrid {...baseProps} bundles={[seatBundle, doraBundle]} highlightFeature="advanced_reporting" />);
     expect(window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
   });
+
+  it('highlights a featureless capacity pack by its bundle id (e.g. dora_history_pack)', () => {
+    // A retention / DORA-History pack grants no feature flag, so it must be
+    // reachable via `?highlight=<bundle id>` — the retention card + Extend CTA
+    // deep-link on the id, not a feature.
+    const historyPack = {
+      id: 'dora_history_pack', name: 'DORA History Pack', description: 'Longer DORA retention.',
+      grants: { doraRetentionDays: 365 }, prices: { monthly: 1900, annual: 19000 },
+      stackable: false, availableForTiers: [],
+    } as unknown as Bundle;
+    render(<AddonGrid {...baseProps} bundles={[seatBundle, historyPack]} highlightFeature="dora_history_pack" />);
+    expect(window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
+  });
 });
 
 describe('AddonGrid — combo "pair to save" nudge', () => {

@@ -74,6 +74,34 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     scrubAwsIdentifiers: <T>(v: T): T => v,
     createScheduler: () => ({ start: () => undefined, stop: () => undefined }),
     createEnvRedisLock: () => null,
+    // Billing toggle — reporting-retention's D8 gate reads it; default ON so the
+    // sweep-scheduling suites behave as before. Suites override per-case.
+    isBillingEnabled: () => true,
+    // Faithful parseDateRange (mirrors api-core/utils/params): retention-cap.ts now
+    // imports it directly, so the base mock must export it. Suites that assert on
+    // the spy override it in their own apiCoreMock({ parseDateRange }) call.
+    parseDateRange: (
+      query: Record<string, unknown> = {},
+      options: { maxRangeMs?: number; defaultDaysBack?: number } = {},
+    ) => {
+      const { maxRangeMs, defaultDaysBack = 30 } = options;
+      const rawFrom = query.from;
+      const rawTo = query.to;
+      if (rawFrom !== undefined && typeof rawFrom !== 'string') return { error: '"from" must be a single ISO timestamp string' };
+      if (rawTo !== undefined && typeof rawTo !== 'string') return { error: '"to" must be a single ISO timestamp string' };
+      const now = Date.now();
+      const fromStr = (rawFrom as string) ?? new Date(now - defaultDaysBack * 86_400_000).toISOString();
+      const toStr = (rawTo as string) ?? new Date(now).toISOString();
+      const fromMs = Date.parse(fromStr);
+      const toMs = Date.parse(toStr);
+      if (!Number.isFinite(fromMs)) return { error: '"from" is not a valid ISO timestamp' };
+      if (!Number.isFinite(toMs)) return { error: '"to" is not a valid ISO timestamp' };
+      if (fromMs > toMs) return { error: '"from" must be earlier than "to"' };
+      if (maxRangeMs !== undefined && toMs - fromMs > maxRangeMs) {
+        return { error: `Date range exceeds maximum of ${Math.floor(maxRangeMs / 86_400_000)} days` };
+      }
+      return { from: fromStr, to: toStr };
+    },
     requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
     // RBAC read-permission gate factories. Behavioral so the index-wiring suite
     // can assert 403-vs-pass; provided by default so any suite loading src/index.ts
@@ -84,6 +112,19 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // middleware — router suites pull the withRoute handler directly, and the
     // index-wiring suite only needs the module to link.
     requireFeature: (_feature: string) => (_req: any, _res: any, next: any) => next && next(),
+    // Pagination + validation helpers used by the incident/settings routes. Simple
+    // behavioral stubs so router suites can drive the handlers directly.
+    sendPaginatedNested: (_res: any, key: string, data: unknown, options: unknown) => ({ [key]: data, pagination: options }),
+    parsePaginationParams: (q: Record<string, unknown>) => ({
+      limit: Number(q?.limit) > 0 ? Number(q.limit) : 100,
+      offset: Number(q?.offset) > 0 ? Number(q.offset) : 0,
+    }),
+    validateBody: (req: any, schema: any) => {
+      const r = schema.safeParse(req?.body);
+      return r.success
+        ? { ok: true, value: r.data }
+        : { ok: false, error: r.error.issues.map((i: any) => `${i.path.join('.')}: ${i.message}`).join('; ') };
+    },
     // Shared org-descendants resolver imported by src/helpers.ts (resolveOrgRollup).
     // A stub is enough for the module to link; suites that exercise the rollup
     // mock resolveOrgRollup itself at the helpers layer.

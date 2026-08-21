@@ -56,6 +56,17 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
   const get = (section: string) => {
     if (section === 'server') return { services: { billingTimeout: 5000 } };
+    // Phase 8 retention bundles — getBundleCatalog() reads Config.get('billing').bundles;
+    // the retention leg sums these grants onto the tier baseline. `dora_history_pack`
+    // grants +365 dora days (base 180 → 545); `retention_pack` grants +90 event days.
+    if (section === 'billing') {
+      return {
+        bundles: [
+          { id: 'retention_pack', name: 'Retention Pack', description: '', grants: { eventRetentionDays: 90 }, prices: { monthly: 1500, annual: 15000 }, stackable: true, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], isActive: true, sortOrder: 10 },
+          { id: 'dora_history_pack', name: 'DORA History Pack', description: '', grants: { doraRetentionDays: 365 }, prices: { monthly: 3000, annual: 30000 }, stackable: true, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], isActive: true, sortOrder: 11 },
+        ],
+      };
+    }
     return {};
   };
   // `effectiveEntitlements` moved to pipeline-core; billing-helpers imports it
@@ -83,6 +94,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
   config: {
     quotaService: { host: 'quota', port: 3000 },
     platformService: { host: 'platform', port: 3000 },
+    reportingService: { host: 'reporting', port: 3000 },
   },
 }));
 
@@ -334,5 +346,117 @@ describe('syncEntitlements entitlementSyncPending marker', () => {
     );
     expect(seatCall).toBeDefined();
     expect(seatCall![1]).toMatchObject({ tier: 'pro' });
+  });
+});
+
+// syncEntitlements — reporting retention leg (Phase 8)
+
+describe('syncEntitlements reporting retention leg', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  /** The PUT call for the reporting retention-sync leg (or undefined). */
+  const retentionCall = () =>
+    mockClientPut.mock.calls.find(
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('/api/reports/retention-sync/'),
+    );
+
+  it('pushes the tier-baseline retention (30/180) to reporting with the org path + service auth headers', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 200 });
+
+    const ok = await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
+
+    expect(ok).toBe(true);
+    const call = retentionCall();
+    expect(call).toBeDefined();
+    // Path carries the root orgId (mirrors platform's seat-limit route shape).
+    expect(call![0]).toBe('/api/reports/retention-sync/org-1');
+    // Body carries the EFFECTIVE event/dora retention days.
+    expect(call![1]).toEqual({ eventRetentionDays: 30, doraRetentionDays: 180 });
+    // Same auth mechanism as the seat leg: threaded bearer + x-org-id.
+    expect(call![2]).toMatchObject({
+      headers: { 'Authorization': 'Bearer tok', 'x-org-id': 'org-1' },
+    });
+  });
+
+  it('sums bundle grants onto the baseline (base 180 + dora_history_pack ⇒ 545)', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 200 });
+
+    await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1', [
+      { bundleId: 'dora_history_pack', quantity: 1 },
+    ]);
+
+    const call = retentionCall();
+    expect(call).toBeDefined();
+    expect(call![1]).toEqual({ eventRetentionDays: 30, doraRetentionDays: 180 + 365 });
+  });
+
+  it('stacks retention_pack event grants (base 30 + 2× retention_pack ⇒ 210)', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 200 });
+
+    await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1', [
+      { bundleId: 'retention_pack', quantity: 2 },
+    ]);
+
+    const call = retentionCall();
+    expect(call![1]).toEqual({ eventRetentionDays: 30 + 180, doraRetentionDays: 180 });
+  });
+
+  it('passes -1 (unlimited) through untouched for the unlimited tier', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 200 });
+
+    // A -1 base is never added onto — even with a retention bundle it stays -1.
+    await syncEntitlements('org-1', 'unlimited' as any, 'Bearer tok', 'sub-1', [
+      { bundleId: 'dora_history_pack', quantity: 1 },
+    ]);
+
+    const call = retentionCall();
+    expect(call![1]).toEqual({ eventRetentionDays: -1, doraRetentionDays: -1 });
+  });
+
+  it('D7: clamps a summed retention above 730 down to the ceiling (defensive)', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 200 });
+
+    // base 30 + 8× retention_pack(90) = 750 > 730 → clamped to 730 by the sync leg
+    // (the purchase route's maxQuantity already bounds this; the clamp is defense).
+    await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1', [
+      { bundleId: 'retention_pack', quantity: 8 },
+    ]);
+
+    const call = retentionCall();
+    expect(call![1]).toEqual({ eventRetentionDays: 730, doraRetentionDays: 180 });
+  });
+
+  it('sets the entitlementSyncPending marker when ONLY the reporting leg fails', async () => {
+    // Quota + platform legs succeed; the reporting leg 5xx's. The shared pending
+    // marker must still be set so the lifecycle reconciler re-drives the sync.
+    mockClientPut.mockImplementation((...args: unknown[]) => {
+      const path = args[0] as string;
+      if (path.includes('/api/reports/retention-sync/')) return Promise.resolve({ statusCode: 500 });
+      return Promise.resolve({ statusCode: 200 });
+    });
+
+    const ok = await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
+
+    expect(ok).toBe(false);
+    expect(mockSubscriptionUpdateOne).toHaveBeenCalledWith(
+      { _id: 'sub-1' },
+      { $set: { 'metadata.entitlementSyncPending': true } },
+    );
+  });
+
+  it('never fails the sync when the reporting leg THROWS (fail-open, marker set)', async () => {
+    mockClientPut.mockImplementation((...args: unknown[]) => {
+      const path = args[0] as string;
+      if (path.includes('/api/reports/retention-sync/')) return Promise.reject(new Error('reporting down'));
+      return Promise.resolve({ statusCode: 200 });
+    });
+
+    const ok = await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
+
+    expect(ok).toBe(false);
+    expect(mockSubscriptionUpdateOne).toHaveBeenCalledWith(
+      { _id: 'sub-1' },
+      { $set: { 'metadata.entitlementSyncPending': true } },
+    );
   });
 });

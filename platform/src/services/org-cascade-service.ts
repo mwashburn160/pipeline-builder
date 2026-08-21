@@ -5,7 +5,7 @@
  *  Org delete cascade + GDPR data export.
  *
  * Orchestrates the destructive sweep across every store the platform owns
- * data in for a given org * - Postgres (via pipeline-core): 21 tables with `org_id`. Soft-deleted
+ * data in for a given org * - Postgres (via pipeline-core): every org-scoped (`org_id`) table. Soft-deleted
  * where `deleted_at` exists; hard-deleted otherwise.
  * - Mongo (platform's own): Invitation, AuditEvent (except the
  * `admin.org.delete` audit event for this very action, which is preserved so the
@@ -85,6 +85,15 @@ const SOFT_DELETE_TABLES = [
 const HARD_DELETE_TABLES = [
   { table: schema.pipelineRegistry, name: 'pipeline_registry' },
   { table: schema.pipelineEvent, name: 'pipeline_events' },
+  // DORA / reporting tables — all org-scoped (`org_id`), none carry a
+  // `deleted_at`, so they are hard-removed with the org. Including them here
+  // (and thus in `exportOrg` + the purge sweep) closes the cascade drift that
+  // otherwise orphaned per-org DORA outcome markers, incidents, ingest-health
+  // rows, and the per-org DORA settings override on org purge.
+  { table: schema.deploymentOutcome, name: 'deployment_outcomes' },
+  { table: schema.incident, name: 'incidents' },
+  { table: schema.ingestHealth, name: 'ingest_health' },
+  { table: schema.doraSettings, name: 'dora_settings' },
   // Child rows of messages; no soft-delete columns of their own, so they are
   // hard-removed with the org (parity with pipeline_events). This deletes only
   // the METADATA rows — the MinIO blobs (keyed `<orgId>/...`) are reclaimed

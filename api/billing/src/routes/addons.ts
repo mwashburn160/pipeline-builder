@@ -11,6 +11,7 @@ import {
   getParam,
   validateBody,
 } from '@pipeline-builder/api-core';
+import type { QuotaTier } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import type { BundleConfig, ComboDiscountConfig } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
@@ -47,6 +48,32 @@ function applyAddon(addons: Addon[], bundleId: string, quantity: number): Addon[
   const rest = addons.filter((a) => a.bundleId !== bundleId);
   if (quantity > 0) rest.push({ bundleId, quantity });
   return rest;
+}
+
+/**
+ * Resolve an active bundle that is purchasable on `tier`, or an error message.
+ * Shared by the preview + add handlers so the "unknown bundle" / "not available
+ * on this plan" gate (and its 400 copy) can't drift between them.
+ */
+function resolvePurchasableBundle(
+  bundles: readonly BundleConfig[],
+  bundleId: string,
+  tier: QuotaTier,
+): { bundle: BundleConfig } | { error: string } {
+  const bundle = bundles.find((b) => b.id === bundleId && b.isActive);
+  if (!bundle) return { error: `Unknown bundle "${bundleId}"` };
+  if (!bundle.availableForTiers.includes(tier)) {
+    return { error: `Bundle "${bundleId}" is not available on the ${tier} plan` };
+  }
+  return { bundle };
+}
+
+/** The over-`maxQuantity` (retention-ceiling) 400 message for a stacked bundle,
+ *  or null when within cap. Shared so the preview + add gate stay identical. */
+function bundleQuantityCapError(bundle: BundleConfig, qty: number): string | null {
+  return bundle.maxQuantity !== undefined && qty > bundle.maxQuantity
+    ? `Bundle "${bundle.id}" is capped at ${bundle.maxQuantity} (retention ceiling)`
+    : null;
 }
 
 /**
@@ -245,13 +272,16 @@ export function createAddonRoutes(): Router {
     if (!subscriptionIdMatches(req, subscription)) return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
 
     const bundles = getBundleCatalog();
-    const bundle = bundles.find((b) => b.id === bundleId && b.isActive);
-    if (!bundle) return sendError(res, 400, `Unknown bundle "${bundleId}"`);
-    if (!bundle.availableForTiers.includes(plan.tier)) {
-      return sendError(res, 400, `Bundle "${bundleId}" is not available on the ${plan.tier} plan`);
-    }
+    const resolved = resolvePurchasableBundle(bundles, bundleId, plan.tier);
+    if ('error' in resolved) return sendError(res, 400, resolved.error);
+    const { bundle } = resolved;
 
     const qty = bundle.stackable ? Math.max(0, Math.trunc(quantity ?? 1)) : (quantity && quantity > 0 ? 1 : 0);
+    // D7: a retention bundle can't be stacked past its 730-day ceiling
+    // (`maxQuantity` on the config; e.g. retention_pack=7, dora_history_pack=1).
+    // Bundles without a `maxQuantity` are unbounded (unchanged).
+    const capError = bundleQuantityCapError(bundle, qty);
+    if (capError) return sendError(res, 400, capError, ErrorCode.VALIDATION_ERROR);
     const current = (subscription.addons ?? []) as Addon[];
     const next = applyAddon(current, bundleId, qty);
     const { limits } = effectiveEntitlements(plan.tier, next, bundles);
@@ -278,14 +308,15 @@ export function createAddonRoutes(): Router {
     if (!subscriptionIdMatches(req, subscription)) return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
 
     const bundles = getBundleCatalog();
-    const bundle = bundles.find((b) => b.id === bundleId && b.isActive);
-    if (!bundle) return sendError(res, 400, `Unknown bundle "${bundleId}"`);
-    if (!bundle.availableForTiers.includes(plan.tier)) {
-      return sendError(res, 400, `Bundle "${bundleId}" is not available on the ${plan.tier} plan`);
-    }
+    const resolved = resolvePurchasableBundle(bundles, bundleId, plan.tier);
+    if ('error' in resolved) return sendError(res, 400, resolved.error);
+    const { bundle } = resolved;
 
     // Stackable packs take a quantity (>=1); boolean feature bundles are qty 1.
     const qty = bundle.stackable ? Math.max(1, Math.trunc(quantity ?? 1)) : 1;
+    // D7: reject a retention bundle stacked past its 730-day ceiling (`maxQuantity`).
+    const capError = bundleQuantityCapError(bundle, qty);
+    if (capError) return sendError(res, 400, capError, ErrorCode.VALIDATION_ERROR);
     const current = (subscription.addons ?? []) as Addon[];
     const next = applyAddon(current, bundleId, qty);
 

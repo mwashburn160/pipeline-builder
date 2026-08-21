@@ -19,6 +19,7 @@ import { login } from './commands/login.js';
 import { newPlugin } from './commands/new-plugin.js';
 import { orgExport } from './commands/org-export.js';
 import { provision } from './commands/provision.js';
+import { redriveEvents } from './commands/redrive-events.js';
 import { register } from './commands/register.js';
 import { setupEvents } from './commands/setup-events.js';
 import { status } from './commands/status.js';
@@ -163,7 +164,7 @@ Command groups:
   pipeline  Create, inspect, and deploy pipelines (create, list, get, register, synth, deploy)
   plugin    Author, validate, and publish plugins (new, validate, upload, get, list)
   template  Validate {{ ... }} templates (validate)
-  infra     Set up and operate platform infrastructure (bootstrap, setup-events, store-token, provision)
+  infra     Set up and operate platform infrastructure (bootstrap, setup-events, redrive-events, store-token, provision)
   audit     Operator audits, cron-friendly (tokens, stacks)
   org       Organization data operations (export)
   status / version / completions
@@ -233,6 +234,7 @@ Run '${APP_NAME} <group> --help' to see a group's subcommands.
   const infra = program.command('infra').description('Set up and operate platform infrastructure');
   bootstrap(infra); // infra bootstrap — CDK toolkit stack
   setupEvents(infra); // infra setup-events — EventBridge event ingestion
+  redriveEvents(infra); // infra redrive-events — manual DLQ → queue redrive fallback
   storeToken(infra); // infra store-token — JWT token in Secrets Manager for CDK
   provision(infra); // infra provision — AI-assisted deploy/teardown of the platform
 

@@ -42,6 +42,10 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
     messageAttachment: { orgId: 'message_attachments.org_id' },
     pipelineRegistry: { orgId: 'pipeline_registry.org_id' },
     pipelineEvent: { orgId: 'pipeline_events.org_id' },
+    deploymentOutcome: { orgId: 'deployment_outcomes.org_id' },
+    incident: { orgId: 'incidents.org_id' },
+    ingestHealth: { orgId: 'ingest_health.org_id' },
+    doraSettings: { orgId: 'dora_settings.org_id' },
     dashboard: { orgId: 'dashboards.org_id' },
     orgAlertDestination: { orgId: 'org_alert_destinations.org_id' },
     orgAlertRule: { orgId: 'org_alert_rules.org_id' },
@@ -146,10 +150,11 @@ describe('cascadeDeleteOrg', () => {
     expect(mockUpdateChain.where).toHaveBeenCalledTimes(9);
   });
 
-  it('hard-deletes the 14 tables without deleted_at', async () => {
+  it('hard-deletes the 18 tables without deleted_at', async () => {
     await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    // 14 hard-delete tables
-    expect(mockDeleteChain.where).toHaveBeenCalledTimes(14);
+    // 18 hard-delete tables (14 + 4 DORA/reporting: deployment_outcomes,
+    // incidents, ingest_health, dora_settings)
+    expect(mockDeleteChain.where).toHaveBeenCalledTimes(18);
   });
 
   it('drops mongo invitations + audit events + idp configs but preserves the admin.org.delete event', async () => {
@@ -285,7 +290,7 @@ describe('cascadeDeleteOrg', () => {
     expect(entries.filter((e) => e.ok === true).length).toBe(entries.length - 1);
     // Other tables still got their delete chains called.
     expect(mockUpdateChain.where).toHaveBeenCalledTimes(9);
-    expect(mockDeleteChain.where).toHaveBeenCalledTimes(14);
+    expect(mockDeleteChain.where).toHaveBeenCalledTimes(18);
   });
 
   it('flags an orphaned per-org KMS key (audit event + report) but does NOT auto-delete it', async () => {
@@ -324,7 +329,7 @@ describe('exportOrg', () => {
 
     const dump = await exportOrg('org-acme', '000000000000000000000001');
 
-    expect(Object.keys(dump.postgres).length).toBe(23); // 9 soft + 14 hard
+    expect(Object.keys(dump.postgres).length).toBe(27); // 9 soft + 18 hard
     expect(dump.mongo.invitations).toHaveLength(1);
     expect(dump.mongo.auditEvents).toHaveLength(1);
     expect(dump.orgId).toBe('org-acme');

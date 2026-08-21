@@ -272,6 +272,10 @@ CREATE TABLE IF NOT EXISTS pipeline_events (    id UUID PRIMARY KEY DEFAULT gen_
     commit_sha VARCHAR(255),
     commit_ref VARCHAR(255),
     environment VARCHAR(255),
+    -- DORA true-lead-time attribution (Phase 4): oldest unshipped commit time +
+    -- shipped-commit count. Nullable; unresolvable sources leave them NULL.
+    commit_timestamp TIMESTAMPTZ,
+    commit_count INTEGER,
     detail JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -657,6 +661,9 @@ ALTER TABLE pipeline_events   DROP COLUMN IF EXISTS pipeline_arn;
 ALTER TABLE pipeline_events   ADD COLUMN IF NOT EXISTS commit_sha VARCHAR(255);
 ALTER TABLE pipeline_events   ADD COLUMN IF NOT EXISTS commit_ref VARCHAR(255);
 ALTER TABLE pipeline_events   ADD COLUMN IF NOT EXISTS environment VARCHAR(255);
+-- DORA true-lead-time columns (Phase 4; idempotent add for existing deploys).
+ALTER TABLE pipeline_events   ADD COLUMN IF NOT EXISTS commit_timestamp TIMESTAMPTZ;
+ALTER TABLE pipeline_events   ADD COLUMN IF NOT EXISTS commit_count INTEGER;
 
 -- Pipeline Registry indexes
 -- pipeline_id is UNIQUE — the registry upsert uses ON CONFLICT (pipeline_id),
@@ -713,6 +720,11 @@ CREATE INDEX IF NOT EXISTS event_env_type_started_idx
 CREATE INDEX IF NOT EXISTS event_pipeline_type_started_idx
     ON pipeline_events(pipeline_id, event_type, started_at);
 
+-- DORA deploy-basis scan (Phase 1): deployment frequency / deploy-time CFR /
+-- lead time group deploy-stage events by environment over a completed_at window.
+CREATE INDEX IF NOT EXISTS event_org_env_completed_idx
+    ON pipeline_events(org_id, environment, completed_at);
+
 -- Idempotency dedup for at-least-once EventBridge/SQS re-deliveries (and BullMQ
 -- plugin-build re-runs): the partial UNIQUE index used as the ON CONFLICT DO
 -- NOTHING arbiter in reporting-service.ingestEvents and recordBuildEvent. Without
@@ -731,6 +743,93 @@ CREATE UNIQUE INDEX IF NOT EXISTS event_dedup_idx
         coalesce(action_name, '')
     )
     WHERE execution_id IS NOT NULL;
+
+-- ============================================================================
+-- DEPLOYMENT OUTCOMES (manual post-deploy failed/restored markers — DORA)
+-- ============================================================================
+-- Feeds the post-deploy Change Failure Rate component and real MTTR
+-- (restored − deployed). Correlated to a deploy execution by execution_id.
+CREATE TABLE IF NOT EXISTS deployment_outcomes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    execution_id VARCHAR(255) NOT NULL,
+    org_id VARCHAR(255) NOT NULL,
+    environment VARCHAR(255),
+    outcome VARCHAR(20) NOT NULL CHECK (outcome IN ('failed', 'restored')),
+    at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS deployment_outcomes_org_env_idx
+    ON deployment_outcomes(org_id, environment);
+CREATE INDEX IF NOT EXISTS deployment_outcomes_execution_idx
+    ON deployment_outcomes(execution_id);
+-- Idempotent re-marking: one row per (execution, outcome) — a duplicate POST is
+-- an upsert (refreshes `at`), a failed→restored pair stays two rows.
+CREATE UNIQUE INDEX IF NOT EXISTS deployment_outcomes_execution_outcome_unique
+    ON deployment_outcomes(execution_id, outcome);
+
+-- ============================================================================
+-- INGEST HEALTH (per-org events-Lambda forwarded/dropped/last-seen — DORA)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS ingest_health (
+    org_id VARCHAR(255) PRIMARY KEY,
+    last_event_at TIMESTAMPTZ,
+    forwarded BIGINT,
+    dropped BIGINT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================================================
+-- INCIDENTS (production incidents webhooked from PagerDuty/Datadog/Alertmanager
+-- — automated post-deploy CFR + real MTTR — DORA Phase 5)
+-- ============================================================================
+-- Ingested via POST /api/reports/incidents (machine `reporting:ingest` scope).
+-- DORA correlates each incident to the most recent successful deploy to its
+-- `environment` with completed_at <= opened_at within DORA_INCIDENT_WINDOW_HOURS,
+-- turning it into a post-deploy failure (CFR) and a real recovery time
+-- (resolved_at - opened_at) for MTTR. incident_id is UNIQUE PER ORG so a later
+-- resolve re-post is an idempotent upsert (updates resolved_at).
+CREATE TABLE IF NOT EXISTS incidents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    incident_id VARCHAR(255) NOT NULL,
+    org_id VARCHAR(255) NOT NULL,
+    environment VARCHAR(255) NOT NULL,
+    opened_at TIMESTAMPTZ NOT NULL,
+    resolved_at TIMESTAMPTZ,
+    severity VARCHAR(50) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS incidents_org_env_opened_idx
+    ON incidents(org_id, environment, opened_at);
+-- Idempotent upsert / dedup: one row per (org, incident_id). A resolve re-post
+-- updates resolved_at instead of inserting a duplicate.
+CREATE UNIQUE INDEX IF NOT EXISTS incidents_org_incident_unique
+    ON incidents(org_id, incident_id);
+
+-- ============================================================================
+-- DORA SETTINGS (per-org overrides for DORA computation — Phase 5b)
+-- ============================================================================
+-- One row per org. `incident_window_hours` overrides the global
+-- DORA_INCIDENT_WINDOW_HOURS used to correlate an ingested incident to the most
+-- recent successful deploy (a NULL/absent row falls back to the env default).
+-- Set self-serve by an org admin via PUT /api/reports/settings/incidents.
+CREATE TABLE IF NOT EXISTS dora_settings (
+    org_id VARCHAR(255) PRIMARY KEY,
+    incident_window_hours INTEGER,
+    -- Phase 7 per-org retention overrides (days). NULL => use the global env
+    -- default (REPORTING_EVENT_RETENTION_DAYS / REPORTING_DORA_RETENTION_DAYS).
+    -- event_retention_days governs standard events (pipeline_events WHERE
+    -- environment IS NULL); dora_retention_days governs the DORA source (deploy
+    -- stages + deployment_outcomes + incidents). This table is never purged.
+    event_retention_days INTEGER,
+    dora_retention_days INTEGER,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Idempotent upgrade for pre-existing dora_settings tables (Phase 7).
+ALTER TABLE dora_settings ADD COLUMN IF NOT EXISTS event_retention_days INTEGER;
+ALTER TABLE dora_settings ADD COLUMN IF NOT EXISTS dora_retention_days INTEGER;
 
 -- Messages indexes
 CREATE INDEX IF NOT EXISTS message_org_id_idx
@@ -1357,6 +1456,7 @@ BEGIN
             -- recipient org from reading a message addressed to it.
             'plugins', 'pipelines',
             'pipeline_registry', 'pipeline_events',
+            'deployment_outcomes', 'ingest_health', 'incidents', 'dora_settings',
             'dashboards', 'org_alert_destinations', 'org_alert_rules',
             'compliance_policies', 'compliance_rules', 'compliance_rule_history',
             'compliance_audit_log', 'compliance_exemptions', 'compliance_rule_subscriptions',
@@ -1494,6 +1594,10 @@ END $$;
 ALTER TABLE plugins FORCE ROW LEVEL SECURITY;
 ALTER TABLE pipelines FORCE ROW LEVEL SECURITY;
 ALTER TABLE pipeline_events FORCE ROW LEVEL SECURITY;
+ALTER TABLE deployment_outcomes FORCE ROW LEVEL SECURITY;
+ALTER TABLE ingest_health FORCE ROW LEVEL SECURITY;
+ALTER TABLE incidents FORCE ROW LEVEL SECURITY;
+ALTER TABLE dora_settings FORCE ROW LEVEL SECURITY;
 
 -- (Phase 3d  admin_audit_log was dropped; audit data lives in MongoDB.)
 

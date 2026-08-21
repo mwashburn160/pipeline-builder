@@ -178,7 +178,8 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 | --- | --- |
 | `auth login` | Authenticate against the platform and persist the access token (supports `--refresh <token>` and `--org <orgId>` to switch organizations) |
 | `infra store-token` | Generate a long-lived JWT and store it in AWS Secrets Manager (used by the events Lambda and CodePipeline synth steps). Add `--schedule` to also deploy a daily auto-renewal stack so the token never lapses |
-| `infra setup-events` | Deploy the EventBridge → SQS → Lambda stack that streams CodePipeline events into the platform's reporting service |
+| `infra setup-events` | Deploy the EventBridge → SQS → Lambda stack that streams CodePipeline events into the platform's reporting service. Add **`--with-dora`** to also resolve source commit timestamps in-account for **measured** commit→deploy lead time — off by default (**why:** it adds an SCM call + a `github-token`-secret read per deploy event, so only worthwhile for orgs on the `advanced_reporting` add-on; the other DORA metrics work without it and lead time simply reports `unknown`). Re-run to toggle. |
+| `infra redrive-events` | Manual fallback for the events Lambda's self-healing redrive: move dead-lettered CodePipeline events from `pipeline-builder-events-dlq` back onto the ingestion queue via SQS `StartMessageMoveTask`. Skips the move when the DLQ is empty or a move task is already running; idempotent ingest prevents double-counting |
 
 ### Operator audits (cron-friendly)
 

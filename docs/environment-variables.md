@@ -33,6 +33,7 @@ This reference documents every environment variable across the Pipeline Builder 
 - [Compliance](#compliance) -- Compliance bypass and scan scheduling
 - [Email](#email) -- SMTP and SES configuration
 - [Billing](#billing) -- Subscription billing provider
+- [Reporting & DORA](#reporting--dora) -- Event reporting, DORA metrics, retention
 - [AWS CDK / Lambda](#aws-cdk--lambda) -- Lambda runtime, CodeBuild compute
 - [Timeouts](#timeouts) -- Request, build, and connection timeouts
 - [Caching](#caching) -- Response and entity cache TTLs
@@ -392,7 +393,7 @@ Plan pricing (`BILLING_PLAN_{TIER}_MONTHLY` / `BILLING_PLAN_{TIER}_ANNUAL`, wher
 
 An `UNLIMITED` plan (free, `BILLING_PLAN_UNLIMITED_NAME` default `Unlimited`) is also seeded so the billing store has a row for orgs on the billing-disabled default tier, but it is filtered out of the customer-facing plans list — it is never sold or shown when billing is enabled.
 
-Add-on bundles are env-tunable (see [Billing Add-on Bundles → Overrides](billing-bundles.md#configuration--overrides)): `BILLING_BUNDLE_<ID>_MONTHLY` / `_ANNUAL` (price, cents), `BILLING_BUNDLE_<ID>_GRANT` (single-dimension grant amount), and `BILLING_BUNDLE_<ID>_TIERS` (JSON array of purchasable tiers), where `<ID>` is the bundle id upper-cased (`SEAT_PACK`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `AUDIT_LOG`, `SSO`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`). Combo prices are `BILLING_COMBO_<COMBO>_MONTHLY` / `_ANNUAL` where `<COMBO>` is `ANALYTICS_SUITE` or `TEAM_GROWTH`.
+Add-on bundles are env-tunable (see [Billing Add-on Bundles → Overrides](billing-bundles.md#configuration--overrides)): `BILLING_BUNDLE_<ID>_MONTHLY` / `_ANNUAL` (price, cents), `BILLING_BUNDLE_<ID>_GRANT` (single-dimension grant amount), and `BILLING_BUNDLE_<ID>_TIERS` (JSON array of purchasable tiers), where `<ID>` is the bundle id upper-cased (`SEAT_PACK`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `AUDIT_LOG`, `SSO`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`). Combo prices are `BILLING_COMBO_<COMBO>_MONTHLY` / `_ANNUAL` where `<COMBO>` is `ANALYTICS_SUITE` or `TEAM_GROWTH`. The retention packs default to $15/mo ($150/yr, `RETENTION_PACK`) and $30/mo ($300/yr, `DORA_HISTORY_PACK`); under AWS Marketplace they meter as the `RetentionPack` / `DoraHistoryPack` dimensions (see `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP`).
 
 ### Discounts
 
@@ -427,6 +428,30 @@ For `BILLING_PROVIDER=aws-marketplace`: add-on charges are reported as metered u
 | `AWS_MARKETPLACE_DIMENSION_PRICE_MAP` | `{}` | JSON map of metered dimension → local list price in **cents per metered unit per metering cycle** (cycle = `BILLING_METERING_INTERVAL_MS`). Drives the credit drawdown; an unpriced dimension is never drawn against (reported in full). **A wrong value directly mis-draws credit** — mirror it to your AWS listing and cadence |
 
 > **Money-movement caution:** the credit drawdown is real billing behavior. Keep `BILLING_METERING_ENABLED=false` until `AWS_MARKETPLACE_DIMENSION_PRICE_MAP` is validated (use the dry-run), and note that withholding offsets **metered add-on usage only** — plan-level reductions belong to AWS Marketplace private offers.
+
+---
+
+## Reporting & DORA
+
+Event reporting (`setup-events` → the reporting service) and DORA metrics. All are **optional** — the platform runs on the defaults. DORA metrics sit behind the `advanced_reporting` entitlement; see [DORA Metrics](dora-metrics.md). Retention windows are **tier-aware and bundle-extendable** (effective window = tier baseline + Σ retention-pack grant, computed by billing and synced into `dora_settings`) and additionally **per-organization** overridable via the org's reporting settings; the `REPORTING_*` values below are the deployment-wide fallback used when neither a tier baseline nor an org override applies. The per-tier baselines are set by `QUOTA_TIER_<TIER>_EVENT_RETENTION_DAYS` / `QUOTA_TIER_<TIER>_DORA_RETENTION_DAYS` (see below).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DORA_ENABLED` | `false` | Set on the **event-ingestion Lambda** (not a service var) to enable DORA **lead-time** commit-range resolution in your AWS account (SCM calls + `github-token` read). Toggle via `pipeline-manager infra setup-events --with-dora`, not by hand. Off ⇒ standard reporting still works and DORA lead time reports `unknown`. |
+| `DORA_INCIDENT_WINDOW_HOURS` | `24` | Reporting service. Window in which a production **incident** correlates to the most recent deploy (feeds post-deploy CFR / MTTR). Per-org override via `dora_settings`. |
+| `REPORTING_RETENTION_ENABLED` | `true` | Master switch for the retention purge sweep. **Set `false` to keep all reporting history forever** — recommended for self-hosted / unlimited-tier deployments that want unbounded retention. |
+| `REPORTING_EVENT_RETENTION_DAYS` | `30` | Retention (days) for **standard** pipeline events (non-deploy STAGE / ACTION / build). Older rows are purged by the sweep. Per-org override via `dora_settings`. |
+| `REPORTING_DORA_RETENTION_DAYS` | `180` | Retention (days) for **DORA-source** records (deploy-stage events + deployment outcomes + incidents) — ~2 quarters. Per-org override via `dora_settings`. |
+| `REPORTING_RETENTION_INTERVAL_HOURS` | `12` | How often the leader-locked retention sweep runs. |
+
+The retention window is a **tier baseline** that add-on retention packs extend. Each tier's baseline is overridable per-environment:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `QUOTA_TIER_<TIER>_EVENT_RETENTION_DAYS` | `30` (paid tiers) / unlimited on `unlimited` | Per-tier baseline retention (days) for **standard** pipeline events, where `<TIER>` is `DEVELOPER`, `PRO`, `TEAM`, `ENTERPRISE`, or `UNLIMITED`. The `unlimited` tier derives `-1` (unlimited — the sweep skips the org and keeps all history). The **Standard Retention Pack** add-on adds +90 days on top. |
+| `QUOTA_TIER_<TIER>_DORA_RETENTION_DAYS` | `180` (paid tiers) / unlimited on `unlimited` | Per-tier baseline retention (days) for **DORA-source** records. The `unlimited` tier derives `-1`. The **DORA History Pack** add-on adds +365 days on top (and widens the report-query window to match). |
+
+Billing computes the effective window (`tierBase + Σ pack grant`, `-1` = unlimited passthrough) and pushes it to the reporting service (`PUT /api/reports/retention-sync/:orgId`, writing `dora_settings`). The per-org report-query window tracks this effective retention (`min(730, orgRetentionDays)`, absolute ceiling **730 days**); an unlimited-tier org queries up to the 730-day ceiling.
 
 ---
 

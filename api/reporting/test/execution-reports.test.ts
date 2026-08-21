@@ -18,6 +18,7 @@ const mockGetActionFailures = jest.fn();
 const mockGetErrors = jest.fn();
 const mockGetDoraMetrics = jest.fn();
 const mockGetDoraTrend = jest.fn();
+const mockGetBuildHealth = jest.fn();
 const mockResolveOrgRollup = jest.fn();
 
 // The single reports:rollup predicate — shared by the api-core `userHasPermission`
@@ -100,6 +101,17 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
     getErrors: mockGetErrors,
     getDoraMetrics: mockGetDoraMetrics,
     getDoraTrend: mockGetDoraTrend,
+    getBuildHealth: mockGetBuildHealth,
+    // Phase 5b: the /dora route resolves the per-org incident window first.
+    // Phase 8 / D4: the retention window (cap + `from` floor) is derived from the
+    // same row — use UNLIMITED retention here so the floor is inert and these
+    // suites keep asserting the exact from/to they send (the floor itself is
+    // unit-tested in retention-cap.test).
+    getIncidentSettings: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({
+      incidentWindowHours: null, defaultWindowHours: 24,
+      eventRetentionDays: -1, doraRetentionDays: -1,
+      defaultEventRetentionDays: 30, defaultDoraRetentionDays: 180,
+    }),
   },
 }));
 
@@ -265,17 +277,23 @@ describe('Execution Report Routes', () => {
   });
 
   describe('GET /dora', () => {
+    // Deploy-basis DORA shape (per-env cards + production MTTR + coverage).
     const sampleDora = {
       window: { from: '2026-06-01', to: '2026-07-01' },
-      basis: 'run',
       filters: { pipelineId: null, environment: null },
-      deploymentFrequency: { deployments: 8, perDay: 0.27, level: 'high' },
-      changeFailureRate: { failed: 2, total: 10, pct: 20.0, level: 'low' },
-      meanTimeToRestore: { failures: 2, restored: 1, avgSeconds: 300, level: 'elite' },
-      leadTime: { deployments: 8, medianSeconds: 180, approx: true, level: 'elite' },
+      headline: 'production',
+      environments: [{
+        environment: 'production',
+        deploymentFrequency: { deployments: 8, perDay: 0.27, level: 'high' },
+        changeFailureRate: { rate: 20.0, deployTimeFailures: 1, postDeployFailures: 1, attempts: 10, level: 'low' },
+        leadTime: { deployments: 8, medianSeconds: 180, level: 'elite' },
+      }],
+      meanTimeToRestore: { incidents: 2, restored: 1, medianSeconds: 300, level: 'elite' },
+      coverage: { registered: 12, deploying: 4, withoutDeploys: 8 },
     };
-    // Default scoping the route derives from an empty query string.
-    const noScope = { pipelineId: undefined, environment: undefined, deploysOnly: false };
+    // Default scoping the route derives from an empty query string (deploysOnly
+    // is gone — DORA is deploy-basis only now).
+    const noScope = { pipelineId: undefined, environment: undefined };
 
     it('returns the DORA shape and passes org + range (no rollup by default)', async () => {
       mockGetDoraMetrics.mockResolvedValue(sampleDora);
@@ -316,13 +334,13 @@ describe('Execution Report Routes', () => {
       expect(mockGetDoraMetrics).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), undefined, noScope);
     });
 
-    it('passes per-pipeline + deploy scoping from the query string', async () => {
+    it('passes per-pipeline + environment scoping from the query string', async () => {
       mockGetDoraMetrics.mockResolvedValue(sampleDora);
       const handler = getHandler('/dora');
-      await handler({ query: { pipelineId: 'p-1', environment: 'production', deploysOnly: 'true' } }, {});
+      await handler({ query: { pipelineId: 'p-1', environment: 'production' } }, {});
 
       expect(mockGetDoraMetrics).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), undefined,
-        { pipelineId: 'p-1', environment: 'production', deploysOnly: true });
+        { pipelineId: 'p-1', environment: 'production' });
     });
   });
 
@@ -335,7 +353,7 @@ describe('Execution Report Routes', () => {
       await handler({ query: { interval: 'day', from: '2026-06-01', to: '2026-07-01' } }, {});
 
       expect(mockGetDoraTrend).toHaveBeenCalledWith('acme', 'day', '2026-06-01', '2026-07-01', undefined,
-        { pipelineId: undefined, environment: undefined, deploysOnly: false });
+        { pipelineId: undefined, environment: undefined });
       expect(sendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { trend: sampleTrend });
     });
 
@@ -346,6 +364,36 @@ describe('Execution Report Routes', () => {
 
       expect(sendBadRequest).toHaveBeenCalled();
       expect(mockGetDoraTrend).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /build-health', () => {
+    const sample = { stages: [{ stage: 'Build', runs: 10, successes: 8, failures: 2, successRate: 80, p50Ms: 1000, p90Ms: 2000, p99Ms: 3000 }], totals: { runs: 10, failures: 2, failureRate: 20 } };
+
+    it('passes pipelineId + range and returns the per-stage breakdown', async () => {
+      mockGetBuildHealth.mockResolvedValue(sample);
+      const handler = getHandler('/build-health');
+      await handler({ query: { pipelineId: 'p-1', from: '2026-06-01', to: '2026-07-01' } }, {});
+
+      expect(mockGetBuildHealth).toHaveBeenCalledWith('acme', 'p-1', '2026-06-01', '2026-07-01', undefined);
+      expect(sendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { buildHealth: sample });
+    });
+
+    it('400s when pipelineId is missing and does not query', async () => {
+      const handler = getHandler('/build-health');
+      await handler({ query: {} }, {});
+
+      expect(sendBadRequest).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('pipelineId'), expect.anything());
+      expect(mockGetBuildHealth).not.toHaveBeenCalled();
+    });
+
+    it('rolls up over the org→team subtree for a reports:rollup holder', async () => {
+      mockGetBuildHealth.mockResolvedValue(sample);
+      mockResolveOrgRollup.mockResolvedValue(['acme', 'team-child']);
+      const handler = getHandler('/build-health');
+      await handler({ query: { pipelineId: 'p-1', includeDescendants: 'true' }, user: { permissions: ['reports:rollup'] } }, {});
+
+      expect(mockGetBuildHealth).toHaveBeenCalledWith('acme', 'p-1', expect.any(String), expect.any(String), ['acme', 'team-child']);
     });
   });
 

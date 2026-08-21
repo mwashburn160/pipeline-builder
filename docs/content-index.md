@@ -69,6 +69,7 @@ the links below.
 - **Discounts / promo codes / referrals** — [Billing Discounts](billing-discounts.md), [Promotions](billing-discounts.md#promotions)
 - **Docker registry (config, tags)** — [Env vars: Docker Registry](environment-variables.md#docker-registry), [Registry audit events](audit-events.md#registry-structured-log-events)
 - **DORA metrics (deploy freq, lead time, MTTR, CFR)** — [DORA Metrics](dora-metrics.md), [Performance levels](dora-metrics.md#performance-levels)
+- **Build health (per-pipeline stage success rate + timing percentiles)** — [DORA Metrics: Build health](dora-metrics.md#build-health)
 - **Drift detection (CloudFormation stacks)** — [AWS Deployment: Drift Detection](aws-deployment.md#drift-detection-audit-stacks)
 
 ## E
@@ -113,6 +114,9 @@ the links below.
 
 ## L
 
+- **Incident webhook (PagerDuty/Datadog/Alertmanager → automated CFR + MTTR)** — [Incident Webhook](incidents-webhook.md), [Correlation window](incidents-webhook.md#correlation-window)
+- **Incident reporting setup (admin UI, self-serve token, per-org window)** — [Admin UI](incidents-webhook.md#admin-ui), [Getting a token](incidents-webhook.md#getting-a-token-self-serve), [Per-org window](incidents-webhook.md#per-org-correlation-window)
+- **Incident webhook — Alertmanager adapter (native payload)** — [Alertmanager adapter](incidents-webhook.md#alertmanager-adapter-native)
 - **Language plugins / version managers** — [Language Plugins](plugins/language.md)
 - **Lead time (DORA caveat)** — [DORA Metrics: Lead Time caveat](dora-metrics.md#lead-time-caveat-roadmap)
 - **LEAN mode (trim footprint — minikube & ec2)** — [Service Mesh: LEAN mode](service-mesh.md#lean-mode-trimming-the-footprint)
@@ -218,7 +222,8 @@ the links below.
 | [deploy-operations](deploy-operations.md) | Ops runbook: preflight, secrets rotation, backups, teardown |
 | [developer-guide](developer-guide.md) | Five ways to create a pipeline, plugin cut-and-paste patterns |
 | [developer-portal](developer-portal.md) | Catalog ownership, golden-path templates, scorecards |
-| [dora-metrics](dora-metrics.md) | Deploy freq, lead time, MTTR, change-fail rate |
+| [dora-metrics](dora-metrics.md) | Deploy freq, lead time, MTTR, change-fail rate, build health |
+| [incidents-webhook](incidents-webhook.md) | Incident webhook → automated post-deploy CFR + real MTTR |
 | [environment-variables](environment-variables.md) | Every env var by subsystem |
 | [error-handling](error-handling.md) | Typed `AppError` convention |
 | [metadata-keys](metadata-keys.md) | All `aws:cdk:*` and step/pipeline metadata keys |

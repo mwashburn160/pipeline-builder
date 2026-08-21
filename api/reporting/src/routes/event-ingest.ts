@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { sendSuccess, sendBadRequest, sendError, ErrorCode, hasScope } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
-import { runWithTenantContext, reportingService } from '@pipeline-builder/pipeline-data';
+import { runWithTenantContext, reportingService, type IngestMetric } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
 
@@ -36,11 +36,17 @@ const baseIngestFields = {
   completedAt: z.string().datetime({ offset: true }).optional(),
   durationMs: z.number().int().min(0).optional(),
   // DORA deploy-attribution (optional; the events Lambda promotes them from the
-  // source-action revision + the pipeline's Environment tag). `environment`
-  // marks an execution as a real deployment vs a generic run.
+  // source-action revision + the `pb.deploys` tag). `environment` is set only on
+  // deploy-stage events — its presence is what marks a real deployment (there is
+  // no `isDeploy` field; it's derived server-side).
   commitSha: z.string().max(255).optional(),
   commitRef: z.string().max(255).optional(),
   environment: z.string().max(255).optional(),
+  // DORA measured lead time (Phase 4): oldest unshipped commit time (ISO 8601)
+  // + how many commits shipped in this change (≥1). Both resolved in-account by
+  // the forwarder; absent when the source type/token can't be resolved.
+  commitTimestamp: z.string().datetime({ offset: true }).optional(),
+  commitCount: z.number().int().min(1).optional(),
   detail: z.record(z.string(), z.unknown())
     .refine(d => JSON.stringify(d).length < 8192, 'detail exceeds 8KB serialized size')
     .optional(),
@@ -86,10 +92,33 @@ export function createEventIngestRoutes(): Router {
       return sendBadRequest(res, `Maximum ${CoreConstants.MAX_EVENTS_PER_BATCH} events per batch`, ErrorCode.VALIDATION_ERROR);
     }
 
+    // Phase 3b: fan each registered terminal deploy/stage outcome into Prometheus
+    // counters (exposed on this service's /metrics, scraped by in-cluster
+    // Prometheus). The org_id is resolved from the registry inside ingestEvents,
+    // so the counter is emitted via this hook rather than from the route (which
+    // never sees the trusted org). `pipeline_deploy_result_total` is a subset —
+    // only stage events that carry a deploy environment.
+    const onMetric = (m: IngestMetric): void => {
+      incCounter('pipeline_stage_result_total', {
+        pipeline_id: m.pipelineId,
+        stage: m.stage,
+        environment: m.environment ?? '',
+        org_id: m.orgId,
+        result: m.result,
+      });
+      if (m.environment) {
+        incCounter('pipeline_deploy_result_total', {
+          environment: m.environment,
+          org_id: m.orgId,
+          result: m.result,
+        });
+      }
+    };
+
     // see ReportingService.ingestEvents for the cross-tenant rationale
     const { inserted, skipped, unregisteredPipelineIds } = await runWithTenantContext(
       { isSuperAdmin: true },
-      () => reportingService.ingestEvents(events),
+      () => reportingService.ingestEvents(events, onMetric),
     );
 
     if (skipped > 0) {

@@ -324,6 +324,7 @@ export function assembleBuilderProps(
     stages = state.stages.map((stage) => ({
       stageName: stage.stageName,
       ...(stage.alias && { alias: stage.alias }),
+      ...(stage.environment.trim() && { environment: stage.environment.trim() }),
       steps: stage.steps.map((step) => {
         const stepNetwork = assembleNetworkConfig(step.networkType, step.network);
         const stepMeta = assembleMetadata(step.metadata);

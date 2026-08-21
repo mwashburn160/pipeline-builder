@@ -67,11 +67,21 @@ export function AddonGrid({
     }
     return best ? `Completes the ${best.name} — save ${formatCents(best.save)}/${billingInterval === 'annual' ? 'yr' : 'mo'}` : null;
   };
-  // Deep-link target: the first bundle that grants the highlighted feature
-  // (e.g. an "Unlock Advanced Reporting" CTA lands on ?highlight=advanced_reporting).
-  const highlightedId = highlightFeature
-    ? bundles.find((b) => b.features?.includes(highlightFeature))?.id ?? null
-    : null;
+  // Deep-link target for `?highlight=<key>`: match a bundle by the feature it
+  // grants (e.g. `advanced_reporting`), OR directly by bundle id / name — so a
+  // capacity pack with no feature flag (e.g. `dora_history_pack`, the retention
+  // pack) is still reachable from a CTA. Case-insensitive on id/name.
+  const highlightedId = (() => {
+    if (!highlightFeature) return null;
+    const key = highlightFeature.toLowerCase();
+    const match = bundles.find(
+      (b) =>
+        b.features?.includes(highlightFeature) ||
+        b.id.toLowerCase() === key ||
+        b.name.toLowerCase() === key,
+    );
+    return match?.id ?? null;
+  })();
   const highlightRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (highlightedId && highlightRef.current) {

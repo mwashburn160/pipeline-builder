@@ -38,7 +38,7 @@ import { dashboard, dashboardPanel } from './schema/dashboard.js';
 import { messageAttachment } from './schema/message-attachment.js';
 import { message } from './schema/message.js';
 import { pipelineTemplate } from './schema/pipeline-template.js';
-import { pipeline, pipelineRegistry, pipelineEvent } from './schema/pipeline.js';
+import { pipeline, pipelineRegistry, pipelineEvent, deploymentOutcome, ingestHealth, incident, doraSettings } from './schema/pipeline.js';
 import { plugin } from './schema/plugin.js';
 
 /**
@@ -52,6 +52,13 @@ export const schema = {
   messageAttachment,
   pipelineRegistry,
   pipelineEvent,
+  // DORA post-deploy outcome markers + per-org ingestion health
+  deploymentOutcome,
+  ingestHealth,
+  // Production incidents (webhook-ingested) → automated post-deploy CFR + MTTR
+  incident,
+  // Per-org DORA overrides (incident correlation window)
+  doraSettings,
   // Observability dashboards (user-editable replacement for code-defined dashboards)
   dashboard,
   dashboardPanel,

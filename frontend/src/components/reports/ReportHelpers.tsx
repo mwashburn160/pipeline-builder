@@ -5,7 +5,6 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Checkbox } from '@/components/ui/Checkbox';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { FEATURE_METADATA } from '@/lib/feature-flags';
 import { downloadCsv } from '@/lib/csv-export';
@@ -51,9 +50,20 @@ export function fmtSeconds(seconds: number | null | undefined): string {
   return h > 0 ? `${d}d ${h}h` : `${d}d`;
 }
 
+/**
+ * Format an ISO date as "Jul 27" — but include the year ("Jul 27, 2025") when it
+ * falls in a different calendar year than today, so long/older reporting windows
+ * aren't ambiguous. Null → "—".
+ */
 export function fmtDate(iso: string | null): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const opts: Intl.DateTimeFormatOptions =
+    d.getFullYear() === new Date().getFullYear()
+      ? { month: 'short', day: 'numeric' }
+      : { month: 'short', day: 'numeric', year: 'numeric' };
+  return d.toLocaleDateString(undefined, opts);
 }
 
 // ─── Shared Components ──────────────────────────────────
@@ -181,6 +191,9 @@ export function DoraCard({ label, value, sub, level = null, tooltip }: DoraCardP
 export function DoraTrendSparkline({ points }: { points: DoraTrendPoint[] }) {
   if (points.length === 0) return null;
   const max = Math.max(1, ...points.map((p) => p.deployments));
+  // Per-bucket change-failure rate, derived from failed/total (the backend trend
+  // now carries counts only, not a precomputed pct).
+  const cfrPct = (p: DoraTrendPoint) => (p.total > 0 ? Math.round((p.failed / p.total) * 100) : 0);
   // Summary conveyed to assistive tech so the chart isn't an opaque "image":
   // total deploys + the deploy-weighted average change-failure rate over the
   // window, plus how many buckets sat in the elevated (>=30% CFR) band.
@@ -188,7 +201,7 @@ export function DoraTrendSparkline({ points }: { points: DoraTrendPoint[] }) {
   const totalFailed = points.reduce((s, p) => s + p.failed, 0);
   const totalConsidered = points.reduce((s, p) => s + p.total, 0);
   const avgCfr = totalConsidered > 0 ? Math.round((totalFailed / totalConsidered) * 100) : 0;
-  const hotCount = points.filter((p) => p.changeFailurePct >= CFR_ELEVATED_PCT).length;
+  const hotCount = points.filter((p) => cfrPct(p) >= CFR_ELEVATED_PCT).length;
   const summary =
     `Deployment trend over ${points.length} period${points.length === 1 ? '' : 's'}: ` +
     `${totalDeploys} total deployment${totalDeploys === 1 ? '' : 's'}, ` +
@@ -200,12 +213,12 @@ export function DoraTrendSparkline({ points }: { points: DoraTrendPoint[] }) {
       <div className="flex items-end gap-1 h-16" role="img" aria-label={summary}>
         {points.map((p) => {
           const h = Math.max((p.deployments / max) * 100, p.deployments > 0 ? SPARKLINE_MIN_BAR_PCT : SPARKLINE_ZERO_BAR_PCT);
-          const hot = p.changeFailurePct >= CFR_ELEVATED_PCT;
+          const hot = cfrPct(p) >= CFR_ELEVATED_PCT;
           return (
             <div
               key={p.period}
               className="flex-1 flex flex-col justify-end"
-              title={`${fmtDate(p.period)}: ${p.deployments} deploy${p.deployments === 1 ? '' : 's'} · ${p.changeFailurePct}% CFR`}
+              title={`${fmtDate(p.period)}: ${p.deployments} deploy${p.deployments === 1 ? '' : 's'} · ${cfrPct(p)}% CFR`}
             >
               <div
                 className={`w-full rounded-sm ${hot ? 'bg-red-500/70 dark:bg-red-400/70' : 'bg-blue-500/70 dark:bg-blue-400/70'}`}
@@ -228,8 +241,8 @@ export function DoraTrendSparkline({ points }: { points: DoraTrendPoint[] }) {
             <tr key={p.period}>
               <td>{fmtDate(p.period)}</td>
               <td>{p.deployments}</td>
-              <td>{p.changeFailurePct}%</td>
-              <td>{p.changeFailurePct >= CFR_ELEVATED_PCT ? 'Elevated change-failure' : 'Normal'}</td>
+              <td>{cfrPct(p)}%</td>
+              <td>{cfrPct(p) >= CFR_ELEVATED_PCT ? 'Elevated change-failure' : 'Normal'}</td>
             </tr>
           ))}
         </tbody>
@@ -248,9 +261,9 @@ export function DoraTrendSparkline({ points }: { points: DoraTrendPoint[] }) {
 /** Sample values for the blurred DORA teaser shown to non-entitled users. */
 const SAMPLE_DORA_CARDS: { label: string; value: string; sub: string; level: DoraLevel }[] = [
   { label: 'Deployment Frequency', value: '8', sub: 'deploys · 0.27/day', level: 'high' },
+  { label: 'Lead time', value: '5m 30s', sub: 'median commit→deploy · 8 measured', level: 'elite' },
   { label: 'Change Failure Rate', value: '25%', sub: '2/8 deploys failed', level: 'medium' },
   { label: 'Time to Restore (MTTR)', value: '1h 2m', sub: '2/2 incidents restored', level: 'high' },
-  { label: 'Lead time ≈', value: '5m 30s', sub: 'Approx · median run time', level: 'elite' },
 ];
 
 /**
@@ -284,7 +297,7 @@ export function DoraUpsell() {
           </span>
           <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100">{meta.label} &mdash; DORA metrics</h4>
           <p className="max-w-md text-sm text-gray-600 dark:text-gray-400">
-            Track deployment frequency, change failure rate, mean time to restore (MTTR) and a lead-time proxy,
+            Track deployment frequency, change failure rate, mean time to restore (MTTR) and measured lead time,
             each rated against elite/high/medium/low performance bands. {meta.description}.
           </p>
           <Link href="/dashboard/billing?highlight=advanced_reporting" className="btn btn-primary btn-sm mt-1">
@@ -312,13 +325,11 @@ interface DoraScopeControlsProps {
   environmentOptions: string[];
   pipelineId: string;
   environment: string;
-  deploysOnly: boolean;
   onPipelineChange: (v: string) => void;
   /** Live value change (keystroke) — updates the controlled input only. */
   onEnvironmentChange: (v: string) => void;
   /** Commit the environment value to the fetch (fires on blur / Enter). */
   onEnvironmentCommit: (v: string) => void;
-  onDeploysOnlyChange: (v: boolean) => void;
 }
 
 /**
@@ -329,14 +340,15 @@ interface DoraScopeControlsProps {
 export type DoraScope = Omit<DoraScopeControlsProps, 'pipelines' | 'environmentOptions'>;
 
 /**
- * Scoping controls for the DORA section: pipeline picker, a deployments-only
- * toggle, and an optional environment filter. Wires the backend
- * `pipelineId`/`deploysOnly`/`environment` params. Styled to match the page's
- * other filter controls (DateRangePicker / interval select).
+ * Scoping controls for the DORA section: pipeline picker + an optional
+ * environment filter. Wires the backend `pipelineId`/`environment` params. DORA
+ * is always deploy-basis (there is no run-basis fallback), so there is no
+ * deployments-only toggle. Styled to match the page's other filter controls
+ * (DateRangePicker / interval select).
  */
 export function DoraScopeControls({
-  pipelines, environmentOptions, pipelineId, environment, deploysOnly,
-  onPipelineChange, onEnvironmentChange, onEnvironmentCommit, onDeploysOnlyChange,
+  pipelines, environmentOptions, pipelineId, environment,
+  onPipelineChange, onEnvironmentChange, onEnvironmentCommit,
 }: DoraScopeControlsProps) {
   // Observed environments first (most relevant), then any defaults not already
   // present — deduped case-insensitively so "prod"/"Prod" don't both appear.
@@ -386,13 +398,6 @@ export function DoraScopeControls({
           <option key={e} value={e} />
         ))}
       </datalist>
-      <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400" title="Count only steps marked as deployments (excludes non-deploy pipeline runs)">
-        <Checkbox
-          checked={deploysOnly}
-          onChange={(e) => onDeploysOnlyChange(e.target.checked)}
-        />
-        Deployments only
-      </label>
     </div>
   );
 }
@@ -456,14 +461,31 @@ interface DateRangePickerProps {
   to: string;
   onFromChange: (v: string) => void;
   onToChange: (v: string) => void;
+  /** Effective cap on the selectable span in days (default 730 — the report
+   *  hard-cap). A span past this warns the user (the backend also floors it). */
+  maxRangeDays?: number;
 }
 
-export function DateRangePicker({ from, to, onFromChange, onToChange }: DateRangePickerProps) {
+/** Local `YYYY-MM-DD` for today, used as the `max` on both date inputs. */
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function DateRangePicker({ from, to, onFromChange, onToChange, maxRangeDays = 730 }: DateRangePickerProps) {
+  const today = todayIso();
+  // Warn (don't block) when the chosen span exceeds the effective cap — the
+  // backend floors the window at the retention horizon, so a wider pick silently
+  // returns less than asked; the truncation banner on the report explains it.
+  const spanDays =
+    from && to ? Math.round((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000) : 0;
+  const overCap = spanDays > maxRangeDays;
   return (
     <div className="flex items-center gap-2">
       <input
         type="date"
         value={from}
+        max={to || today}
         onChange={(e) => onFromChange(e.target.value)}
         className="filter-select text-xs tabular-nums"
         title="From date"
@@ -472,10 +494,17 @@ export function DateRangePicker({ from, to, onFromChange, onToChange }: DateRang
       <input
         type="date"
         value={to}
+        min={from || undefined}
+        max={today}
         onChange={(e) => onToChange(e.target.value)}
         className="filter-select text-xs tabular-nums"
         title="To date"
       />
+      {overCap && (
+        <span className="text-xs text-amber-600 dark:text-amber-400" title={`Reports cap at ${maxRangeDays} days`}>
+          &gt;{maxRangeDays}d — will be capped
+        </span>
+      )}
     </div>
   );
 }

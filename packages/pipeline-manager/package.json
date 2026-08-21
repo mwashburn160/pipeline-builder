@@ -44,6 +44,7 @@
     "@aws-sdk/client-cloudformation": "3.1101.0",
     "@aws-sdk/client-lambda": "3.1101.0",
     "@aws-sdk/client-secrets-manager": "3.1101.0",
+    "@aws-sdk/client-sqs": "3.1101.0",
     "@aws-sdk/client-sts": "3.1101.0",
     "@pipeline-builder/ai-core": "workspace:*",
     "@pipeline-builder/api-core": "workspace:*",
@@ -114,7 +115,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "3.4.183",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },

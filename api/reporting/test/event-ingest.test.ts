@@ -23,7 +23,10 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   createApp: () => ({ app: { use: jest.fn(), get: jest.fn() }, sseManager: {} }),
   runServer: jest.fn(),
   attachRequestContext: () => jest.fn(),
+  incCounter: (...a: unknown[]) => mockIncCounter(...a),
 }));
+
+const mockIncCounter = jest.fn<(...a: unknown[]) => void>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: mockSendSuccess,
@@ -173,5 +176,33 @@ describe('POST /reports/events', () => {
     await getHandler()({ body: { events: [validEvent] }, user: { sub: 'svc', scope: 'reporting:ingest' } }, res());
     expect(mockSendError).not.toHaveBeenCalled();
     expect(mockIngestEvents).toHaveBeenCalled();
+  });
+
+  // Phase 3b: the route passes an onMetric hook into ingestEvents that fans each
+  // registered terminal deploy/stage outcome into Prometheus counters.
+  it('fans a terminal deploy-stage metric into pipeline_stage_result_total + pipeline_deploy_result_total', async () => {
+    mockIngestEvents.mockImplementationOnce(async (_events: unknown, onMetric: (m: unknown) => void) => {
+      onMetric({ pipelineId: 'p-1', orgId: 'acme', stage: 'Deploy-prod', environment: 'production', result: 'succeeded' });
+      return { inserted: 1, skipped: 0, unregisteredPipelineIds: [] };
+    });
+
+    await getHandler()({ body: { events: [validEvent] }, user: { sub: 'svc', scope: 'reporting:ingest' } }, res());
+
+    expect(mockIncCounter).toHaveBeenCalledWith('pipeline_stage_result_total',
+      { pipeline_id: 'p-1', stage: 'Deploy-prod', environment: 'production', org_id: 'acme', result: 'succeeded' });
+    expect(mockIncCounter).toHaveBeenCalledWith('pipeline_deploy_result_total',
+      { environment: 'production', org_id: 'acme', result: 'succeeded' });
+  });
+
+  it('does NOT emit the deploy counter for a non-deploy stage metric (no environment)', async () => {
+    mockIngestEvents.mockImplementationOnce(async (_events: unknown, onMetric: (m: unknown) => void) => {
+      onMetric({ pipelineId: 'p-1', orgId: 'acme', stage: 'Build', environment: null, result: 'failed' });
+      return { inserted: 1, skipped: 0, unregisteredPipelineIds: [] };
+    });
+
+    await getHandler()({ body: { events: [validEvent] }, user: { sub: 'svc', scope: 'reporting:ingest' } }, res());
+
+    expect(mockIncCounter).toHaveBeenCalledWith('pipeline_stage_result_total', expect.objectContaining({ result: 'failed', environment: '' }));
+    expect(mockIncCounter).not.toHaveBeenCalledWith('pipeline_deploy_result_total', expect.anything());
   });
 });
