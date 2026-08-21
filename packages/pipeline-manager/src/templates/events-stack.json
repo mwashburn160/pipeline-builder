@@ -17,6 +17,9 @@
       "Description": "When true, the ingestion Lambda resolves commit timestamps in-account for DORA lead time (extra SCM/secret cost). Enable only for orgs with the advanced_reporting add-on."
     }
   },
+  "Conditions": {
+    "DoraOn": { "Fn::Equals": [{ "Ref": "DoraEnabled" }, "true"] }
+  },
   "Resources": {
     "EventQueue": {
       "Type": "AWS::SQS::Queue",
@@ -109,7 +112,7 @@
                 "Resource": [
                   { "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*/platform-*" },
                   { "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*/reporting-ingest-*" },
-                  { "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*/github-token-*" }
+                  { "Fn::If": ["DoraOn", { "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*/github-token-*" }, { "Ref": "AWS::NoValue" }] }
                 ]
               },
               {
@@ -118,9 +121,11 @@
                 "Resource": { "Fn::Sub": "arn:aws:codepipeline:*:${AWS::AccountId}:*" }
               },
               {
-                "Effect": "Allow",
-                "Action": "codecommit:GetCommit",
-                "Resource": { "Fn::Sub": "arn:aws:codecommit:*:${AWS::AccountId}:*" }
+                "Fn::If": ["DoraOn", {
+                  "Effect": "Allow",
+                  "Action": "codecommit:GetCommit",
+                  "Resource": { "Fn::Sub": "arn:aws:codecommit:*:${AWS::AccountId}:*" }
+                }, { "Ref": "AWS::NoValue" }]
               }
             ]
           }
