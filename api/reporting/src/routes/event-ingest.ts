@@ -24,7 +24,7 @@ const PLUGIN_BUILD_STATUSES = ['completed', 'failed', 'started', 'timeout', 'can
 
 const baseIngestFields = {
   // Stable pipeline id the events Lambda read from the pipeline's
-  // PIPELINE_EVENT_ID tag (= the platform pipelineId). The registry join key.
+  // `pb.pipeline-id` tag (= the platform pipelineId). The registry join key.
   pipelineId: z.string().min(1),
   eventType: z.enum(['PIPELINE', 'STAGE', 'ACTION', 'BUILD']),
   executionId: z.string().optional(),
