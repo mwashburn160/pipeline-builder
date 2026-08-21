@@ -46,7 +46,7 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly. Every p
 
 | Bundle | Grant | Monthly | Annual | Available to | Stackable |
 |--------|-------|--------:|-------:|--------------|:---------:|
-| **Seat Pack** | +5 member seats | $25 | $250 | all tiers | ✅ |
+| **Seat Pack** | +5 member seats | $25 | $250 | Team, Enterprise | ✅ |
 | **Pipeline Pack** | +10 pipelines | $15 | $150 | all tiers | ✅ |
 | **Plugin Pack** | +100 plugins | $15 | $150 | all tiers | ✅ |
 | **API Pack** | +1,000,000 API calls / period | $20 | $200 | all tiers | ✅ |
@@ -58,12 +58,15 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly. Every p
 | **SSO / IdP** | unlocks `sso` + up to 5 IdP configs | $40 | $400 | Pro | ❌ |
 | **Advanced Reporting (DORA)** | unlocks the `advanced_reporting` feature | $30 | $300 | Developer, Pro, Team | ❌ |
 | **Team Usage Analytics** | unlocks the `team_usage_analytics` feature (per-team usage breakdown across the org → team subtree) | $30 | $300 | Pro, Team | ❌ |
+| **Standard Compliance** | unlocks the `compliance_standard` feature — a curated **CI/CD best-practice** rule library (~20 rules) | $29.90 | $299 | Developer, Pro, Team | ❌ |
+| **Advanced Compliance** | unlocks the `compliance_advanced` feature — curated **SOC2 / PCI-DSS / CIS** framework libraries — **requires Standard Compliance** | $99.90 | $999 | Developer, Pro, Team | ❌ |
 
 Notes:
 - **API Pack** is available on every tier, since all tiers now have a finite API-call cap (Team 2M, Enterprise 10M) that can be topped up.
 - **Retention is a tier-aware, bundle-extendable entitlement.** Each tier carries a baseline reporting-retention window — paid tiers default to **30 days** for standard pipeline events and **180 days** for DORA source, while the **unlimited** tier is **unlimited retention** (`-1`, history is never swept). The two retention packs stack the same way every other pack does — effective retention = tier baseline + Σ(pack grant × quantity). Billing computes that effective window and **syncs it to the reporting service** (`dora_settings.event_retention_days` / `dora_retention_days`), a sync leg alongside quotas → quota service and seats/features → platform. Buy **Standard Retention Pack ×2** for +180 days of standard-event history.
 - The **DORA History Pack** also widens the per-org report-query window (which now tracks retention, capped at an absolute 730 days) — so a pack holder can actually query the extended range, not just retain the raw rows. It only does anything useful alongside **Advanced Reporting (DORA)**, which is included on Enterprise and an add-on on Developer/Pro/Team.
 - **Audit Log**, **SSO**, **Advanced Reporting**, and **Team Usage Analytics** are the "buy up a capability without changing tier" path. Each is standard from a given tier up (Audit Log and SSO from Team; Advanced Reporting and Team Usage Analytics from Enterprise), and the bundle lets a lower tier add it à la carte — so the add-on is offered only to the tiers that don't already include it (Audit Log/SSO → Pro; Advanced Reporting → Developer/Pro/Team; Team Usage Analytics → Pro/Team, since Developer has no teams to break down).
+- **Standard / Advanced Compliance** unlock curated compliance-content libraries (see [Compliance → Curated content add-ons](compliance.md#curated-content-add-ons-standard--advanced)). Both are purchasable on **Developer / Pro / Team** and **included on Enterprise / Unlimited** (nothing to buy there). **Advanced requires Standard** — the purchase route rejects adding Advanced alone (400), so buy Standard first and add Advanced, or buy the **Compliance Suite** combo below to get both at once. Cancelling Standard while Advanced is held **cascade-cancels** Advanced. These bundles gate only the curated libraries — **authoring your own org rules stays free and ungated** on every tier.
 
 ---
 
@@ -73,18 +76,19 @@ Some add-ons are cheaper bought together. When an account holds **every** member
 
 | Combo | Members | Buy separately | Together | You save |
 |-------|---------|---------------:|---------:|---------:|
-| **Analytics Suite** | Advanced Reporting (DORA) + Team Usage Analytics | $60 / mo · $600 / yr | **$40 / mo · $400 / yr** | **$20 / mo · $200 / yr** |
-| **Team Growth Bundle** | ≥ 1 Seat Pack + Team Usage Analytics | $55 / mo · $550 / yr | **$35 / mo · $350 / yr** | **$20 / mo · $200 / yr** |
+| **Analytics Suite** | Advanced Reporting (DORA) + Team Usage Analytics | $60 / mo · $600 / yr | **$42 / mo · $420 / yr** | **$18 / mo · $180 / yr** |
+| **Team Growth Bundle** | ≥ 1 Seat Pack + Team Usage Analytics | $55 / mo · $550 / yr | **$38.50 / mo · $385 / yr** | **$16.50 / mo · $165 / yr** |
+| **Compliance Suite** | Standard Compliance + Advanced Compliance | $129.80 / mo · $1,298 / yr | **$90.86 / mo · $908.60 / yr** | **$38.94 / mo · $389.40 / yr** |
 
 How it works:
 
 - The combo applies automatically the moment its members are present — there is nothing extra to buy or redeem.
 - **Minimum-quantity members.** A member can require a minimum quantity: Team Growth needs **≥ 1 Seat Pack** (= 5 seats at the default grant). It counts the purchased Seat Pack **add-on**, not the account's total tier seats, and the credit is **flat** — extra Seat Packs beyond the minimum don't increase it.
-- The saving is shown up front: the add-on **preview** and the add/remove responses include a negative combo line (e.g. `Team Growth Bundle discount −$20.00`), so `totalCents` already reflects the net.
+- The saving is shown up front: the add-on **preview** and the add/remove responses include a negative combo line (e.g. `Team Growth Bundle discount −$16.50`), so `totalCents` already reflects the net.
 - It is **realized** as a recurring usage credit re-granted each billing period, derived fresh from the current add-on composition — the invoice reconciler grants `Σ member price × minQty − combined price` (clamped ≥ 0) per period, idempotent per invoice. Existing qualifying accounts begin receiving the credit at their **next invoice** (retroactive by design).
-- **Overlap.** Team Usage Analytics belongs to both combos. You always receive the combination of combos giving the **largest total discount**, and no add-on is ever discounted twice — if two combos share a member, only the single best one applies (ties broken deterministically). So an account with DORA + Team Usage Analytics + a Seat Pack gets **one** $20 credit, not two.
-- Removing a member simply stops the next re-grant (the current period's credit is not clawed back) and emits a `combo_expired` billing event; the **preview** warns "Ends your Team Growth Bundle discount — −$20/mo" before you commit.
-- The billing dashboard nudges toward the pairing: when the other member is owned, an unsatisfied member's card shows a **"Completes the Team Growth Bundle — save $20/mo"** hint (the single best combo that card completes).
+- **Overlap.** Team Usage Analytics belongs to both combos. You always receive the combination of combos giving the **largest total discount**, and no add-on is ever discounted twice — if two combos share a member, only the single best one applies (ties broken deterministically). So an account with DORA + Team Usage Analytics + a Seat Pack gets **one** $18 credit (the larger Analytics Suite), not two.
+- Removing a member simply stops the next re-grant (the current period's credit is not clawed back) and emits a `combo_expired` billing event; the **preview** warns "Ends your Team Growth Bundle discount — −$16.50/mo" before you commit.
+- The billing dashboard nudges toward the pairing: when the other member is owned, an unsatisfied member's card shows a **"Completes the Team Growth Bundle — save $16.50/mo"** hint (the single best combo that card completes).
 
 Combos are only advertised when **every** member is purchasable on the account's tier — Developer, for example, can't buy Team Usage Analytics, so it isn't offered either combo.
 
@@ -129,7 +133,7 @@ Bundles are only offered when the operator enables them, and each bundle's econo
 | `BILLING_BUNDLE_<ID>_TIERS` | JSON array of tiers allowed to buy the bundle |
 | `BILLING_COMBO_<COMBO>_MONTHLY` / `_ANNUAL` | Override a combo's combined price (cents) — e.g. `BILLING_COMBO_ANALYTICS_SUITE_MONTHLY` |
 
-`<ID>` is the bundle id upper-cased: `SEAT_PACK`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `AUDIT_LOG`, `SSO`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`. `<COMBO>` is the combo id upper-cased: `ANALYTICS_SUITE`, `TEAM_GROWTH`. Under AWS Marketplace the retention packs meter as the `RetentionPack` / `DoraHistoryPack` dimensions.
+`<ID>` is the bundle id upper-cased: `SEAT_PACK`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `AUDIT_LOG`, `SSO`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`, `COMPLIANCE_STANDARD`, `COMPLIANCE_ADVANCED`. `<COMBO>` is the combo id upper-cased: `ANALYTICS_SUITE`, `TEAM_GROWTH`, `COMPLIANCE_SUITE`. Under AWS Marketplace the retention packs meter as the `RetentionPack` / `DoraHistoryPack` dimensions.
 
 > **AWS Marketplace:** when the billing provider is `aws-marketplace`, self-service bundle purchase is disabled — entitlements flow from Marketplace instead, and add-on charges are reported as **metered usage** (`BatchMeterUsage`). Combo credits (and other usage-credit discounts) realize on Marketplace by **withholding metered usage** when `BILLING_METERING_ENABLED` is on — see [Billing Discounts → AWS Marketplace](billing-discounts.md#aws-marketplace--private-offers-handled-in-aws-not-in-app). See [Environment Variables](environment-variables.md#billing) for the full billing configuration.
 

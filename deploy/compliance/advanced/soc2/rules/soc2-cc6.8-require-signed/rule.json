@@ -1,0 +1,15 @@
+{
+  "name": "soc2-cc6.8-require-signed",
+  "description": "CC6.8 Unauthorized software: only signed plugins",
+  "target": "plugin",
+  "severity": "error",
+  "field": "signed",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC6.8"
+  ]
+}

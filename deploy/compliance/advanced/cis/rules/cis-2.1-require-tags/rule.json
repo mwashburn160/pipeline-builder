@@ -1,0 +1,15 @@
+{
+  "name": "cis-2.1-require-tags",
+  "description": "CIS 2.1 Classification tags for inventory",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "$count(tags)",
+  "operator": "countGt",
+  "value": 0,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-2.1"
+  ]
+}

@@ -25,7 +25,14 @@ export type FeatureFlag =
   | 'advanced_reporting'
   // Per-team usage breakdown across the org→team subtree. INCLUDED in Enterprise;
   // sold as an add-on bundle to Pro/Team (see billing-config `team_usage_analytics`).
-  | 'team_usage_analytics';
+  | 'team_usage_analytics'
+  // Curated compliance rule libraries sold as add-on bundles. `compliance_standard`
+  // = CI/CD best-practice set; `compliance_advanced` = SOC2/PCI/CIS framework
+  // libraries (requires Standard). These gate SUBSCRIBING to the set's system-org
+  // published rules; INCLUDED in Enterprise/Unlimited (via ALL_FEATURE_FLAGS),
+  // sold to Developer/Pro/Team (see billing-config `compliance_standard/advanced`).
+  | 'compliance_standard'
+  | 'compliance_advanced';
 
 /** All valid feature flags (order determines display order). */
 export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
@@ -37,6 +44,8 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   'sso',
   'advanced_reporting',
   'team_usage_analytics',
+  'compliance_standard',
+  'compliance_advanced',
 ];
 
 /** Check whether a string is a valid FeatureFlag. */
@@ -96,6 +105,14 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
     label: 'Team Usage Analytics',
     description: 'Per-team usage breakdown across the org → team subtree',
   },
+  compliance_standard: {
+    label: 'Standard Compliance',
+    description: 'Curated CI/CD best-practice compliance rule library',
+  },
+  compliance_advanced: {
+    label: 'Advanced Compliance',
+    description: 'Curated framework compliance libraries (SOC2 / PCI-DSS / CIS)',
+  },
 };
 
 // Resolution logic
@@ -133,7 +150,8 @@ export function resolveUserFeatures(
   // Start with tier defaults
   const features = new Set<FeatureFlag>(TIER_FEATURES[tier] ?? []);
 
-  // Account-level entitlements (purchased feature bundles — audit_log/sso).
+  // Account-level entitlements (purchased feature bundles — e.g. audit_log, sso,
+  // advanced_reporting, team_usage_analytics, compliance_standard/advanced).
   // Applied before per-user overrides so an explicit user override still wins.
   if (accountFeatures) {
     for (const key of accountFeatures) {

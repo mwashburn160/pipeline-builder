@@ -1,0 +1,15 @@
+{
+  "name": "pci-3.4-no-inline-secrets",
+  "description": "Req 3.4 Render stored account data unreadable — no inline secrets",
+  "target": "plugin",
+  "severity": "critical",
+  "field": "$count(secrets)",
+  "operator": "countLt",
+  "value": 1,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:3.4"
+  ]
+}

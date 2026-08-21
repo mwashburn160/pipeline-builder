@@ -1,0 +1,15 @@
+{
+  "name": "cis-5.11-limit-cpu",
+  "description": "CIS 5.11 Set CPU priority appropriately",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "cpuLimited",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-5.11"
+  ]
+}

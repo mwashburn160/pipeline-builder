@@ -1,0 +1,15 @@
+{
+  "name": "soc2-cc8.1-max-timeout",
+  "description": "CC8.1 Change management: bounded pipeline runtime",
+  "target": "pipeline",
+  "severity": "error",
+  "field": "timeoutInMinutes",
+  "operator": "lte",
+  "value": 180,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC8.1"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "cis-4.5-content-trust",
+  "description": "CIS 4.5 Enable Content Trust for signing",
+  "target": "plugin",
+  "severity": "error",
+  "field": "signed",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-4.5"
+  ]
+}

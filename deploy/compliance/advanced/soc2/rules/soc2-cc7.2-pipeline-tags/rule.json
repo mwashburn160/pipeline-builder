@@ -1,0 +1,15 @@
+{
+  "name": "soc2-cc7.2-pipeline-tags",
+  "description": "CC7.2 Monitoring: pipelines carry classification tags",
+  "target": "pipeline",
+  "severity": "warning",
+  "field": "$count(tags)",
+  "operator": "countGt",
+  "value": 0,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC7.2"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "soc2-cc6.1-block-root-user",
+  "description": "CC6.1 Logical access: plugin containers must not run as root",
+  "target": "plugin",
+  "severity": "error",
+  "field": "runAsRoot",
+  "operator": "neq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC6.1"
+  ]
+}

@@ -85,7 +85,11 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       developer: [],
       pro: ['priority_support', 'ai_generation', 'bulk_operations'],
       team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso'],
-      enterprise: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso', 'advanced_reporting', 'team_usage_analytics'],
+      // Enterprise / Unlimited auto-include every flag (incl. both compliance
+      // content sets) — the compliance sync leg derives ['standard','advanced']
+      // from these for an already-entitled account.
+      enterprise: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso', 'advanced_reporting', 'team_usage_analytics', 'compliance_standard', 'compliance_advanced'],
+      unlimited: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso', 'advanced_reporting', 'team_usage_analytics', 'compliance_standard', 'compliance_advanced'],
     },
     // `requirePermission(...perms)` / `requirePermissionOrService(...perms)` are
     // factories that RETURN middleware, so each stub is a function producing the

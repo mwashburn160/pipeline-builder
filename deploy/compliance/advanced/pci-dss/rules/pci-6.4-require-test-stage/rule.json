@@ -1,0 +1,15 @@
+{
+  "name": "pci-6.4-require-test-stage",
+  "description": "Req 6.4 Separate test from production",
+  "target": "pipeline",
+  "severity": "error",
+  "field": "hasTestStage",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:6.4"
+  ]
+}

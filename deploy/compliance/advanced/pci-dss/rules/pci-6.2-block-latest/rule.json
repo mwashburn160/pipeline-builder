@@ -1,0 +1,15 @@
+{
+  "name": "pci-6.2-block-latest",
+  "description": "Req 6.2 Keep components patched — no mutable \"latest\"",
+  "target": "plugin",
+  "severity": "error",
+  "field": "version",
+  "operator": "neq",
+  "value": "latest",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:6.2"
+  ]
+}

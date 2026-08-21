@@ -1,0 +1,14 @@
+{
+  "name": "soc2-cc6.7-require-region",
+  "description": "CC6.7 Data handling: pipeline pinned to an approved region",
+  "target": "pipeline",
+  "severity": "warning",
+  "field": "region",
+  "operator": "notEmpty",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC6.7"
+  ]
+}

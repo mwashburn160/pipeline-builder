@@ -336,8 +336,8 @@ A user can belong to several organizations and teams at once and acts within one
 | Priority support | - | yes | yes | yes |
 | Plugins | 25 | 50 | 100 | 250 |
 | Pipelines | 5 | 10 | 200 | 200 |
-| Seats (members) | 1 | 1 | 10 | 25 |
-| Price / month | $0 | $49 | $149 | $399 |
+| Seats (members) | 1 | 3 | 10 | 25 |
+| Price / month | $0 | $49 | $149 | $599 |
 
 **Unlimited** — a fifth tier with every quota uncapped and all features on. It is the **default tier when billing is disabled** (`BILLING_ENABLED=false`), so a self-hosted install with no billing runs everything uncapped out of the box. When billing is **enabled** it is never shown, selectable, or purchasable — it is filtered out of the plans list and tier pickers.
 

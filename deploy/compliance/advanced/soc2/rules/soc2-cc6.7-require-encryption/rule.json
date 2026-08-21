@@ -1,0 +1,15 @@
+{
+  "name": "soc2-cc6.7-require-encryption",
+  "description": "CC6.7 Data in transit: pipeline artifacts encrypted",
+  "target": "pipeline",
+  "severity": "error",
+  "field": "encryptionEnabled",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC6.7"
+  ]
+}

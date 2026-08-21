@@ -93,6 +93,10 @@ const CATALOG = [
   { id: 'free_feature', name: 'Free Feature', description: 'no charge', isActive: true, stackable: false, availableForTiers: ['pro'], prices: { monthly: 0, annual: 0 }, grants: {}, features: ['free_feature'] },
   // D7: a stackable retention pack capped at maxQuantity (30 + 7×90 = 660 ≤ 730).
   { id: 'retention_pack', name: 'Retention Pack', description: '+90d', isActive: true, stackable: true, availableForTiers: ['pro', 'team', 'enterprise'], prices: { monthly: 1500, annual: 15000 }, grants: { eventRetentionDays: 90 }, features: [], maxQuantity: 7 },
+  // Compliance content add-ons: Advanced `requires` Standard (drives the requires
+  // gate + cascade-cancel tests). Pure-feature, non-stackable.
+  { id: 'compliance_standard', name: 'Standard Compliance', description: 'CI/CD best-practice rules', isActive: true, stackable: false, availableForTiers: ['pro', 'team'], prices: { monthly: 2990, annual: 29900 }, grants: {}, features: ['compliance_standard'] },
+  { id: 'compliance_advanced', name: 'Advanced Compliance', description: 'Framework libraries', isActive: true, stackable: false, availableForTiers: ['pro', 'team'], prices: { monthly: 9990, annual: 99900 }, grants: {}, features: ['compliance_advanced'], requires: ['compliance_standard'] },
 ];
 
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
@@ -252,7 +256,7 @@ describe('GET /bundles', () => {
     await handler(mockReq(), mockRes());
     const [, , payload] = mockSendSuccess.mock.calls[0];
     // pro tier → seat_pack + free_feature (audit_log is team+, legacy_pack is inactive)
-    expect(payload.bundles.map((b: any) => b.id)).toEqual(['seat_pack', 'free_feature', 'retention_pack']);
+    expect(payload.bundles.map((b: any) => b.id)).toEqual(['seat_pack', 'free_feature', 'retention_pack', 'compliance_standard', 'compliance_advanced']);
     expect(payload.selfService).toBe(true);
   });
 
@@ -261,7 +265,7 @@ describe('GET /bundles', () => {
     mockBundleSelfServiceAllowed.mockReturnValue(false);
     await handler(mockReq(), mockRes());
     const [, , payload] = mockSendSuccess.mock.calls[0];
-    expect(payload.bundles.map((b: any) => b.id)).toEqual(['seat_pack', 'free_feature', 'retention_pack']);
+    expect(payload.bundles.map((b: any) => b.id)).toEqual(['seat_pack', 'free_feature', 'retention_pack', 'compliance_standard', 'compliance_advanced']);
     expect(payload.selfService).toBe(false);
   });
 });
@@ -468,6 +472,27 @@ describe('POST /subscriptions/:id/addons (add)', () => {
     await handler(mockReq({ body: { bundleId: 'seat_pack', quantity: 1 } }), mockRes());
     expect(mockAuditRecord).not.toHaveBeenCalled();
   });
+
+  it('400s an add whose `requires` prerequisite is unmet (Advanced without Standard) and does not sync', async () => {
+    withActiveSub(); // no compliance bundles held
+    await handler(mockReq({ body: { bundleId: 'compliance_advanced', quantity: 1 } }), mockRes());
+    expect(mockSendError).toHaveBeenCalledWith(
+      expect.anything(), 400,
+      expect.stringContaining('Advanced Compliance requires the Standard Compliance add-on'),
+      'VALIDATION_ERROR',
+    );
+    expect(mockSyncEntitlements).not.toHaveBeenCalled();
+  });
+
+  it('allows Advanced when Standard is already held (prerequisite satisfied by the effective set)', async () => {
+    const sub = withActiveSub(makeSubscription({ addons: [{ bundleId: 'compliance_standard', quantity: 1 }] }));
+    await handler(mockReq({ body: { bundleId: 'compliance_advanced', quantity: 1 } }), mockRes());
+    expect(sub.addons).toEqual([{ bundleId: 'compliance_standard', quantity: 1 }, { bundleId: 'compliance_advanced', quantity: 1 }]);
+    expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', [
+      { bundleId: 'compliance_standard', quantity: 1 },
+      { bundleId: 'compliance_advanced', quantity: 1 },
+    ]);
+  });
 });
 
 describe('DELETE /subscriptions/:id/addons/:bundleId (remove)', () => {
@@ -518,6 +543,47 @@ describe('DELETE /subscriptions/:id/addons/:bundleId (remove)', () => {
     expect(mockAuditRecord).not.toHaveBeenCalled();
   });
 
+  it('cascade-removes a dependent when its `requires` prerequisite is removed (Standard → Advanced)', async () => {
+    const sub = withActiveSub(makeSubscription({ addons: [{ bundleId: 'compliance_standard', quantity: 1 }, { bundleId: 'compliance_advanced', quantity: 1 }] }));
+    await handler(mockReq({ params: { bundleId: 'compliance_standard' } }), mockRes());
+    // Both the removed prerequisite AND its dependent are gone.
+    expect(sub.addons).toEqual([]);
+    // The over-cap gate + entitlement sync run against the FINAL (cascaded) set.
+    expect(mockCheckEntitlementOvercap).toHaveBeenCalledWith('org-1', 'pro', [], '');
+    expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', []);
+  });
+
+  it('audits the cascaded dependent removal, tagged cascadedFrom the removed bundle', async () => {
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'compliance_standard', quantity: 1 }, { bundleId: 'compliance_advanced', quantity: 1 }] }));
+    await handler(mockReq({ params: { bundleId: 'compliance_standard' } }), mockRes());
+    // Primary removal audit...
+    expect(mockAuditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'billing.addon.remove', targetId: 'compliance_standard' }),
+      'billing',
+    );
+    // ...and the cascaded dependent, tagged cascadedFrom.
+    expect(mockAuditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'billing.addon.remove',
+        targetId: 'compliance_advanced',
+        details: expect.objectContaining({ bundleId: 'compliance_advanced', cascadedFrom: 'compliance_standard', subscriptionId: 'sub-1' }),
+      }),
+      'billing',
+    );
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      'org-1', 'subscription_updated',
+      { reason: 'addon_removed', bundleId: 'compliance_advanced', cascadedFrom: 'compliance_standard' },
+      'sub-1', 'user-1',
+    );
+  });
+
+  it('does NOT cascade when the removed bundle is not a prerequisite of any held bundle', async () => {
+    const sub = withActiveSub(makeSubscription({ addons: [{ bundleId: 'compliance_standard', quantity: 1 }, { bundleId: 'seat_pack', quantity: 1 }] }));
+    // Removing seat_pack (not a prerequisite) leaves compliance_standard intact.
+    await handler(mockReq({ params: { bundleId: 'seat_pack' } }), mockRes());
+    expect(sub.addons).toEqual([{ bundleId: 'compliance_standard', quantity: 1 }]);
+  });
+
   it('returns lostCombos + emits combo_expired when the removal ends a combo', async () => {
     withActiveSub(makeSubscription({ addons: [{ bundleId: 'seat_pack', quantity: 1 }, { bundleId: 'free_feature', quantity: 1 }] }));
     // current addons → a combo is active; after removal → none. (First call = current.)
@@ -552,5 +618,28 @@ describe('POST /subscriptions/:id/addons/preview', () => {
     withActiveSub();
     await handler(mockReq({ body: { bundleId: 'retention_pack', quantity: 8 } }), mockRes());
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.stringContaining('capped at 7'), 'VALIDATION_ERROR');
+  });
+
+  it('400s a preview of Advanced Compliance when its `requires` prerequisite is unmet', async () => {
+    withActiveSub(); // no compliance bundles held
+    await handler(mockReq({ body: { bundleId: 'compliance_advanced', quantity: 1 } }), mockRes());
+    expect(mockSendError).toHaveBeenCalledWith(
+      expect.anything(), 400,
+      expect.stringContaining('Advanced Compliance requires the Standard Compliance add-on'),
+      'VALIDATION_ERROR',
+    );
+  });
+
+  it('surfaces the cascade: previewing removal of Standard shows Advanced would be cascaded out (DELETE parity)', async () => {
+    const sub = withActiveSub(makeSubscription({ addons: [{ bundleId: 'compliance_standard', quantity: 1 }, { bundleId: 'compliance_advanced', quantity: 1 }] }));
+    // Removing Standard (quantity 0) leaves Advanced with an unsatisfied `requires`,
+    // so the preview must cascade Advanced out too — a dry run, nothing persisted.
+    await handler(mockReq({ body: { bundleId: 'compliance_standard', quantity: 0 } }), mockRes());
+    expect(sub.save).not.toHaveBeenCalled();
+    const [, , payload] = mockSendSuccess.mock.calls[0];
+    // Both compliance bundles gone from the previewed effective set...
+    expect(payload.addons).toEqual([]);
+    // ...and the cascaded dependent is surfaced explicitly.
+    expect(payload.cascaded).toEqual(['compliance_advanced']);
   });
 });

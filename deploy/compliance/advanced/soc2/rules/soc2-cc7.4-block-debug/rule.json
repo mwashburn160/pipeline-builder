@@ -1,0 +1,15 @@
+{
+  "name": "soc2-cc7.4-block-debug",
+  "description": "CC7.4 Incident response: debug mode off in shipped plugins",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "debugEnabled",
+  "operator": "neq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC7.4"
+  ]
+}

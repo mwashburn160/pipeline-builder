@@ -1,0 +1,15 @@
+{
+  "name": "pci-8.2-require-signed",
+  "description": "Req 8.2 Strong authentication — signed artifacts",
+  "target": "plugin",
+  "severity": "error",
+  "field": "signed",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:8.2"
+  ]
+}

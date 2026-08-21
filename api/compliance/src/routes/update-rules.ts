@@ -5,7 +5,7 @@ import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, v
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ComplianceRuleUpdateSchema } from './rule-schemas.js';
-import { complianceRuleService, InvalidRuleRegexError } from '../services/compliance-rule-service.js';
+import { complianceRuleService, InvalidRuleRegexError, InvalidSetTagError } from '../services/compliance-rule-service.js';
 import { emitComplianceAudit } from '../services/remote-audit-client.js';
 
 export function createUpdateRuleRoutes(): Router {
@@ -49,7 +49,7 @@ export function createUpdateRuleRoutes(): Router {
 
       return sendSuccess(res, 200, { rule: updated });
     } catch (err) {
-      if (err instanceof InvalidRuleRegexError) {
+      if (err instanceof InvalidRuleRegexError || err instanceof InvalidSetTagError) {
         return sendBadRequest(res, err.message, ErrorCode.VALIDATION_ERROR);
       }
       throw err;

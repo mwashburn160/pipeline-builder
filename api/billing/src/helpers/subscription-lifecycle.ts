@@ -5,8 +5,8 @@ import { createLogger, createSafeClient, createScheduler, type Scheduler, errorM
 import { incCounter } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
-import { billingServiceAuth, createBillingEvent, effectiveEntitlements, getBundleCatalog, syncEntitlements, syncProviderAddons } from './billing-helpers.js';
-import { computeEntitlementDrift, readActualEntitlements } from './entitlement-drift.js';
+import { billingServiceAuth, createBillingEvent, deriveComplianceSets, effectiveEntitlements, effectiveFeatureSet, getBundleCatalog, pushComplianceSetsToCompliance, syncEntitlements, syncProviderAddons } from './billing-helpers.js';
+import { complianceSetsDiffer, computeEntitlementDrift, readActualEntitlements, readEnforcedComplianceSets } from './entitlement-drift.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
@@ -489,9 +489,11 @@ async function reconcileFailedProviderAddonSyncs(): Promise<void> {
  * unreachable store is NOT "drift". The pass never throws.
  *
  * COVERAGE: the 9 tracked quota limits + seats + the account FEATURE entitlements
- * (`featureEntitlements`, read from platform's feature-entitlements endpoint) are
- * all compared; a drift on any surfaces on its own metric dimension
- * (`quota` | `seats` | `features`).
+ * (`featureEntitlements`, read from platform's feature-entitlements endpoint) +
+ * the COMPLIANCE content sets (standard/advanced, read from the compliance
+ * service) are all compared; a drift on any surfaces on its own metric dimension
+ * (`quota` | `seats` | `features` | `compliance`). The compliance leg also drives
+ * the Enterprise/Unlimited cutover, whose entitled sets have no billing event.
  */
 async function reconcileEntitlementDrift(): Promise<void> {
   // Gate: only subs never reconciled, or last reconciled before the interval
@@ -539,6 +541,24 @@ async function reconcileEntitlementDrift(): Promise<void> {
         continue;
       }
 
+      // COMPLIANCE dimension: the compliance content sets (standard/advanced) are
+      // NOT a quota/platform limit — they live in the compliance service. Read the
+      // org's currently-ACTIVE sets and diff against what the effective feature set
+      // (tier baseline ∪ bundles) entitles it to. This ALSO catches the
+      // Enterprise/Unlimited CUTOVER: those tiers carry both compliance flags via
+      // the tier baseline with NO billing event to drive the initial push, so the
+      // periodic reconciler is what activates their entitled sets. Fail-soft: a
+      // null read ⇒ skip WITHOUT stamping (compliance unreachable is not drift).
+      const effectiveFeatures = effectiveFeatureSet(plan.tier, addons);
+      const expectedSets = deriveComplianceSets(effectiveFeatures);
+      const actualSets = await readEnforcedComplianceSets(subscription.orgId, serviceAuth);
+      if (actualSets === null) {
+        logger.warn('Entitlement drift check skipped — compliance-set read failed', {
+          orgId: subscription.orgId, subscriptionId,
+        });
+        continue;
+      }
+
       const drift = computeEntitlementDrift(expected, expectedFeatures, actual);
 
       if (drift.status === 'drift') {
@@ -551,6 +571,18 @@ async function reconcileEntitlementDrift(): Promise<void> {
         for (const dimension of drift.dimensions) {
           incCounter('billing_entitlement_drift_total', { dimension });
         }
+      }
+
+      // Compliance-set drift is re-driven SURGICALLY: re-push ONLY the entitled
+      // sets (not the full four-target sync) so a compliance-only divergence — or a
+      // never-pushed Enterprise cutover — is corrected without touching quota/seats.
+      if (complianceSetsDiffer(expectedSets, actualSets)) {
+        logger.warn('Compliance-set drift detected — re-syncing entitled sets', {
+          orgId: subscription.orgId, subscriptionId, tier: plan.tier,
+          expected: expectedSets, actual: actualSets,
+        });
+        await pushComplianceSetsToCompliance(subscription.orgId, effectiveFeatures, serviceAuth, subscriptionId);
+        incCounter('billing_entitlement_drift_total', { dimension: 'compliance' });
       }
 
       // Stamp on a completed check (match OR post-resync) so this sub drops out

@@ -1,0 +1,14 @@
+{
+  "name": "soc2-cc7.2-require-environment",
+  "description": "CC7.2 Monitoring: pipeline declares a target environment",
+  "target": "pipeline",
+  "severity": "warning",
+  "field": "environment",
+  "operator": "exists",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC7.2"
+  ]
+}

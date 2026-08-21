@@ -1,0 +1,15 @@
+{
+  "name": "cis-5.28-limit-pids",
+  "description": "CIS 5.28 Use PIDs cgroup limit",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "pidsLimited",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-5.28"
+  ]
+}

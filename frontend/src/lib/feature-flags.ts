@@ -30,6 +30,15 @@
  *                           apply. They are kept in the catalog because it must
  *                           mirror api-core exactly (removing one drifts the mirror
  *                           and breaks the override editor / add-on labels).
+ *   - `compliance_standard` / `compliance_advanced` → curated compliance rule
+ *                           libraries sold as add-on bundles. They gate the
+ *                           curated-content-set section on the compliance page
+ *                           (ComplianceContentSets): a set the org doesn't hold
+ *                           shows an upsell deep-linking to the billing add-on.
+ *                           Subscribing to a set's system-org published rules is
+ *                           server-enforced on these flags; the page itself stays
+ *                           open (compliance:read). `compliance_advanced` requires
+ *                           `compliance_standard` (enforced billing-side).
  */
 
 export type FeatureFlag =
@@ -43,7 +52,20 @@ export type FeatureFlag =
   // DORA / advanced delivery analytics (paid tiers only).
   | 'advanced_reporting'
   // Per-team usage breakdown (Enterprise-included; add-on for Pro/Team).
-  | 'team_usage_analytics';
+  | 'team_usage_analytics'
+  // Curated compliance rule libraries sold as add-on bundles. `compliance_standard`
+  // = CI/CD best-practice set; `compliance_advanced` = SOC2/PCI/CIS framework
+  // libraries (requires Standard). INCLUDED in Enterprise/Unlimited.
+  | 'compliance_standard'
+  | 'compliance_advanced';
+
+/**
+ * The feature flags that gate curated compliance content sets. Derived from the
+ * catalog (not re-typed) so it can't drift from `FeatureFlag`. Shared by the
+ * compliance content-set section (ComplianceContentSets) and the catalog
+ * set-tag gating (SubscriptionManager).
+ */
+export type ComplianceSetFlag = Extract<FeatureFlag, 'compliance_standard' | 'compliance_advanced'>;
 
 export const ALL_FEATURE_FLAGS: ReadonlyArray<FeatureFlag> = [
   'priority_support',
@@ -54,6 +76,8 @@ export const ALL_FEATURE_FLAGS: ReadonlyArray<FeatureFlag> = [
   'sso',
   'advanced_reporting',
   'team_usage_analytics',
+  'compliance_standard',
+  'compliance_advanced',
 ];
 
 export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description: string }> = {
@@ -65,4 +89,6 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
   sso: { label: 'SSO / IdP', description: 'Single sign-on and external identity-provider configurations' },
   advanced_reporting: { label: 'Advanced Reporting', description: 'DORA / advanced delivery analytics' },
   team_usage_analytics: { label: 'Team Usage Analytics', description: 'Per-team usage breakdown across the org → team subtree' },
+  compliance_standard: { label: 'Standard Compliance', description: 'Curated CI/CD best-practice compliance rule library' },
+  compliance_advanced: { label: 'Advanced Compliance', description: 'Curated framework compliance libraries (SOC2 / PCI-DSS / CIS)' },
 };

@@ -309,6 +309,14 @@ export interface BundleConfig {
   readonly maxQuantity?: number;
   /** Base tiers this bundle is offered to. */
   readonly availableForTiers: readonly QuotaTier[];
+  /**
+   * Prerequisite bundle ids that must be held (or purchased in the same action)
+   * before this bundle can be added. Enforced by the addon purchase/preview route
+   * (reject with 400 when unmet); a combo that includes the prerequisite satisfies
+   * it. Used by `compliance_advanced` (`requires: ['compliance_standard']`).
+   * Absent ⇒ no prerequisite.
+   */
+  readonly requires?: readonly string[];
   readonly isActive: boolean;
   readonly sortOrder: number;
 }

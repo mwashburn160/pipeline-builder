@@ -1,0 +1,15 @@
+{
+  "name": "soc2-cc8.1-limit-stages",
+  "description": "CC8.1 Change management: pipeline complexity bound",
+  "target": "pipeline",
+  "severity": "warning",
+  "field": "$count(stages)",
+  "operator": "countLt",
+  "value": 50,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC8.1"
+  ]
+}

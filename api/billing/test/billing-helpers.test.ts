@@ -64,6 +64,10 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
         bundles: [
           { id: 'retention_pack', name: 'Retention Pack', description: '', grants: { eventRetentionDays: 90 }, prices: { monthly: 1500, annual: 15000 }, stackable: true, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], isActive: true, sortOrder: 10 },
           { id: 'dora_history_pack', name: 'DORA History Pack', description: '', grants: { doraRetentionDays: 365 }, prices: { monthly: 3000, annual: 30000 }, stackable: true, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], isActive: true, sortOrder: 11 },
+          // Compliance content bundles — pure-feature (no quota grants); the
+          // compliance sync leg derives its `sets` from these granted flags.
+          { id: 'compliance_standard', name: 'Standard Compliance', description: '', grants: {}, features: ['compliance_standard'], prices: { monthly: 2990, annual: 29900 }, stackable: false, availableForTiers: ['developer', 'pro', 'team'], isActive: true, sortOrder: 12 },
+          { id: 'compliance_advanced', name: 'Advanced Compliance', description: '', grants: {}, features: ['compliance_advanced'], prices: { monthly: 9990, annual: 99900 }, stackable: false, availableForTiers: ['developer', 'pro', 'team'], requires: ['compliance_standard'], isActive: true, sortOrder: 13 },
         ],
       };
     }
@@ -95,6 +99,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
     quotaService: { host: 'quota', port: 3000 },
     platformService: { host: 'platform', port: 3000 },
     reportingService: { host: 'reporting', port: 3000 },
+    complianceService: { host: 'compliance', port: 3000 },
   },
 }));
 
@@ -448,6 +453,111 @@ describe('syncEntitlements reporting retention leg', () => {
     mockClientPut.mockImplementation((...args: unknown[]) => {
       const path = args[0] as string;
       if (path.includes('/api/reports/retention-sync/')) return Promise.reject(new Error('reporting down'));
+      return Promise.resolve({ statusCode: 200 });
+    });
+
+    const ok = await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
+
+    expect(ok).toBe(false);
+    expect(mockSubscriptionUpdateOne).toHaveBeenCalledWith(
+      { _id: 'sub-1' },
+      { $set: { 'metadata.entitlementSyncPending': true } },
+    );
+  });
+});
+
+// syncEntitlements — compliance content-set leg (compliance add-ons)
+
+describe('syncEntitlements compliance content-set leg', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  /** The PUT call for the compliance entitlements leg (or undefined). */
+  const complianceCall = () =>
+    mockClientPut.mock.calls.find(
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('/api/compliance/entitlements/'),
+    );
+
+  it('pushes an EMPTY set for a plain tier with no compliance entitlement', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 200 });
+
+    const ok = await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
+
+    expect(ok).toBe(true);
+    const call = complianceCall();
+    expect(call).toBeDefined();
+    // Path carries the root orgId (mirrors reporting's retention-sync shape).
+    expect(call![0]).toBe('/api/compliance/entitlements/org-1');
+    // Body carries the derived sets PLUS the entitlement-change `occurredAt`
+    // (handshake #1) — an ISO string the compliance watermark orders pushes by.
+    expect(call![1]).toMatchObject({ sets: [] });
+    const body = call![1] as { occurredAt?: unknown };
+    expect(typeof body.occurredAt).toBe('string');
+    expect(new Date(body.occurredAt as string).toISOString()).toBe(body.occurredAt);
+    // Same auth mechanism as the retention/seat legs: threaded bearer + x-org-id.
+    expect(call![2]).toMatchObject({
+      headers: { 'Authorization': 'Bearer tok', 'x-org-id': 'org-1' },
+    });
+  });
+
+  it('derives ["standard"] from the compliance_standard bundle', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 200 });
+
+    await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1', [
+      { bundleId: 'compliance_standard', quantity: 1 },
+    ]);
+
+    expect(complianceCall()![1]).toMatchObject({ sets: ['standard'] });
+  });
+
+  it('derives ["standard","advanced"] when both compliance bundles are held', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 200 });
+
+    await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1', [
+      { bundleId: 'compliance_standard', quantity: 1 },
+      { bundleId: 'compliance_advanced', quantity: 1 },
+    ]);
+
+    expect(complianceCall()![1]).toMatchObject({ sets: ['standard', 'advanced'] });
+  });
+
+  it('derives BOTH sets from an Enterprise tier (auto-included features, no bundles)', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 200 });
+
+    await syncEntitlements('org-1', 'enterprise' as any, 'Bearer tok', 'sub-1');
+
+    expect(complianceCall()![1]).toMatchObject({ sets: ['standard', 'advanced'] });
+  });
+
+  it('derives BOTH sets from the Unlimited tier (billing-disabled default)', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 200 });
+
+    await syncEntitlements('org-1', 'unlimited' as any, 'Bearer tok', 'sub-1');
+
+    expect(complianceCall()![1]).toMatchObject({ sets: ['standard', 'advanced'] });
+  });
+
+  it('sets the entitlementSyncPending marker when ONLY the compliance leg fails', async () => {
+    // Quota + platform + reporting succeed; the compliance leg 5xx's. The shared
+    // pending marker must still be set so the reconciler re-drives the sync.
+    mockClientPut.mockImplementation((...args: unknown[]) => {
+      const path = args[0] as string;
+      if (path.includes('/api/compliance/entitlements/')) return Promise.resolve({ statusCode: 500 });
+      return Promise.resolve({ statusCode: 200 });
+    });
+
+    const ok = await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
+
+    expect(ok).toBe(false);
+    expect(mockSubscriptionUpdateOne).toHaveBeenCalledWith(
+      { _id: 'sub-1' },
+      { $set: { 'metadata.entitlementSyncPending': true } },
+    );
+  });
+
+  it('never fails the sync when the compliance leg THROWS (fail-open, marker set)', async () => {
+    mockClientPut.mockImplementation((...args: unknown[]) => {
+      const path = args[0] as string;
+      if (path.includes('/api/compliance/entitlements/')) return Promise.reject(new Error('compliance down'));
       return Promise.resolve({ statusCode: 200 });
     });
 

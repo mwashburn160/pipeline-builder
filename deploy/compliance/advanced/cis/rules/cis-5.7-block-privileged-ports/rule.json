@@ -1,0 +1,15 @@
+{
+  "name": "cis-5.7-block-privileged-ports",
+  "description": "CIS 5.7 Do not map privileged ports",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "usesPrivilegedPorts",
+  "operator": "neq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-5.7"
+  ]
+}

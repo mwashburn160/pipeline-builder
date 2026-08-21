@@ -225,6 +225,43 @@ A condition can also depend on another rule via `dependsOnRule` — the rule is 
 
 ---
 
+## Curated content add-ons (Standard / Advanced)
+
+The published catalog includes two **curated content libraries** sold as billing add-ons. They monetize the *content* — expert-maintained rule sets — while rule **authoring stays free** for every tier (see below). Both are ordinary `published` rules under the system org, tagged by set (`set:standard` / `set:advanced`), gated by a feature flag.
+
+| Add-on | Feature flag | Content | Price | Availability |
+|--------|--------------|---------|-------|--------------|
+| **Standard Compliance** | `compliance_standard` | One **"CI/CD Best Practices"** policy — a curated library (~20 rules) of CI/CD guardrails (require review stage, no hardcoded secrets, artifact retention, resource limits, pinned deps, …) | $29.90 / mo · $299 / yr | Buy on **Developer / Pro / Team** · **included** in Enterprise / Unlimited |
+| **Advanced Compliance** | `compliance_advanced` | Three **framework** policies — **SOC2, PCI-DSS, CIS** (~75 rules total), each rule tagged with its framework control id — **requires Standard** | $99.90 / mo · $999 / yr | Buy on **Developer / Pro / Team** (requires Standard, or buy the Suite) · **included** in Enterprise / Unlimited |
+| **Compliance Suite** (combo) | both | Standard + Advanced together, **30% off** | $90.86 / mo · $908.60 / yr | Buy on **Developer / Pro / Team** (grants both at once) |
+
+**Advanced requires Standard.** Buy Standard, then add Advanced — or buy the **Compliance Suite** combo to get both in one action (also the way to obtain Advanced without a separate Standard line). Cancelling Standard while Advanced is held cascade-cancels Advanced. Enterprise / Unlimited include both, so nothing is purchased there. See [Billing Add-on Bundles](billing-bundles.md#the-bundles) for pricing and the combo mechanics.
+
+### Content is a shared reference, not a per-org copy
+
+Buying an add-on adds **zero content** to your org — it grants **access** to the shared library:
+
+- The curated rules exist **once** as system-org `published` rows, seeded at boot.
+- An org holds a lightweight **`compliance_rule_subscriptions` (orgId, ruleId) pointer** — subscribing references the shared rule, it does not copy it. One library of 30 rules serves 10,000 orgs as 30 rules plus pointer rows, not 300,000 copies.
+- Subscriptions start **inactive**; only **active** subscriptions are enforced. Enforcement (`/compliance/validate`) is **entitlement-unaware** — it reads the org's active subscriptions (plus the org's own authored rules) and never checks the feature flag directly. The lifecycle below keeps the active set in sync with entitlement.
+- Fixing a shared rule once updates it for every subscriber (single source of truth). An org that wants to customize a shared rule **forks** it into an editable org-scoped copy — that's authoring, and it stays free.
+
+### Entitlement lifecycle (auto-subscribe / deactivate)
+
+Entitlement changes drive the subscriptions automatically via a billing → compliance sync leg (`PUT /api/compliance/entitlements/:orgId`, service-principal-authenticated, body `{ sets }`). It runs on every entitlement change — purchase, cancel, renewal — and via the billing drift reconciler:
+
+- **On gain** (purchase or tier inclusion) — the org is **auto-subscribed and activated** to every rule tagged for each entitled set, so the curated library begins enforcing immediately. No manual subscribe step is needed.
+- **On loss** (cancel or downgrade) — the set's subscriptions are **deactivated**, so those rules stop enforcing. Pointers are **retained**, so re-buying reactivates them (no re-subscribe).
+- **Cancellation timing:** cancel means "don't renew" — **access persists until the paid period ends**, then billing lapses the entitlement and the sync deactivates the set. No mid-cycle revocation, proration, or refund. Enterprise / Unlimited can't cancel an included set; losing it requires a tier downgrade (same deactivation, at the downgrade's effective time).
+
+The reconcile is idempotent — re-pushing the same entitled sets is a no-op — and every activate / deactivate is written to the audit log.
+
+### Authoring stays free
+
+These add-ons gate only the **curated libraries**. Authoring your own rules (`compliance:write`) is **ungated on every tier** — any org can create, edit, fork, and enforce its own `org`-scoped rules regardless of which add-ons it holds. The paid content is the maintained curation and framework coverage, not the ability to write rules.
+
+---
+
 ## Enforcement
 
 | Trigger | Behavior |

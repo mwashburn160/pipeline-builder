@@ -85,4 +85,11 @@ describe('frontend ↔ api-core feature-flag catalog parity', () => {
     expect(frontendIds).toContain('sso');
     expect(apiCoreIds).toContain('sso');
   });
+
+  it('includes the compliance content-set add-on flags on both sides', () => {
+    for (const flag of ['compliance_standard', 'compliance_advanced']) {
+      expect(frontendIds).toContain(flag);
+      expect(apiCoreIds).toContain(flag);
+    }
+  });
 });

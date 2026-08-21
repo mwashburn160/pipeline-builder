@@ -1,0 +1,15 @@
+{
+  "name": "soc2-cc7.3-require-stages",
+  "description": "CC7.3 Evaluate events: pipeline has defined stages",
+  "target": "pipeline",
+  "severity": "error",
+  "field": "$count(stages)",
+  "operator": "countGt",
+  "value": 0,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC7.3"
+  ]
+}

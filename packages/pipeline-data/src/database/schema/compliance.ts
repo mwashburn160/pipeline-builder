@@ -156,6 +156,17 @@ export const complianceRule = pgTable('compliance_rules', {
   scopeIdx: index('compliance_rule_scope_idx').on(table.scope),
   effectiveFromIdx: index('compliance_rule_effective_from_idx').on(table.effectiveFrom),
   nameOrgUnique: uniqueIndex('compliance_rule_name_org_unique').on(table.orgId, table.name),
+  // Partial GIN index backing the curated-set lookup
+  // `findPublishedRuleIdsBySetTag` (subscription-service): a containment query
+  // `tags @> '["set:<x>"]'::jsonb` restricted to published rows. `jsonb_path_ops`
+  // is the smaller/faster opclass — it only supports `@>` (exactly this query),
+  // not key-existence, which we never run against `tags`. Scoped to
+  // `scope = 'published'` so only the curated catalog (a handful of rows) is
+  // indexed, not every org's private rule tags.
+  // MIGRATION REQUIRED: run `pnpm drizzle-kit generate` after pulling.
+  publishedTagsGinIdx: index('compliance_rule_published_tags_gin_idx')
+    .using('gin', table.tags.op('jsonb_path_ops'))
+    .where(sql`scope = 'published'`),
 }));
 
 /**
@@ -434,7 +445,20 @@ export const complianceReportSchedule = pgTable('compliance_report_schedules', {
   orgIdx: index('compliance_report_schedule_org_idx').on(table.orgId),
 }));
 
+// Per-org watermark for the billing→compliance entitlement sync
+// (`PUT /entitlements/:orgId`). Billing stamps each push with `occurredAt`; the
+// route skips any push not strictly newer than the stored value so out-of-order
+// deliveries (concurrent purchase + drift reconciler, retries) can't revert a
+// newer entitlement state. Sync metadata only — no tenant content, so no RLS.
+// MIGRATION REQUIRED: run `pnpm drizzle-kit generate` after pulling.
+export const complianceEntitlementWatermark = pgTable('compliance_entitlement_watermark', {
+  orgId: text('org_id').primaryKey(),
+  lastOccurredAt: timestamp('last_occurred_at', { withTimezone: true }).notNull(),
+});
+
 // Compliance types
+export type ComplianceEntitlementWatermark = typeof complianceEntitlementWatermark.$inferSelect;
+
 export type CompliancePolicy = typeof compliancePolicy.$inferSelect;
 export type CompliancePolicyInsert = typeof compliancePolicy.$inferInsert;
 

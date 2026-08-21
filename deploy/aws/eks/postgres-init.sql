@@ -973,6 +973,20 @@ CREATE INDEX IF NOT EXISTS compliance_rule_effective_from_idx
 CREATE UNIQUE INDEX IF NOT EXISTS compliance_rule_name_org_unique
     ON compliance_rules(org_id, name);
 
+-- Partial GIN index backing the set-tag containment query (findPublishedRuleIdsBySetTag)
+-- for the compliance content add-ons (set:standard / set:advanced). Curated published
+-- catalog only, so the index stays small.
+CREATE INDEX IF NOT EXISTS compliance_rule_published_tags_gin_idx
+    ON compliance_rules USING gin (tags jsonb_path_ops) WHERE scope = 'published';
+
+-- Per-org watermark for the billing->compliance entitlement sync (PUT /entitlements/:orgId).
+-- Billing stamps each push with occurredAt; the route skips any push not strictly newer,
+-- so out-of-order deliveries can't revert a newer entitlement state. Sync metadata only.
+CREATE TABLE IF NOT EXISTS compliance_entitlement_watermark (
+    org_id TEXT PRIMARY KEY,
+    last_occurred_at TIMESTAMPTZ NOT NULL
+);
+
 -- ============================================================================
 -- COMPLIANCE RULE HISTORY TABLE
 -- ============================================================================

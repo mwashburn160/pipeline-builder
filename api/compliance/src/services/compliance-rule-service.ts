@@ -8,7 +8,7 @@ import { SQL, eq, and, desc, inArray, isNull } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { paginatedList } from './paginated-list.js';
-import { subscriptionService } from './subscription-service.js';
+import { subscriptionService, KNOWN_CONTENT_SETS } from './subscription-service.js';
 import { validateRuleRegexPatterns } from '../engine/rule-operators.js';
 import { notifyPublishedRuleChange } from '../helpers/rule-change-notifier.js';
 
@@ -23,6 +23,40 @@ export class InvalidRuleRegexError extends Error {
     super(message);
     this.name = 'InvalidRuleRegexError';
   }
+}
+
+/**
+ * Thrown by `create`/`update` when a PUBLISHED rule carries a `set:<x>` tag whose
+ * `<x>` isn't a KNOWN content set. A typo'd `set:advance` would otherwise be
+ * invisible to the entitlement gate (which only recognizes `set:standard` /
+ * `set:advanced`) — enforced for free to everyone AND absent from any paid
+ * library. Routes catch this and surface a 400.
+ */
+export class InvalidSetTagError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidSetTagError';
+  }
+}
+
+const KNOWN_CONTENT_SET_NAMES: ReadonlySet<string> = new Set(KNOWN_CONTENT_SETS);
+
+/**
+ * Reject a published rule whose tags include a `set:<x>` marker with an unknown
+ * `<x>`. Returns an error message (for `InvalidSetTagError`) or null when valid.
+ * Only meaningful for `scope='published'` rules — org-scoped rules are neither
+ * entitlement-gated nor catalog-listed, so a stray `set:` tag on them is inert.
+ */
+function invalidSetTagMessage(tags: unknown): string | null {
+  if (!Array.isArray(tags)) return null;
+  for (const tag of tags as string[]) {
+    if (typeof tag !== 'string' || !tag.startsWith('set:')) continue;
+    const name = tag.slice('set:'.length);
+    if (!KNOWN_CONTENT_SET_NAMES.has(name)) {
+      return `Unknown content set tag "${tag}" — must be one of: ${KNOWN_CONTENT_SETS.map((s) => `set:${s}`).join(', ')}`;
+    }
+  }
+  return null;
 }
 
 const logger = createLogger('compliance-rule-service');
@@ -451,6 +485,12 @@ export class ComplianceRuleService extends CrudService<
     // can't narrow the union, so cast to the validator's input shape.
     const regexError = validateRuleRegexPatterns(data as Parameters<typeof validateRuleRegexPatterns>[0]);
     if (regexError) throw new InvalidRuleRegexError(regexError);
+    // Guard published rules against typo'd/unknown `set:<x>` tags (see
+    // InvalidSetTagError). Org-scoped rules are unaffected.
+    if ((data as { scope?: RuleScope }).scope === 'published') {
+      const setTagError = invalidSetTagMessage((data as { tags?: unknown }).tags);
+      if (setTagError) throw new InvalidSetTagError(setTagError);
+    }
     const created = await super.create(data, userId);
     this.recordHistory(created.id, created.orgId, 'created', null, userId).catch(warnNonFatal);
     this.invalidateRulesCache(created.orgId).catch(warnNonFatal);
@@ -470,6 +510,13 @@ export class ComplianceRuleService extends CrudService<
     const regexError = validateRuleRegexPatterns(data as Parameters<typeof validateRuleRegexPatterns>[0]);
     if (regexError) throw new InvalidRuleRegexError(regexError);
     const existing = await this.findById(id, orgId);
+    // A published rule whose tags are being updated must not introduce an
+    // unknown `set:<x>` tag. The update body carries no `scope`, so the target
+    // rule's stored scope decides whether the guard applies.
+    if (existing?.scope === 'published' && (data as { tags?: unknown }).tags !== undefined) {
+      const setTagError = invalidSetTagMessage((data as { tags?: unknown }).tags);
+      if (setTagError) throw new InvalidSetTagError(setTagError);
+    }
     const updated = await super.update(id, data, orgId, userId);
     if (updated && existing) {
       this.recordHistory(id, orgId, 'updated', existing, userId).catch(warnNonFatal);

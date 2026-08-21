@@ -52,7 +52,7 @@ describe('QUOTA_TIERS', () => {
         alertRules: 500,
         alertDestinations: 50,
         idpConfigs: 5,
-        seats: 1,
+        seats: 3,
         eventRetentionDays: 30,
         doraRetentionDays: 180,
       },
@@ -175,7 +175,7 @@ describe('getTierLimits', () => {
       alertRules: 500,
       alertDestinations: 50,
       idpConfigs: 5,
-      seats: 1,
+      seats: 3,
       eventRetentionDays: 30,
       doraRetentionDays: 180,
     });

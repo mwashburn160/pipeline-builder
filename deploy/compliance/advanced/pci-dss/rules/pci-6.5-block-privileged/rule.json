@@ -1,0 +1,15 @@
+{
+  "name": "pci-6.5-block-privileged",
+  "description": "Req 6.5 Secure coding: no privileged build containers",
+  "target": "plugin",
+  "severity": "critical",
+  "field": "privileged",
+  "operator": "neq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:6.5"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "cis-4.6-require-healthcheck",
+  "description": "CIS 4.6 Add HEALTHCHECK instruction",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "healthcheck",
+  "operator": "exists",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-4.6"
+  ]
+}

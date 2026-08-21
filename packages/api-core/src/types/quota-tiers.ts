@@ -93,7 +93,8 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     eventRetentionDays: 30,
     doraRetentionDays: 180,
   },
-  // Pro = one power user, individual pricing.
+  // Pro = solo power user + a small team (3 seats), individual pricing. Seats-past-3
+  // require the Team tier (Seat Pack is Team+ only), keeping Team the collaboration tier.
   pro: {
     plugins: 50,
     pipelines: 10,
@@ -104,7 +105,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     alertRules: 500,
     alertDestinations: 50,
     idpConfigs: 5,
-    seats: 1,
+    seats: 3,
     eventRetentionDays: 30,
     doraRetentionDays: 180,
   },

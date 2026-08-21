@@ -1,0 +1,15 @@
+{
+  "name": "soc2-cc7.2-description-length",
+  "description": "CC7.2 Monitoring: meaningful plugin description",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "$length(description)",
+  "operator": "lengthGt",
+  "value": 10,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC7.2"
+  ]
+}

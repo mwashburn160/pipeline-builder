@@ -1,0 +1,15 @@
+{
+  "name": "cis-4.4-require-scan",
+  "description": "CIS 4.4 Scan and rebuild images to include security patches",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "scanned",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-4.4"
+  ]
+}

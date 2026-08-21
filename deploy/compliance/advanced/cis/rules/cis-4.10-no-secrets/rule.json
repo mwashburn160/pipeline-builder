@@ -1,0 +1,15 @@
+{
+  "name": "cis-4.10-no-secrets",
+  "description": "CIS 4.10 Do not store secrets in images",
+  "target": "plugin",
+  "severity": "critical",
+  "field": "$count(secrets)",
+  "operator": "countLt",
+  "value": 1,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-4.10"
+  ]
+}

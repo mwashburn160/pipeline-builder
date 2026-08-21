@@ -1,0 +1,15 @@
+{
+  "name": "pci-2.2-pin-base-image",
+  "description": "Req 2.2 Secure configuration: pin base images",
+  "target": "plugin",
+  "severity": "error",
+  "field": "image",
+  "operator": "notContains",
+  "value": ":latest",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:2.2"
+  ]
+}

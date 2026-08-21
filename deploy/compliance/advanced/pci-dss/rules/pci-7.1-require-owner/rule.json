@@ -1,0 +1,14 @@
+{
+  "name": "pci-7.1-require-owner",
+  "description": "Req 7.1 Restrict access by need-to-know — accountable owner",
+  "target": "pipeline",
+  "severity": "warning",
+  "field": "owner",
+  "operator": "notEmpty",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:7.1"
+  ]
+}

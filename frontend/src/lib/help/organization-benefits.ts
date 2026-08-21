@@ -103,6 +103,11 @@ export const organizationBenefitsTopic: HelpTopic = {
           content:
             'Violations at error or critical severity block creation (HTTP 403). Violations at warning severity log and allow.',
         },
+        {
+          type: 'text',
+          content:
+            'Authoring your own org rules is free on every tier. For teams that want maintained coverage, two optional curated content add-ons layer on top: Standard Compliance (a ~20-rule CI/CD best-practice library) and Advanced Compliance (SOC2 / PCI-DSS / CIS framework libraries, ~75 rules, requires Standard), or the discounted Compliance Suite combo — buyable on Developer / Pro / Team and included on Enterprise / Unlimited. See the Compliance help topic for details.',
+        },
       ],
     },
     {

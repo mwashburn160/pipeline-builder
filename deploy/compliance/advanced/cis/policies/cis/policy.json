@@ -1,0 +1,38 @@
+{
+  "name": "CIS Benchmark (Starter)",
+  "description": "STARTER CIS Docker/pipeline benchmark mappings (Advanced content add-on). Requires compliance-expert review before production use.",
+  "version": "1.0.0",
+  "isTemplate": true,
+  "isActive": true,
+  "tags": [
+    "set:advanced",
+    "framework:cis"
+  ],
+  "rules": [
+    "cis-4.1-block-root",
+    "cis-4.2-pin-base-image",
+    "cis-4.3-min-packages",
+    "cis-4.4-require-scan",
+    "cis-4.5-content-trust",
+    "cis-4.6-require-healthcheck",
+    "cis-4.7-block-latest",
+    "cis-4.9-require-description",
+    "cis-4.10-no-secrets",
+    "cis-4.11-verify-packages",
+    "cis-5.3-block-privileged",
+    "cis-5.4-block-host-mounts",
+    "cis-5.7-block-privileged-ports",
+    "cis-5.10-limit-memory",
+    "cis-5.11-limit-cpu",
+    "cis-5.12-readonly-rootfs",
+    "cis-5.25-no-new-privileges",
+    "cis-5.28-limit-pids",
+    "cis-1.2-name-convention",
+    "cis-2.1-require-tags",
+    "cis-6.1-require-stages",
+    "cis-6.2-require-approval",
+    "cis-6.3-max-timeout",
+    "cis-6.4-pipeline-name",
+    "cis-6.5-require-scan-stage"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "soc2-cc6.1-block-privileged",
+  "description": "CC6.1 Logical access: plugin build containers must not run privileged",
+  "target": "plugin",
+  "severity": "critical",
+  "field": "privileged",
+  "operator": "neq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC6.1"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "pci-6.1-require-scan-stage",
+  "description": "Req 6.1 Establish a process to identify vulnerabilities",
+  "target": "pipeline",
+  "severity": "error",
+  "field": "hasSecurityScan",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:6.1"
+  ]
+}

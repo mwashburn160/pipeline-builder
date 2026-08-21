@@ -16,6 +16,8 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSetSeatLimit = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockSetTier = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockCheckTierOvercap = jest.fn<(...a: unknown[]) => Promise<unknown[]>>();
 const mockAudit = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -50,7 +52,11 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgSc
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({ pooledSeatUsage: jest.fn(), pooledFeatureEntitlements: jest.fn() }));
 
 jest.unstable_mockModule('../src/services/index.js', () => ({
-  organizationService: { setSeatLimit: (...a: unknown[]) => mockSetSeatLimit(...a) },
+  organizationService: {
+    setSeatLimit: (...a: unknown[]) => mockSetSeatLimit(...a),
+    setTier: (...a: unknown[]) => mockSetTier(...a),
+    checkTierOvercap: (...a: unknown[]) => mockCheckTierOvercap(...a),
+  },
   ORG_NOT_FOUND: 'ORG_NOT_FOUND',
   SYSTEM_ORG_DELETE_FORBIDDEN: 'SYSTEM_ORG_DELETE_FORBIDDEN',
   ORG_SLUG_TAKEN: 'ORG_SLUG_TAKEN',
@@ -73,7 +79,7 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   updateQuotasSchema: {},
 }));
 
-const { updateOrganizationSeatLimit } = await import('../src/controllers/organization.js');
+const { updateOrganizationSeatLimit, updateOrganizationTier } = await import('../src/controllers/organization.js');
 
 function mockRes() {
   const res: any = {};
@@ -88,6 +94,7 @@ const req = (body: unknown) => ({ user: { sub: 'svc', isSuperAdmin: true }, para
 beforeEach(() => {
   jest.clearAllMocks();
   mockSetSeatLimit.mockResolvedValue({ rootOrgId: 'root-1', seats: 5 });
+  mockCheckTierOvercap.mockResolvedValue([]);
 });
 
 describe('updateOrganizationSeatLimit — feature-flag whitelist', () => {
@@ -176,6 +183,43 @@ describe('updateOrganizationSeatLimit — feature-flag whitelist', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     const auditDetails = (mockAudit.mock.calls[0][2] as any).details;
     expect(auditDetails.featuresAdded).toBeUndefined();
+    expect(auditDetails.featuresRemoved).toBeUndefined();
+  });
+});
+
+describe('updateOrganizationTier — audit records lost features on a downgrade', () => {
+  const tierCall = updateOrganizationTier as unknown as (req: any, res: any) => Promise<void>;
+  const tierReq = (body: unknown) => ({ user: { sub: 'svc', isSuperAdmin: true }, params: { id: 'root-1' }, body });
+
+  it('records featuresRemoved in the admin.org.tier.update audit on a downgrade (mirrors setSeatLimit)', async () => {
+    const res = mockRes();
+    mockSetTier.mockResolvedValue({
+      id: 'root-1',
+      previousTier: 'team',
+      tier: 'pro',
+      featuresRemoved: ['audit_log', 'sso'],
+    });
+
+    await tierCall(tierReq({ tier: 'pro' }), res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const auditCall = mockAudit.mock.calls.find((c) => c[1] === 'admin.org.tier.update');
+    expect(auditCall).toBeDefined();
+    const auditDetails = (auditCall![2] as any).details;
+    expect(auditDetails.previousTier).toBe('team');
+    expect(auditDetails.tier).toBe('pro');
+    expect(auditDetails.featuresRemoved).toEqual(['audit_log', 'sso']);
+  });
+
+  it('omits featuresRemoved on an upgrade (service returns none)', async () => {
+    const res = mockRes();
+    mockSetTier.mockResolvedValue({ id: 'root-1', previousTier: 'pro', tier: 'team' });
+
+    await tierCall(tierReq({ tier: 'team' }), res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const auditCall = mockAudit.mock.calls.find((c) => c[1] === 'admin.org.tier.update');
+    const auditDetails = (auditCall![2] as any).details;
     expect(auditDetails.featuresRemoved).toBeUndefined();
   });
 });

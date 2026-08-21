@@ -1,0 +1,14 @@
+{
+  "name": "soc2-cc6.1-require-compute-type",
+  "description": "CC6.1 Access: builds run on an approved compute class",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "computeType",
+  "operator": "exists",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC6.1"
+  ]
+}

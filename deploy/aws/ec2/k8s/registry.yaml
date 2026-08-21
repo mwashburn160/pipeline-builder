@@ -190,6 +190,14 @@ data:
         forcepathstyle: true
         secure: false
         rootdirectory: /
+      # Stream blobs THROUGH the registry instead of redirecting clients to the S3
+      # (MinIO) endpoint. Default S3-driver behavior 302-redirects blob/config GETs
+      # to `regionendpoint` (http://minio:9000) — unreachable from AWS CodeBuild,
+      # which is outside the cluster and can't resolve the `minio` service DNS
+      # (CannotPullContainerError: lookup minio: no such host). Disabling the
+      # redirect keeps every pull on the registry host, which IS reachable.
+      redirect:
+        disable: true
     http:
       addr: 0.0.0.0:5000
       debug:

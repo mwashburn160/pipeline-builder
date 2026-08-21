@@ -1,0 +1,14 @@
+{
+  "name": "pci-10.2-require-description",
+  "description": "Req 10.2 Traceability: plugins document their purpose",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "description",
+  "operator": "notEmpty",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:10.2"
+  ]
+}

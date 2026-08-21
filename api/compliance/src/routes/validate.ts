@@ -11,12 +11,13 @@ import {
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { type RuleTarget } from '@pipeline-builder/pipeline-data';
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { evaluateRules } from '../engine/rule-engine.js';
 import { logComplianceCheck } from '../helpers/compliance-check-log.js';
 import { notifyComplianceBlock, notifyComplianceWarnings } from '../helpers/compliance-notifier.js';
 import { parseIntEnv } from '../helpers/env.js';
+import { resolveParentOrgId } from '../helpers/org-hierarchy-client.js';
 import { complianceExemptionService } from '../services/compliance-exemption-service.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 
@@ -122,6 +123,27 @@ async function validateEntity(
   return result;
 }
 
+/**
+ * Resolve the caller org's direct parent for parent-`propagateToChildren`
+ * enforcement. Prefers the JWT claim (`parentOrganizationId`) when present — the
+ * fast, no-network path for interactive member tokens. A SERVICE-token caller
+ * (e.g. api/pipeline / api/plugin forwarding an upload check) carries NO such
+ * claim, yet the team it acts for may still inherit a parent's blocking rules;
+ * so when the claim is absent we resolve the parent over the org hierarchy from
+ * the request `orgId`. `resolveParentOrgId` returns undefined for a genuine root
+ * org and THROWS on a lookup failure (fail-closed) — the throw propagates so the
+ * validate call errors rather than stamping a false-pass that skipped inherited
+ * rules.
+ */
+async function resolveParentForValidate(req: Request, orgId: string): Promise<string | undefined> {
+  const jwtParent = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+  if (jwtParent) return jwtParent;
+  // Sysadmins are exempt from enforcement (validateEntity returns early), so
+  // there is nothing to inherit — skip the network lookup and its throw path.
+  if (isSystemAdmin(req)) return undefined;
+  return resolveParentOrgId(orgId);
+}
+
 export function createValidateRoutes(): Router {
   const router = Router();
 
@@ -133,7 +155,7 @@ export function createValidateRoutes(): Router {
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
       const { attributes, entityId, entityName, action } = validation.value;
 
-      const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+      const parentOrgId = await resolveParentForValidate(req, orgId);
       const result = await validateEntity(
         orgId, userId, target, action || defaultAction, entityId, entityName,
         attributes, false, isSystemAdmin(req), parentOrgId,
@@ -149,7 +171,7 @@ export function createValidateRoutes(): Router {
       const validation = validateBody(req, DryRunSchema);
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 
-      const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+      const parentOrgId = await resolveParentForValidate(req, orgId);
       const result = await validateEntity(
         orgId, userId, target, 'dry-run', undefined, undefined, validation.value.attributes, true, isSystemAdmin(req), parentOrgId,
       );

@@ -1,0 +1,15 @@
+{
+  "name": "cis-6.2-require-approval",
+  "description": "CIS 6.2 Require a manual approval gate",
+  "target": "pipeline",
+  "severity": "error",
+  "field": "requiresApproval",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-6.2"
+  ]
+}

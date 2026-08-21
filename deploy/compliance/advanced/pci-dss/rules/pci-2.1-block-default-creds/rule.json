@@ -1,0 +1,15 @@
+{
+  "name": "pci-2.1-block-default-creds",
+  "description": "Req 2.1 Change vendor-supplied defaults",
+  "target": "plugin",
+  "severity": "error",
+  "field": "usesDefaultCredentials",
+  "operator": "neq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:2.1"
+  ]
+}

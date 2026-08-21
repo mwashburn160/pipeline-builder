@@ -1,0 +1,15 @@
+{
+  "name": "pci-2.3-require-encryption",
+  "description": "Req 2.3 Encrypt non-console administrative access",
+  "target": "pipeline",
+  "severity": "error",
+  "field": "encryptionEnabled",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:2.3"
+  ]
+}

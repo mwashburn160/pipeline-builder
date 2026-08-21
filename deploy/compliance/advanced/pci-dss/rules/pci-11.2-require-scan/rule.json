@@ -1,0 +1,15 @@
+{
+  "name": "pci-11.2-require-scan",
+  "description": "Req 11.2 Run regular vulnerability scans",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "scanned",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:11.2"
+  ]
+}

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createQuotaService, requirePermission, wireServiceSecurity } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, requireAuth, requirePermission, wireServiceSecurity } from '@pipeline-builder/api-core';
 import {
   createApp,
   runServer,
@@ -21,6 +21,7 @@ import { createCreatePolicyRoutes } from './routes/create-policies.js';
 import { createCreateRuleRoutes } from './routes/create-rules.js';
 import { createDeletePolicyRoutes } from './routes/delete-policies.js';
 import { createDeleteRuleRoutes } from './routes/delete-rules.js';
+import { createEntitlementSyncRoutes } from './routes/entitlements.js';
 import { createEntityEventRoutes } from './routes/entity-events.js';
 import { createExemptionRoutes } from './routes/exemptions.js';
 import { createNotificationPreferenceRoutes } from './routes/notification-preferences.js';
@@ -138,6 +139,13 @@ app.use('/compliance/templates', ...createAuthenticatedWithOrgRoute(), createTem
 // `requireServicePrincipal`, so peer services must mint a JWT via
 // `getServiceAuthHeader` (a plain HTTP header is no longer sufficient).
 app.use('/compliance/events/entity', createEntityEventRoutes());
+
+// Internal billing → compliance entitlement sync (curated content sets). Bare
+// `requireAuth` prefix (like reporting's /reports/retention-sync); the route
+// itself enforces service-principal-or-sysadmin, so requireAuth doesn't
+// double-run and no org-user permission/feature gate applies. Resolves to
+// `/api/compliance/entitlements/:orgId` behind the gateway.
+app.use('/compliance/entitlements', requireAuth, createEntitlementSyncRoutes());
 
 logger.info('All /compliance routes registered');
 

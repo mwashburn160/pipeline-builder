@@ -314,7 +314,7 @@ Per-call increments to `/quotas/:orgId/increment` cap `amount` at 1000 — bound
 | `MESSAGE_SERVICE_PORT` | `3000` | Message service port |
 | `PLATFORM_SERVICE_HOST` | `platform` | Platform service hostname (compliance → email delivery) |
 | `PLATFORM_SERVICE_PORT` | `3000` | Platform service port |
-| `COMPLIANCE_SERVICE_HOST` | `compliance` | Compliance service hostname |
+| `COMPLIANCE_SERVICE_HOST` | `compliance` | Compliance service hostname (also billing → compliance entitlement sync) |
 | `COMPLIANCE_SERVICE_PORT` | `3000` | Compliance service port |
 | `BILLING_SERVICE_HOST` | `billing` | Billing service hostname |
 | `BILLING_SERVICE_PORT` | `3000` | Billing service port |
@@ -389,11 +389,13 @@ For AWS SES: set `EMAIL_PROVIDER=ses` with `SES_REGION`, `SES_ACCESS_KEY_ID`, `S
 | `RENEWAL_REMINDER_DAYS` | `7` | Days before expiry to send renewal reminder |
 | `BILLING_BUNDLES_ENABLED` | `false` | Master switch for purchasable [add-on bundles](billing-bundles.md) — hidden unless set |
 
-Plan pricing (`BILLING_PLAN_{TIER}_MONTHLY` / `BILLING_PLAN_{TIER}_ANNUAL`, where `{TIER}` is `DEVELOPER`, `PRO`, `TEAM`, or `ENTERPRISE`) is in cents. Defaults: Developer free, Pro $49/mo ($490/yr), Team $149/mo ($1,490/yr), Enterprise $399/mo ($3,990/yr). Per-plan `_NAME` (display name), `_DESCRIPTION` (string), and `_FEATURES` (JSON array) can also be overridden.
+Plan pricing (`BILLING_PLAN_{TIER}_MONTHLY` / `BILLING_PLAN_{TIER}_ANNUAL`, where `{TIER}` is `DEVELOPER`, `PRO`, `TEAM`, or `ENTERPRISE`) is in cents. Defaults: Developer free, Pro $49/mo ($490/yr), Team $149/mo ($1,490/yr), Enterprise $599/mo ($5,990/yr). Per-plan `_NAME` (display name), `_DESCRIPTION` (string), and `_FEATURES` (JSON array) can also be overridden.
 
 An `UNLIMITED` plan (free, `BILLING_PLAN_UNLIMITED_NAME` default `Unlimited`) is also seeded so the billing store has a row for orgs on the billing-disabled default tier, but it is filtered out of the customer-facing plans list — it is never sold or shown when billing is enabled.
 
-Add-on bundles are env-tunable (see [Billing Add-on Bundles → Overrides](billing-bundles.md#configuration--overrides)): `BILLING_BUNDLE_<ID>_MONTHLY` / `_ANNUAL` (price, cents), `BILLING_BUNDLE_<ID>_GRANT` (single-dimension grant amount), and `BILLING_BUNDLE_<ID>_TIERS` (JSON array of purchasable tiers), where `<ID>` is the bundle id upper-cased (`SEAT_PACK`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `AUDIT_LOG`, `SSO`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`). Combo prices are `BILLING_COMBO_<COMBO>_MONTHLY` / `_ANNUAL` where `<COMBO>` is `ANALYTICS_SUITE` or `TEAM_GROWTH`. The retention packs default to $15/mo ($150/yr, `RETENTION_PACK`) and $30/mo ($300/yr, `DORA_HISTORY_PACK`); under AWS Marketplace they meter as the `RetentionPack` / `DoraHistoryPack` dimensions (see `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP`).
+Add-on bundles are env-tunable (see [Billing Add-on Bundles → Overrides](billing-bundles.md#configuration--overrides)): `BILLING_BUNDLE_<ID>_MONTHLY` / `_ANNUAL` (price, cents), `BILLING_BUNDLE_<ID>_GRANT` (single-dimension grant amount), and `BILLING_BUNDLE_<ID>_TIERS` (JSON array of purchasable tiers), where `<ID>` is the bundle id upper-cased (`SEAT_PACK`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `AUDIT_LOG`, `SSO`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`, `COMPLIANCE_STANDARD`, `COMPLIANCE_ADVANCED`). Combo prices are `BILLING_COMBO_<COMBO>_MONTHLY` / `_ANNUAL` where `<COMBO>` is `ANALYTICS_SUITE`, `TEAM_GROWTH`, or `COMPLIANCE_SUITE`. The retention packs default to $15/mo ($150/yr, `RETENTION_PACK`) and $30/mo ($300/yr, `DORA_HISTORY_PACK`); under AWS Marketplace they meter as the `RetentionPack` / `DoraHistoryPack` dimensions (see `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP`).
+
+The compliance content add-ons default to $29.90/mo ($299/yr, `COMPLIANCE_STANDARD`) and $99.90/mo ($999/yr, `COMPLIANCE_ADVANCED`, which requires Standard), with the `COMPLIANCE_SUITE` combo (both, 30% off) at $90.86/mo ($908.60/yr) — see [Compliance → Curated content add-ons](compliance.md#curated-content-add-ons-standard--advanced). On every entitlement change (purchase/cancel/renewal) billing pushes the org's entitled content sets to the compliance service (`PUT /api/compliance/entitlements/:orgId`, which auto-subscribes/activates on gain and deactivates on loss), reaching it via `COMPLIANCE_SERVICE_HOST` / `COMPLIANCE_SERVICE_PORT` (Service Discovery, above).
 
 ### Discounts
 

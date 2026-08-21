@@ -1,0 +1,15 @@
+{
+  "name": "pci-12.1-name-convention",
+  "description": "Req 12.1 Security policy: consistent pipeline naming",
+  "target": "pipeline",
+  "severity": "warning",
+  "field": "pipelineName",
+  "operator": "regex",
+  "value": "^[a-z][a-z0-9-]{1,63}$",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:12.1"
+  ]
+}

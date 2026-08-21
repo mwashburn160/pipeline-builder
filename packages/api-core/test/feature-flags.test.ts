@@ -14,8 +14,8 @@ import {
 // ALL_FEATURE_FLAGS
 
 describe('ALL_FEATURE_FLAGS', () => {
-  it('should contain all 7 feature flags', () => {
-    expect(ALL_FEATURE_FLAGS).toHaveLength(8);
+  it('should contain all 10 feature flags', () => {
+    expect(ALL_FEATURE_FLAGS).toHaveLength(10);
     expect(ALL_FEATURE_FLAGS).toContain('priority_support');
     expect(ALL_FEATURE_FLAGS).toContain('ai_generation');
     expect(ALL_FEATURE_FLAGS).toContain('bulk_operations');
@@ -24,6 +24,8 @@ describe('ALL_FEATURE_FLAGS', () => {
     expect(ALL_FEATURE_FLAGS).toContain('sso');
     expect(ALL_FEATURE_FLAGS).toContain('advanced_reporting');
     expect(ALL_FEATURE_FLAGS).toContain('team_usage_analytics');
+    expect(ALL_FEATURE_FLAGS).toContain('compliance_standard');
+    expect(ALL_FEATURE_FLAGS).toContain('compliance_advanced');
   });
 });
 

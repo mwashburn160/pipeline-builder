@@ -1,0 +1,15 @@
+{
+  "name": "cis-5.12-readonly-rootfs",
+  "description": "CIS 5.12 Mount container root filesystem read-only",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "readOnlyRootFilesystem",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-5.12"
+  ]
+}

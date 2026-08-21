@@ -1,0 +1,15 @@
+{
+  "name": "pci-6.5-block-root",
+  "description": "Req 6.5 Secure coding: do not run as root",
+  "target": "plugin",
+  "severity": "error",
+  "field": "runAsRoot",
+  "operator": "neq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:6.5"
+  ]
+}

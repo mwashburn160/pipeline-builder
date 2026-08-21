@@ -1,0 +1,14 @@
+{
+  "name": "soc2-cc6.1-require-owner",
+  "description": "CC6.1 Logical access: pipelines have an accountable owner",
+  "target": "pipeline",
+  "severity": "warning",
+  "field": "owner",
+  "operator": "notEmpty",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC6.1"
+  ]
+}

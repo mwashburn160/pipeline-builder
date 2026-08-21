@@ -1,0 +1,15 @@
+{
+  "name": "cis-4.7-block-latest",
+  "description": "CIS 4.7 Do not use update instructions alone — pin versions",
+  "target": "plugin",
+  "severity": "error",
+  "field": "version",
+  "operator": "neq",
+  "value": "latest",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-4.7"
+  ]
+}

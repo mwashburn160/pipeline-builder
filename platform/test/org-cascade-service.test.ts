@@ -150,6 +150,23 @@ describe('cascadeDeleteOrg', () => {
     expect(mockUpdateChain.where).toHaveBeenCalledTimes(9);
   });
 
+  it('stamps purge_after ALONGSIDE deleted_at on the soft-delete tables so the owning service reclaims them (GDPR)', async () => {
+    await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+
+    // Terminal purge must set BOTH `deletedAt` and `purgeAfter` on every
+    // soft-delete row — leaving `purgeAfter` NULL would leave the rows
+    // (esp. compliance_policies / compliance_rules) lingering forever because
+    // the retention sweep is keyed on `deleted_at IS NOT NULL AND purge_after < now`.
+    expect(mockUpdateChain.set).toHaveBeenCalledTimes(9);
+    for (const call of mockUpdateChain.set.mock.calls) {
+      const setArg = call[0] as { deletedAt?: unknown; purgeAfter?: unknown };
+      expect(setArg.deletedAt).toBeInstanceOf(Date);
+      expect(setArg.purgeAfter).toBeInstanceOf(Date);
+      // Same instant for both so the row is immediately eligible for reclamation.
+      expect(setArg.purgeAfter).toBe(setArg.deletedAt);
+    }
+  });
+
   it('hard-deletes the 18 tables without deleted_at', async () => {
     await cascadeDeleteOrg('org-acme', '000000000000000000000001');
     // 18 hard-delete tables (14 + 4 DORA/reporting: deployment_outcomes,

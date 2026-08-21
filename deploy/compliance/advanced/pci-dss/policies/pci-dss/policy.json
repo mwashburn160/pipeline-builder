@@ -1,0 +1,38 @@
+{
+  "name": "PCI-DSS (Starter)",
+  "description": "STARTER PCI-DSS v4 requirement mappings (Advanced content add-on). Requires compliance-expert review before production use.",
+  "version": "1.0.0",
+  "isTemplate": true,
+  "isActive": true,
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss"
+  ],
+  "rules": [
+    "pci-1.2-network-restricted",
+    "pci-1.3-block-public",
+    "pci-2.1-block-default-creds",
+    "pci-2.2-pin-base-image",
+    "pci-2.2-enforce-semver",
+    "pci-2.3-require-encryption",
+    "pci-3.4-no-inline-secrets",
+    "pci-4.1-tls-required",
+    "pci-6.1-require-scan-stage",
+    "pci-6.2-block-latest",
+    "pci-6.3-require-review",
+    "pci-6.3-block-debug",
+    "pci-6.4-require-test-stage",
+    "pci-6.5-block-privileged",
+    "pci-6.5-block-root",
+    "pci-7.1-require-owner",
+    "pci-7.2-require-role",
+    "pci-8.2-require-signed",
+    "pci-10.1-require-audit",
+    "pci-10.2-require-description",
+    "pci-10.5-require-tags",
+    "pci-11.2-require-scan",
+    "pci-11.3-max-timeout",
+    "pci-12.1-name-convention",
+    "pci-12.3-require-environment"
+  ]
+}

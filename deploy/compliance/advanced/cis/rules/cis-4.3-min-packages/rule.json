@@ -1,0 +1,15 @@
+{
+  "name": "cis-4.3-min-packages",
+  "description": "CIS 4.3 Do not install unnecessary packages",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "$count(packages)",
+  "operator": "countLt",
+  "value": 200,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-4.3"
+  ]
+}

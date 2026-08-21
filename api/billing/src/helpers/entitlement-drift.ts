@@ -118,6 +118,50 @@ async function readEnforcedFeatureEntitlements(orgId: string, auth: string): Pro
  * `authHeader` may be `''`; a service token is minted for the target org, the
  * same way syncEntitlements does.
  */
+/**
+ * Read the compliance service's CURRENTLY-ACTIVE content sets for an org
+ * (handshake #2): `GET /api/compliance/entitlements/:orgId` → `{ sets }`, the
+ * distinct `set:<x>` values among the org's ACTIVE published-rule subscriptions.
+ * Service-token auth, the SAME `authHeader || billingServiceAuth(orgId)` +
+ * `{ Authorization, 'x-org-id' }` handshake `pushComplianceSetsToCompliance` uses.
+ * Returns `null` on any read failure so the drift reconciler treats an unreachable
+ * compliance service as a SKIP, never as drift. Tolerant of both a bare `{ sets }`
+ * body and the `{ data: { sets } }` envelope `sendSuccess` produces.
+ */
+export async function readEnforcedComplianceSets(orgId: string, auth: string): Promise<string[] | null> {
+  try {
+    const client = createSafeClient({
+      host: config.complianceService.host,
+      port: config.complianceService.port,
+      timeout: getBillingTimeout(),
+    });
+    const resp = await client.get<{ sets?: unknown; data?: { sets?: unknown } }>(
+      `/api/compliance/entitlements/${orgId}`,
+      { headers: { 'Authorization': auth, 'x-org-id': orgId } },
+    );
+    if (!resp || resp.statusCode >= 400) return null;
+    const sets = resp.body?.data?.sets ?? resp.body?.sets;
+    // A missing / non-string-array payload can't be safely compared — treat the
+    // read as failed so an incomplete response never false-drifts (an org with no
+    // active sets still returns `[]`).
+    if (!Array.isArray(sets) || !sets.every((s) => typeof s === 'string')) return null;
+    return sets as string[];
+  } catch (err) {
+    logger.warn('Failed to read enforced compliance sets', { orgId, error: errorMessage(err) });
+    return null;
+  }
+}
+
+/**
+ * Pure set-equality check for two compliance content-set lists (order-independent).
+ * `true` when the enforced active sets differ from what the account is entitled to.
+ */
+export function complianceSetsDiffer(expected: readonly string[], actual: readonly string[]): boolean {
+  const exp = new Set(expected);
+  const act = new Set(actual);
+  return exp.size !== act.size || [...exp].some((s) => !act.has(s));
+}
+
 export async function readActualEntitlements(orgId: string, authHeader: string): Promise<ActualEntitlements | null> {
   const auth = authHeader || billingServiceAuth(orgId);
 

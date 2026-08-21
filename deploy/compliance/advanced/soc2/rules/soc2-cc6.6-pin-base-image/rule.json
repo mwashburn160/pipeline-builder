@@ -1,0 +1,15 @@
+{
+  "name": "soc2-cc6.6-pin-base-image",
+  "description": "CC6.6 Boundary protection: base images pinned, not :latest",
+  "target": "plugin",
+  "severity": "error",
+  "field": "image",
+  "operator": "notContains",
+  "value": ":latest",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC6.6"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "cis-5.4-block-host-mounts",
+  "description": "CIS 5.4 Do not mount sensitive host directories",
+  "target": "plugin",
+  "severity": "error",
+  "field": "mountsHostPath",
+  "operator": "neq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-5.4"
+  ]
+}

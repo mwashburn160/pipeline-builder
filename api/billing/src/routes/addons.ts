@@ -76,6 +76,65 @@ function bundleQuantityCapError(bundle: BundleConfig, qty: number): string | nul
     : null;
 }
 
+/** The set of bundle ids HELD (quantity > 0) in an add-on list. */
+function heldBundleIds(addons: readonly Addon[]): Set<string> {
+  return new Set(addons.filter((a) => a.quantity > 0).map((a) => a.bundleId));
+}
+
+/**
+ * Generic `requires` gate (bundle.requires): the 400 message when `bundle`'s
+ * prerequisite bundle ids are NOT all satisfied by the add-on set `next` (the set
+ * AFTER the change), or null when satisfied / no prerequisites. A prerequisite
+ * counts as satisfied when it is present in `next` — whether already held or added
+ * in the same action (a combo/simultaneous add). Only enforced when `bundle`
+ * itself is held after the change (qty > 0). Not compliance-specific: drives any
+ * bundle with a `requires` list (e.g. `compliance_advanced`→`compliance_standard`).
+ */
+function bundleRequiresError(bundle: BundleConfig, next: readonly Addon[], bundles: readonly BundleConfig[]): string | null {
+  const requires = bundle.requires ?? [];
+  if (requires.length === 0) return null;
+  const held = heldBundleIds(next);
+  if (!held.has(bundle.id)) return null; // bundle isn't being added/kept — nothing to gate
+  const missing = requires.filter((r) => !held.has(r));
+  if (missing.length === 0) return null;
+  const byId = new Map(bundles.map((b) => [b.id, b]));
+  const names = missing.map((r) => byId.get(r)?.name ?? r);
+  return `${bundle.name} requires the ${names.join(', ')} add-on`;
+}
+
+/**
+ * Cascade-remove: after a bundle is removed, any OTHER held bundle whose
+ * `requires[]` is no longer satisfied by the remaining set must go too (a
+ * dependent can't outlive its prerequisite). Iterated to a fixpoint so a chain
+ * (A requires B requires C; remove C ⇒ drop B then A) fully unwinds. Returns the
+ * reduced add-on list plus the ids that were cascaded (for audit). Generic on
+ * `bundle.requires` — not compliance-specific.
+ */
+function cascadeRemoveDependents(
+  next: readonly Addon[],
+  bundles: readonly BundleConfig[],
+): { addons: Addon[]; removed: string[] } {
+  const byId = new Map(bundles.map((b) => [b.id, b]));
+  let addons: Addon[] = [...next];
+  const removed: string[] = [];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const held = heldBundleIds(addons);
+    for (const a of addons) {
+      if (a.quantity <= 0) continue;
+      const requires = byId.get(a.bundleId)?.requires ?? [];
+      if (requires.length > 0 && requires.some((r) => !held.has(r))) {
+        addons = applyAddon(addons, a.bundleId, 0);
+        removed.push(a.bundleId);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return { addons, removed };
+}
+
 /**
  * Stamp the durable `metadata.providerAddonSyncPending` marker IN MEMORY so it
  * persists in the SAME `save()` that writes the new add-on set (crash-durability).
@@ -283,11 +342,24 @@ export function createAddonRoutes(): Router {
     const capError = bundleQuantityCapError(bundle, qty);
     if (capError) return sendError(res, 400, capError, ErrorCode.VALIDATION_ERROR);
     const current = (subscription.addons ?? []) as Addon[];
-    const next = applyAddon(current, bundleId, qty);
+    const applied = applyAddon(current, bundleId, qty);
+    // Prerequisite gate (bundle.requires): reject an ADD whose prerequisites
+    // aren't satisfied by the effective set after the change (e.g. Advanced
+    // Compliance without Standard Compliance). Generic on `requires`. Checked on
+    // the pre-cascade set so an unmet-prereq add still 400s in preview.
+    const requiresError = bundleRequiresError(bundle, applied, bundles);
+    if (requiresError) return sendError(res, 400, requiresError, ErrorCode.VALIDATION_ERROR);
+    // Cascade parity with the real DELETE: removing a bundle that is a `requires`
+    // prerequisite of another held bundle drops the dependent(s) too (Advanced
+    // can't outlive Standard). Preview it so a removal of Standard SHOWS Advanced
+    // would be cascaded out — the effective limits/price/combos below reflect the
+    // fully-unwound set, and `cascaded` lists the ids the change would remove.
+    const { addons: next, removed: cascaded } = cascadeRemoveDependents(applied, bundles);
     const { limits } = effectiveEntitlements(plan.tier, next, bundles);
 
     return sendSuccess(res, 200, {
       addons: next,
+      cascaded,
       effectiveLimits: limits,
       priceBreakdown: priceBreakdown(plan, next, bundles, subscription.interval),
       ...comboDelta(current, next, bundles, subscription.interval),
@@ -319,6 +391,12 @@ export function createAddonRoutes(): Router {
     if (capError) return sendError(res, 400, capError, ErrorCode.VALIDATION_ERROR);
     const current = (subscription.addons ?? []) as Addon[];
     const next = applyAddon(current, bundleId, qty);
+
+    // Prerequisite gate (bundle.requires): reject an add whose prerequisites
+    // aren't satisfied by the effective set after the change (e.g. Advanced
+    // Compliance without Standard Compliance). Generic on `requires`.
+    const requiresError = bundleRequiresError(bundle, next, bundles);
+    if (requiresError) return sendError(res, 400, requiresError, ErrorCode.VALIDATION_ERROR);
 
     // Payment-method gate: a paid INCREASE needs a card on file so the charge can
     // settle. Matters most on the free (developer) tier, which may have no card
@@ -398,8 +476,16 @@ export function createAddonRoutes(): Router {
     const { subscription, plan } = loaded;
     if (!subscriptionIdMatches(req, subscription)) return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
 
+    const bundles = getBundleCatalog();
     const current = (subscription.addons ?? []) as Addon[];
-    const next = applyAddon(current, bundleId, 0);
+    // Removing a bundle that is a `requires` prerequisite of another held bundle
+    // cascades: the dependent(s) can't outlive their prerequisite, so drop them in
+    // the same change (e.g. cancel Standard Compliance while Advanced is held →
+    // Advanced goes too). Generic on `bundle.requires`; iterated to a fixpoint.
+    const { addons: next, removed: cascaded } = cascadeRemoveDependents(
+      applyAddon(current, bundleId, 0),
+      bundles,
+    );
 
     const overages = await checkEntitlementOvercap(orgId, plan.tier, next, '');
     if (overages.length > 0) {
@@ -429,9 +515,22 @@ export function createAddonRoutes(): Router {
       details: { bundleId, subscriptionId: subscription._id.toString() },
     }, 'billing');
 
-    logger.info('Add-on removed', { orgId, bundleId });
+    // Cascade-removed dependents (their `requires` prerequisite just went away):
+    // record each as its own removal in the local billing_events + central audit
+    // trail, tagged `cascadedFrom` the bundle the user explicitly removed.
+    for (const dep of cascaded) {
+      await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_removed', bundleId: dep, cascadedFrom: bundleId }, subscription._id.toString(), req.user?.sub);
+      getAuditClient().record({
+        action: 'billing.addon.remove',
+        actorId: req.user?.sub ?? 'system',
+        orgId,
+        targetId: dep,
+        details: { bundleId: dep, cascadedFrom: bundleId, subscriptionId: subscription._id.toString() },
+      }, 'billing');
+    }
 
-    const bundles = getBundleCatalog();
+    logger.info('Add-on removed', { orgId, bundleId, cascaded });
+
     // Record combo_expired for any combo this removal ended.
     const delta = comboDelta(current, next, bundles, subscription.interval);
     await recordLostCombos(orgId, delta.lostCombos, subscription._id.toString(), req.user?.sub);

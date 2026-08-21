@@ -1,0 +1,15 @@
+{
+  "name": "pci-1.2-network-restricted",
+  "description": "Req 1.2 Restrict network connections to/from the CDE",
+  "target": "pipeline",
+  "severity": "error",
+  "field": "networkRestricted",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:1.2"
+  ]
+}

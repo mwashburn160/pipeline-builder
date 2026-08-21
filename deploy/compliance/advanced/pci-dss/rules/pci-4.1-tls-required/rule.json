@@ -1,0 +1,15 @@
+{
+  "name": "pci-4.1-tls-required",
+  "description": "Req 4.1 Strong cryptography during transmission",
+  "target": "pipeline",
+  "severity": "error",
+  "field": "tlsRequired",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:4.1"
+  ]
+}

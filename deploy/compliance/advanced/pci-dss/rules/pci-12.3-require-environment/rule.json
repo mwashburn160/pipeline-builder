@@ -1,0 +1,14 @@
+{
+  "name": "pci-12.3-require-environment",
+  "description": "Req 12.3 Usage policies: pipeline declares a target environment",
+  "target": "pipeline",
+  "severity": "warning",
+  "field": "environment",
+  "operator": "exists",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:12.3"
+  ]
+}

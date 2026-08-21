@@ -48,6 +48,7 @@ jest.unstable_mockModule('../src/services/remote-audit-client.js', () => ({
 }));
 
 class InvalidRuleRegexError extends Error {}
+class InvalidSetTagError extends Error {}
 jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: {
     create: (...a: unknown[]) => createMock(...a),
@@ -55,6 +56,7 @@ jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
     delete: (...a: unknown[]) => deleteMock(...a),
   },
   InvalidRuleRegexError,
+  InvalidSetTagError,
 }));
 
 const { createCreateRuleRoutes } = await import('../src/routes/create-rules.js');

@@ -1,0 +1,15 @@
+{
+  "name": "soc2-cc6.6-block-latest-version",
+  "description": "CC6.6 Boundary protection: no mutable \"latest\" version",
+  "target": "plugin",
+  "severity": "error",
+  "field": "version",
+  "operator": "neq",
+  "value": "latest",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC6.6"
+  ]
+}

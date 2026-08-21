@@ -1,0 +1,15 @@
+{
+  "name": "pci-10.5-require-tags",
+  "description": "Req 10.5 Classification tags for audit trail scoping",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "$count(tags)",
+  "operator": "countGt",
+  "value": 0,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:10.5"
+  ]
+}

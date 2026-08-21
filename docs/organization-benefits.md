@@ -163,10 +163,10 @@ Every resource in Pipeline Builder lives inside an **organization**, organizatio
 
   | | Developer | Pro | Team | Enterprise |
   |---|:---:|:---:|:---:|:---:|
-  | **Price / month** | $0 | $49 | $149 | $399 |
+  | **Price / month** | $0 | $49 | $149 | $599 |
   | Plugins | 25 | 50 | 100 | 250 |
   | Pipelines | 5 | 10 | 200 | 200 |
-  | Member seats | 1 | 1 | 10 | 25 |
+  | Member seats | 1 | 3 | 10 | 25 |
   | API calls / period | 25,000 | 500,000 | 2,000,000 | 10,000,000 |
   | AI calls / period | 25 | 1,000 | 5,000 | 15,000 |
   | Registry storage | 2 GB | 25 GB | 150 GB | 500 GB |

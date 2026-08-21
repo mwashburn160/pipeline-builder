@@ -75,7 +75,13 @@ jest.unstable_mockModule('drizzle-orm', () => ({
 jest.unstable_mockModule('../src/engine/rule-engine.js', () => ({ evaluateRules: jest.fn() }));
 
 jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
-  complianceRuleService: {},
+  // ACTIVATE paths run the entitlement gate, which looks up the rule's set tag;
+  // default to un-tagged / missing so these permission-focused tests aren't
+  // paywalled (they assert the compliance:write gate, not the feature gate).
+  complianceRuleService: {
+    findPublishedById: async () => null,
+    findManyByIds: async () => [],
+  },
 }));
 
 jest.unstable_mockModule('../src/services/subscription-service.js', () => ({

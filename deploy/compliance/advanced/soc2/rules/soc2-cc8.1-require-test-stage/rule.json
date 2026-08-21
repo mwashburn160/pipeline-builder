@@ -1,0 +1,15 @@
+{
+  "name": "soc2-cc8.1-require-test-stage",
+  "description": "CC8.1 Change management: pipeline runs tests before deploy",
+  "target": "pipeline",
+  "severity": "warning",
+  "field": "hasTestStage",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC8.1"
+  ]
+}

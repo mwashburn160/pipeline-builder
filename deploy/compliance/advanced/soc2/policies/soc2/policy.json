@@ -1,0 +1,38 @@
+{
+  "name": "SOC 2 Common Criteria (Starter)",
+  "description": "STARTER SOC 2 Common Criteria control mappings (Advanced content add-on). Requires compliance-expert review before production use.",
+  "version": "1.0.0",
+  "isTemplate": true,
+  "isActive": true,
+  "tags": [
+    "set:advanced",
+    "framework:soc2"
+  ],
+  "rules": [
+    "soc2-cc6.1-block-privileged",
+    "soc2-cc6.1-block-root-user",
+    "soc2-cc6.1-require-owner",
+    "soc2-cc6.3-plugin-name",
+    "soc2-cc6.3-pipeline-name",
+    "soc2-cc6.6-pin-base-image",
+    "soc2-cc6.6-block-latest-version",
+    "soc2-cc6.6-no-inline-secrets",
+    "soc2-cc6.7-require-encryption",
+    "soc2-cc6.7-require-region",
+    "soc2-cc6.8-require-signed",
+    "soc2-cc7.1-require-description",
+    "soc2-cc7.1-require-source-stage",
+    "soc2-cc7.2-plugin-tags",
+    "soc2-cc7.2-pipeline-tags",
+    "soc2-cc7.2-require-environment",
+    "soc2-cc7.3-require-stages",
+    "soc2-cc7.4-block-debug",
+    "soc2-cc8.1-require-approval",
+    "soc2-cc8.1-enforce-semver",
+    "soc2-cc8.1-max-timeout",
+    "soc2-cc8.1-require-test-stage",
+    "soc2-cc8.1-limit-stages",
+    "soc2-cc6.1-require-compute-type",
+    "soc2-cc7.2-description-length"
+  ]
+}

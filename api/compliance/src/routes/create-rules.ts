@@ -5,7 +5,7 @@ import { sendSuccess, sendBadRequest, sendError, ErrorCode, isSystemAdmin, valid
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ComplianceRuleCreateSchema } from './rule-schemas.js';
-import { complianceRuleService, InvalidRuleRegexError } from '../services/compliance-rule-service.js';
+import { complianceRuleService, InvalidRuleRegexError, InvalidSetTagError } from '../services/compliance-rule-service.js';
 import { emitComplianceAudit } from '../services/remote-audit-client.js';
 
 export function createCreateRuleRoutes(): Router {
@@ -51,7 +51,7 @@ export function createCreateRuleRoutes(): Router {
 
       return sendSuccess(res, 201, { rule });
     } catch (err) {
-      if (err instanceof InvalidRuleRegexError) {
+      if (err instanceof InvalidRuleRegexError || err instanceof InvalidSetTagError) {
         return sendBadRequest(res, err.message, ErrorCode.VALIDATION_ERROR);
       }
       throw err;

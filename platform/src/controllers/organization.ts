@@ -283,7 +283,17 @@ export const updateOrganizationTier = withController('Update organization tier',
     targetType: 'organization',
     targetId: id,
     affectedOrgId: id,
-    details: { previousTier: result.previousTier, tier: result.tier },
+    details: {
+      previousTier: result.previousTier,
+      tier: result.tier,
+      // On a downgrade, record WHICH tier-included features were revoked
+      // (`TIER_FEATURES[prev] \ TIER_FEATURES[next]`) so the audit trail mirrors
+      // `setSeatLimit`'s `featureDelta` — an access reduction is reconstructable
+      // from the event alone. Omitted on an upgrade/no-op (no features lost).
+      ...(result.featuresRemoved && result.featuresRemoved.length > 0
+        ? { featuresRemoved: result.featuresRemoved }
+        : {}),
+    },
   });
   logger.info('Organization tier updated', { id, tier, previousTier: result.previousTier, by: req.user!.sub });
   sendSuccess(res, 200, result, 'Tier updated successfully');

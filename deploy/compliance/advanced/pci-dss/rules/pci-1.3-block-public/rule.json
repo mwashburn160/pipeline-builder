@@ -1,0 +1,15 @@
+{
+  "name": "pci-1.3-block-public",
+  "description": "Req 1.3 Do not expose system components publicly by default",
+  "target": "plugin",
+  "severity": "error",
+  "field": "accessModifier",
+  "operator": "neq",
+  "value": "public",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:1.3"
+  ]
+}

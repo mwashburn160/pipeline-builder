@@ -1,0 +1,15 @@
+{
+  "name": "pci-11.3-max-timeout",
+  "description": "Req 11.3 Bounded pipeline runtime",
+  "target": "pipeline",
+  "severity": "error",
+  "field": "timeoutInMinutes",
+  "operator": "lte",
+  "value": 180,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:11.3"
+  ]
+}

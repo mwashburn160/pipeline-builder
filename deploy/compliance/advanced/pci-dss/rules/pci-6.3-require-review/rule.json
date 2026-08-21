@@ -1,0 +1,15 @@
+{
+  "name": "pci-6.3-require-review",
+  "description": "Req 6.3 Review code before release",
+  "target": "pipeline",
+  "severity": "error",
+  "field": "requiresApproval",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:6.3"
+  ]
+}

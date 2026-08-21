@@ -103,6 +103,19 @@ export interface AppConfig {
     host: string;
     port: number;
   };
+  /**
+   * Compliance service — receives the compliance-content entitlement sync leg
+   * (`PUT /api/compliance/entitlements/:orgId`). The curated compliance rule
+   * libraries (standard / advanced) are content sets, not a quota-service type;
+   * billing derives the entitled `sets` from the effective feature flags
+   * (`compliance_standard`→'standard', `compliance_advanced`→'advanced') and
+   * pushes them here so the compliance service auto-subscribes/deactivates the
+   * org's rule subscriptions to match. Mirrors `reportingService`.
+   */
+  complianceService: {
+    host: string;
+    port: number;
+  };
   marketplace: MarketplaceConfig;
   stripe: StripeConfig;
   discounts: DiscountConfig;
@@ -200,6 +213,11 @@ export const config: AppConfig = {
   reportingService: {
     host: process.env.REPORTING_SERVICE_HOST || 'reporting',
     port: parseInt(process.env.REPORTING_SERVICE_PORT || '3000', 10),
+  },
+
+  complianceService: {
+    host: process.env.COMPLIANCE_SERVICE_HOST || 'compliance',
+    port: parseInt(process.env.COMPLIANCE_SERVICE_PORT || '3000', 10),
   },
 
   paymentGracePeriodDays: parseInt(process.env.PAYMENT_GRACE_PERIOD_DAYS || '7', 10),

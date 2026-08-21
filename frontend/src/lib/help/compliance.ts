@@ -140,6 +140,79 @@ export const complianceTopic: HelpTopic = {
           content:
             'Org rules (the default) are private to the creating org — fully owned, editable, and deletable, invisible to other orgs. Published rules can only be created by the system org and appear in the catalog. Subscriptions start inactive; the team explicitly activates the ones it wants enforced and can exempt them per-entity.',
         },
+        {
+          type: 'note',
+          content:
+            'Baseline (un-tagged) published rules are free to subscribe on every tier. Published rules that belong to a curated content set (tagged set:standard / set:advanced) require the matching add-on entitlement — see Curated Content Add-ons below.',
+        },
+      ],
+    },
+    {
+      id: 'content-add-ons',
+      title: 'Curated Content Add-ons (Standard / Advanced)',
+      blocks: [
+        {
+          type: 'text',
+          content:
+            'The published catalog includes two curated content libraries sold as billing add-ons. They monetize the content — expert-maintained rule sets — while rule authoring stays free on every tier. Both are ordinary published rules under the system org, tagged by set (set:standard / set:advanced) and gated by a feature flag.',
+        },
+        {
+          type: 'table',
+          headers: ['Add-on', 'Feature flag', 'Content', 'Price', 'Availability'],
+          rows: [
+            [
+              'Standard Compliance',
+              'compliance_standard',
+              'A "CI/CD Best Practices" library (~20 rules): require review stage, no hardcoded secrets, artifact retention, resource limits, pinned deps, …',
+              '$29.90/mo · $299/yr',
+              'Buy on Developer / Pro / Team · included in Enterprise / Unlimited',
+            ],
+            [
+              'Advanced Compliance',
+              'compliance_advanced',
+              'SOC2, PCI-DSS, and CIS framework libraries (~75 rules), each rule tagged with its framework control id — requires Standard',
+              '$99.90/mo · $999/yr',
+              'Buy on Developer / Pro / Team (requires Standard) · included in Enterprise / Unlimited',
+            ],
+            [
+              'Compliance Suite (combo)',
+              'both',
+              'Standard + Advanced together, 30% off',
+              '$90.86/mo · $908.60/yr',
+              'Buy on Developer / Pro / Team (grants both at once)',
+            ],
+          ],
+        },
+        {
+          type: 'note',
+          content:
+            'Advanced requires Standard: the purchase route rejects adding Advanced alone (400). Buy Standard first and add Advanced, or buy the Compliance Suite combo to get both in one action. Cancelling Standard while Advanced is held cascade-cancels Advanced. Enterprise / Unlimited include both, so nothing is purchased there.',
+        },
+        {
+          type: 'text',
+          content:
+            'Content is a shared reference, not a per-org copy. The curated rules exist once as system-org published rows; an org holds a lightweight subscription pointer (orgId, ruleId) that references the shared rule — it never copies it. One library of 30 rules serves 10,000 orgs as 30 rows plus pointer rows, not 300,000 copies, and fixing a shared rule updates it for every subscriber. Customizing a shared rule means forking it into an editable org-scoped copy — that is authoring, and it stays free.',
+        },
+        {
+          type: 'warning',
+          content:
+            'The entitlement gate covers every path that pulls a set-tagged rule into an org: subscribe, activate, bulk-activate, clone, and preview/impact all require the matching entitlement (compliance_standard / compliance_advanced). Baseline (un-tagged) published rules stay free to subscribe on every tier.',
+        },
+        {
+          type: 'text',
+          content:
+            'Entitlement lifecycle (auto-subscribe / deactivate). Holding the entitlement auto-subscribes and activates the org to every rule tagged for the set, so the library begins enforcing immediately — no manual subscribe step. Losing it (cancel at period-end or a tier downgrade) deactivates the set\'s subscriptions so those rules stop enforcing; the pointers are retained, so re-buying reactivates them with no re-subscribe. Cancel means "don\'t renew" — access persists until the paid period ends, with no mid-cycle revocation, proration, or refund.',
+        },
+        {
+          type: 'text',
+          content:
+            'Enforcement (/compliance/validate) is entitlement-unaware: it reads the org\'s active subscriptions plus its own authored rules and never checks the feature flag directly. Billing keeps the active set in sync by pushing entitlement changes to the compliance service (the entitlements endpoints below); the reconcile is idempotent and every activate/deactivate is audit-logged.',
+        },
+        {
+          type: 'note',
+          content:
+            'Authoring stays free. These add-ons gate only the curated libraries. Creating, editing, forking, and enforcing your own org-scoped rules (compliance:write) is ungated on every tier, regardless of which add-ons you hold. See Billing Add-on Bundles for pricing and combo mechanics.',
+        },
       ],
     },
     {
@@ -182,20 +255,22 @@ export const complianceTopic: HelpTopic = {
         {
           type: 'text',
           content:
-            'The service exposes CRUD for rules, the published catalog and subscriptions, scans, validation, policies, exemptions, and templates/audit. Key endpoints:',
+            'The service exposes CRUD for rules, the published catalog and subscriptions, content-set entitlements, scans, validation, policies, exemptions, and templates/audit. Key endpoints:',
         },
         {
           type: 'table',
           headers: ['Method', 'Endpoint', 'Description'],
           rows: [
             ['GET', '/compliance/rules', 'List rules (filterable, paginated)'],
-            ['POST', '/compliance/rules', 'Create rule'],
+            ['POST', '/compliance/rules', 'Create rule (org authoring — ungated on every tier)'],
             ['PUT', '/compliance/rules/:id', 'Update rule'],
             ['GET', '/compliance/published-rules', 'Browse published rules (subscribed flag)'],
-            ['POST', '/compliance/subscriptions', 'Subscribe to a published rule'],
-            ['PATCH', '/compliance/subscriptions/:ruleId', 'Activate/deactivate a subscription'],
+            ['POST', '/compliance/subscriptions', 'Subscribe to a published rule (set-tagged rules require the matching entitlement)'],
+            ['PATCH', '/compliance/subscriptions/:ruleId', 'Activate/deactivate a subscription (activate is entitlement-gated for set-tagged rules)'],
             ['GET', '/compliance/subscriptions/enforced', 'Merged view of currently-enforced rules'],
-            ['POST', '/compliance/subscriptions/preview/impact', 'How many existing entities a rule would fail'],
+            ['POST', '/compliance/subscriptions/preview/impact', 'How many existing entities a rule would fail (entitlement-gated for set-tagged rules)'],
+            ['GET', '/compliance/entitlements/:orgId', "The org's active compliance content sets"],
+            ['PUT', '/compliance/entitlements/:orgId', 'Sync entitled sets (service-only; billing → compliance)'],
             ['POST', '/compliance/validate/plugin', 'Validate plugin attributes (blocking)'],
             ['POST', '/compliance/validate/pipeline/dry-run', 'Pre-flight check (no audit/notification)'],
             ['POST', '/compliance/scans', "Trigger a scan ({ target: 'plugin' | 'pipeline' | 'all' })"],
@@ -210,6 +285,11 @@ export const complianceTopic: HelpTopic = {
           type: 'note',
           content:
             'Cron schedules use standard 5-field format (minute hour dayOfMonth month dayOfWeek). Examples: 0 * * * * (hourly), */15 * * * * (every 15 min), 0 6 * * 1 (Monday 6am).',
+        },
+        {
+          type: 'note',
+          content:
+            'The content-set entitlement gate covers subscribe, activate, bulk-activate, clone, and preview/impact for set:standard / set:advanced rules — not just subscribe. Billing pushes entitlement changes to PUT /compliance/entitlements/:orgId (service-principal only); GET returns the org\'s active sets. See Curated Content Add-ons above.',
         },
       ],
     },

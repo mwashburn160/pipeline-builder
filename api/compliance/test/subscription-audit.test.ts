@@ -66,7 +66,13 @@ jest.unstable_mockModule('drizzle-orm', () => ({
 jest.unstable_mockModule('../src/engine/rule-engine.js', () => ({ evaluateRules: jest.fn() }));
 
 jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
-  complianceRuleService: {},
+  // The entitlement gate on ACTIVATE looks these up; default to un-tagged /
+  // missing so the gate is a no-op and these audit-focused tests exercise the
+  // toggle-audit path (not the paywall).
+  complianceRuleService: {
+    findPublishedById: async () => null,
+    findManyByIds: async () => [],
+  },
 }));
 
 // Spy on the audit surface: the per-rule toggle helper (#A2) and the raw audit

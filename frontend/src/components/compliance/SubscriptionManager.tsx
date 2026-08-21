@@ -1,8 +1,9 @@
 'use client';
 
+import Link from 'next/link';
 import { Select } from '@/components/ui/Select';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { BookOpen, ToggleLeft, ToggleRight, Copy, Pin, PinOff, Loader2, Zap, Eye, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import { BookOpen, ToggleLeft, ToggleRight, Copy, Pin, PinOff, Loader2, Zap, Eye, CheckCircle, XCircle, AlertTriangle, Lock } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { TextEmptyState } from '@/components/ui/EmptyState';
@@ -10,6 +11,8 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { useToast } from '@/components/ui/Toast';
+import { useFeatures } from '@/hooks/useFeatures';
+import type { ComplianceSetFlag } from '@/lib/feature-flags';
 import { formatError } from '@/lib/constants';
 import type { PublishedRuleCatalogEntry, ComplianceRule, ComplianceRuleSubscription, ComplianceCheckResult, RuleTarget, RuleSeverity } from '@/types/compliance';
 import { SEVERITY_BADGE as SEVERITY_COLORS } from '@/lib/compliance-styles';
@@ -18,12 +21,42 @@ interface SubscriptionWithRule extends ComplianceRuleSubscription {
   rule: ComplianceRule | null;
 }
 
+/**
+ * A published catalog rule can carry a `set:<name>` tag marking it as part of a
+ * paid curated content set. Subscribing/activating such a rule is server-gated
+ * on the matching `compliance_<name>` feature, so the catalog must show a locked
+ * upsell (deep-linking to billing) instead of a Subscribe button when the org
+ * doesn't hold the entitlement — otherwise the user hits a 403 round-trip.
+ */
+interface SetTagMeta {
+  feature: ComplianceSetFlag;
+  label: string;
+}
+
+const SET_TAG_META: Record<string, SetTagMeta> = {
+  standard: { feature: 'compliance_standard', label: 'Standard' },
+  advanced: { feature: 'compliance_advanced', label: 'Advanced' },
+};
+
+/** Resolve a rule's `set:<name>` tag (if any) to its gating feature + label. */
+function ruleSetMeta(tags: string[] | undefined): SetTagMeta | null {
+  if (!tags) return null;
+  for (const t of tags) {
+    if (t.startsWith('set:')) {
+      const meta = SET_TAG_META[t.slice(4)];
+      if (meta) return meta;
+    }
+  }
+  return null;
+}
+
 interface SubscriptionManagerProps {
   readOnly?: boolean;
 }
 
 export default function SubscriptionManager({ readOnly = false }: SubscriptionManagerProps) {
   const toast = useToast();
+  const { isEnabled } = useFeatures();
   const [tab, setTab] = useState<'subscriptions' | 'catalog'>('subscriptions');
   const [subscriptions, setSubscriptions] = useState<SubscriptionWithRule[]>([]);
   const [catalog, setCatalog] = useState<PublishedRuleCatalogEntry[]>([]);
@@ -128,9 +161,17 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
   }, 'Failed to subscribe to rule');
 
   const handleAutoSubscribe = () => runMutation(async () => {
-    await api.autoSubscribe();
+    const res = await api.autoSubscribe();
     fetchSubscriptions();
     fetchCatalog();
+    if (res.success && res.data) {
+      const { subscribed, skipped } = res.data;
+      const plural = (n: number) => (n === 1 ? '' : 's');
+      toast.success(
+        `Subscribed to ${subscribed} rule${plural(subscribed)}` +
+          (skipped > 0 ? ` — skipped ${skipped} (already subscribed or set-gated)` : ''),
+      );
+    }
   }, 'Failed to auto-subscribe');
 
   const handleClone = (ruleId: string) => runMutation(async () => {
@@ -418,25 +459,45 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
             <TextEmptyState>No published rules available.</TextEmptyState>
           ) : (
             <>
-              {catalog.map(rule => (
-                <div key={rule.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-                  <div className="flex items-center gap-3">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900 dark:text-white">{rule.name}</div>
-                      {rule.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-md">{rule.description}</div>}
+              {catalog.map(rule => {
+                const setMeta = ruleSetMeta(rule.tags);
+                // Locked = a set-tagged rule whose entitlement the org lacks.
+                // Server-gated on subscribe/activate, so surface the paywall here
+                // instead of sending the user on a 403 round-trip.
+                const locked = setMeta !== null && !isEnabled(setMeta.feature);
+                return (
+                  <div key={rule.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+                    <div className="flex items-center gap-3">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">{rule.name}</div>
+                        {rule.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-md">{rule.description}</div>}
+                      </div>
+                      <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${SEVERITY_COLORS[rule.severity] || SEVERITY_COLORS.warning}`}>{rule.severity}</span>
+                      <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full px-2 py-0.5">{rule.target}</span>
+                      {setMeta && (
+                        <span className="inline-flex items-center gap-1 text-xs font-medium rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-2 py-0.5">
+                          <Lock className="h-3 w-3" aria-hidden="true" /> {setMeta.label}
+                        </span>
+                      )}
                     </div>
-                    <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${SEVERITY_COLORS[rule.severity] || SEVERITY_COLORS.warning}`}>{rule.severity}</span>
-                    <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full px-2 py-0.5">{rule.target}</span>
+                    {rule.subscribed ? (
+                      <span className="text-xs text-green-600 dark:text-green-400 font-medium">Subscribed</span>
+                    ) : locked ? (
+                      <Link
+                        href={`/dashboard/billing?highlight=${setMeta.feature}`}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 whitespace-nowrap"
+                        title={`This rule is part of the ${setMeta.label} Compliance library — unlock it in billing`}
+                      >
+                        <Lock className="h-3 w-3" aria-hidden="true" /> Requires {setMeta.label}
+                      </Link>
+                    ) : (
+                      <Button variant="primary" size="xs" onClick={() => handleSubscribe(rule.id)}>
+                        Subscribe
+                      </Button>
+                    )}
                   </div>
-                  {rule.subscribed ? (
-                    <span className="text-xs text-green-600 dark:text-green-400 font-medium">Subscribed</span>
-                  ) : (
-                    <Button variant="primary" size="xs" onClick={() => handleSubscribe(rule.id)}>
-                      Subscribe
-                    </Button>
-                  )}
-                </div>
-              ))}
+                );
+              })}
               {catalogPagination.total > catalogPagination.limit && (
                 <Pagination
                   pagination={catalogPagination}

@@ -1,0 +1,14 @@
+{
+  "name": "pci-7.2-require-role",
+  "description": "Req 7.2 Establish an access-control role for the pipeline",
+  "target": "pipeline",
+  "severity": "warning",
+  "field": "requiredRole",
+  "operator": "notEmpty",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:7.2"
+  ]
+}

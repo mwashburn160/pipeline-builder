@@ -1,0 +1,15 @@
+{
+  "name": "cis-1.2-name-convention",
+  "description": "CIS 1.2 Consistent, auditable plugin naming",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "name",
+  "operator": "regex",
+  "value": "^[a-z][a-z0-9-]{1,63}$",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-1.2"
+  ]
+}

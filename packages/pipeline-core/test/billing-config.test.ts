@@ -3,7 +3,24 @@
 
 import { jest } from '@jest/globals';
 import { VALID_TIERS } from '@pipeline-builder/api-core';
-import { loadBillingConfig } from '../src/config/billing-config.js';
+import { loadBillingConfig, assertBundleRequiresValid } from '../src/config/billing-config.js';
+import type { BundleConfig } from '../src/config/config-types.js';
+
+/** Minimal BundleConfig factory for the requires-graph assertion tests. */
+function mkBundle(id: string, overrides: Partial<BundleConfig> = {}): BundleConfig {
+  return {
+    id,
+    name: id,
+    description: id,
+    grants: {},
+    prices: { monthly: 1000, annual: 10000 },
+    stackable: false,
+    availableForTiers: ['pro'],
+    isActive: true,
+    sortOrder: 0,
+    ...overrides,
+  };
+}
 
 describe('loadBillingConfig', () => {
   it('provides a plan for every QuotaTier', () => {
@@ -71,7 +88,7 @@ describe('loadBillingConfig', () => {
       id: 'enterprise',
       name: 'Enterprise',
       tier: 'enterprise',
-      prices: { monthly: 39900, annual: 399000 },
+      prices: { monthly: 59900, annual: 599000 },
       isDefault: false,
       sortOrder: 3,
     });
@@ -226,13 +243,16 @@ describe('loadBillingConfig', () => {
       expect(bundles.find((x) => x.id === 'audit_log')?.grants).toEqual({});
     });
 
-    it('makes capacity packs (seats/pipelines/plugins) available on every tier by default', () => {
+    it('makes pipeline/plugin capacity packs available on every tier, but restricts Seat Pack to Team+', () => {
       const { bundles } = loadBillingConfig();
-      for (const id of ['seat_pack', 'pipeline_pack', 'plugin_pack']) {
+      for (const id of ['pipeline_pack', 'plugin_pack']) {
         expect(bundles.find((x) => x.id === id)?.availableForTiers).toEqual(
           ['developer', 'pro', 'team', 'enterprise'],
         );
       }
+      // Seat Pack is Team+ only — otherwise Developer/Pro could add cheap seats and
+      // undercut the Team tier (whose seat count is the differentiator).
+      expect(bundles.find((x) => x.id === 'seat_pack')?.availableForTiers).toEqual(['team', 'enterprise']);
     });
 
     it('overrides purchasable tiers from BILLING_BUNDLE_<ID>_TIERS', () => {
@@ -249,16 +269,17 @@ describe('loadBillingConfig', () => {
       const all = ['developer', 'pro', 'team', 'enterprise'];
       expect(bundles.find((x) => x.id === 'pipeline_pack')?.availableForTiers).toEqual(all);
       expect(bundles.find((x) => x.id === 'plugin_pack')?.availableForTiers).toEqual(all);
-      expect(bundles.find((x) => x.id === 'seat_pack')?.availableForTiers).toEqual(all);
+      // Seat Pack's malformed override falls back to its Team+ default, not `all`.
+      expect(bundles.find((x) => x.id === 'seat_pack')?.availableForTiers).toEqual(['team', 'enterprise']);
     });
 
-    it('defines the Analytics Suite combo (DORA + Team Usage Analytics) at $40/$400', () => {
+    it('defines the Analytics Suite combo (DORA + Team Usage Analytics) at $42/$420 (~30% off)', () => {
       const { comboDiscounts } = loadBillingConfig();
       const suite = comboDiscounts.find((c) => c.id === 'analytics_suite');
       expect(suite).toMatchObject({
         id: 'analytics_suite',
         bundleIds: ['advanced_reporting', 'team_usage_analytics'],
-        prices: { monthly: 4000, annual: 40000 },
+        prices: { monthly: 4200, annual: 42000 },
         isActive: true,
       });
     });
@@ -270,15 +291,45 @@ describe('loadBillingConfig', () => {
       expect(comboDiscounts.find((c) => c.id === 'analytics_suite')?.prices).toEqual({ monthly: 3500, annual: 35000 });
     });
 
-    it('defines the Team Growth combo (≥1 Seat Pack + Team Usage Analytics) at $35/$350', () => {
+    it('defines the Team Growth combo (≥1 Seat Pack + Team Usage Analytics) at $38.50/$385 (~30% off)', () => {
       const { comboDiscounts } = loadBillingConfig();
       const tg = comboDiscounts.find((c) => c.id === 'team_growth');
       expect(tg).toMatchObject({
         id: 'team_growth',
         bundleIds: ['seat_pack', 'team_usage_analytics'],
         minQuantities: { seat_pack: 1 },
-        prices: { monthly: 3500, annual: 35000 },
+        prices: { monthly: 3850, annual: 38500 },
         sortOrder: 1,
+        isActive: true,
+      });
+    });
+
+    it('defines the compliance content add-ons + Suite combo (Advanced requires Standard)', () => {
+      const { bundles, comboDiscounts } = loadBillingConfig();
+      // Standard — feature bundle, Dev/Pro/Team, no prerequisite.
+      expect(bundles.find((x) => x.id === 'compliance_standard')).toMatchObject({
+        id: 'compliance_standard',
+        features: ['compliance_standard'],
+        grants: {},
+        stackable: false,
+        availableForTiers: ['developer', 'pro', 'team'],
+        prices: { monthly: 2990, annual: 29900 },
+      });
+      expect(bundles.find((x) => x.id === 'compliance_standard')?.requires).toBeUndefined();
+      // Advanced — feature bundle, REQUIRES Standard.
+      expect(bundles.find((x) => x.id === 'compliance_advanced')).toMatchObject({
+        id: 'compliance_advanced',
+        features: ['compliance_advanced'],
+        stackable: false,
+        availableForTiers: ['developer', 'pro', 'team'],
+        prices: { monthly: 9990, annual: 99900 },
+        requires: ['compliance_standard'],
+      });
+      // Suite combo — both at 30% off ($908.60/yr vs $1,298 list).
+      expect(comboDiscounts.find((c) => c.id === 'compliance_suite')).toMatchObject({
+        id: 'compliance_suite',
+        bundleIds: ['compliance_standard', 'compliance_advanced'],
+        prices: { monthly: 9086, annual: 90860 },
         isActive: true,
       });
     });
@@ -290,6 +341,50 @@ describe('loadBillingConfig', () => {
       loadBillingConfig();
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('team_growth'));
       warn.mockRestore();
+    });
+  });
+
+  describe('requires validity + cycle assertion', () => {
+    it('accepts the real catalog (loadBillingConfig does not throw)', () => {
+      expect(() => loadBillingConfig()).not.toThrow();
+    });
+
+    it('accepts a valid requires chain', () => {
+      const bundles = [
+        mkBundle('base'),
+        mkBundle('mid', { requires: ['base'] }),
+        mkBundle('top', { requires: ['mid'] }),
+      ];
+      expect(() => assertBundleRequiresValid(bundles)).not.toThrow();
+    });
+
+    it('throws when a requires id does not resolve to a bundle (dangling)', () => {
+      const bundles = [mkBundle('advanced', { requires: ['nonexistent'] })];
+      expect(() => assertBundleRequiresValid(bundles))
+        .toThrow(/requires "nonexistent".*not an active bundle/);
+    });
+
+    it('throws when a requires id names an inactive bundle', () => {
+      const bundles = [
+        mkBundle('base', { isActive: false }),
+        mkBundle('advanced', { requires: ['base'] }),
+      ];
+      expect(() => assertBundleRequiresValid(bundles))
+        .toThrow(/requires "base".*not an active bundle/);
+    });
+
+    it('throws on a direct self-requires cycle', () => {
+      const bundles = [mkBundle('loop', { requires: ['loop'] })];
+      expect(() => assertBundleRequiresValid(bundles)).toThrow(/cycle detected/);
+    });
+
+    it('throws on a multi-node requires cycle', () => {
+      const bundles = [
+        mkBundle('a', { requires: ['b'] }),
+        mkBundle('b', { requires: ['c'] }),
+        mkBundle('c', { requires: ['a'] }),
+      ];
+      expect(() => assertBundleRequiresValid(bundles)).toThrow(/cycle detected/);
     });
   });
 });

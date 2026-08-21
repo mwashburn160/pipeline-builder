@@ -1,0 +1,15 @@
+{
+  "name": "cis-5.10-limit-memory",
+  "description": "CIS 5.10 Limit memory usage per container",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "memoryLimited",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-5.10"
+  ]
+}

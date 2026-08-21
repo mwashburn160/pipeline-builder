@@ -1,0 +1,15 @@
+{
+  "name": "pci-6.3-block-debug",
+  "description": "Req 6.3 Remove debug facilities before release",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "debugEnabled",
+  "operator": "neq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:6.3"
+  ]
+}

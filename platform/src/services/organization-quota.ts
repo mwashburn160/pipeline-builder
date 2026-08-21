@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, getServiceAuthHeader, QUOTA_TIERS, VALID_TIERS, tierAllowsTeams } from '@pipeline-builder/api-core';
+import { createLogger, getServiceAuthHeader, QUOTA_TIERS, TIER_FEATURES, VALID_TIERS, tierAllowsTeams } from '@pipeline-builder/api-core';
 import type { ClientSession, Types } from 'mongoose';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/controller-helper.js';
@@ -55,6 +55,20 @@ function stripRetentionDims(quotas: Record<string, unknown>): void {
 export interface FeatureDelta {
   added: string[];
   removed: string[];
+}
+
+/**
+ * Order-independent set difference between two feature lists: `added = next \
+ * prev`, `removed = prev \ next`. Shared by setSeatLimit (bundle-entitlement
+ * sync) and setTier (tier-baseline downgrade) so both audit deltas are computed
+ * one way. Duplicate entries within a list are collapsed.
+ */
+function computeFeatureDelta(prev: readonly string[], next: readonly string[]): FeatureDelta {
+  const prevSet = new Set(prev);
+  const nextSet = new Set(next);
+  const added = [...nextSet].filter((f) => !prevSet.has(f));
+  const removed = [...prevSet].filter((f) => !nextSet.has(f));
+  return { added, removed };
 }
 
 /**
@@ -232,16 +246,11 @@ export async function setSeatLimit(
       : null;
 
     if (features !== undefined) {
-      const currentFeatures = new Set(current?.featureEntitlements ?? []);
-      const nextFeatures = new Set(features);
-      featureShrink = [...currentFeatures].some((f) => !nextFeatures.has(f));
-      // Set inequality: a removal (shrink) OR a differing size (an add). A
-      // reorder of the same members leaves both false → no descendant rewrite.
-      featuresChanged = featureShrink || currentFeatures.size !== nextFeatures.size;
-      // Capture the concrete added/removed delta for the audit trail.
-      const added = [...nextFeatures].filter((f) => !currentFeatures.has(f));
-      const removed = [...currentFeatures].filter((f) => !nextFeatures.has(f));
-      featureDelta = { added, removed };
+      featureDelta = computeFeatureDelta(current?.featureEntitlements ?? [], features);
+      featureShrink = featureDelta.removed.length > 0;
+      // Set inequality: a removal (shrink) OR an addition. A reorder of the same
+      // members leaves both empty → no descendant rewrite.
+      featuresChanged = featureShrink || featureDelta.added.length > 0;
     }
     // Billing pushes the account tier alongside seats/features so a plan
     // DOWNGRADE invalidates stale tokens here (the JWT re-derives tier-included
@@ -422,7 +431,7 @@ export async function checkTierOvercap(
  * because partial failure of the remote quota service shouldn't
  * leave the org-doc tier unchanged.
  */
-export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: string; previousTier?: QuotaTier; tier: QuotaTier } | null> {
+export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: string; previousTier?: QuotaTier; tier: QuotaTier; featuresRemoved?: string[] } | null> {
   const org = await Organization.findById(toOrgId(id));
   if (!org) return null;
 
@@ -438,6 +447,17 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
   // UPGRADE (or a legacy no-tier → tier transition) never bumps: a stale token
   // then under-grants, which is safe.
   const isDowngrade = isTierDowngrade(previousTier, newTier);
+
+  // On a downgrade, compute the tier-included features the org LOSES
+  // (`TIER_FEATURES[prev] \ TIER_FEATURES[next]`) so the audit trail records
+  // WHICH capabilities the transition revoked — mirroring how `setSeatLimit`
+  // records its `featureDelta.removed`. Purchased add-on bundles
+  // (`featureEntitlements`) are unaffected by a tier change, so only the
+  // tier-baseline delta is reported here. Undefined on an upgrade/no-op.
+  let featuresRemoved: string[] | undefined;
+  if (isDowngrade && previousTier) {
+    featuresRemoved = computeFeatureDelta(TIER_FEATURES[previousTier] ?? [], TIER_FEATURES[newTier] ?? []).removed;
+  }
 
   org.tier = newTier;
   if (org.parentOrgId) {
@@ -519,7 +539,12 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
   // reduced tier / lost features take effect on the stateless services now.
   await publishUsersRevocation(bumpedMemberIds);
 
-  return { id: org._id.toString(), previousTier, tier: newTier };
+  return {
+    id: org._id.toString(),
+    previousTier,
+    tier: newTier,
+    ...(featuresRemoved && featuresRemoved.length > 0 ? { featuresRemoved } : {}),
+  };
 }
 
 /**

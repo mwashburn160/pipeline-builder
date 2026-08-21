@@ -1,0 +1,15 @@
+{
+  "name": "cis-6.1-require-stages",
+  "description": "CIS 6.1 Pipeline defines explicit stages",
+  "target": "pipeline",
+  "severity": "error",
+  "field": "$count(stages)",
+  "operator": "countGt",
+  "value": 0,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-6.1"
+  ]
+}

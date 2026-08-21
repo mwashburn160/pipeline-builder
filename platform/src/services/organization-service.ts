@@ -384,7 +384,7 @@ class OrganizationService {
    * config — see {@link setTier} in organization-quota.js. Delegates; the public
    * method signature is unchanged.
    */
-  async setTier(id: string, newTier: QuotaTier): Promise<{ id: string; previousTier?: QuotaTier; tier: QuotaTier } | null> {
+  async setTier(id: string, newTier: QuotaTier): Promise<{ id: string; previousTier?: QuotaTier; tier: QuotaTier; featuresRemoved?: string[] } | null> {
     return setTier(id, newTier);
   }
 

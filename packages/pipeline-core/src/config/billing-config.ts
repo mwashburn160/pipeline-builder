@@ -168,8 +168,8 @@ export function loadBillingConfig(): BillingConfig {
         || 'Org-wide scale with unlimited seats and priority support',
       tier: 'enterprise',
       prices: {
-        monthly: envCents(process.env.BILLING_PLAN_ENTERPRISE_MONTHLY, 39900),
-        annual: envCents(process.env.BILLING_PLAN_ENTERPRISE_ANNUAL, 399000),
+        monthly: envCents(process.env.BILLING_PLAN_ENTERPRISE_MONTHLY, 59900),
+        annual: envCents(process.env.BILLING_PLAN_ENTERPRISE_ANNUAL, 599000),
       },
       features: parseFeatures(
         process.env.BILLING_PLAN_ENTERPRISE_FEATURES,
@@ -221,9 +221,9 @@ export function loadBillingConfig(): BillingConfig {
  *
  * Defaults:
  *  - "Analytics Suite" — Advanced Reporting (DORA) + Team Usage Analytics, each
- *    $30/mo, together $40/mo ($400/yr) → a $20/mo credit.
+ *    $30/mo, together $42/mo ($420/yr) → a $18/mo credit (~30% off).
  *  - "Team Growth Bundle" — ≥1 Seat Pack ($25) + Team Usage Analytics ($30),
- *    together $35/mo ($350/yr) → a $20/mo credit.
+ *    together $38.50/mo ($385/yr) → a $16.50/mo credit (~30% off).
  * Prices env-overridable via `BILLING_COMBO_<ID>_MONTHLY` / `_ANNUAL`.
  */
 function loadComboDiscounts(bundles: BundleConfig[]): ComboDiscountConfig[] {
@@ -249,8 +249,10 @@ function loadComboDiscounts(bundles: BundleConfig[]): ComboDiscountConfig[] {
   });
 
   const combos = [
-    c('analytics_suite', 'Analytics Suite', ['advanced_reporting', 'team_usage_analytics'], 4000, 40000, 0),
-    c('team_growth', 'Team Growth Bundle', ['seat_pack', 'team_usage_analytics'], 3500, 35000, 1, { seat_pack: 1 }),
+    c('analytics_suite', 'Analytics Suite', ['advanced_reporting', 'team_usage_analytics'], 4200, 42000, 0),
+    c('team_growth', 'Team Growth Bundle', ['seat_pack', 'team_usage_analytics'], 3850, 38500, 1, { seat_pack: 1 }),
+    // Compliance Suite — Standard + Advanced at 30% off ($908.60/yr vs $1,298 list).
+    c('compliance_suite', 'Compliance Suite', ['compliance_standard', 'compliance_advanced'], 9086, 90860, 2),
   ];
   warnOnNonDiscountCombos(combos, bundles);
   return combos;
@@ -329,7 +331,7 @@ function loadBundles(): BundleConfig[] {
     monthly: number,
     availableForTiers: QuotaTier[],
     sortOrder: number,
-    extra: { features?: string[]; stackable?: boolean; maxQuantity?: number } = {},
+    extra: { features?: string[]; stackable?: boolean; maxQuantity?: number; requires?: string[] } = {},
   ): BundleConfig => {
     // Resolve monthly first so the annual fallback tracks a `_MONTHLY` override
     // (annual ≈ 10× the *effective* monthly, not the hardcoded default).
@@ -341,6 +343,7 @@ function loadBundles(): BundleConfig[] {
       grants: applyGrantOverride(id, grants),
       ...(extra.features ? { features: extra.features } : {}),
       ...(extra.maxQuantity !== undefined ? { maxQuantity: extra.maxQuantity } : {}),
+      ...(extra.requires ? { requires: extra.requires } : {}),
       prices: {
         monthly: resolvedMonthly,
         annual: envCents(process.env[`BILLING_BUNDLE_${id.toUpperCase()}_ANNUAL`], resolvedMonthly * 10),
@@ -355,11 +358,14 @@ function loadBundles(): BundleConfig[] {
   // Bundles are purchasable on every SELECTABLE tier (excludes `unlimited`, which
   // is the billing-off tier and buys nothing) — so this is exactly STANDARD_TIERS.
   const ALL: QuotaTier[] = [...STANDARD_TIERS];
-  return [
-    // Capacity packs (seats/pipelines/plugins) are available on EVERY tier so any
+  const bundles: BundleConfig[] = [
+    // Capacity packs (pipelines/plugins) are available on EVERY tier so any
     // account — including free (developer) — can expand in place. Feature bundles
     // (audit_log/sso) and rate packs stay tier-scoped by default.
-    b('seat_pack', 'Seat Pack (+5)', '5 additional member seats', { seats: 5 }, 2500, ALL, 0),
+    // Seat Pack is the EXCEPTION — Team+ only. A single-seat Developer/Pro could
+    // otherwise add cheap seats ($5/seat) and undercut Team (whose 10 seats are the
+    // tier differentiator); restricting it forces "need >1 seat → upgrade to Team".
+    b('seat_pack', 'Seat Pack (+5)', '5 additional member seats', { seats: 5 }, 2500, ['team', 'enterprise'], 0),
     b('pipeline_pack', 'Pipeline Pack (+10)', '10 additional pipelines', { pipelines: 10 }, 1500, ALL, 1),
     b('plugin_pack', 'Plugin Pack (+100)', '100 additional plugins', { plugins: 100 }, 1500, ALL, 2),
     b('api_pack', 'API Pack (+1M)', '1,000,000 additional API calls / period', { apiCalls: 1_000_000 }, 2000, ALL, 3),
@@ -390,5 +396,62 @@ function loadBundles(): BundleConfig[] {
     // — INCLUDED in Enterprise, an add-on on developer/pro/team. Capped at 1
     // (180 + 365 = 545 ≤ the 730-day retention ceiling).
     b('dora_history_pack', 'DORA History Pack (+365d)', '365 additional days of DORA history + report-query window (requires Advanced Reporting)', { doraRetentionDays: 365 }, 3000, ALL, 11, { maxQuantity: 1 }),
+    // Compliance content add-ons (docs/plans/compliance-addons.md). Feature bundles
+    // gating access to curated system-org published rule sets. INCLUDED in
+    // Enterprise/Unlimited (via ALL_FEATURE_FLAGS); sold to Developer/Pro/Team.
+    // Standard = ~20 CI/CD best-practice rules. Advanced = SOC2/PCI/CIS framework
+    // libraries; REQUIRES Standard (or buy the Suite combo for both at 30% off).
+    b('compliance_standard', 'Standard Compliance', 'Curated CI/CD best-practice compliance rules', {}, 2990, ['developer', 'pro', 'team'], 12, { features: ['compliance_standard'], stackable: false }),
+    b('compliance_advanced', 'Advanced Compliance', 'Curated framework compliance libraries (SOC2 / PCI-DSS / CIS)', {}, 9990, ['developer', 'pro', 'team'], 13, { features: ['compliance_advanced'], stackable: false, requires: ['compliance_standard'] }),
   ];
+  assertBundleRequiresValid(bundles);
+  return bundles;
+}
+
+/**
+ * Config-load guardrail for the `requires` prerequisite graph. A `requires` entry
+ * that doesn't resolve to an ACTIVE bundle — or that participates in a cycle —
+ * silently makes the referencing bundle unpurchasable (the addon route rejects
+ * with 400 forever because the prerequisite can never be satisfied). Catch it at
+ * load with a clear error rather than shipping a dead SKU.
+ *
+ *  - Every id in a bundle's `requires` MUST name an active bundle in the catalog.
+ *  - The `requires` graph MUST be acyclic (a → b → a can never be satisfied).
+ */
+export function assertBundleRequiresValid(bundles: BundleConfig[]): void {
+  const active = new Map(bundles.filter((b) => b.isActive).map((b) => [b.id, b]));
+
+  // 1. Validity: every requires id resolves to an active bundle.
+  for (const bundle of bundles) {
+    for (const reqId of bundle.requires ?? []) {
+      if (!active.has(reqId)) {
+        throw new Error(
+          `[billing-config] Bundle "${bundle.id}" requires "${reqId}", which is not an active bundle in the catalog — it would be permanently unpurchasable.`,
+        );
+      }
+    }
+  }
+
+  // 2. Acyclicity: DFS over the requires edges, tracking the current path.
+  const VISITING = 1;
+  const DONE = 2;
+  const state = new Map<string, number>();
+
+  const visit = (id: string, path: string[]): void => {
+    const s = state.get(id);
+    if (s === DONE) return;
+    if (s === VISITING) {
+      const cycle = [...path.slice(path.indexOf(id)), id].join(' -> ');
+      throw new Error(`[billing-config] Bundle "requires" cycle detected: ${cycle}.`);
+    }
+    state.set(id, VISITING);
+    for (const reqId of active.get(id)?.requires ?? []) {
+      visit(reqId, [...path, id]);
+    }
+    state.set(id, DONE);
+  };
+
+  for (const bundle of active.keys()) {
+    visit(bundle, []);
+  }
 }

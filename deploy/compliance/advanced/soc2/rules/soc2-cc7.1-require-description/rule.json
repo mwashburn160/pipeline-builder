@@ -1,0 +1,14 @@
+{
+  "name": "soc2-cc7.1-require-description",
+  "description": "CC7.1 Change detection: plugins document their purpose",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "description",
+  "operator": "notEmpty",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC7.1"
+  ]
+}

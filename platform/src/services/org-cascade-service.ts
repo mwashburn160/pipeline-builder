@@ -224,8 +224,18 @@ export async function cascadeDeleteOrg( orgId: string,
       try {
         // Soft delete only rows not already tombstoned. The duplicate update
         // would be harmless but the row count then misreports.
+        //
+        // This is the TERMINAL org purge (cascadeDeleteOrg runs only from the
+        // purge sweep once the retention window has lapsed), so stamp
+        // `purge_after = now` ALONGSIDE `deleted_at`. Without it the owning
+        // service's retention sweep — keyed on
+        // `deleted_at IS NOT NULL AND purge_after < now` — would leave
+        // `purge_after` NULL and never reclaim these rows (esp.
+        // compliance_policies / compliance_rules), leaving the org's data in
+        // Postgres forever (GDPR erasure gap). The org snapshot captured at
+        // soft-delete time remains the recovery source and is untouched here.
         const result = await db.update(table as never)
-          .set({ deletedAt: now } as never)
+          .set({ deletedAt: now, purgeAfter: now } as never)
           .where(sql`${(table as { orgId: unknown }).orgId} = ${orgId} AND deleted_at IS NULL`);
         report.postgres[name] = { ok: true, rowCount: (result as { rowCount?: number }).rowCount ?? 0 };
       } catch (err) {

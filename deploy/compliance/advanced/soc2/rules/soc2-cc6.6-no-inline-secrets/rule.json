@@ -1,0 +1,15 @@
+{
+  "name": "soc2-cc6.6-no-inline-secrets",
+  "description": "CC6.6 Boundary protection: no inline plaintext secrets in plugin config",
+  "target": "plugin",
+  "severity": "critical",
+  "field": "$count(secrets)",
+  "operator": "countLt",
+  "value": 1,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC6.6"
+  ]
+}

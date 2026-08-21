@@ -277,6 +277,100 @@ async function pushRetentionToReporting(
   }
 }
 
+/**
+ * Derive the compliance CONTENT SETS an account is entitled to from its EFFECTIVE
+ * feature flags (tier-included + bundle-granted). `compliance_standard`→'standard',
+ * `compliance_advanced`→'advanced'. Enterprise / Unlimited include both flags via
+ * `TIER_FEATURES`, so they resolve to `['standard','advanced']`. Order is stable
+ * (standard before advanced). Pure.
+ */
+export function deriveComplianceSets(features: readonly string[]): string[] {
+  const sets: string[] = [];
+  if (features.includes('compliance_standard')) sets.push('standard');
+  if (features.includes('compliance_advanced')) sets.push('advanced');
+  return sets;
+}
+
+/**
+ * The EFFECTIVE feature set (tier baseline ∪ bundle grants) for a tier + add-ons
+ * combination. `effectiveEntitlements` only returns the bundle-granted flags, so
+ * this folds in `TIER_FEATURES[tier]` — the SAME union `syncEntitlements` computes
+ * before pushing compliance sets. Enterprise / Unlimited include both compliance
+ * flags via the tier baseline (they carry no compliance bundle), which is exactly
+ * why the drift reconciler must derive sets from THIS set, not the bundle grants
+ * alone. Pure.
+ */
+export function effectiveFeatureSet(
+  tier: QuotaTier,
+  addons: ReadonlyArray<{ bundleId: string; quantity: number }> = [],
+): string[] {
+  const { features } = effectiveEntitlements(tier, addons, getBundleCatalog());
+  return [...new Set<string>([...(TIER_FEATURES[tier] ?? []), ...features])];
+}
+
+/**
+ * Push the effective COMPLIANCE CONTENT-SET entitlement to the compliance service.
+ * The curated compliance rule libraries (standard / advanced) are content sets,
+ * NOT a quota-service type — the org holds subscription pointers that the
+ * compliance service auto-subscribes/activates (for entitled sets) or deactivates
+ * (for lost sets) to match `sets`. `features` is the EFFECTIVE feature set (tier +
+ * bundles); the entitled sets are derived via {@link deriveComplianceSets}. Mirrors
+ * `pushRetentionToReporting` EXACTLY: same createSafeClient handshake, the same
+ * `authHeader || billingServiceAuth(orgId)` service-token fallback, and the same
+ * `{ Authorization, 'x-org-id': orgId }` headers so the compliance service
+ * authorizes the billing service token identically to reporting's retention-sync /
+ * platform's seat-limit route. Best-effort with an audit row on failure; the
+ * compliance service resolves the org to its root and reconciles idempotently.
+ */
+export async function pushComplianceSetsToCompliance(
+  orgId: string,
+  features: readonly string[],
+  authHeader: string,
+  subscriptionId?: string,
+  // ISO string of the entitlement-change moment (handshake #1). The compliance
+  // service keeps a per-org watermark and IGNORES a push whose `occurredAt` is
+  // older than the last applied one, so two syncs racing for the same org can't
+  // apply out of order. Defaults to now — the change is happening at call time.
+  occurredAt: string = new Date().toISOString(),
+): Promise<boolean> {
+  const sets = deriveComplianceSets(features);
+  try {
+    const client = createSafeClient({
+      host: config.complianceService.host,
+      port: config.complianceService.port,
+      timeout: getBillingTimeout(),
+    });
+    const effectiveAuth = authHeader || billingServiceAuth(orgId);
+    const response = await client.put(
+      `/api/compliance/entitlements/${orgId}`,
+      { sets, occurredAt },
+      { headers: { 'Authorization': effectiveAuth, 'x-org-id': orgId } },
+    );
+    if (response && response.statusCode < 400) {
+      logger.info('Synced compliance sets to compliance service', { orgId, sets });
+      return true;
+    }
+    logger.error('Failed to sync compliance sets to compliance service', {
+      orgId, sets, statusCode: response?.statusCode,
+    });
+    await createBillingEvent(orgId, 'subscription_updated', {
+      reason: 'compliance_sync_failed', sets, statusCode: response?.statusCode,
+    }, subscriptionId);
+    return false;
+  } catch (error) {
+    logger.error('Error syncing compliance sets to compliance service', { orgId, sets, error });
+    // Symmetry with the non-2xx branch (and pushRetentionToReporting): write a
+    // `compliance_sync_failed` audit row so support can see the local billing
+    // state drifted from compliance even when the call THREW rather than 4xx/5xx'd.
+    await createBillingEvent(orgId, 'subscription_updated', {
+      reason: 'compliance_sync_failed',
+      sets,
+      error: error instanceof Error ? error.message : String(error),
+    }, subscriptionId);
+    return false;
+  }
+}
+
 /** The active add-on bundle catalog (env-driven, from pipeline-core config). */
 export function getBundleCatalog(): readonly BundleConfig[] {
   return (Config.get('billing') as BillingConfig | undefined)?.bundles ?? [];
@@ -688,11 +782,13 @@ export async function checkEntitlementOvercap(
 
 /**
  * Sync an account's EFFECTIVE entitlements (tier + add-on bundles) with a
- * THREE-TARGET fan-out (docs/billing-bundles.md §5): the 9 tracked quota limits
+ * FOUR-TARGET fan-out (docs/billing-bundles.md §5): the 9 tracked quota limits
  * go to the quota service; SEATS go to platform (quota has no `seats`); RETENTION
  * (event/dora days) goes to reporting (retention isn't a quota type — it rides
- * `QuotaTierLimits` only to reuse the base+bundle math). All three target the
- * subscription's org (root-scoped). Returns true only if all legs succeed.
+ * `QuotaTierLimits` only to reuse the base+bundle math); COMPLIANCE content sets
+ * (standard/advanced, derived from the effective feature flags) go to the
+ * compliance service. All four target the subscription's org (root-scoped).
+ * Returns true only if all legs succeed.
  */
 export async function syncEntitlements(
   orgId: string,
@@ -707,7 +803,13 @@ export async function syncEntitlements(
   const tracked: Record<string, number> = {};
   for (const t of VALID_QUOTA_TYPES) tracked[t] = limits[t];
 
-  const [quotaOk, seatOk, retentionOk] = await Promise.all([
+  // Compliance content sets are derived from the EFFECTIVE feature set — the union
+  // of tier-included features (`TIER_FEATURES[tier]`; Enterprise/Unlimited auto-
+  // include both compliance flags) and the bundle-granted features. Shared with the
+  // drift reconciler via {@link effectiveFeatureSet} so the two can't diverge.
+  const effectiveFeatures = effectiveFeatureSet(tier, addons);
+
+  const [quotaOk, seatOk, retentionOk, complianceOk] = await Promise.all([
     syncTierToQuotaService(orgId, tier, authHeader, subscriptionId, tracked),
     pushSeatLimitToPlatform(orgId, limits.seats, features, authHeader, subscriptionId, tier),
     pushRetentionToReporting(
@@ -716,9 +818,10 @@ export async function syncEntitlements(
       authHeader,
       subscriptionId,
     ),
+    pushComplianceSetsToCompliance(orgId, effectiveFeatures, authHeader, subscriptionId),
   ]);
 
-  const ok = quotaOk && seatOk && retentionOk;
+  const ok = quotaOk && seatOk && retentionOk && complianceOk;
   if (!ok) {
     // Every caller currently fires-and-forgets this result — the user's
     // subscription mutation succeeds regardless (by design). Centralise the
@@ -732,9 +835,10 @@ export async function syncEntitlements(
       !quotaOk ? 'quota' : null,
       !seatOk ? 'seat' : null,
       !retentionOk ? 'reporting' : null,
+      !complianceOk ? 'compliance' : null,
     ].filter(Boolean).join('+');
-    logger.error('Entitlement sync incomplete — local billing state may have drifted from quota/platform/reporting', {
-      orgId, tier, subscriptionId, quotaOk, seatOk, retentionOk, leg,
+    logger.error('Entitlement sync incomplete — local billing state may have drifted from quota/platform/reporting/compliance', {
+      orgId, tier, subscriptionId, quotaOk, seatOk, retentionOk, complianceOk, leg,
     });
     incCounter('billing_quota_sync_failed_total', { leg });
   }

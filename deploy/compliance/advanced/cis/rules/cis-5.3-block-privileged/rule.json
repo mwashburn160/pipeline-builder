@@ -1,0 +1,15 @@
+{
+  "name": "cis-5.3-block-privileged",
+  "description": "CIS 5.3 Do not use privileged containers",
+  "target": "plugin",
+  "severity": "critical",
+  "field": "privileged",
+  "operator": "neq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-5.3"
+  ]
+}

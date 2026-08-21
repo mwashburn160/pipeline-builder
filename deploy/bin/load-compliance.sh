@@ -2,7 +2,9 @@
 set -euo pipefail
 
 # Load sample compliance rules and policy templates into the platform.
-# Reads from deploy/compliance/rules/*/ and deploy/compliance/policies/*/.
+# Reads the nested set-based tree:
+#   deploy/compliance/standard/{rules,policies}/*/          (set:standard)
+#   deploy/compliance/advanced/<framework>/{rules,policies}/*/  (set:advanced)
 #
 # Expects:
 #   PLATFORM_BASE_URL  — platform URL (default https://localhost:8443)
@@ -46,18 +48,22 @@ post_with_retry() {
   esac
 }
 
-# ---------------------------------------------------------------------------
-# Load rules
-# ---------------------------------------------------------------------------
-RULES_DIR="$COMPLIANCE_DIR/rules"
+# nullglob so a missing set/framework tree expands to nothing (not a literal
+# glob) — keeps the loops from POSTing a bogus path when a set is absent.
+shopt -s nullglob
 
+# ---------------------------------------------------------------------------
+# Load rules — Standard set + every Advanced framework.
+# ---------------------------------------------------------------------------
 echo "=== Loading compliance rules ==="
-echo "  Source: $RULES_DIR"
+echo "  Source: $COMPLIANCE_DIR/{standard,advanced/*}/rules/*/"
 echo ""
 
-for RULE_DIR in "$RULES_DIR"/*/; do
-  RULE_FILE="$RULE_DIR/rule.json"
+for RULE_FILE in \
+  "$COMPLIANCE_DIR"/standard/rules/*/rule.json \
+  "$COMPLIANCE_DIR"/advanced/*/rules/*/rule.json; do
   [ -f "$RULE_FILE" ] || continue
+  RULE_DIR="$(dirname "$RULE_FILE")"
 
   TOTAL=$((TOTAL + 1))
   # Guard jq: a single malformed rule.json under `set -e` would abort the whole
@@ -71,18 +77,18 @@ for RULE_DIR in "$RULES_DIR"/*/; do
 done
 
 # ---------------------------------------------------------------------------
-# Load policy templates
+# Load policy templates — Standard set + every Advanced framework.
 # ---------------------------------------------------------------------------
-POLICIES_DIR="$COMPLIANCE_DIR/policies"
-
 echo ""
 echo "=== Loading compliance policy templates ==="
-echo "  Source: $POLICIES_DIR"
+echo "  Source: $COMPLIANCE_DIR/{standard,advanced/*}/policies/*/"
 echo ""
 
-for POLICY_DIR in "$POLICIES_DIR"/*/; do
-  POLICY_FILE="$POLICY_DIR/policy.json"
+for POLICY_FILE in \
+  "$COMPLIANCE_DIR"/standard/policies/*/policy.json \
+  "$COMPLIANCE_DIR"/advanced/*/policies/*/policy.json; do
   [ -f "$POLICY_FILE" ] || continue
+  POLICY_DIR="$(dirname "$POLICY_FILE")"
 
   TOTAL=$((TOTAL + 1))
   if ! NAME=$(jq -er '.name' "$POLICY_FILE" 2>/dev/null); then

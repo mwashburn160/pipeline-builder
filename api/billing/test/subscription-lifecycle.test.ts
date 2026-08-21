@@ -11,6 +11,18 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockSyncEntitlements = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
 const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 const mockSyncProviderAddons = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+// The compliance-set drift leg re-drives ONLY this push (not the full sync).
+const mockPushComplianceSets = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
+// The EFFECTIVE feature set (tier ∪ bundles) the compliance drift leg derives its
+// expected sets from. Default: no compliance features (⇒ expected sets []).
+const mockEffectiveFeatureSet = jest.fn<(...args: unknown[]) => string[]>().mockReturnValue([]);
+// Real, pure derivation — standard/advanced from the effective feature flags.
+const realDeriveComplianceSets = (features: readonly string[]): string[] => {
+  const sets: string[] = [];
+  if (features.includes('compliance_standard')) sets.push('standard');
+  if (features.includes('compliance_advanced')) sets.push('advanced');
+  return sets;
+};
 
 // EXPECTED entitlements the drift pass compares against. effectiveEntitlements is
 // mocked (billing-helpers) so tests drive the expected side deterministically.
@@ -50,11 +62,15 @@ const mockReadSeat = jest.fn<() => Promise<unknown>>().mockImplementation(() => 
 // Platform feature-entitlements read. Default: the empty set, matching the
 // default expected features ([] from mockEffectiveEntitlements).
 const mockReadFeatures = jest.fn<() => Promise<unknown>>().mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { featureEntitlements: [] } } }));
+// Compliance-service active-sets read (handshake #2). Default: empty active set,
+// matching the default expected sets ([] from mockEffectiveFeatureSet) ⇒ no drift.
+const mockReadCompliance = jest.fn<() => Promise<unknown>>().mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { sets: [] } } }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createSafeClient: () => ({
     post: jest.fn().mockResolvedValue({ statusCode: 201 }),
     get: jest.fn((path: string) => {
+      if (path.includes('/api/compliance/entitlements/')) return mockReadCompliance();
       if (path.includes('/feature-entitlements')) return mockReadFeatures();
       if (path.includes('/seat-usage')) return mockReadSeat();
       if (path.startsWith('/quotas/')) return mockReadQuota();
@@ -91,6 +107,10 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   effectiveEntitlements: (...args: unknown[]) => mockEffectiveEntitlements(...args),
   getBundleCatalog: () => [],
   getBillingTimeout: () => 5000,
+  // Compliance-set drift leg: the expected-set derivation + the surgical re-push.
+  effectiveFeatureSet: (...args: unknown[]) => mockEffectiveFeatureSet(...args),
+  deriveComplianceSets: (features: readonly string[]) => realDeriveComplianceSets(features),
+  pushComplianceSetsToCompliance: (...args: unknown[]) => mockPushComplianceSets(...args),
 }));
 
 const mockFind = jest.fn<(...args: unknown[]) => Promise<unknown[]>>().mockResolvedValue([]);
@@ -136,6 +156,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
     messageService: { host: 'message', port: 3000 },
     quotaService: { host: 'quota', port: 3000 },
     platformService: { host: 'platform', port: 3000 },
+    complianceService: { host: 'compliance', port: 3000 },
   },
 }));
 
@@ -158,6 +179,11 @@ describe('Subscription Lifecycle Checker', () => {
     mockReadQuota.mockImplementation(() => Promise.resolve(okQuotaResponse()));
     mockReadSeat.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { limit: EXPECTED_LIMITS.seats } } }));
     mockReadFeatures.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { featureEntitlements: [] } } }));
+    // Compliance drift defaults: expected sets [] (no compliance features) ==
+    // enforced active sets [] ⇒ no compliance drift.
+    mockEffectiveFeatureSet.mockReturnValue([]);
+    mockReadCompliance.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { sets: [] } } }));
+    mockPushComplianceSets.mockResolvedValue(true);
   });
 
   afterAll(() => {
@@ -740,6 +766,72 @@ describe('Subscription Lifecycle Checker', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       expect(mockSyncEntitlements).not.toHaveBeenCalled();
+      expect(mockUpdateOne).not.toHaveBeenCalled();
+    });
+
+    it('COMPLIANCE drift: entitled sets differ from the compliance service → re-push ONLY the compliance sets + drift metric (dimension compliance)', async () => {
+      onlyDriftReturns(driftSub());
+      // Entitled to `standard` (via a compliance feature) but the compliance
+      // service reports NO active sets — a compliance-only divergence.
+      mockEffectiveFeatureSet.mockReturnValue(['compliance_standard']);
+      mockReadCompliance.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { sets: [] } } }));
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Surgical re-push of the entitled sets (NOT the full four-target sync).
+      expect(mockPushComplianceSets).toHaveBeenCalledWith('org-d', ['compliance_standard'], 'Bearer test-service-token', 'sub-d');
+      expect(mockSyncEntitlements).not.toHaveBeenCalled();
+      expect(mockIncCounter).toHaveBeenCalledWith('billing_entitlement_drift_total', { dimension: 'compliance' });
+      expect(mockUpdateOne).toHaveBeenCalledWith(
+        { _id: 'sub-d' },
+        { $set: { 'metadata.lastReconciledAt': expect.any(String) } },
+      );
+    });
+
+    it('CUTOVER: an entitled-but-inactive Enterprise org (no billing event) → the periodic pass activates BOTH sets', async () => {
+      onlyDriftReturns({ ...driftSub(), planId: 'ent-plan' });
+      mockPlanFindById.mockResolvedValue({ name: 'Enterprise', tier: 'enterprise' });
+      // Enterprise carries both compliance flags via the tier baseline; the
+      // compliance service has never activated them (empty active set).
+      mockEffectiveFeatureSet.mockReturnValue(['compliance_standard', 'compliance_advanced']);
+      mockReadCompliance.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { sets: [] } } }));
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockPushComplianceSets).toHaveBeenCalledWith('org-d', ['compliance_standard', 'compliance_advanced'], 'Bearer test-service-token', 'sub-d');
+      expect(mockIncCounter).toHaveBeenCalledWith('billing_entitlement_drift_total', { dimension: 'compliance' });
+    });
+
+    it('COMPLIANCE match: enforced active sets equal the entitled sets → no re-push, no metric, stamped', async () => {
+      onlyDriftReturns(driftSub());
+      mockEffectiveFeatureSet.mockReturnValue(['compliance_standard']);
+      mockReadCompliance.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { sets: ['standard'] } } }));
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockPushComplianceSets).not.toHaveBeenCalled();
+      expect(mockIncCounter).not.toHaveBeenCalledWith('billing_entitlement_drift_total', { dimension: 'compliance' });
+      expect(mockUpdateOne).toHaveBeenCalledWith(
+        { _id: 'sub-d' },
+        { $set: { 'metadata.lastReconciledAt': expect.any(String) } },
+      );
+    });
+
+    it('COMPLIANCE read failure: the compliance service is unreachable → skip, NO false re-push, NOT stamped', async () => {
+      onlyDriftReturns(driftSub());
+      mockEffectiveFeatureSet.mockReturnValue(['compliance_standard']);
+      // Compliance read returns null (unreachable) — an outage is NOT drift.
+      mockReadCompliance.mockImplementation(() => Promise.resolve(null));
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockPushComplianceSets).not.toHaveBeenCalled();
+      expect(mockIncCounter).not.toHaveBeenCalledWith('billing_entitlement_drift_total', { dimension: 'compliance' });
+      // Un-stamped so it's retried next tick (read failure, not drift).
       expect(mockUpdateOne).not.toHaveBeenCalled();
     });
   });

@@ -151,6 +151,7 @@ Validate plugins and pipelines **before** they're created — not in a quarterly
 - **18 operators** — equals, contains, regex, numeric comparison, value-in-set, field presence, not-empty, array count, string length — plus computed fields (`$count`, `$length`, `$keys`, `$lines`) and cross-field conditions
 - **Three severities** — `warning` (advisory), `error` / `critical` (block creation with HTTP 403)
 - **Published rule catalog** — the platform organization publishes recommended rules; each organization subscribes and opts in per rule
+- **Curated content add-ons** — optional expert-maintained libraries: **Standard** (CI/CD best practices), **Advanced** (SOC2/PCI/CIS frameworks), or the discounted **Suite**; authoring your own rules stays free — see [Compliance](docs/compliance.md#curated-content-add-ons-standard--advanced)
 - **Per-entity exemptions** — temporarily bypass a subscribed rule for a specific pipeline or plugin with audit
 - **Bulk scans + audit trail** — sweep existing resources, generate evidence for compliance reviews
 - **Notifications** — alert on blocks (and, opt-in, warnings) via the in-app inbox, email, or an HMAC-signed webhook; choose immediate delivery or daily/weekly digests, scoped to chosen recipients or all org admins

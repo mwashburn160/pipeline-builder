@@ -1,0 +1,14 @@
+{
+  "name": "cis-4.9-require-description",
+  "description": "CIS 4.9 Document image contents and purpose",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "description",
+  "operator": "notEmpty",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-4.9"
+  ]
+}

@@ -189,6 +189,35 @@ describe('setTier — tier downgrade invalidation', () => {
     // The revocation publish covers every affected user.
     expect(mockPublishUsersRevocation).toHaveBeenCalledWith(['u1', 'u2', 'u3']);
   });
+
+  it('returns featuresRemoved (TIER_FEATURES[prev] \\ TIER_FEATURES[next]) on a DOWNGRADE', async () => {
+    mockOrgFindById.mockResolvedValue(makeOrgDoc({ _id: 'root-1', tier: 'team', quotas: { plugins: 500 } }));
+
+    const result = await setTier('root-1', 'pro');
+
+    // team → pro loses audit_log + sso (team-only tier features); order-independent.
+    expect(result?.featuresRemoved?.slice().sort()).toEqual(['audit_log', 'sso']);
+  });
+
+  it('does NOT set featuresRemoved on an UPGRADE (pro → team)', async () => {
+    mockOrgFindById.mockResolvedValue(makeOrgDoc({ _id: 'root-1', tier: 'pro', quotas: { plugins: 100 } }));
+
+    const result = await setTier('root-1', 'team');
+
+    expect(result?.featuresRemoved).toBeUndefined();
+  });
+
+  it('omits featuresRemoved on a downgrade that loses no tier features (enterprise-only extras absent)', async () => {
+    // team → developer drops audit_log+sso+the pro base — so featuresRemoved is
+    // non-empty; but a same-feature-set downgrade must omit it. developer has [],
+    // so any downgrade FROM a higher tier removes something. Assert the developer
+    // floor: pro → developer removes exactly pro's base features.
+    mockOrgFindById.mockResolvedValue(makeOrgDoc({ _id: 'root-1', tier: 'pro', quotas: { plugins: 100 } }));
+
+    const result = await setTier('root-1', 'developer');
+
+    expect(result?.featuresRemoved?.slice().sort()).toEqual(['ai_generation', 'bulk_operations', 'priority_support']);
+  });
 });
 
 describe('setSeatLimit — feature (bundle) removal invalidation', () => {

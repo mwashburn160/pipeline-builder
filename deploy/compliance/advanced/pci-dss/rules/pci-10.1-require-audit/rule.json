@@ -1,0 +1,15 @@
+{
+  "name": "pci-10.1-require-audit",
+  "description": "Req 10.1 Track and monitor access — audit logging on",
+  "target": "pipeline",
+  "severity": "warning",
+  "field": "auditLoggingEnabled",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:pci-dss",
+    "control:10.1"
+  ]
+}

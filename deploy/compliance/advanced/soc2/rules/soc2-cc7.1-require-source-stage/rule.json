@@ -1,0 +1,15 @@
+{
+  "name": "soc2-cc7.1-require-source-stage",
+  "description": "CC7.1 Change detection: pipeline has a source stage",
+  "target": "pipeline",
+  "severity": "warning",
+  "field": "hasSourceStage",
+  "operator": "eq",
+  "value": true,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC7.1"
+  ]
+}

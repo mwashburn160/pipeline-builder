@@ -97,6 +97,7 @@ Validate plugins and pipelines **before** they're created — not in a quarterly
 - **18 operators** — equals, contains, regex, numeric comparison, value-in-set, field presence, not-empty, array count, string length — plus computed fields (`$count`, `$length`, `$keys`, `$lines`) and cross-field conditions
 - **Three severities** — `warning` (advisory), `error` / `critical` (block creation with HTTP 403)
 - **Published rule catalog** teams subscribe to, **per-entity exemptions**, and **bulk scans + audit trail** for evidence
+- **Curated content add-ons** — optional maintained libraries: **Standard** (CI/CD best practices), **Advanced** (SOC2/PCI/CIS frameworks), or the discounted **Suite**; authoring your own rules stays free — see [Compliance]({{ '/docs/compliance.html' | relative_url }}#curated-content-add-ons-standard--advanced)
 - **Notifications** on block (and opt-in warnings) via in-app inbox, email, or signed webhook — immediate or daily/weekly digests
 
 ### Synth-time templating

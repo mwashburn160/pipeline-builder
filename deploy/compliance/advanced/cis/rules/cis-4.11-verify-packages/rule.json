@@ -1,0 +1,15 @@
+{
+  "name": "cis-4.11-verify-packages",
+  "description": "CIS 4.11 Install verified packages only",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "$count(packages)",
+  "operator": "countGt",
+  "value": 0,
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:cis",
+    "control:CIS-4.11"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "soc2-cc6.3-pipeline-name",
+  "description": "CC6.3 Least privilege: pipeline naming convention",
+  "target": "pipeline",
+  "severity": "warning",
+  "field": "pipelineName",
+  "operator": "regex",
+  "value": "^[a-z][a-z0-9-]{1,63}$",
+  "scope": "published",
+  "tags": [
+    "set:advanced",
+    "framework:soc2",
+    "control:CC6.3"
+  ]
+}

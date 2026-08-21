@@ -16,6 +16,7 @@ import { RESULT_STYLES } from '@/lib/compliance-styles';
 const RuleList = lazy(() => import('./RuleList'));
 const RuleEditor = lazy(() => import('./RuleEditor'));
 const SubscriptionManager = lazy(() => import('./SubscriptionManager'));
+const ComplianceContentSets = lazy(() => import('./ComplianceContentSets'));
 const ExemptionManager = lazy(() => import('./ExemptionManager'));
 const ScanManager = lazy(() => import('./ScanManager'));
 const TemplateOnboarding = lazy(() => import('./TemplateOnboarding'));
@@ -306,7 +307,14 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
                 />
         )}
         {tab === 'policies' && <PolicyManager readOnly={!canManage} />}
-        {tab === 'subscriptions' && <SubscriptionManager readOnly={!canManage} />}
+        {tab === 'subscriptions' && (
+          <div className="space-y-6">
+            {/* Curated content sets — entitlement-gated (upsell for unheld sets). The
+                catalog below is the actual browse/subscribe surface. */}
+            <ComplianceContentSets />
+            <SubscriptionManager readOnly={!canManage} />
+          </div>
+        )}
         {tab === 'enforced' && <EnforcedRulesView />}
         {tab === 'exemptions' && <ExemptionManager readOnly={!canManage} />}
         {tab === 'scans' && (
