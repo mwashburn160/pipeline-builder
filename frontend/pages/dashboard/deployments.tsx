@@ -17,7 +17,10 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
+import { FilterInput } from '@/components/ui/FilterInput';
+import { FilterSelect } from '@/components/ui/FilterSelect';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import { buildListSummary } from '@/lib/list-summary';
 import api from '@/lib/api';
 import type { PipelineDeployment } from '@/lib/api/domains/pipelines';
 import type { Pipeline } from '@/types';
@@ -40,6 +43,33 @@ interface DeploymentRow extends PipelineDeployment {
   currentName?: string;
 }
 
+// Drift-status filter options. "Needs attention" bundles the two actionable
+// states (renamed + orphaned) — the drift banner's quick-filter targets it.
+type DriftFilter = 'all' | 'drifted' | 'synced' | 'renamed' | 'orphaned' | 'unknown';
+const DRIFT_FILTERS: Array<{ label: string; value: DriftFilter }> = [
+  { label: 'All statuses', value: 'all' },
+  { label: 'Needs attention', value: 'drifted' },
+  { label: 'In sync', value: 'synced' },
+  { label: 'Name drift', value: 'renamed' },
+  { label: 'Orphaned', value: 'orphaned' },
+  { label: 'Unknown', value: 'unknown' },
+];
+
+// Sort ordering for the Status column: most-actionable first when ascending.
+const DRIFT_RANK: Record<DriftStatus, number> = { orphaned: 0, renamed: 1, unknown: 2, synced: 3 };
+
+// Client-side sort accessors (the registry endpoint doesn't sort server-side,
+// and drift is a derived field, so sorting happens over the full fetched set).
+const SORT_ACCESSORS: Record<string, (r: DeploymentRow) => string | number> = {
+  name: (r) => (r.pipelineName || '').toLowerCase(),
+  drift: (r) => DRIFT_RANK[r.drift],
+  region: (r) => (r.region || '').toLowerCase(),
+  stack: (r) => (r.stackName || '').toLowerCase(),
+  lastDeployed: (r) => (r.lastDeployed ? new Date(r.lastDeployed).getTime() : 0),
+};
+
+const PAGE_SIZE_DEFAULT = 25;
+
 /**
  * Deployed-pipelines registry page.
  *
@@ -48,6 +78,12 @@ interface DeploymentRow extends PipelineDeployment {
  * pipeline definitions, and lets a `pipelines:write` user register or
  * deregister deployments. Deregister only clears the platform's record — it
  * never touches the CloudFormation stack.
+ *
+ * Sorting, the drift filter, search, and pagination are all CLIENT-side: the
+ * registry endpoint supports only limit/offset (no sort/search), and drift is
+ * derived by joining every row against the current configs — so the page fetches
+ * the full set once and operates over it, rather than silently capping at one
+ * server page.
  */
 export default function DeploymentsPage() {
   const { user, isReady, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'pipelines:read' });
@@ -70,18 +106,36 @@ export default function DeploymentsPage() {
     setLoading(true);
     setError(null);
     try {
-      // Registry rows + current configs in parallel — configs power drift
-      // detection. Config fetch is best-effort: a failure just means every row
-      // renders as "unknown" drift (NOT orphaned) rather than blocking the list.
-      const [regRes, cfgRes] = await Promise.all([
-        api.listPipelineDeployments({ limit: 100 }),
-        api.listPipelines({ limit: '200', includeTotal: 'false' }).catch(() => null),
-      ]);
-      if (regRes.success && regRes.data) {
-        setRows(regRes.data.registry);
-      } else {
-        setError('Failed to load deployments');
+      // Configs (for drift) load in parallel with the registry drain below.
+      // Best-effort: a failure just renders every row "unknown" drift (NOT
+      // orphaned) rather than blocking the list.
+      const cfgPromise = api.listPipelines({ limit: '200', includeTotal: 'false' }).catch(() => null);
+
+      // Drain ALL registry rows (the endpoint is page-limited). Looping until
+      // `hasMore` is false avoids the previous silent limit:100 cap; the
+      // MAX_PAGES bound is a runaway guard that realistically never trips.
+      const PAGE = 200;
+      const MAX_PAGES = 50;
+      const allRows: PipelineDeployment[] = [];
+      let offset = 0;
+      let more = true;
+      let regFailed = false;
+      for (let i = 0; more && i < MAX_PAGES; i++) {
+        const regRes = await api.listPipelineDeployments({ limit: PAGE, offset });
+        if (!regRes.success || !regRes.data) { regFailed = true; break; }
+        const batch = regRes.data.registry;
+        allRows.push(...batch);
+        more = regRes.data.pagination.hasMore && batch.length > 0;
+        offset += batch.length;
       }
+
+      if (regFailed && allRows.length === 0) {
+        setError('Failed to load deployments');
+      } else {
+        setRows(allRows);
+      }
+
+      const cfgRes = await cfgPromise;
       if (cfgRes?.success && cfgRes.data) {
         setConfigs(cfgRes.data.pipelines || []);
         setConfigsLoaded(true);
@@ -121,17 +175,60 @@ export default function DeploymentsPage() {
   // verify, so it must not inflate the count or trigger the reconcile banner.
   const driftCount = useMemo(() => deploymentRows.filter((r) => r.drift === 'renamed' || r.drift === 'orphaned').length, [deploymentRows]);
 
-  // Client-side search over the loaded rows (the list isn't paginated).
+  // ── Filters (client-side) ──
   const [search, setSearch] = useState('');
-  const searchedRows = useMemo(() => {
+  const [driftFilter, setDriftFilter] = useState<DriftFilter>('all');
+  // ── Sort (client-side, external state so it applies BEFORE pagination) ──
+  const [sort, setSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'lastDeployed', dir: 'desc' });
+  // ── Pagination (client-side over the filtered+sorted set) ──
+  const [pageOffset, setPageOffset] = useState(0);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE_DEFAULT);
+
+  // Any change to what's shown resets to the first page.
+  useEffect(() => { setPageOffset(0); }, [search, driftFilter, sort]);
+
+  const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return deploymentRows;
-    return deploymentRows.filter((r) =>
-      (r.pipelineName || '').toLowerCase().includes(q) ||
-      (r.pipelineId || '').toLowerCase().includes(q) ||
-      (r.stackName || '').toLowerCase().includes(q) ||
-      (r.region || '').toLowerCase().includes(q));
-  }, [deploymentRows, search]);
+    return deploymentRows.filter((r) => {
+      if (driftFilter === 'drifted' && !(r.drift === 'renamed' || r.drift === 'orphaned')) return false;
+      if (driftFilter !== 'all' && driftFilter !== 'drifted' && r.drift !== driftFilter) return false;
+      if (!q) return true;
+      return (r.pipelineName || '').toLowerCase().includes(q)
+        || (r.pipelineId || '').toLowerCase().includes(q)
+        || (r.stackName || '').toLowerCase().includes(q)
+        || (r.region || '').toLowerCase().includes(q);
+    });
+  }, [deploymentRows, search, driftFilter]);
+
+  const sortedRows = useMemo(() => {
+    const acc = SORT_ACCESSORS[sort.col] ?? SORT_ACCESSORS.lastDeployed;
+    const arr = [...filteredRows].sort((a, b) => {
+      const av = acc(a);
+      const bv = acc(b);
+      const r = av < bv ? -1 : av > bv ? 1 : 0;
+      return sort.dir === 'asc' ? r : -r;
+    });
+    return arr;
+  }, [filteredRows, sort]);
+
+  // Clamp the offset so a filter that shrank the set doesn't strand an empty page.
+  const total = sortedRows.length;
+  const clampedOffset = total === 0 ? 0 : Math.min(pageOffset, Math.floor((total - 1) / pageSize) * pageSize);
+  const pageRows = useMemo(
+    () => sortedRows.slice(clampedOffset, clampedOffset + pageSize),
+    [sortedRows, clampedOffset, pageSize],
+  );
+  const pagination = { limit: pageSize, offset: clampedOffset, total };
+
+  const hasActiveFilters = !!search.trim() || driftFilter !== 'all';
+  const summary = useMemo(
+    () => buildListSummary(pageRows, total, {
+      noun: 'deployment',
+      isLoading: loading,
+      flags: [{ label: 'needs attention', pred: (r) => r.drift === 'renamed' || r.drift === 'orphaned' }],
+    }),
+    [pageRows, total, loading],
+  );
 
   const performRemove = async (row: DeploymentRow) => {
     setRemoving(row.id);
@@ -157,10 +254,15 @@ export default function DeploymentsPage() {
 
   const openRegister = () => setShowRegister(true);
 
+  const handleSort = useCallback((columnId: string, direction: 'asc' | 'desc') => {
+    setSort({ col: columnId, dir: direction });
+  }, []);
+
   const columns: Column<DeploymentRow>[] = useMemo(() => [
     {
       id: 'name',
       header: 'Pipeline',
+      sortValue: (r) => (r.pipelineName || '').toLowerCase(),
       render: (r) => (
         <div>
           {/* Link to the pipeline detail — except when orphaned (config deleted),
@@ -183,6 +285,7 @@ export default function DeploymentsPage() {
     {
       id: 'drift',
       header: 'Status',
+      sortValue: (r) => DRIFT_RANK[r.drift],
       render: (r) => {
         if (r.drift === 'orphaned') {
           return (
@@ -212,18 +315,21 @@ export default function DeploymentsPage() {
       id: 'region',
       header: 'Region',
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      sortValue: (r) => (r.region || '').toLowerCase(),
       render: (r) => <>{r.region || '—'}</>,
     },
     {
       id: 'stack',
       header: 'Stack',
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400 font-mono',
+      sortValue: (r) => (r.stackName || '').toLowerCase(),
       render: (r) => <>{r.stackName || '—'}</>,
     },
     {
       id: 'lastDeployed',
       header: 'Deployed',
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      sortValue: (r) => (r.lastDeployed ? new Date(r.lastDeployed).getTime() : 0),
       render: (r) => <RelativeTime value={r.lastDeployed} />,
     },
     ...(canWrite ? [{
@@ -263,26 +369,48 @@ export default function DeploymentsPage() {
         <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="deployments" orgName={user.organizationName} size="sm" />
 
         {driftCount > 0 && (
-          <div className="mb-4 rounded-lg border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 p-3 flex items-center gap-2 text-sm text-yellow-900 dark:text-yellow-200">
+          <div className="mb-4 rounded-lg border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 p-3 flex items-center gap-3 text-sm text-yellow-900 dark:text-yellow-200">
             <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span>
+            <span className="flex-1">
               {driftCount} deployment{driftCount > 1 ? 's have' : ' has'} drifted from the current pipeline definitions. Orphaned rows point at a stack whose config was deleted; deregister them to reconcile.
             </span>
+            {driftFilter !== 'drifted' && (
+              <Button variant="secondary" size="sm" onClick={() => setDriftFilter('drifted')}>
+                Show drifted
+              </Button>
+            )}
           </div>
         )}
 
-        {/* Search only appears once there's something to search. */}
+        {/* Filters only appear once there's something to filter. */}
         {deploymentRows.length > 0 && (
-          <div className="relative mb-4 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by pipeline, stack, or region…"
-              aria-label="Search deployments"
-              className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[16rem] max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              <FilterInput
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by pipeline, stack, or region…"
+                aria-label="Search deployments"
+                className="pl-9"
+              />
+            </div>
+            <FilterSelect
+              value={driftFilter}
+              onChange={(e) => setDriftFilter(e.target.value as DriftFilter)}
+              aria-label="Filter by drift status"
+            >
+              {DRIFT_FILTERS.map((f) => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </FilterSelect>
+            {hasActiveFilters && (
+              <Button variant="secondary" size="sm" onClick={() => { setSearch(''); setDriftFilter('all'); }}>
+                Clear
+              </Button>
+            )}
+            {summary && <span className="text-xs text-gray-500 dark:text-gray-400 ml-auto">{summary}</span>}
           </div>
         )}
 
@@ -291,6 +419,9 @@ export default function DeploymentsPage() {
           error={error}
           onRefresh={fetchAll}
           isEmpty={deploymentRows.length === 0}
+          pagination={pagination}
+          onPageChange={setPageOffset}
+          onPageSizeChange={(n) => { setPageSize(n); setPageOffset(0); }}
           errorTitle="Failed to load deployments"
           emptyState={{
             icon: Cloud,
@@ -304,14 +435,19 @@ export default function DeploymentsPage() {
           }}
         >
           <DataTable
-            data={searchedRows}
+            data={pageRows}
             columns={columns}
             isLoading={loading}
             getRowKey={(r) => r.id}
-            emptyState={search ? {
+            defaultSortColumn={sort.col}
+            defaultSortDirection={sort.dir}
+            serverSort
+            onSortChange={handleSort}
+            emptyState={hasActiveFilters ? {
               icon: Search,
               title: 'No matches',
-              description: 'No deployments match your search.',
+              description: 'No deployments match your search or filter.',
+              action: <Button variant="secondary" onClick={() => { setSearch(''); setDriftFilter('all'); }}>Clear filters</Button>,
             } : {
               icon: Cloud,
               title: 'No deployed pipelines yet',
