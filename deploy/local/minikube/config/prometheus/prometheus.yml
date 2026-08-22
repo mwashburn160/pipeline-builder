@@ -2,6 +2,13 @@
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  # REQUIRED by the Thanos sidecar (see prometheus.yaml / thanos-query.yaml).
+  # The sidecar exits 1 with "no external labels configured ..." unless
+  # Prometheus advertises uniquely-identifying external labels. `cluster`
+  # identifies this deployment; `replica` enables Thanos de-duplication.
+  external_labels:
+    cluster: pipeline-builder-local
+    replica: A
 
 # Alert rules — Prometheus evaluates these every `evaluation_interval` and
 # forwards firing alerts to Alertmanager (configured below). See
