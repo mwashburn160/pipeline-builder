@@ -1,11 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { Layers, GitBranch, Puzzle, RefreshCw } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { formatError } from '@/lib/constants';
+import { useListPage } from '@/hooks/useListPage';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { IconButton } from '@/components/ui/IconButton';
@@ -41,68 +41,112 @@ const LIFECYCLE_FILTERS: Array<{ label: string; value: '' | Lifecycle }> = [
   { label: 'Deprecated', value: 'deprecated' },
 ];
 
+// Column-id → server sort field. Only columns the list endpoints actually sort
+// on (PipelineService/PluginService `getSortColumn`) appear here; the matching
+// DataTable columns carry a `sortValue` so their header is clickable. Columns
+// NOT sortable server-side (lifecycle, criticality, category) deliberately omit
+// `sortValue` so their header stays inert rather than firing a no-op reorder.
+const PIPELINE_SORT_FIELD: Record<string, string> = {
+  name: 'pipelineName',
+  project: 'project',
+  updated: 'updatedAt',
+};
+const PLUGIN_SORT_FIELD: Record<string, string> = {
+  name: 'name',
+  version: 'version',
+  updated: 'updatedAt',
+};
+
 /**
  * "My Services" — the developer-portal personal catalog view. Lists the
  * pipelines and plugins the current user OWNS (ownerId = their user id), across
  * the org's catalog, so a developer can find "their stuff" without hunting each
  * feature page. Ownership is the catalog metadata every pipeline/plugin now
  * carries (defaulted to the creator at creation time).
+ *
+ * Both lists are server-paginated + server-sorted via `useListPage` (the same
+ * pattern as the full Plugins catalog page), so there is no client-side row cap:
+ * pagination, sorting, and the lifecycle filter all resolve across the ENTIRE
+ * owned set, not just a fetched page.
  */
 export default function MyServicesPage() {
   const { user, isReady } = useAuthGuard();
+  const ownerId = user?.id;
+  const enabled = isReady && !!ownerId;
 
-  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
-  const [plugins, setPlugins] = useState<Plugin[]>([]);
-  const [loading, setLoading] = useState(false);
-  // Per-section errors, so a failure in one list doesn't blank the section that
-  // DID load (a single shared error is passed to both ResourceLists, which each
-  // render error-XOR-body — so one failure would hide both).
-  const [pipelinesError, setPipelinesError] = useState<string | null>(null);
-  const [pluginsError, setPluginsError] = useState<string | null>(null);
-  const [lifecycle, setLifecycle] = useState<'' | Lifecycle>('');
   // Which resource panel is shown. Pipelines and plugins live in the same
   // tabbed panel rather than stacked, so the page stays compact.
   const [tab, setTab] = useState<'pipelines' | 'plugins'>('pipelines');
 
-  const ownerId = user?.id;
+  // ── Owner-scoped, server-paginated lists (one per tab) ──
+  // Both fetch on mount so each tab label can show its true total. `ownerId` and
+  // `includeTotal` are baked into the fetcher; `lifecycle` is a server filter so
+  // it composes with pagination. urlSync is off: two hooks on one page would
+  // otherwise both write offset/sortBy to the URL and clobber each other.
+  const pipelinesList = useListPage<Pipeline>({
+    fields: [{ key: 'lifecycle', type: 'select', defaultValue: '' }],
+    initialSort: { sortBy: 'updatedAt', sortOrder: 'desc' },
+    fetcher: async (params) => {
+      const p: Record<string, string> = {
+        ownerId: ownerId as string,
+        limit: params.limit,
+        offset: params.offset,
+        includeTotal: 'true',
+      };
+      if (params.sortBy) p.sortBy = params.sortBy;
+      if (params.sortOrder) p.sortOrder = params.sortOrder;
+      if (params.lifecycle) p.lifecycle = params.lifecycle;
+      const res = await api.listPipelines(p);
+      return { items: res.data?.pipelines || [], pagination: res.data?.pagination };
+    },
+    enabled,
+  });
 
-  const fetchAll = useCallback(async () => {
-    if (!ownerId) return;
-    setLoading(true);
-    setPipelinesError(null);
-    setPluginsError(null);
-    try {
-      // Owner-scoped catalog reads run in parallel. `ownerId` is applied
-      // server-side by the shared access-control query builder.
-      const [pRes, plRes] = await Promise.all([
-        api.listPipelines({ ownerId, limit: '200', includeTotal: 'false' }),
-        api.listPlugins({ ownerId, limit: '200' }),
-      ]);
-      if (pRes.success && pRes.data) setPipelines(pRes.data.pipelines || []);
-      else setPipelinesError('Failed to load your pipelines. Please retry.');
-      if (plRes.success && plRes.data) setPlugins(plRes.data.plugins || []);
-      else setPluginsError('Failed to load your plugins. Please retry.');
-    } catch (err) {
-      const msg = formatError(err, 'Failed to load your services');
-      setPipelinesError(msg);
-      setPluginsError(msg);
-    } finally {
-      setLoading(false);
-    }
-  }, [ownerId]);
+  const pluginsList = useListPage<Plugin>({
+    fields: [{ key: 'lifecycle', type: 'select', defaultValue: '' }],
+    initialSort: { sortBy: 'updatedAt', sortOrder: 'desc' },
+    fetcher: async (params) => {
+      const p: Record<string, string> = {
+        ownerId: ownerId as string,
+        limit: params.limit,
+        offset: params.offset,
+        includeTotal: 'true',
+      };
+      if (params.sortBy) p.sortBy = params.sortBy;
+      if (params.sortOrder) p.sortOrder = params.sortOrder;
+      if (params.lifecycle) p.lifecycle = params.lifecycle;
+      const res = await api.listPlugins(p);
+      return { items: res.data?.plugins || [], pagination: res.data?.pagination };
+    },
+    enabled,
+  });
 
-  useEffect(() => {
-    if (isReady) void fetchAll();
-  }, [isReady, fetchAll]);
+  // ── Shared lifecycle filter — one control drives both lists ──
+  const { updateFilter: updatePipelineFilter } = pipelinesList;
+  const { updateFilter: updatePluginFilter } = pluginsList;
+  const lifecycle = (pipelinesList.filters.lifecycle ?? '') as '' | Lifecycle;
+  const setLifecycle = useCallback((value: string) => {
+    updatePipelineFilter('lifecycle', value);
+    updatePluginFilter('lifecycle', value);
+  }, [updatePipelineFilter, updatePluginFilter]);
 
-  const shownPipelines = useMemo(
-    () => (lifecycle ? pipelines.filter((p) => (p.lifecycle ?? 'production') === lifecycle) : pipelines),
-    [pipelines, lifecycle],
-  );
-  const shownPlugins = useMemo(
-    () => (lifecycle ? plugins.filter((p) => (p.lifecycle ?? 'production') === lifecycle) : plugins),
-    [plugins, lifecycle],
-  );
+  const { refresh: refreshPipelines } = pipelinesList;
+  const { refresh: refreshPlugins } = pluginsList;
+  const refreshAll = useCallback(() => {
+    refreshPipelines();
+    refreshPlugins();
+  }, [refreshPipelines, refreshPlugins]);
+  const loading = pipelinesList.isLoading || pluginsList.isLoading;
+
+  // ── Server-side sort: a header click → sortBy/sortOrder for that list ──
+  const { setSort: setPipelineSort } = pipelinesList;
+  const { setSort: setPluginSort } = pluginsList;
+  const handlePipelineSort = useCallback((columnId: string, direction: 'asc' | 'desc') => {
+    setPipelineSort(PIPELINE_SORT_FIELD[columnId] ?? columnId, direction);
+  }, [setPipelineSort]);
+  const handlePluginSort = useCallback((columnId: string, direction: 'asc' | 'desc') => {
+    setPluginSort(PLUGIN_SORT_FIELD[columnId] ?? columnId, direction);
+  }, [setPluginSort]);
 
   const pipelineColumns: Column<Pipeline>[] = useMemo(() => [
     {
@@ -116,8 +160,8 @@ export default function MyServicesPage() {
       sortValue: (p) => p.pipelineName || p.project,
     },
     { id: 'project', header: 'Project', render: (p) => <>{p.project}</>, sortValue: (p) => p.project },
-    { id: 'lifecycle', header: 'Lifecycle', render: (p) => <LifecycleBadge value={p.lifecycle} />, sortValue: (p) => p.lifecycle ?? 'production' },
-    { id: 'criticality', header: 'Criticality', render: (p) => <>{p.criticality || '—'}</>, sortValue: (p) => p.criticality ?? '' },
+    { id: 'lifecycle', header: 'Lifecycle', render: (p) => <LifecycleBadge value={p.lifecycle} /> },
+    { id: 'criticality', header: 'Criticality', render: (p) => <>{p.criticality || '—'}</> },
     { id: 'updated', header: 'Updated', render: (p) => <RelativeTime value={p.updatedAt} />, sortValue: (p) => p.updatedAt },
   ], []);
 
@@ -133,8 +177,8 @@ export default function MyServicesPage() {
       sortValue: (p) => p.name,
     },
     { id: 'version', header: 'Version', render: (p) => <>{p.version}</>, sortValue: (p) => p.version },
-    { id: 'category', header: 'Category', render: (p) => <>{p.category || '—'}</>, sortValue: (p) => p.category ?? '' },
-    { id: 'lifecycle', header: 'Lifecycle', render: (p) => <LifecycleBadge value={p.lifecycle} />, sortValue: (p) => p.lifecycle ?? 'production' },
+    { id: 'category', header: 'Category', render: (p) => <>{p.category || '—'}</> },
+    { id: 'lifecycle', header: 'Lifecycle', render: (p) => <LifecycleBadge value={p.lifecycle} /> },
     { id: 'updated', header: 'Updated', render: (p) => <RelativeTime value={p.updatedAt} />, sortValue: (p) => p.updatedAt },
   ], []);
 
@@ -144,7 +188,7 @@ export default function MyServicesPage() {
       label: (
         <span className="inline-flex items-center gap-1.5">
           <GitBranch className="w-4 h-4" /> Pipelines
-          <span className="text-gray-400 font-normal">({shownPipelines.length})</span>
+          <span className="text-gray-400 font-normal">({pipelinesList.pagination.total})</span>
         </span>
       ),
     },
@@ -153,7 +197,7 @@ export default function MyServicesPage() {
       label: (
         <span className="inline-flex items-center gap-1.5">
           <Puzzle className="w-4 h-4" /> Plugins
-          <span className="text-gray-400 font-normal">({shownPlugins.length})</span>
+          <span className="text-gray-400 font-normal">({pluginsList.pagination.total})</span>
         </span>
       ),
     },
@@ -169,14 +213,14 @@ export default function MyServicesPage() {
         <div className="flex items-center gap-2">
           <FilterSelect
             value={lifecycle}
-            onChange={(e) => setLifecycle(e.target.value as '' | Lifecycle)}
+            onChange={(e) => setLifecycle(e.target.value)}
             aria-label="Filter by lifecycle"
           >
             {LIFECYCLE_FILTERS.map((f) => (
               <option key={f.value} value={f.value}>{f.label}</option>
             ))}
           </FilterSelect>
-          <IconButton onClick={fetchAll} title="Refresh" aria-label="Refresh" disabled={loading}>
+          <IconButton onClick={refreshAll} title="Refresh" aria-label="Refresh" disabled={loading}>
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </IconButton>
         </div>
@@ -187,10 +231,13 @@ export default function MyServicesPage() {
 
         {tab === 'pipelines' ? (
           <ResourceList<Pipeline>
-            loading={loading}
-            error={pipelinesError}
-            onRefresh={fetchAll}
-            isEmpty={shownPipelines.length === 0}
+            loading={pipelinesList.isLoading}
+            error={pipelinesList.error}
+            onRefresh={refreshPipelines}
+            isEmpty={pipelinesList.data.length === 0}
+            pagination={pipelinesList.pagination}
+            onPageChange={pipelinesList.handlePageChange}
+            onPageSizeChange={pipelinesList.handlePageSizeChange}
             errorTitle="Failed to load your pipelines"
             emptyState={{
               icon: Layers,
@@ -204,19 +251,26 @@ export default function MyServicesPage() {
             }}
           >
             <DataTable
-              data={shownPipelines}
+              data={pipelinesList.data}
               columns={pipelineColumns}
-              isLoading={loading}
+              isLoading={pipelinesList.isLoading}
               getRowKey={(p) => p.id}
+              defaultSortColumn="updated"
+              defaultSortDirection="desc"
+              serverSort
+              onSortChange={handlePipelineSort}
               emptyState={{ icon: Layers, title: 'No pipelines owned by you', description: 'Pipelines you create are assigned to you and appear here.' }}
             />
           </ResourceList>
         ) : (
           <ResourceList<Plugin>
-            loading={loading}
-            error={pluginsError}
-            onRefresh={fetchAll}
-            isEmpty={shownPlugins.length === 0}
+            loading={pluginsList.isLoading}
+            error={pluginsList.error}
+            onRefresh={refreshPlugins}
+            isEmpty={pluginsList.data.length === 0}
+            pagination={pluginsList.pagination}
+            onPageChange={pluginsList.handlePageChange}
+            onPageSizeChange={pluginsList.handlePageSizeChange}
             errorTitle="Failed to load your plugins"
             emptyState={{
               icon: Layers,
@@ -225,10 +279,14 @@ export default function MyServicesPage() {
             }}
           >
             <DataTable
-              data={shownPlugins}
+              data={pluginsList.data}
               columns={pluginColumns}
-              isLoading={loading}
+              isLoading={pluginsList.isLoading}
               getRowKey={(p) => p.id}
+              defaultSortColumn="updated"
+              defaultSortDirection="desc"
+              serverSort
+              onSortChange={handlePluginSort}
               emptyState={{ icon: Layers, title: 'No plugins owned by you', description: 'Plugins you upload or generate are assigned to you and appear here.' }}
             />
           </ResourceList>
