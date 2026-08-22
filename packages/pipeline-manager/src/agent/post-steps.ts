@@ -119,14 +119,29 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
 
   if (opts.events) {
     if (opts.target === 'ec2' || opts.target === 'eks') {
-      // Event ingestion needs a platform JWT in Secrets Manager BEFORE the Lambda
-      // is wired up, so this is a two-step bundle: store-token writes the token,
-      // then setup-events deploys the EventBridge → SQS → Lambda that reads it.
-      // store-token derives the secret path from the JWT's org (CoreConstants pattern
-      // → pipeline-builder/{orgId}/platform). NOTE: setup-events still REQUIRES that
-      // name via --secret-name / PLATFORM_SECRET_NAME (it does not yet derive it), so
-      // the operator supplies it when running this bundle. provision surfaces (does not
-      // auto-run) the bundle on AWS — it needs a registered, in-VPC platform.
+      // Event ingestion is a THREE-step bundle, in this order:
+      //   1. store-token          — the full-privilege platform JWT (synth/deploy
+      //                             callbacks read it; --schedule auto-renews it).
+      //   2. store-token --scope reporting:ingest
+      //                           — a DISTINCT least-privilege token whose `scope`
+      //                             claim is exactly `reporting:ingest`. The ingest
+      //                             endpoint requires this scope and `hasScope` is a
+      //                             single-value equality check, so the platform
+      //                             token (no scope) can NEVER ingest — the Lambda
+      //                             must read this dedicated token. Stored at
+      //                             `.../reporting-ingest`. Long-lived (365d): the
+      //                             shared token-renew stack renews only the platform
+      //                             secret and can't re-mint a scoped credential, so
+      //                             this one is not on --schedule (re-run before it
+      //                             lapses). See setup-events --scoped-ingest.
+      //   3. setup-events --scoped-ingest
+      //                           — deploys the EventBridge → SQS → Lambda and points
+      //                             the Lambda at the reporting-ingest secret from #2.
+      //                             WITHOUT --scoped-ingest the Lambda reads the
+      //                             platform secret and every ingest 403s
+      //                             ("Token must carry the 'reporting:ingest' scope").
+      // provision surfaces (does not auto-run) the bundle on AWS — it needs a
+      // registered, in-VPC platform.
       const region = opts.region ? ` --region ${opts.region}` : '';
       // Mirror the register branch's target rule: bake PLATFORM_BASE_URL only on
       // ec2 (the in-VPC URL resolves on the box). On eks the public ALB/DNS isn't
@@ -137,15 +152,21 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
       steps.push({
         id: 'store-token',
         label: 'Store platform token in AWS Secrets Manager (+ daily auto-renewal)',
-        // --schedule: the event-ingestion Lambda reads this token, so install the
+        // --schedule: synth/deploy callbacks read this token, so install the
         // renewal stack so it never lapses (store-token no longer deploys it by default).
         command: `pipeline-manager infra store-token --schedule${region}`,
         env,
       });
       steps.push({
+        id: 'store-token-ingest',
+        label: 'Store reporting-ingest (scoped) token in AWS Secrets Manager',
+        command: `pipeline-manager infra store-token --scope reporting:ingest --days 365${region}`,
+        env,
+      });
+      steps.push({
         id: 'events',
-        label: 'EventBridge ingestion (setup-events)',
-        command: `pipeline-manager infra setup-events${region}`,
+        label: 'EventBridge ingestion (setup-events, scoped-ingest)',
+        command: `pipeline-manager infra setup-events --scoped-ingest${region}`,
         env,
       });
     } else {

@@ -273,7 +273,7 @@ export async function runPostSteps(
   if (postSteps.length === 0) return;
   for (const s of skippedSteps) printWarning(`Skipped post-step ${s.id}: ${s.reason}`);
   const isRemote = (id: string): boolean =>
-    (target === 'ec2' || target === 'eks') && (id === 'register' || id === 'store-token' || id === 'events');
+    (target === 'ec2' || target === 'eks') && (id === 'register' || id.startsWith('store-token') || id === 'events');
   const runnable = postSteps.filter((s) => !isRemote(s.id));
   const remote = postSteps.filter((s) => isRemote(s.id));
   if (remote.length > 0) {
@@ -305,7 +305,7 @@ export async function runPostSteps(
       printSection(`Post-step: ${s.label}`);
       // register (local/minikube) logs into the platform, so it needs the admin creds
       // (PLATFORM_IDENTIFIER / PLATFORM_PASSWORD) on top of its step env.
-      const needsCreds = s.id === 'register' || s.id === 'store-token';
+      const needsCreds = s.id === 'register' || s.id.startsWith('store-token');
       const env = needsCreds ? { ...s.env, ...adminEnv } : s.env;
       // Loads/smoke are noisy + non-interactive → run QUIET (capture, show only on
       // failure). Exception: a register with no admin creds prompts, so it must stream.
