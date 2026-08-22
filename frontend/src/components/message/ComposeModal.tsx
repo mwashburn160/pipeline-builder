@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { RecipientPicker, type MemberOption } from '@/components/message/RecipientPicker';
+import { aliasLocalPart } from '@/lib/support-label';
 // The compose "To" field prefills the configured support alias (passed in via
 // the `supportAlias` prop, sourced from the server's SUPPORT_ALIASES). This
 // module constant is only the fallback until that config loads. A send to a
@@ -433,7 +434,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
             <datalist id="compose-recipient-options">
               {aliasList.map((alias) => (
                 <option key={alias} value={alias}>
-                  {alias.toLowerCase() === supportAlias.toLowerCase() ? 'Pipeline Builder Support' : alias}
+                  {aliasLocalPart(alias)}
                 </option>
               ))}
               {mergedSuggestions.map((opt) => (

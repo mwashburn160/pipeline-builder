@@ -30,11 +30,18 @@ interface MessageListProps {
   emptyDescription?: string;
 }
 
+/** The system tenant's well-known org id (api-core SYSTEM_ORG_ID default). */
+const SYSTEM_ORG_ID = '000000000000000000000001';
+
 /**
  * Returns the display name for a message row: "Announcement", or the OTHER
  * party's org name (server-enriched `*OrgName`, else the client-side
  * `resolveOrgName` backfill, else the raw id). When the current org is the
  * sender, the other party is the recipient, and vice-versa.
+ *
+ * The support desk (system org) is special-cased: its configured label
+ * (`resolveOrgName` → "support and help") wins over the raw "system" org name
+ * the server enriches onto the row.
  */
 function getDisplayName(
   msg: Message,
@@ -42,10 +49,13 @@ function getDisplayName(
   resolveOrgName?: (id?: string | null) => string | undefined,
 ): string {
   if (msg.messageType === 'announcement') return 'Announcement';
-  if (msg.orgId.toLowerCase() === currentOrgId.toLowerCase()) {
-    return msg.recipientOrgName || resolveOrgName?.(msg.recipientOrgId) || msg.recipientOrgId;
+  const mine = msg.orgId.toLowerCase() === currentOrgId.toLowerCase();
+  const otherId = mine ? msg.recipientOrgId : msg.orgId;
+  const otherName = mine ? msg.recipientOrgName : msg.orgName;
+  if (otherId?.toLowerCase() === SYSTEM_ORG_ID) {
+    return resolveOrgName?.(otherId) || otherName || otherId;
   }
-  return msg.orgName || resolveOrgName?.(msg.orgId) || msg.orgId;
+  return otherName || resolveOrgName?.(otherId) || otherId;
 }
 
 /**

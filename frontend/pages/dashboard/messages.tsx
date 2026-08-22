@@ -17,6 +17,7 @@ import { MessageBadge } from '@/components/message/MessageBadge';
 import { LiveStatusIndicator } from '@/components/message/LiveStatusIndicator';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import api from '@/lib/api';
+import { aliasLocalPart } from '@/lib/support-label';
 import type { Message } from '@/types';
 import type { MemberOption } from '@/components/message/RecipientPicker';
 
@@ -107,9 +108,12 @@ export default function MessagesPage() {
         m.set(msg.recipientOrgId.toLowerCase(), msg.recipientOrgName);
       }
     }
-    if (!m.has(SYSTEM_ORG_ID)) m.set(SYSTEM_ORG_ID, 'Pipeline Builder Support');
+    // The system tenant is the support desk: show the primary support alias's
+    // local-part (e.g. "support") — override its raw org name ("system"), which is
+    // enriched onto messages and would otherwise win.
+    m.set(SYSTEM_ORG_ID, aliasLocalPart(supportAlias));
     return m;
-  }, [organizations, messages]);
+  }, [organizations, messages, supportAlias]);
 
   const resolveOrgName = useCallback(
     (id?: string | null): string | undefined => (id ? orgNameById.get(id.toLowerCase()) : undefined),
@@ -137,6 +141,14 @@ export default function MessagesPage() {
     return out;
   }, [messages, currentOrgId, resolveOrgName]);
 
+  // The channel filter is only meaningful when the inbox actually spans more than
+  // one channel bucket (a distinct channel value, or the no-channel "Other").
+  // For a single-channel inbox — the common case — hide the row to cut chrome and
+  // treat the filter as "all" so a stale selection can't hide everything.
+  const channelBuckets = useMemo(() => new Set(messages.map((m) => m.channel || 'none')), [messages]);
+  const showChannelFilter = channelBuckets.size > 1;
+  const effectiveChannelFilter = showChannelFilter ? channelFilter : 'all';
+
   const filteredMessages = useMemo(() => {
     let out = messages;
     if (messageFilter === 'announcements') {
@@ -144,13 +156,13 @@ export default function MessagesPage() {
     } else if (messageFilter === 'conversations') {
       out = out.filter((m) => m.messageType !== 'announcement');
     }
-    if (channelFilter === 'none') {
+    if (effectiveChannelFilter === 'none') {
       out = out.filter((m) => !m.channel);
-    } else if (channelFilter !== 'all') {
-      out = out.filter((m) => m.channel === channelFilter);
+    } else if (effectiveChannelFilter !== 'all') {
+      out = out.filter((m) => m.channel === effectiveChannelFilter);
     }
     return out;
-  }, [messages, messageFilter, channelFilter]);
+  }, [messages, messageFilter, effectiveChannelFilter]);
 
   const handleSelectMessage = useCallback((msg: Message) => {
     setSelectedMessage(msg);
@@ -282,7 +294,8 @@ export default function MessagesPage() {
                 </button>
               ))}
             </div>
-            {/* Filter tabs — channel */}
+            {/* Filter tabs — channel (only when the inbox spans >1 channel) */}
+            {showChannelFilter && (
             <div className="flex items-center gap-1 px-3 py-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
               {CHANNEL_TABS.map(({ key, label }) => (
                 <button
@@ -298,6 +311,7 @@ export default function MessagesPage() {
                 </button>
               ))}
             </div>
+            )}
 
             {/* Live-updates status — only shown when SSE has dropped after a
                 healthy connection; the list keeps refreshing via polling. */}

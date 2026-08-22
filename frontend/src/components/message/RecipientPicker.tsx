@@ -6,11 +6,15 @@ import { X, User, Users } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { useCombobox } from '@/hooks/useCombobox';
 import { useDebounce } from '@/hooks/useDebounce';
+import { aliasLocalPart } from '@/lib/support-label';
 
-/** A messageable org/team: `value` is the org id sent to the API, `label` its name. */
+/** A messageable org/team: `value` is the org id sent to the API, `label` its
+ *  (possibly shortened) display name, and `title` an optional fuller identity
+ *  shown on hover (e.g. the full support alias or organization name). */
 export interface TeamOption {
   value: string;
   label: string;
+  title?: string;
 }
 
 /** Minimal member shape the user typeahead needs. */
@@ -22,7 +26,8 @@ export interface MemberOption {
 
 /** Props for {@link RecipientPicker}. */
 interface RecipientPickerProps {
-  /** Primary support alias — the one labeled "Pipeline Builder Support". */
+  /** Primary support alias — the default recipient; shown as its local-part
+   *  (e.g. "support"), with the full alias on hover. */
   supportAlias: string;
   /** All configured support aliases (support@, help@, …) to list as recipients.
    *  Defaults to `[supportAlias]` when omitted. */
@@ -44,9 +49,6 @@ interface RecipientPickerProps {
    *  send cross-org); omitted ⇒ the combobox stays limited to `teamOptions`. */
   searchTeams?: (query: string) => Promise<TeamOption[]>;
 }
-
-/** Friendly label for the well-known support alias. */
-const SUPPORT_LABEL = 'Pipeline Builder Support';
 
 /**
  * Two-part recipient picker for composing a message:
@@ -73,19 +75,22 @@ export function RecipientPicker({
   fetchMembers,
   searchTeams,
 }: RecipientPickerProps) {
-  // Every configured support alias, primary first and labeled "Pipeline Builder
-  // Support"; the rest labeled by their alias. Set (lowercased) drives the
-  // "is this a support recipient?" check below.
+  // Each configured support alias (support@, help@, …) is its OWN recipient,
+  // labeled by its local-part — "support", "help" — with the full alias shown on
+  // hover (`title`). `aliasSet` keeps ALL aliases so the "is this a support
+  // recipient?" check below still recognizes any of them.
   const aliases = useMemo(() => (supportAliases?.length ? supportAliases : [supportAlias]), [supportAliases, supportAlias]);
   const aliasSet = useMemo(() => new Set(aliases.map((a) => a.toLowerCase())), [aliases]);
 
   // All selectable teams: the support aliases first, then the caller's teams.
+  // Teams carry `title = label` so a name truncated in the row is fully readable
+  // on hover.
   const allTeams = useMemo<TeamOption[]>(
     () => [
-      ...aliases.map((a) => ({ value: a, label: a.toLowerCase() === supportAlias.toLowerCase() ? SUPPORT_LABEL : a })),
-      ...teamOptions,
+      ...aliases.map((a) => ({ value: a, label: aliasLocalPart(a), title: a })),
+      ...teamOptions.map((t) => ({ ...t, title: t.title ?? t.label })),
     ],
-    [aliases, supportAlias, teamOptions],
+    [aliases, teamOptions],
   );
 
   // Display text for the team field. Initialized (once per mount — the modal
@@ -250,6 +255,7 @@ export function RecipientPicker({
                   onMouseDown={(e) => e.preventDefault()}
                   onMouseEnter={() => team.setActiveIndex(i)}
                   onClick={() => handleTeamSelect(opt)}
+                  title={opt.title || opt.label}
                   className={`w-full text-left px-3 py-1.5 cursor-pointer text-gray-900 dark:text-gray-100 transition-colors flex items-center gap-2 ${i === team.activeIndex ? 'bg-blue-100 dark:bg-blue-900/40' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
                 >
                   <Users className="w-3.5 h-3.5 text-gray-400 shrink-0" />
