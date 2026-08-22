@@ -488,6 +488,19 @@ const pipelineEvents = new PackageProject({
   ],
 });
 pipelineEvents.eslint?.addRules(rules);
+// The handler imports @aws-sdk/client-sqs (DLQ self-healing redrive) and
+// @aws-sdk/client-codecommit (commit-timestamp resolution); the tests stub both
+// so no real AWS call is made. These map entries MUST live here (not just in the
+// generated package.json) or projen synth drops them — which breaks the handler
+// suite: CodeCommit GetCommit resolves `undefined` and the SQS/DLQ paths hang to
+// the 5s jest timeout. Merge onto the shared uuid + JS-ext mappers, don't replace.
+if (pipelineEvents.jest) {
+  pipelineEvents.jest.config.moduleNameMapper = {
+    ...pipelineEvents.jest.config.moduleNameMapper,
+    '^@aws-sdk/client-sqs$': '<rootDir>/test/aws-sdk-stub.js',
+    '^@aws-sdk/client-codecommit$': '<rootDir>/test/aws-sdk-stub.js',
+  };
+}
 // Published to npm: `pipeline-manager infra setup-events` runs `npm install
 // @pipeline-builder/pipeline-events@<version>` to fetch the Lambda handler it
 // uploads (see commands/setup-events.ts), so it must be on the registry and
