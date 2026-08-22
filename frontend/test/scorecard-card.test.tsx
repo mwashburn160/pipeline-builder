@@ -78,6 +78,25 @@ describe('ScorecardCard', () => {
     expect(screen.getByText('n/a')).toBeInTheDocument();
   });
 
+  it('shows a "not enough data yet" empty state for an ungraded (N/A + null score) scorecard', async () => {
+    getPipelineScorecard.mockResolvedValue({
+      success: true,
+      data: {
+        scorecard: {
+          ...baseScorecard,
+          score: null,
+          grade: 'N/A',
+          compliance: { score: null, rulesEvaluated: 0, violations: 0, warnings: 0 },
+          dora: { score: null, basis: 'deploy', deploymentFrequency: null, changeFailureRate: null, meanTimeToRestore: null, leadTime: null },
+        },
+      },
+    });
+    render(<ScorecardCard pipelineId="p1" />);
+    expect(await screen.findByText('Not enough data yet')).toBeInTheDocument();
+    // The dead N/A grid (band labels) must NOT render in the empty state.
+    expect(screen.queryByText('Deploy frequency')).not.toBeInTheDocument();
+  });
+
   it('shows an unavailable message when the scorecard fetch fails', async () => {
     getPipelineScorecard.mockResolvedValue({ success: false });
     render(<ScorecardCard pipelineId="p1" />);

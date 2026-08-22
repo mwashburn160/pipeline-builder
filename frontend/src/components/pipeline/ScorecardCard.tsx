@@ -69,6 +69,24 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
         <p className="text-sm text-gray-400">Computing…</p>
       ) : failed || !scorecard ? (
         <p className="text-sm text-gray-400">Scorecard unavailable.</p>
+      ) : scorecard.grade === 'N/A' && scorecard.score == null ? (
+        // Empty state: no compliance rules evaluated AND no DORA data yet, so a
+        // grade can't be computed. Show what unlocks it instead of a wall of
+        // N/A rows (which read as broken on a fresh pipeline).
+        <div>
+          <div className="flex items-center gap-3">
+            <span className={`inline-flex items-center justify-center w-12 h-12 rounded-lg text-base font-bold ${GRADE_STYLES['N/A']}`}>
+              N/A
+            </span>
+            <div>
+              <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Not enough data yet</div>
+              <div className="text-xs text-gray-400">A grade appears once this pipeline has enforced compliance rules and recorded production deploys.</div>
+            </div>
+          </div>
+          <p className="text-[11px] text-gray-400 mt-3">
+            DORA metrics need deploy events (enable with <code className="font-mono">setup-events --with-dora</code> and deploy to production); the compliance score needs enforced rules.
+          </p>
+        </div>
       ) : (
         <div className="space-y-3">
           <div className="flex items-center gap-3">

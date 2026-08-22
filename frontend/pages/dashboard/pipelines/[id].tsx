@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { ArrowLeft, Ban, GitBranch, LayoutTemplate, Pencil, Play, Trash2 } from 'lucide-react';
+import { ArrowLeft, Ban, ExternalLink, GitBranch, LayoutTemplate, Pencil, Play, Rocket, Trash2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { useToast } from '@/components/ui/Toast';
@@ -37,6 +37,7 @@ import { PipelineContextCard } from '@/components/pipeline/PipelineContextCard';
 import { formatError } from '@/lib/constants';
 import { canWritePipeline } from '@/lib/resource-helpers';
 import api from '@/lib/api';
+import type { PipelineDeployment } from '@/lib/api/domains/pipelines';
 import type { Pipeline } from '@/types';
 
 interface ExecutionRow {
@@ -110,6 +111,38 @@ export default function PipelineDetailPage() {
         setExecStats(row);
       })
       .catch(() => { /* non-blocking — panel just won't render */ });
+    return () => { cancelled = true; };
+  }, [id]);
+
+  // Resolve owner/creator/updater user-ids → usernames (raw ids are unfriendly).
+  // Non-blocking: falls back to the id if the roster can't be loaded.
+  const [memberNames, setMemberNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!user?.organizationId) return;
+    let cancelled = false;
+    api.getOrganizationMembers(user.organizationId, { limit: 500 })
+      .then((r) => {
+        if (cancelled || !r.data) return;
+        const map: Record<string, string> = {};
+        for (const m of r.data.members) map[m.id] = m.username;
+        setMemberNames(map);
+      })
+      .catch(() => { /* non-blocking — fall back to raw ids */ });
+    return () => { cancelled = true; };
+  }, [user?.organizationId]);
+
+  // Live deployment (from the registry) for this pipeline — powers the Deployment
+  // card + the "View stack in AWS" link. Non-blocking; absent → card hidden.
+  const [deployment, setDeployment] = useState<PipelineDeployment | null>(null);
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    api.listPipelineDeployments({ limit: 200 })
+      .then((r) => {
+        if (cancelled || !r.data) return;
+        setDeployment(r.data.registry.find((d) => d.pipelineId === id) ?? null);
+      })
+      .catch(() => { /* non-blocking — card just won't render */ });
     return () => { cancelled = true; };
   }, [id]);
 
@@ -251,6 +284,46 @@ export default function PipelineDetailPage() {
         { label: 'Pipelines', href: '/dashboard/pipelines' },
         { label: pipeline?.pipelineName || pipeline?.project || 'Pipeline' },
       ]}
+      actions={pipeline ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            onClick={handleTrigger}
+            disabled={!canEdit || triggering}
+            className="inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={canEdit ? undefined : 'Read-only (public catalog entry)'}
+          >
+            {triggering ? <LoadingSpinner size="sm" /> : <Play className="w-4 h-4" />}
+            {executions && executions.length > 0 ? 'Re-run' : 'Run pipeline'}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => setShowEdit(true)}
+            disabled={!canEdit}
+            className="inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={canEdit ? undefined : 'Read-only (public catalog entry)'}
+          >
+            <Pencil className="w-4 h-4" /> Edit
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => setShowSaveTemplate(true)}
+            disabled={!canWrite}
+            className="inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={canWrite ? 'Save this pipeline as a reusable golden-path template' : 'Requires pipelines:write'}
+          >
+            <LayoutTemplate className="w-4 h-4" /> Save as template
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => setShowDelete(true)}
+            disabled={!canEdit}
+            className="inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={canEdit ? undefined : 'Read-only (public catalog entry)'}
+          >
+            <Trash2 className="w-4 h-4" /> Delete
+          </Button>
+        </div>
+      ) : undefined}
     >
       <div className="mb-4">
         <Link href="/dashboard/pipelines" className="action-link inline-flex items-center gap-1 text-sm">
@@ -269,6 +342,45 @@ export default function PipelineDetailPage() {
           <ScorecardCard pipelineId={pipeline.id} />
           {/* Cross-resource context: plugins used + live compliance posture */}
           <PipelineContextCard pipeline={pipeline} />
+          {/* Live deployment (registry) — where this pipeline is deployed + a
+              deep link to its CloudFormation stack. Hidden until registered. */}
+          {deployment && (
+            <Card>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Rocket className="w-5 h-5 text-gray-500" />
+                  <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Deployment</h3>
+                </div>
+                <Link href="/dashboard/deployments" className="action-link text-xs">All deployments →</Link>
+              </div>
+              <dl className="text-sm space-y-2">
+                <div className="flex justify-between">
+                  <dt className="text-gray-500 dark:text-gray-400">Region</dt>
+                  <dd>{deployment.region || '—'}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-gray-500 dark:text-gray-400">Stack</dt>
+                  <dd className="font-mono text-xs truncate">{deployment.stackName || '—'}</dd>
+                </div>
+                {deployment.lastDeployed && (
+                  <div className="flex justify-between">
+                    <dt className="text-gray-500 dark:text-gray-400">Deployed</dt>
+                    <dd><RelativeTime value={deployment.lastDeployed} /></dd>
+                  </div>
+                )}
+              </dl>
+              {deployment.region && deployment.stackName && (
+                <a
+                  href={`https://${deployment.region}.console.aws.amazon.com/cloudformation/home?region=${deployment.region}#/stacks?filteringText=${encodeURIComponent(deployment.stackName)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="action-link text-xs inline-flex items-center gap-1 mt-3"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> View stack in AWS
+                </a>
+              )}
+            </Card>
+          )}
           {/* Identity card */}
           <Card>
             <div className="flex items-start justify-between mb-3">
@@ -303,7 +415,7 @@ export default function PipelineDetailPage() {
                 <dt className="text-gray-500 dark:text-gray-400">Owner</dt>
                 <dd>
                   {pipeline.ownerId
-                    ? <><code className="text-xs">{pipeline.ownerId}</code>{pipeline.ownerType ? <span className="text-gray-400"> ({pipeline.ownerType})</span> : null}</>
+                    ? <>{memberNames[pipeline.ownerId] ?? <code className="text-xs">{pipeline.ownerId}</code>}{pipeline.ownerType ? <span className="text-gray-400"> ({pipeline.ownerType})</span> : null}</>
                     : <span className="text-gray-400">Unassigned</span>}
                 </dd>
               </div>
@@ -332,11 +444,11 @@ export default function PipelineDetailPage() {
               )}
               <div>
                 <dt className="text-gray-500 dark:text-gray-400">Created</dt>
-                <dd><RelativeTime value={pipeline.createdAt} /> by <code className="text-xs">{pipeline.createdBy}</code></dd>
+                <dd><RelativeTime value={pipeline.createdAt} /> by {pipeline.createdBy ? (memberNames[pipeline.createdBy] ?? <code className="text-xs">{pipeline.createdBy}</code>) : '—'}</dd>
               </div>
               <div>
                 <dt className="text-gray-500 dark:text-gray-400">Updated</dt>
-                <dd><RelativeTime value={pipeline.updatedAt} /> by <code className="text-xs">{pipeline.updatedBy}</code></dd>
+                <dd><RelativeTime value={pipeline.updatedAt} /> by {pipeline.updatedBy ? (memberNames[pipeline.updatedBy] ?? <code className="text-xs">{pipeline.updatedBy}</code>) : '—'}</dd>
               </div>
             </dl>
           </Card>
@@ -369,6 +481,18 @@ export default function PipelineDetailPage() {
                     <dd><RelativeTime value={execStats.last_execution} /></dd>
                   </div>
                 )}
+                {executions && executions.length > 0 && (
+                  <div className="pt-2 mt-1 border-t border-gray-200 dark:border-gray-700 space-y-1.5">
+                    {executions.slice(0, 3).map((ex) => (
+                      <div key={ex.execution_id} className="flex items-center justify-between">
+                        <Badge color={statusColor(ex.status)}>{ex.status}</Badge>
+                        <span className="text-xs text-gray-400">
+                          {ex.started_at ? <RelativeTime value={ex.started_at} /> : '—'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="pt-2">
                   <Link href="/dashboard/executions" className="action-link text-xs">
                     View all executions →
@@ -386,19 +510,7 @@ export default function PipelineDetailPage() {
               (in-progress only) calls StopPipelineExecution. Both refetch the
               list after a short delay so the change surfaces. */}
           <Card className="lg:col-span-2">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Executions</h3>
-              <Button
-                variant="secondary"
-                onClick={handleTrigger}
-                disabled={!canEdit || triggering}
-                className="inline-flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title={canEdit ? undefined : 'Read-only (public catalog entry)'}
-              >
-                {triggering ? <LoadingSpinner size="sm" /> : <Play className="w-4 h-4" />}
-                {executions && executions.length > 0 ? 'Re-run' : 'Run pipeline'}
-              </Button>
-            </div>
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Executions</h3>
             {execLoading && !executions && <LoadingSpinner />}
             <ErrorAlert message={execError} />
             {!execLoading && !execError && executions && executions.length === 0 && (
@@ -418,40 +530,6 @@ export default function PipelineDetailPage() {
             )}
           </Card>
 
-          {/* Operations card */}
-          <Card className="lg:col-span-2">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Operations</h3>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="secondary"
-                onClick={() => setShowEdit(true)}
-                disabled={!canEdit}
-                className="inline-flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title={canEdit ? undefined : 'Read-only (public catalog entry)'}
-              >
-                <Pencil className="w-4 h-4" /> Edit
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => setShowSaveTemplate(true)}
-                disabled={!canWrite}
-                className="inline-flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title={canWrite ? 'Save this pipeline as a reusable golden-path template' : 'Requires pipelines:write'}
-              >
-                <LayoutTemplate className="w-4 h-4" /> Save as template
-              </Button>
-              <div className="flex-1" />
-              <Button
-                variant="danger"
-                onClick={() => setShowDelete(true)}
-                disabled={!canEdit}
-                className="inline-flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title={canEdit ? undefined : 'Read-only (public catalog entry)'}
-              >
-                <Trash2 className="w-4 h-4" /> Delete pipeline
-              </Button>
-            </div>
-          </Card>
         </div>
       )}
 

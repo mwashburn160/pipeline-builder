@@ -92,7 +92,14 @@ export function PipelineContextCard({ pipeline }: { pipeline: Pipeline }) {
             {plugins.length === 0
               ? <span className="text-gray-400 text-xs">None referenced</span>
               : plugins.map((name) => (
-                  <span key={name} className="px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 font-mono">{name}</span>
+                  <Link
+                    key={name}
+                    href={`/dashboard/plugins?q=${encodeURIComponent(name)}`}
+                    className="px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 font-mono hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/30 dark:hover:text-blue-300 transition-colors"
+                    title={`View ${name} in the plugin catalog`}
+                  >
+                    {name}
+                  </Link>
                 ))}
           </dd>
         </dl>
