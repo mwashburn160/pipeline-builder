@@ -58,7 +58,7 @@ describe('resolvePostSteps', () => {
     expect(steps.map((s) => s.id)).toEqual(['register']);
   });
 
-  it('orders register → smoke → events bundle (store-token → setup-events) → custom', () => {
+  it('orders register → smoke → events bundle (store-token → store-token-ingest → setup-events --scoped-ingest) → custom', () => {
     const { steps } = resolvePostSteps({
       ...base,
       target: 'ec2',
@@ -68,18 +68,25 @@ describe('resolvePostSteps', () => {
       events: true,
       steps: ['echo hi'],
     });
-    expect(steps.map((s) => s.id)).toEqual(['register', 'smoke-test', 'store-token', 'events', 'custom-1']);
+    expect(steps.map((s) => s.id)).toEqual(['register', 'smoke-test', 'store-token', 'store-token-ingest', 'events', 'custom-1']);
     // On AWS, register is surfaced (run on the box) with the resolved URL baked in so the
     // operator copy-pastes a correct line regardless of their shell's PLATFORM_BASE_URL.
     const reg = steps.find((s) => s.id === 'register')!;
     expect(reg.command).toBe('PLATFORM_BASE_URL=https://x.example.com ./deploy/bin/init-platform.sh ec2');
-    // store-token must precede setup-events (the Lambda reads the secret it writes),
-    // and opts into --schedule so the events token auto-renews.
+    // The platform token store-token comes first (synth/deploy read it; --schedule
+    // auto-renews it).
     const storeToken = steps.find((s) => s.id === 'store-token')!;
     expect(storeToken.command).toContain('store-token --schedule --region us-east-1');
     expect(storeToken.command).not.toContain('--secret-name'); // derives the pattern, never passed
+    expect(storeToken.command).not.toContain('--scope'); // full-privilege, unscoped
+    // Then the dedicated reporting-ingest (scoped) token — the ingest endpoint
+    // requires the `reporting:ingest` scope; --schedule auto-renews it (its
+    // renewal handler preserves the scope). It must precede setup-events.
+    const storeTokenIngest = steps.find((s) => s.id === 'store-token-ingest')!;
+    expect(storeTokenIngest.command).toContain('store-token --scope reporting:ingest --schedule --region us-east-1');
+    // setup-events points the Lambda at the scoped secret (else every ingest 403s).
     const events = steps.find((s) => s.id === 'events')!;
-    expect(events.command).toContain('setup-events --region us-east-1');
+    expect(events.command).toContain('setup-events --scoped-ingest --region us-east-1');
     expect(events.command).not.toContain('--secret-name');
   });
 

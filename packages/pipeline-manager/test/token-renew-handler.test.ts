@@ -106,6 +106,25 @@ describe('token-renew-handler (orchestrator)', () => {
     expect(nodeCall[2].env.NODE_ENV).toBe('production');
   });
 
+  it('preserves the token scope on renewal (scoped ingest token → --scope reporting:ingest)', async () => {
+    // A JWT whose payload carries scope=reporting:ingest — the renewal must
+    // re-mint WITH that scope, or the ingestion Lambda's next token 403s.
+    const payload = Buffer.from(JSON.stringify({ sub: 'u1', scope: 'reporting:ingest' })).toString('base64url');
+    mockSend.mockResolvedValue({ SecretString: JSON.stringify({ password: `h.${payload}.sig` }) });
+    process.env.PLATFORM_SECRET_NAME = 'pipeline-builder/acme/reporting-ingest';
+    await handler();
+    const args = (mockExecFileSync.mock.calls.find((c) => c[0] === 'node')![1]) as string[];
+    expect(args).toEqual(expect.arrayContaining(['--scope', 'reporting:ingest']));
+  });
+
+  it('does NOT add --scope for an unscoped platform token', async () => {
+    const payload = Buffer.from(JSON.stringify({ sub: 'u1' })).toString('base64url');
+    mockSend.mockResolvedValue({ SecretString: JSON.stringify({ password: `h.${payload}.sig` }) });
+    await handler();
+    const args = (mockExecFileSync.mock.calls.find((c) => c[0] === 'node')![1]) as string[];
+    expect(args).not.toContain('--scope');
+  });
+
   it('throws when the secret has no password (JWT)', async () => {
     mockSend.mockResolvedValue({ SecretString: JSON.stringify({ username: 'acme' }) });
     await expect(handler()).rejects.toThrow(/missing password/);

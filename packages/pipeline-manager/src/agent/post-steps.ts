@@ -122,18 +122,18 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
       // Event ingestion is a THREE-step bundle, in this order:
       //   1. store-token          — the full-privilege platform JWT (synth/deploy
       //                             callbacks read it; --schedule auto-renews it).
-      //   2. store-token --scope reporting:ingest
+      //   2. store-token --scope reporting:ingest --schedule
       //                           — a DISTINCT least-privilege token whose `scope`
       //                             claim is exactly `reporting:ingest`. The ingest
       //                             endpoint requires this scope and `hasScope` is a
       //                             single-value equality check, so the platform
       //                             token (no scope) can NEVER ingest — the Lambda
       //                             must read this dedicated token. Stored at
-      //                             `.../reporting-ingest`. Long-lived (365d): the
-      //                             shared token-renew stack renews only the platform
-      //                             secret and can't re-mint a scoped credential, so
-      //                             this one is not on --schedule (re-run before it
-      //                             lapses). See setup-events --scoped-ingest.
+      //                             `.../reporting-ingest`. --schedule deploys its OWN
+      //                             renewal stack (named `-reporting-ingest`, distinct
+      //                             from the platform one) whose handler preserves the
+      //                             scope on re-mint, so it auto-renews and never lapses.
+      //                             See setup-events --scoped-ingest.
       //   3. setup-events --scoped-ingest
       //                           — deploys the EventBridge → SQS → Lambda and points
       //                             the Lambda at the reporting-ingest secret from #2.
@@ -159,8 +159,8 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
       });
       steps.push({
         id: 'store-token-ingest',
-        label: 'Store reporting-ingest (scoped) token in AWS Secrets Manager',
-        command: `pipeline-manager infra store-token --scope reporting:ingest --days 365${region}`,
+        label: 'Store reporting-ingest (scoped) token in AWS Secrets Manager (+ auto-renewal)',
+        command: `pipeline-manager infra store-token --scope reporting:ingest --schedule${region}`,
         env,
       });
       steps.push({

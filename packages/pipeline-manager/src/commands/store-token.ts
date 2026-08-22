@@ -46,9 +46,20 @@ async function deployRenewSchedule(opts: {
 }): Promise<string> {
   const scheduleExpression = toEventBridgeCron(opts.fiveFieldCron); // validates + 15-min guard
 
+  // Name renewal resources per-secret so a scoped-token stack (e.g. the
+  // reporting-ingest credential the event Lambda reads) coexists with the
+  // platform-token stack instead of colliding on the (account-global) IAM
+  // role / Lambda / rule names. The platform secret keeps the bare name
+  // (suffix '') so existing deployments' stack is updated in place, not
+  // duplicated; any other secret appends its trailing path segment.
+  const secretLeaf = opts.secretName.replace(/.*\//, ''); // 'platform' | 'reporting-ingest' | …
+  const nameSuffix = secretLeaf === 'platform' ? '' : `-${secretLeaf.replace(/[^a-z0-9]+/gi, '-')}`;
+  const stackName = `${RENEW_STACK_NAME}${nameSuffix}`;
+  const lambdaName = `${RENEW_LAMBDA_NAME}${nameSuffix}`;
+
   printSection('Schedule Renewal');
   printInfo('Parameters', {
-    stack: RENEW_STACK_NAME,
+    stack: stackName,
     schedule: opts.fiveFieldCron,
     eventbridge: scheduleExpression,
     renewDays: opts.days,
@@ -58,13 +69,14 @@ async function deployRenewSchedule(opts: {
   const templatePath = path.join(__dirname, '../templates/token-renew-stack.json');
   const cfnArgs = [
     'cloudformation', 'deploy',
-    '--stack-name', RENEW_STACK_NAME,
+    '--stack-name', stackName,
     '--template-file', templatePath,
     '--parameter-overrides',
     `PlatformBaseUrl=${opts.platformUrl}`,
     `PlatformSecretName=${opts.secretName}`,
     `RenewDays=${opts.days}`,
     `ScheduleExpression=${scheduleExpression}`,
+    `NameSuffix=${nameSuffix}`,
     // Pin the handler's runtime npm install to THIS CLI's version (reproducible
     // renewals instead of a floating "latest").
     `PipelineManagerVersion=${APP_VERSION}`,
@@ -89,7 +101,7 @@ async function deployRenewSchedule(opts: {
 
     const lambdaClient = new LambdaClient({ region: opts.region });
     await lambdaClient.send(new UpdateFunctionCodeCommand({
-      FunctionName: RENEW_LAMBDA_NAME,
+      FunctionName: lambdaName,
       ZipFile: fs.readFileSync(zipPath),
     }));
   } finally {

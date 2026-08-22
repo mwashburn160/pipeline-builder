@@ -38,6 +38,26 @@ function required(name: string): string {
   return v;
 }
 
+/**
+ * Read the `scope` claim from a JWT payload without verifying the signature
+ * (the platform re-verifies on use; this only decides whether to re-mint WITH
+ * a scope). A scoped credential (e.g. `reporting:ingest`) must renew with the
+ * same scope or the fresh token would be a full-privilege platform token and
+ * the scoped consumer's calls would break. Returns undefined for an unscoped
+ * (platform) token or any decode failure.
+ */
+function decodeJwtScope(jwt: string): string | undefined {
+  try {
+    const payload = jwt.split('.')[1];
+    if (!payload) return undefined;
+    const json = Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+    const claims = JSON.parse(json) as { scope?: unknown };
+    return typeof claims.scope === 'string' && claims.scope ? claims.scope : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const handler = async (): Promise<void> => {
   const secretName = required('PLATFORM_SECRET_NAME');
   const platformUrl = required('PLATFORM_BASE_URL').replace(/\/$/, '');
@@ -76,6 +96,16 @@ export const handler = async (): Promise<void> => {
   // store-token no longer takes --secret-name; it reads PLATFORM_SECRET_NAME from
   // the environment (else derives it from the token's org).
   const args = ['infra', 'store-token', '--region', region, '--days', days];
+  // Preserve the token's capability scope on renewal (else a scoped ingest
+  // credential re-mints as a scopeless platform token and ingest starts 403ing).
+  // The re-mint authenticates with THIS token, and a scoped token still carries
+  // a userId, so /user/generate-token accepts it and re-issues the same scope.
+  const tokenScope = decodeJwtScope(jwt);
+  if (tokenScope) {
+    args.push('--scope', tokenScope);
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify({ level: 'INFO', msg: 'renewing scoped token', scope: tokenScope, secretName }));
+  }
   // SECURITY: the spawned store-token POSTs the JWT to the platform. Refuse to
   // disable TLS verification in production so a MITM can't harvest it. Production
   // is this Lambda's normal mode (the renew stack sets NODE_ENV=production), so
