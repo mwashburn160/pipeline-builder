@@ -35,7 +35,10 @@ metadata:
     app: image-registry
     app.kubernetes.io/component: backend
 spec:
-  replicas: 2
+  # Start at 1: 2 replicas at boot saturate gp3 EBS baseline throughput and
+  # stall every other pod's image pull for 10+ min (see the HPA note below).
+  # The HPA (minReplicas: 1) scales up on real load.
+  replicas: 1
   revisionHistoryLimit: 3
   selector:
     matchLabels:

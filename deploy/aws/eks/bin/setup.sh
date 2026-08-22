@@ -377,6 +377,17 @@ log "Phase 6: KEDA operator"
 kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.16.1/keda-2.16.1.yaml
 kubectl wait --for=condition=Available deployment/keda-operator -n keda --timeout=180s 2>/dev/null || echo "  KEDA not ready yet (the ScaledObject will reconcile once it is)"
 
+# ---- Phase 6a: metrics-server (HPA cpu/mem + KEDA cpu/mem triggers) ---------
+log "Phase 6a: metrics-server"
+# EKS Auto Mode does NOT bundle metrics-server (minikube ships it as an addon;
+# ec2/local enable that addon — there is no equivalent here). Without it every
+# Resource (cpu/memory) HPA and the plugin ScaledObject's cpu/mem triggers
+# report <unknown> / FailedGetResourceMetric and never scale. The upstream
+# manifest works on EKS as-is: kubelet serving certs are cluster-CA signed, so
+# no --kubelet-insecure-tls patch is needed (unlike the minikube targets).
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml
+kubectl wait --for=condition=Available deployment/metrics-server -n kube-system --timeout=180s 2>/dev/null || echo "  metrics-server not ready yet (HPAs will reconcile once it is)"
+
 # ---- Phase 6b: Istio ambient service mesh ----------------------------------
 log "Phase 6b: Istio ambient mesh ($ISTIO_VERSION)"
 # AWS recommends EKS Auto Mode + Istio ambient. Installed BEFORE the workloads
