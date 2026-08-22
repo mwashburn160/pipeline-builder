@@ -801,6 +801,31 @@ Resources:
                 # when set, else the noreply@<domain> default the app uses.
                 "ses:FromAddress": !If [HasEmailFrom, !Ref EmailFrom, !Sub "noreply@${DomainName}"]
 
+  # CodePipeline execution — the api/pipeline execution-service (Run / Cancel on
+  # the pipeline detail page) calls Start/StopPipelineExecution + reads pipeline
+  # state via the instance profile. Without this, "Re-run" AccessDenies and the
+  # pipeline never starts (source-triggered runs still work — they don't need
+  # the platform's credentials). Mirrors the eks Pod Identity grant
+  # (aws/eks/bin/setup.sh CodePipelineExec). Scoped to this account's pipelines;
+  # names vary per org/project, so the resource is account-wide by design.
+  InstanceRoleCodePipelinePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: pipeline-builder-codepipeline-exec
+      Roles:
+        - !Ref InstanceRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CodePipelineExec
+            Effect: Allow
+            Action:
+              - codepipeline:StartPipelineExecution
+              - codepipeline:StopPipelineExecution
+              - codepipeline:GetPipelineState
+              - codepipeline:GetPipelineExecution
+            Resource: !Sub "arn:${AWS::Partition}:codepipeline:*:${AWS::AccountId}:*"
+
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
