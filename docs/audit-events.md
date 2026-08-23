@@ -12,18 +12,18 @@ separate structured-log path exists for the image registry.
 
 - **Platform-direct** — the `platform` service writes user/org lifecycle events
   straight to Mongo via the `audit()` helper
-  ([platform/src/helpers/audit.ts](../platform/src/helpers/audit.ts)) and
+  ([platform/src/helpers/audit.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/platform/src/helpers/audit.ts)) and
   `auditService.createEvent(...)`.
 - **Service-remote** — every other service (pipeline, plugin, quota, compliance,
   image-registry, message, billing, reporting) POSTs its events to the platform
   ingest `POST /audit/events` through the shared `RemoteAuditClient`
-  ([packages/api-core/src/services/remote-audit-client.ts](../packages/api-core/src/services/remote-audit-client.ts)).
+  ([packages/api-core/src/services/remote-audit-client.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/services/remote-audit-client.ts)).
 - **Registry structured logs** — image-registry ALSO emits `eventCategory: 'audit'`
   log lines to Loki for a couple of registry operations (see
   [Registry structured-log events](#registry-structured-log-events)).
 
 Both emitter paths funnel through one appender (`appendAuditEvent` in
-[platform/src/helpers/audit-chain.ts](../platform/src/helpers/audit-chain.ts)),
+[platform/src/helpers/audit-chain.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/platform/src/helpers/audit-chain.ts)),
 so every stored event is hash-chained and scrubbed the same way.
 
 Query the trail via `GET /audit` (admin-only; org admins are forced to their own
@@ -89,7 +89,7 @@ originating mutation. Three properties make it safe and durable:
   row and a single chain link.
 - **Durable spool** — if the platform is down past the client's retry budget, the
   event is buffered in a bounded Redis spool
-  ([packages/api-core/src/services/audit-spool.ts](../packages/api-core/src/services/audit-spool.ts))
+  ([packages/api-core/src/services/audit-spool.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/services/audit-spool.ts))
   and re-delivered on recovery instead of being lost. The spool drops the OLDEST
   on overflow (with a metric) so it can never grow unbounded. A spooled event
   reuses its `Idempotency-Key`, so a live attempt and its later re-delivery
@@ -104,9 +104,9 @@ originating mutation. Three properties make it safe and durable:
 ## Action catalog
 
 The full set of platform actions lives in the `AuditAction` union in
-[platform/src/models/audit-event.ts](../platform/src/models/audit-event.ts); the
+[platform/src/models/audit-event.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/platform/src/models/audit-event.ts); the
 subset a remote service may emit is `REMOTE_AUDIT_ACTIONS` in
-[packages/api-core/src/services/remote-audit-client.ts](../packages/api-core/src/services/remote-audit-client.ts).
+[packages/api-core/src/services/remote-audit-client.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/services/remote-audit-client.ts).
 
 ### Platform-emitted
 
@@ -152,10 +152,10 @@ org's own admins can see them.
 
 Independently of the Mongo trail, image-registry emits `eventCategory: 'audit'`
 structured log lines (via `emitAudit` in
-[packages/api-core/src/utils/audit.ts](../packages/api-core/src/utils/audit.ts))
+[packages/api-core/src/utils/audit.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/utils/audit.ts))
 that the log aggregator (Loki, in the default deploy) routes into a dedicated
 stream. The event-name union is
-[packages/api-core/src/types/audit-events.ts](../packages/api-core/src/types/audit-events.ts).
+[packages/api-core/src/types/audit-events.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/types/audit-events.ts).
 
 ### Querying
 
@@ -164,7 +164,7 @@ Audit log lines land in Loki with `service_name`, `eventCategory`, `event`,
 Activity** dashboard at `/dashboard/observability/audit-activity` is the
 operator-facing surface; deep-link to a filtered view via the registry's
 `buildAuditLogLink` helper
-([frontend/src/lib/registry-audit-link.ts](../frontend/src/lib/registry-audit-link.ts)).
+([frontend/src/lib/registry-audit-link.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/frontend/src/lib/registry-audit-link.ts)).
 
 **Direct LogQL** (hitting Loki at port 3100):
 
@@ -176,7 +176,7 @@ operator-facing surface; deep-link to a filtered view via the registry's
 
 ### `registry.tag.copy`
 
-Emitted by [image-registry's `POST /api/images/copy`](../api/image-registry/openapi.yaml)
+Emitted by [image-registry's `POST /api/images/copy`](https://github.com/mwashburn160/pipeline-builder/blob/main/api/image-registry/openapi.yaml)
 after a successful cross-repo tag copy.
 
 | Field | Type | Description |
@@ -197,7 +197,7 @@ specifically — they're meaningful trust escalations.
 
 ### `registry.tag.delete`
 
-Emitted by [image-registry's `DELETE /api/images/{name}/manifests/{reference}`](../api/image-registry/openapi.yaml)
+Emitted by [image-registry's `DELETE /api/images/{name}/manifests/{reference}`](https://github.com/mwashburn160/pipeline-builder/blob/main/api/image-registry/openapi.yaml)
 after a successful delete.
 
 | Field | Type | Description |
@@ -215,7 +215,7 @@ after a successful delete.
 **Platform-emitted** (user/org lifecycle):
 
 1. Add the action to the `AuditAction` union AND the `ALL_AUDIT_ACTIONS` array in
-   [platform/src/models/audit-event.ts](../platform/src/models/audit-event.ts).
+   [platform/src/models/audit-event.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/platform/src/models/audit-event.ts).
 2. Call `audit(req, 'new.action', { targetType, targetId, affectedOrgId, details })`
    from the controller after the mutation succeeds. Keep secrets / tokens / AWS
    account ids out of `details`.
@@ -224,7 +224,7 @@ after a successful delete.
 **Service-emitted** (a non-platform service):
 
 1. Add the action to `REMOTE_AUDIT_ACTIONS` in
-   [remote-audit-client.ts](../packages/api-core/src/services/remote-audit-client.ts)
+   [remote-audit-client.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/services/remote-audit-client.ts)
    AND to the platform `AuditAction` union / `ALL_AUDIT_ACTIONS` (the subset-guard
    test enforces `REMOTE_AUDIT_ACTIONS ⊆ AuditAction`).
 2. Emit it via the service's `getAuditClient().record({ action, actorId, orgId, targetId, details }, '<service>')` after the mutation succeeds.

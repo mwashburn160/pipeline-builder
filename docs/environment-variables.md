@@ -184,7 +184,7 @@ deployment. The redirect URI to register in each provider's console is
 | `REDIS_HOST` | `redis` | Hostname |
 | `REDIS_PORT` | `6379` | Port |
 | `REDIS_PASSWORD` | — | Data-node AUTH password (optional) |
-| `REDIS_SENTINELS` | — | **HA:** comma-separated `host:port` Sentinel list. When set, the app connects via Sentinel and auto-fails-over to the promoted primary (HOST/PORT/URL ignored). Also the shape a managed ElastiCache (cluster-mode-disabled) uses. See [`deploy/aws/*/k8s/redis-sentinel.yaml`](../deploy/aws/eks/k8s/redis-sentinel.yaml) |
+| `REDIS_SENTINELS` | — | **HA:** comma-separated `host:port` Sentinel list. When set, the app connects via Sentinel and auto-fails-over to the promoted primary (HOST/PORT/URL ignored). Also the shape a managed ElastiCache (cluster-mode-disabled) uses. See [`deploy/aws/*/k8s/redis-sentinel.yaml`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/aws/eks/k8s/redis-sentinel.yaml) |
 | `REDIS_SENTINEL_MASTER` | `mymaster` | Sentinel monitored-primary name (Sentinel mode) |
 | `REDIS_SENTINEL_PASSWORD` | — | Sentinel AUTH password (Sentinel mode, optional) |
 

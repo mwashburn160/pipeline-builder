@@ -448,11 +448,11 @@ Five production plugins now show the pattern:
 
 | Plugin | Metadata keys used |
 |---|---|
-| [notification/slack-notify](../deploy/plugins/notification/slack-notify/plugin-spec.yaml) | `env`, `vars.branch`, `vars.slackChannel`, `projectName` |
-| [notification/teams-notify](../deploy/plugins/notification/teams-notify/plugin-spec.yaml) | `env`, `vars.branch`, `projectName` |
-| [deploy/kubectl-deploy](../deploy/plugins/deploy/kubectl-deploy/plugin-spec.yaml) | `context`, `namespace`, `manifestPath`, `rolloutTimeoutSeconds` |
-| [deploy/helm-deploy](../deploy/plugins/deploy/helm-deploy/plugin-spec.yaml) | `namespace`, `helmRelease`, `helmChart`, `helmTimeoutSeconds` |
-| [deploy/ecs-deploy](../deploy/plugins/deploy/ecs-deploy/plugin-spec.yaml) | `ecsCluster`, `ecsService`, `imageUri`, `ecsTaskFamily` |
+| [notification/slack-notify](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/plugins/notification/slack-notify/plugin-spec.yaml) | `env`, `vars.branch`, `vars.slackChannel`, `projectName` |
+| [notification/teams-notify](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/plugins/notification/teams-notify/plugin-spec.yaml) | `env`, `vars.branch`, `projectName` |
+| [deploy/kubectl-deploy](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/plugins/deploy/kubectl-deploy/plugin-spec.yaml) | `context`, `namespace`, `manifestPath`, `rolloutTimeoutSeconds` |
+| [deploy/helm-deploy](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/plugins/deploy/helm-deploy/plugin-spec.yaml) | `namespace`, `helmRelease`, `helmChart`, `helmTimeoutSeconds` |
+| [deploy/ecs-deploy](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/plugins/deploy/ecs-deploy/plugin-spec.yaml) | `ecsCluster`, `ecsService`, `imageUri`, `ecsTaskFamily` |
 
 All pipelines continue to work unchanged; when they start supplying metadata keys, the plugin auto-populates the env vars.
 

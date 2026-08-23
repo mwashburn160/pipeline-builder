@@ -12,14 +12,14 @@ there is no hidden role-derived baseline. Everything below is scoped to an
 organization (or team); platform-operator powers live behind the global
 **Super Admin** flag, not a per-org permission.
 
-- Source of truth: [packages/api-core/src/types/permissions.ts](../packages/api-core/src/types/permissions.ts)
-- Enforcement middleware: [packages/api-core/src/middleware/auth.ts](../packages/api-core/src/middleware/auth.ts)
+- Source of truth: [packages/api-core/src/types/permissions.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/types/permissions.ts)
+- Enforcement middleware: [packages/api-core/src/middleware/auth.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/middleware/auth.ts)
 
 ---
 
 ## Overview
 
-This reference documents Pipeline Builder's per-org, permission-based access control: the fine-grained `resource:action` catalog, the built-in and custom Roles that bundle those permissions, and how they're enforced. It's for admins managing Roles and developers gating routes. A user's effective permissions are the deduplicated union of their assigned Roles (a Super Admin short-circuits to all), sourced from [`permissions.ts`](../packages/api-core/src/types/permissions.ts) and enforced by the middleware in [`auth.ts`](../packages/api-core/src/middleware/auth.ts); a startup backfill keeps built-in Roles synced to the current catalog. Read [The model](#the-model) first, then the [permission catalog](#permission-catalog), [enforcement](#enforcement) middleware, and the API for managing Roles.
+This reference documents Pipeline Builder's per-org, permission-based access control: the fine-grained `resource:action` catalog, the built-in and custom Roles that bundle those permissions, and how they're enforced. It's for admins managing Roles and developers gating routes. A user's effective permissions are the deduplicated union of their assigned Roles (a Super Admin short-circuits to all), sourced from [`permissions.ts`](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/types/permissions.ts) and enforced by the middleware in [`auth.ts`](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/middleware/auth.ts); a startup backfill keeps built-in Roles synced to the current catalog. Read [The model](#the-model) first, then the [permission catalog](#permission-catalog), [enforcement](#enforcement) middleware, and the API for managing Roles.
 
 ---
 

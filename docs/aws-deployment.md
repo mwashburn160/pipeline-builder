@@ -924,7 +924,7 @@ telemetry** — enough to compute success rates, stage/action timing, and DORA m
 | `environment` | The deploy stage's env, from the pipeline's `pb.deploys` tag |
 | `detail` | Raw CodePipeline event detail **with `account` removed** (log URL / error code for drill-down) |
 
-Reference: [`@pipeline-builder/pipeline-events`](../packages/pipeline-events/README.md#data-forwarded-to-the-platform).
+Reference: [`@pipeline-builder/pipeline-events`](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/pipeline-events/README.md#data-forwarded-to-the-platform).
 
 ### 4. Verify Reporting
 

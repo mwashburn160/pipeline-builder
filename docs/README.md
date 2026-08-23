@@ -18,7 +18,7 @@ This is the documentation index for **Pipeline Builder**, a multi-tenant platfor
 
 **The path from zero to a working pipeline:**
 
-1. **Deploy the platform** — [Local](../deploy/local/docker/) / [Minikube](../deploy/local/minikube/) for eval, or [EC2 / EKS](aws-deployment.md) for real use. The recommended installer is [`infra provision`](pipeline-manager.md#installing-the-platform-infra-provision).
+1. **Deploy the platform** — [Local](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/local/docker) / [Minikube](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/local/minikube) for eval, or [EC2 / EKS](aws-deployment.md) for real use. The recommended installer is [`infra provision`](pipeline-manager.md#installing-the-platform-infra-provision).
 2. **Onboard your organization** — [**Onboarding a New Organization**](onboarding.md) walks the full flow: initial admin login → create org → invite members → create a PAT → store the service token → set up event reporting → first pipeline.
 3. **Build pipelines** — dashboard, AI prompt, CLI, REST API, or CDK (see [Build](#build) below).
 
@@ -405,7 +405,7 @@ For end-to-end request → build → deploy flow diagrams, see [Architecture Flo
 
 ## Next Steps
 
-- **First time?** Deploy [Local](../deploy/local/docker/) and walk through [Creating Pipelines](#creating-pipelines).
+- **First time?** Deploy [Local](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/local/docker) and walk through [Creating Pipelines](#creating-pipelines).
 - **Setting up for your team?** Read [Organization Benefits](organization-benefits.md), then [Organizations](#organizations) above.
 - **Wiring CI from code?** [CDK Usage](cdk-usage.md) → [Samples](samples.md) → [Template Syntax](templates.md).
 - **Going to production on AWS?** [AWS Deployment](aws-deployment.md) covers EC2, EKS, drift detection, and event reporting.

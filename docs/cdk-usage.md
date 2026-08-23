@@ -478,13 +478,13 @@ See [Metadata Keys](metadata-keys.md) for the complete list of 80 keys.
 
 ## CDK Examples
 
-Self-contained stack classes in [`deploy/samples/cdk/`](../deploy/samples/cdk/):
+Self-contained stack classes in [`deploy/samples/cdk/`](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/samples/cdk):
 
 | Sample | Pattern |
 |--------|---------|
-| [basic-pipeline-ts](../deploy/samples/cdk/basic-pipeline-ts/) | Simplest usage — GitHub source, 4 stages |
-| [vpc-isolated-pipeline-ts](../deploy/samples/cdk/vpc-isolated-pipeline-ts/) | VPC networking with step-level overrides |
-| [multi-account-pipeline-ts](../deploy/samples/cdk/multi-account-pipeline-ts/) | Cross-account with CodeStar, ManualApproval |
-| [monorepo-pipeline-ts](../deploy/samples/cdk/monorepo-pipeline-ts/) | Monorepo with factory functions, per-service Docker |
-| [custom-iam-roles-ts](../deploy/samples/cdk/custom-iam-roles-ts/) | Three levels of IAM role control |
-| [secrets-management-ts](../deploy/samples/cdk/secrets-management-ts/) | Secrets Manager with orgId-scoped resolution |
+| [basic-pipeline-ts](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/samples/cdk/basic-pipeline-ts) | Simplest usage — GitHub source, 4 stages |
+| [vpc-isolated-pipeline-ts](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/samples/cdk/vpc-isolated-pipeline-ts) | VPC networking with step-level overrides |
+| [multi-account-pipeline-ts](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/samples/cdk/multi-account-pipeline-ts) | Cross-account with CodeStar, ManualApproval |
+| [monorepo-pipeline-ts](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/samples/cdk/monorepo-pipeline-ts) | Monorepo with factory functions, per-service Docker |
+| [custom-iam-roles-ts](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/samples/cdk/custom-iam-roles-ts) | Three levels of IAM role control |
+| [secrets-management-ts](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/samples/cdk/secrets-management-ts) | Secrets Manager with orgId-scoped resolution |
