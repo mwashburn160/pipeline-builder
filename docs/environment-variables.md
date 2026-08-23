@@ -397,6 +397,18 @@ Add-on bundles are env-tunable (see [Billing Add-on Bundles → Overrides](billi
 
 The compliance content add-ons default to $29.90/mo ($299/yr, `COMPLIANCE_STANDARD`) and $99.90/mo ($999/yr, `COMPLIANCE_ADVANCED`, which requires Standard), with the `COMPLIANCE_SUITE` combo (both, 30% off) at $90.86/mo ($908.60/yr) — see [Compliance → Curated content add-ons](compliance.md#curated-content-add-ons-standard--advanced). On every entitlement change (purchase/cancel/renewal) billing pushes the org's entitled content sets to the compliance service (`PUT /api/compliance/entitlements/:orgId`, which auto-subscribes/activates on gain and deactivates on loss), reaching it via `COMPLIANCE_SERVICE_HOST` / `COMPLIANCE_SERVICE_PORT` (Service Discovery, above).
 
+### Stripe (`BILLING_PROVIDER=stripe`)
+
+Direct SaaS billing through Stripe. For the full setup walkthrough (creating Products/Prices, registering the webhook, testing with the Stripe CLI, going live) see **[Billing Providers → Stripe](billing-providers.md#stripe)**.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `STRIPE_SECRET_KEY` | — | **Secret.** Stripe API secret key (`sk_test_…` / `sk_live_…`). Required when `BILLING_PROVIDER=stripe` |
+| `STRIPE_WEBHOOK_SECRET` | — | **Secret.** Signing secret (`whsec_…`) for `POST /billing/stripe/webhook`; every delivery is signature-verified against it over the raw body |
+| `STRIPE_PRICE_MAP` | `{}` | JSON map of `<id>_<interval>` → Stripe Price id, where `<id>` is a plan id **or** an add-on bundle id, e.g. `{"pro_monthly":"price_…","seat_pack_annual":"price_…"}`. A plan/interval absent here cannot be subscribed (creation fails fast); a bundle absent here is granted but its line item is skipped (not charged) |
+
+Stripe subscription statuses map to internal statuses via a fixed table (not env-configurable): `unpaid` ⇒ `canceled` (set only after the grace period), unknown ⇒ `incomplete`.
+
 ### Discounts
 
 Discount codes + usage credits ([docs/billing-discounts.md](billing-discounts.md)) — Stripe only, on by default.
@@ -415,7 +427,7 @@ Discount codes + usage credits ([docs/billing-discounts.md](billing-discounts.md
 
 ### AWS Marketplace metering & credit realization
 
-For `BILLING_PROVIDER=aws-marketplace`: add-on charges are reported as metered usage, and usage-credit discounts realize by **withholding** metered units (see [docs/billing-discounts.md](billing-discounts.md#aws-marketplace--private-offers-handled-in-aws-not-in-app)). Metering is **default-off** and the two switches (`BILLING_DISCOUNTS_ENABLED` + `BILLING_METERING_ENABLED`) must both be on before a Marketplace credit is accepted — otherwise a credit would bank but never reduce the AWS bill.
+For `BILLING_PROVIDER=aws-marketplace`: add-on charges are reported as metered usage, and usage-credit discounts realize by **withholding** metered units (see [docs/billing-discounts.md](billing-discounts.md#aws-marketplace--private-offers-handled-in-aws-not-in-app)). Metering is **default-off** and the two switches (`BILLING_DISCOUNTS_ENABLED` + `BILLING_METERING_ENABLED`) must both be on before a Marketplace credit is accepted — otherwise a credit would bank but never reduce the AWS bill. For the full listing/fulfillment/SNS/IAM setup walkthrough see **[Billing Providers → AWS Marketplace](billing-providers.md#aws-marketplace)**.
 
 | Variable | Default | Description |
 |----------|---------|-------------|

@@ -276,6 +276,7 @@ Browse the full docs at **[{{ '/docs/' | relative_url }}]({{ '/docs/' | relative
 | [Compliance]({{ '/docs/compliance.html' | relative_url }}) | Per-org rule engine — validation, enforcement, audit trail |
 | [Authentication & SSO]({{ '/docs/authentication.html' | relative_url }}) | OAuth social login + per-org enterprise SSO (OIDC, AWS Cognito) |
 | [Audit Events]({{ '/docs/audit-events.html' | relative_url }}) | Tamper-evident trail — hash-chain + verify, ingest security, durable spool |
+| [Billing Providers]({{ '/docs/billing-providers.html' | relative_url }}) | Setup walkthroughs for Stripe + AWS Marketplace (keys, webhooks, entitlements, metering) |
 | [Billing Add-on Bundles]({{ '/docs/billing-bundles.html' | relative_url }}) | Stackable add-ons that raise pooled caps and unlock features |
 | [Billing Discounts]({{ '/docs/billing-discounts.html' | relative_url }}) | Coupon codes + usage credits — one-time, recurring, or credit |
 

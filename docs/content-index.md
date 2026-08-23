@@ -31,12 +31,14 @@ the links below.
 - **Audit events / audit log / tamper-evidence** — [Audit Events](audit-events.md), [Integrity](audit-events.md#integrity-tamper-evidence), [Action catalog](audit-events.md#action-catalog)
 - **Authentication (login, JWT, OAuth)** — [Authentication & SSO](authentication.md), [Env vars: Authentication](environment-variables.md#authentication)
 - **AWS deployment** — [AWS Deployment](aws-deployment.md), [EC2](aws-deployment.md#ec2), [EKS](aws-deployment.md#eks)
+- **AWS Marketplace (setup walkthrough)** — [Billing Providers: AWS Marketplace](billing-providers.md#aws-marketplace)
 - **AWS Marketplace (metering, private offers)** — [Billing Discounts: Marketplace](billing-discounts.md#aws-marketplace-private-offers-handled-in-aws-not-in-app), [Env vars: Marketplace metering](environment-variables.md#aws-marketplace-metering-credit-realization)
 
 ## B
 
 - **Backups & disaster recovery** — [Deploy Operations: Backups & DR](deploy-operations.md#backups-disaster-recovery)
 - **Billing (plans, usage, credits)** — [Organization Benefits: Billing](organization-benefits.md#organizations-teams-billing), [Env vars: Billing](environment-variables.md#billing)
+- **Billing providers (Stripe / AWS Marketplace setup)** — [Billing Providers](billing-providers.md)
 - **Bundles / add-on packs (seats, pipelines, API)** — [Billing Add-on Bundles](billing-bundles.md)
 - **buildArgs (Docker build args, templatable)** — [Templates: build plugin with buildArgs](templates.md#example-build-plugin-with-buildargs)
 - **BuildKit (rootless) / why rootless** — [Env vars: Why rootless BuildKit](environment-variables.md#why-rootless-buildkit)
@@ -183,6 +185,7 @@ the links below.
 - **SSO (single sign-on)** — see **OAuth** / **OIDC** → [Authentication & SSO](authentication.md)
 - **Stages and steps** — [CDK: Stages and Steps](cdk-usage.md#stages-and-steps)
 - **Storage requirements (disk sizing)** — [AWS Deployment: Storage (EC2)](aws-deployment.md#storage-requirements), [Storage (EKS)](aws-deployment.md#storage-requirements)
+- **Stripe (billing provider setup)** — [Billing Providers: Stripe](billing-providers.md#stripe), [Env vars: Stripe](environment-variables.md#stripe-billing_providerstripe)
 - **Synth-time templating** — see **Templates** → [Templates: Process overview](templates.md#process-overview-synth-time-resolution)
 
 ## T
@@ -216,6 +219,7 @@ the links below.
 | [aws-deployment](aws-deployment.md) | EC2 & EKS deploy, public/private modes, SES, reporting |
 | [billing-bundles](billing-bundles.md) | Stackable add-on packs raising pooled caps |
 | [billing-discounts](billing-discounts.md) | Discount codes, promotions, referrals, Marketplace offers |
+| [billing-providers](billing-providers.md) | Stripe + AWS Marketplace setup walkthroughs (keys, webhooks, entitlements, metering) |
 | [cdk-usage](cdk-usage.md) | BuilderProps, sources, IAM, VPC, secrets, cross-account |
 | [compliance](compliance.md) | Policy-as-code rules, scans, enforcement, exemptions |
 | [content-index](content-index.md) | *This page — keyword/topic index* |

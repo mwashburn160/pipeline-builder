@@ -341,6 +341,7 @@ Full docs hub: **[docs/](docs/README.md)** — grouped by task. Looking for a te
 | [Compliance](docs/compliance.md) | Per-org rule engine — validation, enforcement, audit trail |
 | [Authentication & SSO](docs/authentication.md) | OAuth social login + per-org enterprise SSO (OIDC, AWS Cognito) |
 | [Audit Events](docs/audit-events.md) | Tamper-evident hash-chained trail, `/audit/verify`, action catalog |
+| [Billing Providers](docs/billing-providers.md) | Setup walkthroughs for Stripe + AWS Marketplace (keys, webhooks, entitlements, metering) |
 | [Billing Add-on Bundles](docs/billing-bundles.md) | Stackable add-ons that raise pooled caps and unlock features |
 | [Billing Discounts](docs/billing-discounts.md) | Coupon codes + usage credits — one-time/recurring/credit, grant or self-serve |
 
