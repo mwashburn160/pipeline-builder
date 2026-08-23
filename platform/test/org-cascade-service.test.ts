@@ -96,6 +96,17 @@ jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({
   default: { deleteMany: mockIdpDeleteMany },
 }));
 
+const mockOrgDomainDeleteMany = jest.fn();
+const mockJoinRequestDeleteMany = jest.fn();
+jest.unstable_mockModule('../src/models/org-domain.js', () => ({
+  __esModule: true,
+  default: { deleteMany: mockOrgDomainDeleteMany },
+}));
+jest.unstable_mockModule('../src/models/join-request.js', () => ({
+  __esModule: true,
+  default: { deleteMany: mockJoinRequestDeleteMany },
+}));
+
 jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
     quota: { serviceHost: 'quota', servicePort: 3000 },
@@ -128,6 +139,8 @@ beforeEach(() => {
   mockAuditCreate.mockResolvedValue({});
   mockArchivedBulkWrite.mockResolvedValue({});
   mockIdpDeleteMany.mockResolvedValue({ deletedCount: 0 });
+  mockOrgDomainDeleteMany.mockResolvedValue({ deletedCount: 0 });
+  mockJoinRequestDeleteMany.mockResolvedValue({ deletedCount: 0 });
   // Default: org has no per-org KMS config.
   mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => null }) });
 });
@@ -181,7 +194,7 @@ describe('cascadeDeleteOrg', () => {
 
     const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
 
-    expect(report.mongo).toEqual({ invitations: 3, auditEvents: 12, idpConfigs: 1 });
+    expect(report.mongo).toEqual({ invitations: 3, auditEvents: 12, idpConfigs: 1, orgDomains: 0, joinRequests: 0 });
     // The deleteMany filter must exclude `admin.org.delete` so the audit
     // trail of the very-just-fired delete event survives.
     const auditCallArg = mockAuditDeleteMany.mock.calls[0][0];

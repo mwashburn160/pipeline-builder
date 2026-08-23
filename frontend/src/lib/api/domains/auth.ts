@@ -47,6 +47,29 @@ export function authApi(core: ApiCore) {
       });
     },
 
+    /** POST /auth/onboarding/complete — finish first-run onboarding for a
+     *  social-signup user: name the auto-created org and optionally pick a plan,
+     *  clearing the `needsOnboarding` flag. */
+    completeOnboarding: async (params: { organizationName?: string; planId?: string } = {}) => {
+      return core.request<ApiResponse<{ organizationId: string; organizationName: string }>>('/api/auth/onboarding/complete', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      });
+    },
+
+    /** GET /auth/onboarding/domain-orgs — orgs the user could join by verified email domain. */
+    getDomainOrgs: async () => {
+      return core.request<ApiResponse<{ orgs: Array<{ orgId: string; orgName: string; autoJoin: 'off' | 'request' | 'auto' }> }>>('/api/auth/onboarding/domain-orgs');
+    },
+
+    /** POST /auth/onboarding/join — auto-join or request to join a domain-discovered org. */
+    joinDomainOrg: async (orgId: string) => {
+      return core.request<ApiResponse<{ status: 'joined' | 'requested' | 'already-member' | 'denied' }>>('/api/auth/onboarding/join', {
+        method: 'POST',
+        body: JSON.stringify({ orgId }),
+      });
+    },
+
     logout: async () => {
       try {
         await core.request('/api/auth/logout', { method: 'POST' });

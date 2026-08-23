@@ -190,21 +190,27 @@ OAuth registration endpoint. The callback verifies the provider identity, then
 resolves it in three cases (`authService.findOrCreateOAuthUser`):
 
 1. **Returning identity** — a user already linked to this provider's account id → straight login, nothing created.
-2. **Email already registered** — a user with the same (provider-verified) email exists → the provider is **linked to that existing account** and they're logged in. This is how signing in with, say, Facebook later attaches to the account first created with Google under the same email — **no second organization is created**.
-3. **Brand-new identity → auto-provision.** A new `User` is created (marked email-verified, since the provider verified it), and in a single transaction the platform also creates:
-   - a **personal organization**, **named after the derived username** (from the provider's display name, else the email local-part — lowercased, stripped to `[a-z0-9_-]`, length-capped, and made unique);
+2. **Email already registered** — a user with the same (provider-verified) email exists → the provider is **linked to that existing account** and they're logged in. This is how signing in with, say, Facebook later attaches to the account first created with Google under the same email — **no second organization is created**. **Hardening:** the silent link happens only when the pre-existing account's **own email is verified** (`isEmailVerified`). Linking into an *unverified* account is refused with a `409` (`ACCOUNT_EMAIL_UNVERIFIED`) — this closes the vector where someone plants an unverified password account on a victim's address and gets the victim signed into it on their first social login. The user verifies (or resets the password on) that account first, then links.
+3. **Brand-new identity → auto-provision.** A new `User` is created (marked email-verified, since the provider verified it) and flagged `needsOnboarding`, and in a single transaction the platform also creates:
+   - a **personal organization**, initially **named after the derived username** (from the provider's display name, else the email local-part — lowercased, stripped to `[a-z0-9_-]`, length-capped, and made unique);
    - an **owner** membership for the new user;
    - the default **Admin/Member roles** — identical to what email registration seeds.
 
-So a first-time "Sign in with Google/Facebook" **silently creates and owns a new
-org**. A few consequences worth knowing:
+**First-run onboarding.** Because a social signup collected no org name or plan,
+a brand-new user is flagged `needsOnboarding` and the app's auth guard routes
+them to a one-time **"Name your organization"** screen (`/dashboard/onboarding`)
+before the dashboard. There they rename the auto-created org and — when billing
+is enabled — pick a plan; `POST /auth/onboarding/complete` renames the org
+(reusing the identity-rename path), provisions the plan (fire-and-forget,
+mirroring register), and clears the flag. "Skip for now" keeps the derived name
+and clears the flag. Email/password registrants and SSO-provisioned users are
+**not** flagged (they already supplied an org name or belong to an enforced org).
 
-- **No "name your organization" step.** Unlike email/password registration (which
-  accepts an `organizationName`), the OAuth path derives the org name from the
-  username with no prompt — e.g. a Facebook profile "Jane Doe" yields an org named
-  `janedoe`. Rename it afterward in org settings if needed.
+A few consequences worth knowing:
+
 - **Tier.** The new org takes the default quota tier and is **not** provisioned to
-  a paid tier until billing does so (no free paid-tier grant).
+  a paid tier until billing does so (no free paid-tier grant). When billing is
+  off, the onboarding plan step is hidden and any `planId` is inert.
 - **Facebook needs email.** Facebook only returns an email if the user grants the
   `email` scope; if they decline, sign-in fails with `OAUTH_NO_EMAIL` and **no
   account or org is created**.
@@ -372,9 +378,58 @@ create / update / delete is recorded in the [audit trail](audit-events.md)
 
 ---
 
+## Domain-based org join (P2b)
+
+Separate from SSO, an org can let people with a **verified company email domain**
+discover and join it — so coworkers land in one org instead of many one-person
+orgs. Requires the **Team or Enterprise** tier. Full design + threat model:
+[docs/plans/domain-based-org-join.md](plans/domain-based-org-join.md).
+
+### Admin setup (Settings → Domain-based join)
+
+1. **Register the domain** (e.g. `acme.com`). Public/freemail domains
+   (`gmail.com`, …) are rejected.
+2. **Verify ownership** — publish the shown DNS TXT record, then click Verify:
+   ```
+   _pipeline-builder-verify.acme.com  TXT  "pb-verify=<token>"
+   ```
+   The platform resolves the record (bounded timeout) and, on match, marks the
+   domain verified. First org to verify a domain owns it.
+3. **Choose who can join** for the verified domain:
+   - **Off** — registered but not discoverable (default).
+   - **Request** — matching signups may request; an admin approves in the same
+     panel (Approve / Deny).
+   - **Auto** — matching signups join immediately as a **member** (use only for a
+     domain you fully control).
+
+### What the joining user sees
+
+On first sign-in, the onboarding screen shows a **"Join your team"** section
+listing discoverable orgs for their verified email domain. **Auto** joins in one
+click; **Request** files a request an admin reviews. Discovery is
+verified-email-gated and only ever shows the user's *own* domain's orgs.
+
+### Behavior worth knowing
+
+- **Seats**: an auto-join or approval consumes a seat and is rejected if the
+  account is at its seat cap.
+- **Removed users** can't silently rejoin an `auto` domain — the join falls back
+  to a request for an admin to approve.
+- **Denied requests are sticky** (a user can't re-spam); an admin re-opens.
+- **Turning a domain off / deleting it** denies its pending requests; deleting the
+  org frees the domain for anyone to register.
+- Every action is audited (`org.domain.*`, `org.join.*`).
+- **Notifications**: admins get an email + an in-app inbox message (live) on a new
+  request; the requester is notified (email + in-app) on approve/deny.
+- **Verified domains are periodically re-checked**; if the DNS TXT proof is
+  definitively removed, the domain is auto-un-verified and its join disabled.
+
+---
+
 ## See also
 
 - [Environment Variables → Authentication](environment-variables.md#authentication) — every `OAUTH_*` variable.
 - [Roles & Permissions](permissions.md) — the `org:idp`/`org:kms` capabilities, sessions, and `tokenVersion` invalidation.
 - [Billing Add-on Bundles](billing-bundles.md) — the `sso` add-on bundle and feature entitlements.
 - [Audit Events](audit-events.md) — SSO/IdP config change actions.
+- [Domain-based org join (plan)](plans/domain-based-org-join.md) — the P2b design, security model, and deferred follow-ups.

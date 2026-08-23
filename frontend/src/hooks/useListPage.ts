@@ -159,7 +159,10 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
   // the cancellable-fetch core with useFetch/useServerPagination so the
   // "drop stale state writes on deps-change/unmount" semantics live in one place.
   useEffect(() => {
-    if (!enabled) return;
+    // Clear the initial loading state when disabled so a consumer gating on a
+    // non-auth condition (e.g. "wait for an id") doesn't render a spinner
+    // forever; `isLoading` inits true for the enabled-from-mount common case.
+    if (!enabled) { setIsLoading(false); return; }
 
     // Build params from debounced filter values
     const params: Record<string, string> = {};

@@ -37,10 +37,12 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { switchActiveOrg: (...a: unknown[]) => mockSwitchActiveOrg(...a) },
   DUPLICATE_CREDENTIALS: 'DUPLICATE_CREDENTIALS',
   RESERVED_ORG_NAME: 'RESERVED_ORG_NAME',
+  ONBOARDING_USER_NOT_FOUND: 'ONBOARDING_USER_NOT_FOUND',
+  ONBOARDING_NO_ORG: 'ONBOARDING_NO_ORG',
 }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: (...a: unknown[]) => mockIssueTokens(...a) }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
-  validateBody: jest.fn(), registerSchema: {}, loginSchema: {}, refreshSchema: {},
+  validateBody: jest.fn(), registerSchema: {}, loginSchema: {}, refreshSchema: {}, completeOnboardingSchema: {}, joinOrgSchema: {},
 }));
 
 const { switchOrg } = await import('../src/controllers/auth.js');

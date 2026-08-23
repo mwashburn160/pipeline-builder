@@ -6,6 +6,7 @@ export * from './oauth.js';
 export * from './user-profile.js';
 export * from './user-admin.js';
 export * from './organization.js';
+export * from './org-domain.js';
 export * from './organization-members.js';
 export * from './organization-roles.js';
 export * from './invitation.js';

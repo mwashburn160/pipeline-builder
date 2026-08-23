@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { getTierMeta } from '@/lib/tiers';
-import { formatCents } from '@/lib/format';
+import { formatPrice } from './helpers';
 import type { Plan, Subscription, BillingInterval } from '@/types';
 
 // Plan badge styling comes from the shared TIER_META catalog (`getTierMeta`).
@@ -19,15 +19,6 @@ const PLAN_ACCENTS: Record<string, { border: string; bg: string }> = {
   enterprise: { border: 'border-amber-500',   bg: 'bg-amber-50 dark:bg-amber-950' },
 };
 
-/**
- * Formats a price in cents as a dollar string.
- * @param cents - Price in cents (0 returns "Free").
- * @returns Formatted price string, e.g. "$9.99".
- */
-function formatPrice(cents: number): string {
-  if (cents === 0) return 'Free';
-  return formatCents(cents);
-}
 
 interface PlanGridProps {
   plans: Plan[];

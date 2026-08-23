@@ -4,7 +4,7 @@
 import { ErrorCode, sendError } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
-import { login, logout, register, refresh, switchOrg, sendVerificationEmail, verifyEmail, markEmailVerified } from '../controllers/index.js';
+import { login, logout, register, refresh, switchOrg, sendVerificationEmail, verifyEmail, markEmailVerified, completeOnboarding, getDomainOrgs, joinDomainOrg } from '../controllers/index.js';
 import { stepUpVerify } from '../controllers/step-up.js';
 import { requireAuth, isValidRefreshToken } from '../middleware/index.js';
 
@@ -60,6 +60,9 @@ router.post('/logout', requireAuth, logout);
 /** POST /auth/switch-org - Switch active organization and re-issue tokens */
 router.post('/switch-org', requireAuth, switchOrg);
 
+/** POST /auth/onboarding/complete - Finish first-run onboarding (name org + plan) */
+router.post('/onboarding/complete', requireAuth, completeOnboarding);
+
 /** POST /auth/send-verification - Send email verification link */
 router.post('/send-verification', requireAuth, sendVerificationEmail);
 
@@ -71,5 +74,28 @@ router.post('/mark-email-verified', requireAuth, markEmailVerified);
 
 /** POST /auth/step-up - Re-verify password before destructive admin actions */
 router.post('/step-up', requireAuth, stepUpLimiter, stepUpVerify);
+
+/**
+ * Per-user limiter for the domain-based join endpoints. Discovery + join are
+ * authenticated but still worth bounding: `join` writes to an org's admin queue
+ * (request spam) and both are cheap enumeration probes if abused. Keyed per-user
+ * (requireAuth runs first), tighter than the shared IP `authLimiter`.
+ */
+const domainJoinLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 15,
+  keyGenerator: (req) => req.user?.sub ?? ipKeyGenerator(req.ip || 'anon', 64),
+  handler: (_req, res) => {
+    sendError(res, 429, 'Too many requests. Please wait a minute and try again.', ErrorCode.RATE_LIMIT_EXCEEDED);
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/** GET /auth/onboarding/domain-orgs - Orgs the user could join by verified email domain */
+router.get('/onboarding/domain-orgs', requireAuth, domainJoinLimiter, getDomainOrgs);
+
+/** POST /auth/onboarding/join - Auto-join or request to join a domain-discovered org */
+router.post('/onboarding/join', requireAuth, domainJoinLimiter, joinDomainOrg);
 
 export default router;

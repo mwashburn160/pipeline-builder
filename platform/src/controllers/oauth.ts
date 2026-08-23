@@ -9,7 +9,7 @@ import { withController } from '../helpers/controller-helper.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
-import { authService } from '../services/index.js';
+import { authService, ACCOUNT_EMAIL_UNVERIFIED } from '../services/index.js';
 import { type OAuthProviderName } from '../types/oauth-provider.js';
 import { issueTokens } from '../utils/token.js';
 import { validateBody, oauthCallbackSchema } from '../utils/validation.js';
@@ -434,6 +434,7 @@ export const OAUTH_ERROR_MAP = {
   OAUTH_INVALID_STATE: { status: 403, message: 'Invalid or expired OAuth state' },
   OAUTH_NO_EMAIL: { status: 400, message: 'OAuth provider did not return an email address' },
   TOKEN_EXCHANGE_FAILED: { status: 502, message: 'Failed to exchange authorization code' },
+  [ACCOUNT_EMAIL_UNVERIFIED]: { status: 409, message: 'An account already exists for this email but is not verified. Verify (or reset the password on) that account first, then link this provider.' },
 } as const;
 
 /**

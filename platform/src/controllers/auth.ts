@@ -8,9 +8,9 @@ import { withController } from '../helpers/controller-helper.js';
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
 import { provisionBillingSubscription } from '../services/billing-provision.js';
-import { authService, DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME } from '../services/index.js';
+import { authService, DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG } from '../services/index.js';
 import { issueTokens } from '../utils/token.js';
-import { validateBody, registerSchema, loginSchema, refreshSchema } from '../utils/validation.js';
+import { validateBody, registerSchema, loginSchema, refreshSchema, completeOnboardingSchema, joinOrgSchema } from '../utils/validation.js';
 
 const logger = createLogger('auth-controller');
 
@@ -99,6 +99,83 @@ export const register = withController('Register', async (req, res) => {
   [DUPLICATE_CREDENTIALS]: { status: 409, message: 'Credentials already in use' },
   [RESERVED_ORG_NAME]: { status: 403, message: 'That organization name is reserved' },
   MISSING_FIELDS: { status: 400, message: 'Missing required fields' },
+});
+
+/**
+ * POST /auth/onboarding/complete
+ *
+ * Finish first-run onboarding for a social-signup user: name the auto-created
+ * personal org and optionally pick a plan, then clear the `needsOnboarding`
+ * flag. Plan provisioning is fire-and-forget (mirrors register); the org rename
+ * + flag clear happen synchronously in the service.
+ */
+export const completeOnboarding = withController('Complete onboarding', async (req, res) => {
+  if (!req.user) return sendError(res, 401, 'Unauthorized');
+  const body = validateBody(completeOnboardingSchema, req.body, res);
+  if (!body) return;
+
+  const result = await authService.completeOnboarding(req.user.sub, { organizationName: body.organizationName });
+
+  if (config.billing.enabled && body.planId) {
+    void createBillingSubscription(result.organizationId, body.planId);
+  }
+
+  audit(req, 'user.onboarding.complete', { targetType: 'organization', targetId: result.organizationId });
+  incCounter('platform_onboarding_complete_total');
+  sendSuccess(res, 200, result);
+}, {
+  [ONBOARDING_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
+  [ONBOARDING_NO_ORG]: { status: 409, message: 'No active organization to onboard' },
+  [RESERVED_ORG_NAME]: { status: 403, message: 'That organization name is reserved' },
+});
+
+/**
+ * GET /auth/onboarding/domain-orgs — orgs the signed-in user could join based on
+ * their VERIFIED email domain (P2b discovery). Authenticated + verified-email
+ * gated so it can't be used to enumerate tenants; returns only name + join-mode.
+ */
+export const getDomainOrgs = withController('Discover domain orgs', async (req, res) => {
+  if (!req.user) return sendError(res, 401, 'Unauthorized');
+  // Lazy-import so the domain-join dependency chain (dns, seats, roles) isn't
+  // pulled into auth.ts's static graph — mirrors register()'s superadmin-bootstrap import.
+  const { User } = await import('../models/index.js');
+  const { orgDomainService } = await import('../services/org-domain-service.js');
+  const user = await User.findById(req.user.sub).select('email isEmailVerified');
+  // Only a provider-verified email may discover — an unverified address is an
+  // unproven domain claim and must not surface other tenants.
+  if (!user || !user.isEmailVerified) return sendSuccess(res, 200, { orgs: [] });
+  const orgs = await orgDomainService.findDiscoverableOrgsByEmail(user.email);
+  sendSuccess(res, 200, { orgs });
+});
+
+/**
+ * POST /auth/onboarding/join — act on a domain-discovered org: auto-join (member)
+ * or file a join request, re-validated server-side against the caller's verified
+ * email. Never trusts the client's eligibility claim.
+ */
+export const joinDomainOrg = withController('Join domain org', async (req, res) => {
+  if (!req.user) return sendError(res, 401, 'Unauthorized');
+  const body = validateBody(joinOrgSchema, req.body, res);
+  if (!body) return;
+  const { User } = await import('../models/index.js');
+  const { orgDomainService } = await import('../services/org-domain-service.js');
+  const user = await User.findById(req.user.sub).select('email isEmailVerified');
+  if (!user || !user.isEmailVerified) return sendError(res, 403, 'A verified email is required to join by domain');
+
+  const result = await orgDomainService.requestOrAutoJoin({ _id: user._id, email: user.email }, body.orgId);
+  if (result.status === 'joined') {
+    // Distinct from admin approval — this is the user self-joining an auto domain.
+    audit(req, 'org.join.auto', { targetType: 'user', targetId: user._id.toString(), affectedOrgId: body.orgId });
+  } else if (result.status === 'requested') {
+    audit(req, 'org.join.request', { targetType: 'user', targetId: user._id.toString(), affectedOrgId: body.orgId });
+  }
+  incCounter('platform_domain_join_total', { status: result.status });
+  sendSuccess(res, 200, result);
+}, {
+  // Literal keys (not imported) so the org-domain-service module isn't pulled
+  // into auth.ts's static graph — must match its exported error-code strings.
+  JOIN_NOT_ELIGIBLE: { status: 403, message: 'You are not eligible to join that organization' },
+  JOIN_SEAT_LIMIT: { status: 409, message: 'That organization has no seats available' },
 });
 
 /** Login user. POST /auth/login */

@@ -444,6 +444,16 @@ export const config = {
     serviceTimeout: parseInt(process.env.COMPLIANCE_SERVICE_TIMEOUT || '5000', 10), // 5s
   },
 
+  // Message service — used for service-to-service in-app notifications (P2b
+  // domain-join). Disabled → in-app notifications are silently skipped (email
+  // still sent). Mirrors the other downstream-service blocks.
+  message: {
+    enabled: (process.env.MESSAGE_ENABLED || 'true').toLowerCase() !== 'false',
+    serviceHost: process.env.MESSAGE_SERVICE_HOST || 'message',
+    servicePort: parseInt(process.env.MESSAGE_SERVICE_PORT || '3000', 10),
+    serviceTimeout: parseInt(process.env.MESSAGE_SERVICE_TIMEOUT || '5000', 10), // 5s
+  },
+
   loki: {
     url: process.env.LOKI_URL || 'http://loki:3100',
     timeout: parseInt(process.env.LOKI_TIMEOUT || '10000', 10), // 10s

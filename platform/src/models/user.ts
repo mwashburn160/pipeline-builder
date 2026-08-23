@@ -24,6 +24,15 @@ interface OAuthProviderData {
 interface OAuthProviders {
   google?: OAuthProviderData;
   github?: OAuthProviderData;
+  facebook?: OAuthProviderData;
+  microsoft?: OAuthProviderData;
+  gitlab?: OAuthProviderData;
+  linkedin?: OAuthProviderData;
+  // Per-org SSO (OIDC) providers also persist linkage here — findOrCreateOAuthUser
+  // is shared by the social-login and SSO callbacks and keys on the IdP provider.
+  // `google`/`github` above double as SSO keys; these two are SSO-only.
+  'generic-oidc'?: OAuthProviderData;
+  cognito?: OAuthProviderData;
 }
 
 /**
@@ -48,6 +57,19 @@ export interface UserDocument extends Document {
    */
   lastActiveOrgId?: string;
   isEmailVerified: boolean;
+  /**
+   * First-run flag. Set true only when a brand-new identity is auto-provisioned
+   * through social OAuth (no org name / plan was ever collected — see
+   * `authService.findOrCreateOAuthUser`). The frontend gate routes such users
+   * through the onboarding screen and `authService.completeOnboarding` clears it.
+   * Email/password registration and SSO-provisioned users are never flagged
+   * (they either supply an org name or belong to an enforced org).
+   */
+  needsOnboarding?: boolean;
+  /** The org auto-provisioned for this user at social signup. `completeOnboarding`
+   *  renames exactly this org (not whatever `lastActiveOrgId` happens to be, in
+   *  case the user switched active org before finishing onboarding). */
+  onboardingOrgId?: string;
   emailVerificationToken?: string;
   emailVerificationExpires?: Date;
   /**
@@ -136,6 +158,13 @@ const userSchema = new Schema<UserDocument>(
       type: Boolean,
       default: false,
     },
+    needsOnboarding: {
+      type: Boolean,
+      default: false,
+    },
+    onboardingOrgId: {
+      type: String,
+    },
     isSuperAdmin: {
       type: Boolean,
       default: false,
@@ -180,6 +209,15 @@ const userSchema = new Schema<UserDocument>(
     oauth: {
       google: oauthProviderSchema,
       github: oauthProviderSchema,
+      facebook: oauthProviderSchema,
+      microsoft: oauthProviderSchema,
+      gitlab: oauthProviderSchema,
+      linkedin: oauthProviderSchema,
+      // SSO (OIDC) provider keys — see OAuthProviders. Without these, per-org SSO
+      // linkage was silently dropped under Mongoose strict mode and every SSO
+      // login re-matched by email instead of the oauth-id fast path.
+      'generic-oidc': oauthProviderSchema,
+      cognito: oauthProviderSchema,
     },
   },
   { timestamps: true },
@@ -246,6 +284,16 @@ userSchema.methods.comparePassword = async function (password: string): Promise<
  */
 userSchema.index({ 'oauth.google.id': 1 }, { sparse: true });
 userSchema.index({ 'oauth.github.id': 1 }, { sparse: true });
+// Same login-lookup index for the other social providers — findOrCreateOAuthUser
+// queries `oauth.<provider>.id` for every provider, so without these the lookup
+// is a full `users` collection scan on each facebook/microsoft/gitlab/linkedin login.
+userSchema.index({ 'oauth.facebook.id': 1 }, { sparse: true });
+userSchema.index({ 'oauth.microsoft.id': 1 }, { sparse: true });
+userSchema.index({ 'oauth.gitlab.id': 1 }, { sparse: true });
+userSchema.index({ 'oauth.linkedin.id': 1 }, { sparse: true });
+// SSO (OIDC) provider keys — same login-lookup fast path (google/github indexes above cover the SSO providers that reuse those keys).
+userSchema.index({ 'oauth.generic-oidc.id': 1 }, { sparse: true });
+userSchema.index({ 'oauth.cognito.id': 1 }, { sparse: true });
 userSchema.index({ email: 1, username: 1 }); // login lookup: email OR username
 
 export default mongoose.model<UserDocument>('User', userSchema);

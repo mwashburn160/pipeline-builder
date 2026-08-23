@@ -377,5 +377,51 @@ export function organizationsApi(core: ApiCore) {
         body: JSON.stringify(data),
       });
     },
+
+    // -- Domain-based join (P2b): admin domain management + join-request review --
+
+    listOrgDomains: async (orgId: string) => {
+      return core.request<ApiResponse<{ domains: OrgDomainDto[]; entitled: boolean }>>(`/api/organization/${orgId}/domains`);
+    },
+    addOrgDomain: async (orgId: string, domain: string) => {
+      return core.request<ApiResponse<{ domain: OrgDomainDto }>>(`/api/organization/${orgId}/domains`, {
+        method: 'POST', body: JSON.stringify({ domain }),
+      });
+    },
+    verifyOrgDomain: async (orgId: string, domainId: string) => {
+      return core.request<ApiResponse<{ domain: OrgDomainDto }>>(`/api/organization/${orgId}/domains/${domainId}/verify`, { method: 'POST' });
+    },
+    setOrgDomainMode: async (orgId: string, domainId: string, autoJoin: 'off' | 'request' | 'auto') => {
+      return core.request<ApiResponse<{ domain: OrgDomainDto }>>(`/api/organization/${orgId}/domains/${domainId}`, {
+        method: 'PATCH', body: JSON.stringify({ autoJoin }),
+      });
+    },
+    deleteOrgDomain: async (orgId: string, domainId: string) => {
+      return core.request<ApiResponse<{ deleted: boolean }>>(`/api/organization/${orgId}/domains/${domainId}`, { method: 'DELETE' });
+    },
+    listOrgJoinRequests: async (orgId: string) => {
+      return core.request<ApiResponse<{ requests: OrgJoinRequestDto[] }>>(`/api/organization/${orgId}/join-requests`);
+    },
+    decideOrgJoinRequest: async (orgId: string, reqId: string, decision: 'approve' | 'deny') => {
+      return core.request<ApiResponse<{ userId: string; status: 'approved' | 'denied' }>>(`/api/organization/${orgId}/join-requests/${reqId}/${decision}`, { method: 'POST' });
+    },
   };
+}
+
+/** A registered org domain as returned to the admin UI. */
+export interface OrgDomainDto {
+  id: string;
+  domain: string;
+  verified: boolean;
+  autoJoin: 'off' | 'request' | 'auto';
+  /** DNS TXT record to publish — present only while unverified. */
+  verification?: { host: string; type: string; value: string };
+}
+
+/** A pending domain-join request as returned to the admin UI. */
+export interface OrgJoinRequestDto {
+  id: string;
+  userId: string;
+  email: string;
+  requestedAt: string;
 }

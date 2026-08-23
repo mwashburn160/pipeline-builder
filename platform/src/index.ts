@@ -485,6 +485,31 @@ async function initDependencies(): Promise<void> {
     }
   }
 
+  // Periodic re-verification of domain-based-join domains (P2b): re-checks the
+  // DNS TXT proof for domains not verified recently and un-verifies any whose
+  // record is definitively gone (owner removed it / domain transferred), so a
+  // stale domain can't keep admitting signups forever. Leader-locked (one
+  // replica per window); intervals env-tunable, defaults 24h sweep / 7d staleness.
+  {
+    const reverifyIntervalMs = Number(process.env.DOMAIN_REVERIFY_INTERVAL_MS) || 24 * 60 * 60 * 1000;
+    const reverifyStaleMs = Number(process.env.DOMAIN_REVERIFY_STALE_MS) || 7 * 24 * 60 * 60 * 1000;
+    if (reverifyIntervalMs > 0) {
+      const { runWithLeaderLock } = await import('./utils/leader-lock.js');
+      const lockTtlMs = Math.max(reverifyIntervalMs, 60_000);
+      setInterval(() => {
+        void runWithLeaderLock('platform:leader:domain-reverify', lockTtlMs, async () => {
+          const { orgDomainService } = await import('./services/org-domain-service.js');
+          const res = await orgDomainService.reverifyStaleDomains(reverifyStaleMs);
+          if (res.checked > 0) logger.info('Domain re-verification sweep', res);
+        }).catch((err) => {
+          logger.error('Domain re-verification sweep failed', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }, reverifyIntervalMs).unref();
+    }
+  }
+
   // Install the per-org KMS provider if SECRET_ENCRYPTION_PER_ORG_KMS=true.
   // Must run AFTER Mongo connects (resolver reads Organization docs) and BEFORE
   // the service goes ready (the guard then lets secret-touching requests

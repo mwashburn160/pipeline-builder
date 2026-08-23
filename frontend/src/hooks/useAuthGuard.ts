@@ -19,6 +19,9 @@ interface AuthGuardOptions {
   requireSystemAdmin?: boolean;
   /** Require a specific fine-grained permission (RBAC). Superadmins bypass. */
   requirePermission?: string;
+  /** Set on the onboarding page itself so the guard doesn't bounce a
+   *  `needsOnboarding` user away from it (which would loop). */
+  allowOnboarding?: boolean;
 }
 
 /**
@@ -39,6 +42,8 @@ export function useAuthGuard(options?: AuthGuardOptions) {
 
   const requireAdmin = options?.requireAdmin ?? false;
   const requireSystemAdmin = options?.requireSystemAdmin ?? false;
+  const allowOnboarding = options?.allowOnboarding ?? false;
+  const needsOnboarding = !!user?.needsOnboarding;
   const requirePermission = options?.requirePermission;
   const hasRequiredPermission = !requirePermission || hasPermission(user, requirePermission);
 
@@ -64,7 +69,17 @@ export function useAuthGuard(options?: AuthGuardOptions) {
   useEffect(() => {
     if (!isInitialized || isLoading) return;
     if (!isAuthenticated) {
-      router.push('/');
+      // replace (not push) so the guarded URL isn't left in history — otherwise
+      // a signed-out user who lands on '/' and hits Back returns to the guarded
+      // page, which immediately re-redirects (a "stuck" Back button).
+      router.replace('/');
+      return;
+    }
+    // Force first-run social-signup users through onboarding before any other
+    // gated route (the onboarding page passes `allowOnboarding` to opt out and
+    // avoid a redirect loop).
+    if (needsOnboarding && !allowOnboarding && router.pathname !== '/dashboard/onboarding') {
+      router.replace('/dashboard/onboarding');
       return;
     }
     if (requireAdmin && !isAdmin) {
@@ -79,9 +94,10 @@ export function useAuthGuard(options?: AuthGuardOptions) {
       router.push('/dashboard');
       return;
     }
-  }, [isAuthenticated, isInitialized, isLoading, isAdmin, isSuperAdmin, hasRequiredPermission, router, requireAdmin, requireSystemAdmin]);
+  }, [isAuthenticated, isInitialized, isLoading, isAdmin, isSuperAdmin, hasRequiredPermission, router, requireAdmin, requireSystemAdmin, needsOnboarding, allowOnboarding]);
 
   const isReady = isInitialized && !isLoading && isAuthenticated && !!user
+    && (allowOnboarding || !needsOnboarding)
     && (!requireAdmin || isAdmin)
     && (!requireSystemAdmin || isSuperAdmin)
     && hasRequiredPermission;

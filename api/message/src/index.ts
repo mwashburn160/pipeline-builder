@@ -9,6 +9,7 @@ import type { Request, Response } from 'express';
 import { createAttachmentRoutes } from './routes/attachment-routes.js';
 import { createCreateMessageRoutes } from './routes/create-message.js';
 import { createDeleteMessageRoutes } from './routes/delete-message.js';
+import { createInternalNotifyRoutes } from './routes/internal-notify.js';
 import { createInternalOrgPurgeRoutes } from './routes/internal-org-purge.js';
 import { createPurgeMessageRoutes } from './routes/purge-message.js';
 import { createReadMessageRoutes } from './routes/read-messages.js';
@@ -135,6 +136,11 @@ app.use('/messages', ...createAuthenticatedWithOrgRoute(), requirePermission('me
 // DELETE /messages/internal/org/:orgId/attachments to reclaim the org's MinIO
 // blobs. Its own requireAuth + requireServicePrincipal gate it — no user chain.
 app.use('/messages', createInternalOrgPurgeRoutes());
+
+// Internal notify (service-to-service): a trusted platform service posts a
+// SYSTEM-authored in-app message + SSE ping to a recipient org/user (domain-join
+// notifications). Its own requireAuth + requireServicePrincipal gate it.
+app.use('/messages', createInternalNotifyRoutes(sseManager));
 
 logger.info('All /messages routes registered');
 

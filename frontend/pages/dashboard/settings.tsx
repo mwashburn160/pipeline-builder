@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { AIProviderConfig } from '@/components/settings/AIProviderConfig';
+import { DomainJoinSettings } from '@/components/settings/DomainJoinSettings';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import Link from 'next/link';
@@ -196,6 +197,18 @@ export default function SettingsPage() {
             className="card mb-6"
           >
             <OrgIdentitySettings onSaved={refreshUser} />
+          </motion.div>
+        )}
+
+        {/* Domain-based join (owner/admin self-serve) */}
+        {can('org:settings') && user.organizationId && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.045 }}
+            className="mb-6"
+          >
+            <DomainJoinSettings orgId={user.organizationId} />
           </motion.div>
         )}
 

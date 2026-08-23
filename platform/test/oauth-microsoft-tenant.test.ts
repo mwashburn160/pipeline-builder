@@ -57,6 +57,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 
 jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { findOrCreateOAuthUser: jest.fn() },
+  ACCOUNT_EMAIL_UNVERIFIED: 'ACCOUNT_EMAIL_UNVERIFIED',
 }));
 // oauth.ts now imports rejectIfSsoEnforced (social-OAuth honors per-org SSO
 // enforcement); mock it so the real sso-enforcement→models→audit-event chain

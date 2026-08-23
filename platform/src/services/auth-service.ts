@@ -7,7 +7,8 @@ import { seedDefaultRoles } from './roles-service.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishUserRevocation } from '../helpers/session-revocation.js';
-import { User, Organization, UserOrganization } from '../models/index.js';
+import { User, Organization, UserOrganization, type UserDocument } from '../models/index.js';
+import type { ClientSession } from 'mongoose';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { hashRefreshToken } from '../utils/token.js';
 
@@ -20,6 +21,13 @@ export const DUPLICATE_CREDENTIALS = 'DUPLICATE_CREDENTIALS';
  *  confers platform superadmin to its creator, so only an operator-authorized
  *  email (BOOTSTRAP_SUPERADMIN_EMAILS) may create it; everyone else is refused. */
 export const RESERVED_ORG_NAME = 'RESERVED_ORG_NAME';
+/** `completeOnboarding` could not resolve the caller's user or their active org. */
+export const ONBOARDING_USER_NOT_FOUND = 'ONBOARDING_USER_NOT_FOUND';
+export const ONBOARDING_NO_ORG = 'ONBOARDING_NO_ORG';
+/** Thrown by findOrCreateOAuthUser when a social/SSO login would silently link
+ *  onto a pre-existing but UNVERIFIED account. Mapped to 409 by the OAuth + OIDC
+ *  callback error maps (single source, shared by both). */
+export const ACCOUNT_EMAIL_UNVERIFIED = 'ACCOUNT_EMAIL_UNVERIFIED';
 
 /**
  * Is this email operator-authorized as a platform super-admin (i.e. listed in
@@ -35,6 +43,14 @@ function isBootstrapSuperAdminEmail(email: string | undefined): boolean {
   const raw = process.env.BOOTSTRAP_SUPERADMIN_EMAILS || '';
   const allow = new Set(raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean));
   return allow.size > 0 && allow.has(email.trim().toLowerCase());
+}
+
+/** Tier for the platform's own system org: fully `unlimited` when billing is OFF
+ *  (never metered), top standard tier (`enterprise`) when ON so it reconciles
+ *  like a normal high-tier org. Single source for both the org row and the
+ *  register() planId echo. */
+function systemOrgTier(): QuotaTier {
+  return isBillingEnabled() ? 'enterprise' : 'unlimited';
 }
 
 interface RegisterInput {
@@ -63,6 +79,52 @@ interface VerificationDispatch {
 }
 
 class AuthService {
+  /**
+   * Provision an owner org for a brand-new user inside an existing transaction:
+   * create the Organization (applying the system-tenant fields when `isSystemOrg`),
+   * the owner `UserOrganization` membership, set the user's `lastActiveOrgId`,
+   * persist the user, and seed default permission Roles. Shared by `register`
+   * (email) and `findOrCreateOAuthUser` (social/SSO) so the two provisioning
+   * paths — including the security-sensitive system-org branch and its
+   * billing-aware tier — can't drift. Caller is responsible for the reserved-
+   * `system`-name authorization check before passing `isSystemOrg: true`.
+   */
+  private async provisionOwnerOrg(
+    user: UserDocument,
+    opts: { name: string; isSystemOrg: boolean; markOnboardingOrg?: boolean },
+    session: ClientSession,
+  ) {
+    const orgData: Record<string, unknown> = {
+      name: opts.isSystemOrg ? SYSTEM_ORG_SLUG : opts.name,
+      owner: user._id,
+    };
+    if (opts.isSystemOrg) {
+      // Seed the FULL tier preset so no quota falls back to a finite DEFAULT_TIER cap.
+      const systemTier = systemOrgTier();
+      orgData._id = SYSTEM_ORG_ID; // fixed well-known ObjectId
+      orgData.slug = SYSTEM_ORG_SLUG;
+      orgData.isSystem = true;
+      orgData.tier = systemTier;
+      orgData.quotas = { ...QUOTA_TIERS[systemTier].limits };
+    }
+
+    const [org] = await Organization.create([orgData], { session });
+    await UserOrganization.create(
+      [{ userId: user._id, organizationId: org._id, role: 'owner' }],
+      { session },
+    );
+    // `lastActiveOrgId` is typed `string`; stringify the ObjectId.
+    user.lastActiveOrgId = String(org._id);
+    // Pin the onboarding rename target to THIS provisioned org (social signup).
+    if (opts.markOnboardingOrg) user.onboardingOrgId = String(org._id);
+    await user.save({ session });
+    // Seed default permission Roles. The system org also gets Super Admin, and
+    // its first user joins Super Admin + Admin (→ isSuperAdmin), bootstrapping
+    // platform admin without the env-var list.
+    await seedDefaultRoles(org._id, user._id, { isSystemOrg: opts.isSystemOrg }, session);
+    return org;
+  }
+
   /**
    * Register a new user + organization + membership in a single Mongo transaction.
    * The org name normalizes (trims, falls back to username); when it equals
@@ -107,56 +169,16 @@ class AuthService {
         throw new Error(RESERVED_ORG_NAME);
       }
 
-      // The platform's own superadmin/support org is infra, never a paying
-      // customer, so it must not be metered when billing is OFF — match every
-      // other org in that mode and go fully `unlimited` (all quotas -1). When
-      // billing is ON, keep it on the top standard tier (`enterprise`) so it
-      // reconciles like a normal high-tier org. (Only meaningful for the system
-      // org; unused otherwise.)
-      const systemTier: QuotaTier = isBillingEnabled() ? 'enterprise' : 'unlimited';
-
-      const orgData: Record<string, unknown> = {
-        name: isSystemOrg ? SYSTEM_ORG_SLUG : effectiveOrgName,
-        owner: user._id,
-      };
-
-      if (isSystemOrg) {
-        orgData._id = SYSTEM_ORG_ID; // fixed well-known ObjectId (cast from hex)
-        orgData.slug = SYSTEM_ORG_SLUG;
-        orgData.isSystem = true;
-        orgData.tier = systemTier;
-        // Seed the FULL tier preset — avoids the old bug where a partial
-        // `{ plugins, pipelines, apiCalls }` left aiCalls/seats/storage to fall
-        // back to a finite DEFAULT_TIER cap on the (meant-to-be-uncapped) org.
-        orgData.quotas = { ...QUOTA_TIERS[systemTier].limits };
-      }
-
-      const [org] = await Organization.create([orgData], { session });
-      const orgId = String(org._id);
-
-      await UserOrganization.create([{
-        userId: user._id,
-        organizationId: org._id,
-        role: 'owner',
-      }], { session });
-
-      // `lastActiveOrgId` is typed `string`; stringify the ObjectId so the
-      // assignment matches the schema (the system org is now an ObjectId too).
-      user.lastActiveOrgId = String(org._id);
-      await user.save({ session });
-
-      // Seed default permission Roles. The system org also gets Super Admin,
-      // and its first user joins Super Admin + Admin (→ isSuperAdmin),
-      // which bootstraps platform admin without the env-var list.
-      await seedDefaultRoles(org._id, user._id, { isSystemOrg }, session);
+      const org = await this.provisionOwnerOrg(user, { name: effectiveOrgName, isSystemOrg }, session);
 
       return {
         sub: user._id.toString(),
         email: user.email,
         role: 'owner',
-        organizationId: orgId,
+        organizationId: String(org._id),
         organizationName: org.name,
-        planId: isSystemOrg ? systemTier : (planId || 'developer'),
+        // For the system org, echo its resolved (billing-aware) tier as the plan.
+        planId: isSystemOrg ? systemOrgTier() : (planId || 'developer'),
       };
     });
   }
@@ -314,7 +336,11 @@ class AuthService {
    * the first un-taken `<base><n>` form so concurrent OAuth registrations
    * don't collide.
    */
-  async findOrCreateOAuthUser(providerName: string, userInfo: { id: string; email: string; name?: string; picture?: string }) {
+  async findOrCreateOAuthUser(
+    providerName: string,
+    userInfo: { id: string; email: string; name?: string; picture?: string },
+    opts: { markOnboarding?: boolean } = {},
+  ) {
     // `+isSuperAdmin` opts in to a schema field with `select: false`; the
     // returned user feeds JWT issuance and must carry the real flag.
     const byOAuth = await User.findOne({ [`oauth.${providerName}.id`]: userInfo.id }).select('+tokenVersion +isSuperAdmin');
@@ -322,6 +348,14 @@ class AuthService {
 
     const byEmail = await User.findOne({ email: userInfo.email.toLowerCase() }).select('+tokenVersion +isSuperAdmin');
     if (byEmail) {
+      // Hardening: only auto-link a (provider-verified) social identity onto a
+      // pre-existing account when that account's OWN email is verified. An
+      // UNVERIFIED pre-existing account is an unproven email claim — silently
+      // linking would let someone who plants an unverified password account on a
+      // victim's address get the victim signed into it on their first social
+      // login. Reject instead; the victim verifies (or resets) their existing
+      // account first, then links. Verified accounts link seamlessly as before.
+      if (!byEmail.isEmailVerified) throw new Error(ACCOUNT_EMAIL_UNVERIFIED);
       await User.updateOne({ _id: byEmail._id }, {
         $set: { [`oauth.${providerName}`]: { id: userInfo.id, email: userInfo.email, name: userInfo.name, picture: userInfo.picture, linkedAt: new Date() } },
       });
@@ -351,6 +385,10 @@ class AuthService {
       username,
       email: userInfo.email.toLowerCase(),
       isEmailVerified: true,
+      // First social signup collected no org name / plan, so flag the user for
+      // the onboarding screen. SSO callers pass `markOnboarding: false` — their
+      // users sign in to an enforced org, not a self-named personal one.
+      needsOnboarding: opts.markOnboarding !== false,
       tokenVersion: 0,
       oauth: { [providerName]: { id: userInfo.id, email: userInfo.email, name: userInfo.name, picture: userInfo.picture, linkedAt: new Date() } },
     });
@@ -360,38 +398,83 @@ class AuthService {
     // no owner membership or no permission Roles. `save()` happens inside the
     // tx so the whole identity lands atomically.
     await withMongoTransaction(async (session) => {
-      // Same well-known-slug handling as register(): if the derived org name is
-      // 'system', create it as the system tenant (fixed id/slug/tier/quotas). The
-      // username-probe loop above already folded 'system' to a namespaced form for
-      // any non-operator-authorized email, so this can only be true for an
+      // Same well-known-slug handling as register() (via the shared helper): if
+      // the derived org name is 'system', create it as the system tenant. The
+      // username-probe loop above already folded 'system' to a namespaced form
+      // for any non-operator-authorized email, so this can only be true for an
       // operator-authorized bootstrap identity.
       const isSystemOrg = username.toLowerCase() === SYSTEM_ORG_SLUG;
-      const orgData: Record<string, unknown> = {
-        name: isSystemOrg ? SYSTEM_ORG_SLUG : username,
-        owner: newUser._id,
-      };
-      if (isSystemOrg) {
-        orgData._id = SYSTEM_ORG_ID;
-        orgData.slug = SYSTEM_ORG_SLUG;
-        orgData.isSystem = true;
-        orgData.tier = 'enterprise';
-        orgData.quotas = { ...QUOTA_TIERS.enterprise.limits };
-      }
-
-      const [org] = await Organization.create([orgData], { session });
-      await UserOrganization.create(
-        [{ userId: newUser._id, organizationId: org._id, role: 'owner' }],
-        { session },
-      );
-      newUser.lastActiveOrgId = String(org._id);
-      await newUser.save({ session });
-
-      // Seed default permission Roles so an OAuth-created org has the same
-      // Admin/Member Roles as an email-registered one.
-      await seedDefaultRoles(org._id, newUser._id, { isSystemOrg }, session);
+      // Pin the onboarding rename target only for the social-signup path (same
+      // condition as needsOnboarding); SSO/system paths don't rename later.
+      await this.provisionOwnerOrg(newUser, { name: username, isSystemOrg, markOnboardingOrg: opts.markOnboarding !== false }, session);
     });
 
     return newUser;
+  }
+
+  /**
+   * Finish first-run onboarding for a social-signup user: optionally rename the
+   * auto-created personal org, then clear `needsOnboarding`. Plan provisioning
+   * (billing) is fire-and-forget in the controller, mirroring register().
+   *
+   * This is a FIRST-RUN endpoint, not a general rename route — it no-ops once the
+   * user is already onboarded (the canonical rename is `PATCH /organization/:id
+   * /identity` behind the full `org:settings` guard). Only the org owner/admin
+   * may rename; a mere member's rename is skipped (the flag still clears so the
+   * user isn't stuck). Idempotent.
+   *
+   * The rename is a direct `org.save()`: the model's `pre('validate')` hook
+   * regenerates + de-duplicates the slug, so — exactly like register() —
+   * duplicate org NAMES are allowed (only slugs are unique). The reserved
+   * `system` name is refused for non-operator emails, matching register() /
+   * findOrCreateOAuthUser.
+   *
+   * Throws `ONBOARDING_USER_NOT_FOUND` / `ONBOARDING_NO_ORG` / `RESERVED_ORG_NAME`.
+   */
+  async completeOnboarding(
+    userId: string,
+    input: { organizationName?: string } = {},
+  ): Promise<{ organizationId: string; organizationName: string }> {
+    const user = await User.findById(userId);
+    if (!user) throw new Error(ONBOARDING_USER_NOT_FOUND);
+    // Rename the org auto-provisioned at signup — NOT whatever `lastActiveOrgId`
+    // is now (the user may have switched active org before finishing onboarding).
+    const orgId = user.onboardingOrgId || user.lastActiveOrgId;
+    if (!orgId) throw new Error(ONBOARDING_NO_ORG);
+
+    const org = await Organization.findById(orgId);
+    if (!org) throw new Error(ONBOARDING_NO_ORG);
+
+    // First-run only: once onboarded, return the current org unchanged so this
+    // can't be used as an alternate, less-guarded org-rename route.
+    if (!user.needsOnboarding) {
+      return { organizationId: orgId, organizationName: org.name };
+    }
+
+    const desired = input.organizationName?.trim();
+    if (desired && desired !== org.name) {
+      // Reserve the well-known `system` name for operator-authorized emails only
+      // — the same invariant register()/findOrCreateOAuthUser enforce, so a
+      // personal org can't be renamed to `system` (which isSystemOrgId matches
+      // by name, misclassifying the tenant).
+      if (desired.toLowerCase() === SYSTEM_ORG_SLUG && !isBootstrapSuperAdminEmail(user.email)) {
+        throw new Error(RESERVED_ORG_NAME);
+      }
+      const membership = await UserOrganization
+        .findOne({ userId: user._id, organizationId: orgId, isActive: true })
+        .select('role').lean();
+      if (membership?.role === 'owner' || membership?.role === 'admin') {
+        // Direct save: the pre('validate') hook regenerates + de-duplicates the
+        // slug, so duplicate names are accepted (parity with register()).
+        org.name = desired;
+        await org.save();
+      }
+    }
+
+    user.needsOnboarding = false;
+    await user.save();
+
+    return { organizationId: orgId, organizationName: org.name };
   }
 
   /**

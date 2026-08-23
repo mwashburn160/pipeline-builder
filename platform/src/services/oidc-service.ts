@@ -61,6 +61,9 @@ export const OIDC_ERROR_MAP = {
   OIDC_INVALID_ID_TOKEN: { status: 401, message: 'The identity provider returned an invalid token' },
   OIDC_NO_EMAIL: { status: 400, message: 'The identity provider did not return a verified email address' },
   OIDC_EMAIL_DOMAIN_NOT_ALLOWED: { status: 403, message: 'Your email domain is not permitted to sign in to this organization' },
+  // Key must match `ACCOUNT_EMAIL_UNVERIFIED` in auth-service.ts (kept a literal
+  // here to avoid importing the large auth-service module into this core service).
+  ACCOUNT_EMAIL_UNVERIFIED: { status: 409, message: 'An account already exists for this email but is not verified. Verify (or reset the password on) that account first, then sign in.' },
 } as const;
 
 // Discovery + JWKS

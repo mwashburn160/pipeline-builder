@@ -11,6 +11,8 @@ export type { RoleDocument, RoleGrant } from './role.js';
 export { default as RoleAssignment } from './role-assignment.js';
 export type { RoleAssignmentDocument } from './role-assignment.js';
 export { default as Invitation, type InvitationDocument, type InvitationStatus } from './invitation.js';
+export { default as OrgDomain, type OrgDomainDocument, type DomainJoinMode, DOMAIN_JOIN_MODES } from './org-domain.js';
+export { default as JoinRequest, type JoinRequestDocument, type JoinRequestStatus } from './join-request.js';
 export { default as AuditEvent } from './audit-event.js';
 export type { AuditEventDocument, AuditAction } from './audit-event.js';
 export { default as ArchivedAuditEvent } from './archived-audit-events.js';

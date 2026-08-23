@@ -395,6 +395,64 @@ describe('AuthService.switchActiveOrg', () => {
   });
 });
 
+describe('AuthService.completeOnboarding', () => {
+  const makeUser = (over: Record<string, unknown> = {}) => ({
+    _id: { toString: () => 'user-1' }, email: 'u@x.com', lastActiveOrgId: 'org-1',
+    needsOnboarding: true, save: mockUserSave, ...over,
+  });
+  const ownerMembership = { select: () => ({ lean: () => Promise.resolve({ role: 'owner' }) }) };
+
+  it('renames the org and clears needsOnboarding for an owner mid-onboarding', async () => {
+    const user = makeUser();
+    const orgSave = jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined);
+    mockUserFindById.mockReturnValue(user);
+    mockOrgFindById.mockReturnValue({ name: 'u', save: orgSave });
+    mockUserOrgFindOne.mockReturnValue(ownerMembership);
+
+    const result = await authService.completeOnboarding('user-1', { organizationName: 'Acme' });
+
+    expect(result).toEqual({ organizationId: 'org-1', organizationName: 'Acme' });
+    expect(orgSave).toHaveBeenCalled();
+    expect(user.needsOnboarding).toBe(false);
+    expect(mockUserSave).toHaveBeenCalled();
+  });
+
+  it('is a no-op once already onboarded (never renames — not an alternate rename route)', async () => {
+    const user = makeUser({ needsOnboarding: false });
+    const orgSave = jest.fn();
+    mockUserFindById.mockReturnValue(user);
+    mockOrgFindById.mockReturnValue({ name: 'existing', save: orgSave });
+
+    const result = await authService.completeOnboarding('user-1', { organizationName: 'Acme' });
+
+    expect(result).toEqual({ organizationId: 'org-1', organizationName: 'existing' });
+    expect(orgSave).not.toHaveBeenCalled();
+    expect(mockUserSave).not.toHaveBeenCalled();
+  });
+
+  it('refuses to rename to the reserved `system` name for a non-operator email', async () => {
+    mockUserFindById.mockReturnValue(makeUser());
+    mockOrgFindById.mockReturnValue({ name: 'u', save: jest.fn() });
+
+    await expect(authService.completeOnboarding('user-1', { organizationName: 'System' }))
+      .rejects.toThrow(RESERVED_ORG_NAME);
+  });
+
+  it('skips the rename for a non-owner member but still clears the flag', async () => {
+    const user = makeUser();
+    const orgSave = jest.fn();
+    mockUserFindById.mockReturnValue(user);
+    mockOrgFindById.mockReturnValue({ name: 'u', save: orgSave });
+    mockUserOrgFindOne.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ role: 'member' }) }) });
+
+    const result = await authService.completeOnboarding('user-1', { organizationName: 'Acme' });
+
+    expect(orgSave).not.toHaveBeenCalled();
+    expect(user.needsOnboarding).toBe(false);
+    expect(result.organizationName).toBe('u');
+  });
+});
+
 describe('AuthService.markEmailVerifiedById', () => {
   function userDoc(overrides: Record<string, unknown> = {}) {
     return {

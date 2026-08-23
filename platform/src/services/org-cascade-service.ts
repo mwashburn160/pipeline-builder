@@ -33,6 +33,8 @@ import AuditEvent from '../models/audit-event.js';
 import DeletedOrgSnapshot from '../models/deleted-org-snapshot.js';
 import Invitation from '../models/invitation.js';
 import OrgIdpConfig from '../models/org-idp-config.js';
+import OrgDomain from '../models/org-domain.js';
+import JoinRequest from '../models/join-request.js';
 import Organization from '../models/organization.js';
 import PersonalAccessToken from '../models/personal-access-token.js';
 import UserOrganization from '../models/user-organization.js';
@@ -166,7 +168,7 @@ function messageClient() {
  *  "delete failed" — the prior `-1` sentinel conflated the two. */
 export interface CascadeReport {
   postgres: Record<string, { ok: boolean; rowCount?: number; error?: string }>;
-  mongo: { invitations: number; auditEvents: number; idpConfigs: number };
+  mongo: { invitations: number; auditEvents: number; idpConfigs: number; orgDomains: number; joinRequests: number };
   quota: { ok: boolean; statusCode?: number };
   billing: { ok: boolean; statusCode?: number };
   /** Result of purging the org's MinIO attachment blobs via the message service
@@ -209,7 +211,7 @@ export async function cascadeDeleteOrg( orgId: string,
 
   const report: CascadeReport = {
     postgres: {},
-    mongo: { invitations: 0, auditEvents: 0, idpConfigs: 0 },
+    mongo: { invitations: 0, auditEvents: 0, idpConfigs: 0, orgDomains: 0, joinRequests: 0 },
     quota: { ok: false },
     billing: { ok: false },
     messageBlobs: { ok: false },
@@ -324,6 +326,23 @@ export async function cascadeDeleteOrg( orgId: string,
     report.mongo.idpConfigs = (idpRes as { deletedCount?: number }).deletedCount ?? 0;
   } catch (err) {
     logger.error('OrgIdpConfig cleanup failed', { orgId, error: errorMessage(err) });
+  }
+
+  // Domain-based join (P2b): registered domains + pending join requests. The
+  // domain row MUST be freed on delete — `domain` is globally unique, so a
+  // lingering row would permanently block any future org (incl. a re-signup of
+  // the same company) from registering it.
+  try {
+    const domRes = await OrgDomain.deleteMany({ orgId } as never);
+    report.mongo.orgDomains = (domRes as { deletedCount?: number }).deletedCount ?? 0;
+  } catch (err) {
+    logger.error('OrgDomain cleanup failed', { orgId, error: errorMessage(err) });
+  }
+  try {
+    const jrRes = await JoinRequest.deleteMany({ orgId } as never);
+    report.mongo.joinRequests = (jrRes as { deletedCount?: number }).deletedCount ?? 0;
+  } catch (err) {
+    logger.error('JoinRequest cleanup failed', { orgId, error: errorMessage(err) });
   }
 
   // -- Quota service: HTTP DELETE /quotas/:orgId. Service-token auth  the

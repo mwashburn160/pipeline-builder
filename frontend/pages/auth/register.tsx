@@ -11,9 +11,10 @@ import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Button } from '@/components/ui/Button';
-import type { Plan } from '@/types';
 import api from '@/lib/api';
-import { formatCents } from '@/lib/format';
+import { DEFAULT_PLAN_ID } from '@/components/billing/helpers';
+import { SelectablePlanCard } from '@/components/billing/SelectablePlanCard';
+import { usePlans } from '@/hooks/usePlans';
 import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/lib/site-url';
 
 // sessionStorage key carrying the OAuth "intent" across the provider redirect.
@@ -32,51 +33,6 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 const providerLabel = (p: string) => PROVIDER_LABELS[p] ?? (p.charAt(0).toUpperCase() + p.slice(1));
 
-function formatPrice(cents: number): string {
-  return cents === 0 ? 'Free' : `${formatCents(cents)}/mo`;
-}
-
-/** A selectable tier card — surfaces the plan's description + top limits so a
- *  new user can actually tell the tiers apart (the old tiles showed only name +
- *  price). The first few `features` entries are the per-tier quota lines
- *  (seats / plugins / pipelines / API calls), which is what differentiates them. */
-function PlanCard({ plan, selected, popular, disabled, onSelect }: {
-  plan: Plan; selected: boolean; popular: boolean; disabled: boolean; onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      disabled={disabled}
-      aria-pressed={selected}
-      className={`relative flex flex-col rounded-xl border p-3 text-left transition-all ${
-        selected
-          ? 'border-[var(--pb-brand)] ring-2 ring-[color:var(--pb-brand)] bg-[color:color-mix(in_srgb,var(--pb-brand)_6%,transparent)]'
-          : 'border-[var(--pb-border)] hover:border-[var(--pb-text-muted)]'
-      }`}
-    >
-      {popular && (
-        <span className="absolute -top-2 right-3 rounded-full bg-[var(--pb-brand)] text-white text-[10px] font-semibold px-2 py-0.5">
-          Popular
-        </span>
-      )}
-      <div className="flex items-center justify-between">
-        <span className="font-bold text-sm">{plan.name}</span>
-        {selected && <Check className="w-3.5 h-3.5 text-[var(--pb-brand)] shrink-0" />}
-      </div>
-      <div className="text-[var(--pb-brand)] font-bold text-sm mt-0.5">{formatPrice(plan.prices.monthly)}</div>
-      <p className="text-xs text-[var(--pb-text-muted)] mt-1 leading-snug">{plan.description}</p>
-      <ul className="mt-2 space-y-1">
-        {plan.features.slice(0, 4).map((f) => (
-          <li key={f} className="flex items-start gap-1.5 text-[11px] text-[var(--pb-text-muted)]">
-            <Check className="w-3 h-3 mt-0.5 shrink-0 text-[var(--pb-success)]" strokeWidth={2.5} />
-            <span>{f}</span>
-          </li>
-        ))}
-      </ul>
-    </button>
-  );
-}
 
 /** Value/solution panel shown next to the form when there are no plans to pick —
  *  i.e. billing is off (the org gets the `unlimited` default: every feature, no
@@ -128,8 +84,8 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [organizationName, setOrganizationName] = useState('');
-  const [selectedPlan, setSelectedPlan] = useState('developer');
-  const [plans, setPlans] = useState<Plan[]>([]);
+  const [selectedPlan, setSelectedPlan] = useState(DEFAULT_PLAN_ID);
+  const { plans } = usePlans(billingEnabled);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [success, setSuccess] = useState(false);
@@ -146,13 +102,6 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
     if (field === 'confirmPassword' && value && password && value !== password) err = 'Passwords do not match';
     setFieldErrors(prev => ({ ...prev, [field]: err }));
   };
-
-  useEffect(() => {
-    if (!billingEnabled) return;
-    api.getPlans().then((res) => {
-      if (res.success && res.data?.plans) setPlans(res.data.plans);
-    }).catch(() => {});
-  }, [billingEnabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -322,7 +271,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
                   <div className="text-[11px] uppercase tracking-wide text-[var(--pb-text-muted)] mb-2">Choose your plan</div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {plans.map((plan) => (
-                      <PlanCard
+                      <SelectablePlanCard
                         key={plan.id}
                         plan={plan}
                         selected={selectedPlan === plan.id}

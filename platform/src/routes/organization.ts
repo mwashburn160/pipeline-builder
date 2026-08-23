@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requirePermission } from '@pipeline-builder/api-core';
+import { ErrorCode, requirePermission, sendError } from '@pipeline-builder/api-core';
 import { Router } from 'express';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import {
   getMyOrganization,
   createOrganization,
@@ -39,6 +40,13 @@ import {
   deleteOrganizationRole,
   addRoleMember,
   removeRoleMember,
+  listOrgDomains,
+  addOrgDomain,
+  verifyOrgDomain,
+  setOrgDomainMode,
+  deleteOrgDomain,
+  listOrgJoinRequests,
+  decideOrgJoinRequest,
 } from '../controllers/index.js';
 import {
   getOwnOrgIdpConfig,
@@ -49,6 +57,20 @@ import {
 import { requireAuth, requireSystemAdmin, requireStepUp } from '../middleware/index.js';
 
 const router: Router = Router();
+
+/** Per-user limiter for domain verification — each call triggers an outbound DNS
+ *  TXT lookup, so bound it tighter than the global limiter (keyed per-user;
+ *  requireAuth runs first). */
+const domainVerifyLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  keyGenerator: (req) => req.user?.sub ?? ipKeyGenerator(req.ip || 'anon', 64),
+  handler: (_req, res) => {
+    sendError(res, 429, 'Too many verification attempts. Please wait a minute and try again.', ErrorCode.RATE_LIMIT_EXCEEDED);
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 /*
  * Current User's Organization
@@ -110,6 +132,17 @@ router.put('/:id', requireAuth, requireSystemAdmin, updateOrganization);
  *  `canAdministerOrg` is the tenancy gate (own org or a managed team). Mirrors
  *  the export route's gating. */
 router.patch('/:id/identity', requireAuth, requirePermission('org:settings'), updateOrganizationIdentity);
+
+// -- Domain-based join (P2b) — owner/admin manage verified domains + approve
+//    join requests. Gated by `org:settings` (capability) + `canAdministerOrg`
+//    (tenancy) in each controller, same as the identity route above.
+router.get('/:id/domains', requireAuth, requirePermission('org:settings'), listOrgDomains);
+router.post('/:id/domains', requireAuth, requirePermission('org:settings'), addOrgDomain);
+router.post('/:id/domains/:domainId/verify', requireAuth, requirePermission('org:settings'), domainVerifyLimiter, verifyOrgDomain);
+router.patch('/:id/domains/:domainId', requireAuth, requirePermission('org:settings'), setOrgDomainMode);
+router.delete('/:id/domains/:domainId', requireAuth, requirePermission('org:settings'), deleteOrgDomain);
+router.get('/:id/join-requests', requireAuth, requirePermission('org:settings'), listOrgJoinRequests);
+router.post('/:id/join-requests/:reqId/:decision', requireAuth, requirePermission('org:settings'), decideOrgJoinRequest);
 
 /** PATCH /organization/:id/tier - Change pricing tier (sysadmin only).
  *  Step-up gated because the change resizes quota limits and affects billing. */

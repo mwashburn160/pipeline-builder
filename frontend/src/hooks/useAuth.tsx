@@ -34,6 +34,10 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
   /** Switch active organization. Re-issues tokens and refreshes user profile with the new org's role. */
   switchOrganization: (orgId: string) => Promise<void>;
+  /** Optimistically clear the local `needsOnboarding` flag after the onboarding
+   *  endpoint succeeds — so the auth guard won't bounce the user back to the
+   *  onboarding screen if the follow-up profile refresh transiently fails. */
+  markOnboardingComplete: () => void;
 }
 
 /** Raw user shape from the backend (may use _id/sub instead of id) */
@@ -48,6 +52,7 @@ interface RawUserData {
   organizationName?: string;
   isSuperAdmin?: boolean;
   isEmailVerified?: boolean;
+  needsOnboarding?: boolean;
   tier?: string;
   features?: string[];
   permissions?: string[];
@@ -91,6 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // Missing here previously, so the sidebar filter always saw false.
             isSuperAdmin: rawUser.isSuperAdmin === true,
             isEmailVerified: rawUser.isEmailVerified ?? false,
+            needsOnboarding: rawUser.needsOnboarding === true,
             tier: rawUser.tier as User['tier'],
             features: rawUser.features,
             permissions: rawUser.permissions,
@@ -256,6 +262,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await refreshUser();
   }, [refreshUser]);
 
+  const markOnboardingComplete = useCallback(() => {
+    setUser((u) => (u ? { ...u, needsOnboarding: false } : u));
+  }, []);
+
   /**
    * Logout user
    */
@@ -291,6 +301,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         refreshUser,
         switchOrganization,
+        markOnboardingComplete,
       }}
     >
       {children}

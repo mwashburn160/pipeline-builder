@@ -93,6 +93,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 
 jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { findOrCreateOAuthUser: (...a: unknown[]) => mockFindOrCreate(...a) },
+  ACCOUNT_EMAIL_UNVERIFIED: 'ACCOUNT_EMAIL_UNVERIFIED',
 }));
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));

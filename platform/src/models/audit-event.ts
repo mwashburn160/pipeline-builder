@@ -24,6 +24,7 @@ export type AuditAction =
   // Admin/superadmin self-verified their email directly (bypassing the emailed
   // verification link). Recorded because it skips proof-of-ownership.
   | 'user.email.verified'
+  | 'user.onboarding.complete'
   | 'user.token.create'
   | 'user.tokens.revoke-all'
   | 'user.pat.create'
@@ -33,6 +34,17 @@ export type AuditAction =
   // Owner/admin self-serve org identity edit (name/slug). `affectedOrgId` is
   // the org changed; `details` carries the fields that were updated.
   | 'org.update'
+  // Domain-based org join (P2b): domain register/verify/mode/delete + join
+  // request lifecycle. `affectedOrgId` is the org; `details` carries the domain
+  // or the requesting/decided user.
+  | 'org.domain.add'
+  | 'org.domain.verify'
+  | 'org.domain.mode'
+  | 'org.domain.delete'
+  | 'org.join.request'
+  | 'org.join.auto'
+  | 'org.join.approve'
+  | 'org.join.deny'
   // Org SOFT-DELETE / restore lifecycle (controllers/organization.ts).
   // `org.soft_delete` is emitted when a sysadmin runs DELETE — the org enters
   // its retention window (snapshot taken, sessions cut) instead of being
@@ -279,12 +291,21 @@ export const ALL_AUDIT_ACTIONS = [
   'user.profile.update',
   'user.password.change',
   'user.email.verified',
+  'user.onboarding.complete',
   'user.token.create',
   'user.tokens.revoke-all',
   'user.pat.create',
   'user.pat.revoke',
   'org.create',
   'org.update',
+  'org.domain.add',
+  'org.domain.verify',
+  'org.domain.mode',
+  'org.domain.delete',
+  'org.join.request',
+  'org.join.auto',
+  'org.join.approve',
+  'org.join.deny',
   'org.soft_delete',
   'org.restore',
   'org.member.add',

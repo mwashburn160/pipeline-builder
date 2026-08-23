@@ -69,6 +69,30 @@ export const registerSchema = z.object({
   planId: z.string().optional(),
 });
 
+/** First-run onboarding completion (social-signup users): name the auto-created
+ *  org and optionally pick a plan. Both optional — an empty body just clears the
+ *  onboarding flag. */
+export const completeOnboardingSchema = z.object({
+  organizationName: z.string().min(2).max(100).optional(),
+  planId: z.string().optional(),
+});
+
+/** Register a domain for an org (domain-based join). A DNS hostname. */
+export const addDomainSchema = z.object({
+  domain: z.string().trim().toLowerCase().min(3).max(253)
+    .regex(/^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/, 'Must be a valid domain (e.g. acme.com)'),
+});
+
+/** Set a domain's discovery mode. */
+export const setDomainModeSchema = z.object({
+  autoJoin: z.enum(['off', 'request', 'auto']),
+});
+
+/** Onboarding: join a domain-discovered org. */
+export const joinOrgSchema = z.object({
+  orgId: z.string().min(1),
+});
+
 /** Login request body schema (identifier can be username or email). */
 export const loginSchema = z.object({
   identifier: z.string().min(1),

@@ -4,7 +4,7 @@
 export { auditService } from './audit-service.js';
 export type { AuditFilter, AuditCreateInput, PaginatedAuditResult } from './audit-service.js';
 export { organizationService, ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN, ORG_AI_KEY_TOO_LONG, changedAiProviderFields } from './organization-service.js';
-export { authService, DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME } from './auth-service.js';
+export { authService, DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, ACCOUNT_EMAIL_UNVERIFIED } from './auth-service.js';
 export { userProfileService, PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_INVALID_CREDENTIALS, PROFILE_OWNER_HAS_ORGS, PROFILE_LAST_PRIVILEGED_MEMBER, PROFILE_PAT_LIMIT } from './user-profile-service.js';
 export { userAdminService, UA_USER_NOT_FOUND, UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_OWNER_HAS_ORGS, UA_LAST_PRIVILEGED_MEMBER, UA_ORG_NOT_FOUND, UA_SEAT_LIMIT, UA_CANNOT_CHANGE_OWNER, UA_ROLES_NEED_ORG } from './user-admin-service.js';
 export {

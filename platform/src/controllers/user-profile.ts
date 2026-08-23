@@ -49,6 +49,7 @@ export interface UserResponseInput {
   username: string;
   email: string;
   isEmailVerified: boolean;
+  needsOnboarding?: boolean;
   isSuperAdmin?: boolean;
   lastActiveOrgId?: string;
   featureOverrides?: Map<string, boolean> | Record<string, boolean>;
@@ -99,6 +100,7 @@ export function formatUserResponse(
     // here, making the sidebar filter always see false.
     isSuperAdmin: user.isSuperAdmin === true,
     isEmailVerified: user.isEmailVerified,
+    needsOnboarding: user.needsOnboarding === true,
     organizationId: user.lastActiveOrgId?.toString() || null,
     organizationName: opts?.activeOrgName || null,
     ...(opts?.organization && { organization: opts.organization }),

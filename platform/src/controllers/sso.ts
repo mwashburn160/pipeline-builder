@@ -116,7 +116,7 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
     id: identity.subject,
     email: identity.email,
     name: identity.name,
-  });
+  }, { markOnboarding: false }); // SSO users sign in to an enforced org, not a self-named personal one
   // Prefer the SSO org as the active org; issueTokens' resolveMembership falls
   // back to the user's own membership when they aren't (yet) a member of it.
   const tokens = await issueTokens(user, orgId);

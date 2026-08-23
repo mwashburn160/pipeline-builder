@@ -31,6 +31,9 @@ export interface User {
   /** Active organization name */
   organizationName?: string;
   isEmailVerified: boolean;
+  /** First-run flag for social-signup users who never named their org / picked a
+   *  plan. When true, the auth guard routes them to the onboarding screen. */
+  needsOnboarding?: boolean;
   tier?: QuotaTier;
   features?: string[];
   /**

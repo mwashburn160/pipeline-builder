@@ -143,7 +143,7 @@ describe('handleSsoCallback (state lifecycle + org binding)', () => {
     await (handleSsoCallback as any)({ params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
 
     expect(mockExchangeAndValidate).toHaveBeenCalled();
-    expect(mockFindOrCreate).toHaveBeenCalledWith('generic-oidc', expect.objectContaining({ email: 'u@x.com' }));
+    expect(mockFindOrCreate).toHaveBeenCalledWith('generic-oidc', expect.objectContaining({ email: 'u@x.com' }), { markOnboarding: false });
     expect(mockIssueTokens).toHaveBeenCalledWith(expect.anything(), 'org-1');
     expect(res.status).toHaveBeenCalledWith(200);
   });

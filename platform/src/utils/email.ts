@@ -164,11 +164,27 @@ class EmailService {
     return this.send({ to: inviterEmail, subject, text, html });
   }
 
-  // Note: a `verify()` method (wrapping nodemailer's transporter.verify())
-  // used to live here but was never called from platform startup; removed
-  // rather than left as dead code. If a startup health check is ever wired
-  // in (likely from `platform/src/index.ts`), reintroduce it there and
-  // expose a method here that returns transporter.verify().
+  /**
+   * Notify org admins that someone requested to join via domain-based join (P2b).
+   * `to` is the list of admin/owner emails; no-op when empty.
+   */
+  async sendJoinRequestReceived(adminEmails: string[], organizationName: string, requesterEmail: string): Promise<boolean> {
+    if (adminEmails.length === 0) return true;
+    const subject = `New request to join ${organizationName}`;
+    const text = `${requesterEmail} has requested to join ${organizationName} on Pipeline Builder. Review it in Settings → Domain-based join.`;
+    const html = `<p><strong>${requesterEmail}</strong> has requested to join <strong>${organizationName}</strong> on Pipeline Builder.</p><p>Review it in <em>Settings → Domain-based join</em>.</p>`;
+    return this.send({ to: adminEmails, subject, text, html });
+  }
+
+  /** Notify a user that their domain-based join request was approved or denied. */
+  async sendJoinRequestDecision(userEmail: string, organizationName: string, approved: boolean): Promise<boolean> {
+    const subject = approved ? `You’ve been added to ${organizationName}` : `Your request to join ${organizationName} was declined`;
+    const text = approved
+      ? `Your request to join ${organizationName} on Pipeline Builder was approved — you can switch to it from the org menu.`
+      : `Your request to join ${organizationName} on Pipeline Builder was declined. Contact an org admin if you think this is a mistake.`;
+    const html = `<p>${text}</p>`;
+    return this.send({ to: userEmail, subject, text, html });
+  }
 }
 
 // Export singleton instance
