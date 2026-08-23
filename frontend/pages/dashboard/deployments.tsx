@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { Cloud, Plus, X, AlertTriangle, Search } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useToast } from '@/components/ui/Toast';
+import { SearchInput } from '@/components/ui/SearchInput';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { formatError } from '@/lib/constants';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -17,7 +19,6 @@ import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
-import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { buildListSummary } from '@/lib/list-summary';
@@ -385,17 +386,13 @@ export default function DeploymentsPage() {
         {/* Filters only appear once there's something to filter. */}
         {deploymentRows.length > 0 && (
           <div className="mb-4 flex flex-wrap items-center gap-2">
-            <div className="relative flex-1 min-w-[16rem] max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              <FilterInput
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by pipeline, stack, or region…"
-                aria-label="Search deployments"
-                className="pl-9"
-              />
-            </div>
+            <SearchInput
+              containerClassName="flex-1 min-w-[16rem] max-w-sm"
+              value={search}
+              onChange={setSearch}
+              placeholder="Search by pipeline, stack, or region…"
+              aria-label="Search deployments"
+            />
             <FilterSelect
               value={driftFilter}
               onChange={(e) => setDriftFilter(e.target.value as DriftFilter)}
@@ -607,9 +604,7 @@ function RegisterDeploymentModal({
           Registering maps this pipeline&apos;s stable id to its deployment so execution events report against it. Re-registering the same pipeline updates the existing record.
         </p>
         {err && (
-          <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
-            <p className="text-red-800 dark:text-red-300">{err}</p>
-          </div>
+          <ErrorAlert message={err} />
         )}
       </div>
     </Modal>

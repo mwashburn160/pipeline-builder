@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useMemo, ReactNode } fr
 import { useAuth } from './useAuth';
 import { isSystemAdmin } from '@/lib/auth-helpers';
 import api from '@/lib/api';
+import { DEFAULT_SUPPORT_ALIAS } from '@/lib/constants';
 
 /** Shape of the features context value. */
 interface FeaturesContextType {
@@ -17,8 +18,6 @@ interface FeaturesContextType {
   supportAliases: string[];
 }
 
-/** Fallback until the server config loads (matches api-core DEFAULT_SUPPORT_ALIAS). */
-const DEFAULT_SUPPORT_ALIAS = 'support@pipeline-builder';
 
 const FeaturesContext = createContext<FeaturesContextType>({
   isEnabled: () => false,

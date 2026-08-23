@@ -5,14 +5,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Paperclip, Download } from 'lucide-react';
 import api from '@/lib/api';
 import { getAttachmentImageUrl } from '@/lib/attachment-image-cache';
+import { formatBytes } from '@/lib/format';
 import type { MessageAttachment } from '@/types';
 
-/** Human-readable size. */
-function fmtSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 /**
  * One attachment row. Images fetch their (auth-gated) bytes on mount and render
@@ -95,7 +90,7 @@ function AttachmentItem({ att }: { att: MessageAttachment }) {
       <div className="flex items-center gap-2 text-xs">
         <Paperclip className="w-3.5 h-3.5 text-gray-400 shrink-0" />
         <span className="truncate flex-1 text-gray-700 dark:text-gray-300" title={att.filename}>{att.filename}</span>
-        <span className="text-gray-400 shrink-0">{fmtSize(att.sizeBytes)}</span>
+        <span className="text-gray-400 shrink-0">{formatBytes(att.sizeBytes)}</span>
         <button
           type="button"
           onClick={download}

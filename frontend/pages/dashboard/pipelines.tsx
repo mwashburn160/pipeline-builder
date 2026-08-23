@@ -10,6 +10,7 @@ import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
 import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { TabBar } from '@/components/ui/TabBar';
@@ -612,9 +613,7 @@ export default function PipelinesPage() {
               spellCheck={false}
             />
             {bulkCreateError && (
-              <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
-                <p className="text-red-800 dark:text-red-300">{bulkCreateError}</p>
-              </div>
+              <ErrorAlert message={bulkCreateError} />
             )}
             {bulkCreateResult && (
               <div className="rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 p-3 space-y-2">

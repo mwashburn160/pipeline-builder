@@ -181,10 +181,15 @@ Examples:
   $ ${APP_NAME} auth login -u me@example.com
   $ ${APP_NAME} pipeline list --project my-app
   $ ${APP_NAME} pipeline get --id pipe-123 --format json
+  $ ${APP_NAME} pipeline create -f props.json --deploy --profile production
   $ ${APP_NAME} plugin upload --file plugin.zip --organization acme
   $ ${APP_NAME} infra store-token --days 30 --region us-east-1
   $ ${APP_NAME} infra bootstrap --account 123456789012 --region us-east-1
   $ ${APP_NAME} pipeline deploy --id pipe-123 --profile production
+
+Exit codes (0 = success; failures use a standard code by error type):
+  1 general · 2 validation · 3 api-request · 4 auth · 5 forbidden
+  6 not-found · 7 network · 8 config · 9 file-system · 10 timeout
 
 Run '${APP_NAME} <group> --help' to see a group's subcommands.
 `);

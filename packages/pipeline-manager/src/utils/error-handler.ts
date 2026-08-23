@@ -32,6 +32,13 @@ export function handleError(
     correlationId = generateExecutionId(),
   } = options;
 
+  // Derive the canonical exit code from the ACTUAL error (see resolveExitCode),
+  // falling back to the caller's `code` for anything unclassifiable. This is what
+  // makes every command emit the SAME exit code for the same class of failure,
+  // rather than a blanket API_REQUEST/GENERAL. Used for display, the suggestion,
+  // and the process exit below.
+  const resolvedCode = resolveExitCode(err, code);
+
   if (logToConsole) {
     const divider = '─'.repeat(process.stdout.columns || 80);
     const errorId = `ERR-${correlationId}`;
@@ -87,7 +94,7 @@ export function handleError(
         }
       }
 
-      console.error(red('Code:'), getErrorCodeName(code));
+      console.error(red('Code:'), getErrorCodeName(resolvedCode));
       console.error(dim('Error ID:'), dim(errorId));
 
       if (context && Object.keys(context).length > 0) {
@@ -105,7 +112,7 @@ export function handleError(
       }
     } else {
       console.error(red('Error:'), String(err));
-      console.error(red('Code:'), getErrorCodeName(code));
+      console.error(red('Code:'), getErrorCodeName(resolvedCode));
       console.error(dim('Error ID:'), dim(errorId));
     }
 
@@ -115,7 +122,7 @@ export function handleError(
       console.error(yellow('💡 Tip:'), dim('Run with --debug flag to see full stack trace'));
     }
 
-    const suggestion = getErrorSuggestion(err, code);
+    const suggestion = getErrorSuggestion(err, resolvedCode);
     if (suggestion) {
       console.error(yellow('💡 Suggestion:'), dim(suggestion));
     }
@@ -124,8 +131,8 @@ export function handleError(
   }
 
   if (exit) {
-    process.exitCode = code;
-    process.exit(code);
+    process.exitCode = resolvedCode;
+    process.exit(resolvedCode);
   }
 
   throw err;
@@ -169,6 +176,49 @@ export class NetworkError extends Error {
 }
 
 // --- Private helpers ---
+
+/**
+ * Map the ACTUAL error to a canonical exit code so every command exits with the
+ * SAME code for the same class of failure. The caller-supplied `fallback` (e.g.
+ * API_REQUEST) is used only for errors this can't classify. Codes (src/types/error.ts):
+ *
+ *   1 GENERAL · 2 VALIDATION · 3 API_REQUEST · 4 AUTHENTICATION · 5 AUTHORIZATION
+ *   6 NOT_FOUND · 7 NETWORK · 8 CONFIGURATION · 9 FILE_SYSTEM · 10 TIMEOUT
+ *
+ * Precedence: typed CLI errors → HTTP status → Node system error `code` → fallback.
+ */
+function resolveExitCode(err: unknown, fallback: ErrorCode): ErrorCode {
+  if (err instanceof ValidationError) return ERROR_CODES.VALIDATION;
+  if (err instanceof NetworkError) return err.timeout ? ERROR_CODES.TIMEOUT : ERROR_CODES.NETWORK;
+
+  if (isAxiosError(err)) {
+    const status = err.response?.status;
+    if (status === 400 || status === 422) return ERROR_CODES.VALIDATION;
+    if (status === 401) return ERROR_CODES.AUTHENTICATION;
+    if (status === 403) return ERROR_CODES.AUTHORIZATION;
+    if (status === 404) return ERROR_CODES.NOT_FOUND;
+    if (status === 408 || status === 504) return ERROR_CODES.TIMEOUT;
+    if (status && status >= 500) return ERROR_CODES.API_REQUEST;
+    // A request that got no HTTP response never reached the server (DNS / refused
+    // / reset) — that's a network failure, not an API-response error.
+    if (!err.response) return ERROR_CODES.NETWORK;
+    return fallback;
+  }
+
+  // Node system errors (fs + sockets) carry a string `code`.
+  const sysCode = (err as { code?: unknown } | null)?.code;
+  if (typeof sysCode === 'string') {
+    if (['ENOENT', 'EACCES', 'EISDIR', 'ENOTDIR', 'EEXIST', 'EPERM', 'ENOSPC', 'EMFILE'].includes(sysCode)) {
+      return ERROR_CODES.FILE_SYSTEM;
+    }
+    if (sysCode === 'ETIMEDOUT') return ERROR_CODES.TIMEOUT;
+    if (['ECONNREFUSED', 'ENOTFOUND', 'ECONNRESET', 'EHOSTUNREACH', 'ENETUNREACH', 'EAI_AGAIN', 'EPIPE'].includes(sysCode)) {
+      return ERROR_CODES.NETWORK;
+    }
+  }
+
+  return fallback;
+}
 
 function getErrorCodeName(code: ErrorCode): string {
   const entry = Object.entries(ERROR_CODES).find(([_, value]) => value === code);

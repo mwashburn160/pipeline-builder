@@ -18,11 +18,10 @@ import { LiveStatusIndicator } from '@/components/message/LiveStatusIndicator';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import api from '@/lib/api';
 import { aliasLocalPart } from '@/lib/support-label';
+import { SYSTEM_ORG_ID } from '@/lib/constants';
 import type { Message } from '@/types';
 import type { MemberOption } from '@/components/message/RecipientPicker';
 
-/** The system tenant's well-known org id (api-core SYSTEM_ORG_ID default). */
-const SYSTEM_ORG_ID = '000000000000000000000001';
 
 type MessageFilter = 'all' | 'conversations' | 'announcements';
 
@@ -169,7 +168,7 @@ export default function MessagesPage() {
     // Per-participant read state — mark as read only if the *current* org
     // hasn't already done so.
     const currentOrg = user?.organizationId?.toLowerCase();
-    if (currentOrg && !msg.readBy[currentOrg]) {
+    if (currentOrg && !msg.readBy?.[currentOrg]) {
       markAsRead(msg.id);
     }
   }, [markAsRead, user?.organizationId]);
@@ -347,8 +346,14 @@ export default function MessagesPage() {
                 hasMore={hasMore}
                 loadingMore={loadingMore}
                 onLoadMore={loadMore}
-                emptyTitle={debouncedSearch ? 'No results' : undefined}
-                emptyDescription={debouncedSearch ? `No messages match "${debouncedSearch}"` : undefined}
+                emptyTitle={debouncedSearch || messageFilter !== 'all' || effectiveChannelFilter !== 'all' ? 'No matching messages' : undefined}
+                emptyDescription={
+                  debouncedSearch ? `No messages match "${debouncedSearch}"`
+                    : messageFilter === 'announcements' ? 'No announcements — switch to "All" to see conversations.'
+                      : messageFilter === 'conversations' ? 'No conversations — switch to "All" to see announcements.'
+                        : effectiveChannelFilter !== 'all' ? 'No messages in this channel — switch to "All channels".'
+                          : undefined
+                }
               />
             )}
           </div>

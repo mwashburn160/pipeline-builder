@@ -85,6 +85,14 @@ export const COPY_FEEDBACK_RESET_MS = 2000;
 /** localStorage key for dark mode theme preference. */
 export const THEME_STORAGE_KEY = 'theme';
 
+/** The system tenant's well-known org id (mirrors api-core SYSTEM_ORG_ID) — the
+ *  support desk: its conversations + the compose "support" recipient resolve to it. */
+export const SYSTEM_ORG_ID = '000000000000000000000001';
+
+/** Fallback support alias until the server config loads (mirrors api-core
+ *  DEFAULT_SUPPORT_ALIAS). */
+export const DEFAULT_SUPPORT_ALIAS = 'support@pipeline-builder';
+
 /** Pretty-print an object as indented JSON. */
 export function formatJSON(obj: unknown): string {
   return JSON.stringify(obj, null, 2);

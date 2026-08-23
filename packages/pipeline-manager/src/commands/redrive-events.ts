@@ -9,13 +9,14 @@ import {
   StartMessageMoveTaskCommand,
 } from '@aws-sdk/client-sqs';
 import { Command } from 'commander';
+import { EVENTS_STACK_NAME } from '../config/cli.constants.js';
 import { applyAwsProfile, resolveAwsRegion } from '../utils/aws-env.js';
 import { printCommandHeader, withProfileOption, withRegionOption } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 
 // CFN stack that setup-events deploys — the queues live here.
-const STACK_NAME = 'pipeline-builder-events';
+const STACK_NAME = EVENTS_STACK_NAME;
 
 /**
  * Registers the `redrive-events` command with the CLI program.

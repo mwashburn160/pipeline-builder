@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useId } from 'react';
 import { useAsyncCallback } from '@/hooks/useAsync';
 import { Upload, CheckCircle, XCircle } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { formatBytes } from '@/lib/format';
 import { Modal } from '@/components/ui/Modal';
 import { FormField } from '@/components/ui/FormField';
 import { Select } from '@/components/ui/Select';
@@ -276,7 +277,7 @@ export default function CreatePluginModal({ canUploadPublic, onClose, onCreated,
                 {file && (
                   <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
                     Selected: <span className="font-medium text-gray-900 dark:text-gray-200">{file.name}</span>
-                    <span className="text-gray-400 dark:text-gray-500 ml-2">({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+                    <span className="text-gray-400 dark:text-gray-500 ml-2">({formatBytes(file.size)})</span>
                   </p>
                 )}
               </div>

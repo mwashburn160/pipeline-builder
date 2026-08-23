@@ -199,6 +199,34 @@ These commands report drift and **exit non-zero when findings exist** — design
 
 ---
 
+## Exit codes
+
+Every command exits `0` on success. On failure the process exits with a **standard code
+derived from the error type** (not the command), so scripts and CI can branch on the
+class of failure consistently. The code is resolved centrally in `handleError` from the
+actual error — typed CLI error → HTTP status → Node system-error `code` → a
+command-specific fallback for anything unclassifiable.
+
+| Code | Name | When |
+| ---: | --- | --- |
+| `0` | success | Command completed. |
+| `1` | GENERAL | Unclassified failure (default fallback for non-API commands). |
+| `2` | VALIDATION | Bad input — missing/invalid flags, malformed props file, HTTP `400`/`422`. |
+| `3` | API_REQUEST | Platform API request failed (server `5xx`, or the fallback for API commands). |
+| `4` | AUTHENTICATION | Not authenticated — HTTP `401` (e.g. expired/missing token). |
+| `5` | AUTHORIZATION | Authenticated but not permitted — HTTP `403`. |
+| `6` | NOT_FOUND | Resource missing — HTTP `404` (e.g. unknown pipeline id). |
+| `7` | NETWORK | Request never reached the server — DNS/refused/reset, or no HTTP response. |
+| `8` | CONFIGURATION | Invalid/missing CLI configuration. |
+| `9` | FILE_SYSTEM | Local file error — `ENOENT`/`EACCES`/… (e.g. unreadable props file). |
+| `10` | TIMEOUT | Timed out — HTTP `408`/`504`, or `ETIMEDOUT`. |
+
+Codes are defined in `src/types/error.ts`; the derivation lives in `src/utils/error-handler.ts`
+(`resolveExitCode`). The operator-audit commands additionally use exit `1` to signal
+"findings present" (see [Operator audits](#operator-audits-cron-friendly)).
+
+---
+
 ## Configuration
 
 The CLI resolves its settings from three layers, lowest to highest precedence:

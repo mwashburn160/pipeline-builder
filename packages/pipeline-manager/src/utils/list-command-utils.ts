@@ -4,6 +4,9 @@
 import { printInfo, printKeyValue } from './output-utils.js';
 import { formatDuration, validateBoolean, validateNumber, validateSort } from '../config/cli.constants.js';
 
+/** Default page size when a list command's caller omits --limit. */
+const DEFAULT_LIST_LIMIT = 50;
+
 /**
  * Common filter parameters shared by all list commands.
  */
@@ -46,7 +49,7 @@ export function displayPaginationInfo(filterParams: CommonFilterParams): void {
   console.log('');
   printInfo('Pagination Settings');
   printKeyValue({
-    Limit: (filterParams.limit ?? 50).toString(),
+    Limit: (filterParams.limit ?? DEFAULT_LIST_LIMIT).toString(),
     Offset: (filterParams.offset ?? 0).toString(),
     Sort: filterParams.sort || 'createdAt:desc',
   });
@@ -73,7 +76,7 @@ export function displayListResults(
 
   if (hasMore) {
     const currentOffset = filterParams.offset || 0;
-    const nextOffset = currentOffset + (filterParams.limit || 50);
+    const nextOffset = currentOffset + (filterParams.limit || DEFAULT_LIST_LIMIT);
     console.log('');
     printInfo('More results available', {
       hint: `Use --offset ${nextOffset} to see next page`,

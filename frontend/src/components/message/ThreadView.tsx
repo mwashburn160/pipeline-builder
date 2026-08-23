@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Send, Megaphone, MessageCircle, AlertTriangle, AlertOctagon, Trash2, Paperclip, X, RefreshCw, Pencil, Check, User, CheckCheck } from 'lucide-react';
 import { Textarea } from '@/components/ui/Textarea';
 import { IconButton } from '@/components/ui/IconButton';
+import { formatBytes } from '@/lib/format';
 import { MessageAttachments } from '@/components/message/MessageAttachments';
 import { useAuth } from '@/hooks/useAuth';
 import type { MemberOption } from '@/components/message/RecipientPicker';
@@ -429,7 +430,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
               <li key={a.id} className="flex items-center gap-2 text-xs bg-gray-50 dark:bg-gray-800 rounded px-2 py-1">
                 <Paperclip className="w-3 h-3 text-gray-400 shrink-0" />
                 <span className="truncate flex-1 text-gray-700 dark:text-gray-300">{a.filename}</span>
-                <span className="text-gray-400 shrink-0">{Math.max(1, Math.round(a.sizeBytes / 1024))} KB</span>
+                <span className="text-gray-400 shrink-0">{formatBytes(a.sizeBytes)}</span>
                 <button type="button" onClick={() => removeReplyAttachment(a.id)} className="text-gray-400 hover:text-red-600 shrink-0" aria-label={`Remove ${a.filename}`}>
                   <X className="w-3.5 h-3.5" />
                 </button>

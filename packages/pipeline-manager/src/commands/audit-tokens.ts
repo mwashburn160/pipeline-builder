@@ -64,8 +64,11 @@ export function auditTokens(program: Command): void {
           printWarning('Secret listing was TRUNCATED (paging cap hit) — results may be INCOMPLETE and an expiring token could be missed. Narrow by --prefix/--region.');
         }
 
-        // Filter to ones following the `<prefix>/<orgId>/platform` pattern.
-        const platformSecrets = secrets.filter((s) => s.name.endsWith('/platform'));
+        // Audit both the full-privilege platform token (`<prefix>/<orgId>/platform`)
+        // AND the scoped event-ingestion token (`.../reporting-ingest`, minted by
+        // `store-token --scope reporting:ingest`) — both expire and both are
+        // auto-renewed, so a stalled renewal on either must surface here.
+        const platformSecrets = secrets.filter((s) => s.name.endsWith('/platform') || s.name.endsWith('/reporting-ingest'));
 
         const entries: TokenAuditEntry[] = [];
         const now = Date.now();

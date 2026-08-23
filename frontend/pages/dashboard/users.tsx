@@ -1,18 +1,18 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { formatError } from '@/lib/constants';
-import { Search, Users, Trash2, UserPlus } from 'lucide-react';
+import { Users, Trash2, UserPlus } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
 import { useDelete } from '@/hooks/useDelete';
 import { useOrgOptions } from '@/hooks/useOrgOptions';
 import { LoadingPage } from '@/components/ui/Loading';
+import { SearchInput } from '@/components/ui/SearchInput';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { InfoAlert } from '@/components/ui/InfoAlert';
-import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { DataTable } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
@@ -353,10 +353,7 @@ export default function UsersPage() {
       <div className="filter-bar">
         <ActionBar
           left={
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-              <FilterInput type="text" placeholder="Search by username or email..." value={list.filters.search} onChange={(e) => list.updateFilter('search', e.target.value)} aria-label="Search users by username or email" />
-            </div>
+            <SearchInput placeholder="Search by username or email..." value={list.filters.search} onChange={(v) => list.updateFilter('search', v)} aria-label="Search users by username or email" />
           }
           right={
             <div className="flex flex-wrap items-center gap-2">

@@ -9,6 +9,7 @@ import path from 'path';
 import { CloudFormationClient, DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
 import { LambdaClient, UpdateFunctionCodeCommand } from '@aws-sdk/client-lambda';
 import { Command } from 'commander';
+import { EVENTS_STACK_NAME } from '../config/cli.constants.js';
 import { applyAwsProfile, resolveAwsRegion } from '../utils/aws-env.js';
 import { printCommandHeader, withProfileOption, withRegionOption } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
@@ -18,7 +19,7 @@ import { resolvePlatformSecretName } from '../utils/platform-secret.js';
 // ESM has no __dirname; derive it from this module's URL.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const STACK_NAME = 'pipeline-builder-events';
+const STACK_NAME = EVENTS_STACK_NAME;
 // Existing CFN-managed Lambda function name — do NOT rename without a migration plan
 const LAMBDA_NAME = 'pipeline-builder-event-ingestion';
 const PACKAGE_NAME = '@pipeline-builder/pipeline-events';

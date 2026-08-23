@@ -34,6 +34,7 @@ import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
 import { CreateTemplateModal } from '@/components/pipeline/CreateTemplateModal';
 import { ScorecardCard } from '@/components/pipeline/ScorecardCard';
 import { PipelineContextCard } from '@/components/pipeline/PipelineContextCard';
+import { LifecycleBadge } from '@/components/ui/LifecycleBadge';
 import { formatError } from '@/lib/constants';
 import { canWritePipeline } from '@/lib/resource-helpers';
 import api from '@/lib/api';
@@ -137,12 +138,22 @@ export default function PipelineDetailPage() {
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
-    api.listPipelineDeployments({ limit: 200 })
-      .then((r) => {
+    // The registry endpoint is page-limited and has no per-pipeline filter, so
+    // page through until this pipeline's row is found (early-exit) or the list is
+    // drained — a single-page fetch would miss it in orgs with >200 deployments.
+    (async () => {
+      const PAGE = 200;
+      const MAX_PAGES = 25; // safety bound (~5k rows)
+      for (let i = 0, offset = 0; i < MAX_PAGES && !cancelled; i++) {
+        const r = await api.listPipelineDeployments({ limit: PAGE, offset });
         if (cancelled || !r.data) return;
-        setDeployment(r.data.registry.find((d) => d.pipelineId === id) ?? null);
-      })
-      .catch(() => { /* non-blocking — card just won't render */ });
+        const rows = r.data.registry;
+        const match = rows.find((d) => d.pipelineId === id);
+        if (match) { setDeployment(match); return; }
+        if (!r.data.pagination.hasMore || rows.length === 0) return;
+        offset += rows.length;
+      }
+    })().catch(() => { /* non-blocking — card just won't render */ });
     return () => { cancelled = true; };
   }, [id]);
 
@@ -421,8 +432,8 @@ export default function PipelineDetailPage() {
               </div>
               <div>
                 <dt className="text-gray-500 dark:text-gray-400">Lifecycle</dt>
-                <dd>
-                  {pipeline.lifecycle ?? 'production'}
+                <dd className="flex items-center gap-1">
+                  <LifecycleBadge value={pipeline.lifecycle} />
                   {pipeline.criticality ? <span className="text-gray-400"> · {pipeline.criticality} criticality</span> : null}
                 </dd>
               </div>

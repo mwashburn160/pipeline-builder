@@ -111,6 +111,11 @@ export default function ReportsPage() {
   // component keys its own fetch off its filters, so no route-driven refetch).
   const changeTopTab = useCallback((id: TopTab) => {
     setTopTab(id);
+    // Clear the outgoing tab's status so the range-cap effect below can't record
+    // one tab's over-range error against the newly-selected tab (cross-tab cap
+    // leak). The incoming tab re-reports via onStatus on mount. `setStatus` is a
+    // stable useState setter, resolved at call time.
+    setStatus({ loading: true, error: null, refetch: () => {} });
     void router.replace(
       { pathname: router.pathname, query: { ...router.query, tab: id } },
       undefined,

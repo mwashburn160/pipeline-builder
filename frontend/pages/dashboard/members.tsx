@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { UserPlus, Users, Search, Building2, Network } from 'lucide-react';
+import { UserPlus, Users, Building2, Network } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { hasPermission } from '@/lib/auth-helpers';
 import { useAuth } from '@/hooks/useAuth';
@@ -11,6 +11,7 @@ import { useDelete } from '@/hooks/useDelete';
 import { useMemberRoles } from '@/hooks/useMemberRoles';
 import { useMemberTeams } from '@/hooks/useMemberTeams';
 import { useToast } from '@/components/ui/Toast';
+import { SearchInput } from '@/components/ui/SearchInput';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
@@ -20,7 +21,6 @@ import { DataTable } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
-import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ActionBar } from '@/components/ui/ActionBar';
 import { AddMemberModal } from '@/components/members/AddMemberModal';
@@ -483,10 +483,7 @@ export default function MembersPage() {
       <div className="filter-bar">
         <ActionBar
           left={
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-              <FilterInput type="text" placeholder="Search by name or email..." value={list.filters.search} onChange={(e) => list.updateFilter('search', e.target.value)} aria-label="Search members by name or email" />
-            </div>
+            <SearchInput placeholder="Search by name or email..." value={list.filters.search} onChange={(v) => list.updateFilter('search', v)} aria-label="Search members by name or email" />
           }
           right={
             <div className="flex gap-2">

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
-import { Search, Puzzle } from 'lucide-react';
-import { FilterInput } from '@/components/ui/FilterInput';
+import { Puzzle } from 'lucide-react';
+import { SearchInput } from '@/components/ui/SearchInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { PLUGIN_CATALOG, PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
@@ -41,16 +41,13 @@ export function PluginCatalog() {
     <div className="space-y-4">
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <FilterInput
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search plugins..."
-            aria-label="Search plugins"
-          />
-        </div>
+        <SearchInput
+          containerClassName="flex-1"
+          value={search}
+          onChange={setSearch}
+          placeholder="Search plugins..."
+          aria-label="Search plugins"
+        />
         <FilterSelect
           value={category}
           onChange={(e) => setCategory(e.target.value)}

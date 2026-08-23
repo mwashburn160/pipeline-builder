@@ -1,9 +1,10 @@
 import { useState, useMemo, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
-import { Mail, Trash2, Search } from 'lucide-react';
+import { Mail, Trash2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
 import { LoadingPage } from '@/components/ui/Loading';
+import { SearchInput } from '@/components/ui/SearchInput';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
@@ -13,7 +14,6 @@ import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
-import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ModalFooter } from '@/components/ui/ModalFooter';
@@ -369,17 +369,14 @@ export default function InvitationsPage() {
       {/* Filter */}
       <div className="filter-bar">
         <div className="flex flex-col sm:flex-row gap-4">
-          <div className="relative flex-1 min-w-0">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-            <FilterInput
-              type="text"
-              placeholder="Search by email..."
-              value={list.filters.search}
-              onChange={(e) => list.updateFilter('search', e.target.value)}
-              className="w-full"
-              aria-label="Search invitations by email"
-            />
-          </div>
+          <SearchInput
+            containerClassName="flex-1 min-w-0"
+            placeholder="Search by email..."
+            value={list.filters.search}
+            onChange={(v) => list.updateFilter('search', v)}
+            className="w-full"
+            aria-label="Search invitations by email"
+          />
           <FilterSelect
             value={list.filters.status}
             onChange={(e) => list.updateFilter('status', e.target.value)}

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { promises as fs } from 'fs';
+import { resolveAwsRegion } from './aws-env.js';
+import { defaultPipelineName } from '../config/cli.constants.js';
 import { homedir } from 'os';
 import { join } from 'path';
 import { parsePlatformBaseUrl } from '@pipeline-builder/pipeline-core';
@@ -98,13 +100,10 @@ export async function buildRegistryPayload(
   pipeline: PipelineForRegistry,
   regionOverride?: string,
 ): Promise<RegistryPayload> {
-  const region = regionOverride
-    || process.env.AWS_REGION
-    || process.env.CDK_DEFAULT_REGION
-    || 'us-east-1';
+  const region = resolveAwsRegion(regionOverride);
 
   const pipelineName = pipeline.pipelineName
-    || `${pipeline.organization}-${pipeline.project}-pipeline`.toLowerCase();
+    || defaultPipelineName(pipeline.organization, pipeline.project);
   const stackName = `${pipeline.project}-${pipeline.organization}`.toLowerCase();
 
   return {

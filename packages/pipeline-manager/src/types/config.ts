@@ -42,3 +42,12 @@ export interface Config {
   /** Authentication credentials. */
   auth: AuthConfig;
 }
+
+/**
+ * The narrow slice of {@link Config} the deploy/registry paths read off
+ * `client.getConfig()` — the pipeline endpoint + platform base URL. Named so the
+ * `deploy` and `create --deploy` flows share one shape instead of re-casting it.
+ */
+export interface PlatformDeployConfig {
+  api: { pipelineUrl: string; baseUrl: string };
+}

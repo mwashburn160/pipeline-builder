@@ -2,10 +2,11 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { formatError } from '@/lib/constants';
 import { motion } from 'framer-motion';
-import { Clock, Loader, CheckCircle2, XCircle, PauseCircle, RefreshCw, ChevronUp, ChevronDown, Inbox, AlertTriangle, Search } from 'lucide-react';
+import { Clock, Loader, CheckCircle2, XCircle, PauseCircle, RefreshCw, ChevronUp, ChevronDown, Inbox, AlertTriangle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { SearchInput } from '@/components/ui/SearchInput';
 import { BuildsTabs } from '@/components/ui/BuildsTabs';
 import { LoadingPage } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
@@ -15,7 +16,6 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
-import { FilterInput } from '@/components/ui/FilterInput';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useToast } from '@/components/ui/Toast';
@@ -251,17 +251,13 @@ function FailedJobsTable({ jobs, title, showCategory, onAction, actionPendingIds
     <div>
       {/* Client-side triage toolbar: plugin-name search + failure-category chips. */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-          <FilterInput
-            type="text"
-            value={nameQuery}
-            onChange={(e) => { setNameQuery(e.target.value); setPage(0); }}
-            placeholder="Search plugin name..."
-            aria-label="Search by plugin name"
-            className="pl-10"
-          />
-        </div>
+        <SearchInput
+          containerClassName="min-w-[200px]"
+          value={nameQuery}
+          onChange={(v) => { setNameQuery(v); setPage(0); }}
+          placeholder="Search plugin name..."
+          aria-label="Search by plugin name"
+        />
         {showCategory && categories.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             <button

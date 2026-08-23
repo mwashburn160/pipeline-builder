@@ -1,5 +1,6 @@
 import { Megaphone, MessageCircle, Trash2, User } from 'lucide-react';
 import { formatRelativeTime } from '@/lib/relative-time';
+import { SYSTEM_ORG_ID } from '@/lib/constants';
 import { EmptyState } from '@/components/ui/EmptyState';
 import type { Message } from '@/types';
 
@@ -29,9 +30,6 @@ interface MessageListProps {
   /** Empty-state description override. */
   emptyDescription?: string;
 }
-
-/** The system tenant's well-known org id (api-core SYSTEM_ORG_ID default). */
-const SYSTEM_ORG_ID = '000000000000000000000001';
 
 /**
  * Returns the display name for a message row: "Announcement", or the OTHER
@@ -63,7 +61,10 @@ function getDisplayName(
  * marked this message read — independent of whether other participants have.
  */
 function isUnreadFor(msg: Message, currentOrgId: string): boolean {
-  return !msg.readBy[currentOrgId.toLowerCase()];
+  // Guard `readBy` — a message pushed via SSE/poll can arrive without it, and
+  // this runs for every row on render; an unguarded deref would crash the whole
+  // list (matches the `?.` used in useMessages / ThreadView).
+  return !msg.readBy?.[currentOrgId.toLowerCase()];
 }
 
 /** Extracts the first two characters of a name for avatar display. */

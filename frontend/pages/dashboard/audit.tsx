@@ -17,10 +17,11 @@
  */
 
 import { Select } from '@/components/ui/Select';
+import { SearchInput } from '@/components/ui/SearchInput';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { Activity, Search, ArrowLeft, Download, ShieldCheck, ShieldAlert, ShieldQuestion, Ban, SlidersHorizontal, ChevronDown, X } from 'lucide-react';
+import { Activity, ArrowLeft, Download, ShieldCheck, ShieldAlert, ShieldQuestion, Ban, SlidersHorizontal, ChevronDown, X } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -335,16 +336,12 @@ export default function AuditPage() {
       {/* Filter bar — collapsed by default (see toggle above). */}
       {filtersOpen && (
       <div id="audit-filter-panel" className="filter-bar grid grid-cols-1 md:grid-cols-3 gap-2">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-          <FilterInput
-            type="text"
-            placeholder="Filter by action (substring match)"
-            aria-label="Filter by action"
-            value={action}
-            onChange={(e) => { setAction(e.target.value); setOffset(0); }}
-          />
-        </div>
+        <SearchInput
+          placeholder="Filter by action (substring match)"
+          aria-label="Filter by action"
+          value={action}
+          onChange={(v) => { setAction(v); setOffset(0); }}
+        />
         <FilterInput
           type="text"
           placeholder="Actor user id"

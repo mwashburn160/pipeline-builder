@@ -15,24 +15,9 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { TabBar, type TabBarItem } from '@/components/ui/TabBar';
+import { LifecycleBadge } from '@/components/ui/LifecycleBadge';
 import api from '@/lib/api';
 import type { Pipeline, Plugin, Lifecycle } from '@/types';
-
-/** Lifecycle → badge styling. Unset (legacy rows) render as "production". */
-const LIFECYCLE_STYLES: Record<Lifecycle, string> = {
-  experimental: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
-  production: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-  deprecated: 'bg-gray-200 text-gray-700 dark:bg-gray-700/40 dark:text-gray-300',
-};
-
-function LifecycleBadge({ value }: { value?: Lifecycle | null }) {
-  const lc: Lifecycle = value ?? 'production';
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${LIFECYCLE_STYLES[lc]}`}>
-      {lc}
-    </span>
-  );
-}
 
 const LIFECYCLE_FILTERS: Array<{ label: string; value: '' | Lifecycle }> = [
   { label: 'All', value: '' },

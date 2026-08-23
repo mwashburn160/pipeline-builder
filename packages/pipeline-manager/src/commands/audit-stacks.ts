@@ -160,7 +160,10 @@ export function auditStacks(program: Command): void {
           }
         }
 
-        const exitCode = findings.length > 0 ? 1 : 0;
+        // A truncated (incomplete) scan is a finding in itself: it can both miss
+        // real drift AND emit false missing-stack findings, so it must exit
+        // non-zero and be visible in the JSON (mirrors audit-tokens).
+        const exitCode = (findings.length > 0 || truncated) ? 1 : 0;
 
         if (options.json) {
           console.log(JSON.stringify({
@@ -169,6 +172,7 @@ export function auditStacks(program: Command): void {
             orgFilter: options.org,
             registryEntries: entries.length,
             cfnStacks: stacks.length,
+            truncated,
             findings,
             executionId,
           }, null, 2));

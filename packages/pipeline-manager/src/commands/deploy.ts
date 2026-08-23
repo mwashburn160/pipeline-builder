@@ -3,24 +3,15 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
-import pico from 'picocolors';
-import { assertShellSafe } from '../config/cli.constants.js';
-import { type Pipeline } from '../types/index.js';
+import { type Pipeline, type PlatformDeployConfig } from '../types/index.js';
 import { auditLog } from '../utils/audit-log.js';
-import { executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
 import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync, withProfileOption, withRegionOption, withSslOptions } from '../utils/command-utils.js';
+import { runDeploy } from '../utils/deploy-runner.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { ensureOutputDirectory, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { printInfo, printKeyValue, printSuccess, printWarning } from '../utils/output-utils.js';
 import { fetchPipelineProps, printResolvedOrExit } from '../utils/pipeline-config.js';
-import { buildRegistryPayload, writePendingIntent } from '../utils/registry.js';
 import { relaxTlsForCli } from '../utils/tls.js';
-
-const { bold, cyan, dim } = pico;
-
-// ESM has no __dirname; derive it from this module's URL.
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Registers the `deploy` command with the CLI program.
@@ -86,7 +77,7 @@ export function deploy(program: Command): void {
         let propsWithIds: Record<string, unknown>;
         // Remote-mode registry-post handles — null in --local-spec mode.
         let platformClient: Awaited<ReturnType<typeof createAuthenticatedClientAsync>> | undefined;
-        let platformConfig: { api: { pipelineUrl: string; baseUrl: string } } | undefined;
+        let platformConfig: PlatformDeployConfig | undefined;
 
         if (options.localSpec) {
           // --local-spec: read pipeline.json from disk; no platform contact.
@@ -127,7 +118,7 @@ export function deploy(program: Command): void {
           // the fetch + plugin pre-resolution + registry pull-host bake — shared
           // verbatim with `synth` so the two never drift.
           platformClient = await createAuthenticatedClientAsync(options);
-          platformConfig = platformClient.getConfig() as { api: { pipelineUrl: string; baseUrl: string } };
+          platformConfig = platformClient.getConfig() as PlatformDeployConfig;
 
           printInfo('Fetching pipeline configuration', { id: options.id });
           const fetched = await fetchPipelineProps(platformClient, options.id);
@@ -150,118 +141,21 @@ export function deploy(program: Command): void {
           return;
         }
 
-        const encoded = Buffer.from(JSON.stringify(propsWithIds), 'utf-8').toString('base64');
-        const outputPath = options.output;
-
-        // Ensure output directory exists
-        printInfo('Preparing output directory', { path: outputPath });
-        ensureOutputDirectory(outputPath);
-
-        // Build CDK command (validate EVERY input that flows into the shell).
-        // requireApproval is interpolated unquoted into the command below, so a
-        // value like `never; rm -rf ~` would otherwise execute — validate it too.
-        if (options.profile) assertShellSafe(options.profile, 'profile');
-        assertShellSafe(outputPath, 'output');
-        assertShellSafe(options.requireApproval, 'require-approval');
-
-        const scriptPath = resolveBoilerplatePath(__dirname);
-        const profileArg = options.profile ? `--profile=${options.profile}` : '';
-        const outputArg = `--output=${outputPath}`;
-        const appArg = `--app="node ${scriptPath}"`;
-
-        const command = `cdk deploy ${profileArg} --require-approval=${options.requireApproval} ${outputArg} --notices=false ${appArg}`;
-
-        printSection('CDK Execution');
-        console.log(cyan(bold('Command:')), dim(command.split(' --')[0] + ' ...'));
-        console.log(''); // Empty line
-
-        // Forward the platform base URL the deploy actually resolved (from
-        // ~/.pipeline-manager/config.yml or the PLATFORM_BASE_URL env var) into
-        // the CDK synth subprocess, which reads only process.env. The synth uses
-        // it for serverConfig.platformUrl (the PluginLookup Lambda's platform
-        // endpoint) and as the loadRegistryConfig pull-host fallback. The registry
-        // pull host itself is baked explicitly via props.registry above; this
-        // covers the Lambda URL and any direct Config.get('registry') reads.
-        // --local-spec mode has no platformConfig, so this is remote-only.
-        const cdkEnv: Record<string, string> = { PIPELINE_PROPS: encoded };
-        if (platformConfig?.api.baseUrl) {
-          cdkEnv.PLATFORM_BASE_URL = platformConfig.api.baseUrl;
-        }
-
-        // Execute CDK command
-        const result = executeCdkShellCommand(command, {
+        // Steps 5–9 (encode props → cdk deploy → register ARN) are shared with
+        // `pipeline create --deploy` via runDeploy so the two never drift.
+        await runDeploy({
+          pipeline,
+          propsWithIds,
+          profile: options.profile,
+          region: options.region,
+          requireApproval: options.requireApproval,
+          output: options.output,
           debug: program.opts().debug,
-          showOutput: true,
-          env: cdkEnv,
+          executionId,
+          platformClient,
+          platformPipelineUrl: platformConfig?.api.pipelineUrl,
+          platformBaseUrl: platformConfig?.api.baseUrl,
         });
-
-        console.log(''); // Empty line
-        printSection('Deployment Complete');
-
-        if (result.success) {
-          printKeyValue({
-            'Execution ID': executionId,
-            'Duration': `${result.duration}ms`,
-            'Output Directory': outputPath,
-            'Status': '✓ Success',
-          });
-
-          // Register pipeline ARN for event reporting (non-blocking).
-          // Skipped in --local-spec mode since there's no platform to register with.
-          if (!platformClient || !platformConfig) {
-            printInfo('Skipping pipeline registry (local-spec mode)');
-            return;
-          }
-          // Build the payload up-front so a registration POST failure can write
-          // the same payload to a pending-intent file for `pipeline-manager
-          // pipeline register` to drain later. We never want to retry STS lookups —
-          // they can fail too (e.g. credential rotation) and would compound
-          // the issue.
-          if (!pipeline.orgId) {
-            printWarning('Pipeline has no orgId — skipping registration');
-            return;
-          }
-          let payload;
-          try {
-            payload = await buildRegistryPayload(
-              {
-                id: pipeline.id,
-                orgId: pipeline.orgId,
-                pipelineName: pipeline.pipelineName,
-                project: pipeline.project,
-                organization: pipeline.organization,
-              },
-              options.region,
-            );
-          } catch (buildError) {
-            printWarning('Could not build registry payload — skipping registration', {
-              error: buildError instanceof Error ? buildError.message : String(buildError),
-            });
-            return;
-          }
-
-          try {
-            await platformClient.post(`${platformConfig.api.pipelineUrl}/registry`, payload);
-            printSuccess('Pipeline registered for event reporting', { pipelineId: payload.pipelineId });
-          } catch (regError) {
-            // Persist for retry. The user can drain with `pipeline-manager
-            // pipeline register` (or just re-run that command at any time — it's
-            // idempotent). The deploy itself does NOT fail.
-            try {
-              const intentPath = await writePendingIntent(payload);
-              printWarning('Pipeline registry update failed; queued for retry', {
-                error: regError instanceof Error ? regError.message : String(regError),
-                retry: 'pipeline-manager pipeline register',
-                intent: intentPath,
-              });
-            } catch (writeErr) {
-              printWarning('Pipeline registry update failed (retry queue also failed)', {
-                error: regError instanceof Error ? regError.message : String(regError),
-                queueError: writeErr instanceof Error ? writeErr.message : String(writeErr),
-              });
-            }
-          }
-        }
 
       } catch (error) {
         handleError(error, ERROR_CODES.API_REQUEST, {

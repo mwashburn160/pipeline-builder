@@ -3,11 +3,12 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Activity, BarChart3, Bell, LayoutDashboard, ListChecks, Boxes, Plus, Lock, Building2, Globe, ScrollText, Search } from 'lucide-react';
+import { Activity, BarChart3, Bell, LayoutDashboard, ListChecks, Boxes, Plus, Lock, Building2, Globe, ScrollText } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
 import { LoadingPage } from '@/components/ui/Loading';
+import { SearchInput } from '@/components/ui/SearchInput';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { api } from '@/lib/api';
 import type { Dashboard } from '@/types/observability';
@@ -99,17 +100,13 @@ export default function ObservabilityIndexPage() {
       {/* Client-side filters over the dashboard tiles below (the fixed
           Alerts/Rules/Logs links are always shown). */}
       <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-          <input
-            type="text"
-            placeholder="Search dashboards..."
-            aria-label="Search dashboards"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="filter-input"
-          />
-        </div>
+        <SearchInput
+          containerClassName="flex-1"
+          placeholder="Search dashboards..."
+          aria-label="Search dashboards"
+          value={search}
+          onChange={setSearch}
+        />
         <div className="flex items-center gap-1">
           {VISIBILITY_CHIPS.map((c) => {
             const active = visibility === c.id;

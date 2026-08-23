@@ -3,8 +3,9 @@
 
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { ENV_VARS, assertShellSafe } from '../config/cli.constants.js';
+import { assertShellSafe } from '../config/cli.constants.js';
 import { auditLog } from '../utils/audit-log.js';
+import { resolveAwsRegion } from '../utils/aws-env.js';
 import { executeCdkShellCommand } from '../utils/cdk-utils.js';
 import { printCommandHeader, withProfileOption, withRegionOption } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
@@ -27,7 +28,7 @@ export function resolveAccount(optionValue?: string): string | undefined {
  */
 /** @internal Exported for testing only */
 export function resolveRegion(optionValue?: string): string {
-  return optionValue || process.env[ENV_VARS.AWS_REGION] || process.env.CDK_DEFAULT_REGION || 'us-east-1';
+  return resolveAwsRegion(optionValue);
 }
 
 /**

@@ -132,7 +132,13 @@ export function validateBoolean(value: string, fieldName: string): boolean {
 /**
  * Validate and parse a numeric CLI parameter within optional bounds.
  */
-export function validateNumber(value: string | number, fieldName: string, min?: number, max?: number): number {
+export function validateNumber(value: string | number | undefined | null, fieldName: string, min?: number, max?: number): number {
+  // A missing value (e.g. a list command that forgot its commander default)
+  // would otherwise throw a cryptic `undefined.trim()` TypeError — fail with a
+  // clear validation message instead.
+  if (value === undefined || value === null || value === '') {
+    throw new Error(`Invalid ${fieldName}: a value is required`);
+  }
   // Reject partial parses ("12abc" -> 12) and non-integers ("5.9" -> 5) that
   // `parseInt` would otherwise accept silently.
   if (typeof value === 'string' && !/^-?\d+$/.test(value.trim())) {
@@ -192,3 +198,22 @@ export function assertShellSafe(
 export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
+
+/**
+ * Canonical default pipeline name when none is given — MUST mirror pipeline-core's
+ * pipeline-configuration.ts (`${sanitize(org)}-${sanitize(project)}-pipeline`,
+ * non-alphanumeric → '_', lowercased), so the CLI's create and registry paths
+ * derive the SAME name the CDK builder actually deploys (a mismatch breaks
+ * StartPipelineExecution against the registered name).
+ */
+export function defaultPipelineName(organization: string, project: string): string {
+  const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+  return `${sanitize(organization)}-${sanitize(project)}-pipeline`;
+}
+
+/**
+ * CloudFormation stack name for the event-ingestion infra. Shared so `setup-events`
+ * (which deploys it) and `redrive-events` (which resolves the DLQ/queue from it)
+ * can never drift apart.
+ */
+export const EVENTS_STACK_NAME = 'pipeline-builder-events';

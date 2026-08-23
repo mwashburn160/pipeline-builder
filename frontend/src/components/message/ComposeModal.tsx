@@ -9,15 +9,13 @@ import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { RecipientPicker, type MemberOption } from '@/components/message/RecipientPicker';
 import { aliasLocalPart } from '@/lib/support-label';
+import { SYSTEM_ORG_ID, DEFAULT_SUPPORT_ALIAS } from '@/lib/constants';
+import { formatBytes } from '@/lib/format';
 // The compose "To" field prefills the configured support alias (passed in via
 // the `supportAlias` prop, sourced from the server's SUPPORT_ALIASES). This
 // module constant is only the fallback until that config loads. A send to a
 // support alias is translated to recipientOrgId = "system" with
 // channel = "support" so system-org readers can filter by channel.
-const DEFAULT_SUPPORT_ALIAS = 'support@pipeline-builder';
-// The system tenant's well-known org id (api-core SYSTEM_ORG_ID default). The
-// support inbox is the system org; messages to support are addressed to this id.
-const SUPPORT_RECIPIENT = '000000000000000000000001';
 const SUPPORT_CHANNEL = 'support';
 
 /** Props for the ComposeModal component. */
@@ -194,7 +192,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
     const isSupportSend = !isAnnouncement && aliasSet.has(activeRecipient.toLowerCase());
     const recipient = isAnnouncement
       ? '*'
-      : (isSupportSend ? SUPPORT_RECIPIENT : activeRecipient.toLowerCase());
+      : (isSupportSend ? SYSTEM_ORG_ID : activeRecipient.toLowerCase());
     if (!isAnnouncement && !recipient) {
       setValidationError(canWrite
         ? 'Recipient organization is required'
@@ -484,7 +482,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
                     >
                       <Paperclip className="w-3 h-3 text-gray-400 shrink-0" />
                       <span className="truncate flex-1 text-gray-700 dark:text-gray-300">{a.filename}</span>
-                      <span className="text-gray-400 shrink-0">{Math.max(1, Math.round(a.sizeBytes / 1024))} KB</span>
+                      <span className="text-gray-400 shrink-0">{formatBytes(a.sizeBytes)}</span>
                       <button
                         type="button"
                         onClick={() => removeAttachment(a.id)}

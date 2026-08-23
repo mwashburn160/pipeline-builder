@@ -12,6 +12,7 @@
  */
 
 import { assertShellSafe, shellQuote } from '../config/cli.constants.js';
+import { resolveAwsRegion } from '../utils/aws-env.js';
 
 export type TargetId = 'docker' | 'minikube' | 'ec2' | 'eks';
 
@@ -309,7 +310,7 @@ export function teardownCommand(
   target: TargetId,
   opts: { stackName?: string; clusterName?: string; region?: string; domain?: string; hostedZoneId?: string; assumeYes?: boolean } = {},
 ): TeardownResult {
-  const region = opts.region || process.env.AWS_REGION || 'us-east-1';
+  const region = resolveAwsRegion(opts.region);
   // Anything flowing unquoted into a shell-executed teardown command is rejected
   // for shell metacharacters (mirrors assembleCommand).
   assertShellSafe(region, 'region');

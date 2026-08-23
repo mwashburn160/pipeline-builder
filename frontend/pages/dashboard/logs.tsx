@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { Search, ScrollText, RefreshCw, ChevronRight, Download, AlertCircle, AlertTriangle } from 'lucide-react';
+import { ScrollText, RefreshCw, ChevronRight, Download, AlertCircle, AlertTriangle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
 import { LoadingPage } from '@/components/ui/Loading';
+import { SearchInput } from '@/components/ui/SearchInput';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Button } from '@/components/ui/Button';
-import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { WarningAlert } from '@/components/ui/WarningAlert';
@@ -259,10 +259,7 @@ export default function LogsPage() {
       {/* Filters */}
       <div className="filter-bar">
         <div className="flex flex-col sm:flex-row gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-            <FilterInput type="text" placeholder="Search log messages..." aria-label="Search log messages" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-          </div>
+          <SearchInput containerClassName="flex-1" placeholder="Search log messages..." aria-label="Search log messages" value={searchQuery} onChange={setSearchQuery} />
           <FilterSelect value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)} aria-label="Filter by service">
             <option value="">All Services</option>
             {services.map(s => <option key={s} value={s}>{s}</option>)}

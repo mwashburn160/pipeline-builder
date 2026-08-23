@@ -1,12 +1,13 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { formatError } from '@/lib/constants';
 import { triggerBlobDownload } from '@/lib/csv-export';
-import { Building2, Search, KeyRound, FileDown, ShieldCheck, ExternalLink, Plus, Layers, RotateCcw, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Building2, KeyRound, FileDown, ShieldCheck, ExternalLink, Plus, Layers, RotateCcw, MoreHorizontal, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
+import { SearchInput } from '@/components/ui/SearchInput';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { SegmentedFilter } from '@/components/ui/SegmentedFilter';
 import { Badge } from '@/components/ui/Badge';
@@ -17,7 +18,6 @@ import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { InfoAlert } from '@/components/ui/InfoAlert';
-import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { useToast } from '@/components/ui/Toast';
@@ -481,16 +481,13 @@ export default function OrganizationsPage() {
       ) : (
       <>
       <div className="filter-bar flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[16rem]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-          <FilterInput
-            type="text"
-            placeholder="Search organizations..."
-            value={list.filters.search}
-            onChange={(e) => list.updateFilter('search', e.target.value)}
-            aria-label="Search organizations"
-          />
-        </div>
+        <SearchInput
+          containerClassName="flex-1 min-w-[16rem]"
+          placeholder="Search organizations..."
+          value={list.filters.search}
+          onChange={(v) => list.updateFilter('search', v)}
+          aria-label="Search organizations"
+        />
         <FilterSelect
           value={list.filters.tier}
           onChange={(e) => list.updateFilter('tier', e.target.value)}
