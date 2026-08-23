@@ -267,6 +267,47 @@ pipeline-builder/acme-corp/SNYK_TOKEN
 
 3. **Deploy your pipeline** — the pipeline builder automatically injects each declared secret as a `SECRETS_MANAGER`-type environment variable in the CodeBuild step. No additional configuration is needed in the pipeline definition.
 
+### Obtaining credentials
+
+Where to get each value before you store it under `pipeline-builder/{orgId}/{secretName}`. Store the token exactly as the secret name in the plugin's [Secrets Reference](#secrets-reference) row.
+
+**Security & quality tokens**
+
+- **`SNYK_TOKEN`** — [snyk.io](https://snyk.io) → Account settings → **General → Auth Token** (or **Service accounts** for CI). Shared by all `snyk-*` variants.
+- **`SONAR_TOKEN`** — [sonarcloud.io](https://sonarcloud.io) → **My Account → Security → Generate Token**. SonarCloud also needs **`SONAR_ORGANIZATION`** + **`SONAR_PROJECT_KEY`** (env, from the project's *Information* panel) — set those as step metadata, not secrets.
+- **`GITGUARDIAN_API_KEY`** — [dashboard.gitguardian.com](https://dashboard.gitguardian.com) → **API → Personal access tokens** with the `scan` scope.
+- **`CODECOV_TOKEN`** — [codecov.io](https://codecov.io) → your repo → **Settings → Repository Upload Token**.
+- **`CODACY_PROJECT_TOKEN`** — Codacy → project → **Settings → Integrations → Project API token**.
+- **Enterprise scanners** (`veracode`, `checkmarx`, `fortify`, `prisma-cloud`, `mend`) — generate API credentials in each vendor's console (API ID/key, client secret, or access/secret key pair); see the [Security → Enterprise](security.md#enterprise-vendor) table for the exact secret names.
+
+**Monitoring**
+
+- **`DD_API_KEY`** — [Datadog](https://app.datadoghq.com) → **Organization Settings → API Keys**.
+- **`NEW_RELIC_API_KEY`** — New Relic → **Administration → API keys** (a **User** key).
+- **`SENTRY_AUTH_TOKEN`** — Sentry → **Settings → Developer Settings → Auth Tokens** with `project:releases`.
+
+**Notifications**
+
+- **`SLACK_WEBHOOK_URL`** — [api.slack.com/apps](https://api.slack.com/apps) → create an app → **Incoming Webhooks** → *Add New Webhook to Workspace* → copy the `https://hooks.slack.com/services/…` URL.
+- **`TEAMS_WEBHOOK_URL`** — Teams channel → **Connectors → Incoming Webhook** → copy the URL.
+- **`PAGERDUTY_ROUTING_KEY`** — PagerDuty service → **Integrations → Events API v2** → copy the Integration/Routing key.
+- **`GITHUB_TOKEN`** (`github-status`, `ghcr-push`) — [github.com/settings/tokens](https://github.com/settings/tokens): `repo:status` for status checks, `write:packages` for GHCR.
+
+**Package & registry publishing**
+
+- **`NPM_TOKEN`** — [npmjs.com](https://www.npmjs.com) → **Access Tokens → Generate** (Automation). **`NUGET_API_KEY`** — nuget.org → **API Keys**. **`CARGO_REGISTRY_TOKEN`** — crates.io → **Account Settings → API Tokens**. **`GEM_HOST_API_KEY`** — rubygems.org → **Settings → API keys**. **`TWINE_PASSWORD`** — PyPI → **Account settings → API tokens** (username `__token__`).
+- **Container registries** — `ghcr-push` uses a `GITHUB_TOKEN` with `write:packages`; `gar-push` a GCP service-account JSON (`GOOGLE_APPLICATION_CREDENTIALS`); `acr-push` an Azure service principal (`AZURE_CLIENT_ID`/`_SECRET`/`_TENANT_ID`); `jfrog-push` a JFrog identity token. **`ecr-push` needs no secret** — it authenticates with the CodeBuild role's IAM.
+
+**Deploy**
+
+- **`KUBECONFIG_DATA`** (`kubectl-deploy`, `helm-deploy`) — base64-encode a kubeconfig scoped to a deploy service account: `base64 -w0 ~/.kube/config`, store the output.
+- **`PULUMI_ACCESS_TOKEN`** — [app.pulumi.com](https://app.pulumi.com) → **Access Tokens**. **`GOOGLE_APPLICATION_CREDENTIALS`** (`gcloud-deploy`) — a GCP service-account key JSON. **`FLYWAY_USER`/`FLYWAY_PASSWORD`** — your database credentials (`FLYWAY_URL` is env, not a secret).
+- **AWS-native deploy plugins** (`cdk-deploy`, `ecs-deploy`, `lambda-deploy`, `cloudformation`) authenticate via the CodeBuild role's IAM — **no secret to store**.
+
+**AI**
+
+- **`AI_API_KEY`** (`dockerfile-multi-provider`) — the API key for your `AI_PROVIDER` (Anthropic/OpenAI/Google/xAI). **`bedrock` needs no key** — it uses the CodeBuild role's IAM.
+
 ### How It Works at Build Time
 
 When a pipeline is synthesized, the builder:

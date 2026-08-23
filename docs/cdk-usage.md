@@ -119,6 +119,23 @@ source: {
 }
 ```
 
+#### Creating the connection
+
+The `connectionArn` above refers to an AWS **CodeConnections** (formerly CodeStar
+Connections) resource you create once per Git provider, then reuse across
+pipelines. A brand-new connection is created in a **PENDING** state and only works
+after you finish the handshake in the console:
+
+1. AWS Console → **Developer Tools → Settings → Connections → Create connection** (or CLI: `aws codeconnections create-connection --provider-type GitHub --connection-name my-app`).
+2. Pick the provider — **GitHub**, **GitHub Enterprise Server**, **Bitbucket**, or **GitLab** — name it, and click **Connect**.
+3. **Install / authorize the AWS Connector app** for your Git org when prompted (GitHub: "Install a new app" → choose the org → select repos), then **Connect** to finish. This flips the connection from **Pending** to **Available**.
+4. Copy the connection **ARN** (`arn:aws:codeconnections:<region>:<account>:connection/<uuid>`; the legacy `codestar-connections` ARN form also works) into `connectionArn`.
+5. Ensure the pipeline/deploy role can use it — allow `codeconnections:UseConnection` (and `codestar-connections:UseConnection`) on that ARN.
+
+> A connection left in **Pending** (its app was never authorized) makes the Source
+> stage fail with an access error. Authorizing the connector is a one-time,
+> console-only step — it can't be completed from CDK.
+
 ### S3
 
 ```typescript

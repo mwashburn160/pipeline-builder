@@ -81,6 +81,108 @@ each provider's developer console is:
 for example `https://ci.acme.com/auth/callback/google`. A mismatch here is the
 most common cause of a failed social login.
 
+### Per-provider setup walkthroughs
+
+Each walkthrough registers **one platform-wide app** in the provider's console,
+sets the redirect URI to `<OAUTH_CALLBACK_BASE_URL>/auth/callback/<provider>`,
+and copies the resulting client ID/secret into the env vars below. The scopes
+listed are the ones the platform requests automatically — you generally don't
+declare them in the console (Google, Microsoft, GitLab, and LinkedIn surface a
+consent screen; GitHub and Facebook request scopes at authorize time). Replace
+`<base>` with whatever `OAUTH_CALLBACK_BASE_URL` resolves to.
+
+#### Google
+
+1. [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → pick/create a project.
+2. **OAuth consent screen** (first time only): User type **External**, set app name + support email, add scopes `openid`, `email`, `profile`. While the screen is in **Testing** only listed test users can sign in — **Publish** it to allow anyone.
+3. **Credentials → Create Credentials → OAuth client ID → Web application**.
+4. **Authorized redirect URIs** → add `<base>/auth/callback/google`.
+5. Copy the Client ID/secret → `OAUTH_GOOGLE_CLIENT_ID`, `OAUTH_GOOGLE_CLIENT_SECRET`.
+
+Requested scopes: `openid email profile`. The account's `email_verified` must be true.
+
+```bash
+OAUTH_GOOGLE_CLIENT_ID=your-client-id
+OAUTH_GOOGLE_CLIENT_SECRET=your-client-secret
+```
+
+#### GitHub
+
+1. GitHub → Settings → Developer settings → [OAuth Apps](https://github.com/settings/developers) → **New OAuth App**.
+2. **Homepage URL** = your frontend URL; **Authorization callback URL** = `<base>/auth/callback/github`.
+3. **Generate a new client secret**, then copy both → `OAUTH_GITHUB_CLIENT_ID`, `OAUTH_GITHUB_CLIENT_SECRET`.
+
+Requested scopes: `read:user user:email` (OAuth Apps don't pre-declare scopes). The platform reads the primary **verified** email via `/user/emails`, so a user with no verified email can't sign in.
+
+```bash
+OAUTH_GITHUB_CLIENT_ID=your-client-id
+OAUTH_GITHUB_CLIENT_SECRET=your-client-secret
+```
+
+#### Facebook
+
+1. [Meta for Developers](https://developers.facebook.com/apps) → **Create App** (use case: **Authenticate and request data from users with Facebook Login**) → add the **Facebook Login** product (Web).
+2. **Facebook Login → Settings → Valid OAuth Redirect URIs** → add `<base>/auth/callback/facebook`.
+3. **App settings → Basic**: App ID → `OAUTH_FACEBOOK_CLIENT_ID`, App Secret → `OAUTH_FACEBOOK_CLIENT_SECRET`.
+4. Switch the app from **Development** to **Live** so non-admin users can log in. The `email` permission is granted by default for login, but going live for a broad audience may require Meta **App Review** / Advanced Access for `email`.
+
+Requested scopes: `email,public_profile`. Facebook is OAuth2 (not OIDC); if the user declines `email` the login **fails** because no account email is returned.
+
+```bash
+OAUTH_FACEBOOK_CLIENT_ID=your-app-id
+OAUTH_FACEBOOK_CLIENT_SECRET=your-app-secret
+```
+
+#### Microsoft (Entra / Azure AD)
+
+1. [Microsoft Entra admin center](https://entra.microsoft.com) → **App registrations → New registration**.
+2. **Supported account types** decides who can sign in and maps to `OAUTH_MICROSOFT_TENANT`: *any org + personal* → `common`; *single directory* → that tenant's ID/domain.
+3. **Redirect URI** → platform **Web** → `<base>/auth/callback/microsoft`.
+4. **Certificates & secrets → New client secret** → copy the **Value** (not the ID) → `OAUTH_MICROSOFT_CLIENT_SECRET`. **Overview → Application (client) ID** → `OAUTH_MICROSOFT_CLIENT_ID`. Set `OAUTH_MICROSOFT_TENANT` (`common` unless you scoped to one directory).
+
+Requested scopes: `openid email profile`.
+
+```bash
+OAUTH_MICROSOFT_CLIENT_ID=your-application-client-id
+OAUTH_MICROSOFT_CLIENT_SECRET=your-client-secret-value
+OAUTH_MICROSOFT_TENANT=common
+```
+
+#### GitLab
+
+1. GitLab → User Settings → [Applications](https://gitlab.com/-/profile/applications) (or `<your-instance>/-/profile/applications`) → **Add new application**.
+2. **Redirect URI** → `<base>/auth/callback/gitlab`; check scopes `openid`, `email`, `profile`; keep **Confidential** enabled.
+3. Copy **Application ID** → `OAUTH_GITLAB_CLIENT_ID`, **Secret** → `OAUTH_GITLAB_CLIENT_SECRET`. For a self-hosted instance also set `OAUTH_GITLAB_BASE_URL` to its origin.
+
+Requested scopes: `openid email profile`. The GitLab email must be verified.
+
+```bash
+OAUTH_GITLAB_CLIENT_ID=your-application-id
+OAUTH_GITLAB_CLIENT_SECRET=your-secret
+# Self-hosted GitLab only (defaults to https://gitlab.com):
+OAUTH_GITLAB_BASE_URL=https://gitlab.example.com
+```
+
+#### LinkedIn
+
+1. [LinkedIn Developers](https://www.linkedin.com/developers/apps) → **Create app** (requires an associated LinkedIn **Company Page**).
+2. **Products** tab → request **"Sign in with LinkedIn using OpenID Connect"**.
+3. **Auth** tab → **Authorized redirect URLs for your app** → add `<base>/auth/callback/linkedin`. Copy the Client ID/secret → `OAUTH_LINKEDIN_CLIENT_ID`, `OAUTH_LINKEDIN_CLIENT_SECRET`.
+
+Requested scopes: `openid email profile`.
+
+```bash
+OAUTH_LINKEDIN_CLIENT_ID=your-client-id
+OAUTH_LINKEDIN_CLIENT_SECRET=your-client-secret
+```
+
+### Apply and verify
+
+1. Set the provider's `OAUTH_<P>_CLIENT_ID` / `_CLIENT_SECRET` (and any provider-specific var) on the **platform** service, plus `OAUTH_CALLBACK_BASE_URL` if it isn't already your public frontend origin.
+2. Restart/redeploy the platform service.
+3. Confirm the provider is live: `curl <PLATFORM_BASE_URL>/api/auth/oauth/providers` lists it, and a matching **"Sign in with …"** button appears on the login page.
+4. Click it end-to-end. A redirect-URI mismatch is by far the most common failure — the URI in the console must equal `<base>/auth/callback/<provider>` exactly (scheme, host, and path).
+
 ### Providers reachable via generic OIDC
 
 **Apple, X (Twitter), Amazon, Discord, and Slack** are **not** named social-login
@@ -152,6 +254,75 @@ list — a standards-OIDC `id_token` flow is required):
   (`https://cognito-idp.<region>.amazonaws.com/<userPoolId>/.well-known/openid-configuration`) —
   no hand-entered URL. (A Cognito user-pool id is **not** an AWS account id and
   is safe to store.)
+
+### IdP setup walkthroughs
+
+Each walkthrough registers **one OIDC application per org** in the identity
+provider, whitelists the org's callback URL, and copies the resulting values into
+the [`OrgIdpConfig`](#two-config-surfaces) fields (`provider`, `clientId`,
+`clientSecret`, and either `discoveryUrl` or Cognito's `region` + `userPoolId`).
+The engine requests scopes `openid email profile` and validates the returned
+`id_token` against the IdP's JWKS.
+
+**The redirect / callback URL to whitelist** — this is per-org, so it embeds the
+org id:
+
+```
+<OAUTH_CALLBACK_BASE_URL>/auth/sso/<orgId>/callback
+```
+
+for example `https://ci.acme.com/auth/sso/2f9c…/callback`. Find `<orgId>` on the
+IdP/SSO config page (superadmin `/admin/org-idp`, or the org's own settings). A
+mismatch here is the most common cause of a failed SSO login.
+
+#### Okta (generic-oidc)
+
+1. Okta Admin → **Applications → Create App Integration → OIDC - OpenID Connect → Web Application**.
+2. **Sign-in redirect URIs** → add `<OAUTH_CALLBACK_BASE_URL>/auth/sso/<orgId>/callback`. Grant type: **Authorization Code**.
+3. Assign the app to the users/groups who should reach this org.
+4. Copy **Client ID** and **Client secret**; the discovery URL is `https://<your-okta-domain>/.well-known/openid-configuration`.
+5. In the SSO config set `provider: generic-oidc`, `clientId`, `clientSecret`, `discoveryUrl`.
+
+#### Microsoft Entra ID (generic-oidc)
+
+1. [Entra admin center](https://entra.microsoft.com) → **App registrations → New registration**.
+2. **Redirect URI** → platform **Web** → `<OAUTH_CALLBACK_BASE_URL>/auth/sso/<orgId>/callback`.
+3. **Certificates & secrets → New client secret** → copy the **Value**; copy the **Application (client) ID** from Overview.
+4. Discovery URL: `https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration`.
+5. Set `provider: generic-oidc`, `clientId`, `clientSecret`, `discoveryUrl`.
+
+#### Google Workspace (google)
+
+1. [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → **Create Credentials → OAuth client ID → Web application** (configure the consent screen first if prompted).
+2. **Authorized redirect URIs** → add `<OAUTH_CALLBACK_BASE_URL>/auth/sso/<orgId>/callback`.
+3. Copy the Client ID/secret.
+4. Set `provider: google`, `clientId`, `clientSecret` — the discovery URL is well-known (`https://accounts.google.com/.well-known/openid-configuration`), so you don't enter one.
+
+#### Auth0 (generic-oidc)
+
+1. Auth0 Dashboard → **Applications → Create Application → Regular Web Application**.
+2. **Settings → Allowed Callback URLs** → add `<OAUTH_CALLBACK_BASE_URL>/auth/sso/<orgId>/callback`.
+3. Copy **Client ID** and **Client Secret**; discovery URL is `https://<your-tenant>.<region>.auth0.com/.well-known/openid-configuration`.
+4. Set `provider: generic-oidc`, `clientId`, `clientSecret`, `discoveryUrl`.
+
+#### Keycloak (generic-oidc)
+
+1. Keycloak Admin → select the realm → **Clients → Create client** → type **OpenID Connect**, **Client authentication: On** (confidential).
+2. **Valid redirect URIs** → add `<OAUTH_CALLBACK_BASE_URL>/auth/sso/<orgId>/callback`.
+3. **Credentials** tab → copy the client secret; the client id is the name you set.
+4. Discovery URL: `https://<keycloak-host>/realms/<realm>/.well-known/openid-configuration`.
+5. Set `provider: generic-oidc`, `clientId`, `clientSecret`, `discoveryUrl`.
+
+#### AWS Cognito (cognito)
+
+1. Cognito console → your **User pool → App integration → Create app client** (a **confidential** client with a secret).
+2. **Hosted UI / Allowed callback URLs** → add `<OAUTH_CALLBACK_BASE_URL>/auth/sso/<orgId>/callback`; enable the **Authorization code grant** and `openid email profile` scopes.
+3. Copy the app client **id** and **secret**, and note the pool's **region** and **User pool ID**.
+4. Set `provider: cognito`, `clientId`, `clientSecret`, `region`, `userPoolId` — **do not** set `discoveryUrl`; it's derived as `https://cognito-idp.<region>.amazonaws.com/<userPoolId>/.well-known/openid-configuration`.
+
+> After saving, set `allowedEmailDomains` to force those domains through SSO, flip
+> `enabled: true`, and confirm the org is `sso`-entitled. Secret-bearing writes
+> require step-up re-authentication on both config surfaces.
 
 ### Two config surfaces
 

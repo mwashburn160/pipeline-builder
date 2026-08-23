@@ -162,13 +162,43 @@ you declared on the deploy stage**. No external relay is needed.
 ## Point your tool here
 
 Configure a webhook / notification integration that fires on incident **open** and
-**resolve**, targeting the endpoint with the `reporting:ingest` bearer token. Map
-your tool's fields to the contract:
+**resolve**, targeting `POST /api/reports/incidents` with the `reporting:ingest`
+bearer token and mapping your tool's fields to the [contract](#contract). The
+walkthroughs below all set `Authorization: Bearer <token>` and
+`Content-Type: application/json`.
 
-- **Alertmanager** — use the [native adapter](#alertmanager-adapter-native) above (no field mapping needed beyond the `environment`/`severity` labels).
-- **PagerDuty** — an [Events/Webhook v3 subscription](https://developer.pagerduty.com/docs/webhooks/v3-overview/) to `POST /api/reports/incidents`: map `incident.id` → `incidentId`, `incident.created_at` → `openedAt`, `incident.resolved_at` → `resolvedAt`, `incident.urgency`/priority → `severity`. Set `environment` from the affected service. (PagerDuty webhooks support custom payload templates, so the generic contract is the mapping target — no native parser needed.)
-- **Datadog** — a [webhook notification](https://docs.datadoghq.com/integrations/webhooks/) on your monitor to `POST /api/reports/incidents`: template `$ALERT_ID` → `incidentId`, `$LAST_UPDATED`/`$DATE` → `openedAt`/`resolvedAt`, `$ALERT_STATUS` to decide whether `resolvedAt` is sent, and tag your monitor with the environment.
-- **Opsgenie / others** — any tool that can POST JSON works; map its stable alert id, timestamps, environment, and severity to the [generic contract](#contract).
+#### Alertmanager
+
+Use the [native adapter](#alertmanager-adapter-native) — point a receiver's
+`webhook_configs.url` at the adapter path; no body mapping is needed beyond the
+`environment`/`severity` labels, and firing/resolved is taken from Alertmanager's
+own `status`.
+
+#### PagerDuty
+
+1. **Integrations → Generic Webhooks (v3) → New Webhook** (or an [Events/Webhook v3 subscription](https://developer.pagerduty.com/docs/webhooks/v3-overview/)).
+2. **Webhook URL** = `<PLATFORM_BASE_URL>/api/reports/incidents`; add a **Custom Header** `Authorization: Bearer <token>`.
+3. Subscribe to **`incident.triggered`** and **`incident.resolved`** events.
+4. Use a **custom payload template** to emit the contract: `incident.id` → `incidentId`, `incident.created_at` → `openedAt`, `incident.resolved_at` → `resolvedAt` (omit while open), `incident.priority`/`urgency` → `severity`, and a fixed/service-derived `environment`.
+
+#### Datadog
+
+1. **Integrations → Webhooks → New** — set **URL** = `<PLATFORM_BASE_URL>/api/reports/incidents` and add the `Authorization: Bearer <token>` header.
+2. Define the **Payload** with the contract fields using Datadog variables: `$ALERT_ID` → `incidentId`, `$DATE`/`$LAST_UPDATED` → `openedAt`/`resolvedAt`, and a literal `environment` (or a tag template).
+3. On each monitor that represents production health, add `@webhook-<name>` to the message, and send `resolvedAt` only when `$ALERT_TRANSITION` is a recovery. Tag the monitor with the environment.
+
+#### Opsgenie
+
+1. **Settings → Integrations → Add → Webhook**.
+2. **Webhook URL** = `<PLATFORM_BASE_URL>/api/reports/incidents`; add the `Authorization: Bearer <token>` header; enable **Add Alert Description to Payload** as needed.
+3. Enable the **Alert Created** and **Alert Closed** notifications, and map the alert's stable id → `incidentId`, timestamps → `openedAt`/`resolvedAt`, priority → `severity`, plus an `environment`.
+
+#### Anything else
+
+Any tool that can POST JSON works — map its stable alert id, open/resolve
+timestamps, environment, and severity to the [generic contract](#contract) and send
+the bearer token. Use the **[Send test incident](#test--list-endpoints)** button to
+verify the wiring before relying on it.
 
 ## Admin UI
 
