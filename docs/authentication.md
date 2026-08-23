@@ -183,6 +183,36 @@ OAUTH_LINKEDIN_CLIENT_SECRET=your-client-secret
 3. Confirm the provider is live: `curl <PLATFORM_BASE_URL>/api/auth/oauth/providers` lists it, and a matching **"Sign in with …"** button appears on the login page.
 4. Click it end-to-end. A redirect-URI mismatch is by far the most common failure — the URI in the console must equal `<base>/auth/callback/<provider>` exactly (scheme, host, and path).
 
+### What happens on first sign-in (account + org creation)
+
+Social login and social **sign-up are the same flow** — there is no separate
+OAuth registration endpoint. The callback verifies the provider identity, then
+resolves it in three cases (`authService.findOrCreateOAuthUser`):
+
+1. **Returning identity** — a user already linked to this provider's account id → straight login, nothing created.
+2. **Email already registered** — a user with the same (provider-verified) email exists → the provider is **linked to that existing account** and they're logged in. This is how signing in with, say, Facebook later attaches to the account first created with Google under the same email — **no second organization is created**.
+3. **Brand-new identity → auto-provision.** A new `User` is created (marked email-verified, since the provider verified it), and in a single transaction the platform also creates:
+   - a **personal organization**, **named after the derived username** (from the provider's display name, else the email local-part — lowercased, stripped to `[a-z0-9_-]`, length-capped, and made unique);
+   - an **owner** membership for the new user;
+   - the default **Admin/Member roles** — identical to what email registration seeds.
+
+So a first-time "Sign in with Google/Facebook" **silently creates and owns a new
+org**. A few consequences worth knowing:
+
+- **No "name your organization" step.** Unlike email/password registration (which
+  accepts an `organizationName`), the OAuth path derives the org name from the
+  username with no prompt — e.g. a Facebook profile "Jane Doe" yields an org named
+  `janedoe`. Rename it afterward in org settings if needed.
+- **Tier.** The new org takes the default quota tier and is **not** provisioned to
+  a paid tier until billing does so (no free paid-tier grant).
+- **Facebook needs email.** Facebook only returns an email if the user grants the
+  `email` scope; if they decline, sign-in fails with `OAUTH_NO_EMAIL` and **no
+  account or org is created**.
+- **SSO enforcement still applies.** If the email's domain is covered by an
+  enabled, `sso`-entitled org IdP, the social grant is rejected with
+  `SSO_REQUIRED` (see [enforcement](#per-org-enterprise-sso-oidc)) rather than
+  creating a personal org — the user is routed through their org's IdP instead.
+
 ### Providers reachable via generic OIDC
 
 **Apple, X (Twitter), Amazon, Discord, and Slack** are **not** named social-login
