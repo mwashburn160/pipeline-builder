@@ -21,6 +21,16 @@ const logger = createLogger('billing-plans');
 /** Plans rarely change — cache TTL configurable via CACHE_TTL_BILLING_PLANS (default 4 hours). */
 const planCache = createCacheService('billing:plans:', parsePositiveInt(process.env.CACHE_TTL_BILLING_PLANS, CACHE_TTL_BILLING_PLANS_SECS));
 
+/**
+ * Drop every cached plan projection (the `active` list + any `id:<planId>`
+ * entries). Called after the boot-time reconcile in {@link seedPlans} so an
+ * env-driven price/feature change surfaces immediately instead of waiting out
+ * the multi-hour cache TTL (the cache is Redis-backed and survives restarts).
+ */
+export async function invalidatePlanCache(): Promise<number> {
+  return planCache.invalidatePattern('*');
+}
+
 /** The public plan projection shared by the list + single-plan routes. */
 function toPlanResponse(plan: PlanDocument) {
   return {

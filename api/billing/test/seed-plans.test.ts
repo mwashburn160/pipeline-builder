@@ -4,21 +4,28 @@
 /**
  * Tests for seed-plans helper.
  *
- * Verifies that seedPlans() reads plan definitions from Config.get('billing').plans
- * and inserts them into MongoDB when no plans exist.
+ * Verifies that seedPlans() reconciles the plan catalog in Mongo with the
+ * env-driven Config.get('billing').plans on every boot: upserting each
+ * configured plan (so env price/feature changes propagate), retiring plans no
+ * longer in config, and invalidating the plan read-cache.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockCountDocuments = jest.fn();
-const mockInsertMany = jest.fn();
+const mockBulkWrite = jest.fn();
+const mockUpdateMany = jest.fn();
+const mockInvalidate = jest.fn();
 
 jest.unstable_mockModule('../src/models/plan.js', () => ({
   Plan: {
-    countDocuments: mockCountDocuments,
-    insertMany: mockInsertMany,
+    bulkWrite: mockBulkWrite,
+    updateMany: mockUpdateMany,
   },
+}));
+
+jest.unstable_mockModule('../src/routes/read-plans.js', () => ({
+  invalidatePlanCache: mockInvalidate,
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
@@ -60,59 +67,62 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
 const { seedPlans } = await import('../src/helpers/seed-plans.js');
 
 describe('seedPlans', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockBulkWrite.mockResolvedValue({ upsertedCount: 2, modifiedCount: 0 });
+    mockUpdateMany.mockResolvedValue({ modifiedCount: 0 });
+    mockInvalidate.mockResolvedValue(0);
+  });
 
-  it('seeds plans from Config when collection is empty', async () => {
-    mockCountDocuments.mockResolvedValue(0);
-    mockInsertMany.mockResolvedValue(mockPlans);
-
+  it('upserts every configured plan by _id (so env changes propagate)', async () => {
     await seedPlans();
 
-    expect(mockInsertMany).toHaveBeenCalledTimes(1);
-    const insertedDocs = mockInsertMany.mock.calls[0][0];
-    expect(insertedDocs).toHaveLength(2);
-    expect(insertedDocs[0]).toMatchObject({
-      _id: 'developer',
+    expect(mockBulkWrite).toHaveBeenCalledTimes(1);
+    const ops = mockBulkWrite.mock.calls[0][0] as Array<{ updateOne: { filter: { _id: string }; update: { $set: Record<string, unknown> }; upsert: boolean } }>;
+    expect(ops).toHaveLength(2);
+
+    expect(ops[0].updateOne.filter).toEqual({ _id: 'developer' });
+    expect(ops[0].updateOne.upsert).toBe(true);
+    expect(ops[0].updateOne.update.$set).toMatchObject({
       name: 'Developer',
       tier: 'developer',
       prices: { monthly: 0, annual: 0 },
     });
-    expect(insertedDocs[1]).toMatchObject({
-      _id: 'pro',
+
+    expect(ops[1].updateOne.filter).toEqual({ _id: 'pro' });
+    expect(ops[1].updateOne.update.$set).toMatchObject({
       name: 'Pro',
       tier: 'pro',
       prices: { monthly: 999, annual: 9990 },
     });
   });
 
-  it('skips seeding when plans already exist', async () => {
-    mockCountDocuments.mockResolvedValue(3);
-
+  it('reconciles on every boot (does NOT skip when plans already exist)', async () => {
+    // No count guard any more — reconcile runs unconditionally so price/feature
+    // edits in env always land.
     await seedPlans();
-
-    expect(mockInsertMany).not.toHaveBeenCalled();
+    expect(mockBulkWrite).toHaveBeenCalledTimes(1);
   });
 
-  it('maps id to _id for Mongoose documents', async () => {
-    mockCountDocuments.mockResolvedValue(0);
-    mockInsertMany.mockResolvedValue(mockPlans);
-
+  it('retires plans not present in the current config (deactivate, not delete)', async () => {
     await seedPlans();
 
-    const insertedDocs = mockInsertMany.mock.calls[0][0];
-    // Should use _id (Mongoose), not id (Config)
-    expect(insertedDocs[0]._id).toBe('developer');
-    expect(insertedDocs[0].id).toBeUndefined();
+    expect(mockUpdateMany).toHaveBeenCalledTimes(1);
+    const [filter, update] = mockUpdateMany.mock.calls[0];
+    expect(filter).toEqual({ _id: { $nin: ['developer', 'pro'] }, isActive: true });
+    expect(update).toEqual({ $set: { isActive: false } });
   });
 
-  it('spreads readonly features to mutable array', async () => {
-    mockCountDocuments.mockResolvedValue(0);
-    mockInsertMany.mockResolvedValue(mockPlans);
-
+  it('invalidates the plan read-cache after reconciling', async () => {
     await seedPlans();
+    expect(mockInvalidate).toHaveBeenCalledTimes(1);
+  });
 
-    const insertedDocs = mockInsertMany.mock.calls[0][0];
-    expect(Array.isArray(insertedDocs[0].features)).toBe(true);
-    expect(insertedDocs[0].features).toEqual(['Up to 100 plugins']);
+  it('spreads readonly features to a mutable array', async () => {
+    await seedPlans();
+    const ops = mockBulkWrite.mock.calls[0][0] as Array<{ updateOne: { update: { $set: { features: unknown } } } }>;
+    const features = ops[0].updateOne.update.$set.features as string[];
+    expect(Array.isArray(features)).toBe(true);
+    expect(features).toEqual(['Up to 100 plugins']);
   });
 });
