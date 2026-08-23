@@ -58,7 +58,7 @@ flowchart LR
 | Plugin | Registry | Compute | Secrets | Key Env Vars |
 |--------|----------|---------|---------|--------------|
 | npm-publish | npmjs.com | SMALL | `NPM_TOKEN` | `NPM_DRY_RUN`, `NPM_TAG`, `NPM_ACCESS` |
-| pypi-publish | PyPI | SMALL | `TWINE_USERNAME`, `TWINE_PASSWORD` | `PYPI_REPOSITORY` |
+| pypi-publish | PyPI | SMALL | `TWINE_PASSWORD` | `PYPI_REPOSITORY`, `TWINE_USERNAME` |
 | maven-publish | Maven Central | SMALL | `OSSRH_USERNAME`, `OSSRH_PASSWORD`, `GPG_PASSPHRASE` | `MAVEN_REPOSITORY_URL` |
 | nuget-publish | NuGet Gallery | SMALL | `NUGET_API_KEY` | `NUGET_SOURCE` |
 | cargo-publish | crates.io | SMALL | `CARGO_REGISTRY_TOKEN` | `CARGO_DRY_RUN` |
@@ -68,9 +68,9 @@ flowchart LR
 
 | Plugin | Language | Compute | Secrets | Key Env Vars |
 |--------|----------|---------|---------|--------------|
-| go-compile | Go | MEDIUM | None | `GO_VERSION`, `GOOS`, `GOARCH`, `CGO_ENABLED` |
-| cargo-release | Rust | MEDIUM | None | `RUST_VERSION`, `TARGET`, `CARGO_PROFILE` |
-| nodejs-bundle | Node.js | MEDIUM | None | `NODE_VERSION`, `BUILD_SCRIPT` |
+| go-compile | Go | MEDIUM | None | `CGO_ENABLED`, `GOOS`, `GOARCH` |
+| cargo-release | Rust | MEDIUM | None | `CARGO_PROFILE`, `TARGET` |
+| nodejs-bundle | Node.js | MEDIUM | None | `BUILD_SCRIPT` |
 
 ## Helm Charts
 

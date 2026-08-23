@@ -26,26 +26,26 @@ flowchart LR
 
 | Plugin | Language | Compute | Secrets | Key Env Vars |
 |--------|----------|---------|---------|--------------|
-| eslint | JS/TS | SMALL | None | `NODE_VERSION`, `ESLINT_FORMAT`, `ESLINT_MAX_WARNINGS` |
-| prettier | JS/TS/CSS/HTML | SMALL | None | `NODE_VERSION`, `PRETTIER_GLOB` |
-| checkstyle | Java | SMALL | None | `CHECKSTYLE_VERSION`, `CHECKSTYLE_CONFIG`, `JAVA_VERSION` |
+| eslint | JS/TS | SMALL | None | `ESLINT_FORMAT`, `ESLINT_MAX_WARNINGS` |
+| prettier | JS/TS/CSS/HTML | SMALL | None | `PRETTIER_GLOB` |
+| checkstyle | Java | SMALL | None | `CHECKSTYLE_CONFIG` |
 | shellcheck | Bash/sh/zsh | SMALL | None | `SHELLCHECK_VERSION`, `SHELLCHECK_SEVERITY`, `SHELLCHECK_FORMAT`, `SHELLCHECK_SHELL` |
-| golangci-lint | Go | MEDIUM | None | `GO_VERSION`, `GOLANGCI_LINT_TIMEOUT`, `GOLANGCI_LINT_FORMAT` |
-| clippy | Rust | SMALL | None | `RUST_VERSION`, `CLIPPY_FLAGS` |
-| rustfmt | Rust | SMALL | None | `RUST_VERSION` |
-| rubocop | Ruby | SMALL | None | `RUBY_VERSION`, `RUBOCOP_CONFIG` |
-| ruff | Python | SMALL | None | `PYTHON_VERSION`, `RUFF_CONFIG` |
-| mypy | Python | SMALL | None | `PYTHON_VERSION`, `MYPY_CONFIG` |
-| dotnet-format | .NET | SMALL | None | `DOTNET_VERSION` |
-| roslyn-analyzers | .NET | SMALL | None | `DOTNET_VERSION`, `TREAT_WARNINGS_AS_ERRORS` |
-| typescript-check | TypeScript | SMALL | None | `NODE_VERSION`, `TSC_FLAGS` |
+| golangci-lint | Go | MEDIUM | None | `GOLANGCI_LINT_TIMEOUT`, `GOLANGCI_LINT_FORMAT` |
+| clippy | Rust | SMALL | None | `CLIPPY_FLAGS` |
+| rustfmt | Rust | SMALL | None | None |
+| rubocop | Ruby | SMALL | None | `RUBOCOP_CONFIG` |
+| ruff | Python | SMALL | None | `RUFF_CONFIG` |
+| mypy | Python | SMALL | None | `MYPY_CONFIG` |
+| dotnet-format | .NET | SMALL | None | None |
+| roslyn-analyzers | .NET | SMALL | None | `TREAT_WARNINGS_AS_ERRORS` |
+| typescript-check | TypeScript | SMALL | None | `TSC_FLAGS` |
 
 ## Static Analysis
 
 | Plugin | Language | Compute | Secrets | Key Env Vars |
 |--------|----------|---------|---------|--------------|
-| jacoco | Java | SMALL | None | `JAVA_VERSION`, `COVERAGE_THRESHOLD` |
-| spotbugs | Java | SMALL | None | `JAVA_VERSION` |
+| jacoco | Java | SMALL | None | `COVERAGE_THRESHOLD` |
+| spotbugs | Java | SMALL | None | None |
 
 ## Coverage Reporting
 

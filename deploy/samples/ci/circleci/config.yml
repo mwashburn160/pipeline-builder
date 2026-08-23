@@ -1,0 +1,72 @@
+# Sample CircleCI config: create + deploy a Pipeline Builder pipeline in one
+# step with `pipeline-manager pipeline create --deploy`.
+#
+# Copy this file to `.circleci/config.yml` in your repo and adjust the props
+# path, region, and context. The job creates the pipeline record on the platform
+# and then runs `cdk deploy` for it (registering the deployed ARN), so a green
+# job means the pipeline exists AND is deployed to AWS.
+#
+# ── Prerequisites ────────────────────────────────────────────────────────────
+# Create a CircleCI context (Organization Settings → Contexts), e.g.
+# "pipeline-builder-deploy", holding these environment variables:
+#   PLATFORM_BASE_URL     Base URL of your Pipeline Builder platform
+#                         (e.g. https://pipeline.example.com)
+#   PLATFORM_TOKEN        A Personal Access Token — create with
+#                         `pipeline-manager auth pat` or the dashboard.
+#   AWS_REGION            e.g. us-east-1
+#   AWS_DEPLOY_ROLE_ARN   IAM role to assume via CircleCI OIDC. The role trusts
+#                         CircleCI's OIDC provider (aud = your org id) and
+#                         carries CDK deploy permissions. (Kept in the context,
+#                         never committed — the ARN embeds an account id.)
+#
+# AWS auth uses CircleCI OIDC tokens ($CIRCLE_OIDC_TOKEN) exchanged for
+# temporary credentials via STS (no long-lived keys). To use static keys
+# instead, put AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in the context and drop
+# the assume-role step.
+
+version: 2.1
+
+jobs:
+  create-and-deploy:
+    docker:
+      - image: cimg/node:24.14 # pipeline-manager requires Node 24+
+    environment:
+      PROPS_FILE: deploy/samples/pipelines/react-javascript/pipeline.json
+    steps:
+      - checkout
+      - run:
+          name: Install pipeline-manager and CDK toolchain
+          # `pipeline create --deploy` shells out to `cdk deploy`, whose synth
+          # uses esbuild + pnpm. Install all four on PATH.
+          command: sudo npm install -g @pipeline-builder/pipeline-manager aws-cdk esbuild pnpm
+      - run:
+          name: Assume AWS role via OIDC
+          command: |
+            CREDS=$(aws sts assume-role-with-web-identity \
+              --role-arn "$AWS_DEPLOY_ROLE_ARN" \
+              --role-session-name "circleci-${CIRCLE_WORKFLOW_ID}" \
+              --web-identity-token "$CIRCLE_OIDC_TOKEN" \
+              --duration-seconds 3600 \
+              --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
+              --output text)
+            echo "export AWS_ACCESS_KEY_ID=$(echo "$CREDS" | cut -f1)"     >> "$BASH_ENV"
+            echo "export AWS_SECRET_ACCESS_KEY=$(echo "$CREDS" | cut -f2)" >> "$BASH_ENV"
+            echo "export AWS_SESSION_TOKEN=$(echo "$CREDS" | cut -f3)"     >> "$BASH_ENV"
+      - run:
+          name: Create and deploy pipeline
+          command: |
+            pipeline-manager pipeline create \
+              --file "$PROPS_FILE" \
+              --deploy \
+              --region "$AWS_REGION" \
+              --require-approval never
+
+workflows:
+  deploy:
+    jobs:
+      - create-and-deploy:
+          context: pipeline-builder-deploy
+          # Run only when triggered manually / on the default branch as you prefer:
+          # filters:
+          #   branches:
+          #     only: main

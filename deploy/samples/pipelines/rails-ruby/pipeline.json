@@ -59,9 +59,6 @@
                 "accessModifier": "public",
                 "isActive": true,
                 "isDefault": true
-              },
-              "metadata": {
-                "RUBY_VERSION": "3.4.10"
               }
             },
             "position": "pre",
@@ -76,9 +73,6 @@
                 "accessModifier": "public",
                 "isActive": true,
                 "isDefault": true
-              },
-              "metadata": {
-                "RUBY_VERSION": "3.4.10"
               }
             },
             "position": "pre",

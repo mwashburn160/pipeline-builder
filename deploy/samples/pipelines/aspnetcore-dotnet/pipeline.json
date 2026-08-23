@@ -61,7 +61,6 @@
                 "isDefault": true
               },
               "metadata": {
-                "DOTNET_VERSION": "10.0",
                 "aws:cdk:codebuild:buildenvironment:computetype": "LARGE"
               }
             },
@@ -83,9 +82,6 @@
                 "accessModifier": "public",
                 "isActive": true,
                 "isDefault": true
-              },
-              "metadata": {
-                "DOTNET_VERSION": "10.0"
               }
             },
             "position": "pre",

@@ -66,8 +66,9 @@ Source -> Synth -> BuildAndPackage -> SecurityScan
 
 ## Key Configuration
 
-- **.NET 10.0** build via the `dotnet` plugin (default version `1.0.0`), running as a
-  **`pre`** step with a **30-minute** timeout
+- **.NET** build via the `dotnet` plugin (plugin version `1.0.0`; the .NET SDK is
+  pinned by the plugin's base image), running as a **`pre`** step with a
+  **30-minute** timeout
 - **LARGE compute** (15 GB / 8 vCPU) for the build stage
 - **SecurityScan** runs `dotnet-security-scan` (`pre`) and `trivy` (`pre`) with
   `TRIVY_SEVERITY=HIGH,CRITICAL`, followed by `git-secrets` (`post`)

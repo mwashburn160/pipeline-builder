@@ -1,0 +1,79 @@
+# Sample GitHub Actions workflow: create + deploy a Pipeline Builder pipeline
+# in one step with `pipeline-manager pipeline create --deploy`.
+#
+# Copy this file to `.github/workflows/deploy-pipeline.yml` in your repo and
+# adjust the props path, region, and secrets. It creates the pipeline record on
+# the platform and then runs `cdk deploy` for it (registering the deployed ARN),
+# so a green run means the pipeline exists AND is deployed to AWS.
+#
+# ── Prerequisites ────────────────────────────────────────────────────────────
+# Secrets (Settings → Secrets and variables → Actions):
+#   PLATFORM_BASE_URL     Base URL of your Pipeline Builder platform
+#                         (e.g. https://pipeline.example.com)
+#   PLATFORM_TOKEN        A Personal Access Token — create with
+#                         `pipeline-manager auth pat` or the dashboard.
+#   AWS_DEPLOY_ROLE_ARN   IAM role to assume via GitHub OIDC. The role trusts
+#                         GitHub's OIDC provider and carries CDK/CloudFormation
+#                         deploy permissions. (Kept in secrets, never committed —
+#                         the ARN embeds an account id.)
+# Variables (or hardcode below):
+#   AWS_REGION            e.g. us-east-1
+#
+# AWS auth uses OIDC (no long-lived keys). To use static keys instead, drop the
+# `permissions:` + `configure-aws-credentials` role-to-assume and export
+# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY from secrets in the deploy step.
+
+name: Deploy Pipeline
+
+on:
+  # Manual trigger from the Actions tab.
+  workflow_dispatch:
+    inputs:
+      props_file:
+        description: Path to the pipeline props JSON
+        required: true
+        default: deploy/samples/pipelines/react-javascript/pipeline.json
+  # Optional: deploy on every push to main.
+  # push:
+  #   branches: [main]
+
+permissions:
+  contents: read
+  id-token: write # required for AWS OIDC role assumption
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+      PROPS_FILE: ${{ github.event.inputs.props_file || 'deploy/samples/pipelines/react-javascript/pipeline.json' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # pipeline-manager needs Node 24+.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # `pipeline create --deploy` shells out to `cdk deploy`, whose synth uses
+      # esbuild + pnpm. Install all four on PATH.
+      - name: Install pipeline-manager and CDK toolchain
+        run: npm install -g @pipeline-builder/pipeline-manager aws-cdk esbuild pnpm
+
+      # AWS credentials via OIDC — no stored keys.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create and deploy pipeline
+        env:
+          PLATFORM_BASE_URL: ${{ secrets.PLATFORM_BASE_URL }}
+          PLATFORM_TOKEN: ${{ secrets.PLATFORM_TOKEN }}
+        run: |
+          pipeline-manager pipeline create \
+            --file "$PROPS_FILE" \
+            --deploy \
+            --region "$AWS_REGION" \
+            --require-approval never

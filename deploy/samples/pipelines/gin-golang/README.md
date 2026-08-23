@@ -66,8 +66,8 @@ Source -> Synth -> BuildAndPackage -> SecurityScan
 
 ## Key Configuration
 
-- **Go 1.24.13** for both build and security stages
 - **CGO disabled** (`CGO_ENABLED=0`) for a fully static **linux/amd64** binary
+  via the `go-compile` plugin (the Go version is pinned by the plugin's base image)
 - **govulncheck** for Go module vulnerability scanning
 - **gosec** for Go-specific static security analysis
 - **git-secrets** to catch committed credentials (runs as a **`post`** step)

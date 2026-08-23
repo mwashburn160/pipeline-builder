@@ -66,8 +66,9 @@ Source -> Synth -> BuildAndPackage -> SecurityScan
 
 ## Key Configuration
 
-- **npm build** via the `nodejs-bundle` plugin (`NODE_VERSION` 24, `BUILD_SCRIPT` `build`)
-  as a **`pre`** step with a **20-minute** timeout
+- **npm build** via the `nodejs-bundle` plugin (`BUILD_SCRIPT` `build`; the Node
+  version is pinned by the plugin's base image) as a **`pre`** step with a
+  **20-minute** timeout
 - **`npm-audit`** runs as a **`pre`** step at `AUDIT_LEVEL` **high** with **`warn`**
   failure behavior (advisory-only vulnerabilities do not block the pipeline)
 - **`git-secrets`** runs as a **`post`** step, also with **`warn`** failure behavior

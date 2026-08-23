@@ -67,7 +67,7 @@ Source -> Synth -> SecurityScan
 ## Key Configuration
 
 - **`bandit`** runs as a **`pre`** step for Python-specific static analysis (SAST),
-  configured for Python 3.12 at `medium` severity
+  at `medium` severity (the Python version is pinned by the plugin's base image)
 - **`git-secrets`** runs as a **`post`** step to detect committed secrets
 - Source trigger is **`NONE`** (deploy/run the pipeline manually rather than on push)
 

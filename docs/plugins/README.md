@@ -218,7 +218,7 @@ The following table lists every plugin that requires external tokens or credenti
 | acr-push | artifact | `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` | [azure.microsoft.com](https://azure.microsoft.com) |
 | jfrog-push | artifact | `JFROG_TOKEN` | [jfrog.com](https://jfrog.com) |
 | npm-publish | artifact | `NPM_TOKEN` | [npmjs.com](https://www.npmjs.com) |
-| pypi-publish | artifact | `TWINE_USERNAME`, `TWINE_PASSWORD` | [pypi.org](https://pypi.org) |
+| pypi-publish | artifact | `TWINE_PASSWORD` | [pypi.org](https://pypi.org) |
 | maven-publish | artifact | `OSSRH_USERNAME`, `OSSRH_PASSWORD`, `GPG_PASSPHRASE` | [central.sonatype.com](https://central.sonatype.com) |
 | nuget-publish | artifact | `NUGET_API_KEY` | [nuget.org](https://www.nuget.org) |
 | cargo-publish | artifact | `CARGO_REGISTRY_TOKEN` | [crates.io](https://crates.io) |
@@ -226,9 +226,9 @@ The following table lists every plugin that requires external tokens or credenti
 | pulumi | deploy | `PULUMI_ACCESS_TOKEN` | [pulumi.com](https://www.pulumi.com) |
 | gcloud-deploy | deploy | `GOOGLE_APPLICATION_CREDENTIALS` | [cloud.google.com](https://cloud.google.com) |
 | azure-deploy | deploy | `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` | [azure.microsoft.com](https://azure.microsoft.com) |
-| kubectl-deploy | deploy | `KUBECONFIG` or cluster credentials | - |
-| helm-deploy | deploy | `KUBECONFIG` or cluster credentials | - |
-| flyway | deploy | `FLYWAY_URL`, `FLYWAY_USER`, `FLYWAY_PASSWORD` | [flywaydb.org](https://flywaydb.org) |
+| kubectl-deploy | deploy | `KUBECONFIG_DATA` (base64) | - |
+| helm-deploy | deploy | `KUBECONFIG_DATA` (base64) | - |
+| flyway | deploy | `FLYWAY_USER`, `FLYWAY_PASSWORD` | [flywaydb.org](https://flywaydb.org) |
 | slack-notify | notification | `SLACK_WEBHOOK_URL` | [api.slack.com](https://api.slack.com) |
 | teams-notify | notification | `TEAMS_WEBHOOK_URL` | [learn.microsoft.com](https://learn.microsoft.com) |
 | pagerduty-notify | notification | `PAGERDUTY_ROUTING_KEY` | [pagerduty.com](https://www.pagerduty.com) |

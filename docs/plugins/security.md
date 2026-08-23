@@ -45,22 +45,22 @@ flowchart LR
 | Plugin | Type | Compute | Secrets | Key Env Vars |
 |--------|------|---------|---------|--------------|
 | snyk-nodejs | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD` |
-| snyk-python | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD`, `PYTHON_VERSION` |
-| snyk-java | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD`, `JAVA_VERSION` |
-| snyk-go | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD`, `GO_VERSION` |
-| snyk-dotnet | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD`, `DOTNET_VERSION` |
-| snyk-ruby | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD`, `RUBY_VERSION` |
-| snyk-rust | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD`, `RUST_VERSION` |
-| sonarcloud-nodejs | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `SONAR_ORGANIZATION`, `SONAR_PROJECT_KEY` |
-| sonarcloud-python | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `PYTHON_VERSION` |
-| sonarcloud-java | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `JAVA_VERSION` |
-| sonarcloud-go | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `GO_VERSION` |
-| sonarcloud-dotnet | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `DOTNET_VERSION` |
-| sonarcloud-ruby | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `RUBY_VERSION` |
-| sonarcloud-rust | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `RUST_VERSION` |
+| snyk-python | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD` |
+| snyk-java | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD` |
+| snyk-go | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD` |
+| snyk-dotnet | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD` |
+| snyk-ruby | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD` |
+| snyk-rust | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD` |
+| sonarcloud-nodejs | SAST | SMALL | `SONAR_TOKEN` | `SONAR_ORGANIZATION`, `SONAR_PROJECT_KEY` |
+| sonarcloud-python | SAST | SMALL | `SONAR_TOKEN` | `SONAR_ORGANIZATION`, `SONAR_PROJECT_KEY` |
+| sonarcloud-java | SAST | SMALL | `SONAR_TOKEN` | `SONAR_ORGANIZATION`, `SONAR_PROJECT_KEY` |
+| sonarcloud-go | SAST | SMALL | `SONAR_TOKEN` | `SONAR_ORGANIZATION`, `SONAR_PROJECT_KEY` |
+| sonarcloud-dotnet | SAST | SMALL | `SONAR_TOKEN` | `SONAR_ORGANIZATION`, `SONAR_PROJECT_KEY` |
+| sonarcloud-ruby | SAST | SMALL | `SONAR_TOKEN` | `SONAR_ORGANIZATION`, `SONAR_PROJECT_KEY` |
+| sonarcloud-rust | SAST | SMALL | `SONAR_TOKEN` | `SONAR_ORGANIZATION`, `SONAR_PROJECT_KEY` |
 | trivy | SAST/SCA/IaC | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `TRIVY_FORMAT` |
-| dependency-check | SCA | MEDIUM | `NVD_API_KEY` (optional) | `DC_VERSION`, `DC_FAIL_ON_CVSS`, `DC_FORMAT` |
-| semgrep | SAST | MEDIUM | `SEMGREP_APP_TOKEN` (optional) | `SEMGREP_RULES`, `SEMGREP_SEVERITY`, `SEMGREP_FORMAT` |
+| dependency-check | SCA | MEDIUM | `NVD_API_KEY` (optional) | `DC_VERSION`, `DC_FAIL_ON_CVSS`, `DC_FORMAT`, `DC_SUPPRESSION_FILE` |
+| semgrep | SAST | MEDIUM | `SEMGREP_APP_TOKEN` (optional) | `SEMGREP_RULES`, `SEMGREP_SEVERITY` |
 
 ## Enterprise (Vendor)
 
@@ -84,20 +84,20 @@ flowchart LR
 | Plugin | Compute | Secrets | Key Env Vars |
 |--------|---------|---------|--------------|
 | docker-lint | SMALL | None | `HADOLINT_VERSION`, `DOCKLE_VERSION`, `DOCKER_IMAGE` |
-| license-checker | SMALL | None | `LICENSE_DENY`, `LICENSE_ALLOW` |
+| license-checker | SMALL | None | `LICENSE_DENY` |
 
 ## Language-Specific Security
 
 | Plugin | Language | Type | Compute | Secrets | Key Env Vars |
 |--------|----------|------|---------|---------|--------------|
-| bandit | Python | SAST | SMALL | None | `PYTHON_VERSION`, `BANDIT_SEVERITY`, `BANDIT_CONFIDENCE` |
-| brakeman | Ruby | SAST | SMALL | None | `RUBY_VERSION`, `BRAKEMAN_CONFIDENCE` |
-| bundler-audit | Ruby | SCA | SMALL | None | `RUBY_VERSION` |
-| cargo-audit | Rust | SCA | SMALL | None | `RUST_VERSION` |
-| dotnet-security-scan | .NET | SAST/SCA | SMALL | None | `DOTNET_VERSION` |
-| gosec | Go | SAST | SMALL | None | `GO_VERSION` |
-| govulncheck | Go | SCA | SMALL | None | `GO_VERSION` |
-| npm-audit | Node.js | SCA | SMALL | None | `NODE_VERSION`, `AUDIT_LEVEL` |
+| bandit | Python | SAST | SMALL | None | `BANDIT_SEVERITY`, `BANDIT_CONFIDENCE` |
+| brakeman | Ruby | SAST | SMALL | None | `BRAKEMAN_CONFIDENCE` |
+| bundler-audit | Ruby | SCA | SMALL | None | None |
+| cargo-audit | Rust | SCA | SMALL | None | None |
+| dotnet-security-scan | .NET | SAST/SCA | SMALL | None | None |
+| gosec | Go | SAST | SMALL | None | None |
+| govulncheck | Go | SCA | SMALL | None | None |
+| npm-audit | Node.js | SCA | SMALL | None | `AUDIT_LEVEL` |
 
 ---
 

@@ -1,0 +1,61 @@
+# Sample GitLab CI/CD pipeline: create + deploy a Pipeline Builder pipeline
+# in one step with `pipeline-manager pipeline create --deploy`.
+#
+# Copy this file to `.gitlab-ci.yml` at your repo root (or `include:` it) and
+# adjust the props path, region, and variables. The job creates the pipeline
+# record on the platform and then runs `cdk deploy` for it (registering the
+# deployed ARN), so a green job means the pipeline exists AND is deployed.
+#
+# ── Prerequisites ────────────────────────────────────────────────────────────
+# CI/CD variables (Settings → CI/CD → Variables), all masked/protected:
+#   PLATFORM_BASE_URL     Base URL of your Pipeline Builder platform
+#                         (e.g. https://pipeline.example.com)
+#   PLATFORM_TOKEN        A Personal Access Token — create with
+#                         `pipeline-manager auth pat` or the dashboard.
+#   AWS_DEPLOY_ROLE_ARN   IAM role to assume via GitLab OIDC (ID token). The role
+#                         trusts GitLab's OIDC provider and carries CDK deploy
+#                         permissions. (Kept in a variable, never committed — the
+#                         ARN embeds an account id.)
+#   AWS_REGION            e.g. us-east-1
+#
+# AWS auth uses GitLab OIDC ID tokens exchanged for temporary credentials via
+# STS (no long-lived keys). To use static keys instead, define
+# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY as protected CI variables and drop
+# the `id_tokens:` block and the STS assume-role step.
+
+stages:
+  - deploy
+
+deploy_pipeline:
+  stage: deploy
+  # Node 24+ is required by pipeline-manager.
+  image: node:24
+  variables:
+    PROPS_FILE: deploy/samples/pipelines/react-javascript/pipeline.json
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: https://gitlab.com # set to your instance URL if self-managed
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" # run manually from the UI
+    # - if: $CI_COMMIT_BRANCH == "main"  # or on every push to main
+  before_script:
+    # `pipeline create --deploy` shells out to `cdk deploy`, whose synth uses
+    # esbuild + pnpm. Install the CLI + CDK toolchain on PATH.
+    - npm install -g @pipeline-builder/pipeline-manager aws-cdk esbuild pnpm
+    # Exchange the GitLab OIDC token for temporary AWS credentials via STS.
+    - apt-get update && apt-get install -y awscli
+    - >
+      export $(aws sts assume-role-with-web-identity
+      --role-arn "$AWS_DEPLOY_ROLE_ARN"
+      --role-session-name "gitlab-${CI_PIPELINE_ID}"
+      --web-identity-token "$GITLAB_OIDC_TOKEN"
+      --duration-seconds 3600
+      --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]'
+      --output text | awk '{print "AWS_ACCESS_KEY_ID="$1"\nAWS_SECRET_ACCESS_KEY="$2"\nAWS_SESSION_TOKEN="$3}')
+  script:
+    - >
+      pipeline-manager pipeline create
+      --file "$PROPS_FILE"
+      --deploy
+      --region "$AWS_REGION"
+      --require-approval never

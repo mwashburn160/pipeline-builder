@@ -66,7 +66,7 @@ Source -> Synth -> BuildAndPackage -> SecurityScan
 
 ## Key Configuration
 
-- **Stable Rust** build via the `rust` plugin (`RUST_VERSION=stable`, default version `1.0.0`)
+- **Rust** build via the `rust` plugin (plugin version `1.0.0`; the Rust toolchain is pinned by the plugin's base image)
 - Build runs as a **`pre`** step with a **30-minute** timeout on **MEDIUM compute**
 - **cargo-audit** (`pre`) scans the dependency tree for known vulnerabilities
 - **git-secrets** (`post`) scans for committed secrets

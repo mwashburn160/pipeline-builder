@@ -61,7 +61,6 @@
                 "isDefault": true
               },
               "metadata": {
-                "PYTHON_VERSION": "3.12",
                 "BANDIT_SEVERITY": "medium"
               }
             },

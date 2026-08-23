@@ -42,20 +42,20 @@ flowchart LR
 
 | Plugin | Language | Compute | Secrets | Key Env Vars |
 |--------|----------|---------|---------|--------------|
-| jest | Node.js | SMALL | None | `NODE_VERSION`, `JEST_CONFIG`, `JEST_JUNIT_OUTPUT_DIR` |
-| python-pytest | Python | SMALL | None | `PYTHON_VERSION`, `PYTEST_ARGS` |
-| coverage-py | Python | SMALL | None | `PYTHON_VERSION`, `COVERAGE_THRESHOLD` |
-| go-test | Go | SMALL | None | `GO_VERSION`, `GOFLAGS` |
-| cargo-test | Rust | MEDIUM | None | `RUST_VERSION` |
-| dotnet-test | .NET | MEDIUM | None | `DOTNET_VERSION`, `CONFIGURATION` |
-| rails-test | Ruby | MEDIUM | None | `RUBY_VERSION`, `RAILS_ENV`, `DATABASE_ADAPTER` |
-| minitest-coverage | Ruby | SMALL | None | `RUBY_VERSION`, `COVERAGE_THRESHOLD` |
+| jest | Node.js | SMALL | None | `JEST_CONFIG`, `JEST_JUNIT_OUTPUT_DIR` |
+| python-pytest | Python | SMALL | None | `PYTEST_ARGS` |
+| coverage-py | Python | SMALL | None | `COVERAGE_THRESHOLD` |
+| go-test | Go | SMALL | None | `GOFLAGS` |
+| cargo-test | Rust | MEDIUM | None | None |
+| dotnet-test | .NET | MEDIUM | None | `CONFIGURATION` |
+| rails-test | Ruby | MEDIUM | None | `RAILS_ENV` |
+| minitest-coverage | Ruby | SMALL | None | None |
 
 ## API Contract
 
 | Plugin | Type | Compute | Secrets | Key Env Vars |
 |--------|------|---------|---------|--------------|
-| postman | API Contract | SMALL | None | `COLLECTION_FILE`, `ENVIRONMENT_FILE`, `ITERATION_COUNT`, `NEWMAN_TIMEOUT`, `BAIL_ON_FAILURE` |
+| postman | API Contract | SMALL | None | `COLLECTION_FILE`, `ENVIRONMENT_FILE`, `GLOBALS_FILE`, `ITERATION_COUNT`, `NEWMAN_TIMEOUT`, `BAIL_ON_FAILURE` |
 
 ## Load & Performance
 
@@ -75,4 +75,4 @@ flowchart LR
 
 | Plugin | Type | Compute | Secrets | Key Env Vars |
 |--------|------|---------|---------|--------------|
-| health-check | Smoke Test | SMALL | None | `HEALTH_ENDPOINTS`, `HEALTH_TIMEOUT`, `HEALTH_RETRIES`, `EXPECTED_STATUS` |
+| health-check | Smoke Test | SMALL | None | `HEALTH_ENDPOINTS`, `HEALTH_TIMEOUT`, `HEALTH_RETRIES`, `HEALTH_RETRY_DELAY`, `EXPECTED_STATUS` |

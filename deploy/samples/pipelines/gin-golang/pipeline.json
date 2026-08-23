@@ -61,7 +61,6 @@
                 "isDefault": true
               },
               "metadata": {
-                "GO_VERSION": "1.24.13",
                 "CGO_ENABLED": "0",
                 "GOOS": "linux",
                 "GOARCH": "amd64"
@@ -84,9 +83,6 @@
                 "accessModifier": "public",
                 "isActive": true,
                 "isDefault": true
-              },
-              "metadata": {
-                "GO_VERSION": "1.24.13"
               }
             },
             "position": "pre",
@@ -101,9 +97,6 @@
                 "accessModifier": "public",
                 "isActive": true,
                 "isDefault": true
-              },
-              "metadata": {
-                "GO_VERSION": "1.24.13"
               }
             },
             "position": "pre",

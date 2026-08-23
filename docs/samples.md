@@ -15,7 +15,7 @@ All sample files are located in [`deploy/samples/`](../deploy/samples/).
 
 ## Overview
 
-This catalog indexes the ready-to-use pipeline configs and CDK examples shipped in [`deploy/samples/`](../deploy/samples/). It covers seven language-specific CI/CD pipelines (React, Spring Boot, Django, Gin, Axum, Rails, ASP.NET Core) and six `PipelineBuilder` CDK stack examples — VPC isolation, multi-account, monorepo, custom IAM roles, and secrets management — plus how to bulk-load them into a running instance. Use them as starting points for your own pipelines or as reference implementations for advanced patterns.
+This catalog indexes the ready-to-use pipeline configs and CDK examples shipped in [`deploy/samples/`](../deploy/samples/). It covers seven language-specific CI/CD pipelines (React, Spring Boot, Django, Gin, Axum, Rails, ASP.NET Core), six `PipelineBuilder` CDK stack examples — VPC isolation, multi-account, monorepo, custom IAM roles, and secrets management — and three CI/CD platform configs (GitHub Actions, GitLab CI/CD, CircleCI) that create and deploy a pipeline in one step, plus how to bulk-load them into a running instance. Use them as starting points for your own pipelines or as reference implementations for advanced patterns.
 
 ---
 
@@ -95,6 +95,45 @@ From [secrets-management-ts](../deploy/samples/cdk/secrets-management-ts/):
 2. Plugins declare `secrets: [{ name: 'SECRET_NAME', required: true }]`
 3. At deploy, resolves from `pipeline-builder/{orgId}/{secretName}` in Secrets Manager
 4. Injected as `SECRETS_MANAGER`-type CodeBuild env vars automatically
+
+---
+
+## CI/CD Samples
+
+Ready-to-copy configurations for the major CI/CD platforms that create **and** deploy a pipeline in a single step with [`pipeline-manager pipeline create --deploy`](pipeline-manager.md). `--deploy` creates the pipeline record on the platform, then runs `cdk deploy` for it and registers the deployed CodePipeline ARN — so a green CI run means the pipeline both **exists on the platform** and is **deployed to AWS**.
+
+**Location:** [`deploy/samples/ci/`](../deploy/samples/ci/)
+
+| Sample | Platform | Copy to | AWS auth | Highlight |
+|--------|----------|---------|----------|-----------|
+| [github-actions](../deploy/samples/ci/github-actions/deploy-pipeline.yml) | GitHub Actions | `.github/workflows/deploy-pipeline.yml` | OIDC role assumption | `workflow_dispatch` with a `props_file` input |
+| [gitlab](../deploy/samples/ci/gitlab/.gitlab-ci.yml) | GitLab CI/CD | `.gitlab-ci.yml` | OIDC ID token → STS | `id_tokens` + `assume-role-with-web-identity` |
+| [circleci](../deploy/samples/ci/circleci/config.yml) | CircleCI | `.circleci/config.yml` | OIDC token → STS | Context-scoped secrets, `$CIRCLE_OIDC_TOKEN` |
+
+Each sample deploys [`deploy/samples/pipelines/react-javascript/pipeline.json`](../deploy/samples/pipelines/react-javascript/) by default — point `--file` / `PROPS_FILE` at your own [pipeline sample](#pipeline-samples). All three are **idempotent**: re-running with the same config upserts the record (keyed on `project + organization + orgId`), updates the CloudFormation stack, and re-registers the ARN — no duplicates, no errors.
+
+### Shared requirements
+
+- **Toolchain** (every sample installs it): Node 24+, plus `pipeline-manager`, `aws-cdk`, `esbuild`, and `pnpm` on `PATH` — `--deploy` shells out to `cdk deploy`, whose synth uses esbuild + pnpm.
+- **Platform auth** (CI secrets): `PLATFORM_BASE_URL` and `PLATFORM_TOKEN` (a Personal Access Token from `pipeline-manager auth pat` or the dashboard).
+- **AWS auth**: each platform's OIDC federation assumes a deploy role — the role ARN is stored as a CI secret (`AWS_DEPLOY_ROLE_ARN`), never committed. Each sample notes the one-line swap to static access keys.
+- **Region** via `AWS_REGION` (or `--region`); otherwise resolves `AWS_REGION` → `CDK_DEFAULT_REGION` → `us-east-1`.
+
+### GitHub Actions
+
+[`github-actions/deploy-pipeline.yml`](../deploy/samples/ci/github-actions/deploy-pipeline.yml) — triggered manually via `workflow_dispatch` (with an optional `props_file` input) and includes a commented `push` trigger. Requests `id-token: write` and assumes `AWS_DEPLOY_ROLE_ARN` with [`aws-actions/configure-aws-credentials`](https://github.com/aws-actions/configure-aws-credentials), so no long-lived keys are stored. `PLATFORM_BASE_URL` / `PLATFORM_TOKEN` come from Actions secrets.
+
+### GitLab CI/CD
+
+[`gitlab/.gitlab-ci.yml`](../deploy/samples/ci/gitlab/.gitlab-ci.yml) — a single `deploy`-stage job on the `node:24` image. It mints a GitLab OIDC ID token (`id_tokens`), exchanges it for temporary AWS credentials with `aws sts assume-role-with-web-identity`, and runs the create-and-deploy in `script:`. Runs on manual (`web`) pipelines by default, with a commented rule to deploy on pushes to `main`.
+
+### CircleCI
+
+[`circleci/config.yml`](../deploy/samples/ci/circleci/config.yml) — a `create-and-deploy` job on `cimg/node:24.14` wired to a **context** (e.g. `pipeline-builder-deploy`) that holds the secrets. It exchanges `$CIRCLE_OIDC_TOKEN` for temporary AWS credentials via STS (written to `$BASH_ENV`) before running the deploy step.
+
+### Exit codes
+
+`pipeline-manager` returns [standard exit codes](pipeline-manager.md) so CI fails on the right things: `0` success · `2` validation · `3` API request · `4` authentication · `5` authorization · `6` not found · `7` network · `8` configuration · `10` timeout. If create succeeds but the deploy fails, the command exits non-zero and prints `pipeline-manager pipeline deploy --id <id>` so you can retry the deploy without recreating the record.
 
 ---
 

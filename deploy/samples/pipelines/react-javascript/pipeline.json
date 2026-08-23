@@ -61,7 +61,6 @@
                 "isDefault": true
               },
               "metadata": {
-                "NODE_VERSION": "24",
                 "BUILD_SCRIPT": "build"
               }
             },

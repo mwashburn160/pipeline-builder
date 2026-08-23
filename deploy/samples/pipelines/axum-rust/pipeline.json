@@ -61,7 +61,6 @@
                 "isDefault": true
               },
               "metadata": {
-                "RUST_VERSION": "stable",
                 "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
               }
             },
@@ -83,9 +82,6 @@
                 "accessModifier": "public",
                 "isActive": true,
                 "isDefault": true
-              },
-              "metadata": {
-                "RUST_VERSION": "stable"
               }
             },
             "position": "pre",
