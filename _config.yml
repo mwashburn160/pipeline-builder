@@ -6,7 +6,9 @@ tagline: Self-service CI/CD for AWS
 # must be empty. A non-empty baseurl (e.g. the old project-pages "/pipeline-builder")
 # makes every `relative_url`/`{{ site.baseurl }}` link resolve to a non-existent
 # "/pipeline-builder/..." path → "must provide index.html" 404 on every page.
-url: "https://www.pipeline-builder.com"
+# `url` must match the CNAME host: it's the absolute-URL base for jekyll-seo-tag
+# (canonical + OG image), jekyll-sitemap (sitemap.xml), and jekyll-feed (feed.xml).
+url: "https://docs.pipeline-builder.com"
 baseurl: ""
 
 author:
