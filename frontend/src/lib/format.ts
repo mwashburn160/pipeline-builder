@@ -45,3 +45,22 @@ export function formatBytes(bytes: number): string {
   }
   return value < 10 ? `${value.toFixed(1)} ${BYTE_UNITS[i]}` : `${Math.round(value)} ${BYTE_UNITS[i]}`;
 }
+
+/**
+ * Null-safe absolute date+time for display (locale-formatted). Empty/invalid
+ * input renders the em-dash placeholder. The single date-time formatter shared
+ * across edit modals, compliance, and registry surfaces (which each hand-rolled
+ * `new Date(x).toLocaleString()` + their own null guard).
+ */
+export function formatDateTime(iso: string | number | Date | null | undefined, placeholder = '—'): string {
+  if (iso == null || iso === '') return placeholder;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? placeholder : d.toLocaleString();
+}
+
+/** Null-safe absolute date (no time) for display. See {@link formatDateTime}. */
+export function formatDate(iso: string | number | Date | null | undefined, placeholder = '—'): string {
+  if (iso == null || iso === '') return placeholder;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? placeholder : d.toLocaleDateString();
+}

@@ -50,34 +50,34 @@ export function AddonPreviewModal({
       }
     >
       {paymentRequired ? (              <div className="space-y-3 py-1">
-          <p className="text-sm text-gray-700 dark:text-gray-300">
+          <p className="text-sm text-[var(--pb-text)]">
             This account has no payment method on file, so paid add-ons can&apos;t be charged yet.
             Add a card to continue — you&apos;ll return here afterward to complete the purchase.
           </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-[var(--pb-text-muted)]">
             You&apos;re taken to our payment provider&apos;s secure portal; we never store card details.
           </p>
         </div>
-      ): previewLoading || !addonPreview ? (              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-4">
+      ): previewLoading || !addonPreview ? (              <div className="flex items-center gap-2 text-sm text-[var(--pb-text-muted)] py-4">
           <LoadingSpinner size="sm" /> Calculating new price…
         </div>
       ): (              <div className="space-y-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--pb-text-muted)] mb-2">
               New {addonPreview.priceBreakdown.interval === 'annual' ? 'annual' : 'monthly'} total
             </p>
-            <ul className="text-sm divide-y divide-gray-100 dark:divide-gray-800">
+            <ul className="text-sm divide-y divide-[var(--pb-border)]">
               {addonPreview.priceBreakdown.items.map((item, i) => (                      <li key={`${item.label}-${i}`} className="flex justify-between py-1.5">
-                  <span className="text-gray-600 dark:text-gray-400">
+                  <span className="text-[var(--pb-text-muted)]">
                     {item.label}{item.quantity > 1 ? ` × ${item.quantity}` : ''}
                   </span>
-                  <span className="tabular-nums text-gray-900 dark:text-gray-100">{formatCents(item.cents)}</span>
+                  <span className="tabular-nums text-[var(--pb-text)]">{formatCents(item.cents)}</span>
                 </li>
               ))}
             </ul>
-            <div className="flex justify-between border-t border-gray-200 dark:border-gray-700 mt-1 pt-2 text-sm font-semibold">
-              <span className="text-gray-900 dark:text-gray-100">Total</span>
-              <span className="tabular-nums text-gray-900 dark:text-gray-100">
+            <div className="flex justify-between border-t border-[var(--pb-border)] mt-1 pt-2 text-sm font-semibold">
+              <span className="text-[var(--pb-text)]">Total</span>
+              <span className="tabular-nums text-[var(--pb-text)]">
                 {formatCents(addonPreview.priceBreakdown.totalCents)}/{addonPreview.priceBreakdown.interval === 'annual' ? 'yr' : 'mo'}
               </span>
             </div>
@@ -91,7 +91,7 @@ export function AddonPreviewModal({
               ))}
             </div>
           )}
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-[var(--pb-text-muted)]">
             Changes are prorated and pool across your organization&apos;s teams. You can adjust or remove add-ons anytime.
           </p>
         </div>

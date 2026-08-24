@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createSafeClient, createScheduler, type Scheduler, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, createSafeClient, createScheduler, type Scheduler, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
@@ -155,8 +155,12 @@ async function recordStalePeriodEvent(
 async function checkExpiredSubscriptions(): Promise<void> {
   const now = new Date();
 
+  // Include `trialing`: a trial whose period lapses without a Stripe
+  // subscription.updated/deleted webhook (missed delivery) would otherwise never
+  // be provider-verified and keep its trial entitlements indefinitely. `past_due`
+  // is owned by the grace-period path; other statuses are terminal/irrelevant.
   const stale = await Subscription.find({
-    status: 'active',
+    status: { $in: ['active', 'trialing'] },
     currentPeriodEnd: { $lt: now },
     cancelAtPeriodEnd: false,
   });
@@ -313,7 +317,7 @@ async function sendRenewalReminders(): Promise<void> {
         headers: {
           'x-internal-service': 'true',
           'x-org-id': SYSTEM_ORG_ID,
-          'authorization': getServiceAuthHeader({ serviceName: 'billing', orgId: SYSTEM_ORG_ID, role: 'member' }),
+          'authorization': billingServiceAuth(SYSTEM_ORG_ID, 'member'),
         },
       });
 

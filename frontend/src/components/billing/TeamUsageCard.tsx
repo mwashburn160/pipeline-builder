@@ -21,13 +21,13 @@ const DIMENSIONS: { key: string; label: string; fmt: (n: number) => string }[] =
 const cell = (v: number | null | undefined, fmt: (n: number) => string) => (v == null ? '—' : fmt(v));
 
 const TEAM_USAGE_COLUMNS: Column<TeamUsageRow>[] = [
-  { id: 'team', header: 'Team', cellClassName: 'text-gray-600 dark:text-gray-300', render: (t) => t.name ?? t.orgId },
+  { id: 'team', header: 'Team', cellClassName: 'text-[var(--pb-text-muted)]', render: (t) => t.name ?? t.orgId },
   { id: 'seats', header: 'Seats', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (t) => cell(t.seats, fmtNum) },
   ...DIMENSIONS.map((d): Column<TeamUsageRow> => ({
     id: d.key,
     header: d.label,
     headerClassName: 'text-right',
-    cellClassName: 'text-right tabular-nums text-gray-600 dark:text-gray-300',
+    cellClassName: 'text-right tabular-nums text-[var(--pb-text-muted)]',
     render: (t) => cell(t.usage[d.key], d.fmt),
   })),
 ];
@@ -80,8 +80,8 @@ export function TeamUsageCard() {
     const meta = FEATURE_METADATA.team_usage_analytics;
     return (
       <Card>
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{meta.label}</h3>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{meta.description}. Included with Enterprise, or add it for $30/mo.</p>
+        <h3 className="text-sm font-semibold text-[var(--pb-text)]">{meta.label}</h3>
+        <p className="text-sm text-[var(--pb-text-muted)] mt-1">{meta.description}. Included with Enterprise, or add it for $30/mo.</p>
       </Card>
     );
   }
@@ -93,7 +93,7 @@ export function TeamUsageCard() {
       <Card>
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Team usage</h3>
+            <h3 className="text-sm font-semibold text-[var(--pb-text)]">Team usage</h3>
             <p className="text-sm text-red-600 dark:text-red-400 mt-1" role="alert">{error}</p>
           </div>
           <button type="button" onClick={() => void reload()} className="action-link text-sm shrink-0">Retry</button>
@@ -106,8 +106,8 @@ export function TeamUsageCard() {
   if (teams.length <= 1) {
     return (
       <Card>
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Team usage</h3>
-        <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Create teams under your organization to see per-team usage.</p>
+        <h3 className="text-sm font-semibold text-[var(--pb-text)]">Team usage</h3>
+        <p className="text-sm text-[var(--pb-text-muted)] mt-1">Create teams under your organization to see per-team usage.</p>
       </Card>
     );
   }
@@ -115,8 +115,8 @@ export function TeamUsageCard() {
   return (
     <Card className="overflow-x-auto">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Team usage</h3>
-        <span className="text-xs text-gray-400 dark:text-gray-500">Current period · usage only (limits are account-wide)</span>
+        <h3 className="text-sm font-semibold text-[var(--pb-text)]">Team usage</h3>
+        <span className="text-xs text-[var(--pb-text-muted)]">Current period · usage only (limits are account-wide)</span>
       </div>
       <DataTable
         data={teams}

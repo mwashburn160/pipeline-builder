@@ -36,8 +36,8 @@ export function ObservabilityHealthProvider({ children }: { children: ReactNode 
     const map = byKey.current;
     if (map.get(key) === isDegraded) return; // no change for this panel
     map.set(key, isDegraded);
-    const any = Array.from(map.values()).some(Boolean);
-    setDegraded((prev) => (prev === any ? prev : any));
+    const anyDegraded = Array.from(map.values()).some(Boolean);
+    setDegraded((prev) => (prev === anyDegraded ? prev : anyDegraded));
   }, []);
 
   return (

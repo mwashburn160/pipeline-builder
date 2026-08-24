@@ -13,7 +13,7 @@ import { incCounter } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response } from 'express';
 import type Stripe from 'stripe';
 import { config } from '../config.js';
-import { applyPlanTierChange, applyTierIncludedAddonPrune, createBillingEvent, calculatePeriodEnd, syncEntitlements } from '../helpers/billing-helpers.js';
+import { applyPlanTierChange, applyTierIncludedAddonPrune, createBillingEvent, calculatePeriodEnd, syncEntitlements, MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/billing-helpers.js';
 import type { PrunedAddon } from '../helpers/billing-helpers.js';
 import { ingestStripeInvoice, reverseLedgerInvoice } from '../helpers/billing-ledger.js';
 import { clearDiscountsOnCancel, reconcileDiscountsOnInvoice } from '../helpers/discount-helpers.js';
@@ -197,13 +197,17 @@ async function handleSubscriptionCreated(stripeSubscription: Stripe.Subscription
   const orgId = (stripeSubscription.metadata?.orgId || '').trim();
   if (!orgId) {
     logger.warn('Stripe subscription created without orgId metadata — cannot auto-provision', { externalId });
+    // Alertable: a Stripe sub exists that backs no org. Without a metric this is
+    // a silently-swallowed billing_events row no one watches.
+    incCounter('billing_unbound_stripe_subscription_total', { reason: 'no_org_metadata' });
     await createBillingEvent('unknown', 'subscription_created', { unbound: true, externalId });
     return;
   }
   // Provisioning would need plan ID resolution + a primary contact email,
   // which the in-app create flow already handles. Out-of-band creates need
-  // operator follow-up — log and continue.
+  // operator follow-up — log, meter for alerting, and continue.
   logger.warn('Stripe subscription created out-of-band — operator action required', { externalId, orgId });
+  incCounter('billing_unbound_stripe_subscription_total', { reason: 'out_of_band' });
   await createBillingEvent(orgId, 'subscription_created', { unbound: true, externalId });
 }
 
@@ -255,6 +259,13 @@ export async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subsc
   const previousStatus = subscription.status;
   const newStatus = mapStripeStatus(stripeSubscription.status);
   const cancelAtPeriodEnd = stripeSubscription.cancel_at_period_end ?? false;
+
+  // A `.updated` that crosses OUT of an entitled status into a terminal one
+  // (e.g. dunning exhausted → `unpaid`→canceled, or a `.updated`→canceled whose
+  // trailing `.deleted` never arrives) must downgrade — otherwise the org keeps
+  // its paid tier/seats forever (no lifecycle cron catches a `canceled` row).
+  const MANAGEABLE = MANAGEABLE_SUBSCRIPTION_STATUSES as readonly string[];
+  const becameUnentitled = MANAGEABLE.includes(previousStatus) && !MANAGEABLE.includes(newStatus);
 
   let dirty = false;
   if (newStatus !== subscription.status) {
@@ -318,9 +329,21 @@ export async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subsc
     }
   }
 
+  // Terminal transition: forfeit the local credit mirror before the save (the
+  // entitlement downgrade runs post-save below, mirroring handleSubscriptionDeleted).
+  if (becameUnentitled) {
+    clearDiscountsOnCancel(subscription);
+    dirty = true;
+  }
+
   if (dirty) await subscription.save();
 
-  if (syncedPlan) {
+  if (becameUnentitled) {
+    await syncEntitlements(subscription.orgId, 'developer', '', subscription._id.toString());
+    logger.info('Stripe subscription moved to a terminal status via update — org downgraded', {
+      orgId: subscription.orgId, externalId, previousStatus, newStatus,
+    });
+  } else if (syncedPlan) {
     // Shared post-save runner (service-token sync preserving add-ons → change
     // event → pruned line-item removal + addon_pruned trail). System path
     // (webhook) → no actorId. When ONLY the billing interval changed (same plan

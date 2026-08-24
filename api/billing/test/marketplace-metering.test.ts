@@ -207,7 +207,7 @@ describe('reportMarketplaceAddonUsage — usage-credit realization', () => {
     const hourUpdate = mockSubscriptionFindOneAndUpdate.mock.calls.find((c: any) => c[0]['metadata.lastDrawdownHour'])?.[1] as any;
     expect(hourUpdate.$push).toBeUndefined();
     expect(hourUpdate.$inc).toEqual({ creditBalanceCents: -3000 });
-    expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-1', 'credit_consumed', { consumedCents: 3000, dimensions: 1 }, 'sub-1');
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-1', 'credit_consumed', { consumedCents: 3000, dimensions: 1, partial: false }, 'sub-1');
     expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-1', 'credit_exhausted', { previousCents: 3000 }, 'sub-1');
     expect(mockIncCounter).toHaveBeenCalledWith('billing_marketplace_credit_consumed_total', {});
   });
@@ -222,11 +222,14 @@ describe('reportMarketplaceAddonUsage — usage-credit realization', () => {
     expect(mockCreateBillingEvent).not.toHaveBeenCalledWith('org-1', 'credit_consumed', expect.anything(), expect.anything());
   });
 
-  it('does NOT draw down when any record was unprocessed (all-or-nothing)', async () => {
+  it('does NOT draw down a dimension AWS did not accept (proportional, not all-or-nothing)', async () => {
     mockSubscriptionFindOne.mockResolvedValue(creditSub());
     mockSubscriptionFindById.mockResolvedValue(creditSub());
     claims({ period: null, hour: { creditBalanceCents: 0 } });
-    mockMeterAddonUsage.mockResolvedValue({ metered: 0, skipped: [], unprocessed: 1 });
+    // AWS returned the ONLY withheld dimension ('seats') as unprocessed → the
+    // reduced quantity was never applied, so no credit may be consumed for it
+    // (otherwise it would be discounted again next cycle).
+    mockMeterAddonUsage.mockResolvedValue({ metered: 0, skipped: [], unprocessed: 1, unprocessedDimensions: ['seats'] });
 
     await reportMarketplaceAddonUsage('org-1');
     expect(mockSubscriptionFindOneAndUpdate).not.toHaveBeenCalledWith(

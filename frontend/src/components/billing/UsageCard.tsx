@@ -46,21 +46,21 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
 
   return (    <Card>
       <div className="flex items-baseline justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Usage this period</h2>
-        <span className="text-xs text-gray-500 dark:text-gray-400">
+        <h2 className="text-lg font-semibold text-[var(--pb-text)]">Usage this period</h2>
+        <span className="text-xs text-[var(--pb-text-muted)]">
           {rollup.period.daysElapsed} of {rollup.period.daysElapsed + rollup.period.daysRemaining} days elapsed
         </span>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-2">
         <div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Subscription</p>
-          <p className="text-lg font-medium text-gray-900 dark:text-gray-100">
+          <p className="text-sm text-[var(--pb-text-muted)]">Subscription</p>
+          <p className="text-lg font-medium text-[var(--pb-text)]">
             {rollup.subscription ? `${dollars(rollup.cost.subscriptionCents)} / ${rollup.subscription.interval === 'annual' ? 'year': 'month'}`: 'No active plan'}
           </p>
         </div>
         <div>
-          <label className="text-sm text-gray-500 dark:text-gray-400" htmlFor="usage-period-start">Period start</label>
+          <label className="text-sm text-[var(--pb-text-muted)]" htmlFor="usage-period-start">Period start</label>
           {editable ? (
             <Input
               id="usage-period-start"
@@ -68,14 +68,14 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
               value={startVal}
               max={endVal || undefined}
               onChange={(e) => onPeriodChange?.(e.target.value || undefined, endVal || undefined)}
-              className="mt-0.5 block w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm text-gray-900 dark:text-gray-100"
+              className="mt-0.5 block w-full rounded border border-[var(--pb-border)] bg-[var(--pb-surface)] px-2 py-1 text-sm text-[var(--pb-text)]"
             />
           ) : (
-            <p className="text-sm text-gray-900 dark:text-gray-100">{formatDate(rollup.period.start)}</p>
+            <p className="text-sm text-[var(--pb-text)]">{formatDate(rollup.period.start)}</p>
           )}
         </div>
         <div>
-          <label className="text-sm text-gray-500 dark:text-gray-400" htmlFor="usage-period-end">Period end</label>
+          <label className="text-sm text-[var(--pb-text-muted)]" htmlFor="usage-period-end">Period end</label>
           {editable ? (
             <Input
               id="usage-period-end"
@@ -83,16 +83,16 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
               value={endVal}
               min={startVal || undefined}
               onChange={(e) => onPeriodChange?.(startVal || undefined, e.target.value || undefined)}
-              className="mt-0.5 block w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm text-gray-900 dark:text-gray-100"
+              className="mt-0.5 block w-full rounded border border-[var(--pb-border)] bg-[var(--pb-surface)] px-2 py-1 text-sm text-[var(--pb-text)]"
             />
           ) : (
-            <p className="text-sm text-gray-900 dark:text-gray-100">{formatDate(rollup.period.end)}</p>
+            <p className="text-sm text-[var(--pb-text)]">{formatDate(rollup.period.end)}</p>
           )}
         </div>
       </div>
 
       {editable && (
-        <div className="mb-6 flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
+        <div className="mb-6 flex items-center gap-2 text-xs text-[var(--pb-text-muted)]">
           <span>Adjusts the displayed window. Consumption below is the current live period, not the selected dates.</span>
           {overridden && (
             <Button
@@ -122,13 +122,13 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
           return (
             <div>
               <div className="flex items-baseline justify-between text-sm">
-                <span className="font-medium text-gray-900 dark:text-gray-100">Seats</span>
-                <span className="text-gray-500 dark:text-gray-400">
+                <span className="font-medium text-[var(--pb-text)]">Seats</span>
+                <span className="text-[var(--pb-text-muted)]">
                   {fmtNum(used)} / {isUnlimited ? 'Unlimited' : fmtNum(limit)}
                   {percent !== null && <span className="ml-2">({percent}%)</span>}
                 </span>
               </div>
-              <div className="mt-1 h-2 w-full bg-gray-200 dark:bg-gray-700 rounded overflow-hidden">
+              <div className="mt-1 h-2 w-full bg-[var(--pb-surface-muted)] rounded overflow-hidden">
                 <div
                   className={`h-2 rounded ${barColor}`}
                   style={{ width: `${isUnlimited ? 0 : percent ?? 0}%` }}
@@ -152,13 +152,13 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
 : barStyles[statusInfo(entry.used, entry.limit).color];
           return (            <div key={key}>
               <div className="flex items-baseline justify-between text-sm">
-                <span className="font-medium text-gray-900 dark:text-gray-100">{cfg.label}</span>
-                <span className="text-gray-500 dark:text-gray-400">
+                <span className="font-medium text-[var(--pb-text)]">{cfg.label}</span>
+                <span className="text-[var(--pb-text-muted)]">
                   {usedLabel} / {limitLabel}
                   {entry.percentOfLimit !== null && <span className="ml-2">({entry.percentOfLimit}%)</span>}
                 </span>
               </div>
-              <div className="mt-1 h-2 w-full bg-gray-200 dark:bg-gray-700 rounded overflow-hidden">
+              <div className="mt-1 h-2 w-full bg-[var(--pb-surface-muted)] rounded overflow-hidden">
                 <div
                   className={`h-2 rounded ${barColor}`}
                   style={{ width: `${isUnlimited ? 0: Math.min(100, entry.percentOfLimit ?? 0)}%` }}

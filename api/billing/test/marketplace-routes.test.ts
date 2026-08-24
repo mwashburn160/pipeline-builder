@@ -2,14 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for POST /billing/marketplace/resolve (registration redirect endpoint).
+ * Tests for the AWS Marketplace registration flow:
+ *  - POST /billing/marketplace/resolve — banks a short-lived pending registration
+ *    (does NOT create a subscription; there's no org to bind to yet).
+ *  - POST /billing/marketplace/claim — binds a pending registration to the
+ *    caller's authenticated org, creating the subscription.
  *
- * Security/policy regression lock-in: the created Subscription must be keyed on
- * AWS Marketplace's opaque `customerIdentifier` — NEVER the customer's AWS
- * account id. Repo policy forbids persisting AWS account ids, and using the
- * account id as the tenant key would leak it into quota/audit stores. This
- * suite asserts orgId === customerIdentifier and that no `awsAccountId` appears
- * in the persisted document or the response body.
+ * Security/policy regression lock-in: nothing here may persist or return the
+ * customer's AWS **account id** (repo policy). The subscription is keyed on the
+ * caller's real orgId; the opaque `customerIdentifier` lives only in metadata.
  *
  * Extracts the route handler from the router and drives it directly with mock
  * req/res — no HTTP server.
@@ -34,7 +35,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   incCounter: jest.fn(),
   withRoute: (handler: Function) => async (req: any, res: any) =>
-    handler({ req, res, ctx: { log: jest.fn() }, orgId: req.orgId }),
+    handler({ req, res, ctx: { log: jest.fn() }, orgId: req.orgId, userId: req.userId }),
 }));
 
 jest.unstable_mockModule('../src/config.js', () => ({
@@ -45,10 +46,10 @@ const mockCalculatePeriodEnd = jest.fn(() => new Date('2026-08-01T00:00:00.000Z'
 const mockCreateBillingEvent = jest.fn(async () => undefined);
 const mockSyncEntitlements = jest.fn(async () => undefined);
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
   calculatePeriodEnd: (...a: unknown[]) => mockCalculatePeriodEnd(...a),
   createBillingEvent: (...a: unknown[]) => mockCreateBillingEvent(...a),
   syncEntitlements: (...a: unknown[]) => mockSyncEntitlements(...a),
-  // Double-billing prune: no-op passthrough (this suite doesn't exercise prune).
   applyTierIncludedAddonPrune: () => [],
   applyPlanTierChange: () => async () => undefined,
   finalizePrunedAddons: async () => undefined,
@@ -72,6 +73,19 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
     findOne: (...a: unknown[]) => mockSubscriptionFindOne(...a),
     create: (...a: unknown[]) => mockSubscriptionCreate(...a),
   },
+}));
+
+const mockPendingCreate = jest.fn();
+const mockPendingFindOneAndDelete = jest.fn();
+const mockPendingDeleteMany = jest.fn(async () => ({ deletedCount: 0 }));
+jest.unstable_mockModule('../src/models/marketplace-pending-registration.js', () => ({
+  MarketplacePendingRegistration: {
+    create: (...a: unknown[]) => mockPendingCreate(...a),
+    // resolve supersedes prior unclaimed rows; claim atomically consumes.
+    deleteMany: (...a: unknown[]) => mockPendingDeleteMany(...a),
+    findOneAndDelete: (...a: unknown[]) => mockPendingFindOneAndDelete(...a),
+  },
+  PENDING_REGISTRATION_TTL_MS: 1_800_000,
 }));
 
 jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({
@@ -140,6 +154,7 @@ beforeEach(() => {
   mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'team', dimension: 'team-dim' }]);
   mockPlanFindOne.mockResolvedValue({ _id: 'team', tier: 'team', name: 'Team', isActive: true });
   mockSubscriptionFindOne.mockResolvedValue(null); // no existing active subscription
+  mockPendingCreate.mockImplementation(async (doc: any) => doc);
   mockSubscriptionCreate.mockImplementation(async (doc: any) => ({
     ...doc,
     _id: { toString: () => 'sub-created-1' },
@@ -150,23 +165,22 @@ beforeEach(() => {
 describe('POST /marketplace/resolve', () => {
   const handler = getHandler('post', '/marketplace/resolve');
 
-  it('keys the subscription orgId on customerIdentifier, never the AWS account id', async () => {
+  it('banks a pending registration keyed on customerIdentifier — no subscription, no AWS account id', async () => {
     const req: any = { body: { 'x-amzn-marketplace-token': 'tok', 'awsAccountId': AWS_ACCOUNT_ID }, query: {} };
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSubscriptionCreate).toHaveBeenCalledTimes(1);
-    const createdDoc = mockSubscriptionCreate.mock.calls[0][0] as any;
+    // resolve must NOT create a subscription (there's no org to bind to yet).
+    expect(mockSubscriptionCreate).not.toHaveBeenCalled();
+    expect(mockPendingCreate).toHaveBeenCalledTimes(1);
 
-    // orgId is the opaque customer identifier — NOT the AWS account id.
-    expect(createdDoc.orgId).toBe(CUSTOMER_ID);
-    expect(createdDoc.orgId).not.toBe(AWS_ACCOUNT_ID);
-    // The persisted doc carries the identifier in metadata but no account id.
-    expect(createdDoc.metadata.awsCustomerIdentifier).toBe(CUSTOMER_ID);
-    expect(hasAwsAccountIdKey(createdDoc)).toBe(false);
+    const pending = mockPendingCreate.mock.calls[0][0] as any;
+    expect(pending.awsCustomerIdentifier).toBe(CUSTOMER_ID);
+    expect(pending.planId).toBe('team');
+    expect(hasAwsAccountIdKey(pending)).toBe(false);
   });
 
-  it('does not include awsAccountId anywhere in the response body', async () => {
+  it('returns a registrationRef + planName and leaks neither the AWS account id nor the customerIdentifier', async () => {
     const req: any = { body: { 'x-amzn-marketplace-token': 'tok' }, query: {} };
     const res = mockRes();
     await handler(req, res);
@@ -174,57 +188,112 @@ describe('POST /marketplace/resolve', () => {
     expect(mockSendSuccess).toHaveBeenCalled();
     const [, status, data] = mockSendSuccess.mock.calls[0];
     expect(status).toBe(201);
+    const pending = mockPendingCreate.mock.calls[0][0] as any;
+    expect((data as any).alreadyRegistered).toBe(false);
+    expect((data as any).registrationRef).toBe(pending._id);
+    expect((data as any).planName).toBe('Team');
+    // The opaque handle is the ONLY thing the browser gets — no AWS identity.
+    expect((data as any).customerIdentifier).toBeUndefined();
     expect(hasAwsAccountIdKey(data)).toBe(false);
-    // Response echoes the opaque identifier + the customer-keyed orgId.
-    expect((data as any).subscription.orgId).toBe(CUSTOMER_ID);
-    expect((data as any).customerIdentifier).toBe(CUSTOMER_ID);
   });
 
-  it('syncs entitlements against the customer-identifier orgId', async () => {
+  it('short-circuits to alreadyRegistered when the customer is already bound', async () => {
+    mockSubscriptionFindOne.mockResolvedValueOnce({
+      _id: { toString: () => 'sub-x' }, orgId: 'org-existing', planId: 'team', status: 'active',
+    });
     const req: any = { body: { 'x-amzn-marketplace-token': 'tok' }, query: {} };
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSyncEntitlements).toHaveBeenCalledWith(
-      CUSTOMER_ID, 'team', '', 'sub-created-1', expect.anything(),
-    );
+    const [, status, data] = mockSendSuccess.mock.calls[0];
+    expect(status).toBe(200);
+    expect((data as any).alreadyRegistered).toBe(true);
+    expect(mockPendingCreate).not.toHaveBeenCalled();
+    expect(mockSubscriptionCreate).not.toHaveBeenCalled();
   });
 
-  // Interval derivation: the created subscription's cadence must reflect the
-  // marketplace entitlement's term (fixes the hard-coded `interval: 'monthly'`).
-  it('resolves an ANNUAL-term entitlement to interval=annual', async () => {
-    const expiration = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // ~1 year out
+  it('rejects a body-supplied orgId (no pre-binding on the unauthenticated route)', async () => {
+    const req: any = { body: { 'x-amzn-marketplace-token': 'tok', orgId: 'attacker-org' }, query: {} };
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.stringContaining('orgId'), expect.anything());
+    expect(mockPendingCreate).not.toHaveBeenCalled();
+  });
+
+  it('derives interval=annual from a long-term entitlement into the pending record', async () => {
     mockGetEntitlements.mockResolvedValue([
-      { isEntitled: true, planId: 'team', dimension: 'team-dim', expirationDate: expiration },
+      { isEntitled: true, planId: 'team', dimension: 'team-dim', expirationDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) },
     ]);
-    const req: any = { body: { 'x-amzn-marketplace-token': 'tok' }, query: {} };
-    await handler(req, mockRes());
-
-    const createdDoc = mockSubscriptionCreate.mock.calls[0][0] as any;
-    expect(createdDoc.interval).toBe('annual');
-    // Period math uses the derived interval.
-    expect(mockCalculatePeriodEnd).toHaveBeenCalledWith(expect.any(Date), 'annual');
+    await handler({ body: { 'x-amzn-marketplace-token': 'tok' }, query: {} }, mockRes());
+    expect((mockPendingCreate.mock.calls[0][0] as any).interval).toBe('annual');
   });
 
-  it('resolves a MONTHLY-term entitlement to interval=monthly', async () => {
-    const expiration = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // ~1 month out
-    mockGetEntitlements.mockResolvedValue([
-      { isEntitled: true, planId: 'team', dimension: 'team-dim', expirationDate: expiration },
-    ]);
-    const req: any = { body: { 'x-amzn-marketplace-token': 'tok' }, query: {} };
-    await handler(req, mockRes());
+  it('defaults interval=monthly when the entitlement carries no term', async () => {
+    await handler({ body: { 'x-amzn-marketplace-token': 'tok' }, query: {} }, mockRes());
+    expect((mockPendingCreate.mock.calls[0][0] as any).interval).toBe('monthly');
+  });
+});
 
-    const createdDoc = mockSubscriptionCreate.mock.calls[0][0] as any;
-    expect(createdDoc.interval).toBe('monthly');
-    expect(mockCalculatePeriodEnd).toHaveBeenCalledWith(expect.any(Date), 'monthly');
+describe('POST /marketplace/claim', () => {
+  const handler = getHandler('post', '/marketplace/claim');
+  const PENDING = {
+    _id: 'ref-1', awsCustomerIdentifier: CUSTOMER_ID, awsProductCode: 'prod-1',
+    planId: 'team', dimension: 'team-dim', interval: 'monthly',
+  };
+
+  it('binds the pending registration to the CALLER\'s org and consumes it', async () => {
+    mockPendingFindOneAndDelete.mockResolvedValue(PENDING);
+    const req: any = { body: { registrationRef: 'ref-1' }, orgId: 'org-real', userId: 'user-1' };
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockSubscriptionCreate).toHaveBeenCalledTimes(1);
+    const created = mockSubscriptionCreate.mock.calls[0][0] as any;
+    expect(created.orgId).toBe('org-real'); // the real org, NOT the customer id
+    expect(created.metadata.awsCustomerIdentifier).toBe(CUSTOMER_ID);
+    expect(hasAwsAccountIdKey(created)).toBe(false);
+
+    // Tier synced against the real org; the ref is consumed atomically by the
+    // findOneAndDelete (single-use even under a race).
+    expect(mockSyncEntitlements).toHaveBeenCalledWith('org-real', 'team', 'user-1', 'sub-created-1', expect.anything());
+    expect(mockPendingFindOneAndDelete).toHaveBeenCalledWith({ _id: 'ref-1' });
+
+    const [, status] = mockSendSuccess.mock.calls[0];
+    expect(status).toBe(201);
   });
 
-  it('defaults to interval=monthly when the entitlement carries no term', async () => {
-    // Default beforeEach entitlement has no expirationDate.
-    const req: any = { body: { 'x-amzn-marketplace-token': 'tok' }, query: {} };
+  it('410s when the registration is missing or expired', async () => {
+    mockPendingFindOneAndDelete.mockResolvedValue(null);
+    const req: any = { body: { registrationRef: 'gone' }, orgId: 'org-real', userId: 'user-1' };
     await handler(req, mockRes());
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 410, expect.any(String), expect.anything());
+    expect(mockSubscriptionCreate).not.toHaveBeenCalled();
+  });
 
-    const createdDoc = mockSubscriptionCreate.mock.calls[0][0] as any;
-    expect(createdDoc.interval).toBe('monthly');
+  it('409s when the AWS customer is already bound to another org', async () => {
+    mockPendingFindOneAndDelete.mockResolvedValue(PENDING);
+    mockSubscriptionFindOne.mockResolvedValueOnce({ _id: { toString: () => 'x' }, orgId: 'other', status: 'active' });
+    const req: any = { body: { registrationRef: 'ref-1' }, orgId: 'org-real', userId: 'user-1' };
+    await handler(req, mockRes());
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 409, expect.stringContaining('already linked'), expect.anything());
+    expect(mockSubscriptionCreate).not.toHaveBeenCalled();
+  });
+
+  it('409s when the caller org already has an active subscription', async () => {
+    mockPendingFindOneAndDelete.mockResolvedValue(PENDING);
+    mockSubscriptionFindOne
+      .mockResolvedValueOnce(null) // not bound elsewhere
+      .mockResolvedValueOnce({ _id: { toString: () => 'y' }, orgId: 'org-real', status: 'active' }); // org already active
+    const req: any = { body: { registrationRef: 'ref-1' }, orgId: 'org-real', userId: 'user-1' };
+    await handler(req, mockRes());
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 409, expect.stringContaining('already has an active'), expect.anything());
+    expect(mockSubscriptionCreate).not.toHaveBeenCalled();
+  });
+
+  it('400s when registrationRef is missing', async () => {
+    const req: any = { body: {}, orgId: 'org-real', userId: 'user-1' };
+    await handler(req, mockRes());
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.any(String), expect.anything());
   });
 });

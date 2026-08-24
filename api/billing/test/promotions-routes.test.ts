@@ -99,7 +99,7 @@ describe('POST /admin/promotions (mint)', () => {
     await call(handler('post', '/admin/promotions'), adminReq({
       body: { value: 5000, unit: 'dollar', budgetCents: 50000, trigger: { event: 'subscription_created' } },
     }));
-    expect(mockSendError).toHaveBeenCalledWith({}, 400, expect.any(String));
+    expect(mockSendError).toHaveBeenCalledWith({}, 400, expect.any(String), 'VALIDATION_ERROR');
     expect(mockPromoCreate).not.toHaveBeenCalled();
   });
 
@@ -107,16 +107,28 @@ describe('POST /admin/promotions (mint)', () => {
     await call(handler('post', '/admin/promotions'), adminReq({
       body: { name: 'x', value: 150, unit: 'percent', budgetCents: 50000, trigger: { event: 'subscription_created' } },
     }));
-    expect(mockSendError).toHaveBeenCalledWith({}, 400, expect.any(String));
+    expect(mockSendError).toHaveBeenCalledWith({}, 400, expect.any(String), 'VALIDATION_ERROR');
   });
 });
 
 describe('feature flag', () => {
-  it('404s every route when promotions are disabled', async () => {
+  // The flag is now enforced by a single router-level middleware (not per-handler),
+  // so exercise that middleware layer directly.
+  it('the gate middleware 404s all routes when promotions are disabled', () => {
     promoEnabled = false;
-    await call(handler('post', '/admin/promotions'), adminReq({ body: {} }));
+    const mw = router.stack.find((l: any) => !l.route && typeof l.handle === 'function')?.handle; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const next = jest.fn();
+    mw({}, {}, next);
     expect(mockSendError).toHaveBeenCalledWith({}, 404, 'Promotions are not enabled');
-    expect(mockPromoCreate).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('the gate middleware calls next() when promotions are enabled', () => {
+    promoEnabled = true;
+    const mw = router.stack.find((l: any) => !l.route && typeof l.handle === 'function')?.handle; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const next = jest.fn();
+    mw({}, {}, next);
+    expect(next).toHaveBeenCalled();
   });
 });
 

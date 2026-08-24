@@ -10,6 +10,7 @@ import { XCircle, ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Card } from '@/components/ui/Card';
+import { LinkButton } from '@/components/ui/LinkButton';
 import api from '@/lib/api';
 
 /**
@@ -160,9 +161,9 @@ export default function OAuthCallbackPage() {
                 <XCircle className="w-10 h-10 text-[var(--pb-danger)] mx-auto mb-3" />
                 <p className="font-bold">Sign-in failed</p>
                 <p className="text-sm text-[var(--pb-text-muted)] mt-1">{error}</p>
-                <Link href="/" className="btn btn-primary btn-full text-sm mt-4">
+                <LinkButton href="/" variant="primary" fullWidth className="text-sm mt-4">
                   Back to sign in
-                </Link>
+                </LinkButton>
               </>
             )}
           </Card>

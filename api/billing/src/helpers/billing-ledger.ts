@@ -93,24 +93,35 @@ export async function ingestStripeInvoice(orgId: string, invoice: StripeInvoiceL
   const period = invoice.lines?.data?.[0]?.period;
   const discountCents = (invoice.total_discount_amounts ?? []).reduce((s, d) => s + (d.amount ?? 0), 0);
   const creditCents = Math.max(0, (invoice.ending_balance ?? 0) - (invoice.starting_balance ?? 0));
+
+  // Preserve a prior reversal: if a charge.refunded / dispute already flipped this
+  // row to refunded/disputed (with a net amountPaidCents), a re-ingest of the same
+  // invoice (backfill, or a non-deduped re-delivery) must NOT overwrite those two
+  // fields back to the full paid amount — that would silently un-reverse the
+  // refund in the dashboard actuals. Everything else still re-syncs.
+  const existing = await BillingInvoice.findOne({ externalInvoiceId: invoice.id }).lean<{ status?: string }>();
+  const isReversed = existing?.status === 'refunded' || existing?.status === 'disputed';
+
+  const set: Record<string, unknown> = {
+    orgId,
+    source: 'stripe',
+    periodStart: period?.start ? new Date(period.start * 1000) : new Date(),
+    periodEnd: period?.end ? new Date(period.end * 1000) : new Date(),
+    subtotalCents: invoice.subtotal ?? 0,
+    discountCents,
+    creditCents,
+    taxCents: invoice.tax ?? 0,
+    totalCents: invoice.total ?? 0,
+    currency: invoice.currency ?? 'usd',
+  };
+  if (!isReversed) {
+    set.amountPaidCents = invoice.amount_paid ?? 0;
+    set.status = mapInvoiceStatus(invoice.status);
+  }
+
   await BillingInvoice.updateOne(
     { externalInvoiceId: invoice.id },
-    {
-      $set: {
-        orgId,
-        source: 'stripe',
-        periodStart: period?.start ? new Date(period.start * 1000) : new Date(),
-        periodEnd: period?.end ? new Date(period.end * 1000) : new Date(),
-        subtotalCents: invoice.subtotal ?? 0,
-        discountCents,
-        creditCents,
-        taxCents: invoice.tax ?? 0,
-        totalCents: invoice.total ?? 0,
-        amountPaidCents: invoice.amount_paid ?? 0,
-        currency: invoice.currency ?? 'usd',
-        status: mapInvoiceStatus(invoice.status),
-      },
-    },
+    { $set: set },
     { upsert: true },
   );
   incCounter('billing_invoice_ingested_total', { source: 'stripe' });
@@ -326,9 +337,11 @@ export async function getAdminBillingSummary(from?: Date, to?: Date, orgId?: str
 export async function backfillLedgerFromProvider(limitPerCustomer = 100): Promise<{ accounts: number; ingested: number; errors: number }> {
   const provider = getPaymentProvider();
   if (!provider.listCustomerInvoices) return { accounts: 0, ingested: 0, errors: 0 };
-  const subs = await Subscription.find({ externalCustomerId: { $exists: true, $ne: null } });
+  // Stream with a cursor instead of loading every customer into memory at once —
+  // this is a full-collection admin backfill that would OOM at scale otherwise.
+  const cursor = Subscription.find({ externalCustomerId: { $exists: true, $ne: null } }).cursor();
   let accounts = 0; let ingested = 0; let errors = 0;
-  for (const sub of subs) {
+  for await (const sub of cursor) {
     if (!sub.externalCustomerId) continue;
     accounts += 1;
     try {

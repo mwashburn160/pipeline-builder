@@ -68,13 +68,19 @@ function toDiscountResponse(d: DiscountDocument): Record<string, unknown> {
 export function createDiscountRoutes(): Router {
   const router: Router = Router();
 
+  // Every discount route 404s when the feature is off — gate once here so a new
+  // route can't forget it (was an inline `if (!discountsEnabled())` in each handler).
+  router.use((_req, res, next) => {
+    if (!discountsEnabled()) return sendError(res, 404, 'Discounts are not enabled');
+    next();
+  });
+
   // ── Generation ───────────────────────────────────────────────────
 
   // POST /billing/admin/discounts — mint a discount record.
   router.post('/admin/discounts', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
-    if (!discountsEnabled()) return sendError(res, 404, 'Discounts are not enabled');
     const validation = validateBody(req, DiscountMintSchema);
-    if (!validation.ok) return sendError(res, 400, validation.error);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
 
     const spec = parseAuthoringForm(body.code);
@@ -114,7 +120,6 @@ export function createDiscountRoutes(): Router {
 
   // POST /billing/admin/discounts/:id/token — Mode B: mint/re-issue an opaque token.
   router.post('/admin/discounts/:id/token', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
-    if (!discountsEnabled()) return sendError(res, 404, 'Discounts are not enabled');
     const id = getParam(req.params, 'id');
     if (!id) return sendError(res, 400, 'id is required');
     const discount = await Discount.findById(id);
@@ -149,11 +154,10 @@ export function createDiscountRoutes(): Router {
 
   // POST /billing/admin/discounts/:id/apply — Mode A: direct grant to a target org.
   router.post('/admin/discounts/:id/apply', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
-    if (!discountsEnabled()) return sendError(res, 404, 'Discounts are not enabled');
     const id = getParam(req.params, 'id');
     if (!id) return sendError(res, 400, 'id is required');
     const validation = validateBody(req, DiscountApplySchema);
-    if (!validation.ok) return sendError(res, 400, validation.error);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const { targetOrgId } = validation.value;
 
     const discount = await Discount.findById(id);
@@ -175,11 +179,10 @@ export function createDiscountRoutes(): Router {
 
   // POST /billing/admin/discounts/:id/preview — system dry-run on a target org.
   router.post('/admin/discounts/:id/preview', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
-    if (!discountsEnabled()) return sendError(res, 404, 'Discounts are not enabled');
     const id = getParam(req.params, 'id');
     if (!id) return sendError(res, 400, 'id is required');
     const validation = validateBody(req, DiscountApplySchema);
-    if (!validation.ok) return sendError(res, 400, validation.error);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const discount = await Discount.findById(id);
     if (!discount) return sendError(res, 404, 'Discount not found', ErrorCode.NOT_FOUND);
     const preview = await previewDiscountForOrg(validation.value.targetOrgId, discount);
@@ -191,7 +194,6 @@ export function createDiscountRoutes(): Router {
 
   // GET /billing/admin/discounts — list (filtered + paginated). Never a token.
   router.get('/admin/discounts', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
-    if (!discountsEnabled()) return sendError(res, 404, 'Discounts are not enabled');
     const limit = parseQueryIntClamped(req.query.limit, 50, 200);
     const offset = parseQueryInt(req.query.offset, 0);
     const filter: Record<string, unknown> = {};
@@ -212,7 +214,6 @@ export function createDiscountRoutes(): Router {
 
   // GET /billing/admin/discounts/:id — inspect one.
   router.get('/admin/discounts/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
-    if (!discountsEnabled()) return sendError(res, 404, 'Discounts are not enabled');
     const id = getParam(req.params, 'id');
     if (!id) return sendError(res, 400, 'id is required');
     const discount = await Discount.findById(id);
@@ -222,11 +223,10 @@ export function createDiscountRoutes(): Router {
 
   // PUT /billing/admin/discounts/:id — edit / revoke (isActive:false).
   router.put('/admin/discounts/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
-    if (!discountsEnabled()) return sendError(res, 404, 'Discounts are not enabled');
     const id = getParam(req.params, 'id');
     if (!id) return sendError(res, 400, 'id is required');
     const validation = validateBody(req, DiscountUpdateSchema);
-    if (!validation.ok) return sendError(res, 400, validation.error);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
 
     const update: Record<string, unknown> = {};
@@ -255,7 +255,6 @@ export function createDiscountRoutes(): Router {
 
   // DELETE /billing/admin/discounts/:id — hard revoke.
   router.delete('/admin/discounts/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
-    if (!discountsEnabled()) return sendError(res, 404, 'Discounts are not enabled');
     const id = getParam(req.params, 'id');
     if (!id) return sendError(res, 400, 'id is required');
     const discount = await Discount.findByIdAndUpdate(id, { $set: { isActive: false } }, { new: true });
@@ -276,9 +275,8 @@ export function createDiscountRoutes(): Router {
   // POST /billing/subscriptions/:id/discounts/preview — self-service dry-run.
   // Gated (billing:read) so a read-only member can't enumerate discount codes.
   router.post('/subscriptions/:id/discounts/preview', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
-    if (!discountsEnabled()) return sendError(res, 404, 'Discounts are not enabled');
     const validation = validateBody(req, DiscountRedeemSchema);
-    if (!validation.ok) return sendError(res, 400, validation.error);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const discount = await resolveRedeemable(validation.value.code);
     if (!discount) return sendError(res, 404, 'Invalid or unknown discount code', ErrorCode.DISCOUNT_NOT_FOUND);
     const preview = await previewDiscountForOrg(orgId, discount);
@@ -288,9 +286,8 @@ export function createDiscountRoutes(): Router {
 
   // POST /billing/subscriptions/:id/discounts — redeem a token or public alias.
   router.post('/subscriptions/:id/discounts', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
-    if (!discountsEnabled()) return sendError(res, 404, 'Discounts are not enabled');
     const validation = validateBody(req, DiscountRedeemSchema);
-    if (!validation.ok) return sendError(res, 400, validation.error);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 
     const discount = await resolveRedeemable(validation.value.code);
     if (!discount) return sendError(res, 404, 'Invalid or unknown discount code', ErrorCode.DISCOUNT_NOT_FOUND);
@@ -314,7 +311,6 @@ export function createDiscountRoutes(): Router {
   // persist on the balance until consumed — there is nothing to detach at the
   // provider (discounts are usage credits, not coupons).
   router.delete('/subscriptions/:id/discounts/:discountId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
-    if (!discountsEnabled()) return sendError(res, 404, 'Discounts are not enabled');
     const discountId = getParam(req.params, 'discountId');
     if (!discountId) return sendError(res, 400, 'discountId is required');
 

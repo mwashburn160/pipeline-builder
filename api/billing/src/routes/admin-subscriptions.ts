@@ -20,7 +20,7 @@ import {
 import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import { applyPlanTierChange, applyTierIncludedAddonPrune, billingServiceAuth, buildSubscriptionResponse, createBillingEvent, MANAGEABLE_SUBSCRIPTION_STATUSES, syncEntitlements } from '../helpers/billing-helpers.js';
+import { applyPlanTierChange, applyTierIncludedAddonPrune, billingServiceAuth, buildSubscriptionResponse, createBillingEvent, MANAGEABLE_SUBSCRIPTION_STATUSES, syncEntitlements, syncProviderAddons } from '../helpers/billing-helpers.js';
 import { BillingEvent } from '../models/billing-event.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
@@ -258,7 +258,8 @@ export function createAdminSubscriptionRoutes(): Router {
         });
       }
 
-      if (interval && interval !== subscription.interval) {
+      const intervalChanged = !!(interval && interval !== subscription.interval);
+      if (intervalChanged) {
         const oldInterval = subscription.interval;
         subscription.interval = interval;
         deferred.push(async () => {
@@ -273,6 +274,16 @@ export function createAdminSubscriptionRoutes(): Router {
 
       for (const run of deferred) {
         await run();
+      }
+
+      // Re-cadence add-on line items on an interval change — updateSubscription
+      // swaps only the base item, so bundles would otherwise stay on the old
+      // cadence's price (matches the user PUT path).
+      if (intervalChanged && subscription.addons?.length) {
+        await syncProviderAddons(
+          subscription.externalId, subscription.addons, subscription.interval, orgId,
+          subscriptionId, 'interval_change',
+        );
       }
 
       ctx.log('COMPLETED', 'Admin updated subscription', { subscriptionId, planId, status });

@@ -15,6 +15,7 @@ import api from '@/lib/api';
 import { DEFAULT_PLAN_ID } from '@/components/billing/helpers';
 import { SelectablePlanCard } from '@/components/billing/SelectablePlanCard';
 import { usePlans } from '@/hooks/usePlans';
+import { readMarketplaceRef } from '@/hooks/usePendingMarketplaceClaim';
 import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/lib/site-url';
 
 // sessionStorage key carrying the OAuth "intent" across the provider redirect.
@@ -92,6 +93,10 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
   // Enabled SSO/OAuth providers. Fail-soft: an empty list (none configured, or
   // the endpoint 404s) renders no extra UI — password sign-up is unchanged.
   const [providers, setProviders] = useState<string[]>([]);
+  // If the visitor arrived from an AWS Marketplace purchase (a resolved ref is
+  // stashed), show the plan they already bought — it's linked automatically after
+  // sign-up, so they don't re-pick it here.
+  const [marketplacePlan, setMarketplacePlan] = useState<string | null | undefined>(undefined);
   const [oauthBusy, setOauthBusy] = useState<string | null>(null);
 
   const validateField = (field: string, value: string) => {
@@ -110,6 +115,10 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
       .catch(() => { if (!cancelled) setProviders([]); });
     return () => { cancelled = true; };
   }, []);
+
+  // Detect an in-flight AWS Marketplace registration (client-only; the ref is in
+  // sessionStorage/cookie set by the fulfillment page).
+  useEffect(() => { setMarketplacePlan(readMarketplaceRef()?.planName ?? null); }, []);
 
   // Start the OAuth dance: fetch the provider authorize URL (backend mints the
   // CSRF state), stash a "login" intent under that state so the callback page
@@ -155,6 +164,9 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
   };
 
   const hasPlans = plans.length > 0;
+  // Marketplace purchasers don't choose a plan here — AWS already sold them one,
+  // and it's linked automatically after sign-up.
+  const isMarketplace = typeof marketplacePlan === 'string';
 
   if (success) {
     return (
@@ -200,6 +212,14 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
             {/* Sign-up form */}
             <Card className="p-5 lg:col-span-2">
+              {isMarketplace && (
+                <div className="mb-4 rounded-lg border border-[var(--pb-border)] bg-[color:color-mix(in_srgb,var(--pb-brand)_6%,transparent)] p-3 text-sm">
+                  <span className="font-semibold">AWS Marketplace</span>
+                  <p className="text-[var(--pb-text-muted)] mt-1 leading-relaxed">
+                    Create your account to finish linking your{marketplacePlan ? <> <span className="font-medium text-[var(--pb-text)]">{marketplacePlan}</span></> : ''} subscription — billing is handled by AWS, so there&apos;s no plan to choose here.
+                  </p>
+                </div>
+              )}
               <form onSubmit={handleSubmit} className="space-y-3">
                 <ErrorAlert message={error} className="text-sm" />
 
@@ -221,7 +241,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
                   {fieldErrors.confirmPassword && <p className="form-error mt-1">{fieldErrors.confirmPassword}</p>}
                 </div>
 
-                {hasPlans && (
+                {hasPlans && !isMarketplace && (
                   <p className="text-xs text-[var(--pb-text-muted)] pt-1">
                     Selected plan: <span className="font-semibold text-[var(--pb-text)]">{plans.find((p) => p.id === selectedPlan)?.name ?? 'Developer'}</span>. Change it anytime — start free, no card required.
                   </p>
@@ -264,9 +284,10 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
             </Card>
 
             {/* Right column: tier comparison + bundles when billing is on,
-                otherwise a solution/value panel so signup isn't a bare form. */}
+                otherwise a solution/value panel so signup isn't a bare form.
+                Marketplace purchasers get the value panel (no plan to choose). */}
             <div className="lg:col-span-3">
-              {hasPlans ? (
+              {hasPlans && !isMarketplace ? (
                 <>
                   <div className="text-[11px] uppercase tracking-wide text-[var(--pb-text-muted)] mb-2">Choose your plan</div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

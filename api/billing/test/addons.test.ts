@@ -317,7 +317,7 @@ describe('POST /subscriptions/:id/addons (add)', () => {
 
   it('400s when bundleId is missing', async () => {
     await handler(mockReq({ body: {} }), mockRes());
-    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.any(String));
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.any(String), 'VALIDATION_ERROR');
   });
 
   it('404s when there is no active subscription', async () => {

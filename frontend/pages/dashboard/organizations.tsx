@@ -82,15 +82,37 @@ function RowActionsMenu({
     // The menu is fixed-positioned off a rect snapshot; any scroll/resize would
     // desync it, so just close on those rather than re-measuring.
     const onMove = () => setOpen(false);
+    // Escape closes and returns focus to the trigger (menu keyboard contract).
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setOpen(false); btnRef.current?.focus(); }
+    };
     document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
     window.addEventListener('scroll', onMove, true);
     window.addEventListener('resize', onMove);
     return () => {
       document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
       window.removeEventListener('scroll', onMove, true);
       window.removeEventListener('resize', onMove);
     };
   }, [open]);
+
+  // Move focus to the first item when the menu opens (keyboard entry point).
+  useEffect(() => {
+    if (open) menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+  }, [open]);
+
+  // Roving focus across items per the menu contract.
+  const onMenuKeyDown = (e: React.KeyboardEvent) => {
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    if (items.length === 0) return;
+    const idx = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); items[(idx + 1) % items.length].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(idx - 1 + items.length) % items.length].focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); items[0].focus(); }
+    else if (e.key === 'End') { e.preventDefault(); items[items.length - 1].focus(); }
+  };
 
   const toggle = () => {
     if (!open && btnRef.current) {
@@ -121,6 +143,7 @@ function RowActionsMenu({
         <div
           ref={menuRef}
           role="menu"
+          onKeyDown={onMenuKeyDown}
           style={{ position: 'fixed', top: coords.top, right: coords.right, zIndex: 50 }}
           className="w-56 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl text-left"
         >

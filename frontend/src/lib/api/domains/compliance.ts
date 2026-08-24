@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse } from '@/types';
+import type { ApiResponse, BuilderProps } from '@/types';
 import type { CompliancePolicy, ComplianceRule, ComplianceRuleHistoryEntry, ComplianceCheckResult, ComplianceRuleCreate, ComplianceRuleUpdate, ComplianceAuditEntry, ComplianceRuleSubscription, PublishedRuleCatalogEntry, ComplianceExemption, ComplianceScan, RuleTemplate, ExemptionCreate, ScanSchedule } from '@/types/compliance';
 
 export function complianceApi(core: ApiCore) {
@@ -100,7 +100,7 @@ export function complianceApi(core: ApiCore) {
     },
 
     /** Validate pipeline attributes against compliance rules (dry-run) */
-    dryRunPipelineCompliance: async (attributes: Record<string, unknown>) => {
+    dryRunPipelineCompliance: async (attributes: BuilderProps | Record<string, unknown>) => {
       return core.request<ApiResponse<ComplianceCheckResult>>('/api/compliance/validate/pipeline/dry-run', {
         method: 'POST',
         body: JSON.stringify({ attributes }),

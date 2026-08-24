@@ -190,7 +190,15 @@ export async function confirmSNSSubscription(subscribeUrl: string): Promise<void
     const req = https
       .get(subscribeUrl, (res) => {
         res.on('data', () => { /* drain */ });
-        res.on('end', () => resolve());
+        res.on('end', () => {
+          // Reject a non-2xx confirm so the SNS handler's catch releases the
+          // dedupe claim and SNS retries — otherwise a transient 4xx/5xx on the
+          // AWS confirm page would be marked "done" and the topic stays
+          // permanently unconfirmed (no lifecycle notifications ever arrive).
+          const status = res.statusCode ?? 0;
+          if (status >= 200 && status < 300) resolve();
+          else reject(new Error(`SNS subscription confirm returned HTTP ${status}`));
+        });
         res.on('error', reject);
       })
       .on('error', reject);

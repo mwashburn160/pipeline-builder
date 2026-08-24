@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { formatDateTime } from '@/lib/format';
 import { useAsyncCallback } from '@/hooks/useAsync';
 import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
+import { ReadonlyField } from '@/components/ui/ReadonlyField';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -179,34 +181,13 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
           <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">System Information (Read-only)</h3>
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">ID</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{p.id}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Org ID</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{p.orgId}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created By</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{p.createdBy}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created At</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(p.createdAt).toLocaleString()}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated By</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{p.updatedBy}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated At</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(p.updatedAt).toLocaleString()}</p>
-              </div>
-              <div className="col-span-2">
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Image URI</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg break-all">{p.uri}</p>
-              </div>
+              <ReadonlyField label="ID" value={p.id} valueClassName="font-mono" />
+              <ReadonlyField label="Org ID" value={p.orgId} />
+              <ReadonlyField label="Created By" value={p.createdBy} />
+              <ReadonlyField label="Created At" value={formatDateTime(p.createdAt)} />
+              <ReadonlyField label="Updated By" value={p.updatedBy} />
+              <ReadonlyField label="Updated At" value={formatDateTime(p.updatedAt)} />
+              <ReadonlyField label="Image URI" value={p.uri} className="col-span-2" valueClassName="font-mono break-all" />
               {p.dockerfile && (
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Dockerfile</label>

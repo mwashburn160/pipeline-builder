@@ -13,6 +13,7 @@ import {
   type UsageRecord,
 } from '@aws-sdk/client-marketplace-metering';
 import { createLogger } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 import type { ExternalSubscriptionResult, PaymentProvider } from './payment-provider.js';
 import type { MarketplaceConfig } from '../config.js';
 import type { BillingInterval } from '../models/subscription.js';
@@ -42,6 +43,10 @@ export interface MeterUsageResult {
   skipped: string[];
   /** Records AWS returned as unprocessed (should be retried by the caller). */
   unprocessed: number;
+  /** Dimensions of the unprocessed records — AWS did NOT apply the (reduced)
+   *  quantity for these, so the caller must not draw credit down for them
+   *  (else a partial batch would discount those dimensions twice). */
+  unprocessedDimensions: string[];
 }
 
 /** AWS BatchMeterUsage accepts at most 25 usage records per call. */
@@ -214,11 +219,12 @@ export class AWSMarketplaceProvider implements PaymentProvider {
 
     if (records.length === 0) {
       logger.info('AWS Marketplace: no metered add-on dimensions to report', { customerIdentifier, skipped });
-      return { metered: 0, skipped, unprocessed: 0 };
+      return { metered: 0, skipped, unprocessed: 0, unprocessedDimensions: [] };
     }
 
     let submitted = 0;
     let unprocessed = 0;
+    const unprocessedDimensions: string[] = [];
     for (let i = 0; i < records.length; i += BATCH_METER_MAX_RECORDS) {
       const batch = records.slice(i, i + BATCH_METER_MAX_RECORDS);
       const result = await this.meteringClient.send(new BatchMeterUsageCommand({
@@ -226,12 +232,15 @@ export class AWSMarketplaceProvider implements PaymentProvider {
         UsageRecords: batch,
       }));
       submitted += batch.length;
-      unprocessed += result.UnprocessedRecords?.length ?? 0;
+      for (const rec of result.UnprocessedRecords ?? []) {
+        unprocessed += 1;
+        if (rec.Dimension) unprocessedDimensions.push(rec.Dimension);
+      }
     }
 
     const metered = submitted - unprocessed;
     logger.info('AWS Marketplace: metered add-on usage', { customerIdentifier, metered, unprocessed, skipped });
-    return { metered, skipped, unprocessed };
+    return { metered, skipped, unprocessed, unprocessedDimensions };
   }
 
   // AWS Marketplace-specific methods
@@ -277,7 +286,15 @@ export class AWSMarketplaceProvider implements PaymentProvider {
 
     return entitlements.map((ent) => {
       const dimension = ent.Dimension || 'unknown';
-      const planId = this.marketplaceConfig.dimensionToPlanMap[dimension] || 'developer';
+      const mapped = this.marketplaceConfig.dimensionToPlanMap[dimension];
+      if (!mapped) {
+        // Listing/config drift: a dimension AWS entitled the customer to isn't in
+        // AWS_MARKETPLACE_DIMENSION_MAP, so a paying customer silently resolves to
+        // the free tier (under-entitled). Warn + meter so it's visible.
+        logger.warn('Unmapped AWS Marketplace dimension — defaulting to developer tier', { dimension, customerIdentifier });
+        incCounter('billing_marketplace_unmapped_dimension_total', { dimension });
+      }
+      const planId = mapped || 'developer';
 
       return {
         planId,

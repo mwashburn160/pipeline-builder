@@ -30,13 +30,14 @@ import { randomUUID } from 'node:crypto';
 import { createLogger, emitCounter } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { createBillingEvent } from './billing-helpers.js';
-import { compactCreditLedger } from './credit-ledger-compaction.js';
+import { compactCreditLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
 import { Plan } from '../models/plan.js';
 import { Promotion } from '../models/promotion.js';
 import type { PromotionDocument, PromotionEvent, PromotionConditions } from '../models/promotion.js';
 import { Referral } from '../models/referral.js';
 import { Subscription } from '../models/subscription.js';
 import type { SubscriptionDocument } from '../models/subscription.js';
+import { MANAGEABLE_SUBSCRIPTION_STATUSES, loadManageableSubscription } from './subscription-status.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 
 const logger = createLogger('promotion-engine');
@@ -85,15 +86,9 @@ function reserveGuard(promo: Pick<PromotionDocument, '_id' | 'maxGrants'>, cents
   };
 }
 
-/** Subscription statuses that can hold a credit — kept local so this engine has no
- *  heavy import coupling (a promo grant only touches its own + the sub model). */
-const MANAGEABLE_STATUSES = ['active', 'trialing', 'past_due'] as const;
-
-/** The account's manageable subscription, or null. Local mirror of discount-helpers'
- *  so this engine (and the promotions route) don't pull that heavy graph. */
-export async function loadManageableSubscription(orgId: string): Promise<SubscriptionDocument | null> {
-  return Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_STATUSES] } });
-}
+// loadManageableSubscription is re-exported so the promotions route keeps
+// importing it from here (source of truth is the shared leaf module).
+export { loadManageableSubscription };
 
 /** Resolve a promo's grant magnitude to cents, clamped by any per-org cap. `dollar`
  *  = the value in cents; `percent` = that percent of the current plan price. */
@@ -146,7 +141,7 @@ function makePlanCache() {
 /** Stream the manageable-status subscriptions via a cursor so a base scan
  *  (preview / activate / backfill) never loads the whole base into memory. */
 function activeSubscriptionCursor() {
-  return Subscription.find({ status: { $in: [...MANAGEABLE_STATUSES] } }).cursor();
+  return Subscription.find({ status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } }).cursor();
 }
 
 /**
@@ -216,7 +211,7 @@ async function reserveAndGrant(
     committed = await Subscription.findOneAndUpdate(
       { '_id': subscription._id, 'creditLedger.dedupeKey': { $ne: dedupeKey } },
       {
-        $push: { creditLedger: { discountId: ledgerId(promo._id), cents, appliedAt: new Date(), fulfillmentRef: ref, dedupeKey } },
+        $push: { creditLedger: creditLedgerEntry({ discountId: ledgerId(promo._id), cents, fulfillmentRef: ref, dedupeKey }) },
         $inc: { creditBalanceCents: cents },
       },
       { new: true },
@@ -447,7 +442,7 @@ export async function grantRecurringPromotions(subscription: SubscriptionDocumen
     }
     // In-memory grant (the periodic caller saves the subscription).
     subscription.creditBalanceCents = (subscription.creditBalanceCents ?? 0) + cents;
-    subscription.creditLedger.push({ discountId: ledgerId(promo._id), cents, appliedAt: new Date(), fulfillmentRef: ref, dedupeKey });
+    subscription.creditLedger.push(creditLedgerEntry({ discountId: ledgerId(promo._id), cents, fulfillmentRef: ref, dedupeKey }));
     await createBillingEvent(subscription.orgId, 'promotion_granted', { promotionId: promo._id, cents, campaign: promo.campaign, periodKey }, subscription._id.toString());
   }
 

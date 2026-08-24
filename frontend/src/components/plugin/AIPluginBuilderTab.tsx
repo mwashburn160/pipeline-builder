@@ -1,15 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
-import { Sparkles, ChevronDown, ChevronUp, Rocket, XCircle } from 'lucide-react';
+import { Sparkles, Rocket, XCircle } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
-import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
+import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
 import { useAIProviders } from '@/hooks/useAIProviders';
-import { getProviderSourceLabel } from '@/lib/ai-constants';
+import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
 import api from '@/lib/api';
 import { AI_MAX_PROMPT_LENGTH, formatError, formatJSON } from '@/lib/constants';
@@ -43,9 +43,7 @@ interface GeneratedConfig {
 /** AI-powered plugin builder that generates config and Dockerfile from a natural language prompt. */
 export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreated, onClose }: AIPluginBuilderTabProps) {
   const [prompt, setPrompt] = useState('');
-  const [generating, setGenerating] = useState(false);
   const [deploying, setDeploying] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   // Generated output
@@ -60,6 +58,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
   const { status: buildStatus, events, lastEvent } = useBuildStatus(requestId);
 
   const ai = useAIProviders(() => api.getPluginAIProviders());
+  const { generating, error, preview: streamPreview, setError, setPreview: setStreamPreview, generate } = useAiStreamGeneration();
   // Track mount state so the 2s auto-close timer never fires onClose after
   // the parent has already unmounted the tab (e.g. user clicked Cancel).
   const mountedRef = useRef<boolean>(true);
@@ -81,9 +80,6 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
   // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when buildStatus changes; other deps are stable callbacks
   }, [buildStatus]);
 
-  // Streaming preview state (shown during generation before final result)
-  const [streamPreview, setStreamPreview] = useState<string | null>(null);
-
   const handleGenerate = async () => {
     if (!prompt.trim()) {
       setError('Please enter a description of your plugin.');
@@ -93,45 +89,21 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
       setError('Please select a provider and model.');
       return;
     }
-    setError(null);
     setSuccess(null);
-    setGenerating(true);
     setGeneratedConfig(null);
     setGeneratedDockerfile(null);
-    setStreamPreview(null);
 
-    try {
-      const keyToUse = ai.customApiKey.trim() || undefined;
+    const keyToUse = ai.customApiKey.trim() || undefined;
 
-      for await (const event of api.streamPluginGeneration(
-        prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse,
-      )) {
-        switch (event.type) {
-          case 'partial':
-            if (event.data) {
-              setStreamPreview(formatJSON(event.data));
-            }
-            break;
-          case 'done':
-            if (event.data) {
-              const data = event.data as { config: GeneratedConfig; dockerfile: string };
-              setGeneratedConfig(data.config);
-              setGeneratedDockerfile(data.dockerfile);
-              setStreamPreview(null);
-            }
-            break;
-          case 'error':
-            setError(event.message || 'Generation failed');
-            break;
-        }
-      }
-    } catch (err: unknown) {
-      const message = formatError(err, 'Generation failed');
-      setError(message);
-    } finally {
-      setGenerating(false);
-      setStreamPreview(null);
-    }
+    await generate<{ config: GeneratedConfig; dockerfile: string }>({
+      stream: api.streamPluginGeneration(prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse),
+      onDone: (data) => {
+        setGeneratedConfig(data.config);
+        setGeneratedDockerfile(data.dockerfile);
+        setStreamPreview(null);
+      },
+      onSettled: () => setStreamPreview(null),
+    });
   };
 
   const handleDeploy = async () => {
@@ -180,68 +152,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
 
   return (
     <div className="space-y-4">
-      {/* Provider and Model Selection */}
-      <div className="grid grid-cols-2 gap-4">
-        <FormField label="Provider">
-          <Select
-            value={ai.selectedProvider}
-            onChange={(e) => ai.setSelectedProvider(e.target.value)}
-            disabled={disabled || isWorking}
-          >
-            {ai.providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} — {getProviderSourceLabel(p)}
-              </option>
-            ))}
-          </Select>
-        </FormField>
-        <FormField label="Model">
-          <Select
-            value={ai.selectedModel}
-            onChange={(e) => ai.setSelectedModel(e.target.value)}
-            disabled={disabled || isWorking}
-          >
-            {ai.currentModels.map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
-          </Select>
-        </FormField>
-      </div>
-
-      {/* Custom API Key Override */}
-      <div>
-        <button
-          type="button"
-          onClick={() => ai.setShowKeyOverride(!ai.showKeyOverride)}
-          aria-expanded={ai.showKeyOverride}
-          className="flex items-center text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-        >
-          {ai.showKeyOverride ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}
-          {ai.currentSource === 'none' ? 'Enter API key' : 'Use custom API key'}
-        </button>
-        {ai.showKeyOverride && (
-          <div className="mt-2">
-            <Input
-              type="password"
-              autoComplete="off"
-              value={ai.customApiKey}
-              onChange={(e) => ai.setCustomApiKey(e.target.value)}
-              placeholder={
-                ai.currentSource === 'none'
-                  ? 'Enter API key for this provider'
-                  : ai.currentSource === 'org' ? 'Leave empty to use organization key' : 'Leave empty to use server key'
-              }
-              className="text-sm"
-              disabled={disabled || isWorking}
-            />
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-              {ai.currentSource === 'none'
-                ? 'An API key is required to use this provider.'
-                : `Overrides the ${ai.currentSource === 'org' ? 'organization' : 'server'} key for this request only.`}
-            </p>
-          </div>
-        )}
-      </div>
+      <AiProviderModelPicker ai={ai} disabled={disabled || isWorking} />
 
       {/* Prompt Input */}
       <div>

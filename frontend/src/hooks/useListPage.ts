@@ -149,11 +149,12 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     return result;
   }, [debouncedTextValues, textFieldKeys, filters]);
 
-  // Reset to page 0 when filters or sort change
-  useEffect(() => {
-    setPageState(prev => prev.offset === 0 ? prev : { ...prev, offset: 0 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys is static config; only filter values matter
-  }, [debouncedTextValues, ...selectFieldKeys.map(k => filters[k]), sortState.sortBy, sortState.sortOrder]);
+  // NOTE: the "reset to page 0 when filters/sort change" logic lives in the
+  // updateFilter / clearFilters / setSort HANDLERS below, NOT in a dependency
+  // effect. A dep-effect also fires for the URL→state HYDRATION commit, which
+  // would immediately clobber a shared/refreshed `?…&offset=25` URL back to page
+  // 0. Driving the reset from the user handlers means hydration (which calls
+  // setFilters/setSortState directly) restores the offset intact.
 
   // Fetch data when debounced filters, pagination, or fetchKey change. Shares
   // the cancellable-fetch core with useFetch/useServerPagination so the
@@ -245,14 +246,22 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys static; settled values spread individually.
   }, [urlSync, debouncedTextValues, ...selectFieldKeys.map(k => filters[k]), sortState.sortBy, sortState.sortOrder, pageState.offset]);
 
+  // A changed filter/sort returns to page 1 (offset 0) — the no-op guard keeps
+  // an already-first-page change from causing an extra render.
+  const resetOffset = useCallback(() => {
+    setPageState(prev => prev.offset === 0 ? prev : { ...prev, offset: 0 });
+  }, []);
+
   const updateFilter = useCallback((key: string, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }));
-  }, []);
+    resetOffset();
+  }, [resetOffset]);
 
   const clearFilters = useCallback(() => {
     setFilters(initialFilters);
+    resetOffset();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initialFilters is only used on mount to reset state
-  }, []);
+  }, [resetOffset]);
 
   const hasActiveFilters = useMemo(() => fields.some(f => {
     const val = filters[f.key];
@@ -277,7 +286,8 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
 
   const setSort = useCallback((sortBy: string, sortOrder: string) => {
     setSortState(prev => (prev.sortBy === sortBy && prev.sortOrder === sortOrder ? prev : { sortBy, sortOrder }));
-  }, []);
+    resetOffset();
+  }, [resetOffset]);
 
   return {
     data,

@@ -1,18 +1,18 @@
 import { useState, useImperativeHandle, forwardRef, useCallback, useEffect, useRef } from 'react';
-import { Sparkles, ChevronDown, ChevronUp, Plug } from 'lucide-react';
+import { Sparkles, ChevronDown, Plug } from 'lucide-react';
 import { BuilderProps, Plugin, GeneratedPluginRef, asGeneratedSynth, asGeneratedStages } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
 import { useAIProviders } from '@/hooks/useAIProviders';
-import { getProviderSourceLabel } from '@/lib/ai-constants';
+import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
 import PluginNameCombobox from '@/components/pipeline/editors/PluginNameCombobox';
 import api from '@/lib/api';
-import { AI_MAX_PROMPT_LENGTH, formatError, formatJSON } from '@/lib/constants';
+import { AI_MAX_PROMPT_LENGTH, formatJSON } from '@/lib/constants';
 
 /**
  * Methods exposed to the parent modal via ref. Intentionally identical to
@@ -107,17 +107,15 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
 const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProps>(
   ({ disabled }, ref) => {
     const [prompt, setPrompt] = useState('');
-    const [generating, setGenerating] = useState(false);
     const [generatedProps, setGeneratedProps] = useState<BuilderProps | null>(null);
     const [stageCount, setStageCount] = useState(0);
     const [generatedDescription, setGeneratedDescription] = useState('');
     const [generatedKeywords, setGeneratedKeywords] = useState('');
-    const [error, setError] = useState<string | null>(null);
-    const [previewJson, setPreviewJson] = useState<string | null>(null);
     const [projectOverride, setProjectOverride] = useState('');
     const [organizationOverride, setOrganizationOverride] = useState('');
 
     const ai = useAIProviders(() => api.getAIProviders());
+    const { generating, error, preview: previewJson, setError, setPreview: setPreviewJson, generate } = useAiStreamGeneration();
 
     /** Update a plugin reference at the given path when the user swaps via combobox. */
     const handlePluginChange = useCallback((path: string, pluginName: string, plugin: Plugin | null) => {
@@ -186,52 +184,31 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
         return;
       }
 
-      setError(null);
-      setGenerating(true);
       setGeneratedProps(null);
       setStageCount(0);
-      setPreviewJson(null);
       setGeneratedDescription('');
       setGeneratedKeywords('');
       setProjectOverride('');
       setOrganizationOverride('');
 
-      try {
-        const keyToUse = ai.customApiKey.trim() || undefined;
+      const keyToUse = ai.customApiKey.trim() || undefined;
 
-        for await (const event of api.streamPipelineFromPrompt(
-          prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse,
-        )) {
-          if (cancelledRef.current) break; // unmounted mid-stream — stop reading
-          switch (event.type) {
-            case 'partial':
-              if (event.data) {
-                setPreviewJson(formatJSON(event.data));
-                const d = event.data as Record<string, unknown>;
-                if (Array.isArray(d.stages)) setStageCount(d.stages.length);
-              }
-              break;
-            case 'done':
-              if (event.data) {
-                const data = event.data as { props: BuilderProps; description?: string; keywords?: string[] };
-                setGeneratedProps(data.props);
-                setPreviewJson(formatJSON(data.props));
-                setGeneratedDescription(data.description || '');
-                setGeneratedKeywords(Array.isArray(data.keywords) ? data.keywords.join(', ') : '');
-                setProjectOverride(data.props.project || '');
-                setOrganizationOverride(data.props.organization || '');
-              }
-              break;
-            case 'error':
-              setError(event.message || 'Generation failed');
-              break;
-          }
-        }
-      } catch (err: unknown) {
-        if (!cancelledRef.current) setError(formatError(err, 'Generation failed'));
-      } finally {
-        if (!cancelledRef.current) setGenerating(false);
-      }
+      await generate<{ props: BuilderProps; description?: string; keywords?: string[] }>({
+        stream: api.streamPipelineFromPrompt(prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse),
+        cancelledRef,
+        onPartial: (data) => {
+          const d = data as Record<string, unknown>;
+          if (Array.isArray(d.stages)) setStageCount(d.stages.length);
+        },
+        onDone: (data) => {
+          setGeneratedProps(data.props);
+          setPreviewJson(formatJSON(data.props));
+          setGeneratedDescription(data.description || '');
+          setGeneratedKeywords(Array.isArray(data.keywords) ? data.keywords.join(', ') : '');
+          setProjectOverride(data.props.project || '');
+          setOrganizationOverride(data.props.organization || '');
+        },
+      });
     };
 
     if (ai.loading) {
@@ -245,68 +222,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
 
     return (
       <div className="space-y-4">
-        {/* Provider and Model Selection */}
-        <div className="grid grid-cols-2 gap-4">
-          <FormField label="Provider">
-            <Select
-              value={ai.selectedProvider}
-              onChange={(e) => ai.setSelectedProvider(e.target.value)}
-              disabled={disabled || generating}
-            >
-              {ai.providers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} — {getProviderSourceLabel(p)}
-                </option>
-              ))}
-            </Select>
-          </FormField>
-          <FormField label="Model">
-            <Select
-              value={ai.selectedModel}
-              onChange={(e) => ai.setSelectedModel(e.target.value)}
-              disabled={disabled || generating}
-            >
-              {ai.currentModels.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </Select>
-          </FormField>
-        </div>
-
-        {/* Custom API Key Override */}
-        <div>
-          <button
-            type="button"
-            onClick={() => ai.setShowKeyOverride(!ai.showKeyOverride)}
-            aria-expanded={ai.showKeyOverride}
-            className="flex items-center text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-          >
-            {ai.showKeyOverride ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}
-            {ai.currentSource === 'none' ? 'Enter API key' : 'Use custom API key'}
-          </button>
-          {ai.showKeyOverride && (
-            <div className="mt-2">
-              <Input
-                type="password"
-                autoComplete="off"
-                value={ai.customApiKey}
-                onChange={(e) => ai.setCustomApiKey(e.target.value)}
-                placeholder={
-                  ai.currentSource === 'none'
-                    ? 'Enter API key for this provider'
-                    : ai.currentSource === 'org' ? 'Leave empty to use organization key' : 'Leave empty to use server key'
-                }
-                className="text-sm"
-                disabled={disabled || generating}
-              />
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                {ai.currentSource === 'none'
-                  ? 'An API key is required to use this provider.'
-                  : `Overrides the ${ai.currentSource === 'org' ? 'organization' : 'server'} key for this request only.`}
-              </p>
-            </div>
-          )}
-        </div>
+        <AiProviderModelPicker ai={ai} disabled={disabled || generating} />
 
         {/* Prompt Input */}
         <div>

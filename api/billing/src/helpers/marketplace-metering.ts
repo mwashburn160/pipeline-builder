@@ -8,6 +8,7 @@ import { config } from '../config.js';
 import { createBillingEvent } from './billing-helpers.js';
 import { recordMarketplaceConsumption } from './billing-ledger.js';
 import { grantPeriodicCredits } from './discount-helpers.js';
+import { billingPeriodKey } from './billing-period.js';
 import { planMeteredDrawdown } from './marketplace-credit.js';
 import { grantRecurringPromotions } from './promotion-engine.js';
 import { Subscription } from '../models/subscription.js';
@@ -16,15 +17,6 @@ import { getPaymentProvider } from '../providers/provider-factory.js';
 import { getAuditClient } from '../services/audit.js';
 
 const logger = createLogger('marketplace-metering');
-
-/** Calendar period key for the recurring re-grant — `YYYY` (annual) or `YYYY-MM`
- *  (monthly). Deterministic + independent of possibly-stale subscription period
- *  fields. `now` is injected so the reload/compute uses one consistent instant. */
-function periodKeyFor(interval: string, now: Date): string {
-  const y = now.getUTCFullYear();
-  if (interval === 'annual') return String(y);
-  return `${y}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-}
 
 /** ISO hour bucket — matches AWS BatchMeterUsage's (customer, dimension, hour) dedupe. */
 function hourKeyFor(now: Date): string {
@@ -94,7 +86,7 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
 
   // 1. Re-grant recurring + combo credits once per billing period (atomic claim).
   if (creditsActive) {
-    const periodKey = periodKeyFor(subscription.interval, now);
+    const periodKey = billingPeriodKey(subscription.interval, now);
     const claimed = await Subscription.findOneAndUpdate(
       { '_id': subscription._id, 'metadata.lastCreditPeriod': { $ne: periodKey } },
       { $set: { 'metadata.lastCreditPeriod': periodKey } },
@@ -151,33 +143,40 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
     return { status: 'error', error: String(err) };
   }
 
-  // 4. Consume the credit — only on a CLEAN report with real withholding, at most
-  //    once per AWS dedupe-hour, and only if the balance still covers it (atomic).
-  //    The consumption is recorded on a PER-PERIOD BillingInvoice row (dashboard
-  //    visibility + bounded growth) rather than a per-hour `creditLedger` entry.
-  if (plan && !drawdownDryRun && plan.consumedCents > 0 && result.unprocessed === 0) {
+  // 4. Consume the credit — but ONLY for dimensions AWS actually accepted. A
+  //    partial BatchMeterUsage means the reduced quantity was applied for the
+  //    accepted records (customer under-billed → credit truly spent) but NOT for
+  //    the unprocessed ones (retried next cycle). Drawing down the full plan on a
+  //    partial batch would double-discount the unprocessed dimensions; drawing
+  //    down nothing (the old `unprocessed === 0` gate) double-discounts the
+  //    ACCEPTED ones. So attribute consumption to the accepted lines only.
+  //    At most once per AWS dedupe-hour, atomic on the balance.
+  const unprocessedDims = new Set(result.unprocessedDimensions ?? []);
+  const acceptedLines = plan ? plan.perLine.filter((l) => !unprocessedDims.has(l.dimension)) : [];
+  const acceptedConsumedCents = acceptedLines.reduce((s, l) => s + l.creditConsumedCents, 0);
+  if (plan && !drawdownDryRun && acceptedConsumedCents > 0) {
     const hourKey = hourKeyFor(now);
     const drawn = await Subscription.findOneAndUpdate(
-      { '_id': subscription._id, 'metadata.lastDrawdownHour': { $ne: hourKey }, 'creditBalanceCents': { $gte: plan.consumedCents } },
+      { '_id': subscription._id, 'metadata.lastDrawdownHour': { $ne: hourKey }, 'creditBalanceCents': { $gte: acceptedConsumedCents } },
       {
         $set: { 'metadata.lastDrawdownHour': hourKey },
-        $inc: { creditBalanceCents: -plan.consumedCents },
+        $inc: { creditBalanceCents: -acceptedConsumedCents },
       },
       { new: true },
     );
     if (drawn) {
-      const periodKey = periodKeyFor(subscription.interval, now);
+      const periodKey = billingPeriodKey(subscription.interval, now);
       const { start, end } = periodBounds(subscription.interval, now);
-      await recordMarketplaceConsumption(orgId, periodKey, start, end, plan.consumedCents);
+      await recordMarketplaceConsumption(orgId, periodKey, start, end, acceptedConsumedCents);
       const subId = subscription._id.toString();
-      await createBillingEvent(orgId, 'credit_consumed', { consumedCents: plan.consumedCents, dimensions: plan.perLine.length }, subId);
+      await createBillingEvent(orgId, 'credit_consumed', { consumedCents: acceptedConsumedCents, dimensions: acceptedLines.length, partial: unprocessedDims.size > 0 }, subId);
       // Mirror to the central audit trail (system-initiated; no request actor).
       getAuditClient().record({
         action: 'billing.credit.consumed',
         actorId: 'system',
         orgId,
         targetId: subId,
-        details: { consumedCents: plan.consumedCents, dimensions: plan.perLine.length, subscriptionId: subId },
+        details: { consumedCents: acceptedConsumedCents, dimensions: acceptedLines.length, subscriptionId: subId },
       }, 'billing');
       incCounter('billing_marketplace_credit_consumed_total', {});
       if ((drawn.creditBalanceCents ?? 0) === 0) {

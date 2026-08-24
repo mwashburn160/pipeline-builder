@@ -154,6 +154,7 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   createBillingEvent: mockCreateBillingEvent,
   syncTierToQuotaService: mockSyncTierToQuotaService,
   syncEntitlements: mockSyncTierToQuotaService,
+  syncProviderAddons: jest.fn(async () => undefined),
   // Over-cap gate: default to "no overages" so plan-change tests proceed.
   checkEntitlementOvercap: async () => [],
   applyTierIncludedAddonPrune: mockApplyTierIncludedAddonPrune,

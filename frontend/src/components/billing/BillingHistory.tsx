@@ -34,7 +34,7 @@ export function BillingHistory({
       ? [{
           id: 'org',
           header: 'Organization',
-          cellClassName: 'font-mono text-xs text-gray-500 dark:text-gray-400',
+          cellClassName: 'font-mono text-xs text-[var(--pb-text-muted)]',
           render: (evt: BillingEvent) => evt.orgId,
         }]
       : []),
@@ -42,7 +42,7 @@ export function BillingHistory({
 
   return (    <div className="mt-8">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Billing history</h2>
+        <h2 className="text-lg font-semibold text-[var(--pb-text)]">Billing history</h2>
         {!showEvents && (                <Button variant="secondary" size="sm" onClick={onViewEvents}>View events</Button>
         )}
       </div>

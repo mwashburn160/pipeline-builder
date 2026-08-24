@@ -175,7 +175,7 @@ export default function CreatePipelineModal({
     try {
       const props = await resolveProps();
       if (!props) { setComplianceLoading(false); return; }
-      const res = await api.dryRunPipelineCompliance(props as unknown as Record<string, unknown>);
+      const res = await api.dryRunPipelineCompliance(props);
       if (res.success && res.data) {
         setComplianceResult(res.data);
       } else {

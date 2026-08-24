@@ -3,15 +3,19 @@
 
 import { randomUUID } from 'node:crypto';
 import { createLogger } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 import { config } from '../config.js';
-import { createBillingEvent, getBundleCatalog, MANAGEABLE_SUBSCRIPTION_STATUSES } from './billing-helpers.js';
+import { createBillingEvent, getBundleCatalog } from './billing-helpers.js';
+import { loadManageableSubscription } from './subscription-status.js';
+import { billingPeriodKey } from './billing-period.js';
+// Re-exported so routes/discounts.ts keeps importing it from here.
+export { loadManageableSubscription };
 import { activeComboCredits, comboLedgerId, getComboDiscounts, priceForInterval } from './combo-pricing.js';
-import { compactCreditLedger } from './credit-ledger-compaction.js';
+import { compactCreditLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
 import { decodeDiscountCode, type DiscountSpec, type DiscountKind } from './discount-code.js';
 import { Discount } from '../models/discount.js';
 import type { DiscountDocument } from '../models/discount.js';
 import { Plan } from '../models/plan.js';
-import { Subscription } from '../models/subscription.js';
 import type { SubscriptionDocument } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 
@@ -57,10 +61,6 @@ function creditIdemSeed(orgId: string, discountId: string, periodKey?: string): 
   return periodKey ? `${orgId}:${discountId}:${periodKey}` : `${orgId}:${discountId}`;
 }
 
-/** Load the account's manageable subscription (active/trialing/past_due). */
-export async function loadManageableSubscription(orgId: string): Promise<SubscriptionDocument | null> {
-  return Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } });
-}
 
 /**
  * Resolve a redemption `code` — an opaque token OR a public alias — to its
@@ -271,8 +271,11 @@ async function grantUsageCredit(subscription: SubscriptionDocument, discountId: 
     ref = result.ref;
   }
   subscription.creditBalanceCents = (subscription.creditBalanceCents ?? 0) + cents;
-  subscription.creditLedger.push({ discountId, cents, appliedAt: new Date(), fulfillmentRef: ref, dedupeKey });
+  subscription.creditLedger.push(creditLedgerEntry({ discountId, cents, fulfillmentRef: ref, dedupeKey }));
   await createBillingEvent(subscription.orgId, 'credit_applied', { discountId, cents }, subscription._id.toString(), actorId);
+  // Observability parity with promotions (billing_promotion_granted_total): make a
+  // spike in discount/credit spend alertable rather than only a billing_events row.
+  incCounter('billing_credit_applied_total', {});
 }
 
 // ─── Lifecycle: source-of-truth reconciliation (Phase 6) ────────────
@@ -316,8 +319,12 @@ export async function reconcileDiscountsOnInvoice(subscription: SubscriptionDocu
     }
   }
 
-  // 2+3. Re-grant the recurring + combo credits for the period this invoice opens.
-  await grantPeriodicCredits(subscription, invoice.id ?? 'renew');
+  // 2+3. Re-grant the recurring + combo credits for THIS CALENDAR PERIOD. Keying
+  // on a calendar period (not the invoice id) makes the re-grant idempotent when
+  // more than one invoice settles in the same period — a proration / one-off /
+  // out-of-cycle invoice reuses the period key and hits the ledger dedupe instead
+  // of double-crediting the account.
+  await grantPeriodicCredits(subscription, billingPeriodKey(subscription.interval));
 }
 
 /**

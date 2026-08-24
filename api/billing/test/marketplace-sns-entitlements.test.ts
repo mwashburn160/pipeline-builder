@@ -72,6 +72,7 @@ const mockApplyPlanTierChange = jest.fn((subscription: any, plan: { tier: string
   });
 });
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
   applyPlanTierChange: mockApplyPlanTierChange,
   calculatePeriodEnd: (...a: unknown[]) => mockCalculatePeriodEnd(...a),
   createBillingEvent: (...a: unknown[]) => mockCreateBillingEvent(...a),

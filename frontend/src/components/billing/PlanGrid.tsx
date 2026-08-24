@@ -64,18 +64,18 @@ export function PlanGrid({
               <span className={`inline-block text-xs font-semibold px-3 py-1 rounded-full ${tierMeta.pillClass}`}>
                 {plan.name}
               </span>
-              <p className="mt-4 text-4xl font-bold text-gray-900 dark:text-gray-100">
+              <p className="mt-4 text-4xl font-bold text-[var(--pb-text)]">
                 {formatPrice(price)}
               </p>
-              {price > 0 && (                    <p className="text-sm text-gray-500 dark:text-gray-400">
+              {price > 0 && (                    <p className="text-sm text-[var(--pb-text-muted)]">
                   per {billingInterval === 'annual' ? 'year': 'month'}
                 </p>
               )}
-              <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">{plan.description}</p>
+              <p className="mt-2 text-sm text-[var(--pb-text-muted)]">{plan.description}</p>
             </div>
 
             <ul className="space-y-3 mb-6">
-              {plan.features.map((feature) => (                    <li key={feature} className="flex items-start text-sm text-gray-700 dark:text-gray-300">
+              {plan.features.map((feature) => (                    <li key={feature} className="flex items-start text-sm text-[var(--pb-text)]">
                   <Check className="w-4 h-4 mr-2 mt-0.5 text-green-500 flex-shrink-0" />
                   {feature}
                 </li>
@@ -89,7 +89,7 @@ export function PlanGrid({
               disabled={isCurrent || actionLoading || !canChangePlan}
               className={`justify-center ${
                 isCurrent || !canChangePlan
-                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                  ? 'bg-[var(--pb-surface-muted)] text-[var(--pb-text-muted)] cursor-not-allowed'
 : ''
               }`}
             >

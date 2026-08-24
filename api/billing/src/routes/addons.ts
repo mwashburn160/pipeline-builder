@@ -6,6 +6,7 @@ import {
   requirePermission,
   sendSuccess,
   sendError,
+  sendBadRequest,
   ErrorCode,
   createLogger,
   getParam,
@@ -322,7 +323,7 @@ export function createAddonRoutes(): Router {
     if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled');
     if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace');
     const validation = validateBody(req, AddonMutateSchema);
-    if (!validation.ok) return sendError(res, 400, validation.error);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const { bundleId, quantity } = validation.value;
 
     const loaded = await loadSubAndPlan(orgId);
@@ -371,7 +372,7 @@ export function createAddonRoutes(): Router {
     if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled');
     if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace');
     const validation = validateBody(req, AddonMutateSchema);
-    if (!validation.ok) return sendError(res, 400, validation.error);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const { bundleId, quantity } = validation.value;
 
     const loaded = await loadSubAndPlan(orgId);

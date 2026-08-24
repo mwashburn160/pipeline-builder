@@ -6,6 +6,7 @@ import { Shield, ShieldCheck, CheckCircle, AlertTriangle, XCircle, Activity, Clo
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { StatusPill } from '@/components/ui/StatusPill';
+import { Button } from '@/components/ui/Button';
 import { TabBar } from '@/components/ui/TabBar';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { PostureHeadline } from '@/components/ui/PostureHeadline';
@@ -502,9 +503,9 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
               onSelect={(id) => setActivityTab(id as 'checks' | 'changes')}
             />
             {activityTab === 'checks' && auditResult && (
-              <button onClick={() => onResultChange('')} className="text-xs font-normal text-blue-600 hover:underline">
+              <Button variant="link" onClick={() => onResultChange('')} className="text-xs font-normal">
                 {auditResult} only · clear
-              </button>
+              </Button>
             )}
             <Link
               href="/dashboard/audit?action=compliance"

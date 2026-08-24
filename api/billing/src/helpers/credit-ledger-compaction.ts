@@ -38,6 +38,21 @@ export interface CreditLedgerEntry {
   grantCount?: number;
 }
 
+/**
+ * Build a credit-ledger row. Single source of the row SHAPE so the discount and
+ * promotion grant paths — the in-memory `.push()` sites AND the atomic `$push`
+ * sites — can't drift (add a field to one, forget the others). Stamps `appliedAt`
+ * at call time; callers supply the provenance + amount.
+ */
+export function creditLedgerEntry(e: {
+  discountId: string;
+  cents: number;
+  fulfillmentRef?: { kind: string; ref: string };
+  dedupeKey?: string;
+}): CreditLedgerEntry {
+  return { discountId: e.discountId, cents: e.cents, appliedAt: new Date(), fulfillmentRef: e.fulfillmentRef, dedupeKey: e.dedupeKey };
+}
+
 /** Default number of most-recent periodic rows to keep per provenance family
  *  before folding the remainder. One year of monthly periods — comfortably beyond
  *  any provider webhook-redelivery window, so recent-period idempotency is intact. */

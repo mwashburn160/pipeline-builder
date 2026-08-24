@@ -71,6 +71,8 @@ export function useCrudResource<T extends { id: string }, TCreate, TUpdate, TPar
         setItems((prev) => [item, ...prev]);
         return item;
       }
+      // 2xx with success:false / no data — surface it instead of a silent no-op.
+      setError(new Error((res as { message?: string }).message || `Failed to create ${entityName}`));
       return null;
     } catch (err) {
       setError(toError(err, `Failed to create ${entityName}`));
@@ -86,6 +88,7 @@ export function useCrudResource<T extends { id: string }, TCreate, TUpdate, TPar
         setItems((prev) => prev.map((i) => (i.id === id ? item : i)));
         return item;
       }
+      setError(new Error((res as { message?: string }).message || `Failed to update ${entityName}`));
       return null;
     } catch (err) {
       setError(toError(err, `Failed to update ${entityName}`));

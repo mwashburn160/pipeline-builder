@@ -112,6 +112,7 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   buildSubscriptionResponse: mockBuildSubscriptionResponse,
   syncTierToQuotaService: mockSyncTierToQuotaService,
   syncEntitlements: mockSyncTierToQuotaService,
+  syncProviderAddons: jest.fn(async () => undefined),
   createBillingEvent: mockCreateBillingEvent,
   applyTierIncludedAddonPrune: mockApplyTierIncludedAddonPrune,
   finalizePrunedAddons: mockFinalizePrunedAddons,

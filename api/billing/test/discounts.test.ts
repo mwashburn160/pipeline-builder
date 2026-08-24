@@ -32,6 +32,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: jest.fn(),
   withRoute: (routeFn: Function) => async (req: any, res: any) => {
     const orgId = req.user?.organizationId || '';
     if (!orgId) return mockSendError(res, 400, 'Organization ID is required', 'MISSING_REQUIRED_FIELD');
@@ -341,7 +342,7 @@ describe('lifecycle reconciliation (Phase 6)', () => {
     expect(mockApplyUsageCredit).not.toHaveBeenCalled();
   });
 
-  it('re-grants a combo credit each period, derived from live add-ons (idempotent per invoice)', async () => {
+  it('re-grants a combo credit once per CALENDAR PERIOD, derived from live add-ons', async () => {
     mockActiveComboCredits.mockReturnValue([{ comboId: 'analytics_suite', name: 'Analytics Suite', creditCents: 2000 }]);
     const s = sub({
       externalCustomerId: 'cus_x',
@@ -350,11 +351,15 @@ describe('lifecycle reconciliation (Phase 6)', () => {
     await reconcileDiscountsOnInvoice(s as any, { id: 'in_c1', ending_balance: null });
     expect(s.creditBalanceCents).toBe(2000);
     expect(mockApplyUsageCredit).toHaveBeenCalledWith('cus_x', 2000, expect.stringContaining('combo:analytics_suite'));
-    expect(s.creditLedger).toContainEqual(expect.objectContaining({ discountId: 'combo:analytics_suite', cents: 2000, dedupeKey: 'in_c1' }));
+    // The ledger dedupe key is the calendar period (YYYY-MM for monthly), NOT the
+    // invoice id — this is what stops a second invoice in the same period from
+    // double-crediting.
+    expect(s.creditLedger).toContainEqual(expect.objectContaining({ discountId: 'combo:analytics_suite', cents: 2000, dedupeKey: expect.stringMatching(/^\d{4}-\d{2}$/) }));
 
-    // A redelivered webhook for the SAME invoice must not double-grant.
+    // H2 regression lock: a DIFFERENT invoice settling in the SAME period (a
+    // proration / one-off) must NOT re-grant the combo credit.
     mockApplyUsageCredit.mockClear();
-    await reconcileDiscountsOnInvoice(s as any, { id: 'in_c1', ending_balance: null });
+    await reconcileDiscountsOnInvoice(s as any, { id: 'in_c1_proration', ending_balance: null });
     expect(mockApplyUsageCredit).not.toHaveBeenCalled();
     expect(s.creditLedger.filter((c: any) => c.discountId === 'combo:analytics_suite')).toHaveLength(1);
   });

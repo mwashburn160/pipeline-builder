@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { formatDateTime } from '@/lib/format';
 import { useAsyncCallback } from '@/hooks/useAsync';
 import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
+import { ReadonlyField } from '@/components/ui/ReadonlyField';
 import { Button } from '@/components/ui/Button';
 import { Textarea } from '@/components/ui/Textarea';
 import { Input } from '@/components/ui/Input';
@@ -416,30 +418,12 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
           <div className="mb-4">
             <CollapsibleSection title="System Information" hasContent={true}>
               <div className="mt-3 grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">ID</label>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{t.id}</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Org ID</label>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{t.orgId}</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created By</label>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{t.createdBy}</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created At</label>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(t.createdAt).toLocaleString()}</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated By</label>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{t.updatedBy}</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated At</label>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(t.updatedAt).toLocaleString()}</p>
-                </div>
+                <ReadonlyField label="ID" value={t.id} valueClassName="font-mono" />
+                <ReadonlyField label="Org ID" value={t.orgId} />
+                <ReadonlyField label="Created By" value={t.createdBy} />
+                <ReadonlyField label="Created At" value={formatDateTime(t.createdAt)} />
+                <ReadonlyField label="Updated By" value={t.updatedBy} />
+                <ReadonlyField label="Updated At" value={formatDateTime(t.updatedAt)} />
               </div>
             </CollapsibleSection>
           </div>

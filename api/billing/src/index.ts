@@ -10,6 +10,7 @@ import { config } from './config.js';
 import { startMarketplaceMetering, stopMarketplaceMetering } from './helpers/marketplace-metering.js';
 import { startPromotionBackfill } from './helpers/promotion-backfill.js';
 import { seedPlans } from './helpers/seed-plans.js';
+import { validateProviderConfig } from './helpers/validate-provider-config.js';
 import { startSubscriptionLifecycleChecker, stopSubscriptionLifecycleChecker } from './helpers/subscription-lifecycle.js';
 import { createAddonRoutes } from './routes/addons.js';
 import { createAdminSubscriptionRoutes } from './routes/admin-subscriptions.js';
@@ -81,6 +82,7 @@ if (config.enabled) {
     name: 'Billing Service',
     port: config.port,
     onBeforeStart: async () => {
+      validateProviderConfig();
       await connectMongo(mongoose, config.mongodb.uri);
       await seedPlans();
       startSubscriptionLifecycleChecker();

@@ -90,8 +90,8 @@ export function AddonGrid({
   }, [highlightedId]);
 
   return (    <div className="mt-10">
-      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Add-ons</h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+      <h2 className="text-lg font-semibold text-[var(--pb-text)] mb-1">Add-ons</h2>
+      <p className="text-sm text-[var(--pb-text-muted)] mb-4">
         {!subscribed
           ? 'Preview of the add-on packs available on your plan. Subscribe to a plan to buy extra capacity that stacks on it and pools across your teams.'
           : bundleSelfService
@@ -113,15 +113,15 @@ export function AddonGrid({
               }`}
             >
               <div className="flex items-start justify-between">
-                <h3 className="font-medium text-gray-900 dark:text-gray-100">{b.name}</h3>
-                <span className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                <h3 className="font-medium text-[var(--pb-text)]">{b.name}</h3>
+                <span className="text-sm text-[var(--pb-text-muted)] whitespace-nowrap">
                   {formatCents(price)}/{billingInterval === 'annual' ? 'yr': 'mo'}{b.stackable ? ' ea': ''}
                 </span>
               </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 flex-1">{b.description}</p>
+              <p className="text-sm text-[var(--pb-text-muted)] mt-1 flex-1">{b.description}</p>
               {features.length > 0 && (
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  <span className="text-xs text-gray-400 dark:text-gray-500">Unlocks</span>
+                  <span className="text-xs text-[var(--pb-text-muted)]">Unlocks</span>
                   {features.map((label) => (
                     <span
                       key={label}
@@ -138,7 +138,7 @@ export function AddonGrid({
                 </p>
               )}
               <div className="mt-4 flex items-center gap-2">
-                {!canBuy ? (                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                {!canBuy ? (                        <span className="text-sm text-[var(--pb-text-muted)]">
                     {!subscribed
                       ? 'Subscribe to add'
                       : qty > 0 ? `${qty} active` : 'Managed in AWS Marketplace'}

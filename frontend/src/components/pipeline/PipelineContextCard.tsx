@@ -43,7 +43,7 @@ export function PipelineContextCard({ pipeline }: { pipeline: Pipeline }) {
     let cancelled = false;
     setChecking(true);
     setCheckFailed(false);
-    api.dryRunPipelineCompliance(pipeline.props as unknown as Record<string, unknown>)
+    api.dryRunPipelineCompliance(pipeline.props)
       .then((res) => {
         if (cancelled) return;
         if (res.success && res.data) setCompliance(res.data);

@@ -23,6 +23,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter: je
 // rest are stubbed so the module's heavy config graph never loads.
 const mockCreateBillingEvent = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
   createBillingEvent: (...a: unknown[]) => mockCreateBillingEvent(...a),
   applyPlanTierChange: () => async () => undefined,
   applyTierIncludedAddonPrune: () => [],

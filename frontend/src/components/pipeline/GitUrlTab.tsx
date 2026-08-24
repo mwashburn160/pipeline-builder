@@ -4,15 +4,15 @@ import { BuilderProps, Plugin, GeneratedPluginRef, asGeneratedSynth, asGenerated
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
 import { useAIProviders } from '@/hooks/useAIProviders';
+import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
 import { clearPluginCache } from '@/hooks/usePlugins';
-import { getProviderSourceLabel } from '@/lib/ai-constants';
 import PluginNameCombobox from '@/components/pipeline/editors/PluginNameCombobox';
 import api from '@/lib/api';
-import { formatError, formatJSON } from '@/lib/constants';
+import { formatJSON } from '@/lib/constants';
 
 /** Methods exposed to the parent modal via ref. */
 export interface GitUrlTabRef {
@@ -127,21 +127,19 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
     const [gitUrl, setGitUrl] = useState(initialUrl || '');
     const [repoToken, setRepoToken] = useState('');
     const [showPrivate, setShowPrivate] = useState(false);
-    const [generating, setGenerating] = useState(false);
     const [analyzing, setAnalyzing] = useState(false);
     const [analysis, setAnalysis] = useState<RepoAnalysisData | null>(null);
     const [generatedProps, setGeneratedProps] = useState<BuilderProps | null>(null);
     const [stageCount, setStageCount] = useState(0);
     const [generatedDescription, setGeneratedDescription] = useState('');
     const [generatedKeywords, setGeneratedKeywords] = useState('');
-    const [error, setError] = useState<string | null>(null);
-    const [previewJson, setPreviewJson] = useState<string | null>(null);
     const [checkingPlugins, setCheckingPlugins] = useState(false);
     const [pluginStatus, setPluginStatus] = useState<PluginCreationStatus | null>(null);
     const [projectOverride, setProjectOverride] = useState('');
     const [organizationOverride, setOrganizationOverride] = useState('');
 
     const ai = useAIProviders(() => api.getAIProviders());
+    const { generating, error, preview: previewJson, setError, setPreview: setPreviewJson, generate } = useAiStreamGeneration();
     const autoGenAttemptedRef = useRef<boolean>(false);
 
     // Set on unmount (e.g. the create modal closes or the user switches tab
@@ -216,13 +214,10 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         return;
       }
 
-      setError(null);
-      setGenerating(true);
       setAnalyzing(true);
       setAnalysis(null);
       setGeneratedProps(null);
       setStageCount(0);
-      setPreviewJson(null);
       setGeneratedDescription('');
       setGeneratedKeywords('');
       setCheckingPlugins(false);
@@ -230,14 +225,25 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       setProjectOverride('');
       setOrganizationOverride('');
 
-      try {
-        const keyToUse = ai.customApiKey.trim() || undefined;
-        const tokenToUse = repoToken.trim() || undefined;
+      const keyToUse = ai.customApiKey.trim() || undefined;
+      const tokenToUse = repoToken.trim() || undefined;
 
-        for await (const event of api.streamPipelineFromUrl(
-          gitUrl.trim(), ai.selectedProvider, ai.selectedModel, keyToUse, tokenToUse,
-        )) {
-          if (cancelledRef.current) break; // unmounted/tab-switched mid-stream — stop reading
+      await generate<{ props: BuilderProps; description?: string; keywords?: string[] }>({
+        stream: api.streamPipelineFromUrl(gitUrl.trim(), ai.selectedProvider, ai.selectedModel, keyToUse, tokenToUse),
+        cancelledRef,
+        onPartial: (data) => {
+          const d = data as Record<string, unknown>;
+          if (Array.isArray(d.stages)) setStageCount(d.stages.length);
+        },
+        onDone: (data) => {
+          setGeneratedProps(data.props);
+          setPreviewJson(formatJSON(data.props));
+          setGeneratedDescription(data.description || '');
+          setGeneratedKeywords(Array.isArray(data.keywords) ? data.keywords.join(', ') : '');
+          setProjectOverride(data.props.project || '');
+          setOrganizationOverride(data.props.organization || '');
+        },
+        onEvent: (event) => {
           switch (event.type) {
             case 'analyzing':
               setAnalyzing(true);
@@ -246,24 +252,6 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
               setAnalyzing(false);
               if (event.data) {
                 setAnalysis(event.data as RepoAnalysisData);
-              }
-              break;
-            case 'partial':
-              if (event.data) {
-                setPreviewJson(formatJSON(event.data));
-                const d = event.data as Record<string, unknown>;
-                if (Array.isArray(d.stages)) setStageCount(d.stages.length);
-              }
-              break;
-            case 'done':
-              if (event.data) {
-                const data = event.data as { props: BuilderProps; description?: string; keywords?: string[] };
-                setGeneratedProps(data.props);
-                setPreviewJson(formatJSON(data.props));
-                setGeneratedDescription(data.description || '');
-                setGeneratedKeywords(Array.isArray(data.keywords) ? data.keywords.join(', ') : '');
-                setProjectOverride(data.props.project || '');
-                setOrganizationOverride(data.props.organization || '');
               }
               break;
             case 'checking-plugins':
@@ -276,19 +264,10 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
                 clearPluginCache();
               }
               break;
-            case 'error':
-              setError(event.message || 'Generation failed');
-              break;
           }
-        }
-      } catch (err: unknown) {
-        if (!cancelledRef.current) setError(formatError(err, 'Generation failed'));
-      } finally {
-        if (!cancelledRef.current) {
-          setGenerating(false);
-          setAnalyzing(false);
-        }
-      }
+        },
+        onSettled: () => setAnalyzing(false),
+      });
     };
 
     // Auto-generate when initialUrl + autoGenerate are set. Fire exactly once
@@ -363,68 +342,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
           )}
         </div>
 
-        {/* Provider and Model Selection */}
-        <div className="grid grid-cols-2 gap-4">
-          <FormField label="Provider">
-            <Select
-              value={ai.selectedProvider}
-              onChange={(e) => ai.setSelectedProvider(e.target.value)}
-              disabled={disabled || generating}
-            >
-              {ai.providers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} — {getProviderSourceLabel(p)}
-                </option>
-              ))}
-            </Select>
-          </FormField>
-          <FormField label="Model">
-            <Select
-              value={ai.selectedModel}
-              onChange={(e) => ai.setSelectedModel(e.target.value)}
-              disabled={disabled || generating}
-            >
-              {ai.currentModels.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </Select>
-          </FormField>
-        </div>
-
-        {/* Custom API Key Override */}
-        <div>
-          <button
-            type="button"
-            onClick={() => ai.setShowKeyOverride(!ai.showKeyOverride)}
-            aria-expanded={ai.showKeyOverride}
-            className="flex items-center text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-          >
-            {ai.showKeyOverride ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}
-            {ai.currentSource === 'none' ? 'Enter API key' : 'Use custom API key'}
-          </button>
-          {ai.showKeyOverride && (
-            <div className="mt-2">
-              <Input
-                type="password"
-                autoComplete="off"
-                value={ai.customApiKey}
-                onChange={(e) => ai.setCustomApiKey(e.target.value)}
-                placeholder={
-                  ai.currentSource === 'none'
-                    ? 'Enter API key for this provider'
-                    : ai.currentSource === 'org' ? 'Leave empty to use organization key' : 'Leave empty to use server key'
-                }
-                className="text-sm"
-                disabled={disabled || generating}
-              />
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                {ai.currentSource === 'none'
-                  ? 'An API key is required to use this provider.'
-                  : `Overrides the ${ai.currentSource === 'org' ? 'organization' : 'server'} key for this request only.`}
-              </p>
-            </div>
-          )}
-        </div>
+        <AiProviderModelPicker ai={ai} disabled={disabled || generating} />
 
         {/* Generate Button */}
         <div className="flex justify-end">

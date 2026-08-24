@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
@@ -81,10 +81,14 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
       .finally(() => setLoading(false));
   }, [router.isReady, router.query.token]);
 
+  const redirectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Clear the pending redirect if the user navigates away before it fires.
+  useEffect(() => () => { if (redirectTimer.current) clearTimeout(redirectTimer.current); }, []);
+
   const finish = async () => {
     setDone(true);
     await refreshUser();
-    setTimeout(() => router.push('/dashboard'), 1200);
+    redirectTimer.current = setTimeout(() => router.push('/dashboard'), 1200);
   };
 
   // Logged-in: accept directly.

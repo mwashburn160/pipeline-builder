@@ -19,6 +19,7 @@ import {
   calculatePeriodEnd,
   createBillingEvent,
   syncEntitlements,
+  MANAGEABLE_SUBSCRIPTION_STATUSES,
 } from '../helpers/billing-helpers.js';
 import {
   verifySNSSignature,
@@ -27,9 +28,11 @@ import {
   type SNSMessage,
   type MarketplaceNotification,
 } from '../helpers/marketplace-helpers.js';
+import { randomUUID } from 'node:crypto';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 import type { BillingInterval } from '../models/subscription.js';
+import { MarketplacePendingRegistration, PENDING_REGISTRATION_TTL_MS } from '../models/marketplace-pending-registration.js';
 import { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent } from '../models/webhook-dedupe.js';
 import { AWSMarketplaceProvider, type EntitlementResult } from '../providers/aws-marketplace-provider.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
@@ -61,7 +64,13 @@ const ANNUAL_TERM_THRESHOLD_MS = 180 * 24 * 60 * 60 * 1000;
  */
 function deriveMarketplaceInterval(entitlement: EntitlementResult | undefined, now: Date): BillingInterval {
   const exp = entitlement?.expirationDate;
-  if (!exp) return 'monthly';
+  if (!exp) {
+    // No expiration to key on ⇒ low-confidence default. Meter it: a high rate
+    // means the listing should expose an authoritative billing-term dimension
+    // rather than us inferring cadence from the expiration horizon.
+    incCounter('billing_marketplace_interval_inference_low_confidence_total', {});
+    return 'monthly';
+  }
   return exp.getTime() - now.getTime() > ANNUAL_TERM_THRESHOLD_MS ? 'annual' : 'monthly';
 }
 
@@ -125,10 +134,12 @@ async function processMarketplaceNotification(notification: MarketplaceNotificat
   // actor for system-driven events).
   // Determine event type and sync tier.
   // For an immediate cancel ('canceled') we downgrade now. For a soft cancel
-  // ('cancelAtPeriodEnd') the org has paid through `currentPeriodEnd` —
-  // downgrading now would strip their tier mid-period. The lifecycle cron
-  // (api/billing/src/helpers/subscription-lifecycle.ts) handles the actual
-  // downgrade once `currentPeriodEnd` lapses.
+  // ('cancelAtPeriodEnd') the org has paid through `currentPeriodEnd`, so we do
+  // NOT downgrade now — but note the actual downgrade then comes from a later
+  // `unsubscribe-success` SNS, NOT the lifecycle cron: that cron skips
+  // marketplace rows (subscription-lifecycle.ts records a stale-period event
+  // only). If the terminal SNS is missed, GetEntitlements-backed reconciliation
+  // would be needed to catch it.
   if (statusChange.status === 'canceled') {
     await syncEntitlements(subscription.orgId, 'developer', '', subscription._id.toString());
     await createBillingEvent(subscription.orgId, 'subscription_canceled', {
@@ -136,6 +147,18 @@ async function processMarketplaceNotification(notification: MarketplaceNotificat
       provider: 'aws-marketplace',
       previousStatus,
       newStatus: statusChange.status,
+      customerIdentifier,
+    }, subscription._id.toString());
+  } else if (statusChange.status === 'incomplete' && (MANAGEABLE_SUBSCRIPTION_STATUSES as readonly string[]).includes(previousStatus)) {
+    // subscribe-fail from a previously-ENTITLED state: `incomplete` is not an
+    // entitled status, so downgrade rather than leave the paid tier in place.
+    await syncEntitlements(subscription.orgId, 'developer', '', subscription._id.toString());
+    await createBillingEvent(subscription.orgId, 'subscription_updated', {
+      action,
+      provider: 'aws-marketplace',
+      previousStatus,
+      newStatus: statusChange.status,
+      reason: 'subscribe_fail_downgrade',
       customerIdentifier,
     }, subscription._id.toString());
   } else if (statusChange.cancelAtPeriodEnd) {
@@ -331,7 +354,8 @@ async function handleEntitlementUpdate(customerIdentifier: string): Promise<void
  * Create the AWS Marketplace integration router.
  *
  * Registers:
- * - POST /marketplace/resolve      -- exchange a registration token for a subscription
+ * - POST /marketplace/resolve      -- exchange a registration token for a pending registration (unauthenticated, AWS redirect)
+ * - POST /marketplace/claim        -- bind a pending registration to the caller's org (authenticated)
  * - POST /marketplace/sns          -- receive SNS webhook notifications
  * - GET  /marketplace/entitlements -- check current entitlements (authenticated)
  * @returns Express Router
@@ -373,7 +397,20 @@ export function createMarketplaceRoutes(): Router {
           customerIdentifier: resolved.customerIdentifier,
         });
 
-        // Step 2: Check for existing subscription
+        // A body-supplied orgId is never honored here: this route is
+        // unauthenticated (AWS-redirected) and binding happens later in `claim`
+        // under the caller's authenticated org — accepting an orgId would let
+        // anyone pre-bind a marketplace subscription to an arbitrary org.
+        if (req.body?.orgId) {
+          return sendError(
+            res, 400,
+            'orgId is not accepted on this endpoint',
+            ErrorCode.VALIDATION_ERROR,
+          );
+        }
+
+        // Step 2: Already bound? If a real org has already claimed this AWS
+        // customer, there's nothing to register — tell the caller to sign in.
         const existing = await Subscription.findOne({
           'metadata.awsCustomerIdentifier': resolved.customerIdentifier,
           'status': 'active',
@@ -381,14 +418,9 @@ export function createMarketplaceRoutes(): Router {
 
         if (existing) {
           return sendSuccess(res, 200, {
-            message: 'Customer already registered',
-            subscription: {
-              id: existing._id.toString(),
-              orgId: existing.orgId,
-              planId: existing.planId,
-              status: existing.status,
-            },
-            customerIdentifier: resolved.customerIdentifier,
+            alreadyRegistered: true,
+            planId: existing.planId,
+            message: 'This AWS Marketplace subscription is already linked to an organization. Sign in to manage it.',
           });
         }
 
@@ -408,75 +440,43 @@ export function createMarketplaceRoutes(): Router {
           );
         }
 
-        // Step 5: Create the subscription. This route is unauthenticated
-        // (AWS-redirected), so the orgId MUST come from the AWS-resolved
-        // customer — accepting a body-supplied orgId would let any caller
-        // bind a marketplace subscription to an arbitrary org.
-        if (req.body?.orgId) {
-          return sendError(
-            res, 400,
-            'orgId is not accepted on this endpoint',
-            ErrorCode.VALIDATION_ERROR,
-          );
-        }
-        // Key the org on AWS Marketplace's opaque `customerIdentifier` token
-        // (also our subscription lookup key), NOT `customerAWSAccountId` — repo
-        // policy forbids persisting AWS account ids, and the account id would
-        // otherwise propagate into quota/audit stores as the tenant key.
-        const orgId = resolved.customerIdentifier;
-        const now = new Date();
-
-        // Derive the cadence from the entitlement's term rather than assuming
-        // monthly — an annual offer must get an annual period so renewal-reminder
-        // and period math are correct. Defaults to monthly when AWS gives us no
-        // term to key on (see deriveMarketplaceInterval).
-        const interval = deriveMarketplaceInterval(activeEntitlement, now);
-
-        const subscription = await Subscription.create({
-          orgId,
-          planId,
-          status: 'active',
-          interval,
-          currentPeriodStart: now,
-          currentPeriodEnd: calculatePeriodEnd(now, interval),
-          cancelAtPeriodEnd: false,
-          externalId: `aws_sub_${resolved.customerIdentifier}`,
-          externalCustomerId: resolved.customerIdentifier,
-          metadata: {
-            provider: 'aws-marketplace',
-            awsCustomerIdentifier: resolved.customerIdentifier,
-            awsProductCode: resolved.productCode,
-            dimension: activeEntitlement?.dimension,
-          },
-        });
-
-        // Step 6: Sync tier to quota service (preserve purchased add-on grants)
-        await syncEntitlements(orgId, plan.tier, '', subscription._id.toString(), subscription.addons ?? []);
-
-        // Step 7: Log billing event
-        await createBillingEvent(orgId, 'subscription_created', {
-          planId,
-          tier: plan.tier,
-          provider: 'aws-marketplace',
+        // Step 5: Bank a short-lived, single-use pending registration instead of
+        // creating a subscription now — there is no platform org to bind it to
+        // until the purchaser signs in and calls `claim`. Cadence is derived from
+        // the entitlement term (see deriveMarketplaceInterval).
+        const interval = deriveMarketplaceInterval(activeEntitlement, new Date());
+        // Bound row growth + supersede any prior unclaimed resolve for this
+        // customer: a repeated resolve (e.g. the purchaser re-clicks "Set up your
+        // account") invalidates the older ref rather than accumulating rows. TTL
+        // still cleans truly-abandoned ones.
+        await MarketplacePendingRegistration.deleteMany({ awsCustomerIdentifier: resolved.customerIdentifier });
+        const registrationRef = randomUUID();
+        await MarketplacePendingRegistration.create({
+          _id: registrationRef,
           awsCustomerIdentifier: resolved.customerIdentifier,
-        }, subscription._id.toString());
+          awsProductCode: resolved.productCode,
+          planId,
+          dimension: activeEntitlement?.dimension,
+          interval,
+          expiresAt: new Date(Date.now() + PENDING_REGISTRATION_TTL_MS),
+        });
 
-        logger.info('Marketplace subscription created', {
-          orgId,
+        logger.info('Marketplace registration resolved (pending claim)', {
+          registrationRef,
           planId,
           customerIdentifier: resolved.customerIdentifier,
         });
 
+        // NOTE: the customerIdentifier is deliberately NOT returned — the opaque
+        // registrationRef is the only handle the client needs, and it keeps the
+        // AWS identity off the browser. Bind with POST /billing/marketplace/claim.
         return sendSuccess(res, 201, {
-          message: 'Registration successful',
-          subscription: {
-            id: subscription._id.toString(),
-            orgId,
-            planId,
-            planName: plan.name,
-            status: 'active',
-          },
-          customerIdentifier: resolved.customerIdentifier,
+          alreadyRegistered: false,
+          registrationRef,
+          planId,
+          planName: plan.name,
+          interval,
+          expiresInMs: PENDING_REGISTRATION_TTL_MS,
         });
       } catch (error) {
         logger.error('Failed to resolve marketplace token', { error: errorMessage(error) });
@@ -487,6 +487,106 @@ export function createMarketplaceRoutes(): Router {
         );
       }
     },
+  );
+
+  // POST /billing/marketplace/claim — bind a resolved registration to the
+  // caller's organization. Authenticated: the AWS purchaser signs in / signs up
+  // first, THEN links the marketplace subscription to their real org.
+
+  router.post(
+    '/marketplace/claim',
+    requireAuth(AUTH_OPTS) as RequestHandler,
+    requirePermission('billing:manage') as RequestHandler,
+    withRoute(async ({ req, res, ctx, orgId, userId }) => {
+      const registrationRef = (req.body as { registrationRef?: unknown })?.registrationRef;
+      if (typeof registrationRef !== 'string' || !registrationRef) {
+        return sendError(res, 400, 'registrationRef is required', ErrorCode.MISSING_REQUIRED_FIELD);
+      }
+
+      // Atomically CONSUME the pending registration up front: findOneAndDelete
+      // guarantees single-use even under concurrent/duplicate claims — exactly
+      // one racer receives the doc, the rest see null → 410. The
+      // `metadata.awsCustomerIdentifier` index is NOT unique, so this atomic
+      // consume (not the DB) is what stops two different orgs binding the same AWS
+      // customer through a shared ref. Missing/expired ⇒ the resolve window lapsed
+      // or it was already claimed — re-launch from AWS Marketplace for a fresh token.
+      const pending = await MarketplacePendingRegistration.findOneAndDelete({ _id: registrationRef });
+      if (!pending) {
+        return sendError(res, 410, 'Registration link expired or already used — re-launch from AWS Marketplace', ErrorCode.NOT_FOUND);
+      }
+
+      // Guard: this AWS customer must not already be bound (e.g. a prior claim on
+      // a different ref). Best-effort pre-check; the create below is also wrapped.
+      const alreadyBound = await Subscription.findOne({
+        'metadata.awsCustomerIdentifier': pending.awsCustomerIdentifier,
+        'status': 'active',
+      });
+      if (alreadyBound) {
+        return sendError(res, 409, 'This AWS Marketplace subscription is already linked to an organization', ErrorCode.CONFLICT);
+      }
+
+      // Guard: the caller's org must not already hold an active subscription.
+      const orgActive = await Subscription.findOne({ orgId, status: 'active' });
+      if (orgActive) {
+        return sendError(res, 409, 'This organization already has an active subscription', ErrorCode.CONFLICT);
+      }
+
+      const plan = await Plan.findOne({ _id: pending.planId, isActive: true });
+      if (!plan) {
+        return sendError(res, 500, 'Unable to map marketplace entitlement to a valid plan', ErrorCode.INTERNAL_ERROR);
+      }
+
+      const now = new Date();
+      let subscription;
+      try {
+        subscription = await Subscription.create({
+          orgId,
+          planId: pending.planId,
+          status: 'active',
+          interval: pending.interval,
+          currentPeriodStart: now,
+          currentPeriodEnd: calculatePeriodEnd(now, pending.interval),
+          cancelAtPeriodEnd: false,
+          externalId: `aws_sub_${pending.awsCustomerIdentifier}`,
+          externalCustomerId: pending.awsCustomerIdentifier,
+          metadata: {
+            provider: 'aws-marketplace',
+            awsCustomerIdentifier: pending.awsCustomerIdentifier,
+            awsProductCode: pending.awsProductCode,
+            dimension: pending.dimension,
+          },
+        });
+      } catch (e) {
+        // A concurrent claim for the same org can still slip past the guards and
+        // collide on the unique {orgId,status:active} index — surface the clean
+        // 409 rather than a raw 500. (The ref is already consumed; a genuine
+        // duplicate means the org is subscribed either way.)
+        if ((e as { code?: number })?.code === 11000) {
+          return sendError(res, 409, 'This organization already has an active subscription', ErrorCode.CONFLICT);
+        }
+        throw e;
+      }
+
+      // Sync tier to quota (no add-ons yet on a fresh bind) + record the event.
+      await syncEntitlements(orgId, plan.tier, userId ?? '', subscription._id.toString(), subscription.addons ?? []);
+      await createBillingEvent(orgId, 'subscription_created', {
+        planId: pending.planId,
+        tier: plan.tier,
+        provider: 'aws-marketplace',
+        awsCustomerIdentifier: pending.awsCustomerIdentifier,
+      }, subscription._id.toString());
+
+      ctx.log('COMPLETED', 'Marketplace subscription claimed', { orgId, planId: pending.planId });
+      return sendSuccess(res, 201, {
+        subscription: {
+          id: subscription._id.toString(),
+          orgId,
+          planId: pending.planId,
+          planName: plan.name,
+          status: 'active',
+        },
+      });
+    }),
   );
 
   // POST /billing/marketplace/sns — SNS notification webhook

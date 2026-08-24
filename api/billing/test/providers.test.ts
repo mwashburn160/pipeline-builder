@@ -9,6 +9,7 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter: jest.fn() }));
 
 // Mock Mongoose Subscription model. findOne returns a promise that also has a
 // chainable `.sort()` (the provider does `findOne(...).sort({createdAt:-1})`),
@@ -252,7 +253,7 @@ describe('AWSMarketplaceProvider', () => {
         { bundleId: 'pipeline_pack', quantity: 2 },
       ], ts);
 
-      expect(result).toEqual({ metered: 2, skipped: [], unprocessed: 0 });
+      expect(result).toEqual({ metered: 2, skipped: [], unprocessed: 0, unprocessedDimensions: [] });
       expect(mockMeteringSend).toHaveBeenCalledTimes(1);
       const sent = (mockMeteringSend.mock.calls[0][0] as { input: { ProductCode: string; UsageRecords: unknown[] } }).input;
       expect(sent.ProductCode).toBe('test-product');
@@ -282,7 +283,7 @@ describe('AWSMarketplaceProvider', () => {
         { bundleId: 'audit_log', quantity: 5 }, // unmapped
       ]);
 
-      expect(result).toEqual({ metered: 0, skipped: ['audit_log'], unprocessed: 0 });
+      expect(result).toEqual({ metered: 0, skipped: ['audit_log'], unprocessed: 0, unprocessedDimensions: [] });
       expect(mockMeteringSend).not.toHaveBeenCalled();
     });
 
@@ -292,7 +293,7 @@ describe('AWSMarketplaceProvider', () => {
       });
 
       const result = await provider.meterAddonUsage('cust-1', [{ bundleId: 'seat_pack', quantity: 3 }]);
-      expect(result).toEqual({ metered: 0, skipped: [], unprocessed: 1 });
+      expect(result).toEqual({ metered: 0, skipped: [], unprocessed: 1, unprocessedDimensions: ['seats'] });
     });
 
     it('truncates fractional quantities to a non-negative integer', async () => {

@@ -30,7 +30,10 @@ export type { BillingInterval };
  * customer has to be able to stop dunning. Terminal / never-provisioned states
  * (`canceled`, `incomplete`) are deliberately excluded.
  */
-export const MANAGEABLE_SUBSCRIPTION_STATUSES = ['active', 'trialing', 'past_due'] as const;
+// Single source of truth lives in the leaf module (prevents drift across
+// billing-helpers / discount-helpers / promotion-engine); re-exported here so
+// existing importers of billing-helpers are unaffected.
+export { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 
 /** Resolve the per-request timeout for billing's outbound service calls. */
 export function getBillingTimeout(): number {
@@ -49,8 +52,8 @@ export function getBillingTimeout(): number {
  * `authHeader || billingServiceAuth(orgId)` fallback — this replaces only the
  * fallback literal, never a user credential.
  */
-export function billingServiceAuth(orgId: string): string {
-  return getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
+export function billingServiceAuth(orgId: string, role: 'owner' | 'member' = 'owner'): string {
+  return getServiceAuthHeader({ serviceName: 'billing', orgId, role });
 }
 
 /**
@@ -93,6 +96,49 @@ export async function createBillingEvent(
 }
 
 /**
+ * Shared entitlement-sync leg: PUT the effective entitlement to a downstream
+ * service and, on any failure, write a `*_sync_failed` `subscription_updated`
+ * audit row so support can see the local billing state drifted. Every sync
+ * target (quota / platform seats / reporting retention / compliance sets) shares
+ * this exact handshake — createSafeClient with the billing timeout, the
+ * `authHeader || billingServiceAuth(orgId)` service-token fallback (system paths
+ * pass `''`), and the `{ Authorization, 'x-org-id': orgId }` headers — so they
+ * live here once instead of four near-identical copies. `logFields` are folded
+ * into both the log lines and the audit-row details. Best-effort; never throws.
+ */
+async function pushEntitlementLeg(opts: {
+  orgId: string;
+  service: { host: string; port: number };
+  path: string;
+  body: Record<string, unknown>;
+  authHeader: string;
+  failReason: string;
+  logLabel: string;
+  logFields: Record<string, unknown>;
+  subscriptionId?: string;
+}): Promise<boolean> {
+  const { orgId, service, path, body, authHeader, failReason, logLabel, logFields, subscriptionId } = opts;
+  try {
+    const client = createSafeClient({ host: service.host, port: service.port, timeout: getBillingTimeout() });
+    const effectiveAuth = authHeader || billingServiceAuth(orgId);
+    const response = await client.put(path, body, {
+      headers: { 'Authorization': effectiveAuth, 'x-org-id': orgId },
+    });
+    if (response && response.statusCode < 400) {
+      logger.info(`Synced ${logLabel}`, { orgId, ...logFields });
+      return true;
+    }
+    logger.error(`Failed to sync ${logLabel}`, { orgId, ...logFields, statusCode: response?.statusCode });
+    await createBillingEvent(orgId, 'subscription_updated', { reason: failReason, ...logFields, statusCode: response?.statusCode }, subscriptionId);
+    return false;
+  } catch (error) {
+    logger.error(`Error syncing ${logLabel}`, { orgId, ...logFields, error });
+    await createBillingEvent(orgId, 'subscription_updated', { reason: failReason, ...logFields, error: error instanceof Error ? error.message : String(error) }, subscriptionId);
+    return false;
+  }
+}
+
+/**
  * Sync organization tier to the quota service after a subscription change.
  *
  * `authHeader` is optional — webhook / lifecycle / SNS paths have no user
@@ -111,49 +157,20 @@ export async function syncTierToQuotaService(
   subscriptionId?: string,
   quotas?: Record<string, number>,
 ): Promise<boolean> {
-  try {
-    const client = createSafeClient({
-      host: config.quotaService.host,
-      port: config.quotaService.port,
-      timeout: getBillingTimeout(),
-    });
-
-    // Mint the service token for the target org so the quota service sees a
-    // real tenant identity rather than 'system' — keeps RLS / audit logs
-    // attributable to the org being mutated. Push EXPLICIT effective limits
-    // (tier + bundles) so a plain tier reseed can't wipe purchased add-ons.
-    const effectiveAuth = authHeader || billingServiceAuth(orgId);
-    const body = quotas ? { tier, quotas } : { tier };
-    const response = await client.put(`/quotas/${orgId}`, body, {
-      headers: {
-        'Authorization': effectiveAuth,
-        'x-org-id': orgId,
-      },
-    });
-
-    if (response && response.statusCode < 400) {
-      logger.info('Synced tier to quota service', { orgId, tier });
-      return true;
-    }
-
-    logger.error('Failed to sync tier to quota service', {
-      orgId, tier, statusCode: response?.statusCode,
-    });
-    await createBillingEvent(orgId, 'subscription_updated', {
-      reason: 'quota_sync_failed',
-      tier,
-      statusCode: response?.statusCode,
-    }, subscriptionId);
-    return false;
-  } catch (error) {
-    logger.error('Error syncing tier to quota service', { orgId, tier, error });
-    await createBillingEvent(orgId, 'subscription_updated', {
-      reason: 'quota_sync_failed',
-      tier,
-      error: error instanceof Error ? error.message : String(error),
-    }, subscriptionId);
-    return false;
-  }
+  // Push EXPLICIT effective limits (tier + bundles) so a plain tier reseed can't
+  // wipe purchased add-ons. The service token (minted per target org by the leg)
+  // gives the quota service a real tenant identity for RLS/audit attribution.
+  return pushEntitlementLeg({
+    orgId,
+    service: config.quotaService,
+    path: `/quotas/${orgId}`,
+    body: quotas ? { tier, quotas } : { tier },
+    authHeader,
+    failReason: 'quota_sync_failed',
+    logLabel: 'tier to quota service',
+    logFields: { tier },
+    subscriptionId,
+  });
 }
 
 /**
@@ -171,41 +188,22 @@ async function pushSeatLimitToPlatform(
   subscriptionId?: string,
   tier?: QuotaTier,
 ): Promise<boolean> {
-  try {
-    const client = createSafeClient({
-      host: config.platformService.host,
-      port: config.platformService.port,
-      timeout: getBillingTimeout(),
-    });
-    const effectiveAuth = authHeader || billingServiceAuth(orgId);
-    // Push the account `tier` alongside seats/features so a plan DOWNGRADE
-    // invalidates stale JWTs platform-side (the token re-derives tier-included
-    // features from `org.tier`). Platform sets ONLY the tier label here — it
-    // never reseeds quotas (billing owns limits, synced to the quota service).
-    const response = await client.put(`/organization/${orgId}/seat-limit`, { seats, features, tier }, {
-      headers: { 'Authorization': effectiveAuth, 'x-org-id': orgId },
-    });
-    if (response && response.statusCode < 400) {
-      logger.info('Synced seat limit to platform', { orgId, seats });
-      return true;
-    }
-    logger.error('Failed to sync seat limit to platform', { orgId, seats, statusCode: response?.statusCode });
-    await createBillingEvent(orgId, 'subscription_updated', {
-      reason: 'seat_sync_failed', seats, statusCode: response?.statusCode,
-    }, subscriptionId);
-    return false;
-  } catch (error) {
-    logger.error('Error syncing seat limit to platform', { orgId, seats, error });
-    // Symmetry with the non-2xx branch above (and syncTierToQuotaService): write a
-    // `seat_sync_failed` audit row so support can see the local billing state
-    // drifted from platform even when the call THREW rather than returned non-2xx.
-    await createBillingEvent(orgId, 'subscription_updated', {
-      reason: 'seat_sync_failed',
-      seats,
-      error: error instanceof Error ? error.message : String(error),
-    }, subscriptionId);
-    return false;
-  }
+  // Push the account `tier` alongside seats/features so a plan DOWNGRADE
+  // invalidates stale JWTs platform-side (the token re-derives tier-included
+  // features from `org.tier`). Platform sets ONLY the tier label here — it never
+  // reseeds quotas (billing owns limits, synced to the quota service). The audit
+  // row records `seats` only (matching the prior behavior), so keep logFields tight.
+  return pushEntitlementLeg({
+    orgId,
+    service: config.platformService,
+    path: `/organization/${orgId}/seat-limit`,
+    body: { seats, features, tier },
+    authHeader,
+    failReason: 'seat_sync_failed',
+    logLabel: 'seat limit to platform',
+    logFields: { seats },
+    subscriptionId,
+  });
 }
 
 /** Absolute retention ceiling (days) — mirrors reporting's RETENTION_MAX_DAYS. */
@@ -239,42 +237,17 @@ async function pushRetentionToReporting(
 ): Promise<boolean> {
   const eventRetentionDays = clampRetentionDays(limits.eventRetentionDays);
   const doraRetentionDays = clampRetentionDays(limits.doraRetentionDays);
-  try {
-    const client = createSafeClient({
-      host: config.reportingService.host,
-      port: config.reportingService.port,
-      timeout: getBillingTimeout(),
-    });
-    const effectiveAuth = authHeader || billingServiceAuth(orgId);
-    const response = await client.put(
-      `/api/reports/retention-sync/${orgId}`,
-      { eventRetentionDays, doraRetentionDays },
-      { headers: { 'Authorization': effectiveAuth, 'x-org-id': orgId } },
-    );
-    if (response && response.statusCode < 400) {
-      logger.info('Synced retention to reporting', { orgId, eventRetentionDays, doraRetentionDays });
-      return true;
-    }
-    logger.error('Failed to sync retention to reporting', {
-      orgId, eventRetentionDays, doraRetentionDays, statusCode: response?.statusCode,
-    });
-    await createBillingEvent(orgId, 'subscription_updated', {
-      reason: 'retention_sync_failed', eventRetentionDays, doraRetentionDays, statusCode: response?.statusCode,
-    }, subscriptionId);
-    return false;
-  } catch (error) {
-    logger.error('Error syncing retention to reporting', { orgId, eventRetentionDays, doraRetentionDays, error });
-    // Symmetry with the non-2xx branch (and pushSeatLimitToPlatform): write a
-    // `retention_sync_failed` audit row so support can see the local billing
-    // state drifted from reporting even when the call THREW rather than 4xx/5xx'd.
-    await createBillingEvent(orgId, 'subscription_updated', {
-      reason: 'retention_sync_failed',
-      eventRetentionDays,
-      doraRetentionDays,
-      error: error instanceof Error ? error.message : String(error),
-    }, subscriptionId);
-    return false;
-  }
+  return pushEntitlementLeg({
+    orgId,
+    service: config.reportingService,
+    path: `/api/reports/retention-sync/${orgId}`,
+    body: { eventRetentionDays, doraRetentionDays },
+    authHeader,
+    failReason: 'retention_sync_failed',
+    logLabel: 'retention to reporting',
+    logFields: { eventRetentionDays, doraRetentionDays },
+    subscriptionId,
+  });
 }
 
 /**
@@ -334,41 +307,17 @@ export async function pushComplianceSetsToCompliance(
   occurredAt: string = new Date().toISOString(),
 ): Promise<boolean> {
   const sets = deriveComplianceSets(features);
-  try {
-    const client = createSafeClient({
-      host: config.complianceService.host,
-      port: config.complianceService.port,
-      timeout: getBillingTimeout(),
-    });
-    const effectiveAuth = authHeader || billingServiceAuth(orgId);
-    const response = await client.put(
-      `/api/compliance/entitlements/${orgId}`,
-      { sets, occurredAt },
-      { headers: { 'Authorization': effectiveAuth, 'x-org-id': orgId } },
-    );
-    if (response && response.statusCode < 400) {
-      logger.info('Synced compliance sets to compliance service', { orgId, sets });
-      return true;
-    }
-    logger.error('Failed to sync compliance sets to compliance service', {
-      orgId, sets, statusCode: response?.statusCode,
-    });
-    await createBillingEvent(orgId, 'subscription_updated', {
-      reason: 'compliance_sync_failed', sets, statusCode: response?.statusCode,
-    }, subscriptionId);
-    return false;
-  } catch (error) {
-    logger.error('Error syncing compliance sets to compliance service', { orgId, sets, error });
-    // Symmetry with the non-2xx branch (and pushRetentionToReporting): write a
-    // `compliance_sync_failed` audit row so support can see the local billing
-    // state drifted from compliance even when the call THREW rather than 4xx/5xx'd.
-    await createBillingEvent(orgId, 'subscription_updated', {
-      reason: 'compliance_sync_failed',
-      sets,
-      error: error instanceof Error ? error.message : String(error),
-    }, subscriptionId);
-    return false;
-  }
+  return pushEntitlementLeg({
+    orgId,
+    service: config.complianceService,
+    path: `/api/compliance/entitlements/${orgId}`,
+    body: { sets, occurredAt },
+    authHeader,
+    failReason: 'compliance_sync_failed',
+    logLabel: 'compliance sets to compliance service',
+    logFields: { sets },
+    subscriptionId,
+  });
 }
 
 /** The active add-on bundle catalog (env-driven, from pipeline-core config). */

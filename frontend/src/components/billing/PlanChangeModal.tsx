@@ -51,7 +51,7 @@ export function PlanChangeModal({
       }
     >
       <div className="space-y-4">
-        <p className="text-sm text-gray-700 dark:text-gray-300">
+        <p className="text-sm text-[var(--pb-text)]">
           You&apos;re changing your plan from <strong>{currentPlanName}</strong> to{' '}
           <strong>{targetPlan.name}</strong> at{' '}
           <strong>{formatPrice(price)}</strong>
@@ -67,7 +67,7 @@ export function PlanChangeModal({
             </p>
           </div>
         )}
-        <p className="text-xs text-gray-500 dark:text-gray-400">
+        <p className="text-xs text-[var(--pb-text-muted)]">
           Changes are prorated and take effect immediately.
         </p>
       </div>

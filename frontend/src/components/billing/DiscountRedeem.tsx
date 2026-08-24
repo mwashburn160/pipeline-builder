@@ -32,7 +32,9 @@ function isNotAvailable(err: unknown): boolean {
 export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountRedeemProps) {
   const toast = useToast();
   const [code, setCode] = useState('');
-  const [loading, setLoading] = useState(false);
+  // Per-action busy state so previewing doesn't spin the Apply/Remove buttons
+  // (and vice-versa).
+  const [busy, setBusy] = useState<'preview' | 'apply' | 'remove' | null>(null);
   const [preview, setPreview] = useState<{ applied: string; priceBreakdown: DiscountPriceBreakdown } | null>(null);
   // Set when an endpoint 404s (discounts disabled in this deployment) → hide.
   const [unavailable, setUnavailable] = useState(false);
@@ -44,24 +46,28 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
   const handlePreview = async () => {
     const trimmed = code.trim();
     if (!trimmed) return;
-    setLoading(true);
+    setBusy('preview');
     try {
       const res = await api.previewDiscountCode(subscription.id, trimmed);
       if (res.success && res.data) {
         setPreview({ applied: res.data.applied, priceBreakdown: res.data.priceBreakdown });
+      } else {
+        // 2xx with no usable payload — don't leave the user staring at a spinner
+        // that ended with nothing shown.
+        toast.error(res.message || 'This code could not be previewed');
       }
     } catch (err) {
       if (isNotAvailable(err)) { setUnavailable(true); return; }
       toast.error(formatError(err, 'Failed to preview discount code'));
     } finally {
-      setLoading(false);
+      setBusy(null);
     }
   };
 
   const handleApply = async () => {
     const trimmed = code.trim();
     if (!trimmed) return;
-    setLoading(true);
+    setBusy('apply');
     try {
       const res = await api.redeemDiscountCode(subscription.id, trimmed);
       if (res.success) {
@@ -69,29 +75,33 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
         setCode('');
         setPreview(null);
         onApplied();
+      } else {
+        toast.error(res.message || 'This code could not be applied');
       }
     } catch (err) {
       if (isNotAvailable(err)) { setUnavailable(true); return; }
       toast.error(formatError(err, 'Failed to apply discount code'));
     } finally {
-      setLoading(false);
+      setBusy(null);
     }
   };
 
   const handleRemove = async () => {
     if (!recurring) return;
-    setLoading(true);
+    setBusy('remove');
     try {
       const res = await api.removeSubscriptionDiscount(subscription.id, recurring.discountId);
       if (res.success) {
         toast.success('Recurring discount removed');
         onApplied();
+      } else {
+        toast.error(res.message || 'Could not remove the discount');
       }
     } catch (err) {
       if (isNotAvailable(err)) { setUnavailable(true); return; }
       toast.error(formatError(err, 'Failed to remove discount'));
     } finally {
-      setLoading(false);
+      setBusy(null);
     }
   };
 
@@ -110,8 +120,8 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
 
   return (
     <Card>
-      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Discount</h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+      <h2 className="text-lg font-semibold text-[var(--pb-text)] mb-1">Discount</h2>
+      <p className="text-sm text-[var(--pb-text-muted)] mb-4">
         Have a discount code? Apply it as a usage credit against your bill.
       </p>
 
@@ -124,8 +134,8 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
           <Button
             variant="danger-outline"
             size="sm"
-            loading={loading}
-            disabled={!canManage || loading}
+            loading={busy === 'remove'}
+            disabled={!canManage || busy !== null}
             onClick={handleRemove}
           >
             Remove
@@ -138,15 +148,15 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
           value={code}
           onChange={(e) => { setCode(e.target.value); setPreview(null); }}
           placeholder="Enter discount code"
-          disabled={!canManage || loading}
+          disabled={!canManage || busy !== null}
           className="flex-1"
           aria-label="Discount code"
         />
         <Button
           variant="secondary"
           size="sm"
-          loading={loading}
-          disabled={!canManage || loading || !code.trim()}
+          loading={busy === 'preview'}
+          disabled={!canManage || busy !== null || !code.trim()}
           onClick={handlePreview}
         >
           Preview
@@ -154,8 +164,8 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
         <Button
           variant="primary"
           size="sm"
-          loading={loading}
-          disabled={!canManage || loading || !code.trim()}
+          loading={busy === 'apply'}
+          disabled={!canManage || busy !== null || !code.trim()}
           onClick={handleApply}
         >
           Apply
@@ -163,23 +173,23 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
       </div>
 
       {preview && (
-        <div className="mt-4 rounded-md border border-gray-200 dark:border-gray-700 p-3">
-          <p className="text-sm text-gray-700 dark:text-gray-300">
+        <div className="mt-4 rounded-md border border-[var(--pb-border)] p-3">
+          <p className="text-sm text-[var(--pb-text)]">
             Applies as: <span className="font-medium">{preview.applied}</span>
           </p>
           <dl className="mt-2 space-y-1">
             {(preview.priceBreakdown.items ?? []).map((item, i) => (
               <div key={i} className="flex items-center justify-between gap-4 text-sm">
-                <dt className="text-gray-500 dark:text-gray-400">{item.label}</dt>
-                <dd className="text-gray-900 dark:text-gray-100 tabular-nums text-right">{formatCents(item.cents)}</dd>
+                <dt className="text-[var(--pb-text-muted)]">{item.label}</dt>
+                <dd className="text-[var(--pb-text)] tabular-nums text-right">{formatCents(item.cents)}</dd>
               </div>
             ))}
-            <div className="flex items-center justify-between gap-4 text-sm border-t border-gray-200 dark:border-gray-700 pt-1 mt-1 font-medium">
-              <dt className="text-gray-700 dark:text-gray-200">Total ({preview.priceBreakdown.interval})</dt>
-              <dd className="text-gray-900 dark:text-gray-100 tabular-nums text-right">{formatCents(preview.priceBreakdown.totalCents)}</dd>
+            <div className="flex items-center justify-between gap-4 text-sm border-t border-[var(--pb-border)] pt-1 mt-1 font-medium">
+              <dt className="text-[var(--pb-text)]">Total ({preview.priceBreakdown.interval})</dt>
+              <dd className="text-[var(--pb-text)] tabular-nums text-right">{formatCents(preview.priceBreakdown.totalCents)}</dd>
             </div>
             {preview.priceBreakdown.creditRemainingCents > 0 && (
-              <div className="flex items-center justify-between gap-4 text-xs text-gray-500 dark:text-gray-400">
+              <div className="flex items-center justify-between gap-4 text-xs text-[var(--pb-text-muted)]">
                 <dt>Credit remaining</dt>
                 <dd className="tabular-nums text-right">{formatCents(preview.priceBreakdown.creditRemainingCents)}</dd>
               </div>
@@ -189,7 +199,7 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
       )}
 
       {!canManage && (
-        <p className="mt-3 text-sm text-gray-400 dark:text-gray-500">
+        <p className="mt-3 text-sm text-[var(--pb-text-muted)]">
           Contact an organization admin to redeem a discount code.
         </p>
       )}

@@ -7,6 +7,8 @@ import {
   requireSystemAdmin,
   sendSuccess,
   sendError,
+  sendBadRequest,
+  ErrorCode,
   createLogger,
   getParam,
   validateBody,
@@ -63,11 +65,16 @@ function toPromotionResponse(p: PromotionDocument): Record<string, unknown> {
 export function createPromotionRoutes(): Router {
   const router: Router = Router();
 
+  // Gate every route once (was an inline `if (!promotionsEnabled())` per handler).
+  router.use((_req, res, next) => {
+    if (!promotionsEnabled()) return sendError(res, 404, 'Promotions are not enabled');
+    next();
+  });
+
   // POST /billing/admin/promotions — mint a promotion.
   router.post('/admin/promotions', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
-    if (!promotionsEnabled()) return sendError(res, 404, 'Promotions are not enabled');
     const validation = validateBody(req, PromotionMintSchema);
-    if (!validation.ok) return sendError(res, 400, validation.error);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
 
     const _id = `promo_${randomUUID()}`;
@@ -103,7 +110,6 @@ export function createPromotionRoutes(): Router {
 
   // GET /billing/admin/promotions — list (filter by campaign / active).
   router.get('/admin/promotions', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
-    if (!promotionsEnabled()) return sendError(res, 404, 'Promotions are not enabled');
     const campaign = parseQueryString(req.query.campaign);
     const active = parseQueryString(req.query.active);
     const filter: Record<string, unknown> = {};
@@ -117,7 +123,6 @@ export function createPromotionRoutes(): Router {
 
   // GET /billing/admin/promotions/:id — inspect one.
   router.get('/admin/promotions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
-    if (!promotionsEnabled()) return sendError(res, 404, 'Promotions are not enabled');
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findById(id);
     if (!promo) return sendError(res, 404, 'Promotion not found');
@@ -126,10 +131,9 @@ export function createPromotionRoutes(): Router {
 
   // PUT /billing/admin/promotions/:id — edit / activate / revoke.
   router.put('/admin/promotions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
-    if (!promotionsEnabled()) return sendError(res, 404, 'Promotions are not enabled');
     const id = getParam(req.params, 'id');
     const validation = validateBody(req, PromotionUpdateSchema);
-    if (!validation.ok) return sendError(res, 400, validation.error);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
 
     const update: Record<string, unknown> = {};
@@ -155,7 +159,6 @@ export function createPromotionRoutes(): Router {
   // DELETE /billing/admin/promotions/:id — soft-revoke (stops future auto-grants;
   // already-granted credits are NOT clawed back).
   router.delete('/admin/promotions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
-    if (!promotionsEnabled()) return sendError(res, 404, 'Promotions are not enabled');
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findByIdAndUpdate(id, { $set: { isActive: false } }, { new: true });
     if (!promo) return sendError(res, 404, 'Promotion not found');
@@ -173,10 +176,9 @@ export function createPromotionRoutes(): Router {
   // trigger-event/eligibility matching (admin intent) but still honors budget,
   // per-org idempotency, and the provider realizability invariant.
   router.post('/admin/promotions/:id/grant', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
-    if (!promotionsEnabled()) return sendError(res, 404, 'Promotions are not enabled');
     const id = getParam(req.params, 'id');
     const validation = validateBody(req, PromotionGrantSchema);
-    if (!validation.ok) return sendError(res, 400, validation.error);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const { targetOrgId } = validation.value;
 
     const promo = await Promotion.findById(id);
@@ -207,7 +209,6 @@ export function createPromotionRoutes(): Router {
   // eligible base now (phase 2b). Idempotent per org; budget-bounded (skips are
   // logged). Use /preview first to project reach/spend.
   router.post('/admin/promotions/:id/activate', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
-    if (!promotionsEnabled()) return sendError(res, 404, 'Promotions are not enabled');
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findById(id);
     if (!promo) return sendError(res, 404, 'Promotion not found');
@@ -228,7 +229,6 @@ export function createPromotionRoutes(): Router {
 
   // POST /billing/admin/promotions/:id/preview — projected reach + committed spend.
   router.post('/admin/promotions/:id/preview', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
-    if (!promotionsEnabled()) return sendError(res, 404, 'Promotions are not enabled');
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findById(id);
     if (!promo) return sendError(res, 404, 'Promotion not found');
@@ -239,7 +239,6 @@ export function createPromotionRoutes(): Router {
   // GET /billing/admin/promotions/:id/spend — ledger-derived spend (the authority)
   // alongside the advisory cache, so any drift is visible.
   router.get('/admin/promotions/:id/spend', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
-    if (!promotionsEnabled()) return sendError(res, 404, 'Promotions are not enabled');
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findById(id);
     if (!promo) return sendError(res, 404, 'Promotion not found');

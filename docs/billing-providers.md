@@ -148,6 +148,17 @@ Confirm the subscription appears (`GET /billing/subscription` for the org) and t
 
 Swap **test → live** everywhere: `STRIPE_SECRET_KEY=sk_live_…`, a **live-mode** webhook endpoint with its own `STRIPE_WEBHOOK_SECRET`, and **live** Price ids in `STRIPE_PRICE_MAP`. Test-mode and live-mode objects never interoperate.
 
+### How the platform implements this
+
+Unlike AWS Marketplace (where the customer subscribes on AWS and the platform reconciles), **Stripe is driven entirely in-app and is wired end to end** — there is no external redirect and no missing UI piece:
+
+- **Provider selection** — `getPaymentProvider()` constructs the `StripeProvider` when `BILLING_PROVIDER=stripe` and **throws at startup if `STRIPE_SECRET_KEY` is unset** (`STRIPE_SECRET_KEY is required when BILLING_PROVIDER=stripe`), so a misconfigured deployment fails fast rather than silently running stubbed.
+- **Subscribe** — the dashboard Billing page calls `POST /billing/subscriptions` (authenticated, `billing:manage`), which runs `createCustomer` → `createSubscription` on the provider. `createSubscription` looks up the Stripe Price from `STRIPE_PRICE_MAP[<planId>_<interval>]` and fails fast if that key is missing.
+- **Add-ons** — purchased bundles call the add-on routes, which invoke `syncAddons`; each bundle's Stripe Price comes from `STRIPE_PRICE_MAP[<bundleId>_<interval>]`, applied as an extra subscription line item (a missing key is skipped — granted but not charged).
+- **Reconciliation** — all state changes come back through `POST /billing/stripe/webhook`, which verifies each delivery with `stripe.webhooks.constructEvent(rawBody, signature, STRIPE_WEBHOOK_SECRET)`, returns **503** if the secret is unset (so Stripe retries rather than the app processing unsigned payloads), and de-dupes redeliveries by `event.id`. The consumed event set is the table in Step 4.
+
+Net: enabling Stripe is **purely configuration** (`BILLING_PROVIDER`, the two secrets, and `STRIPE_PRICE_MAP`) — the subscribe UI, add-on flow, and webhook reconciliation already ship.
+
 ### Stripe environment variables
 
 | Variable | Default | Description |
@@ -189,14 +200,25 @@ AWS_MARKETPLACE_REGION=us-east-1        # defaults to AWS_REGION, else us-east-1
 
 ### Step 3 — Point the Fulfillment (registration) URL at the app
 
-Set the product's **Fulfillment URL** to a page in your frontend that captures the `x-amzn-marketplace-token` field (AWS **POSTs** it as a form field on redirect) and forwards it to the backend registration endpoint:
+Set the product's **Fulfillment URL** to the built-in fulfillment page:
 
 ```
-POST https://<your-public-host>/billing/marketplace/resolve
-Body: { "x-amzn-marketplace-token": "<token>" }   (also accepts { "token": … })
+https://<your-public-host>/marketplace/register
 ```
 
-The endpoint (no auth — it's the AWS redirect target) runs the standard SaaS flow: **`ResolveCustomer`** on the token → look up any existing active subscription → **`GetEntitlements`** to determine the entitled tier → create the subscription. An entitlement with no in-map dimension falls back to `developer`.
+AWS **POSTs** the `x-amzn-marketplace-token` here as a form field after a customer subscribes. Because the AWS purchaser is not yet a Pipeline Builder user at this point, registration is **two-phase**:
+
+1. **Resolve** (public, the AWS redirect target) — `POST /billing/marketplace/resolve` runs **`ResolveCustomer`** on the token → **`GetEntitlements`** to determine the entitled tier (a dimension with no map entry falls back to `developer`) → banks a **short-lived, single-use `registrationRef`** (30 min TTL). It does **not** create a subscription yet — there's no org to bind to. If the customer is already linked, it returns `alreadyRegistered` instead.
+   ```
+   POST /billing/marketplace/resolve   Body: { "token": "<x-amzn-marketplace-token>" }
+   → { registrationRef, planName }  |  { alreadyRegistered: true }
+   ```
+2. **Claim** (authenticated) — once the purchaser signs up / signs in, `POST /billing/marketplace/claim` (`billing:manage`) binds the `registrationRef` to **their organization**, creating the subscription (keyed on the real orgId; the AWS `customerIdentifier` is stored only in metadata, never the AWS account id) and syncing the tier to quota.
+   ```
+   POST /billing/marketplace/claim   Body: { "registrationRef": "<ref>" }
+   ```
+
+The `/marketplace/register` page handles both: it resolves the token, then either shows a **"Link to my organization"** button (if already signed in) or sends the purchaser through sign-up/sign-in — carrying the `registrationRef` so it's **claimed automatically** when they reach the dashboard. Guards: a `registrationRef` binds **once** (single-use), an AWS customer can't bind to two orgs (**409**), and an org that already has an active subscription is rejected (**409**).
 
 ### Step 4 — Subscribe the SNS notification endpoint
 
@@ -328,9 +350,12 @@ Watch the logs for a cycle or two, confirm the intended dimensions/quantities ma
 | Endpoint | Auth | Provider | Purpose |
 |---|---|---|---|
 | `POST /billing/stripe/webhook` | Signature | Stripe | Receives + verifies Stripe events (raw body) |
-| `POST /billing/marketplace/resolve` | None (AWS redirect) | Marketplace | Exchange a registration token for a subscription |
+| `POST /billing/marketplace/resolve` | None (AWS redirect) | Marketplace | Exchange a registration token for a single-use `registrationRef` (banks a pending registration; no subscription yet) |
+| `POST /billing/marketplace/claim` | Auth (`billing:manage`) | Marketplace | Bind a `registrationRef` to the caller's org and create the subscription |
 | `POST /billing/marketplace/sns` | SNS signature | Marketplace | Entitlement/subscription lifecycle notifications |
 | `GET /billing/marketplace/entitlements` | Auth | Marketplace | Current entitlements for the account |
+
+The frontend fulfillment page lives at `/marketplace/register` (set this as the AWS Fulfillment URL).
 
 ## Related
 

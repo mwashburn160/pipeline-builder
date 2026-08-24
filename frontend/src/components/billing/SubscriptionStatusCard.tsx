@@ -65,7 +65,7 @@ export function SubscriptionStatusCard({
         </div>
       )}
       <div className="flex items-center justify-between gap-3 mb-4">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Current Subscription</h2>
+        <h2 className="text-lg font-semibold text-[var(--pb-text)]">Current Subscription</h2>
         {/* Standing access to the hosted portal to manage the payment method /
             invoices — not just reachable after a purchase throws a 402. */}
         {canChangePlan && (
@@ -76,12 +76,12 @@ export function SubscriptionStatusCard({
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Plan</p>
-          <p className="text-lg font-medium text-gray-900 dark:text-gray-100">{subscription.planName || subscription.planId}</p>
+          <p className="text-sm text-[var(--pb-text-muted)]">Plan</p>
+          <p className="text-lg font-medium text-[var(--pb-text)]">{subscription.planName || subscription.planId}</p>
         </div>
         <div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Status</p>
-          <p className="text-lg font-medium text-gray-900 dark:text-gray-100">
+          <p className="text-sm text-[var(--pb-text-muted)]">Status</p>
+          <p className="text-lg font-medium text-[var(--pb-text)]">
             {STATUS_LABELS[subscription.status] ?? subscription.status}
             {subscription.cancelAtPeriodEnd && (                    <span className="ml-2 inline-flex items-center text-xs text-amber-600 dark:text-amber-400">
                 <AlertCircle className="w-3 h-3 mr-1" />
@@ -91,12 +91,12 @@ export function SubscriptionStatusCard({
           </p>
         </div>
         <div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Billing Period</p>
-          <p className="text-sm text-gray-900 dark:text-gray-100 capitalize">{subscription.interval}</p>
+          <p className="text-sm text-[var(--pb-text-muted)]">Billing Period</p>
+          <p className="text-sm text-[var(--pb-text)] capitalize">{subscription.interval}</p>
         </div>
         <div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Next Billing Date</p>
-          <p className="text-sm text-gray-900 dark:text-gray-100">{formatDate(subscription.currentPeriodEnd)}</p>
+          <p className="text-sm text-[var(--pb-text-muted)]">Next Billing Date</p>
+          <p className="text-sm text-[var(--pb-text)]">{formatDate(subscription.currentPeriodEnd)}</p>
         </div>
       </div>
       {canChangePlan && (              <div className="mt-4 flex gap-3">

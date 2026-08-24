@@ -16,17 +16,17 @@ const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('en-US', { mon
 const STATUS_COLOR: Record<string, string> = {
   paid: 'text-green-600 dark:text-green-400',
   open: 'text-yellow-600 dark:text-yellow-400',
-  void: 'text-gray-400 dark:text-gray-500',
+  void: 'text-[var(--pb-text-muted)]',
   uncollectible: 'text-red-600 dark:text-red-400',
 };
 
 const INVOICE_COLUMNS: Column<BillingInvoiceRow>[] = [
-  { id: 'period', header: 'Period', cellClassName: 'text-gray-600 dark:text-gray-300', render: (r) => fmtDate(r.periodStart) },
+  { id: 'period', header: 'Period', cellClassName: 'text-[var(--pb-text-muted)]', render: (r) => fmtDate(r.periodStart) },
   { id: 'gross', header: 'Gross', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => money(r.grossCents) },
-  { id: 'discount', header: 'Discount', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-gray-500 dark:text-gray-400', render: (r) => (r.discountCents ? `−${money(r.discountCents)}` : '—') },
-  { id: 'credit', header: 'Credit', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-gray-500 dark:text-gray-400', render: (r) => (r.creditCents ? `−${money(r.creditCents)}` : '—') },
-  { id: 'tax', header: 'Tax', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-gray-500 dark:text-gray-400', render: (r) => (r.taxCents ? money(r.taxCents) : '—') },
-  { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums font-medium text-gray-900 dark:text-gray-100', render: (r) => money(r.netCents) },
+  { id: 'discount', header: 'Discount', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-[var(--pb-text-muted)]', render: (r) => (r.discountCents ? `−${money(r.discountCents)}` : '—') },
+  { id: 'credit', header: 'Credit', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-[var(--pb-text-muted)]', render: (r) => (r.creditCents ? `−${money(r.creditCents)}` : '—') },
+  { id: 'tax', header: 'Tax', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-[var(--pb-text-muted)]', render: (r) => (r.taxCents ? money(r.taxCents) : '—') },
+  { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums font-medium text-[var(--pb-text)]', render: (r) => money(r.netCents) },
   { id: 'status', header: 'Status', cellClassName: 'capitalize', render: (r) => <span className={STATUS_COLOR[r.status] ?? ''}>{r.status}</span> },
 ];
 
@@ -90,19 +90,19 @@ export function BillingDashboard() {
   // both the empty and data states so an over-narrow range can always be widened.
   const rangeToolbar = (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Amounts billed</h2>
+      <h2 className="text-lg font-semibold text-[var(--pb-text)]">Amounts billed</h2>
       <div className="flex items-center gap-2 text-sm">
-        <label className="text-gray-500 dark:text-gray-400" htmlFor="billing-from">From</label>
+        <label className="text-[var(--pb-text-muted)]" htmlFor="billing-from">From</label>
         <Input
           id="billing-from" type="date" value={from} max={to || undefined}
           onChange={(e) => setFrom(e.target.value)}
-          className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-gray-900 dark:text-gray-100"
+          className="rounded border border-[var(--pb-border)] bg-[var(--pb-surface)] px-2 py-1 text-[var(--pb-text)]"
         />
-        <label className="text-gray-500 dark:text-gray-400" htmlFor="billing-to">To</label>
+        <label className="text-[var(--pb-text-muted)]" htmlFor="billing-to">To</label>
         <Input
           id="billing-to" type="date" value={to} min={from || undefined}
           onChange={(e) => setTo(e.target.value)}
-          className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-gray-900 dark:text-gray-100"
+          className="rounded border border-[var(--pb-border)] bg-[var(--pb-surface)] px-2 py-1 text-[var(--pb-text)]"
         />
         {isFiltered && (
           <Button
@@ -124,7 +124,7 @@ export function BillingDashboard() {
     return (
       <div className="space-y-4">
         {rangeToolbar}
-        <Card className="text-sm text-gray-500 dark:text-gray-400">
+        <Card className="text-sm text-[var(--pb-text-muted)]">
           {loading ? 'Loading…' : isFiltered ? 'No billing activity in the selected range.' : 'No billing activity yet.'}
         </Card>
       </div>
@@ -135,11 +135,11 @@ export function BillingDashboard() {
   const maxGross = Math.max(1, ...summary.timeline.map((p) => p.grossCents));
 
   const allocationColumns: Column<AllocationRow>[] = [
-    { id: 'team', header: 'Team', cellClassName: 'text-gray-600 dark:text-gray-300 font-mono text-xs', render: (r) => r.orgId },
+    { id: 'team', header: 'Team', cellClassName: 'text-[var(--pb-text-muted)] font-mono text-xs', render: (r) => r.orgId },
     { id: 'units', header: allocation?.driver ?? 'Units', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => r.driverUnits },
-    { id: 'share', header: 'Share', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-gray-500 dark:text-gray-400', render: (r) => `${r.sharePct}%` },
-    { id: 'credits', header: 'Credits', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-gray-500 dark:text-gray-400', render: (r) => (r.creditCents ? `−${money(r.creditCents)}` : '—') },
-    { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums font-medium text-gray-900 dark:text-gray-100', render: (r) => money(r.netCents) },
+    { id: 'share', header: 'Share', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-[var(--pb-text-muted)]', render: (r) => `${r.sharePct}%` },
+    { id: 'credits', header: 'Credits', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-[var(--pb-text-muted)]', render: (r) => (r.creditCents ? `−${money(r.creditCents)}` : '—') },
+    { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums font-medium text-[var(--pb-text)]', render: (r) => money(r.netCents) },
   ];
 
   return (
@@ -156,23 +156,23 @@ export function BillingDashboard() {
 
       {summary.timeline.length > 0 && (
         <Card>
-          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Billed by period</h3>
+          <h3 className="text-sm font-medium text-[var(--pb-text)] mb-3">Billed by period</h3>
           <div className="space-y-1.5">
             {summary.timeline.map((p) => {
               const netPct = Math.round((p.netCents / maxGross) * 100);
               const creditPct = Math.round(((p.creditCents + p.discountCents) / maxGross) * 100);
               return (
                 <div key={p.periodStart} className="flex items-center gap-3">
-                  <span className="text-xs text-gray-400 dark:text-gray-500 w-20 shrink-0 tabular-nums">{fmtDate(p.periodStart)}</span>
-                  <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden flex">
+                  <span className="text-xs text-[var(--pb-text-muted)] w-20 shrink-0 tabular-nums">{fmtDate(p.periodStart)}</span>
+                  <div className="flex-1 h-4 bg-[var(--pb-surface-muted)] rounded overflow-hidden flex">
                     <div className="h-full bg-blue-500" style={{ width: `${netPct}%` }} title={`Net ${money(p.netCents)}`} />
                     <div className="h-full bg-emerald-400" style={{ width: `${creditPct}%` }} title={`Discounts + credits ${money(p.creditCents + p.discountCents)}`} />
                   </div>
-                  <span className="text-xs tabular-nums w-16 text-right text-gray-600 dark:text-gray-300">{money(p.netCents)}</span>
+                  <span className="text-xs tabular-nums w-16 text-right text-[var(--pb-text-muted)]">{money(p.netCents)}</span>
                 </div>
               );
             })}
-            <div className="flex items-center gap-3 mt-2 text-xs text-gray-400 dark:text-gray-500">
+            <div className="flex items-center gap-3 mt-2 text-xs text-[var(--pb-text-muted)]">
               <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-blue-500" /> Net</span>
               <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-400" /> Discounts + credits</span>
             </div>
@@ -181,7 +181,7 @@ export function BillingDashboard() {
       )}
 
       <Card className="overflow-x-auto">
-        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Invoices</h3>
+        <h3 className="text-sm font-medium text-[var(--pb-text)] mb-3">Invoices</h3>
         <DataTable
           data={invoices}
           columns={INVOICE_COLUMNS}
@@ -195,8 +195,8 @@ export function BillingDashboard() {
       {allocation && allocation.rows.length > 1 && (
         <Card className="overflow-x-auto">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Cost by team</h3>
-            <span className="text-xs text-gray-400 dark:text-gray-500">Estimated allocation · by {allocation.driver}</span>
+            <h3 className="text-sm font-medium text-[var(--pb-text)]">Cost by team</h3>
+            <span className="text-xs text-[var(--pb-text-muted)]">Estimated allocation · by {allocation.driver}</span>
           </div>
           <DataTable
             data={allocation.rows}

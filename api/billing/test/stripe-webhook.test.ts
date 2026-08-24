@@ -374,6 +374,38 @@ describe('handleSubscriptionUpdated past_due grace clock', () => {
     // No status/clock change — the in-progress grace window must not reset.
     expect(sub.firstFailedAt).toBe(existing);
   });
+
+  // H1: a `.updated` crossing OUT of an entitled status into a terminal one must
+  // downgrade entitlements (no `.deleted` may ever arrive).
+  it('downgrades entitlements when an update flips an entitled sub to canceled', async () => {
+    const sub = makeSub({ status: 'active', creditLedger: [], creditBalanceCents: 0, recurringDiscount: null });
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated(stripeSub('canceled'));
+
+    expect(sub.status).toBe('canceled');
+    expect(sub.save).toHaveBeenCalled();
+    expect(mockSyncTier).toHaveBeenCalledWith('org-1', 'developer', '', 'sub-1');
+  });
+
+  it('downgrades on unpaid (maps to canceled) via update, not only on delete', async () => {
+    const sub = makeSub({ status: 'past_due', creditLedger: [], creditBalanceCents: 0, recurringDiscount: null });
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated(stripeSub('unpaid'));
+
+    expect(sub.status).toBe('canceled');
+    expect(mockSyncTier).toHaveBeenCalledWith('org-1', 'developer', '', 'sub-1');
+  });
+
+  it('does NOT downgrade on a benign active→past_due transition (still entitled, grace period)', async () => {
+    const sub = makeSub({ status: 'active', creditLedger: [], creditBalanceCents: 0, recurringDiscount: null });
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated(stripeSub('past_due'));
+
+    expect(mockSyncTier).not.toHaveBeenCalledWith('org-1', 'developer', '', 'sub-1');
+  });
 });
 
 // ============================================

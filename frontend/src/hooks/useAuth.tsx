@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import { User, UserOrgMembership } from '@/types';
 import api, { ApiError } from '@/lib/api';
@@ -31,7 +31,7 @@ interface AuthContextType {
   login: (email: string, password: string, opts?: { redirect?: boolean }) => Promise<void>;
   register: (username: string, email: string, password: string, organizationName?: string, planId?: string, opts?: { redirect?: boolean }) => Promise<void>;
   logout: () => Promise<void>;
-  refreshUser: () => Promise<void>;
+  refreshUser: (opts?: { force?: boolean }) => Promise<void>;
   /** Switch active organization. Re-issues tokens and refreshes user profile with the new org's role. */
   switchOrganization: (orgId: string) => Promise<void>;
   /** Optimistically clear the local `needsOnboarding` flag after the onboarding
@@ -70,15 +70,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isInitialized, setIsInitialized] = useState(false);
   const [authError, setAuthError] = useState<Error | null>(null);
   const router = useRouter();
+  // Single-flight guard: coalesce concurrent refreshes (e.g. a tab-focus storm)
+  // into one in-flight request. This both avoids redundant profile fetches and
+  // prevents a late-resolving stale response from clobbering a newer one.
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
+  const refreshGenRef = useRef(0);
 
   /**
    * Refresh user profile from API
    * Uses useCallback to maintain stable reference
    */
-  const refreshUser = useCallback(async () => {
+  const refreshUser = useCallback(async (opts?: { force?: boolean }) => {
+    // `force` bypasses coalescing so a caller that just changed identity (e.g.
+    // switchOrganization swapped the token) gets a FRESH fetch instead of the
+    // in-flight one that ran under the previous token.
+    if (!opts?.force && refreshInFlightRef.current) return refreshInFlightRef.current;
+    // Generation guard: only the LATEST refresh may apply its result. A stale
+    // in-flight refresh (older token / pre-switch) that resolves late is
+    // discarded, so it can't clobber the newer identity's profile.
+    const gen = ++refreshGenRef.current;
+    const run = (async () => {
     try {
       if (api.isAuthenticated()) {
         const response = await api.getProfile();
+        if (gen !== refreshGenRef.current) return; // superseded by a newer refresh
 
         const rawUser = response.data?.user as RawUserData | undefined;
 
@@ -138,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setAuthError(null);
     } catch (err) {
+      if (gen !== refreshGenRef.current) return; // superseded — don't apply stale error state
       // Only sign the user out on a genuine auth failure (401 — token expired
       // or revoked). A network blip or 5xx is transient: keep the current user
       // and surface a retryable error instead of silently logging them out.
@@ -151,6 +167,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAuthError(err instanceof Error ? err : new Error('Failed to refresh session'));
       }
     }
+    })();
+    refreshInFlightRef.current = run;
+    // Only clear the shared slot if it still points at THIS run (a concurrent
+    // forced refresh may have replaced it).
+    try { await run; } finally { if (refreshInFlightRef.current === run) refreshInFlightRef.current = null; }
   }, []);
 
   /**
@@ -259,7 +280,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // profile — the module-level plugin cache would otherwise leak Org A's
     // plugins into the Org B session.
     clearPluginCache();
-    await refreshUser();
+    // Force a fresh, non-coalesced refresh under the NEW org's token — a refresh
+    // already in flight under the previous token must not satisfy this reload.
+    await refreshUser({ force: true });
   }, [refreshUser]);
 
   const markOnboardingComplete = useCallback(() => {

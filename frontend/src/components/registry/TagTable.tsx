@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Copy, Trash2, Tag } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { SkeletonTableRow } from '@/components/ui/Skeleton';
@@ -115,19 +116,13 @@ export function TagTable({
       <span className="text-blue-700 dark:text-blue-300 font-medium">
         {selected.size} selected
       </span>
-      <button
-        onClick={clearSelection}
-        className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-      >
+      <Button variant="link" onClick={clearSelection} className="text-xs">
         Clear
-      </button>
-      <button
-        onClick={() => onBulkDelete([...selected])}
-        className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
-      >
+      </Button>
+      <Button variant="danger" size="xs" onClick={() => onBulkDelete([...selected])}>
         <Trash2 className="w-3.5 h-3.5 inline mr-1" />
         Delete selected
-      </button>
+      </Button>
     </div>
   ) : null;
 

@@ -28,6 +28,7 @@ import {
   createBillingEvent,
   MANAGEABLE_SUBSCRIPTION_STATUSES,
   syncEntitlements,
+  syncProviderAddons,
 } from '../helpers/billing-helpers.js';
 import type { PrunedAddon } from '../helpers/billing-helpers.js';
 import { evaluatePromotions, clawbackRecentPromotions, processReferralSignup } from '../helpers/promotion-engine.js';
@@ -84,6 +85,17 @@ export function createSubscriptionRoutes(): Router {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
     const { planId, interval } = validation.value;
+
+    // AWS Marketplace entitlements are the source of truth — an org can't
+    // self-serve a subscription here. (createCustomer would otherwise throw and
+    // surface as a 500.) Point the caller at the Marketplace claim flow instead.
+    if (config.billingProvider === 'aws-marketplace') {
+      return sendError(
+        res, 409,
+        'Subscriptions are provisioned through AWS Marketplace. Complete setup from your AWS Marketplace subscription (see /marketplace/register).',
+        ErrorCode.CONFLICT,
+      );
+    }
 
     // Verify plan exists
     const plan = await Plan.findOne({ _id: planId, isActive: true });
@@ -343,6 +355,18 @@ export function createSubscriptionRoutes(): Router {
     // provider line items + audit trail. Runs AFTER save so a failed save can't
     // drift the quota service / event log / provider ahead of the document.
     if (runPlanSideEffects) await runPlanSideEffects();
+
+    // An interval change must ALSO re-cadence add-on line items: the provider's
+    // updateSubscription only swaps the BASE item, so without this every bundle
+    // line item stays on the OLD interval's price (silent mis-billing). Rebuild
+    // them at the new cadence from the current (post-prune) add-on set. Skipped
+    // when there are no add-ons (nothing to re-price).
+    if (intervalChanged && subscription.addons?.length) {
+      await syncProviderAddons(
+        subscription.externalId, subscription.addons, effectiveInterval, orgId,
+        subscription._id.toString(), 'interval_change',
+      );
+    }
 
     // Promotions: auto-grant plan-change-triggered campaigns (e.g. upgrade credit).
     // Only on an actual plan change; post-side-effects + fail-soft.
