@@ -21,6 +21,7 @@ import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { TabBar } from '@/components/ui/TabBar';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
@@ -79,11 +80,31 @@ function formatDuration(ms: number | null): string {
   return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 }
 
+const DETAIL_TABS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'runs', label: 'Runs' },
+] as const;
+type DetailTab = (typeof DETAIL_TABS)[number]['id'];
+const DETAIL_TAB_IDS = DETAIL_TABS.map((t) => t.id) as readonly string[];
+
 export default function PipelineDetailPage() {
   const router = useRouter();
   const id = typeof router.query.id === 'string' ? router.query.id : '';
   const { isReady, user, isSuperAdmin, can } = useAuthGuard();
   const toast = useToast();
+
+  // Detail sections split into Overview (metadata) + Runs (recent runs +
+  // executions) so it isn't one long scroll. Deep-linkable via `?tab=` (kept
+  // separate from the `?id` route param).
+  const [activeTab, setActiveTab] = useState<DetailTab>('overview');
+  useEffect(() => {
+    const raw = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
+    if (raw && DETAIL_TAB_IDS.includes(raw) && raw !== activeTab) setActiveTab(raw as DetailTab);
+  }, [router.query.tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  const changeTab = (tabId: string) => {
+    setActiveTab(tabId as DetailTab);
+    void router.replace({ query: { ...router.query, tab: tabId } }, undefined, { shallow: true });
+  };
 
   const fetchPipeline = useCallback(async (pipelineId: string): Promise<Pipeline> => {
     const response = await api.getPipelineById(pipelineId);
@@ -348,6 +369,10 @@ export default function PipelineDetailPage() {
       {fetching && !pipeline && <LoadingSpinner />}
 
       {pipeline && (
+        <>
+        <TabBar items={[...DETAIL_TABS]} activeId={activeTab} onSelect={changeTab} className="mb-4" />
+
+        {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Per-pipeline maturity scorecard (renders only when advanced_reporting is on) */}
           <ScorecardCard pipelineId={pipeline.id} />
@@ -463,7 +488,11 @@ export default function PipelineDetailPage() {
               </div>
             </dl>
           </Card>
+        </div>
+        )}
 
+        {activeTab === 'runs' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Recent runs card — derived from org-wide execution-count
               aggregate. Absent if the pipeline has no recorded runs. */}
           <Card>
@@ -540,8 +569,9 @@ export default function PipelineDetailPage() {
               </div>
             )}
           </Card>
-
         </div>
+        )}
+        </>
       )}
 
       {showEdit && pipeline && (

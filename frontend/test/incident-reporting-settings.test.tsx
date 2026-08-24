@@ -11,6 +11,18 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { IncidentReportingSettings } from '../src/components/settings/IncidentReportingSettings';
 
+// The setup cards are grouped into tabs (Overview / Webhooks / Providers /
+// Retention / Test & history); a section is only in the DOM when its tab is
+// active. `next/router` drives the deep-link; stub it (empty query) so the tab
+// stays wherever we click.
+jest.mock('next/router', () => ({
+  __esModule: true,
+  useRouter: () => ({ query: {}, replace: jest.fn() }),
+}));
+
+/** Click a tab by its label so its section renders, then run the assertions. */
+const goTab = (name: RegExp) => fireEvent.click(screen.getByRole('button', { name }));
+
 jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
   useToast: () => ({ success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() }),
@@ -59,8 +71,7 @@ describe('IncidentReportingSettings', () => {
 
   it('renders the generic + Alertmanager webhook endpoints', async () => {
     render(<IncidentReportingSettings />);
-    // Generic appears once (Endpoints card); the Alertmanager adapter appears in
-    // both the Endpoints card and the default (Alertmanager) provider preset.
+    goTab(/^Webhooks$/);
     expect(await screen.findByText(/\/api\/reports\/incidents$/)).toBeInTheDocument();
     expect(screen.getAllByText(/\/api\/reports\/incidents\/alertmanager$/).length).toBeGreaterThanOrEqual(1);
   });
@@ -68,12 +79,14 @@ describe('IncidentReportingSettings', () => {
   it('shows the loaded per-org correlation window (override)', async () => {
     render(<IncidentReportingSettings />);
     await waitFor(() => expect(getIncidentSettings).toHaveBeenCalled());
+    goTab(/^Providers$/);
     expect(await screen.findByText(/override/)).toBeInTheDocument();
     expect(await screen.findByText(/6h/)).toBeInTheDocument();
   });
 
   it('opens the step-up modal when generating a webhook token', async () => {
     render(<IncidentReportingSettings />);
+    goTab(/^Webhooks$/);
     fireEvent.click(screen.getByRole('button', { name: /generate webhook token/i }));
     expect(await screen.findByTestId('stepup-modal')).toBeInTheDocument();
   });
@@ -81,6 +94,7 @@ describe('IncidentReportingSettings', () => {
   it('runs a non-persisting test-incident correlation and shows the result', async () => {
     sendTestIncident.mockResolvedValue({ environment: 'production', openedAt: '2026-08-20T00:00:00Z', windowHours: 6, correlated: true, executionId: 'exec-A', deployCompletedAt: '2026-08-19T23:00:00Z' });
     render(<IncidentReportingSettings />);
+    goTab(/Test & history/);
     fireEvent.click(screen.getByRole('button', { name: /send test incident/i }));
     await waitFor(() => expect(sendTestIncident).toHaveBeenCalledWith('production'));
     expect(await screen.findByText(/Correlated to deploy/)).toBeInTheDocument();
@@ -88,6 +102,7 @@ describe('IncidentReportingSettings', () => {
 
   it('lists recent incidents with their correlated deploy', async () => {
     render(<IncidentReportingSettings />);
+    goTab(/Test & history/);
     expect(await screen.findByText('pd-1')).toBeInTheDocument();
     expect(screen.getByText('exec-A')).toBeInTheDocument();
   });
@@ -95,6 +110,7 @@ describe('IncidentReportingSettings', () => {
   it('shows the default split retention windows (30 / 180 days)', async () => {
     render(<IncidentReportingSettings />);
     await waitFor(() => expect(getIncidentSettings).toHaveBeenCalled());
+    goTab(/^Retention$/);
     expect(await screen.findByText(/30 days/)).toBeInTheDocument();
     expect((await screen.findAllByText(/180 days/)).length).toBeGreaterThanOrEqual(1);
   });
@@ -102,11 +118,12 @@ describe('IncidentReportingSettings', () => {
   it('renders retention READ-ONLY (no editable inputs, no save) with an extend CTA', async () => {
     render(<IncidentReportingSettings />);
     await waitFor(() => expect(getIncidentSettings).toHaveBeenCalled());
+    goTab(/^Retention$/);
     // Retention is billing-owned now: no editable inputs, no save button.
     expect(screen.queryByRole('button', { name: /save retention/i })).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText('30')).not.toBeInTheDocument();
     // Deep-link CTA to buy a retention / DORA-History pack, highlighting the pack.
-    const cta = screen.getByRole('link', { name: /extend retention/i });
+    const cta = await screen.findByRole('link', { name: /extend retention/i });
     expect(cta).toHaveAttribute('href', expect.stringContaining('highlight=dora_history_pack'));
     // putReportingSettings is never called for retention.
     expect(putReportingSettings).not.toHaveBeenCalled();
@@ -120,6 +137,7 @@ describe('IncidentReportingSettings', () => {
     });
     render(<IncidentReportingSettings />);
     await waitFor(() => expect(getIncidentSettings).toHaveBeenCalled());
-    expect(screen.getAllByText(/Unlimited/).length).toBeGreaterThanOrEqual(1);
+    goTab(/^Retention$/);
+    expect((await screen.findAllByText(/Unlimited/)).length).toBeGreaterThanOrEqual(1);
   });
 });

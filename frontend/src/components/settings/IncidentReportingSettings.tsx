@@ -1,9 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/router';
 import { Siren, KeyRound, Webhook, FlaskConical, Clock, Archive } from 'lucide-react';
 import { SectionCard } from '@/components/ui/SectionCard';
+import { TabBar } from '@/components/ui/TabBar';
 import { CodeBlock } from '@/components/ui/CodeBlock';
 import { StatCard } from '@/components/ui/StatCard';
 import { Callout } from '@/components/ui/Callout';
@@ -27,6 +29,18 @@ import type { IncidentSettings, IncidentListItem, IncidentTestResult } from '@/l
 
 /** The machine scope the self-serve webhook token carries. */
 const REPORTING_INGEST_SCOPE = 'reporting:ingest';
+
+// The 8 setup cards are grouped into tabs so the page isn't one long scroll. Each
+// is deep-linkable via `?tab=`.
+const INCIDENT_TABS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'webhooks', label: 'Webhooks' },
+  { id: 'providers', label: 'Providers' },
+  { id: 'retention', label: 'Retention' },
+  { id: 'test', label: 'Test & history' },
+] as const;
+type IncidentTab = (typeof INCIDENT_TABS)[number]['id'];
+const INCIDENT_TAB_IDS = INCIDENT_TABS.map((t) => t.id) as readonly string[];
 
 /**
  * Billing deep-link that highlights the DORA-History pack on the add-ons grid
@@ -103,6 +117,19 @@ function providerGuide(key: ProviderKey, genericUrl: string, alertmanagerUrl: st
  */
 export function IncidentReportingSettings() {
   const toast = useToast();
+  const router = useRouter();
+
+  // Active tab, hydrated from `?tab=` and kept in sync (shallow) so it's
+  // shareable / back-forward-friendly — same pattern as the Billing page.
+  const [activeTab, setActiveTab] = useState<IncidentTab>('overview');
+  useEffect(() => {
+    const raw = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
+    if (raw && INCIDENT_TAB_IDS.includes(raw) && raw !== activeTab) setActiveTab(raw as IncidentTab);
+  }, [router.query.tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  const changeTab = (id: string) => {
+    setActiveTab(id as IncidentTab);
+    void router.replace({ query: { ...router.query, tab: id } }, undefined, { shallow: true });
+  };
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const genericUrl = `${origin}/api/reports/incidents`;
@@ -229,7 +256,10 @@ export function IncidentReportingSettings() {
 
   return (
     <div className="space-y-6">
-      {/* Overview */}
+      <TabBar items={[...INCIDENT_TABS]} activeId={activeTab} onSelect={changeTab} />
+
+      {activeTab === 'overview' && (
+      /* Overview */
       <SectionCard
         icon={Siren}
         title="Incident reporting"
@@ -239,7 +269,10 @@ export function IncidentReportingSettings() {
           Each incident is correlated to the most recent successful deploy to its environment.</>
         }
       />
+      )}
 
+      {activeTab === 'webhooks' && (
+      <div className="space-y-6">
       {/* Endpoints */}
       <SectionCard icon={Webhook} title="Webhook endpoints">
         <div className="space-y-3">
@@ -276,7 +309,11 @@ export function IncidentReportingSettings() {
 
         {newToken && <SecretReveal value={newToken} label="Webhook token" className="mt-4" />}
       </SectionCard>
+      </div>
+      )}
 
+      {activeTab === 'providers' && (
+      <div className="space-y-6">
       {/* Provider presets */}
       <SectionCard title="Provider setup">
         <FormField label="Provider" className="max-w-xs mb-3">
@@ -318,8 +355,11 @@ export function IncidentReportingSettings() {
           <Button onClick={saveWindow} loading={savingWindow} disabled={!windowInput}>Save window</Button>
         </div>
       </SectionCard>
+      </div>
+      )}
 
-      {/* Retention (Phase 7) — READ-ONLY (billing-owned) */}
+      {activeTab === 'retention' && (
+      /* Retention (Phase 7) — READ-ONLY (billing-owned) */
       <SectionCard
         icon={Archive}
         title="Retention"
@@ -343,7 +383,10 @@ export function IncidentReportingSettings() {
           Extend retention
         </LinkButton>
       </SectionCard>
+      )}
 
+      {activeTab === 'test' && (
+      <div className="space-y-6">
       {/* Send test incident */}
       <SectionCard
         icon={FlaskConical}
@@ -394,6 +437,8 @@ export function IncidentReportingSettings() {
           </div>
         )}
       </SectionCard>
+      </div>
+      )}
     </div>
   );
 }
