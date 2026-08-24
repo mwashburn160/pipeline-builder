@@ -78,8 +78,28 @@ jest.unstable_mockModule('../src/models/discount.js', () => ({
 
 let subDoc: any;
 const mockSubscriptionFindOne = jest.fn(async () => subDoc);
+// Atomic redemption commit (M1): honor the `creditLedger.discountId $ne` guard,
+// then apply $push/$inc/$set to the shared subDoc and return it (so existing
+// assertions on subDoc keep working).
+const mockSubscriptionFindOneAndUpdate = jest.fn(async (filter: any, update: any) => {
+  // M1 guard: `creditLedger.discountId: { $ne }` (one-time redemption).
+  const idGuard = filter?.['creditLedger.discountId'];
+  if (idGuard?.$ne !== undefined && subDoc.creditLedger.some((c: any) => c.discountId === idGuard.$ne)) return null;
+  // M2 guard: `creditLedger: { $not: { $elemMatch: {...} } }` (per-period grants).
+  const notMatch = filter?.creditLedger?.$not?.$elemMatch;
+  if (notMatch && subDoc.creditLedger.some((c: any) => Object.entries(notMatch).every(([k, v]) => (c as any)[k] === v))) return null;
+  if (update.$push?.creditLedger) subDoc.creditLedger.push(update.$push.creditLedger);
+  if (update.$inc?.creditBalanceCents) subDoc.creditBalanceCents = (subDoc.creditBalanceCents ?? 0) + update.$inc.creditBalanceCents;
+  if (update.$set) Object.assign(subDoc, update.$set);
+  return subDoc;
+});
+// Atomic $set (mirror drawdown / recurring expiry) applied to the shared subDoc.
+const mockSubscriptionUpdateOne = jest.fn(async (_filter: any, update: any) => {
+  if (update.$set) Object.assign(subDoc, update.$set);
+  return { modifiedCount: 1 };
+});
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
-  Subscription: { findOne: mockSubscriptionFindOne },
+  Subscription: { findOne: mockSubscriptionFindOne, findOneAndUpdate: mockSubscriptionFindOneAndUpdate, updateOne: mockSubscriptionUpdateOne },
 }));
 
 const mockPlanFindById = jest.fn((_id: string) => ({ lean: async () => ({ tier: 'pro', prices: { monthly: 4900, annual: 49000 } }) }));
@@ -225,6 +245,18 @@ describe('POST /subscriptions/:id/discounts (self-service redeem)', () => {
     expect(subDoc.creditBalanceCents).toBe(490);
   });
 
+  it('M1: a concurrent duplicate redemption is rejected (atomic guard) and the reservation is released', async () => {
+    await mockDiscountCreate({ _id: 'disc_race', value: 5000, unit: 'dollar', kind: 'credit', isActive: true, alias: 'RACE50', maxRedemptions: 5 });
+    // Simulate the guard losing the race: the atomic commit finds the discount
+    // already banked by a concurrent redemption → returns null.
+    mockSubscriptionFindOneAndUpdate.mockResolvedValueOnce(null);
+    await call(handler('post', '/subscriptions/:id/discounts'), { user: { sub: 'u1', organizationId: 'org-cust' }, params: { id: 'sub-1' }, body: { code: 'RACE50' } });
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 409, expect.any(String), 'ALREADY_REDEEMED');
+    // The reservation ($inc timesRedeemed) must be released so a real redeem isn't burned.
+    expect(mockDiscountFindByIdAndUpdate).toHaveBeenCalledWith('disc_race', { $inc: { timesRedeemed: -1 } });
+    expect(subDoc.creditBalanceCents).toBe(0); // nothing banked locally
+  });
+
   it('rejects a second recurring discount (one standing rule, 409)', async () => {
     subDoc.recurringDiscount = { discountId: 'disc_existing', unit: 'percent', value: 10, appliedAt: new Date() };
     await mockDiscountCreate({ _id: 'disc_new', value: 20, unit: 'percent', kind: 'recurring', isActive: true, alias: 'TWENTY' });
@@ -301,79 +333,85 @@ describe('DELETE /subscriptions/:id/discounts/:discountId (stop recurring)', () 
 });
 
 describe('lifecycle reconciliation (Phase 6)', () => {
-  const sub = (over: any = {}) => ({ _id: { toString: () => 'sub-1' }, orgId: 'org-cust', planId: 'pro', interval: 'monthly', creditBalanceCents: 0, creditLedger: [] as any[], recurringDiscount: null, ...over });
+  // reconcileDiscountsOnInvoice (Stripe-only) now persists ATOMICALLY (M2): the
+  // mirror + expiry via Subscription.updateOne, grants via findOneAndUpdate. The
+  // mocks apply those to the shared `subDoc`, so these assertions read subDoc's
+  // resulting state exactly as before — and the webhook's own full-doc save() can
+  // no longer clobber a concurrent credit write.
 
   it('draws the usage-credit mirror down from the Stripe ending balance', async () => {
-    const s = sub({ creditBalanceCents: 5000 });
-    await reconcileDiscountsOnInvoice(s as any, { id: 'in_1', ending_balance: -2000 }); // -$20 remaining
-    expect(s.creditBalanceCents).toBe(2000);
+    subDoc = freshSub({ creditBalanceCents: 5000 });
+    await reconcileDiscountsOnInvoice(subDoc as any, { id: 'in_1', ending_balance: -2000 }); // -$20 remaining
+    expect(subDoc.creditBalanceCents).toBe(2000);
+    expect(mockSubscriptionUpdateOne).toHaveBeenCalledWith({ _id: subDoc._id }, { $set: { creditBalanceCents: 2000 } });
     expect(mockCreateBillingEvent).not.toHaveBeenCalledWith('org-cust', 'credit_exhausted', expect.anything(), expect.anything());
   });
 
   it('emits credit_exhausted when the balance reaches zero', async () => {
-    const s = sub({ creditBalanceCents: 5000 });
-    await reconcileDiscountsOnInvoice(s as any, { id: 'in_1', ending_balance: 0 });
-    expect(s.creditBalanceCents).toBe(0);
+    subDoc = freshSub({ creditBalanceCents: 5000 });
+    await reconcileDiscountsOnInvoice(subDoc as any, { id: 'in_1', ending_balance: 0 });
+    expect(subDoc.creditBalanceCents).toBe(0);
     expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-cust', 'credit_exhausted', expect.objectContaining({ previousCents: 5000 }), 'sub-1');
   });
 
   it('re-grants a recurring discount for the next period (from the current plan price)', async () => {
     await mockDiscountCreate({ _id: 'd2', value: 50, unit: 'percent', kind: 'recurring', isActive: true });
-    const s = sub({ externalCustomerId: 'cus_x', creditLedger: [], recurringDiscount: { discountId: 'd2', unit: 'percent', value: 50 } });
-    await reconcileDiscountsOnInvoice(s as any, { id: 'in_2', ending_balance: 0 });
+    subDoc = freshSub({ externalCustomerId: 'cus_x', creditLedger: [], recurringDiscount: { discountId: 'd2', unit: 'percent', value: 50 } });
+    await reconcileDiscountsOnInvoice(subDoc as any, { id: 'in_2', ending_balance: 0 });
     // 50% of $49.00 = 2450 re-granted onto the balance for the upcoming period.
-    expect(s.creditBalanceCents).toBe(2450);
+    expect(subDoc.creditBalanceCents).toBe(2450);
     expect(mockApplyUsageCredit).toHaveBeenCalledWith('cus_x', 2450, expect.stringContaining('d2'));
   });
 
   it('stops re-granting a revoked recurring discount (money-leak guard)', async () => {
     await mockDiscountCreate({ _id: 'd9', value: 50, unit: 'percent', kind: 'recurring', isActive: false });
-    const s = sub({ externalCustomerId: 'cus_x', creditLedger: [], recurringDiscount: { discountId: 'd9', unit: 'percent', value: 50 } });
-    await reconcileDiscountsOnInvoice(s as any, { id: 'in_9', ending_balance: 0 });
-    expect(s.recurringDiscount).toBeNull();
+    subDoc = freshSub({ externalCustomerId: 'cus_x', creditLedger: [], recurringDiscount: { discountId: 'd9', unit: 'percent', value: 50 } });
+    await reconcileDiscountsOnInvoice(subDoc as any, { id: 'in_9', ending_balance: 0 });
+    expect(subDoc.recurringDiscount).toBeNull();
     expect(mockApplyUsageCredit).not.toHaveBeenCalled();
     expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-cust', 'discount_expired', expect.objectContaining({ reason: 'recurring_ended' }), 'sub-1');
   });
 
   it('does nothing extra when there is no recurring rule', async () => {
-    const s = sub({ recurringDiscount: null });
-    await reconcileDiscountsOnInvoice(s as any, { id: 'in_3', ending_balance: null });
-    expect(s.creditBalanceCents).toBe(0);
+    subDoc = freshSub({ recurringDiscount: null });
+    await reconcileDiscountsOnInvoice(subDoc as any, { id: 'in_3', ending_balance: null });
+    expect(subDoc.creditBalanceCents).toBe(0);
     expect(mockApplyUsageCredit).not.toHaveBeenCalled();
   });
 
   it('re-grants a combo credit once per CALENDAR PERIOD, derived from live add-ons', async () => {
     mockActiveComboCredits.mockReturnValue([{ comboId: 'analytics_suite', name: 'Analytics Suite', creditCents: 2000 }]);
-    const s = sub({
+    subDoc = freshSub({
       externalCustomerId: 'cus_x',
       addons: [{ bundleId: 'advanced_reporting', quantity: 1 }, { bundleId: 'team_usage_analytics', quantity: 1 }],
     });
-    await reconcileDiscountsOnInvoice(s as any, { id: 'in_c1', ending_balance: null });
-    expect(s.creditBalanceCents).toBe(2000);
+    await reconcileDiscountsOnInvoice(subDoc as any, { id: 'in_c1', ending_balance: null });
+    expect(subDoc.creditBalanceCents).toBe(2000);
     expect(mockApplyUsageCredit).toHaveBeenCalledWith('cus_x', 2000, expect.stringContaining('combo:analytics_suite'));
     // The ledger dedupe key is the calendar period (YYYY-MM for monthly), NOT the
     // invoice id — this is what stops a second invoice in the same period from
     // double-crediting.
-    expect(s.creditLedger).toContainEqual(expect.objectContaining({ discountId: 'combo:analytics_suite', cents: 2000, dedupeKey: expect.stringMatching(/^\d{4}-\d{2}$/) }));
+    expect(subDoc.creditLedger).toContainEqual(expect.objectContaining({ discountId: 'combo:analytics_suite', cents: 2000, dedupeKey: expect.stringMatching(/^\d{4}-\d{2}$/) }));
 
     // H2 regression lock: a DIFFERENT invoice settling in the SAME period (a
-    // proration / one-off) must NOT re-grant the combo credit.
+    // proration / one-off) must NOT re-grant the combo credit — the atomic
+    // $elemMatch dedupe guard rejects it.
     mockApplyUsageCredit.mockClear();
-    await reconcileDiscountsOnInvoice(s as any, { id: 'in_c1_proration', ending_balance: null });
+    await reconcileDiscountsOnInvoice(subDoc as any, { id: 'in_c1_proration', ending_balance: null });
     expect(mockApplyUsageCredit).not.toHaveBeenCalled();
-    expect(s.creditLedger.filter((c: any) => c.discountId === 'combo:analytics_suite')).toHaveLength(1);
+    expect(subDoc.creditLedger.filter((c: any) => c.discountId === 'combo:analytics_suite')).toHaveLength(1);
   });
 
   it('stops the combo credit once a member add-on is removed (activeComboCredits → [])', async () => {
     mockActiveComboCredits.mockReturnValue([]); // only one member left → no active combo
-    const s = sub({ externalCustomerId: 'cus_x', addons: [{ bundleId: 'advanced_reporting', quantity: 1 }] });
-    await reconcileDiscountsOnInvoice(s as any, { id: 'in_c2', ending_balance: null });
+    subDoc = freshSub({ externalCustomerId: 'cus_x', addons: [{ bundleId: 'advanced_reporting', quantity: 1 }] });
+    await reconcileDiscountsOnInvoice(subDoc as any, { id: 'in_c2', ending_balance: null });
     expect(mockApplyUsageCredit).not.toHaveBeenCalled();
-    expect(s.creditLedger).toHaveLength(0);
+    expect(subDoc.creditLedger).toHaveLength(0);
   });
 
   it('clearDiscountsOnCancel stops the recurring rule and forfeits the local credit', () => {
-    const s = sub({ recurringDiscount: { discountId: 'd3', unit: 'percent', value: 10 }, creditBalanceCents: 4000 });
+    const s = freshSub({ recurringDiscount: { discountId: 'd3', unit: 'percent', value: 10 }, creditBalanceCents: 4000 });
     clearDiscountsOnCancel(s as any);
     expect(s.recurringDiscount).toBeNull();
     expect(s.creditBalanceCents).toBe(0);

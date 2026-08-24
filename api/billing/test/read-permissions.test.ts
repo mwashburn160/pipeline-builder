@@ -101,6 +101,13 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
 }));
 
+// prune/plan-change helpers moved to addon-prune.js (imported by the routes now).
+jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
+  applyTierIncludedAddonPrune: () => [],
+  applyPlanTierChange: () => async () => undefined,
+  finalizePrunedAddons: async () => undefined,
+}));
+
 // addons (real) imports combo-pricing, which loads the real pipeline-core config
 // graph. Stub it — this suite only asserts read-route gating, not combo math.
 jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({

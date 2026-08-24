@@ -14,13 +14,12 @@ import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import { config } from '../config.js';
 import {
-  applyPlanTierChange,
-  applyTierIncludedAddonPrune,
   calculatePeriodEnd,
   createBillingEvent,
   syncEntitlements,
   MANAGEABLE_SUBSCRIPTION_STATUSES,
 } from '../helpers/billing-helpers.js';
+import { applyPlanTierChange, applyTierIncludedAddonPrune } from '../helpers/addon-prune.js';
 import {
   verifySNSSignature,
   confirmSNSSubscription,

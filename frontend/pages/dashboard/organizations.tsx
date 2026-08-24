@@ -13,6 +13,7 @@ import { SegmentedFilter } from '@/components/ui/SegmentedFilter';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -128,17 +129,15 @@ function RowActionsMenu({
 
   return (
     <>
-      <button
+      <IconButton
         ref={btnRef}
-        type="button"
         onClick={toggle}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="More actions"
-        className="inline-flex items-center justify-center w-8 h-8 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
       >
         <MoreHorizontal className="w-4 h-4" />
-      </button>
+      </IconButton>
       {open && (
         <div
           ref={menuRef}

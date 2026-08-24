@@ -186,10 +186,13 @@ function parseSteps(steps: unknown[]): FormStep[] {
  * for the Pipeline Form Builder's edit mode. Starts from a blank initial state and
  * overlays each section (core fields, defaults, role, synth, stages) from the API data.
  *
- * @param rawProps - The BuilderProps object returned by the pipeline API.
+ * @param input - The BuilderProps object returned by the pipeline API (accepted
+ *   as `object` so a typed `BuilderProps` passes without an `as unknown as` cast;
+ *   read internally as an index map).
  * @returns A complete {@link FormBuilderState} ready for form binding.
  */
-export function propsToFormState(rawProps: AnyRecord): FormBuilderState {
+export function propsToFormState(input: object): FormBuilderState {
+  const rawProps = input as AnyRecord;
   const base = createInitialFormState();
 
   // Core

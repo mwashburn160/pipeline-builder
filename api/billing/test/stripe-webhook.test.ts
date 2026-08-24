@@ -51,6 +51,13 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   finalizePrunedAddons: (...args: unknown[]) => mockFinalizePrunedAddons(...args),
 }));
 
+// prune/plan-change helpers moved to addon-prune.js (imported by stripe-webhook now).
+jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
+  applyPlanTierChange: mockApplyPlanTierChange,
+  applyTierIncludedAddonPrune: () => [],
+  finalizePrunedAddons: (...args: unknown[]) => mockFinalizePrunedAddons(...args),
+}));
+
 // discount-helpers (real, for invoice reconciliation) imports combo-pricing, which
 // loads the real pipeline-core config graph. Stub it so no real combo math / config
 // loads — reconcile just needs an empty combo set here.

@@ -164,6 +164,14 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
 }));
 
+// The prune/plan-change helpers moved to addon-prune.js — the route imports them
+// from there now, so mock that module (same stubs) or the real one loads.
+jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
+  applyPlanTierChange: mockApplyPlanTierChange,
+  applyTierIncludedAddonPrune: mockApplyTierIncludedAddonPrune,
+  finalizePrunedAddons: mockFinalizePrunedAddons,
+}));
+
 jest.unstable_mockModule('../src/validation/schemas.js', () => ({
   SubscriptionCreateSchema: {},
   SubscriptionUpdateSchema: {},

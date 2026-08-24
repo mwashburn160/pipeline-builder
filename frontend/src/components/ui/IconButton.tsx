@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 
 export type IconButtonTone = 'default' | 'primary' | 'indigo' | 'purple' | 'danger' | 'warn' | 'orange' | 'success';
 
@@ -53,13 +53,16 @@ const REST_CLASS: Record<IconButtonTone, string> = {
  * per page. Requires an `aria-label`. Use `restTone` for stateful/coloured
  * actions (toggles, approve/reject); otherwise `tone` for a muted-at-rest icon.
  */
-export function IconButton({ tone = 'default', restTone, type = 'button', className = '', children, ...props }: IconButtonProps) {
+export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
+  { tone = 'default', restTone, type = 'button', className = '', children, ...props },
+  ref,
+) {
   const colour = restTone ? REST_CLASS[restTone] : `text-gray-400 ${TONE_CLASS[tone]}`;
   const classes = ['p-1.5 rounded-lg transition-colors', colour, className]
     .filter(Boolean).join(' ');
   return (
-    <button type={type} className={classes} {...props}>
+    <button ref={ref} type={type} className={classes} {...props}>
       {children}
     </button>
   );
-}
+});

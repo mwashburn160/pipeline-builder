@@ -20,7 +20,8 @@ import {
 import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import { applyPlanTierChange, applyTierIncludedAddonPrune, billingServiceAuth, buildSubscriptionResponse, createBillingEvent, MANAGEABLE_SUBSCRIPTION_STATUSES, syncEntitlements, syncProviderAddons } from '../helpers/billing-helpers.js';
+import { billingServiceAuth, buildSubscriptionResponse, createBillingEvent, MANAGEABLE_SUBSCRIPTION_STATUSES, syncEntitlements, syncProviderAddons } from '../helpers/billing-helpers.js';
+import { applyPlanTierChange, applyTierIncludedAddonPrune } from '../helpers/addon-prune.js';
 import { BillingEvent } from '../models/billing-event.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';

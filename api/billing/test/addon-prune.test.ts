@@ -82,7 +82,8 @@ jest.unstable_mockModule('../src/config.js', () => ({
   config: { quotaService: { host: 'q', port: 1 }, platformService: { host: 'p', port: 1 } },
 }));
 
-const { pruneTierIncludedFeatureAddons, getBundleCatalog, applyTierIncludedAddonPrune, applyPlanTierChange, finalizePrunedAddons, syncProviderAddons } = await import('../src/helpers/billing-helpers.js');
+const { pruneTierIncludedFeatureAddons, getBundleCatalog, syncProviderAddons } = await import('../src/helpers/billing-helpers.js');
+const { applyTierIncludedAddonPrune, applyPlanTierChange, finalizePrunedAddons } = await import('../src/helpers/addon-prune.js');
 
 describe('pruneTierIncludedFeatureAddons', () => {
   const catalog = getBundleCatalog();

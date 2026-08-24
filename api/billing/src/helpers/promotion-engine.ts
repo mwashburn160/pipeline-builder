@@ -410,8 +410,9 @@ export async function clawbackRecentPromotions(subscription: SubscriptionDocumen
  * revoked / out of window / over budget or the org is no longer eligible. No-op
  * when promotions or the provider's credit realization is off.
  */
-export async function grantRecurringPromotions(subscription: SubscriptionDocument, periodKey: string): Promise<void> {
+export async function grantRecurringPromotions(subscription: SubscriptionDocument, periodKey: string, opts: { atomic?: boolean } = {}): Promise<void> {
   if (!promotionsEnabled()) return;
+  const { atomic = false } = opts;
   const provider = getPaymentProvider();
   if (provider.usageCreditSupport === 'none') return;
   const ctx = await contextForSubscription(subscription);
@@ -440,19 +441,37 @@ export async function grantRecurringPromotions(subscription: SubscriptionDocumen
         continue;
       }
     }
-    // In-memory grant (the periodic caller saves the subscription).
+    if (atomic) {
+      // Stripe-webhook path: guarded atomic write (not an in-memory push the caller
+      // full-saves) so it can't clobber — or be clobbered by — a concurrent credit
+      // write on the same ledger (M2). The dedupeKey guard keeps it idempotent per
+      // period. Reservation is compensated if the guard loses (already granted).
+      const committed = await Subscription.findOneAndUpdate(
+        { '_id': subscription._id, 'creditLedger': { $not: { $elemMatch: { dedupeKey } } } },
+        { $push: { creditLedger: creditLedgerEntry({ discountId: ledgerId(promo._id), cents, fulfillmentRef: ref, dedupeKey }) }, $inc: { creditBalanceCents: cents } },
+        { new: true },
+      );
+      if (!committed) {
+        await Promotion.updateOne({ _id: promo._id }, { $inc: { spentCents: -cents, grantsCount: -1 } });
+        continue;
+      }
+      await createBillingEvent(subscription.orgId, 'promotion_granted', { promotionId: promo._id, cents, campaign: promo.campaign, periodKey }, subscription._id.toString());
+      continue;
+    }
+    // In-memory grant (the Marketplace metering caller saves the subscription).
     subscription.creditBalanceCents = (subscription.creditBalanceCents ?? 0) + cents;
     subscription.creditLedger.push(creditLedgerEntry({ discountId: ledgerId(promo._id), cents, fulfillmentRef: ref, dedupeKey }));
     await createBillingEvent(subscription.orgId, 'promotion_granted', { promotionId: promo._id, cents, campaign: promo.campaign, periodKey }, subscription._id.toString());
   }
 
-  // Bound the ledger's growth: fold old per-period promo rows into per-family carry
-  // rows (which preserve the summed cents + grantCount so reconcilePromotionSpend
-  // stays exact). Recent-period rows — including any just granted above — are kept,
-  // so per-period idempotency holds. Only reassign when a fold shrank the array. In
-  // memory; the periodic caller saves.
-  const compacted = compactCreditLedger(subscription.creditLedger);
-  if (compacted.length !== subscription.creditLedger.length) subscription.creditLedger = compacted;
+  // Bound the ledger's growth (in-memory path only — the atomic path never mutated
+  // the in-memory ledger, so compacting+saving it would clobber the atomic rows;
+  // its growth is bounded by the next in-memory pass). Preserves summed cents +
+  // grantCount so reconcilePromotionSpend stays exact.
+  if (!atomic) {
+    const compacted = compactCreditLedger(subscription.creditLedger);
+    if (compacted.length !== subscription.creditLedger.length) subscription.creditLedger = compacted;
+  }
 }
 
 /** Build the trigger context (tier / interval / plan price) for an existing subscription. */

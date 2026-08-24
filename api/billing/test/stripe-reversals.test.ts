@@ -32,6 +32,13 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   billingServiceAuth: () => 'Bearer svc',
 }));
 
+// prune/plan-change helpers moved to addon-prune.js (imported by stripe-webhook now).
+jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
+  applyPlanTierChange: () => async () => undefined,
+  applyTierIncludedAddonPrune: () => [],
+  finalizePrunedAddons: async () => undefined,
+}));
+
 const mockIngestStripeInvoice = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 const mockReverseLedgerInvoice = jest.fn<(...a: unknown[]) => Promise<string | null>>().mockResolvedValue('org-1');
 jest.unstable_mockModule('../src/helpers/billing-ledger.js', () => ({

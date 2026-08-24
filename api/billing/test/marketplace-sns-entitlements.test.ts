@@ -81,6 +81,13 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   finalizePrunedAddons: (...a: unknown[]) => mockFinalizePrunedAddons(...a),
 }));
 
+// prune/plan-change helpers moved to addon-prune.js (imported by marketplace route now).
+jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
+  applyPlanTierChange: mockApplyPlanTierChange,
+  applyTierIncludedAddonPrune: (...a: unknown[]) => mockApplyTierIncludedAddonPrune(...(a as [{ addons?: Array<{ bundleId: string; quantity: number }> }])),
+  finalizePrunedAddons: (...a: unknown[]) => mockFinalizePrunedAddons(...a),
+}));
+
 const mockPlanFindOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockPlanFindById = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/models/plan.js', () => ({

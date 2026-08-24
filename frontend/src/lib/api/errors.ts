@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { toError } from '../../hooks/internal/fetchCore';
+import { formatError } from '@/lib/constants';
 
 export class ApiError extends Error {
   statusCode: number;
@@ -82,5 +82,8 @@ export function toRegistryError(message: string, statusCode: number, code: strin
  * also handling non-`Error` throwables safely via `String(err)`.
  */
 export function getErrorMessage(err: unknown): string {
-  return toError(err).message;
+  // Delegates to the app-wide `formatError` so error text is consistent with the
+  // rest of the app (previously this diverged for non-Error throwables). Kept as a
+  // named alias so the observability pages don't need to change their imports.
+  return formatError(err);
 }

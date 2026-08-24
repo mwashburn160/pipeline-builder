@@ -65,7 +65,7 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
     const initialStateRef = useRef<FormBuilderState | undefined>(
       initialProps
         ? {
-            ...propsToFormState(initialProps as unknown as Record<string, unknown>),
+            ...propsToFormState(initialProps),
             description: initialDescription ?? '',
             keywords: initialKeywords ?? '',
           }

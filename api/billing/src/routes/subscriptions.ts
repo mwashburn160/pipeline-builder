@@ -19,8 +19,6 @@ import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { config } from '../config.js';
 import {
-  applyPlanTierChange,
-  applyTierIncludedAddonPrune,
   billingServiceAuth,
   buildSubscriptionResponse,
   calculatePeriodEnd,
@@ -31,6 +29,7 @@ import {
   syncProviderAddons,
 } from '../helpers/billing-helpers.js';
 import type { PrunedAddon } from '../helpers/billing-helpers.js';
+import { applyPlanTierChange, applyTierIncludedAddonPrune } from '../helpers/addon-prune.js';
 import { evaluatePromotions, clawbackRecentPromotions, processReferralSignup } from '../helpers/promotion-engine.js';
 import { mapStripeStatus } from '../helpers/stripe-helpers.js';
 import { BillingEvent } from '../models/billing-event.js';

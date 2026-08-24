@@ -55,6 +55,13 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   finalizePrunedAddons: async () => undefined,
 }));
 
+// prune/plan-change helpers moved to addon-prune.js (imported by marketplace route now).
+jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
+  applyTierIncludedAddonPrune: () => [],
+  applyPlanTierChange: () => async () => undefined,
+  finalizePrunedAddons: async () => undefined,
+}));
+
 jest.unstable_mockModule('../src/helpers/marketplace-helpers.js', () => ({
   verifySNSSignature: jest.fn(),
   confirmSNSSubscription: jest.fn(),

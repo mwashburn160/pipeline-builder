@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for `getErrorMessage`, the centralized replacement for the
- * copy-pasted `err instanceof ApiError ? err.message : (err as Error).message`
- * idiom. Since `ApiError extends Error`, an `ApiError` and a plain `Error`
- * must both yield their `.message`, while non-`Error` throwables fall back to
- * `String(err)`.
+ * Tests for `getErrorMessage` — now a thin alias over the app-wide `formatError`
+ * (so error text is consistent everywhere). Since `ApiError extends Error`, an
+ * `ApiError` and a plain `Error` both yield their `.message`; a thrown string
+ * passes through; any other throwable falls back to `formatError`'s default
+ * message (previously this was `String(err)`, which diverged from the rest of
+ * the app).
  */
 import { getErrorMessage, ApiError } from '../src/lib/api/errors';
 
@@ -20,11 +21,11 @@ describe('getErrorMessage', () => {
     expect(getErrorMessage(new Error('boom'))).toBe('boom');
   });
 
-  it('falls back to String(err) for a thrown string', () => {
+  it('passes a thrown string through', () => {
     expect(getErrorMessage('nope')).toBe('nope');
   });
 
-  it('falls back to String(err) for undefined', () => {
-    expect(getErrorMessage(undefined)).toBe('undefined');
+  it('falls back to the default message for a non-Error, non-string throwable', () => {
+    expect(getErrorMessage(undefined)).toBe('An error occurred');
   });
 });

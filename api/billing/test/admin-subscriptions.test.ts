@@ -121,6 +121,13 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
 }));
 
+// prune/plan-change helpers moved to addon-prune.js (imported by the route now).
+jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
+  applyPlanTierChange: mockApplyPlanTierChange,
+  applyTierIncludedAddonPrune: mockApplyTierIncludedAddonPrune,
+  finalizePrunedAddons: mockFinalizePrunedAddons,
+}));
+
 // Payment provider — an admin plan change must push the new price to the
 // provider (provider-first), mirroring the user-facing PUT /subscriptions/:id.
 const mockUpdateSubscription = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);

@@ -13,7 +13,8 @@ import { incCounter } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response } from 'express';
 import type Stripe from 'stripe';
 import { config } from '../config.js';
-import { applyPlanTierChange, applyTierIncludedAddonPrune, createBillingEvent, calculatePeriodEnd, syncEntitlements, MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/billing-helpers.js';
+import { createBillingEvent, calculatePeriodEnd, syncEntitlements, MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/billing-helpers.js';
+import { applyPlanTierChange, applyTierIncludedAddonPrune } from '../helpers/addon-prune.js';
 import type { PrunedAddon } from '../helpers/billing-helpers.js';
 import { ingestStripeInvoice, reverseLedgerInvoice } from '../helpers/billing-ledger.js';
 import { clearDiscountsOnCancel, reconcileDiscountsOnInvoice } from '../helpers/discount-helpers.js';
@@ -497,11 +498,18 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
   // (period-keyed on the invoice id; in-memory, persisted by the save below).
   // Fail-soft — a promo error must never fail the payment webhook.
   try {
-    await grantRecurringPromotions(subscription, recurringPeriodKey(subscription.interval));
+    // Atomic: persist promo credits with guarded $push/$inc, NOT via the full-doc
+    // save below — so a concurrent redemption's credit write on the same ledger
+    // isn't clobbered (M2). The reconcile above is atomic for the same reason.
+    await grantRecurringPromotions(subscription, recurringPeriodKey(subscription.interval), { atomic: true });
   } catch (promoErr) {
     logger.warn('Recurring promotion re-grant failed', { orgId: subscription.orgId, invoiceId: invoice.id, error: String(promoErr) });
   }
 
+  // The credit reconciliation + promo re-grant above wrote atomically and did NOT
+  // touch the in-memory doc, so this save() persists only the lifecycle fields this
+  // handler set (status / period / grace / metadata) — it can't clobber a
+  // concurrent credit-ledger write.
   await subscription.save();
 
   // Mirror the settled invoice into the billing ledger (dashboard actuals).
