@@ -12,7 +12,6 @@ import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Modal } from '@/components/ui/Modal';
-import { Card } from '@/components/ui/Card';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -23,9 +22,15 @@ import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { CopyableId } from '@/components/ui/CopyableId';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { api, getErrorMessage } from '@/lib/api';
 import type { AlertDestination, AlertDestinationWrite } from '@/types/observability';
+
+/** Badge color per delivery channel. */
+function channelColor(channel: AlertDestination['channel']): 'purple' | 'blue' | 'green' | 'gray' {
+  return channel === 'slack' ? 'purple' : channel === 'webhook' ? 'blue' : channel === 'email' ? 'green' : 'gray';
+}
 
 /**
  * Per-org alert destinations settings page.
@@ -111,23 +116,72 @@ export default function AlertDestinationsPage() {
     }
   };
 
-  // Cross-tenant view: group by org, with search + channel filters.
-  const grouped = useMemo(() => {
+  // Cross-tenant view: one flat table (sorted by org, then label) with search +
+  // channel filters — replaces the former per-org card groups.
+  const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const filtered = destinations.filter((d) => {
-      if (channelFilter !== 'all' && d.channel !== channelFilter) return false;
-      if (!term) return true;
-      return (d.orgId ?? '').toLowerCase().includes(term) || d.label.toLowerCase().includes(term);
-    });
-    const map = new Map<string, AlertDestination[]>();
-    for (const d of filtered) {
-      const key = d.orgId ?? '(unknown)';
-      const items = map.get(key) ?? [];
-      items.push(d);
-      map.set(key, items);
-    }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+    return destinations
+      .filter((d) => {
+        if (channelFilter !== 'all' && d.channel !== channelFilter) return false;
+        if (!term) return true;
+        return (d.orgId ?? '').toLowerCase().includes(term) || d.label.toLowerCase().includes(term);
+      })
+      .sort((a, b) => (a.orgId ?? '').localeCompare(b.orgId ?? '') || a.label.localeCompare(b.label));
   }, [destinations, search, channelFilter]);
+
+  // ── Columns ──
+  const crossOrgColumns: Column<AlertDestination>[] = [
+    {
+      id: 'org', header: 'Organization',
+      render: (d) => (
+        <div className="flex items-center gap-2">
+          <CopyableId value={d.orgId ?? '(unknown)'} size="sm" />
+          {d.orgId && <Link href={`/dashboard/admin/orgs/${d.orgId}`} className="action-link text-xs">detail</Link>}
+        </div>
+      ),
+    },
+    { id: 'channel', header: 'Channel', render: (d) => <Badge color={channelColor(d.channel)}>{d.channel}</Badge> },
+    { id: 'label', header: 'Label', cellClassName: 'font-medium text-gray-900 dark:text-gray-100', render: (d) => d.label },
+    { id: 'severity', header: 'Min severity', render: (d) => <Badge color={d.minSeverity === 'critical' ? 'red' : 'yellow'}>{d.minSeverity}</Badge> },
+    { id: 'enabled', header: 'Enabled', render: (d) => (d.enabled ? <Badge color="green">enabled</Badge> : <Badge color="gray">disabled</Badge>) },
+    { id: 'target', header: 'Target', cellClassName: 'font-mono text-xs text-gray-500 dark:text-gray-400', render: (d) => (d.hasTarget ? d.target : '—') },
+  ];
+
+  const orgColumns: Column<AlertDestination>[] = [
+    {
+      id: 'channel', header: 'Channel',
+      render: (d) => (
+        <span className="inline-flex items-center gap-2">
+          <ChannelIcon channel={d.channel} />
+          <Badge color={channelColor(d.channel)}>{d.channel}</Badge>
+        </span>
+      ),
+    },
+    { id: 'label', header: 'Label', cellClassName: 'font-medium text-gray-900 dark:text-gray-100', render: (d) => d.label },
+    { id: 'severity', header: 'Min severity', render: (d) => <Badge color={d.minSeverity === 'critical' ? 'red' : 'yellow'}>≥ {d.minSeverity}</Badge> },
+    { id: 'enabled', header: 'Enabled', render: (d) => (d.enabled ? <Badge color="green">enabled</Badge> : <Badge color="gray">disabled</Badge>) },
+    {
+      id: 'target', header: 'Target', cellClassName: 'font-mono text-xs text-gray-500 dark:text-gray-400',
+      render: (d) => (d.channel === 'in-app' ? '(in-app messages)' : d.hasTarget ? d.target : '— no target set —'),
+    },
+    ...(canWrite
+      ? [{
+        id: 'actions', header: '', cellClassName: 'text-right',
+        render: (d: AlertDestination) => (
+          <div className="inline-flex items-center justify-end gap-1">
+            <Button
+              variant="ghost" size="xs" onClick={() => void onTest(d)} disabled={testingId === d.id}
+              aria-label="Send test notification" title="Send a test notification to this destination" className="gap-1"
+            >
+              <Send className="w-3.5 h-3.5" /> {testingId === d.id ? 'Sending…' : 'Send test'}
+            </Button>
+            <IconButton onClick={() => setEditing(d)} aria-label="Edit destination"><Edit2 className="w-4 h-4" /></IconButton>
+            <IconButton onClick={() => setPendingDelete(d)} tone="danger" aria-label="Delete destination"><Trash2 className="w-4 h-4" /></IconButton>
+          </div>
+        ),
+      } as Column<AlertDestination>]
+      : []),
+  ];
 
   if (!isReady || !isAuthenticated) return <LoadingPage />;
 
@@ -188,38 +242,16 @@ export default function AlertDestinationsPage() {
               <option value="email">Email</option>
             </FilterSelect>
           </div>
-          {loading ? (
-            <Card className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">Loading…</Card>
-          ) : grouped.length === 0 ? (
-            <Card className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
-              <Bell className="w-8 h-8 mx-auto mb-2 opacity-50" /> No destinations match the current filters.
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {grouped.map(([orgId, items]) => (
-                <Card key={orgId}>
-                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-200 dark:border-gray-700">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Org:</span>
-                      <CopyableId value={orgId} size="sm" />
-                    </div>
-                    <Link href={`/dashboard/admin/orgs/${orgId}`} className="action-link text-xs">Open org detail</Link>
-                  </div>
-                  <ul className="divide-y divide-gray-100 dark:divide-gray-800">
-                    {items.map((d) => (
-                      <li key={d.id} className="py-2 flex flex-wrap items-baseline gap-2 text-sm">
-                        <Badge color={d.channel === 'slack' ? 'purple' : d.channel === 'webhook' ? 'blue' : d.channel === 'email' ? 'green' : 'gray'}>{d.channel}</Badge>
-                        <span className="font-medium text-gray-900 dark:text-gray-100">{d.label}</span>
-                        <Badge color={d.minSeverity === 'critical' ? 'red' : 'yellow'}>{d.minSeverity}</Badge>
-                        {!d.enabled && <Badge color="gray">disabled</Badge>}
-                        {d.hasTarget && <code className="text-xs text-gray-500 dark:text-gray-400 ml-auto">{d.target}</code>}
-                      </li>
-                    ))}
-                  </ul>
-                </Card>
-              ))}
-            </div>
-          )}
+          <div className="overflow-x-auto">
+            <DataTable
+              data={filtered}
+              columns={crossOrgColumns}
+              isLoading={loading}
+              animated={false}
+              getRowKey={(d) => d.id}
+              emptyState={{ icon: Bell, title: 'No destinations', description: 'No destinations match the current filters.' }}
+            />
+          </div>
           <div className="mt-6 text-xs text-gray-500 dark:text-gray-400">
             Read-only across orgs — targets are masked even for sysadmins. Turn off
             “All organizations” to manage your own org&apos;s destinations.
@@ -227,69 +259,16 @@ export default function AlertDestinationsPage() {
         </>
       ) : (
         /* ───── Org-scoped editable view ───── */
-        loading ? (
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="px-4 py-3 flex items-center gap-3">
-                <div className="w-5 h-5 skeleton rounded" />
-                <div className="flex-1">
-                  <div className="h-4 skeleton w-1/3 mb-1.5" />
-                  <div className="h-3 skeleton w-2/3" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : destinations.length === 0 ? (
-          <div className="rounded border border-gray-200 dark:border-gray-700 p-6 text-center text-sm text-gray-500 dark:text-gray-400">
-            No destinations configured yet. Click <strong>Add destination</strong> above to start receiving alerts in Slack.
-          </div>
-        ) : (
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-            {destinations.map((d) => (
-              <div key={d.id} className="px-4 py-3 flex items-center gap-3">
-                <ChannelIcon channel={d.channel} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{d.label}</span>
-                    {!d.enabled && <Badge color="gray">disabled</Badge>}
-                    <Badge color={d.minSeverity === 'critical' ? 'red' : 'yellow'}>≥ {d.minSeverity}</Badge>
-                  </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 font-mono">
-                    {d.channel === 'in-app' ? '(in-app messages)' : (d.hasTarget ? d.target : '— no target set —')}
-                  </div>
-                </div>
-                {canWrite && (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => void onTest(d)}
-                      disabled={testingId === d.id}
-                      aria-label="Send test notification"
-                      title="Send a test notification to this destination"
-                      className="gap-1"
-                    >
-                      <Send className="w-3.5 h-3.5" /> {testingId === d.id ? 'Sending…' : 'Send test'}
-                    </Button>
-                    <IconButton
-                      onClick={() => setEditing(d)}
-                      aria-label="Edit destination"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </IconButton>
-                    <IconButton
-                      onClick={() => setPendingDelete(d)}
-                      tone="danger"
-                      aria-label="Delete destination"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </IconButton>
-                  </>
-                )}
-              </div>
-            ))}
-          </div>
-        )
+        <div className="overflow-x-auto">
+          <DataTable
+            data={destinations}
+            columns={orgColumns}
+            isLoading={loading}
+            animated={false}
+            getRowKey={(d) => d.id}
+            emptyState={{ icon: Bell, title: 'No destinations configured yet', description: 'Click “Add destination” above to start receiving alerts in Slack.' }}
+          />
+        </div>
       )}
 
       {(creating || editing) && (
