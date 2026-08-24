@@ -114,6 +114,9 @@ jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
   getComboDiscounts: () => [],
   activeComboCredits: () => [],
   comboBasisCents: () => 0,
+  volumeDiscountPct: () => 0,
+  volumeCredits: () => [],
+  volumeLedgerId: (bundleId: string) => `volume:${bundleId}`,
 }));
 
 jest.unstable_mockModule('../src/helpers/stripe-helpers.js', () => ({

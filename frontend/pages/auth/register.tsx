@@ -308,9 +308,10 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
                       <Sparkles className="w-4 h-4 text-[var(--pb-brand)]" strokeWidth={2} /> Scale any plan with add-on packs
                     </div>
                     <p className="text-xs text-[var(--pb-text-muted)] leading-relaxed">
-                      Stackable bundles raise your limits without switching tiers — Seat&nbsp;(+5), Pipeline&nbsp;(+10),
-                      Plugin&nbsp;(+100), API&nbsp;(+1M), AI&nbsp;(+5k) &amp; Storage&nbsp;(+50&nbsp;GB) packs — plus SSO, Audit&nbsp;Log,
-                      DORA reporting, and Team&nbsp;Usage&nbsp;Analytics. Add them anytime from Billing.
+                      Stackable bundles raise your limits without switching tiers — per-Seat (with volume discounts),
+                      Pipeline&nbsp;(+5), Plugin&nbsp;(+25), API&nbsp;(+100k), AI&nbsp;(+2.5k) &amp; Storage&nbsp;(+10&nbsp;GB) packs
+                      — plus the Scale&nbsp;Bundle, SSO, Audit&nbsp;Log, DORA reporting, and Team&nbsp;Usage&nbsp;Analytics.
+                      Add them anytime from Billing.
                     </p>
                   </div>
                 </>

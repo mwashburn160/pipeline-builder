@@ -15,6 +15,7 @@ import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { DEFAULT_PLAN_ID } from '@/components/billing/helpers';
 import { SelectablePlanCard } from '@/components/billing/SelectablePlanCard';
+import { OrgSetupStep } from '@/components/onboarding/OrgSetupStep';
 import { usePlans } from '@/hooks/usePlans';
 
 /**
@@ -39,6 +40,9 @@ export default function OnboardingPage() {
   const [selectedPlan, setSelectedPlan] = useState(DEFAULT_PLAN_ID);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Two-phase: after CREATING an org (Continue), show the CLI/setup step before
+  // heading to the dashboard. Skip / domain-join go straight to the dashboard.
+  const [phase, setPhase] = useState<'setup' | 'install'>('setup');
 
   // Domain-based discovery (P2b): orgs the user's verified email domain can join.
   const [domainOrgs, setDomainOrgs] = useState<Array<{ orgId: string; orgName: string; autoJoin: 'off' | 'request' | 'auto' }>>([]);
@@ -112,9 +116,15 @@ export default function OnboardingPage() {
         organizationName: withName && trimmed.length >= 2 ? trimmed : undefined,
         planId: billingEnabled ? selectedPlan : undefined,
       });
-      // Optimistically clear the flag locally so the guard can't bounce us back
-      // to onboarding if the follow-up profile refresh transiently fails; the
-      // refresh then syncs the new org name (it swallows its own errors).
+      if (withName) {
+        // Created + named an org (the "Continue" path) → show the final install /
+        // setup step before the dashboard. completeOnboarding already cleared
+        // needsOnboarding, and this page is guard-exempt, so no bounce.
+        setPhase('install');
+        setSubmitting(false);
+        return;
+      }
+      // "Skip for now" → opting out of setup; head straight to the dashboard.
       await goToDashboard();
     } catch (e) {
       setError(formatError(e));
@@ -123,6 +133,27 @@ export default function OnboardingPage() {
   };
 
   if (!isReady || !user) return <LoadingPage />;
+
+  if (phase === 'install') {
+    const planTier = plans.find((p) => p.id === selectedPlan)?.tier;
+    return (
+      <>
+        <Head><title>Welcome — Install the CLI</title></Head>
+        <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-[var(--pb-bg)]">
+          <Card className="w-full max-w-lg p-6">
+            <div className="flex items-center gap-2 mb-1">
+              <Sparkles className="w-5 h-5 text-[var(--pb-brand)]" />
+              <h1 className="text-xl font-bold">You&apos;re all set</h1>
+            </div>
+            <p className="text-sm text-[var(--pb-text-muted)] mb-5">
+              Your organization is ready. Install the CLI to start building pipelines.
+            </p>
+            <OrgSetupStep planTier={planTier} onDone={() => void goToDashboard()} />
+          </Card>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

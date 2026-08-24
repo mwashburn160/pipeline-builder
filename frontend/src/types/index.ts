@@ -619,6 +619,10 @@ export interface Bundle {
   features?: string[];
   prices: { monthly: number; annual: number };
   stackable: boolean;
+  /** Optional per-unit volume discount tiers (e.g. the per-seat `seat` bundle):
+   *  at ≥ minQuantity units, discountPercent comes off the line. Highest wins. */
+  volumeTiers?: { minQuantity: number; discountPercent: number }[];
+  maxQuantity?: number;
   availableForTiers: QuotaTier[];
 }
 

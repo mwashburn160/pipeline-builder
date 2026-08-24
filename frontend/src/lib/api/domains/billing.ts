@@ -104,11 +104,22 @@ export function billingApi(core: ApiCore) {
       return core.request<ApiResponse<{ subscription: Subscription | null }>>('/api/billing/subscriptions');
     },
 
-    /** Create a new subscription. */
+    /** Create a new subscription directly (no card collection — for the `stub`
+     *  provider, or a free plan). Stripe self-serve uses {@link createCheckoutSession}. */
     createSubscription: async (planId: string, interval: BillingInterval = 'monthly', referralCode?: string) => {
       return core.request<ApiResponse<{ subscription: Subscription }>>('/api/billing/subscriptions', {
         method: 'POST',
         body: JSON.stringify({ planId, interval, ...(referralCode ? { referralCode } : {}) }),
+      });
+    },
+
+    /** Start a hosted Stripe Checkout to collect a card + create a PAID
+     *  subscription; returns the URL to redirect the browser to. The local
+     *  subscription is provisioned by the webhook on completion. */
+    createCheckoutSession: async (planId: string, interval: BillingInterval = 'monthly') => {
+      return core.request<ApiResponse<{ url: string }>>('/api/billing/subscriptions/checkout', {
+        method: 'POST',
+        body: JSON.stringify({ planId, interval }),
       });
     },
 

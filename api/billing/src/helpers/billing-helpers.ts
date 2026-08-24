@@ -380,7 +380,7 @@ export interface PruneResult {
  * AND every flag in `bundle.features` is present in `TIER_FEATURES[newTier]`.
  * HYBRID bundles that also grant a quota (e.g. `sso` → `idpConfigs:5`) are NEVER
  * pruned — dropping them would strip the paid quota. Quota-only packs
- * (seat_pack, etc.) carry no features and are never pruned.
+ * (seat, pipeline_pack, etc.) carry no features and are never pruned.
  *
  * Pure function (no I/O) so callers persist + sync the reduced list themselves.
  */

@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
+import { OrgSetupStep } from '@/components/onboarding/OrgSetupStep';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -310,6 +311,10 @@ export default function OrganizationsPage() {
   const [createAsSubOrg, setCreateAsSubOrg] = useState(false);
   const [parentOrgId, setParentOrgId] = useState('');
   const [parentOptions, setParentOptions] = useState<Organization[]>([]);
+  // After creating a TOP-LEVEL org, offer the CLI/setup step (teams/sub-orgs share
+  // the parent's deployment + token, so they skip it).
+  const [setupTier, setSetupTier] = useState<string | undefined>(undefined);
+  const [setupOpen, setSetupOpen] = useState(false);
   const createForm = useFormState();
 
   // Open the create modal, resetting state and loading the root orgs that can
@@ -344,6 +349,12 @@ export default function OrganizationsPage() {
       setCreateOpen(false);
       list.refresh();
       toast.success(`${createAsSubOrg ? 'Team' : 'Organization'} "${name}" created`);
+      // Top-level org → show the final install/setup step (CLI + optional per-org
+      // event metrics). Teams/sub-orgs share the parent's setup, so they skip it.
+      if (!createAsSubOrg) {
+        setSetupTier(newOrgTier);
+        setSetupOpen(true);
+      }
     }
   };
 
@@ -676,6 +687,12 @@ export default function OrganizationsPage() {
           onConfirm={del.confirm}
           onCancel={del.close}
         />
+      )}
+
+      {setupOpen && (
+        <Modal title="Finish setting up your organization" onClose={() => setSetupOpen(false)} maxWidth="lg">
+          <OrgSetupStep planTier={setupTier} variant="modal" doneLabel="Done" onDone={() => setSetupOpen(false)} />
+        </Modal>
       )}
 
       {kmsOrg && (

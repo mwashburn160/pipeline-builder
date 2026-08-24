@@ -58,11 +58,13 @@ Then wire them all up with **`STRIPE_PRICE_MAP`** — a single JSON object whose
 | Plan id | Monthly | Annual | Map keys |
 |---|---|---|---|
 | `developer` | Free | Free | — (nothing charged) |
-| `pro` | $49 | $490 | `pro_monthly`, `pro_annual` |
-| `team` | $149 | $1,490 | `team_monthly`, `team_annual` |
+| `pro` | $39 | $390 | `pro_monthly`, `pro_annual` |
+| `team` | $79 | $790 | `team_monthly`, `team_annual` |
 | `enterprise` | $599 | $5,990 | `enterprise_monthly`, `enterprise_annual` |
 
 The free `developer` tier needs **no** Price; the hidden `unlimited` tier is never sold. If a customer picks a plan/interval whose key is **missing**, subscription creation fails fast with `No Stripe Price ID configured for plan "…" with interval "…"` — so map every paid combination.
+
+> **Provisioning helper.** Stripe Prices are immutable, so a fresh install (or any price change) needs new Price objects. Run `STRIPE_SECRET_KEY=… node api/billing/scripts/provision-stripe-prices.mjs` (from `api/billing`; add `--dry-run` to preview) — it reads the effective billing config, creates a Price per interval for every paid plan **and** every chargeable bundle (below), and prints the ready-to-paste `STRIPE_PRICE_MAP` JSON. Combos are customer-balance credits, not line items, so they need no Price.
 
 #### Add-on prices (from the existing bundles)
 
@@ -70,12 +72,12 @@ Add-ons are charged as extra **subscription line items** on the same subscriptio
 
 | Bundle id | Monthly | Annual | Map keys |
 |---|---|---|---|
-| `seat_pack` | $25 | $250 | `seat_pack_monthly`, `seat_pack_annual` |
+| `seat` | $19.99 | $199.90 | `seat_monthly`, `seat_annual` |
 | `pipeline_pack` | $15 | $150 | `pipeline_pack_monthly`, `pipeline_pack_annual` |
-| `plugin_pack` | $15 | $150 | `plugin_pack_monthly`, `plugin_pack_annual` |
-| `api_pack` | $20 | $200 | `api_pack_monthly`, `api_pack_annual` |
-| `ai_pack` | $75 | $750 | `ai_pack_monthly`, `ai_pack_annual` |
-| `storage_pack` | $25 | $250 | `storage_pack_monthly`, `storage_pack_annual` |
+| `plugin_pack` | $10 | $100 | `plugin_pack_monthly`, `plugin_pack_annual` |
+| `api_pack` | $19.99 | $199.90 | `api_pack_monthly`, `api_pack_annual` |
+| `ai_pack` | $19.99 | $199.90 | `ai_pack_monthly`, `ai_pack_annual` |
+| `storage_pack` | $19.99 | $199.90 | `storage_pack_monthly`, `storage_pack_annual` |
 | `retention_pack` | $15 | $150 | `retention_pack_monthly`, `retention_pack_annual` |
 | `dora_history_pack` | $30 | $300 | `dora_history_pack_monthly`, `dora_history_pack_annual` |
 | `audit_log` | $20 | $200 | `audit_log_monthly`, `audit_log_annual` |
@@ -94,7 +96,7 @@ STRIPE_PRICE_MAP='{
   "pro_monthly":"price_1AbcPro","pro_annual":"price_1AbcProYr",
   "team_monthly":"price_1DefTeam","team_annual":"price_1DefTeamYr",
   "enterprise_monthly":"price_1GhiEnt","enterprise_annual":"price_1GhiEntYr",
-  "seat_pack_monthly":"price_1JklSeat","seat_pack_annual":"price_1JklSeatYr",
+  "seat_monthly":"price_1JklSeat","seat_annual":"price_1JklSeatYr",
   "sso_monthly":"price_1MnoSso","sso_annual":"price_1MnoSsoYr"
 }'
 ```
@@ -165,7 +167,7 @@ Net: enabling Stripe is **purely configuration** (`BILLING_PROVIDER`, the two se
 |---|---|---|
 | `STRIPE_SECRET_KEY` | — | **Secret.** Stripe API secret key (`sk_test_…` / `sk_live_…`). Required when `BILLING_PROVIDER=stripe` |
 | `STRIPE_WEBHOOK_SECRET` | — | **Secret.** Signing secret (`whsec_…`) for the endpoint at `POST /billing/stripe/webhook`; every delivery is signature-verified against it |
-| `STRIPE_PRICE_MAP` | `{}` | JSON map of `<id>_<interval>` → Stripe Price id, where `<id>` is a **plan id or a bundle id** (e.g. `{"pro_monthly":"price_…","seat_pack_annual":"price_…"}`). A plan/interval absent here cannot be subscribed; a bundle absent here is granted but not charged |
+| `STRIPE_PRICE_MAP` | `{}` | JSON map of `<id>_<interval>` → Stripe Price id, where `<id>` is a **plan id or a bundle id** (e.g. `{"pro_monthly":"price_…","seat_annual":"price_…"}`). A plan/interval absent here cannot be subscribed; a bundle absent here is granted but not charged |
 
 Stripe subscription statuses are mapped to internal statuses by a fixed table in the app (no env var); notably `unpaid` ⇒ `canceled` (Stripe sets `unpaid` only after the grace period), and unknown statuses fall back to `incomplete`.
 
@@ -269,8 +271,8 @@ Create one AWS entitlement dimension per **paid** tier. The free `developer` tie
 | Plan id | Monthly (default) | Suggested AWS dimension | Needs a dimension? |
 |---|---|---|---|
 | `developer` | Free | — | No — the fallback tier |
-| `pro` | $49 | `pro` | Yes |
-| `team` | $149 | `team` | Yes |
+| `pro` | $39 | `pro` | Yes |
+| `team` | $79 | `team` | Yes |
 | `enterprise` | $599 | `enterprise` | Yes |
 
 ```bash
@@ -284,12 +286,12 @@ Create one **metered** AWS dimension per add-on you sell. Map each bundle id →
 
 | Bundle id | AWS dimension | List price (default) | Available tiers |
 |---|---|---|---|
-| `seat_pack` | `SeatPack` | $25 (`2500`) | team, enterprise |
-| `pipeline_pack` | `PipelinePack` | $15 (`1500`) | all |
-| `plugin_pack` | `PluginPack` | $15 (`1500`) | all |
-| `api_pack` | `ApiPack` | $20 (`2000`) | all |
-| `ai_pack` | `AiPack` | $75 (`7500`) | all |
-| `storage_pack` | `StoragePack` | $25 (`2500`) | all |
+| `seat` | `Seat` | $19.99 (`1999`) | team, enterprise |
+| `pipeline_pack` | `PipelinePack` | $15 (`1500`) | team, enterprise |
+| `plugin_pack` | `PluginPack` | $10 (`1000`) | all |
+| `api_pack` | `ApiPack` | $19.99 (`1999`) | all |
+| `ai_pack` | `AiPack` | $19.99 (`1999`) | all |
+| `storage_pack` | `StoragePack` | $19.99 (`1999`) | all |
 | `retention_pack` | `RetentionPack` | $15 (`1500`) | all (max 7) |
 | `dora_history_pack` | `DoraHistoryPack` | $30 (`3000`) | all (max 1) |
 | `audit_log` | `AuditLog` | $20 (`2000`) | pro |
@@ -300,9 +302,9 @@ Create one **metered** AWS dimension per add-on you sell. Map each bundle id →
 | `compliance_advanced` | `ComplianceAdvanced` | $99.90 (`9990`) | developer, pro, team |
 
 ```bash
-AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{"seat_pack":"SeatPack","pipeline_pack":"PipelinePack","plugin_pack":"PluginPack","api_pack":"ApiPack","ai_pack":"AiPack","storage_pack":"StoragePack","retention_pack":"RetentionPack","dora_history_pack":"DoraHistoryPack","audit_log":"AuditLog","sso":"Sso","advanced_reporting":"AdvancedReporting","team_usage_analytics":"TeamUsageAnalytics","compliance_standard":"ComplianceStandard","compliance_advanced":"ComplianceAdvanced"}'
+AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{"seat":"Seat","pipeline_pack":"PipelinePack","plugin_pack":"PluginPack","api_pack":"ApiPack","ai_pack":"AiPack","storage_pack":"StoragePack","retention_pack":"RetentionPack","dora_history_pack":"DoraHistoryPack","audit_log":"AuditLog","sso":"Sso","advanced_reporting":"AdvancedReporting","team_usage_analytics":"TeamUsageAnalytics","compliance_standard":"ComplianceStandard","compliance_advanced":"ComplianceAdvanced"}'
 
-AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"SeatPack":2500,"PipelinePack":1500,"PluginPack":1500,"ApiPack":2000,"AiPack":7500,"StoragePack":2500,"RetentionPack":1500,"DoraHistoryPack":3000,"AuditLog":2000,"Sso":4000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990}'
+AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":1500,"PluginPack":1000,"ApiPack":1999,"AiPack":1999,"StoragePack":1999,"RetentionPack":1500,"DoraHistoryPack":3000,"AuditLog":2000,"Sso":4000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990}'
 ```
 
 Only list the add-ons you actually sell on Marketplace — a bundle with no dimension mapping isn't metered, and a dimension with no price in `AWS_MARKETPLACE_DIMENSION_PRICE_MAP` is reported in full (never drawn against for credit). Tier availability (the "Available tiers" column) is enforced separately by `BILLING_BUNDLE_<ID>_TIERS`.

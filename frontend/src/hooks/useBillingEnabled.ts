@@ -16,6 +16,7 @@ import { api } from '@/lib/api';
  * dead link before the probe resolves.
  */
 let cached: boolean | undefined;
+let cachedProvider: string | undefined;
 let inflight: Promise<boolean> | null = null;
 
 // Resolves to the probe's `enabled` flag. THROWS on an unreachable/errored probe
@@ -25,7 +26,21 @@ let inflight: Promise<boolean> | null = null;
 // while billing was mid-restart / mid-boot).
 async function fetchBillingEnabled(): Promise<boolean> {
   const res = await api.getBillingConfig();
+  // Cache the provider from the same probe so `useBillingProvider` needn't refetch.
+  if (res.data?.provider) cachedProvider = res.data.provider;
   return res.data?.enabled === true;
+}
+
+/**
+ * The billing provider for this deployment (`stripe` | `aws-marketplace` | `stub`)
+ * from the `/config` probe, or `undefined` until known. Lets the billing UI choose
+ * the right subscribe flow — Stripe redirects to hosted Checkout to collect a card,
+ * `stub` creates the subscription directly (no card).
+ */
+export function useBillingProvider(): string | undefined {
+  const [provider, setProvider] = useState<string | undefined>(cachedProvider);
+  useEffect(() => subscribeBillingEnabled(() => setProvider(cachedProvider)), []);
+  return provider;
 }
 
 /**

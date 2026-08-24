@@ -1,11 +1,72 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { FEATURE_METADATA, type FeatureFlag } from '@/lib/feature-flags';
 import { formatCents } from '@/lib/format';
 import type { Bundle, BillingInterval, ComboDiscount } from '@/types';
+
+/** Above this many units, confirm before committing (fat-finger guard). */
+const SEAT_CONFIRM_THRESHOLD = 100;
+
+/**
+ * Typed quantity entry for a per-unit pack with volume tiers (the `seat` bundle):
+ * enter an EXACT count. Because the addon quantity is SET (not incremented), the
+ * control shows current → new → delta so a typed "3" reads as "set to 3", and the
+ * volume-tier hint tells the buyer where discounts kick in.
+ */
+function SeatEntry({ bundle, qty, interval, disabled, requestAddonChange }: {
+  bundle: Bundle;
+  qty: number;
+  interval: BillingInterval;
+  disabled: boolean;
+  requestAddonChange: (bundleId: string, name: string, quantity: number) => void;
+}) {
+  const [value, setValue] = useState(String(qty));
+  // Re-sync the field when the committed quantity changes (e.g. after a purchase).
+  useEffect(() => setValue(String(qty)), [qty]);
+
+  const target = Math.max(0, Math.floor(Number(value) || 0));
+  const delta = target - qty;
+  const unit = interval === 'annual' ? bundle.prices.annual : bundle.prices.monthly;
+  const hint = (bundle.volumeTiers ?? [])
+    .map((t) => `${t.minQuantity}+: ${t.discountPercent}% off`)
+    .join(' · ');
+
+  const submit = () => {
+    if (delta === 0) return;
+    if (target >= SEAT_CONFIRM_THRESHOLD
+      && !window.confirm(`Set ${bundle.name.toLowerCase()}s to ${target}? That's ${formatCents(unit * target)}/${interval === 'annual' ? 'yr' : 'mo'} before discounts.`)) {
+      return;
+    }
+    requestAddonChange(bundle.id, bundle.name, target);
+  };
+
+  return (
+    <div className="w-full">
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={0}
+          className="input w-24"
+          value={value}
+          disabled={disabled}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+          aria-label={`Number of ${bundle.name.toLowerCase()}s`}
+        />
+        <Button size="sm" disabled={disabled || delta === 0} onClick={submit}>
+          {qty === 0 ? 'Add' : 'Update'}
+        </Button>
+      </div>
+      <p className="mt-1 text-xs text-[var(--pb-text-muted)] tabular-nums">
+        {qty} → {target}{delta !== 0 ? ` (${delta > 0 ? '+' : ''}${delta})` : ''}
+      </p>
+      {hint && <p className="mt-0.5 text-xs text-[var(--pb-text-muted)]">Volume discount — {hint}</p>}
+    </div>
+  );
+}
 
 interface AddonGridProps {
   bundles: Bundle[];
@@ -143,6 +204,14 @@ export function AddonGrid({
                       ? 'Subscribe to add'
                       : qty > 0 ? `${qty} active` : 'Managed in AWS Marketplace'}
                   </span>
+                ): b.stackable && b.volumeTiers?.length ? (
+                  <SeatEntry
+                    bundle={b}
+                    qty={qty}
+                    interval={billingInterval}
+                    disabled={actionLoading || previewLoading}
+                    requestAddonChange={requestAddonChange}
+                  />
                 ): b.stackable ? (                        <>
                     <Button
                       variant="secondary"

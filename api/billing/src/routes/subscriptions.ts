@@ -76,6 +76,54 @@ export function createSubscriptionRoutes(): Router {
     });
   }));
 
+  // POST /billing/subscriptions/checkout  start a hosted Checkout to collect a
+  // card + create a PAID subscription (Stripe self-serve). Returns { url } to
+  // redirect to; the local subscription + entitlements are provisioned by the
+  // `customer.subscription.created` webhook on completion (no cardless
+  // `incomplete` orphan). Providers without Checkout (stub) fall back to the
+  // direct create; Marketplace bills externally.
+  router.post('/subscriptions/checkout', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+    const validation = validateBody(req, SubscriptionCreateSchema);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    const { planId, interval } = validation.value;
+
+    if (config.billingProvider === 'aws-marketplace') {
+      return sendError(res, 409, 'Subscriptions are provisioned through AWS Marketplace (see /marketplace/register).', ErrorCode.CONFLICT);
+    }
+    const provider = getPaymentProvider();
+    if (!provider.createCheckoutSession) {
+      // stub (no card needed) — the client should use the direct create instead.
+      return sendError(res, 501, 'The configured billing provider has no hosted checkout; use POST /subscriptions.');
+    }
+
+    const plan = await Plan.findOne({ _id: planId, isActive: true });
+    if (!plan) return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
+    // A free plan needs no checkout — create it directly via POST /subscriptions.
+    if (plan.prices.monthly === 0 && plan.prices.annual === 0) {
+      return sendError(res, 400, 'This plan is free — use POST /subscriptions.', ErrorCode.VALIDATION_ERROR);
+    }
+    const existing = await Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } });
+    if (existing) {
+      return sendError(res, 409, 'Organization already has a subscription. Use PUT to change plans.', ErrorCode.DUPLICATE_ENTRY);
+    }
+
+    const rawEmail = req.user?.email;
+    const customerEmail = typeof rawEmail === 'string' && rawEmail.length > 0 ? rawEmail : undefined;
+    // Reuse one Stripe customer per org across abandoned/retried checkouts.
+    const customerId = await provider.createCustomer(orgId, customerEmail, `checkout_cust_${orgId}`);
+
+    const origin = (req.headers.origin as string | undefined) || config.frontendUrl;
+    if (!origin) return sendError(res, 500, 'Cannot determine a return URL for checkout');
+    const base = `${origin.replace(/\/$/, '')}/dashboard/billing`;
+    const url = await provider.createCheckoutSession(customerId, planId, interval, {
+      orgId,
+      successUrl: `${base}?checkout=success`,
+      cancelUrl: `${base}?checkout=cancelled`,
+    });
+    logger.info('Created checkout session', { orgId, planId, interval });
+    return sendSuccess(res, 200, { url });
+  }));
+
   // POST /billing/subscriptions  create a new subscription
 
   router.post('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {

@@ -171,6 +171,10 @@ warns you). Use `--quiet` to print only the export line for `eval`.
 **Provisioned with `--with-events`?** This is already done — skip to
 [Step 7](#step-7-create-your-first-pipeline).
 
+> The in-app **onboarding step** (shown after you create an organization) surfaces
+> this same `store-token` → `setup-events` sequence, with a with/without-DORA toggle
+> — but only on the AWS targets (`DEPLOY_TARGET=aws-ec2`/`aws-eks`).
+
 The plugin-lookup and event-ingestion Lambdas read a platform JWT from AWS Secrets
 Manager (at `pipeline-builder/{orgId}/platform`). If you didn't pass `--with-events`,
 mint and store it by hand:

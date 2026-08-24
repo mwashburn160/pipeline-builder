@@ -118,11 +118,15 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
 // credit from live addons via activeComboCredits. Default [] so the existing recurring
 // tests (no combo addons) are unaffected; a dedicated test overrides it.
 const mockActiveComboCredits = jest.fn<(...a: unknown[]) => unknown[]>().mockReturnValue([]);
+const mockVolumeCredits = jest.fn<(...a: unknown[]) => unknown[]>().mockReturnValue([]);
 jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
   getComboDiscounts: () => [],
   activeComboCredits: mockActiveComboCredits,
   priceForInterval: (prices: { monthly: number; annual: number }, interval: string) => (interval === 'annual' ? prices.annual : prices.monthly),
   comboLedgerId: (comboId: string) => `combo:${comboId}`,
+  volumeDiscountPct: () => 0,
+  volumeCredits: mockVolumeCredits,
+  volumeLedgerId: (bundleId: string) => `volume:${bundleId}`,
 }));
 
 const mockAuditRecord = jest.fn();

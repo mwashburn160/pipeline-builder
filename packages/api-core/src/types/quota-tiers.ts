@@ -77,11 +77,12 @@ const GB = 1024 * 1024 * 1024;
  * on Team/Enterprise while cost-driving quotas — incl. apiCalls — stay finite.)
  */
 const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
-  // Free tier: single seat, apiCalls CAPPED (was unlimited — a DoS/abuse hole
-  // on a shared resource); aiCalls small (each has ~$0.01-0.10 external cost).
+  // Free tier: single seat, 2 pipelines, apiCalls CAPPED (was unlimited — a
+  // DoS/abuse hole on a shared resource); aiCalls small (each has ~$0.01-0.10
+  // external cost). Lean base — growth happens by upgrading, not stacking here.
   developer: {
     plugins: 25,
-    pipelines: 5,
+    pipelines: 2,
     apiCalls: 25_000,
     aiCalls: 25,
     storageBytes: 2 * GB,
@@ -93,52 +94,57 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     eventRetentionDays: 30,
     doraRetentionDays: 180,
   },
-  // Pro = solo power user + a small team (3 seats), individual pricing. Seats-past-3
-  // require the Team tier (Seat Pack is Team+ only), keeping Team the collaboration tier.
+  // Pro = individual power user, single seat, individual pricing. A 2nd seat (or
+  // team collaboration) requires the Team tier — the `seat` add-on is Team+ only,
+  // keeping Team the collaboration tier. Pro's value over Developer is its richer
+  // call/storage/plugin ceilings + feature add-ons (SSO/audit/DORA), not seats.
   pro: {
     plugins: 50,
-    pipelines: 10,
-    apiCalls: 500_000,
+    pipelines: 5,
+    apiCalls: 250_000,
     aiCalls: 1_000,
     storageBytes: 25 * GB,
     dashboards: 200,
     alertRules: 500,
     alertDestinations: 50,
     idpConfigs: 5,
-    seats: 3,
+    seats: 1,
     eventRetentionDays: 30,
     doraRetentionDays: 180,
   },
-  // Team = collaboration tier; the seat limit (10) is the real differentiator
-  // over Pro. Limits sit between Pro and Enterprise.
+  // Team = collaboration tier; the seat limit (3) is the real differentiator over
+  // Pro (single-seat) — it's the multi-seat collaboration floor. Lean base ($79):
+  // growth rides the seat/pipeline/etc add-ons (land-and-expand). Limits sit
+  // between Pro and Enterprise.
   team: {
-    plugins: 100,
-    pipelines: 200,
-    apiCalls: 2_000_000,
-    aiCalls: 5_000,
-    storageBytes: 150 * GB,
+    plugins: 75,
+    pipelines: 6,
+    apiCalls: 500_000,
+    aiCalls: 2_500,
+    storageBytes: 60 * GB,
     dashboards: -1,
     alertRules: -1,
     alertDestinations: -1,
     idpConfigs: 5,
-    seats: 10,
+    seats: 3,
     eventRetentionDays: 30,
     doraRetentionDays: 180,
   },
-  // Enterprise: org-wide, high seat cap. FAIR-USE — cost drivers (apiCalls,
-  // aiCalls, storageBytes) capped high so one account can't run up unbounded
+  // Enterprise ($599, held): the all-inclusive tier — 15 seats, 30 pipelines, ALL
+  // premium features included (see TIER_FEATURES). FAIR-USE — cost drivers (apiCalls,
+  // aiCalls, storageBytes) capped so one account can't run up unbounded
   // compute/provider/storage cost on a flat price; cheap count-quotas stay -1.
   enterprise: {
-    plugins: 250,
-    pipelines: 200,
-    apiCalls: 10_000_000,
-    aiCalls: 15_000,
-    storageBytes: 500 * GB,
+    plugins: 150,
+    pipelines: 30,
+    apiCalls: 900_000,
+    aiCalls: 9_000,
+    storageBytes: 250 * GB,
     dashboards: -1,
     alertRules: -1,
     alertDestinations: -1,
     idpConfigs: -1,
-    seats: 25,
+    seats: 15,
     eventRetentionDays: 30,
     doraRetentionDays: 180,
   },

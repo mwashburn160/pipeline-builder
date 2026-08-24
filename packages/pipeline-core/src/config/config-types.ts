@@ -307,6 +307,15 @@ export interface BundleConfig {
    * Retention Pack caps at 7 so 30 + 7×90 = 660 ≤ 730). Absent ⇒ unbounded.
    */
   readonly maxQuantity?: number;
+  /**
+   * Optional per-unit volume discount tiers for a stackable pack: at ≥ `minQuantity`
+   * purchased units, `discountPercent` comes off the line subtotal (unit × quantity).
+   * The highest matching tier wins. Realized as a recurring usage credit (like a
+   * combo), so the provider still charges unit×qty and the credit offsets the
+   * balance. Env-overridable via `BILLING_BUNDLE_<ID>_VOLUME_TIERS` (JSON). Used by
+   * the per-seat `seat` bundle. Absent ⇒ no volume discount.
+   */
+  readonly volumeTiers?: readonly { readonly minQuantity: number; readonly discountPercent: number }[];
   /** Base tiers this bundle is offered to. */
   readonly availableForTiers: readonly QuotaTier[];
   /**
@@ -334,8 +343,8 @@ export interface ComboDiscountConfig {
   /** The member bundle ids that must ALL be present for the combo to apply. */
   readonly bundleIds: readonly string[];
   /** Per-member minimum quantity (bundleId → count; absent ⇒ 1). Lets a stackable
-   *  capacity pack anchor a combo — e.g. `{ seat_pack: 1 }` = "≥ 1 Seat Pack". The
-   *  credit basis uses this minimum, so extra packs never inflate the discount. */
+   *  capacity pack anchor a combo — e.g. `{ seat: 5 }` = "≥ 5 seats". The credit
+   *  basis uses this minimum, so extra units never inflate the discount. */
   readonly minQuantities?: Readonly<Record<string, number>>;
   /** The combined price for the minimum set (cents). The credit is
    *  `Σ member unit price × minQty − prices`, clamped ≥ 0. */

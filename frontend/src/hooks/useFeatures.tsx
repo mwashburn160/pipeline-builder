@@ -16,6 +16,10 @@ interface FeaturesContextType {
   supportAlias: string;
   /** ALL configured support aliases, for listing every support inbox in the picker. */
   supportAliases: string[];
+  /** Deployment target from `/config` (`aws-ec2` | `aws-eks` | `local` | `docker`
+   *  | `minikube`) — lets UI gate target-specific content (e.g. the AWS-only
+   *  onboarding CLI-setup section). Runtime value; defaults to `local`. */
+  deployTarget: string;
 }
 
 
@@ -25,6 +29,7 @@ const FeaturesContext = createContext<FeaturesContextType>({
   isLoaded: false,
   supportAlias: DEFAULT_SUPPORT_ALIAS,
   supportAliases: [DEFAULT_SUPPORT_ALIAS],
+  deployTarget: 'local',
 });
 
 /**
@@ -39,6 +44,7 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [supportAlias, setSupportAlias] = useState(DEFAULT_SUPPORT_ALIAS);
   const [supportAliases, setSupportAliases] = useState<string[]>([DEFAULT_SUPPORT_ALIAS]);
+  const [deployTarget, setDeployTarget] = useState('local');
 
   useEffect(() => {
     let cancelled = false;
@@ -47,6 +53,7 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
         setServiceFeatures(res.data.serviceFeatures);
         if (res.data.supportAlias) setSupportAlias(res.data.supportAlias);
         if (res.data.supportAliases?.length) setSupportAliases(res.data.supportAliases);
+        if (res.data.deployTarget) setDeployTarget(res.data.deployTarget);
       }
     }).catch(() => {
       // Config fetch failed — default billing shown
@@ -94,8 +101,9 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
       isLoaded,
       supportAlias,
       supportAliases,
+      deployTarget,
     };
-  }, [serviceFeatures, user, isLoaded, supportAlias, supportAliases]);
+  }, [serviceFeatures, user, isLoaded, supportAlias, supportAliases, deployTarget]);
 
   return (
     <FeaturesContext.Provider value={value}>

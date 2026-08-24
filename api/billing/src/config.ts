@@ -11,8 +11,8 @@ export interface MarketplaceConfig {
   dimensionToPlanMap: Record<string, string>;
   /**
    * Map of local add-on bundle IDs → AWS Marketplace METERED dimension keys
-   * (the dimensions registered on the product listing, e.g. `seat_pack` →
-   * `seats`). Used by BatchMeterUsage to report add-on consumption for
+   * (the dimensions registered on the product listing, e.g. `seat` →
+   * `Seat`). Used by BatchMeterUsage to report add-on consumption for
    * Marketplace-billed accounts. Empty until the listing's metered dimensions
    * are configured — an unmapped bundle is skipped (not metered).
    */
@@ -244,7 +244,7 @@ export const config: AppConfig = {
       // purchased"). Register these dimensions on the listing, or override this
       // map to translate bundle IDs → the listing's actual dimension names.
       {
-        seat_pack: 'seat_pack',
+        seat: 'seat',
         pipeline_pack: 'pipeline_pack',
         plugin_pack: 'plugin_pack',
         api_pack: 'api_pack',

@@ -163,13 +163,13 @@ Every resource in Pipeline Builder lives inside an **organization**, organizatio
 
   | | Developer | Pro | Team | Enterprise |
   |---|:---:|:---:|:---:|:---:|
-  | **Price / month** | $0 | $49 | $149 | $599 |
-  | Plugins | 25 | 50 | 100 | 250 |
-  | Pipelines | 5 | 10 | 200 | 200 |
-  | Member seats | 1 | 3 | 10 | 25 |
-  | API calls / period | 25,000 | 500,000 | 2,000,000 | 10,000,000 |
-  | AI calls / period | 25 | 1,000 | 5,000 | 15,000 |
-  | Registry storage | 2 GB | 25 GB | 150 GB | 500 GB |
+  | **Price / month** | $0 | $39 | $79 | $599 |
+  | Plugins | 25 | 50 | 75 | 150 |
+  | Pipelines | 2 | 5 | 6 | 30 |
+  | Member seats | 1 | 1 | 3 | 15 |
+  | API calls / period | 25,000 | 250,000 | 500,000 | 900,000 |
+  | AI calls / period | 25 | 1,000 | 2,500 | 9,000 |
+  | Registry storage | 2 GB | 25 GB | 60 GB | 250 GB |
   | Dashboards | 20 | 200 | unlimited | unlimited |
   | Alert rules / destinations | 50 / 10 | 500 / 50 | unlimited | unlimited |
   | IdP configs | 1 | 5 | 5 | unlimited |
@@ -185,7 +185,7 @@ Every resource in Pipeline Builder lives inside an **organization**, organizatio
 
   **Unlimited tier.** Beyond the four subscription tiers there is an **Unlimited** tier where every quota above is `-1` (uncapped) and every gated feature is on. It exists for **billing-disabled** deployments: when `BILLING_ENABLED=false` there is nothing to meter or sell, so newly created orgs default to Unlimited and run everything uncapped. When billing is **enabled**, Unlimited is a valid stored tier but is never displayed, selectable, or purchasable — it is excluded from the plans list and every tier picker, so only Developer/Pro/Team/Enterprise are ever offered.
 
-- **Add-on bundles** — stackable packs that adjust one dimension: Seat Pack (+5 seats), Pipeline Pack (+10), Plugin Pack (+100), API Pack (+1M calls), AI Pack (+5,000 calls), Storage Pack (+50 GB), plus the Audit Log and SSO feature bundles. **Effective limit = tier base + Σ(bundle grant × quantity)**, and the result pools across the account's teams. This lets an account that needs a little more headroom buy the pack instead of jumping a whole tier. See [Billing Add-on Bundles](billing-bundles.md) for the full catalog, prices, and pooling rules.
+- **Add-on bundles** — stackable packs that adjust one dimension: per-Seat (with volume discounts, Team+), Pipeline Pack (+5, Team+), Plugin Pack (+25), API Pack (+100k calls), AI Pack (+2,500 calls), Storage Pack (+10 GB), plus the Scale Bundle combo and the Audit Log/SSO feature bundles. **Effective limit = tier base + Σ(bundle grant × quantity)**, and the result pools across the account's teams. This lets an account that needs a little more headroom buy the pack instead of jumping a whole tier. See [Billing Add-on Bundles](billing-bundles.md) for the full catalog, prices, and pooling rules.
 - **Enforcement.** Billing computes the effective entitlement and syncs it to the enforcing services — quota limits to the quota service, seats and purchased features to the platform service — always against the account root. Removing a bundle can't drop a cap below current pooled usage.
 
 ---

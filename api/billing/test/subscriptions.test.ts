@@ -91,6 +91,7 @@ jest.unstable_mockModule('../src/models/plan.js', () => ({
 
 const mockCreateCustomer = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockCreateSubscription = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockCreateCheckoutSession = jest.fn<(...args: unknown[]) => Promise<string>>();
 const mockUpdateSubscription = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockCancelSubscription = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockReactivateSubscription = jest.fn<(...args: unknown[]) => Promise<unknown>>();
@@ -99,6 +100,7 @@ jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
   getPaymentProvider: () => ({
     createCustomer: mockCreateCustomer,
     createSubscription: mockCreateSubscription,
+    createCheckoutSession: mockCreateCheckoutSession,
     updateSubscription: mockUpdateSubscription,
     cancelSubscription: mockCancelSubscription,
     reactivateSubscription: mockReactivateSubscription,
@@ -181,7 +183,7 @@ jest.unstable_mockModule('../src/validation/schemas.js', () => ({
 // metadata.provider). Mock config so importing it doesn't run the real
 // env-validation (which throws without MONGODB_URI).
 jest.unstable_mockModule('../src/config.js', () => ({
-  config: { billingProvider: 'stripe' },
+  config: { billingProvider: 'stripe', frontendUrl: 'https://app.example' },
 }));
 
 const { createSubscriptionRoutes } = await import('../src/routes/subscriptions.js');
@@ -314,6 +316,49 @@ describe('GET /subscriptions', () => {
     await handler(req, res);
 
     expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Internal server error', 'INTERNAL_ERROR');
+  });
+});
+
+describe('POST /subscriptions/checkout', () => {
+  const handler = getHandler('post', '/subscriptions/checkout');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro', interval: 'monthly' } });
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true, prices: { monthly: 3900, annual: 39000 } });
+    mockSubscriptionFindOne.mockResolvedValue(null);
+    mockCreateCustomer.mockResolvedValue('cust-1');
+    mockCreateCheckoutSession.mockResolvedValue('https://checkout.stripe/xyz');
+  });
+
+  it('returns a hosted Checkout URL and stamps orgId + success/cancel URLs', async () => {
+    const res = mockRes();
+    await handler(mockReq(), res);
+
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { url: 'https://checkout.stripe/xyz' });
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith('cust-1', 'pro', 'monthly', {
+      orgId: 'org-1',
+      successUrl: 'https://app.example/dashboard/billing?checkout=success',
+      cancelUrl: 'https://app.example/dashboard/billing?checkout=cancelled',
+    });
+    // No local subscription is created here — the webhook provisions it on completion.
+    expect(mockSubscriptionCreate).not.toHaveBeenCalled();
+  });
+
+  it('409s when the org already has a manageable subscription', async () => {
+    mockSubscriptionFindOne.mockResolvedValue(makeSubscription());
+    const res = mockRes();
+    await handler(mockReq(), res);
+    expect(mockSendError).toHaveBeenCalledWith(res, 409, expect.any(String), expect.anything());
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('400s a free plan (use the direct create instead)', async () => {
+    mockPlanFindOne.mockResolvedValue({ _id: 'developer', name: 'Developer', tier: 'developer', isActive: true, prices: { monthly: 0, annual: 0 } });
+    const res = mockRes();
+    await handler(mockReq(), res);
+    expect(mockSendError).toHaveBeenCalledWith(res, 400, expect.stringContaining('free'), expect.anything());
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
 });
 

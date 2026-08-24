@@ -145,4 +145,21 @@ export interface PaymentProvider {
    * portal (marketplace, stub) omit it (the caller returns 501).
    */
   createBillingPortalSession?(externalCustomerId: string, returnUrl: string): Promise<string>;
+
+  /**
+   * Create a hosted Checkout session (subscription mode) so a brand-new customer
+   * can enter a card and start a PAID subscription in one step, returning the URL
+   * to redirect to. Fixes the self-serve dead-end where {@link createSubscription}
+   * makes a cardless `incomplete` sub with no card-entry path. The provider must
+   * stamp `orgId`/`planId`/`interval` onto the resulting subscription's metadata
+   * so the webhook can provision the local row + entitlements on completion.
+   * Optional: providers that need no card (stub) or bill externally (marketplace)
+   * omit it (the caller falls back to the direct create).
+   */
+  createCheckoutSession?(
+    customerId: string,
+    planId: string,
+    interval: BillingInterval,
+    opts: { orgId: string; successUrl: string; cancelUrl: string },
+  ): Promise<string>;
 }

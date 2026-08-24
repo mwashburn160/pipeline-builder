@@ -13,7 +13,7 @@ import { incCounter } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response } from 'express';
 import type Stripe from 'stripe';
 import { config } from '../config.js';
-import { createBillingEvent, calculatePeriodEnd, syncEntitlements, MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/billing-helpers.js';
+import { billingServiceAuth, createBillingEvent, calculatePeriodEnd, syncEntitlements, MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/billing-helpers.js';
 import { applyPlanTierChange, applyTierIncludedAddonPrune } from '../helpers/addon-prune.js';
 import type { PrunedAddon } from '../helpers/billing-helpers.js';
 import { ingestStripeInvoice, reverseLedgerInvoice } from '../helpers/billing-ledger.js';
@@ -21,7 +21,7 @@ import { clearDiscountsOnCancel, reconcileDiscountsOnInvoice } from '../helpers/
 import { clawbackRecentPromotions, grantRecurringPromotions, qualifyReferral, recurringPeriodKey } from '../helpers/promotion-engine.js';
 import { findSubscriptionByCustomerId, findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers.js';
 import { Plan } from '../models/plan.js';
-import type { SubscriptionDocument } from '../models/subscription.js';
+import { Subscription, type SubscriptionDocument, type BillingInterval } from '../models/subscription.js';
 import { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent } from '../models/webhook-dedupe.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 import { StripeProvider } from '../providers/stripe-provider.js';
@@ -176,20 +176,24 @@ function invoiceSubscriptionId(invoice: Stripe.Invoice): string | undefined {
 }
 
 /**
- * Handle a subscription created out-of-band (e.g. directly in the Stripe
- * dashboard or via a non-app checkout flow). Without this, the local DB
- * drifts from Stripe and the org has no Subscription row backing the
- * Stripe customer.
+ * Handle a subscription created by Stripe — the self-serve **Checkout** flow
+ * (`POST /subscriptions/checkout` → hosted Checkout → this event) or an
+ * out-of-band create (Stripe dashboard / API). Without this the local DB drifts
+ * from Stripe and the org has no Subscription row backing the Stripe customer.
  *
- * If we already have a row matching this Stripe subscription ID we treat it
- * as an update (in-app create + webhook race). Otherwise we log a warning —
- * we don't auto-provision a Subscription row because we'd need to know which
- * orgId to bind it to, and Stripe's `metadata.orgId` is the only safe source.
+ * - Already have a row for this Stripe subscription ID → treat as an update
+ *   (in-app create + webhook race, or a redelivered event).
+ * - Metadata carries `orgId` + `planId` (Checkout stamps them via
+ *   `subscription_data.metadata`) → **provision** the local row + grant
+ *   entitlements. This is what makes Stripe self-serve actually reach an active,
+ *   entitled subscription.
+ * - `orgId` but no `planId` (a bare dashboard create) → can't resolve the plan;
+ *   log + meter for operator follow-up. No `orgId` → unbound; meter + event.
  */
 // NOTE: every createBillingEvent below runs from Stripe's webhook (no request
 // user), so actorId is intentionally left undefined — we never fabricate an
 // actor for provider-driven events.
-async function handleSubscriptionCreated(stripeSubscription: Stripe.Subscription): Promise<void> {
+export async function handleSubscriptionCreated(stripeSubscription: Stripe.Subscription): Promise<void> {
   const externalId = stripeSubscription.id;
   const existing = await findSubscriptionByStripeId(externalId);
   if (existing) {
@@ -204,12 +208,57 @@ async function handleSubscriptionCreated(stripeSubscription: Stripe.Subscription
     await createBillingEvent('unknown', 'subscription_created', { unbound: true, externalId });
     return;
   }
-  // Provisioning would need plan ID resolution + a primary contact email,
-  // which the in-app create flow already handles. Out-of-band creates need
-  // operator follow-up — log, meter for alerting, and continue.
-  logger.warn('Stripe subscription created out-of-band — operator action required', { externalId, orgId });
-  incCounter('billing_unbound_stripe_subscription_total', { reason: 'out_of_band' });
-  await createBillingEvent(orgId, 'subscription_created', { unbound: true, externalId });
+  const planId = (stripeSubscription.metadata?.planId || '').trim();
+  if (!planId) {
+    // A bare out-of-band create (no plan metadata) — we can't resolve the tier.
+    logger.warn('Stripe subscription created out-of-band — operator action required', { externalId, orgId });
+    incCounter('billing_unbound_stripe_subscription_total', { reason: 'out_of_band' });
+    await createBillingEvent(orgId, 'subscription_created', { unbound: true, externalId });
+    return;
+  }
+
+  // Checkout completion → provision the local subscription + entitlements.
+  const plan = await Plan.findOne({ _id: planId, isActive: true });
+  if (!plan) {
+    logger.warn('Stripe subscription references an unknown/inactive plan', { externalId, orgId, planId });
+    incCounter('billing_unbound_stripe_subscription_total', { reason: 'unknown_plan' });
+    await createBillingEvent(orgId, 'subscription_created', { unbound: true, externalId, planId });
+    return;
+  }
+  const interval = (stripeSubscription.metadata?.interval === 'annual' ? 'annual' : 'monthly') as BillingInterval;
+  const customerId = typeof stripeSubscription.customer === 'string' ? stripeSubscription.customer : stripeSubscription.customer?.id;
+  const status = mapStripeStatus(stripeSubscription.status);
+  const now = new Date();
+
+  let subscription: SubscriptionDocument;
+  try {
+    subscription = await Subscription.create({
+      orgId,
+      planId,
+      status,
+      interval,
+      currentPeriodStart: now,
+      currentPeriodEnd: calculatePeriodEnd(now, interval),
+      cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end ?? false,
+      externalId,
+      externalCustomerId: customerId,
+      metadata: { provider: 'stripe' },
+    });
+  } catch (err) {
+    // Lost the {orgId,status:'active'} uniqueness race (a concurrent provision /
+    // redelivered event already created the active row) → converge via update.
+    if ((err as { code?: number }).code === 11000) return handleSubscriptionUpdated(stripeSubscription);
+    throw err;
+  }
+
+  // Grant the paid tier only for an entitlement-worthy status (Checkout lands
+  // `active`; a card-decline would land `incomplete` and stay unprovisioned until
+  // a later `.updated`→active). Mirrors the in-app create's gating.
+  if (status === 'active' || status === 'trialing') {
+    await syncEntitlements(orgId, plan.tier, billingServiceAuth(orgId), subscription._id.toString());
+  }
+  await createBillingEvent(orgId, 'subscription_created', { planId, interval, tier: plan.tier, via: 'checkout' }, subscription._id.toString());
+  logger.info('Provisioned Stripe subscription from checkout', { orgId, externalId, planId, status });
 }
 
 /**

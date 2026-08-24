@@ -267,14 +267,44 @@ pb_create_config_maps "$DEPLOY_DIR" "$CONFIG_DIR" "$NGINX_DIR"
 # (ses:SendEmail on this identity; codepipeline:Start/StopPipelineExecution on
 # this account's pipelines) — never the *FullAccess managed policies. Idempotent.
 #
-# The whole namespace shares the 'default' ServiceAccount, and Pod Identity binds
-# ONE IAM role per SA — so a single association carries EVERY policy the pods
-# need. SES is conditional (--no-email); the CodePipeline-exec grant is always
-# applied because the pipeline service's run/cancel endpoints
-# (api/pipeline pipeline-execution-service → Start/StopPipelineExecution) need it.
+# Pod Identity binds ONE IAM role per ServiceAccount, and — critically — each
+# workload runs as its OWN named SA (platform, pipeline, message, …), NOT the
+# namespace 'default' SA (see k8s/istio.yaml + each Deployment's
+# serviceAccountName). So a grant must be associated with the SA of the pod that
+# actually needs it: SES (ses:SendEmail) → the 'platform' SA (platform/src/utils
+# /email.ts sends), and CodePipeline Start/Stop → the 'pipeline' SA (api/pipeline
+# pipeline-execution-service). Binding to 'default' would strand the credentials.
 log "Phase 5: SES email + Pod Identity IAM"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-POLICY_ARNS=()  # accumulated below; attached to the 'default' SA role at the end
+
+# Associate a ServiceAccount with a scoped policy via Pod Identity: create the
+# association (SA → role carrying the policy) if absent, else back-fill the policy
+# onto the existing role (attach-role-policy is idempotent). Requires the Pod
+# Identity agent (bundled with EKS Auto Mode). Args: <sa-name> <policy-arn>.
+associate_pod_identity() {
+  local sa="$1" policy_arn="$2"
+  local assoc
+  assoc=$(aws eks list-pod-identity-associations --cluster-name "$CLUSTER_NAME" --region "$REGION" \
+    --namespace "$NAMESPACE" --query "associations[?serviceAccount=='${sa}'].associationId | [0]" --output text 2>/dev/null || true)
+  if [ -z "$assoc" ] || [ "$assoc" = "None" ]; then
+    eksctl create podidentityassociation --cluster "$CLUSTER_NAME" --region "$REGION" \
+      --namespace "$NAMESPACE" --service-account-name "$sa" \
+      --permission-policy-arns "$policy_arn" 2>/dev/null \
+      && echo "  Pod Identity associated ($sa SA → ${policy_arn##*/})" \
+      || echo "  Pod Identity association failed for $sa — check: eksctl get podidentityassociation --cluster $CLUSTER_NAME"
+  else
+    local role_arn role_name
+    role_arn=$(aws eks describe-pod-identity-association --cluster-name "$CLUSTER_NAME" --region "$REGION" \
+      --association-id "$assoc" --query "association.roleArn" --output text 2>/dev/null || true)
+    role_name="${role_arn##*/}"
+    if [ -n "$role_name" ] && [ "$role_name" != "None" ]; then
+      aws iam attach-role-policy --role-name "$role_name" --policy-arn "$policy_arn" >/dev/null 2>&1 || true
+      echo "  Pod Identity association exists ($sa SA); ensured ${policy_arn##*/} on role $role_name"
+    else
+      echo "  Pod Identity association exists for $sa but role lookup failed — attach ${policy_arn##*/} manually"
+    fi
+  fi
+}
 
 if [ "${EMAIL_ENABLED:-false}" = true ]; then
   SES_IDENTITY_ARN="arn:aws:ses:${REGION}:${ACCOUNT_ID}:identity/${DOMAIN}"
@@ -320,7 +350,8 @@ if [ "${EMAIL_ENABLED:-false}" = true ]; then
   else
     echo "  reusing IAM policy $SES_POLICY_NAME (edit it if --email-from changed)"
   fi
-  POLICY_ARNS+=("$SES_POLICY_ARN")
+  # SES is consumed by the platform service → bind to the 'platform' SA.
+  associate_pod_identity platform "$SES_POLICY_ARN"
 else
   echo "  EMAIL_ENABLED!=true — skipping SES resources"
 fi
@@ -339,35 +370,8 @@ if ! aws iam get-policy --policy-arn "$PIPE_POLICY_ARN" >/dev/null 2>&1; then
 else
   echo "  reusing IAM policy $PIPE_POLICY_NAME"
 fi
-POLICY_ARNS+=("$PIPE_POLICY_ARN")
-
-# Attach every collected policy to the 'default' SA's Pod Identity role. One
-# association per SA: create it (carrying all policies) if absent, else attach
-# each policy to the existing role — attach-role-policy is idempotent, so this
-# also back-fills the CodePipeline policy onto a role a prior SES-only run made.
-# Requires the Pod Identity agent (bundled with EKS Auto Mode).
-POLICY_CSV=$(IFS=,; echo "${POLICY_ARNS[*]}")
-EXISTING_ASSOC=$(aws eks list-pod-identity-associations --cluster-name "$CLUSTER_NAME" --region "$REGION" \
-  --namespace "$NAMESPACE" --query "associations[?serviceAccount=='default'].associationId | [0]" --output text 2>/dev/null || true)
-if [ -z "$EXISTING_ASSOC" ] || [ "$EXISTING_ASSOC" = "None" ]; then
-  eksctl create podidentityassociation --cluster "$CLUSTER_NAME" --region "$REGION" \
-    --namespace "$NAMESPACE" --service-account-name default \
-    --permission-policy-arns "$POLICY_CSV" 2>/dev/null \
-    && echo "  Pod Identity associated (default SA → ${#POLICY_ARNS[@]} scoped policies)" \
-    || echo "  Pod Identity association failed — check: eksctl get podidentityassociation --cluster $CLUSTER_NAME"
-else
-  ASSOC_ROLE_ARN=$(aws eks describe-pod-identity-association --cluster-name "$CLUSTER_NAME" --region "$REGION" \
-    --association-id "$EXISTING_ASSOC" --query "association.roleArn" --output text 2>/dev/null || true)
-  ASSOC_ROLE_NAME="${ASSOC_ROLE_ARN##*/}"
-  if [ -n "$ASSOC_ROLE_NAME" ] && [ "$ASSOC_ROLE_NAME" != "None" ]; then
-    for arn in "${POLICY_ARNS[@]}"; do
-      aws iam attach-role-policy --role-name "$ASSOC_ROLE_NAME" --policy-arn "$arn" >/dev/null 2>&1 || true
-    done
-    echo "  Pod Identity association exists (default SA); ensured ${#POLICY_ARNS[@]} policies on role $ASSOC_ROLE_NAME"
-  else
-    echo "  Pod Identity association exists but role lookup failed — attach $PIPE_POLICY_NAME manually"
-  fi
-fi
+# CodePipeline exec is consumed by the pipeline service → bind to the 'pipeline' SA.
+associate_pod_identity pipeline "$PIPE_POLICY_ARN"
 
 # ---- Phase 6: KEDA (plugin ScaledObject CRD) -------------------------------
 log "Phase 6: KEDA operator"

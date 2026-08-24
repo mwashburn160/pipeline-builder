@@ -31,7 +31,7 @@ An account's **effective limit** for any quota is its tier baseline plus the sum
 effective[quota] = tierBase[quota] + Σ (bundle.grant[quota] × quantity)
 ```
 
-- **Stackable bundles** can be purchased in quantity — buy the Seat Pack ×3 for +15 seats.
+- **Stackable bundles** can be purchased in quantity — enter 15 Member Seats for +15 seats (with a volume discount).
 - An **unlimited** baseline (`-1`, e.g. Team/Enterprise `apiCalls`) stays unlimited — bundles never shrink it.
 - **Feature bundles** (Audit Log, SSO) add a capability rather than a number; they are not stackable.
 - Effective limits are **pooled at the account root** and shared across the root's teams — see [pooling](#pooling-across-teams).
@@ -46,12 +46,12 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly. Every p
 
 | Bundle | Grant | Monthly | Annual | Available to | Stackable |
 |--------|-------|--------:|-------:|--------------|:---------:|
-| **Seat Pack** | +5 member seats | $25 | $250 | Team, Enterprise | ✅ |
-| **Pipeline Pack** | +10 pipelines | $15 | $150 | all tiers | ✅ |
-| **Plugin Pack** | +100 plugins | $15 | $150 | all tiers | ✅ |
-| **API Pack** | +1,000,000 API calls / period | $20 | $200 | all tiers | ✅ |
-| **AI Pack** | +5,000 AI calls / period | $75 | $750 | all tiers | ✅ |
-| **Storage Pack** | +50 GB registry storage | $25 | $250 | all tiers | ✅ |
+| **Member Seat** | +1 member seat (volume discounts — see below) | $19.99 | $199.90 | Team, Enterprise | ✅ |
+| **Pipeline Pack** | +5 pipelines | $15 | $150 | Team, Enterprise | ✅ |
+| **Plugin Pack** | +25 plugins | $10 | $100 | all tiers | ✅ |
+| **API Pack** | +100,000 API calls / period | $19.99 | $199.90 | all tiers | ✅ |
+| **AI Pack** | +2,500 AI calls / period | $19.99 | $199.90 | all tiers | ✅ |
+| **Storage Pack** | +10 GB registry storage | $19.99 | $199.90 | all tiers | ✅ |
 | **Standard Retention Pack** | +90 days standard pipeline-event retention | $15 | $150 | all tiers | ✅ |
 | **DORA History Pack** | +365 days DORA history **and** +365 days on the per-org report-query window | $30 | $300 | all tiers | ✅ |
 | **Audit Log** | unlocks the `audit_log` feature | $20 | $200 | Pro | ❌ |
@@ -62,7 +62,9 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly. Every p
 | **Advanced Compliance** | unlocks the `compliance_advanced` feature — curated **SOC2 / PCI-DSS / CIS** framework libraries — **requires Standard Compliance** | $99.90 | $999 | Developer, Pro, Team | ❌ |
 
 Notes:
-- **API Pack** is available on every tier, since all tiers now have a finite API-call cap (Team 2M, Enterprise 10M) that can be topped up.
+- **Member Seat** and **Pipeline Pack** are the tier differentiators (seats and pipelines), so both are restricted to **Team / Enterprise** — a single-seat Developer/Pro can't cheaply stack them to undercut Team, and must upgrade instead. The other capacity packs (plugin/api/ai/storage) stay all-tier.
+- **Member Seat volume discounts.** Seats are per-unit ($19.99 each), and the more you buy the cheaper each gets: **≥ 5 seats → 10% off · ≥ 15 → 20% · ≥ 40 → 30%** (off the seat line). The discount is realized as a recurring usage credit (like a combo), so the provider still charges unit × quantity and the credit offsets the balance; the add-on **preview** shows a negative "Member Seat volume discount" line so `totalCents` reflects the net. Tiers are env-tunable via `BILLING_BUNDLE_SEAT_VOLUME_TIERS`.
+- **API Pack** is available on every tier, since all tiers now have a finite API-call cap (Team 500k, Enterprise 900k) that can be topped up.
 - **Retention is a tier-aware, bundle-extendable entitlement.** Each tier carries a baseline reporting-retention window — paid tiers default to **30 days** for standard pipeline events and **180 days** for DORA source, while the **unlimited** tier is **unlimited retention** (`-1`, history is never swept). The two retention packs stack the same way every other pack does — effective retention = tier baseline + Σ(pack grant × quantity). Billing computes that effective window and **syncs it to the reporting service** (`dora_settings.event_retention_days` / `dora_retention_days`), a sync leg alongside quotas → quota service and seats/features → platform. Buy **Standard Retention Pack ×2** for +180 days of standard-event history.
 - The **DORA History Pack** also widens the per-org report-query window (which now tracks retention, capped at an absolute 730 days) — so a pack holder can actually query the extended range, not just retain the raw rows. It only does anything useful alongside **Advanced Reporting (DORA)**, which is included on Enterprise and an add-on on Developer/Pro/Team.
 - **Audit Log**, **SSO**, **Advanced Reporting**, and **Team Usage Analytics** are the "buy up a capability without changing tier" path. Each is standard from a given tier up (Audit Log and SSO from Team; Advanced Reporting and Team Usage Analytics from Enterprise), and the bundle lets a lower tier add it à la carte — so the add-on is offered only to the tiers that don't already include it (Audit Log/SSO → Pro; Advanced Reporting → Developer/Pro/Team; Team Usage Analytics → Pro/Team, since Developer has no teams to break down).
@@ -77,18 +79,21 @@ Some add-ons are cheaper bought together. When an account holds **every** member
 | Combo | Members | Buy separately | Together | You save |
 |-------|---------|---------------:|---------:|---------:|
 | **Analytics Suite** | Advanced Reporting (DORA) + Team Usage Analytics | $60 / mo · $600 / yr | **$42 / mo · $420 / yr** | **$18 / mo · $180 / yr** |
-| **Team Growth Bundle** | ≥ 1 Seat Pack + Team Usage Analytics | $55 / mo · $550 / yr | **$38.50 / mo · $385 / yr** | **$16.50 / mo · $165 / yr** |
+| **Team Growth Bundle** | ≥ 5 Member Seats + Team Usage Analytics | $129.95 / mo · $1,299.50 / yr | **$90.99 / mo · $909.90 / yr** | **$38.96 / mo · $389.60 / yr** |
 | **Compliance Suite** | Standard Compliance + Advanced Compliance | $129.80 / mo · $1,298 / yr | **$90.86 / mo · $908.60 / yr** | **$38.94 / mo · $389.40 / yr** |
+| **Scale Bundle** | API Pack + Storage Pack | $39.98 / mo · $399.80 / yr | **$27.99 / mo · $279.90 / yr** | **$11.99 / mo · $119.90 / yr** |
 
 How it works:
 
 - The combo applies automatically the moment its members are present — there is nothing extra to buy or redeem.
-- **Minimum-quantity members.** A member can require a minimum quantity: Team Growth needs **≥ 1 Seat Pack** (= 5 seats at the default grant). It counts the purchased Seat Pack **add-on**, not the account's total tier seats, and the credit is **flat** — extra Seat Packs beyond the minimum don't increase it.
-- The saving is shown up front: the add-on **preview** and the add/remove responses include a negative combo line (e.g. `Team Growth Bundle discount −$16.50`), so `totalCents` already reflects the net.
+- **Minimum-quantity members.** A member can require a minimum quantity: Team Growth needs **≥ 5 Member Seats**. It counts the purchased Seat **add-on**, not the account's total tier seats, and the credit is **flat** — extra seats beyond the minimum don't increase it.
+- The saving is shown up front: the add-on **preview** and the add/remove responses include a negative combo line (e.g. `Team Growth Bundle discount −$38.96`), so `totalCents` already reflects the net.
 - It is **realized** as a recurring usage credit re-granted each billing period, derived fresh from the current add-on composition — the invoice reconciler grants `Σ member price × minQty − combined price` (clamped ≥ 0) per period, idempotent per invoice. Existing qualifying accounts begin receiving the credit at their **next invoice** (retroactive by design).
-- **Overlap.** Team Usage Analytics belongs to both combos. You always receive the combination of combos giving the **largest total discount**, and no add-on is ever discounted twice — if two combos share a member, only the single best one applies (ties broken deterministically). So an account with DORA + Team Usage Analytics + a Seat Pack gets **one** $18 credit (the larger Analytics Suite), not two.
-- Removing a member simply stops the next re-grant (the current period's credit is not clawed back) and emits a `combo_expired` billing event; the **preview** warns "Ends your Team Growth Bundle discount — −$16.50/mo" before you commit.
-- The billing dashboard nudges toward the pairing: when the other member is owned, an unsatisfied member's card shows a **"Completes the Team Growth Bundle — save $16.50/mo"** hint (the single best combo that card completes).
+- **Overlap.** Team Usage Analytics belongs to both the Analytics Suite and Team Growth. You always receive the combination of combos giving the **largest total discount**, and no add-on is ever discounted twice — if two combos share a member, only the single best one applies (ties broken deterministically). So an account with DORA + Team Usage Analytics + seats gets **one** $18 credit (the larger Analytics Suite), not two.
+- Removing a member simply stops the next re-grant (the current period's credit is not clawed back) and emits a `combo_expired` billing event; the **preview** warns "Ends your Team Growth Bundle discount — −$38.96/mo" before you commit.
+- The billing dashboard nudges toward the pairing: when the other member is owned, an unsatisfied member's card shows a **"Completes the Team Growth Bundle — save $38.96/mo"** hint (the single best combo that card completes).
+
+**Proration note.** A mid-period seat increase is prorated by the provider at the full unit price; the volume-discount credit reconciles at the **next invoice**, so the discount lags one cycle on the proration amount (it catches up automatically). Steady-state (full billing periods) is unaffected.
 
 Combos are only advertised when **every** member is purchasable on the account's tier — Developer, for example, can't buy Team Usage Analytics, so it isn't offered either combo.
 

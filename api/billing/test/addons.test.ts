@@ -47,8 +47,13 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 }));
 
 const mockSubscriptionFindOne = jest.fn<(...args: unknown[]) => any>();
+// The add/remove routes commit via a guarded findOneAndUpdate (optimistic
+// concurrency). The default impl echoes the loaded sub with the `$set` applied
+// (addons + the dot-path providerAddonSyncPending marker) so downstream code sees
+// the "committed" doc; return null from a test to simulate a version conflict → 409.
+const mockSubscriptionFindOneAndUpdate = jest.fn<(...args: any[]) => any>();
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
-  Subscription: { findOne: mockSubscriptionFindOne },
+  Subscription: { findOne: mockSubscriptionFindOne, findOneAndUpdate: mockSubscriptionFindOneAndUpdate },
 }));
 
 const mockPlanFindById = jest.fn<(...args: unknown[]) => any>();
@@ -83,6 +88,7 @@ const mockSyncProviderAddons = jest.fn<(...args: unknown[]) => Promise<void>>().
 // use of the return values (the /bundles nudge + the priceBreakdown combo line).
 const mockGetComboDiscounts = jest.fn<() => unknown[]>().mockReturnValue([]);
 const mockActiveComboCredits = jest.fn<(...args: unknown[]) => unknown[]>().mockReturnValue([]);
+const mockVolumeCredits = jest.fn<(...args: unknown[]) => unknown[]>().mockReturnValue([]);
 
 // The tier-filtered catalog fixture: an active stackable pack (pro+), an active
 // feature bundle (team+), and an inactive pack (must never surface).
@@ -127,6 +133,9 @@ jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
       const b = bundles.find((x) => x.id === id);
       return s + (b ? b.prices[interval] : 0) * (combo.minQuantities?.[id] ?? 1);
     }, 0),
+  volumeDiscountPct: () => 0,
+  volumeCredits: mockVolumeCredits,
+  volumeLedgerId: (bundleId: string) => `volume:${bundleId}`,
 }));
 
 // Central-trail audit client — addon add/remove emit billing.addon.* here
@@ -169,6 +178,7 @@ function mockRes(): any {
 function makeSubscription(overrides: Record<string, unknown> = {}) {
   return {
     _id: { toString: () => 'sub-1' },
+    __v: 0,
     orgId: 'org-1',
     planId: 'pro',
     status: 'active',
@@ -184,15 +194,31 @@ function makeSubscription(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** The sub last loaded via `withActiveSub`, so the guarded findOneAndUpdate can
+ *  echo it as the "committed" doc with the `$set` applied. */
+let loadedSub: any = null;
+
 /** Wire loadSubAndPlan: Subscription.findOne resolves the doc; Plan.findById().lean() the plan. */
 function withActiveSub(sub: any = makeSubscription(), plan: any = { name: 'Pro', tier: 'pro', prices: { monthly: 4000, annual: 40000 } }) {
   mockSubscriptionFindOne.mockResolvedValue(sub);
   mockPlanFindById.mockReturnValue({ lean: jest.fn().mockResolvedValue(plan) });
+  loadedSub = sub;
   return sub;
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
+  loadedSub = null;
+  // Default guarded-commit: echo the loaded sub with `$set` (addons + the durable
+  // marker) applied. A test may override to return null → simulate a 409 conflict.
+  mockSubscriptionFindOneAndUpdate.mockImplementation(async (_filter: any, update: any) => {
+    if (!loadedSub) return null;
+    const set = update?.$set ?? {};
+    const committed: any = { ...loadedSub };
+    if ('addons' in set) committed.addons = set.addons;
+    if (set['metadata.providerAddonSyncPending']) committed.metadata = { ...(loadedSub.metadata ?? {}), providerAddonSyncPending: true };
+    return committed;
+  });
   mockBundlesEnabled.mockReturnValue(true);
   mockBundleSelfServiceAllowed.mockReturnValue(true);
   mockCheckEntitlementOvercap.mockResolvedValue([]);
@@ -356,9 +382,10 @@ describe('POST /subscriptions/:id/addons (add)', () => {
   });
 
   it('allows a retention bundle exactly AT its maxQuantity', async () => {
-    const sub = withActiveSub();
+    withActiveSub();
     await handler(mockReq({ body: { bundleId: 'retention_pack', quantity: 7 } }), mockRes());
-    expect(sub.addons).toEqual([{ bundleId: 'retention_pack', quantity: 7 }]);
+    const [, update] = mockSubscriptionFindOneAndUpdate.mock.calls[0];
+    expect(update.$set.addons).toEqual([{ bundleId: 'retention_pack', quantity: 7 }]);
     expect(mockSyncEntitlements).toHaveBeenCalled();
   });
 
@@ -380,11 +407,13 @@ describe('POST /subscriptions/:id/addons (add)', () => {
   });
 
   it('saves, syncs entitlements, and returns 200 on success', async () => {
-    const sub = withActiveSub();
+    withActiveSub();
     await handler(mockReq({ body: { bundleId: 'seat_pack', quantity: 3 } }), mockRes());
-    // Persisted the new add-on quantity...
-    expect(sub.addons).toEqual([{ bundleId: 'seat_pack', quantity: 3 }]);
-    expect(sub.save).toHaveBeenCalled();
+    // Committed the new add-on quantity via the guarded findOneAndUpdate ($set.addons,
+    // keyed on _id + __v for optimistic concurrency).
+    const [filter, update] = mockSubscriptionFindOneAndUpdate.mock.calls[0];
+    expect(filter).toMatchObject({ _id: expect.anything(), __v: expect.anything() });
+    expect(update.$set.addons).toEqual([{ bundleId: 'seat_pack', quantity: 3 }]);
     // ...fanned out effective entitlements with the new add-on set...
     expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', [{ bundleId: 'seat_pack', quantity: 3 }]);
     // Provider line-item reconcile fires with the new add-on set via the shared
@@ -399,35 +428,30 @@ describe('POST /subscriptions/:id/addons (add)', () => {
     expect(payload.priceBreakdown.totalCents).toBe(4000 + 1000 * 3); // Pro base + 3× seat pack
   });
 
-  it('stamps providerAddonSyncPending transactionally with the add-on save (crash-durability)', async () => {
-    // Capture metadata AT save() time to prove the marker is persisted in the
-    // SAME write as the add-on change — so a crash before syncProviderAddons
-    // still leaves a durable marker for the lifecycle reconciler.
-    let metaAtSave: Record<string, unknown> | undefined;
-    const sub = withActiveSub(makeSubscription({
-      save: jest.fn(function (this: any) { metaAtSave = { ...this.metadata }; return Promise.resolve(); }),
-    }));
+  it('stamps providerAddonSyncPending transactionally with the add-on commit (crash-durability)', async () => {
+    // The durable marker rides the SAME guarded findOneAndUpdate as the add-on
+    // change (dot-path $set) — so a crash before syncProviderAddons still leaves a
+    // durable marker for the lifecycle reconciler.
+    withActiveSub();
     await handler(mockReq({ body: { bundleId: 'seat_pack', quantity: 2 } }), mockRes());
-    expect(metaAtSave).toMatchObject({ providerAddonSyncPending: true });
-    expect(sub.markModified).toHaveBeenCalledWith('metadata');
+    const [, update] = mockSubscriptionFindOneAndUpdate.mock.calls[0];
+    expect(update.$set['metadata.providerAddonSyncPending']).toBe(true);
   });
 
   it('does NOT stamp the marker when there is no provider subscription (no externalId)', async () => {
     // No externalId ⇒ syncProviderAddons is a no-op that never clears the marker,
     // so stamping it would strand it forever. It must be skipped.
-    let metaAtSave: Record<string, unknown> | undefined;
-    withActiveSub(makeSubscription({
-      externalId: undefined,
-      save: jest.fn(function (this: any) { metaAtSave = { ...this.metadata }; return Promise.resolve(); }),
-    }));
+    withActiveSub(makeSubscription({ externalId: undefined }));
     await handler(mockReq({ body: { bundleId: 'seat_pack', quantity: 2 } }), mockRes());
-    expect(metaAtSave?.providerAddonSyncPending).toBeUndefined();
+    const [, update] = mockSubscriptionFindOneAndUpdate.mock.calls[0];
+    expect(update.$set['metadata.providerAddonSyncPending']).toBeUndefined();
   });
 
   it('coerces a stackable quantity to at least 1', async () => {
-    const sub = withActiveSub();
+    withActiveSub();
     await handler(mockReq({ body: { bundleId: 'seat_pack', quantity: 0 } }), mockRes());
-    expect(sub.addons).toEqual([{ bundleId: 'seat_pack', quantity: 1 }]);
+    const [, update] = mockSubscriptionFindOneAndUpdate.mock.calls[0];
+    expect(update.$set.addons).toEqual([{ bundleId: 'seat_pack', quantity: 1 }]);
   });
 
   it('appends a NEGATIVE combo line to the price breakdown when a combo is active', async () => {
@@ -485,9 +509,10 @@ describe('POST /subscriptions/:id/addons (add)', () => {
   });
 
   it('allows Advanced when Standard is already held (prerequisite satisfied by the effective set)', async () => {
-    const sub = withActiveSub(makeSubscription({ addons: [{ bundleId: 'compliance_standard', quantity: 1 }] }));
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'compliance_standard', quantity: 1 }] }));
     await handler(mockReq({ body: { bundleId: 'compliance_advanced', quantity: 1 } }), mockRes());
-    expect(sub.addons).toEqual([{ bundleId: 'compliance_standard', quantity: 1 }, { bundleId: 'compliance_advanced', quantity: 1 }]);
+    const [, update] = mockSubscriptionFindOneAndUpdate.mock.calls[0];
+    expect(update.$set.addons).toEqual([{ bundleId: 'compliance_standard', quantity: 1 }, { bundleId: 'compliance_advanced', quantity: 1 }]);
     expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', [
       { bundleId: 'compliance_standard', quantity: 1 },
       { bundleId: 'compliance_advanced', quantity: 1 },
@@ -513,10 +538,10 @@ describe('DELETE /subscriptions/:id/addons/:bundleId (remove)', () => {
   });
 
   it('removes the bundle, syncs, and returns 200', async () => {
-    const sub = withActiveSub(makeSubscription({ addons: [{ bundleId: 'seat_pack', quantity: 2 }, { bundleId: 'audit_log', quantity: 1 }] }));
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'seat_pack', quantity: 2 }, { bundleId: 'audit_log', quantity: 1 }] }));
     await handler(mockReq({ params: { bundleId: 'seat_pack' } }), mockRes());
-    expect(sub.addons).toEqual([{ bundleId: 'audit_log', quantity: 1 }]);
-    expect(sub.save).toHaveBeenCalled();
+    const [, update] = mockSubscriptionFindOneAndUpdate.mock.calls[0];
+    expect(update.$set.addons).toEqual([{ bundleId: 'audit_log', quantity: 1 }]);
     expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', [{ bundleId: 'audit_log', quantity: 1 }]);
     expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, expect.anything());
   });
@@ -544,10 +569,11 @@ describe('DELETE /subscriptions/:id/addons/:bundleId (remove)', () => {
   });
 
   it('cascade-removes a dependent when its `requires` prerequisite is removed (Standard → Advanced)', async () => {
-    const sub = withActiveSub(makeSubscription({ addons: [{ bundleId: 'compliance_standard', quantity: 1 }, { bundleId: 'compliance_advanced', quantity: 1 }] }));
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'compliance_standard', quantity: 1 }, { bundleId: 'compliance_advanced', quantity: 1 }] }));
     await handler(mockReq({ params: { bundleId: 'compliance_standard' } }), mockRes());
     // Both the removed prerequisite AND its dependent are gone.
-    expect(sub.addons).toEqual([]);
+    const [, update] = mockSubscriptionFindOneAndUpdate.mock.calls[0];
+    expect(update.$set.addons).toEqual([]);
     // The over-cap gate + entitlement sync run against the FINAL (cascaded) set.
     expect(mockCheckEntitlementOvercap).toHaveBeenCalledWith('org-1', 'pro', [], '');
     expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', []);
@@ -578,10 +604,11 @@ describe('DELETE /subscriptions/:id/addons/:bundleId (remove)', () => {
   });
 
   it('does NOT cascade when the removed bundle is not a prerequisite of any held bundle', async () => {
-    const sub = withActiveSub(makeSubscription({ addons: [{ bundleId: 'compliance_standard', quantity: 1 }, { bundleId: 'seat_pack', quantity: 1 }] }));
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'compliance_standard', quantity: 1 }, { bundleId: 'seat_pack', quantity: 1 }] }));
     // Removing seat_pack (not a prerequisite) leaves compliance_standard intact.
     await handler(mockReq({ params: { bundleId: 'seat_pack' } }), mockRes());
-    expect(sub.addons).toEqual([{ bundleId: 'compliance_standard', quantity: 1 }]);
+    const [, update] = mockSubscriptionFindOneAndUpdate.mock.calls[0];
+    expect(update.$set.addons).toEqual([{ bundleId: 'compliance_standard', quantity: 1 }]);
   });
 
   it('returns lostCombos + emits combo_expired when the removal ends a combo', async () => {
@@ -605,9 +632,9 @@ describe('POST /subscriptions/:id/addons/preview', () => {
   });
 
   it('returns effective limits + price breakdown without persisting', async () => {
-    const sub = withActiveSub();
+    withActiveSub();
     await handler(mockReq({ body: { bundleId: 'seat_pack', quantity: 2 } }), mockRes());
-    expect(sub.save).not.toHaveBeenCalled();
+    expect(mockSubscriptionFindOneAndUpdate).not.toHaveBeenCalled();
     expect(mockCheckEntitlementOvercap).not.toHaveBeenCalled();
     const [, , payload] = mockSendSuccess.mock.calls[0];
     expect(payload.addons).toEqual([{ bundleId: 'seat_pack', quantity: 2 }]);
@@ -631,11 +658,11 @@ describe('POST /subscriptions/:id/addons/preview', () => {
   });
 
   it('surfaces the cascade: previewing removal of Standard shows Advanced would be cascaded out (DELETE parity)', async () => {
-    const sub = withActiveSub(makeSubscription({ addons: [{ bundleId: 'compliance_standard', quantity: 1 }, { bundleId: 'compliance_advanced', quantity: 1 }] }));
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'compliance_standard', quantity: 1 }, { bundleId: 'compliance_advanced', quantity: 1 }] }));
     // Removing Standard (quantity 0) leaves Advanced with an unsatisfied `requires`,
     // so the preview must cascade Advanced out too — a dry run, nothing persisted.
     await handler(mockReq({ body: { bundleId: 'compliance_standard', quantity: 0 } }), mockRes());
-    expect(sub.save).not.toHaveBeenCalled();
+    expect(mockSubscriptionFindOneAndUpdate).not.toHaveBeenCalled();
     const [, , payload] = mockSendSuccess.mock.calls[0];
     // Both compliance bundles gone from the previewed effective set...
     expect(payload.addons).toEqual([]);

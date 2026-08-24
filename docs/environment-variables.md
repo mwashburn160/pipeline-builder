@@ -50,6 +50,7 @@ This reference documents every environment variable across the Pipeline Builder 
 |----------|---------|-------------|
 | `PLATFORM_BASE_URL` | `https://localhost:8443` | API gateway URL |
 | `PLATFORM_FRONTEND_URL` | `https://localhost:8443` | Frontend URL (email links, OAuth redirects) |
+| `DEPLOY_TARGET` | `local` | Deployment target (`aws-ec2`, `aws-eks`, `local`, `docker`, `minikube`). Served by the platform `/config` endpoint at runtime (the frontend is one shared prebuilt image, so this is NOT a `NEXT_PUBLIC_*` build-time inline); the onboarding CLI-setup step shows the AWS-only `store-token`/`setup-events` section only on the AWS targets |
 | `PORT` | `3000` | Service listen port |
 | `TRUST_PROXY` | `1` | Trust proxy headers (behind nginx/ALB) |
 | `LOG_LEVEL` | `info` | `error`, `warn`, `info`, `debug` |
@@ -286,10 +287,10 @@ Tier presets ship in `@pipeline-builder/api-core` (`QUOTA_TIERS` in `quota-tiers
 
 | Tier | plugins | pipelines | apiCalls | aiCalls | seats |
 |------|---------|-----------|----------|---------|-------|
-| developer | 25 | 5 | 25,000 | 25 | 1 |
-| pro | 50 | 10 | 500,000 | 1,000 | 1 |
-| team | 100 | 200 | 2,000,000 | 5,000 | 10 |
-| enterprise | 250 | 200 | 10,000,000 | 15,000 | 25 |
+| developer | 25 | 2 | 25,000 | 25 | 1 |
+| pro | 50 | 5 | 250,000 | 1,000 | 1 |
+| team | 75 | 6 | 500,000 | 2,500 | 3 |
+| enterprise | 150 | 30 | 900,000 | 9,000 | 15 |
 | unlimited | -1 | -1 | -1 | -1 | -1 |
 
 Any preset can be overridden per-environment via `QUOTA_TIER_<DEVELOPER|PRO|TEAM|ENTERPRISE|UNLIMITED>_<LIMIT>` (e.g. `QUOTA_TIER_TEAM_SEATS=20`), and `DEFAULT_QUOTA_TIER` sets the tier assigned to newly created orgs (`developer` by default). `seats` is a tier limit, not a tracked counter — it is enforced live at invite time against active org membership.
@@ -389,11 +390,11 @@ For AWS SES: set `EMAIL_PROVIDER=ses` with `SES_REGION`, `SES_ACCESS_KEY_ID`, `S
 | `RENEWAL_REMINDER_DAYS` | `7` | Days before expiry to send renewal reminder |
 | `BILLING_BUNDLES_ENABLED` | `false` | Master switch for purchasable [add-on bundles](billing-bundles.md) — hidden unless set |
 
-Plan pricing (`BILLING_PLAN_{TIER}_MONTHLY` / `BILLING_PLAN_{TIER}_ANNUAL`, where `{TIER}` is `DEVELOPER`, `PRO`, `TEAM`, or `ENTERPRISE`) is in cents. Defaults: Developer free, Pro $49/mo ($490/yr), Team $149/mo ($1,490/yr), Enterprise $599/mo ($5,990/yr). Per-plan `_NAME` (display name), `_DESCRIPTION` (string), and `_FEATURES` (JSON array) can also be overridden.
+Plan pricing (`BILLING_PLAN_{TIER}_MONTHLY` / `BILLING_PLAN_{TIER}_ANNUAL`, where `{TIER}` is `DEVELOPER`, `PRO`, `TEAM`, or `ENTERPRISE`) is in cents. Defaults: Developer free, Pro $39/mo ($390/yr), Team $79/mo ($790/yr), Enterprise $599/mo ($5,990/yr). Per-plan `_NAME` (display name), `_DESCRIPTION` (string), and `_FEATURES` (JSON array) can also be overridden.
 
 An `UNLIMITED` plan (free, `BILLING_PLAN_UNLIMITED_NAME` default `Unlimited`) is also seeded so the billing store has a row for orgs on the billing-disabled default tier, but it is filtered out of the customer-facing plans list — it is never sold or shown when billing is enabled.
 
-Add-on bundles are env-tunable (see [Billing Add-on Bundles → Overrides](billing-bundles.md#configuration--overrides)): `BILLING_BUNDLE_<ID>_MONTHLY` / `_ANNUAL` (price, cents), `BILLING_BUNDLE_<ID>_GRANT` (single-dimension grant amount), and `BILLING_BUNDLE_<ID>_TIERS` (JSON array of purchasable tiers), where `<ID>` is the bundle id upper-cased (`SEAT_PACK`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `AUDIT_LOG`, `SSO`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`, `COMPLIANCE_STANDARD`, `COMPLIANCE_ADVANCED`). Combo prices are `BILLING_COMBO_<COMBO>_MONTHLY` / `_ANNUAL` where `<COMBO>` is `ANALYTICS_SUITE`, `TEAM_GROWTH`, or `COMPLIANCE_SUITE`. The retention packs default to $15/mo ($150/yr, `RETENTION_PACK`) and $30/mo ($300/yr, `DORA_HISTORY_PACK`); under AWS Marketplace they meter as the `RetentionPack` / `DoraHistoryPack` dimensions (see `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP`).
+Add-on bundles are env-tunable (see [Billing Add-on Bundles → Overrides](billing-bundles.md#configuration--overrides)): `BILLING_BUNDLE_<ID>_MONTHLY` / `_ANNUAL` (price, cents), `BILLING_BUNDLE_<ID>_GRANT` (single-dimension grant amount), `BILLING_BUNDLE_<ID>_TIERS` (JSON array of purchasable tiers), and `BILLING_BUNDLE_<ID>_VOLUME_TIERS` (JSON array of `{minQuantity, discountPercent}` for a per-unit volume discount — used by `SEAT`), where `<ID>` is the bundle id upper-cased (`SEAT`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `AUDIT_LOG`, `SSO`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`, `COMPLIANCE_STANDARD`, `COMPLIANCE_ADVANCED`). Combo prices are `BILLING_COMBO_<COMBO>_MONTHLY` / `_ANNUAL` where `<COMBO>` is `ANALYTICS_SUITE`, `TEAM_GROWTH`, `COMPLIANCE_SUITE`, or `SCALE_BUNDLE`. The retention packs default to $15/mo ($150/yr, `RETENTION_PACK`) and $30/mo ($300/yr, `DORA_HISTORY_PACK`); under AWS Marketplace they meter as the `RetentionPack` / `DoraHistoryPack` dimensions (see `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP`).
 
 The compliance content add-ons default to $29.90/mo ($299/yr, `COMPLIANCE_STANDARD`) and $99.90/mo ($999/yr, `COMPLIANCE_ADVANCED`, which requires Standard), with the `COMPLIANCE_SUITE` combo (both, 30% off) at $90.86/mo ($908.60/yr) — see [Compliance → Curated content add-ons](compliance.md#curated-content-add-ons-standard--advanced). On every entitlement change (purchase/cancel/renewal) billing pushes the org's entitled content sets to the compliance service (`PUT /api/compliance/entitlements/:orgId`, which auto-subscribes/activates on gain and deactivates on loss), reaching it via `COMPLIANCE_SERVICE_HOST` / `COMPLIANCE_SERVICE_PORT` (Service Discovery, above).
 
@@ -405,7 +406,7 @@ Direct SaaS billing through Stripe. For the full setup walkthrough (creating Pro
 |----------|---------|-------------|
 | `STRIPE_SECRET_KEY` | — | **Secret.** Stripe API secret key (`sk_test_…` / `sk_live_…`). Required when `BILLING_PROVIDER=stripe` |
 | `STRIPE_WEBHOOK_SECRET` | — | **Secret.** Signing secret (`whsec_…`) for `POST /billing/stripe/webhook`; every delivery is signature-verified against it over the raw body |
-| `STRIPE_PRICE_MAP` | `{}` | JSON map of `<id>_<interval>` → Stripe Price id, where `<id>` is a plan id **or** an add-on bundle id, e.g. `{"pro_monthly":"price_…","seat_pack_annual":"price_…"}`. A plan/interval absent here cannot be subscribed (creation fails fast); a bundle absent here is granted but its line item is skipped (not charged) |
+| `STRIPE_PRICE_MAP` | `{}` | JSON map of `<id>_<interval>` → Stripe Price id, where `<id>` is a plan id **or** an add-on bundle id, e.g. `{"pro_monthly":"price_…","seat_annual":"price_…"}`. A plan/interval absent here cannot be subscribed (creation fails fast); a bundle absent here is granted but its line item is skipped (not charged). Provision every plan + bundle Price once (Stripe Prices are immutable) with `STRIPE_SECRET_KEY=… node api/billing/scripts/provision-stripe-prices.mjs` (add `--dry-run` to preview), then paste its JSON here |
 
 Stripe subscription statuses map to internal statuses via a fixed table (not env-configurable): `unpaid` ⇒ `canceled` (set only after the grace period), unknown ⇒ `incomplete`.
 

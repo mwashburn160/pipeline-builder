@@ -67,6 +67,9 @@ jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
   comboBasisCents: () => 0,
   priceForInterval: (prices: { monthly: number; annual: number }, interval: string) => (interval === 'annual' ? prices.annual : prices.monthly),
   comboLedgerId: (comboId: string) => `combo:${comboId}`,
+  volumeDiscountPct: () => 0,
+  volumeCredits: () => [],
+  volumeLedgerId: (bundleId: string) => `volume:${bundleId}`,
 }));
 
 // stripe-webhook now emits incCounter on the reactivate-plan-missing gap; stub it
@@ -117,8 +120,9 @@ jest.unstable_mockModule('../src/models/plan.js', () => ({
 }));
 
 // Mock Subscription model
+const mockSubscriptionCreate = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
-  Subscription: { findOne: jest.fn() },
+  Subscription: { findOne: jest.fn(), create: (...args: unknown[]) => mockSubscriptionCreate(...args) },
 }));
 
 // Mock provider factory
@@ -144,7 +148,7 @@ jest.unstable_mockModule('../src/providers/stripe-provider.js', () => {
 });
 
 const { sendError } = await import('@pipeline-builder/api-core');
-const { createStripeWebhookRoutes, planFromStripePrice, handleSubscriptionUpdated } = await import('../src/routes/stripe-webhook.js');
+const { createStripeWebhookRoutes, planFromStripePrice, handleSubscriptionUpdated, handleSubscriptionCreated } = await import('../src/routes/stripe-webhook.js');
 
 // Since we can't easily test instanceof with mocks, we test the handler logic directly.
 // Extract the route handler from the router.
@@ -412,6 +416,50 @@ describe('handleSubscriptionUpdated past_due grace clock', () => {
     await handleSubscriptionUpdated(stripeSub('past_due'));
 
     expect(mockSyncTier).not.toHaveBeenCalledWith('org-1', 'developer', '', 'sub-1');
+  });
+});
+
+describe('handleSubscriptionCreated (checkout provisioning)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFindByStripeId.mockResolvedValue(null); // no local row yet
+    mockPlanFindOne.mockResolvedValue({ _id: 'team', tier: 'team', name: 'Team', isActive: true });
+    mockSubscriptionCreate.mockResolvedValue({ _id: { toString: () => 'sub-new' } });
+  });
+
+  /** A Stripe subscription as delivered by `customer.subscription.created` after a
+   *  hosted Checkout — carries the orgId/planId/interval metadata Checkout stamps. */
+  function created(metadata: Record<string, string>, status = 'active') {
+    return { id: 'sub_ext', status, cancel_at_period_end: false, customer: 'cust_x', metadata } as any;
+  }
+
+  it('provisions the local subscription + grants entitlements from checkout metadata', async () => {
+    await handleSubscriptionCreated(created({ orgId: 'org-9', planId: 'team', interval: 'monthly' }));
+
+    expect(mockSubscriptionCreate).toHaveBeenCalledWith(expect.objectContaining({
+      orgId: 'org-9', planId: 'team', status: 'active', interval: 'monthly',
+      externalId: 'sub_ext', externalCustomerId: 'cust_x', metadata: { provider: 'stripe' },
+    }));
+    // Entitlements granted with a real service token + the new sub id.
+    expect(mockSyncTier).toHaveBeenCalledWith('org-9', 'team', 'Bearer service-token', 'sub-new');
+  });
+
+  it('does NOT grant entitlements for a non-entitlement-worthy status (incomplete)', async () => {
+    await handleSubscriptionCreated(created({ orgId: 'org-9', planId: 'team', interval: 'monthly' }, 'incomplete'));
+    expect(mockSubscriptionCreate).toHaveBeenCalled();
+    expect(mockSyncTier).not.toHaveBeenCalled();
+  });
+
+  it('does NOT provision an out-of-band create with no planId metadata', async () => {
+    await handleSubscriptionCreated(created({ orgId: 'org-9' }));
+    expect(mockSubscriptionCreate).not.toHaveBeenCalled();
+    expect(mockSyncTier).not.toHaveBeenCalled();
+  });
+
+  it('delegates to the update handler when a local row already exists', async () => {
+    mockFindByStripeId.mockResolvedValue({ orgId: 'org-9', status: 'active', save: jest.fn(), _id: { toString: () => 'sub-x' } });
+    await handleSubscriptionCreated(created({ orgId: 'org-9', planId: 'team', interval: 'monthly' }));
+    expect(mockSubscriptionCreate).not.toHaveBeenCalled();
   });
 });
 

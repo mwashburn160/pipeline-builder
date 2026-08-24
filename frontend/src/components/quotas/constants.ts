@@ -32,11 +32,13 @@ const TIER_DESCRIPTIONS: Record<QuotaTier, string> = {
   unlimited: 'Everything uncapped',
 };
 
+// Mirrors the backend `DEFAULT_TIER_LIMITS` (packages/api-core quota-tiers.ts) —
+// keep in sync. Powers the quota-admin editor's per-tier preset prefill.
 const TIER_LIMITS: Record<QuotaTier, Record<DisplayedQuotaType, number>> = {
-  developer: { pipelines: 5, plugins: 25, apiCalls: 25000, aiCalls: 50 },
-  pro: { pipelines: 10, plugins: 50, apiCalls: 500000, aiCalls: 2500 },
-  team: { pipelines: 200, plugins: 100, apiCalls: -1, aiCalls: 10000 },
-  enterprise: { pipelines: 200, plugins: 250, apiCalls: -1, aiCalls: 25000 },
+  developer: { pipelines: 2, plugins: 25, apiCalls: 25000, aiCalls: 25 },
+  pro: { pipelines: 5, plugins: 50, apiCalls: 250000, aiCalls: 1000 },
+  team: { pipelines: 6, plugins: 75, apiCalls: 500000, aiCalls: 2500 },
+  enterprise: { pipelines: 30, plugins: 150, apiCalls: 900000, aiCalls: 9000 },
   unlimited: { pipelines: -1, plugins: -1, apiCalls: -1, aiCalls: -1 },
 };
 

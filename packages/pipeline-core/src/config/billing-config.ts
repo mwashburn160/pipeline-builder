@@ -132,8 +132,8 @@ export function loadBillingConfig(): BillingConfig {
         || 'For individual power users and production workloads',
       tier: 'pro',
       prices: {
-        monthly: envCents(process.env.BILLING_PLAN_PRO_MONTHLY, 4900),
-        annual: envCents(process.env.BILLING_PLAN_PRO_ANNUAL, 49000),
+        monthly: envCents(process.env.BILLING_PLAN_PRO_MONTHLY, 3900),
+        annual: envCents(process.env.BILLING_PLAN_PRO_ANNUAL, 39000),
       },
       features: parseFeatures(
         process.env.BILLING_PLAN_PRO_FEATURES,
@@ -150,8 +150,8 @@ export function loadBillingConfig(): BillingConfig {
         || 'For teams collaborating on shared pipelines',
       tier: 'team',
       prices: {
-        monthly: envCents(process.env.BILLING_PLAN_TEAM_MONTHLY, 14900),
-        annual: envCents(process.env.BILLING_PLAN_TEAM_ANNUAL, 149000),
+        monthly: envCents(process.env.BILLING_PLAN_TEAM_MONTHLY, 7900),
+        annual: envCents(process.env.BILLING_PLAN_TEAM_ANNUAL, 79000),
       },
       features: parseFeatures(
         process.env.BILLING_PLAN_TEAM_FEATURES,
@@ -222,8 +222,10 @@ export function loadBillingConfig(): BillingConfig {
  * Defaults:
  *  - "Analytics Suite" — Advanced Reporting (DORA) + Team Usage Analytics, each
  *    $30/mo, together $42/mo ($420/yr) → a $18/mo credit (~30% off).
- *  - "Team Growth Bundle" — ≥1 Seat Pack ($25) + Team Usage Analytics ($30),
- *    together $38.50/mo ($385/yr) → a $16.50/mo credit (~30% off).
+ *  - "Team Growth Bundle" — ≥5 Seats ($19.99 ea) + Team Usage Analytics ($30),
+ *    basket $129.95/mo → together $90.99/mo ($909.90/yr) → a ~$38.96/mo credit (~30% off).
+ *  - "Scale Bundle" — API Pack ($19.99) + Storage Pack ($19.99), basket $39.98/mo
+ *    → together $27.99/mo ($279.90/yr) → a ~$11.99/mo credit (~30% off).
  * Prices env-overridable via `BILLING_COMBO_<ID>_MONTHLY` / `_ANNUAL`.
  */
 function loadComboDiscounts(bundles: BundleConfig[]): ComboDiscountConfig[] {
@@ -250,9 +252,14 @@ function loadComboDiscounts(bundles: BundleConfig[]): ComboDiscountConfig[] {
 
   const combos = [
     c('analytics_suite', 'Analytics Suite', ['advanced_reporting', 'team_usage_analytics'], 4200, 42000, 0),
-    c('team_growth', 'Team Growth Bundle', ['seat_pack', 'team_usage_analytics'], 3850, 38500, 1, { seat_pack: 1 }),
+    // Team Growth — ≥5 Seats ($19.99 ea) + Team Usage Analytics ($30). Basket
+    // 5×$19.99 + $30 = $129.95/mo → bundled $90.99/mo (~30% off, ~$38.96 credit).
+    c('team_growth', 'Team Growth Bundle', ['seat', 'team_usage_analytics'], 9099, 90990, 1, { seat: 5 }),
     // Compliance Suite — Standard + Advanced at 30% off ($908.60/yr vs $1,298 list).
     c('compliance_suite', 'Compliance Suite', ['compliance_standard', 'compliance_advanced'], 9086, 90860, 2),
+    // Scale Bundle — API Pack ($19.99) + Storage Pack ($19.99). Basket $39.98/mo →
+    // bundled $27.99/mo (~30% off, ~$11.99 credit). Both members all-tier.
+    c('scale_bundle', 'Scale Bundle', ['api_pack', 'storage_pack'], 2799, 27990, 3),
   ];
   warnOnNonDiscountCombos(combos, bundles);
   return combos;
@@ -282,7 +289,7 @@ const BUNDLE_GB = 1024 * 1024 * 1024;
 /**
  * Apply a per-bundle grant override. Each stackable pack grants exactly one
  * quota dimension, so `BILLING_BUNDLE_<ID>_GRANT` retunes that amount (e.g. make
- * the Seat Pack grant +10 instead of +5) — parallel to the price overrides.
+ * the Plugin Pack grant +50 instead of +25) — parallel to the price overrides.
  * Ignored for multi-dimension or feature-only (empty-grant) bundles, and for a
  * malformed/negative value.
  */
@@ -315,6 +322,32 @@ function applyTiersOverride(id: string, defaultTiers: QuotaTier[]): QuotaTier[] 
   }
 }
 
+type VolumeTier = { minQuantity: number; discountPercent: number };
+
+/**
+ * Apply a per-bundle volume-tier override. `BILLING_BUNDLE_<ID>_VOLUME_TIERS` is a
+ * JSON array of `{ minQuantity, discountPercent }` (e.g.
+ * `[{"minQuantity":5,"discountPercent":10}]`) — parallel to the price/grant/tier
+ * overrides. Falls back to `defaultTiers` when unset, malformed, or containing an
+ * invalid entry (minQuantity ≥ 1, 0 < discountPercent ≤ 100). Sorted ascending by
+ * minQuantity so the "highest matching tier wins" lookup is deterministic.
+ */
+function applyVolumeTiersOverride(id: string, defaultTiers?: VolumeTier[]): VolumeTier[] | undefined {
+  const raw = process.env[`BILLING_BUNDLE_${id.toUpperCase()}_VOLUME_TIERS`];
+  const sortAsc = (t: VolumeTier[]) => [...t].sort((a, b) => a.minQuantity - b.minQuantity);
+  if (!raw) return defaultTiers ? sortAsc(defaultTiers) : undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return defaultTiers ? sortAsc(defaultTiers) : undefined;
+    const valid = parsed.filter((t): t is VolumeTier =>
+      t && typeof t.minQuantity === 'number' && t.minQuantity >= 1
+      && typeof t.discountPercent === 'number' && t.discountPercent > 0 && t.discountPercent <= 100);
+    return valid.length === parsed.length ? sortAsc(valid) : (defaultTiers ? sortAsc(defaultTiers) : undefined);
+  } catch {
+    return defaultTiers ? sortAsc(defaultTiers) : undefined;
+  }
+}
+
 /**
  * Purchasable add-on bundles (docs/billing-bundles.md §3). Grants are per-unit
  * deltas on QuotaTierLimits; prices (cents, `BILLING_BUNDLE_<ID>_MONTHLY` /
@@ -331,11 +364,12 @@ function loadBundles(): BundleConfig[] {
     monthly: number,
     availableForTiers: QuotaTier[],
     sortOrder: number,
-    extra: { features?: string[]; stackable?: boolean; maxQuantity?: number; requires?: string[] } = {},
+    extra: { features?: string[]; stackable?: boolean; maxQuantity?: number; requires?: string[]; volumeTiers?: VolumeTier[] } = {},
   ): BundleConfig => {
     // Resolve monthly first so the annual fallback tracks a `_MONTHLY` override
     // (annual ≈ 10× the *effective* monthly, not the hardcoded default).
     const resolvedMonthly = envCents(process.env[`BILLING_BUNDLE_${id.toUpperCase()}_MONTHLY`], monthly);
+    const volumeTiers = applyVolumeTiersOverride(id, extra.volumeTiers);
     return {
       id,
       name,
@@ -344,6 +378,7 @@ function loadBundles(): BundleConfig[] {
       ...(extra.features ? { features: extra.features } : {}),
       ...(extra.maxQuantity !== undefined ? { maxQuantity: extra.maxQuantity } : {}),
       ...(extra.requires ? { requires: extra.requires } : {}),
+      ...(volumeTiers ? { volumeTiers } : {}),
       prices: {
         monthly: resolvedMonthly,
         annual: envCents(process.env[`BILLING_BUNDLE_${id.toUpperCase()}_ANNUAL`], resolvedMonthly * 10),
@@ -359,18 +394,18 @@ function loadBundles(): BundleConfig[] {
   // is the billing-off tier and buys nothing) — so this is exactly STANDARD_TIERS.
   const ALL: QuotaTier[] = [...STANDARD_TIERS];
   const bundles: BundleConfig[] = [
-    // Capacity packs (pipelines/plugins) are available on EVERY tier so any
-    // account — including free (developer) — can expand in place. Feature bundles
-    // (audit_log/sso) and rate packs stay tier-scoped by default.
-    // Seat Pack is the EXCEPTION — Team+ only. A single-seat Developer/Pro could
-    // otherwise add cheap seats ($5/seat) and undercut Team (whose 10 seats are the
-    // tier differentiator); restricting it forces "need >1 seat → upgrade to Team".
-    b('seat_pack', 'Seat Pack (+5)', '5 additional member seats', { seats: 5 }, 2500, ['team', 'enterprise'], 0),
-    b('pipeline_pack', 'Pipeline Pack (+10)', '10 additional pipelines', { pipelines: 10 }, 1500, ALL, 1),
-    b('plugin_pack', 'Plugin Pack (+100)', '100 additional plugins', { plugins: 100 }, 1500, ALL, 2),
-    b('api_pack', 'API Pack (+1M)', '1,000,000 additional API calls / period', { apiCalls: 1_000_000 }, 2000, ALL, 3),
-    b('ai_pack', 'AI Pack (+5k)', '5,000 additional AI calls / period', { aiCalls: 5000 }, 7500, ALL, 4),
-    b('storage_pack', 'Storage Pack (+50 GB)', '50 GB additional registry storage', { storageBytes: 50 * BUNDLE_GB }, 2500, ALL, 5),
+    // `seat` and `pipeline_pack` are the tier differentiators, so both are Team+
+    // ONLY — a single-seat Developer/Pro can't cheaply stack seats/pipelines to
+    // undercut Team (3 seats / 6 pipelines); they must upgrade. `seat` is granular
+    // (per-seat) with volume tiers (5/15/40 → 10/20/30%). The other capacity packs
+    // (plugin/api/ai/storage) are NOT differentiators, so they stay all-tier.
+    b('seat', 'Member Seat', '1 additional member seat', { seats: 1 }, 1999, ['team', 'enterprise'], 0,
+      { volumeTiers: [{ minQuantity: 5, discountPercent: 10 }, { minQuantity: 15, discountPercent: 20 }, { minQuantity: 40, discountPercent: 30 }] }),
+    b('pipeline_pack', 'Pipeline Pack (+5)', '5 additional pipelines', { pipelines: 5 }, 1500, ['team', 'enterprise'], 1),
+    b('plugin_pack', 'Plugin Pack (+25)', '25 additional plugins', { plugins: 25 }, 1000, ALL, 2),
+    b('api_pack', 'API Pack (+100k)', '100,000 additional API calls / period', { apiCalls: 100_000 }, 1999, ALL, 3),
+    b('ai_pack', 'AI Pack (+2.5k)', '2,500 additional AI calls / period', { aiCalls: 2500 }, 1999, ALL, 4),
+    b('storage_pack', 'Storage Pack (+10 GB)', '10 GB additional registry storage', { storageBytes: 10 * BUNDLE_GB }, 1999, ALL, 5),
     b('audit_log', 'Audit Log', 'Audit log capability', {}, 2000, ['pro'], 6, { features: ['audit_log'], stackable: false }),
     // SSO is INCLUDED in Team (see TIER_FEATURES.team), so the add-on is Pro-only.
     b('sso', 'SSO / IdP', 'SSO + up to 5 IdP configs', { idpConfigs: 5 }, 4000, ['pro'], 7, { features: ['sso'], stackable: false }),

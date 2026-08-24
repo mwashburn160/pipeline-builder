@@ -24,6 +24,12 @@ router.get('/', (_req, res) => {
     // ALL configured support aliases, so the compose recipient picker can list
     // every support inbox (support@, help@, …) as a distinct suggestion.
     supportAliases: getAllSupportAliases(),
+    // Deployment target (DEPLOY_TARGET runtime env) so the client can adapt
+    // target-specific UI — e.g. the onboarding CLI-setup step only shows the
+    // AWS-only store-token/setup-events section on the aws-ec2/aws-eks targets.
+    // Runtime (not a NEXT_PUBLIC_* build-time inline): the frontend ships as one
+    // shared prebuilt image across all targets.
+    deployTarget: process.env.DEPLOY_TARGET || 'local',
   });
 });
 

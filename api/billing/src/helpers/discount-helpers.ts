@@ -10,7 +10,7 @@ import { loadManageableSubscription } from './subscription-status.js';
 import { billingPeriodKey } from './billing-period.js';
 // Re-exported so routes/discounts.ts keeps importing it from here.
 export { loadManageableSubscription };
-import { activeComboCredits, comboLedgerId, getComboDiscounts, priceForInterval } from './combo-pricing.js';
+import { activeComboCredits, comboLedgerId, getComboDiscounts, priceForInterval, volumeCredits, volumeLedgerId } from './combo-pricing.js';
 import { compactCreditLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
 import { decodeDiscountCode, type DiscountSpec, type DiscountKind } from './discount-code.js';
 import { Discount } from '../models/discount.js';
@@ -436,6 +436,15 @@ export async function grantPeriodicCredits(subscription: SubscriptionDocument, p
     const discountId = comboLedgerId(combo.comboId);
     if (subscription.creditLedger.some((c) => c.discountId === discountId && c.dedupeKey === periodKey)) continue;
     await grantUsageCredit(subscription, discountId, combo.creditCents, creditIdemSeed(orgId, discountId, periodKey), undefined, periodKey, atomic);
+  }
+
+  // Volume credits (per-unit tier discount on a stackable pack, e.g. `seat`),
+  // derived fresh from the CURRENT quantity — same recurring-credit mechanism as
+  // combos. Idempotent per period on `volume:<bundleId>`.
+  for (const vol of volumeCredits(subscription.addons ?? [], getBundleCatalog(), subscription.interval)) {
+    const discountId = volumeLedgerId(vol.bundleId);
+    if (subscription.creditLedger.some((c) => c.discountId === discountId && c.dedupeKey === periodKey)) continue;
+    await grantUsageCredit(subscription, discountId, vol.creditCents, creditIdemSeed(orgId, discountId, periodKey), undefined, periodKey, atomic);
   }
 
   // Bound the ledger's growth: fold old per-period rows into per-family carry rows.

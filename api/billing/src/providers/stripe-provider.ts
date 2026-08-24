@@ -80,6 +80,46 @@ export class StripeProvider implements PaymentProvider {
   }
 
   /**
+   * Create a Stripe Checkout Session (subscription mode) so a brand-new customer
+   * can enter a card and start a PAID subscription in one hosted step — the
+   * self-serve path `createSubscription` can't provide (it makes a cardless
+   * `incomplete` sub). Stripe collects payment, creates the subscription, and
+   * fires `customer.subscription.created` carrying the `orgId`/`planId`/`interval`
+   * metadata the webhook uses to provision the local row + entitlements. Returns
+   * the hosted Checkout URL to redirect the user to.
+   */
+  async createCheckoutSession(
+    customerId: string,
+    planId: string,
+    interval: BillingInterval,
+    opts: { orgId: string; successUrl: string; cancelUrl: string },
+  ): Promise<string> {
+    const priceKey = `${planId}_${interval}`;
+    const priceId = this.stripeConfig.priceToPlanMap[priceKey];
+    if (!priceId) {
+      throw new Error(
+        `No Stripe Price ID configured for plan "${planId}" with interval "${interval}". `
+        + `Expected key "${priceKey}" in STRIPE_PRICE_MAP.`,
+      );
+    }
+    const metadata = { orgId: opts.orgId, planId, interval };
+    const session = await this.stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer: customerId,
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: opts.successUrl,
+      cancel_url: opts.cancelUrl,
+      // subscription_data.metadata lands on the created Subscription, so the
+      // webhook can bind it to the org (metadata.orgId) + resolve the plan.
+      subscription_data: { metadata },
+      metadata,
+    });
+    if (!session.url) throw new Error('Stripe Checkout session was created without a URL');
+    logger.info('Stripe Checkout session created', { customerId, planId, interval, sessionId: session.id });
+    return session.url;
+  }
+
+  /**
    * Cancel a Stripe subscription at the end of the current billing period.
    */
   async cancelSubscription(externalId: string): Promise<void> {

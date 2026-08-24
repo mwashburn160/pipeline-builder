@@ -3,7 +3,7 @@ import { formatError } from '@/lib/constants';
 import { useRouter } from 'next/router';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useAuth } from '@/hooks/useAuth';
-import { useBillingEnabledState } from '@/hooks/useBillingEnabled';
+import { useBillingEnabledState, useBillingProvider } from '@/hooks/useBillingEnabled';
 import { TIER_KEYS } from '@/lib/tiers';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
@@ -68,6 +68,7 @@ export default function BillingPage() {
   // forever for everyone. Tri-state so the redirect below only fires on a definitive
   // `false`, not while the probe is still resolving.
   const billingEnabled = useBillingEnabledState();
+  const billingProvider = useBillingProvider();
   const toast = useToast();
   // Billing lives at the ROOT org (pooled-at-root): the subscription, tier,
   // quota pool and add-ons all belong to the account boundary. A team (child
@@ -200,6 +201,22 @@ export default function BillingPage() {
     if (user) fetchData();
   }, [user, fetchData]);
 
+  // Returning from hosted Stripe Checkout: acknowledge the outcome and refetch
+  // (the subscription is provisioned asynchronously by the webhook, so it may take
+  // a moment to appear as active). Strip the query param so a reload won't re-toast.
+  useEffect(() => {
+    const outcome = Array.isArray(router.query.checkout) ? router.query.checkout[0] : router.query.checkout;
+    if (!outcome) return;
+    if (outcome === 'success') {
+      toast.success('Checkout complete — activating your subscription…');
+      void fetchData();
+    } else if (outcome === 'cancelled') {
+      toast.info('Checkout cancelled — no changes were made.');
+    }
+    const { checkout: _omit, ...rest } = router.query;
+    void router.replace({ query: rest }, undefined, { shallow: true });
+  }, [router.query.checkout]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // A proposed plan switch, held while the user confirms. Unlike add-ons there's
   // no proration-preview endpoint, so this is a plain confirm (with a downgrade
   // warning). A brand-new subscription skips the modal — nothing to change yet.
@@ -227,6 +244,20 @@ export default function BillingPage() {
           await fetchData();
         }
       } else {
+        // Brand-new subscription. Stripe requires a card, so send the user through
+        // hosted Checkout (which collects payment + creates the sub; the webhook
+        // provisions the local row). A free plan or the `stub` provider needs no
+        // card, so create directly.
+        const plan = plans.find((p) => p.id === planId);
+        const isFree = !!plan && plan.prices.monthly === 0 && plan.prices.annual === 0;
+        if (billingProvider === 'stripe' && !isFree) {
+          const res = await api.createCheckoutSession(planId, billingInterval);
+          if (res.success && res.data?.url) {
+            window.location.href = res.data.url; // leave for hosted Checkout
+            return; // keep the loading state while navigating away
+          }
+          throw new Error('Could not start checkout');
+        }
         const res = await api.createSubscription(planId, billingInterval);
         if (res.success) {
           toast.success('Subscription created successfully');

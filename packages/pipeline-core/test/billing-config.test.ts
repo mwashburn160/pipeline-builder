@@ -70,7 +70,7 @@ describe('loadBillingConfig', () => {
       id: 'pro',
       name: 'Pro',
       tier: 'pro',
-      prices: { monthly: 4900, annual: 49000 },
+      prices: { monthly: 3900, annual: 39000 },
       isDefault: false,
       sortOrder: 1,
     });
@@ -79,7 +79,7 @@ describe('loadBillingConfig', () => {
       id: 'team',
       name: 'Team',
       tier: 'team',
-      prices: { monthly: 14900, annual: 149000 },
+      prices: { monthly: 7900, annual: 79000 },
       isDefault: false,
       sortOrder: 2,
     });
@@ -174,19 +174,24 @@ describe('loadBillingConfig', () => {
     const [developer, , team, enterprise] = config.plans;
 
     expect(developer.features).toContain('Up to 1 seat');
-    expect(team.features).toContain('Up to 10 seats');
-    expect(enterprise.features).toContain('Up to 25 seats');
+    expect(team.features).toContain('Up to 3 seats');
+    expect(enterprise.features).toContain('Up to 15 seats');
   });
 
   describe('add-on bundles', () => {
     it('returns the default catalog with default prices + grants', () => {
       const { bundles } = loadBillingConfig();
-      const seatPack = bundles.find((x) => x.id === 'seat_pack');
-      expect(seatPack).toMatchObject({
-        id: 'seat_pack',
-        grants: { seats: 5 },
-        prices: { monthly: 2500, annual: 25000 },
+      const seat = bundles.find((x) => x.id === 'seat');
+      expect(seat).toMatchObject({
+        id: 'seat',
+        grants: { seats: 1 },
+        prices: { monthly: 1999, annual: 19990 },
         stackable: true,
+        volumeTiers: [
+          { minQuantity: 5, discountPercent: 10 },
+          { minQuantity: 15, discountPercent: 20 },
+          { minQuantity: 40, discountPercent: 30 },
+        ],
       });
       // Feature bundles carry a flag and no numeric grant.
       const sso = bundles.find((x) => x.id === 'sso');
@@ -212,29 +217,29 @@ describe('loadBillingConfig', () => {
       // DORA History Pack: 180 + 1×365 = 545 ≤ 730.
       expect(bundles.find((x) => x.id === 'dora_history_pack')?.maxQuantity).toBe(1);
       // Bundles without a cap leave maxQuantity absent (unbounded).
-      expect(bundles.find((x) => x.id === 'seat_pack')?.maxQuantity).toBeUndefined();
+      expect(bundles.find((x) => x.id === 'seat')?.maxQuantity).toBeUndefined();
       expect(bundles.find((x) => x.id === 'pipeline_pack')?.maxQuantity).toBeUndefined();
     });
 
     it('overrides a bundle price from the environment', () => {
-      process.env.BILLING_BUNDLE_SEAT_PACK_MONTHLY = '3000';
-      process.env.BILLING_BUNDLE_SEAT_PACK_ANNUAL = '30000';
+      process.env.BILLING_BUNDLE_SEAT_MONTHLY = '3000';
+      process.env.BILLING_BUNDLE_SEAT_ANNUAL = '30000';
       const { bundles } = loadBillingConfig();
-      expect(bundles.find((x) => x.id === 'seat_pack')?.prices).toEqual({ monthly: 3000, annual: 30000 });
+      expect(bundles.find((x) => x.id === 'seat')?.prices).toEqual({ monthly: 3000, annual: 30000 });
     });
 
     it('overrides a single-dimension grant amount from the environment', () => {
-      process.env.BILLING_BUNDLE_SEAT_PACK_GRANT = '10';
+      process.env.BILLING_BUNDLE_SEAT_GRANT = '2';
       const { bundles } = loadBillingConfig();
-      expect(bundles.find((x) => x.id === 'seat_pack')?.grants).toEqual({ seats: 10 });
+      expect(bundles.find((x) => x.id === 'seat')?.grants).toEqual({ seats: 2 });
     });
 
     it('ignores a malformed or negative grant override', () => {
       process.env.BILLING_BUNDLE_PIPELINE_PACK_GRANT = 'abc';
       process.env.BILLING_BUNDLE_PLUGIN_PACK_GRANT = '-5';
       const { bundles } = loadBillingConfig();
-      expect(bundles.find((x) => x.id === 'pipeline_pack')?.grants).toEqual({ pipelines: 10 });
-      expect(bundles.find((x) => x.id === 'plugin_pack')?.grants).toEqual({ plugins: 100 });
+      expect(bundles.find((x) => x.id === 'pipeline_pack')?.grants).toEqual({ pipelines: 5 });
+      expect(bundles.find((x) => x.id === 'plugin_pack')?.grants).toEqual({ plugins: 25 });
     });
 
     it('ignores a grant override on a feature-only (empty-grant) bundle', () => {
@@ -243,34 +248,36 @@ describe('loadBillingConfig', () => {
       expect(bundles.find((x) => x.id === 'audit_log')?.grants).toEqual({});
     });
 
-    it('makes pipeline/plugin capacity packs available on every tier, but restricts Seat Pack to Team+', () => {
+    it('keeps plugin/api/ai/storage packs all-tier, but restricts seat + pipeline_pack (tier differentiators) to Team+', () => {
       const { bundles } = loadBillingConfig();
-      for (const id of ['pipeline_pack', 'plugin_pack']) {
+      // Non-differentiator packs stay available on every tier.
+      for (const id of ['plugin_pack', 'api_pack', 'ai_pack', 'storage_pack']) {
         expect(bundles.find((x) => x.id === id)?.availableForTiers).toEqual(
           ['developer', 'pro', 'team', 'enterprise'],
         );
       }
-      // Seat Pack is Team+ only — otherwise Developer/Pro could add cheap seats and
-      // undercut the Team tier (whose seat count is the differentiator).
-      expect(bundles.find((x) => x.id === 'seat_pack')?.availableForTiers).toEqual(['team', 'enterprise']);
+      // `seat` and `pipeline_pack` are the tier differentiators — Team+ only, so a
+      // Developer/Pro can't cheaply stack them to undercut Team.
+      expect(bundles.find((x) => x.id === 'seat')?.availableForTiers).toEqual(['team', 'enterprise']);
+      expect(bundles.find((x) => x.id === 'pipeline_pack')?.availableForTiers).toEqual(['team', 'enterprise']);
     });
 
     it('overrides purchasable tiers from BILLING_BUNDLE_<ID>_TIERS', () => {
-      process.env.BILLING_BUNDLE_SEAT_PACK_TIERS = '["pro","enterprise"]';
+      process.env.BILLING_BUNDLE_SEAT_TIERS = '["pro","enterprise"]';
       const { bundles } = loadBillingConfig();
-      expect(bundles.find((x) => x.id === 'seat_pack')?.availableForTiers).toEqual(['pro', 'enterprise']);
+      expect(bundles.find((x) => x.id === 'seat')?.availableForTiers).toEqual(['pro', 'enterprise']);
     });
 
     it('ignores a tiers override that is malformed, empty, or names an unknown tier', () => {
-      process.env.BILLING_BUNDLE_PIPELINE_PACK_TIERS = 'not-json';
-      process.env.BILLING_BUNDLE_PLUGIN_PACK_TIERS = '[]';
-      process.env.BILLING_BUNDLE_SEAT_PACK_TIERS = '["pro","bogus"]';
+      process.env.BILLING_BUNDLE_PLUGIN_PACK_TIERS = 'not-json';
+      process.env.BILLING_BUNDLE_API_PACK_TIERS = '[]';
+      process.env.BILLING_BUNDLE_SEAT_TIERS = '["pro","bogus"]';
       const { bundles } = loadBillingConfig();
       const all = ['developer', 'pro', 'team', 'enterprise'];
-      expect(bundles.find((x) => x.id === 'pipeline_pack')?.availableForTiers).toEqual(all);
       expect(bundles.find((x) => x.id === 'plugin_pack')?.availableForTiers).toEqual(all);
-      // Seat Pack's malformed override falls back to its Team+ default, not `all`.
-      expect(bundles.find((x) => x.id === 'seat_pack')?.availableForTiers).toEqual(['team', 'enterprise']);
+      expect(bundles.find((x) => x.id === 'api_pack')?.availableForTiers).toEqual(all);
+      // seat's malformed override falls back to its Team+ default, not `all`.
+      expect(bundles.find((x) => x.id === 'seat')?.availableForTiers).toEqual(['team', 'enterprise']);
     });
 
     it('defines the Analytics Suite combo (DORA + Team Usage Analytics) at $42/$420 (~30% off)', () => {
@@ -291,15 +298,27 @@ describe('loadBillingConfig', () => {
       expect(comboDiscounts.find((c) => c.id === 'analytics_suite')?.prices).toEqual({ monthly: 3500, annual: 35000 });
     });
 
-    it('defines the Team Growth combo (≥1 Seat Pack + Team Usage Analytics) at $38.50/$385 (~30% off)', () => {
+    it('defines the Team Growth combo (≥5 Seats + Team Usage Analytics) at $90.99/$909.90 (~30% off)', () => {
       const { comboDiscounts } = loadBillingConfig();
       const tg = comboDiscounts.find((c) => c.id === 'team_growth');
       expect(tg).toMatchObject({
         id: 'team_growth',
-        bundleIds: ['seat_pack', 'team_usage_analytics'],
-        minQuantities: { seat_pack: 1 },
-        prices: { monthly: 3850, annual: 38500 },
+        bundleIds: ['seat', 'team_usage_analytics'],
+        minQuantities: { seat: 5 },
+        prices: { monthly: 9099, annual: 90990 },
         sortOrder: 1,
+        isActive: true,
+      });
+    });
+
+    it('defines the Scale Bundle combo (API Pack + Storage Pack) at $27.99/$279.90 (~30% off)', () => {
+      const { comboDiscounts } = loadBillingConfig();
+      const sb = comboDiscounts.find((c) => c.id === 'scale_bundle');
+      expect(sb).toMatchObject({
+        id: 'scale_bundle',
+        bundleIds: ['api_pack', 'storage_pack'],
+        prices: { monthly: 2799, annual: 27990 },
+        sortOrder: 3,
         isActive: true,
       });
     });

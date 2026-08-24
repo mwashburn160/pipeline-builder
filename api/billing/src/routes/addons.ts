@@ -31,10 +31,9 @@ import {
   syncEntitlements,
   syncProviderAddons,
 } from '../helpers/billing-helpers.js';
-import { activeComboCredits, comboBasisCents, getComboDiscounts } from '../helpers/combo-pricing.js';
+import { activeComboCredits, comboBasisCents, getComboDiscounts, volumeCredits } from '../helpers/combo-pricing.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
-import type { SubscriptionDocument } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 import { getAuditClient } from '../services/audit.js';
 import { AddonMutateSchema } from '../validation/schemas.js';
@@ -136,28 +135,11 @@ function cascadeRemoveDependents(
   return { addons, removed };
 }
 
-/**
- * Stamp the durable `metadata.providerAddonSyncPending` marker IN MEMORY so it
- * persists in the SAME `save()` that writes the new add-on set (crash-durability).
- *
- * Without this the marker was only set INSIDE `syncProviderAddons` on its failure
- * path — so a crash in the window between the add-on save and that call left the
- * account entitled-but-mis-billed (a purchased bundle unbilled, or a removed
- * bundle still billed) with NO marker for the lifecycle reconciler to recover.
- * Stamping it transactionally with the save closes that window: a subsequent
- * successful `syncProviderAddons` clears it, and a crash before that leaves the
- * marker for `reconcileFailedProviderAddonSyncs` to re-drive.
- *
- * Only meaningful when there's a provider subscription line item to reconcile
- * (`externalId`) — `syncProviderAddons` no-ops (and never clears) without one, so
- * stamping there would strand the marker forever.
- */
-function stampProviderSyncPending(subscription: SubscriptionDocument): void {
-  if (!subscription.externalId) return;
-  subscription.metadata = { ...(subscription.metadata ?? {}), providerAddonSyncPending: true };
-  // metadata is a Mixed path — mark it modified so the nested change is persisted.
-  subscription.markModified('metadata');
-}
+// The durable `metadata.providerAddonSyncPending` marker (crash-durability for the
+// provider sync) is now stamped inline in the guarded `findOneAndUpdate` of the add
+// + remove routes — `$set: { 'metadata.providerAddonSyncPending': true }` when the
+// sub has an `externalId` — so a crash before `syncProviderAddons` still leaves the
+// marker for `reconcileFailedProviderAddonSyncs` to re-drive (cleared on success).
 
 /** Catalog-time combo savings (`min-composition basket − combined price`, ≥ 0) for
  *  an interval — ownership-independent, for the "pair to save" nudge. Shares
@@ -185,6 +167,12 @@ function priceBreakdown(
   for (const a of addons) {
     const b = byId.get(a.bundleId);
     if (b) items.push({ label: b.name, quantity: a.quantity, cents: b.prices[key] * a.quantity });
+  }
+  // Volume-discount lines (e.g. per-seat tiers) — negative, like combo credits. The
+  // pack line above stays full unit×qty; this line shows the discount so the net
+  // `totalCents` is what the customer effectively pays (realized as a usage credit).
+  for (const v of volumeCredits(addons, bundles, interval)) {
+    items.push({ label: `${v.name} volume discount`, quantity: 1, cents: -v.creditCents });
   }
   for (const combo of activeComboCredits(addons, bundles, getComboDiscounts(), interval)) {
     items.push({ label: `${combo.name} discount`, quantity: 1, cents: -combo.creditCents });
@@ -421,19 +409,30 @@ export function createAddonRoutes(): Router {
       return sendError(res, 409, 'This change would put the account over its limit — remove members/resources first', ErrorCode.ADDON_OVER_CAP, { overages });
     }
 
-    subscription.addons = next;
-    // Stamp the provider-sync-pending marker in the SAME save so a crash between
-    // here and syncProviderAddons still leaves a durable marker the reconciler
-    // recovers (syncProviderAddons clears it on success below).
-    stampProviderSyncPending(subscription);
-    await subscription.save();
+    // Guarded write (optimistic concurrency): commit `addons` ONLY if the doc
+    // hasn't changed since we read it (`__v` match), so two concurrent seat/add-on
+    // purchases can't clobber each other or both slip past the over-cap gate above.
+    // On a version miss → 409; the client re-previews and retries. Stamps the
+    // provider-sync-pending marker in the SAME write (durable if we crash before
+    // syncProviderAddons; cleared on success below).
+    const committed = await Subscription.findOneAndUpdate(
+      { _id: subscription._id, __v: subscription.__v },
+      {
+        $set: { addons: next, ...(subscription.externalId ? { 'metadata.providerAddonSyncPending': true } : {}) },
+        $inc: { __v: 1 },
+      },
+      { new: true },
+    );
+    if (!committed) {
+      return sendError(res, 409, 'This subscription was modified concurrently — please retry', 'CONCURRENT_MODIFICATION');
+    }
 
     // Recompute + push EFFECTIVE entitlements (tier + all add-ons) to both
     // targets (quota + platform). Root-scoped service token.
     const serviceAuth = billingServiceAuth(orgId);
-    await syncEntitlements(orgId, plan.tier, serviceAuth, subscription._id.toString(), next);
-    await syncProviderAddons(subscription.externalId, next, subscription.interval, orgId, subscription._id.toString(), 'addon_add');
-    await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_added', bundleId, quantity: qty }, subscription._id.toString(), req.user?.sub);
+    await syncEntitlements(orgId, plan.tier, serviceAuth, committed._id.toString(), next);
+    await syncProviderAddons(committed.externalId, next, committed.interval, orgId, committed._id.toString(), 'addon_add');
+    await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_added', bundleId, quantity: qty }, committed._id.toString(), req.user?.sub);
 
     // Mirror the add-on purchase to the CENTRAL audit trail (alongside the local
     // billing_events row). Fire-and-forget; details are an explicit id/quantity
@@ -443,22 +442,22 @@ export function createAddonRoutes(): Router {
       actorId: req.user?.sub ?? 'system',
       orgId,
       targetId: bundleId,
-      details: { bundleId, quantity: qty, subscriptionId: subscription._id.toString() },
+      details: { bundleId, quantity: qty, subscriptionId: committed._id.toString() },
     }, 'billing');
 
     logger.info('Add-on applied', { orgId, bundleId, quantity: qty });
 
     // A combo can end even on an ADD when the new packing drops a lower-value combo
     // that shared a member. Record combo_expired for any combo the change lost.
-    const delta = comboDelta(current, next, bundles, subscription.interval);
-    await recordLostCombos(orgId, delta.lostCombos, subscription._id.toString(), req.user?.sub);
+    const delta = comboDelta(current, next, bundles, committed.interval);
+    await recordLostCombos(orgId, delta.lostCombos, committed._id.toString(), req.user?.sub);
 
     const { limits } = effectiveEntitlements(plan.tier, next, bundles);
     return sendSuccess(res, 200, {
-      subscription: buildSubscriptionResponse(subscription, plan.name, plan.tier),
+      subscription: buildSubscriptionResponse(committed, plan.name, plan.tier),
       addons: next,
       effectiveLimits: limits,
-      priceBreakdown: priceBreakdown(plan, next, bundles, subscription.interval),
+      priceBreakdown: priceBreakdown(plan, next, bundles, committed.interval),
       ...delta,
     });
   }));
@@ -493,17 +492,25 @@ export function createAddonRoutes(): Router {
       return sendError(res, 409, 'Removing this bundle would put the account over its limit — remove members/resources first', ErrorCode.ADDON_OVER_CAP, { overages });
     }
 
-    subscription.addons = next;
-    // Same crash-durability stamp as the add path: a removal that crashes before
-    // syncProviderAddons would otherwise keep billing the removed bundle with no
-    // marker — the reconciler re-drives the provider removal from this marker.
-    stampProviderSyncPending(subscription);
-    await subscription.save();
+    // Guarded write (optimistic concurrency) — same rationale as the add path: only
+    // commit if `__v` still matches, so a concurrent change can't be clobbered. The
+    // marker (durable if we crash before syncProviderAddons) rides the same write.
+    const committed = await Subscription.findOneAndUpdate(
+      { _id: subscription._id, __v: subscription.__v },
+      {
+        $set: { addons: next, ...(subscription.externalId ? { 'metadata.providerAddonSyncPending': true } : {}) },
+        $inc: { __v: 1 },
+      },
+      { new: true },
+    );
+    if (!committed) {
+      return sendError(res, 409, 'This subscription was modified concurrently — please retry', 'CONCURRENT_MODIFICATION');
+    }
 
     const serviceAuth = billingServiceAuth(orgId);
-    await syncEntitlements(orgId, plan.tier, serviceAuth, subscription._id.toString(), next);
-    await syncProviderAddons(subscription.externalId, next, subscription.interval, orgId, subscription._id.toString(), 'addon_remove');
-    await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_removed', bundleId }, subscription._id.toString(), req.user?.sub);
+    await syncEntitlements(orgId, plan.tier, serviceAuth, committed._id.toString(), next);
+    await syncProviderAddons(committed.externalId, next, committed.interval, orgId, committed._id.toString(), 'addon_remove');
+    await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_removed', bundleId }, committed._id.toString(), req.user?.sub);
 
     // Mirror the add-on removal to the CENTRAL audit trail (alongside the local
     // billing_events row). Fire-and-forget; details are an explicit id whitelist —
@@ -513,32 +520,32 @@ export function createAddonRoutes(): Router {
       actorId: req.user?.sub ?? 'system',
       orgId,
       targetId: bundleId,
-      details: { bundleId, subscriptionId: subscription._id.toString() },
+      details: { bundleId, subscriptionId: committed._id.toString() },
     }, 'billing');
 
     // Cascade-removed dependents (their `requires` prerequisite just went away):
     // record each as its own removal in the local billing_events + central audit
     // trail, tagged `cascadedFrom` the bundle the user explicitly removed.
     for (const dep of cascaded) {
-      await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_removed', bundleId: dep, cascadedFrom: bundleId }, subscription._id.toString(), req.user?.sub);
+      await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_removed', bundleId: dep, cascadedFrom: bundleId }, committed._id.toString(), req.user?.sub);
       getAuditClient().record({
         action: 'billing.addon.remove',
         actorId: req.user?.sub ?? 'system',
         orgId,
         targetId: dep,
-        details: { bundleId: dep, cascadedFrom: bundleId, subscriptionId: subscription._id.toString() },
+        details: { bundleId: dep, cascadedFrom: bundleId, subscriptionId: committed._id.toString() },
       }, 'billing');
     }
 
     logger.info('Add-on removed', { orgId, bundleId, cascaded });
 
     // Record combo_expired for any combo this removal ended.
-    const delta = comboDelta(current, next, bundles, subscription.interval);
-    await recordLostCombos(orgId, delta.lostCombos, subscription._id.toString(), req.user?.sub);
+    const delta = comboDelta(current, next, bundles, committed.interval);
+    await recordLostCombos(orgId, delta.lostCombos, committed._id.toString(), req.user?.sub);
 
     const { limits } = effectiveEntitlements(plan.tier, next, bundles);
     return sendSuccess(res, 200, {
-      subscription: buildSubscriptionResponse(subscription, plan.name, plan.tier),
+      subscription: buildSubscriptionResponse(committed, plan.name, plan.tier),
       addons: next,
       effectiveLimits: limits,
       priceBreakdown: priceBreakdown(plan, next, bundles, subscription.interval),
