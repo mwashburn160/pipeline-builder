@@ -18,6 +18,7 @@ import { ArrowLeft, Building2, KeyRound, ShieldCheck, FileDown, Users, Trash2, A
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { TabBar } from '@/components/ui/TabBar';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
@@ -45,11 +46,32 @@ import type { Organization, OrgIdpConfigDto } from '@/types';
 
 interface KmsStatus { configured: boolean; keyId?: string }
 
+const ORG_TABS = [
+  { id: 'configuration', label: 'Configuration' },
+  { id: 'entitlements', label: 'Entitlements' },
+  { id: 'operations', label: 'Operations' },
+] as const;
+type OrgTab = (typeof ORG_TABS)[number]['id'];
+const ORG_TAB_IDS = ORG_TABS.map((t) => t.id) as readonly string[];
+
 export default function OrgDetailPage() {
   const router = useRouter();
   const orgId = String(router.query.orgId || '');
   const { isReady, user, can } = useAuthGuard({ requireSystemAdmin: true });
   const toast = useToast();
+
+  // The 7 cards are grouped into tabs (Configuration / Entitlements / Operations)
+  // so the page isn't one long scroll. Deep-linkable via `?tab=` (separate from
+  // the `?orgId` route param).
+  const [activeTab, setActiveTab] = useState<OrgTab>('configuration');
+  useEffect(() => {
+    const raw = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
+    if (raw && ORG_TAB_IDS.includes(raw) && raw !== activeTab) setActiveTab(raw as OrgTab);
+  }, [router.query.tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  const changeTab = (tabId: string) => {
+    setActiveTab(tabId as OrgTab);
+    void router.replace({ query: { ...router.query, tab: tabId } }, undefined, { shallow: true });
+  };
 
   const [org, setOrg] = useState<Organization | null>(null);
   const [kms, setKms] = useState<KmsStatus | null>(null);
@@ -302,6 +324,10 @@ export default function OrgDetailPage() {
       )}
 
       {org && (
+        <>
+        <TabBar items={[...ORG_TABS]} activeId={activeTab} onSelect={changeTab} className="mb-4" />
+
+        {activeTab === 'configuration' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Identity card */}
           <Card>
@@ -431,7 +457,11 @@ export default function OrgDetailPage() {
               </p>
             )}
           </Card>
+        </div>
+        )}
 
+        {activeTab === 'entitlements' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Seats card — pooled account seat usage + a sysadmin control to set
               the seat limit. Usage is account-scoped (resolves to the root). */}
           <Card>
@@ -499,9 +529,13 @@ export default function OrgDetailPage() {
               </dl>
             </Card>
           )}
+        </div>
+        )}
 
+        {activeTab === 'operations' && (
+        <div className="grid grid-cols-1 gap-4">
           {/* Operations card — destructive + scaffolding actions */}
-          <Card className="lg:col-span-2">
+          <Card>
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Operations</h3>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="secondary" onClick={downloadNamespaceYaml} className="inline-flex items-center gap-2 text-sm">
@@ -520,6 +554,8 @@ export default function OrgDetailPage() {
             </div>
           </Card>
         </div>
+        )}
+        </>
       )}
 
       {showEdit && org && (
