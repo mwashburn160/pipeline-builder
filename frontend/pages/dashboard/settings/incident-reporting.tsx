@@ -12,12 +12,12 @@
  * incident data). The backend independently re-enforces both.
  */
 
-import { motion } from 'framer-motion';
 import { Siren, Lock } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFeatures } from '@/hooks/useFeatures';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Callout } from '@/components/ui/Callout';
 import { IncidentReportingSettings } from '@/components/settings/IncidentReportingSettings';
 
 export default function IncidentReportingSettingsPage() {
@@ -37,27 +37,14 @@ export default function IncidentReportingSettingsPage() {
       subtitle="Automated post-deploy CFR + real MTTR from your incident tooling"
       titleExtra={<Siren className="w-5 h-5 text-blue-600 dark:text-blue-400" />}
     >
-      <div className="page-section">
+      <div className="space-y-6">
         {!isLoaded ? (
           <LoadingPage />
         ) : !entitled ? (
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-            className="card"
-          >
-            <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200">
-              <Lock className="w-5 h-5 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-medium">Incident reporting requires Advanced Reporting.</p>
-                <p className="mt-1 text-amber-800 dark:text-amber-300">
-                  DORA (the consumer of incident data) is included on the Enterprise tier, or available as the Advanced
-                  Reporting add-on on other tiers. Upgrade or add the entitlement to configure the incident webhook.
-                </p>
-              </div>
-            </div>
-          </motion.div>
+          <Callout variant="warning" icon={Lock} title="Incident reporting requires Advanced Reporting.">
+            DORA (the consumer of incident data) is included on the Enterprise tier, or available as the Advanced
+            Reporting add-on on other tiers. Upgrade or add the entitlement to configure the incident webhook.
+          </Callout>
         ) : (
           <IncidentReportingSettings />
         )}

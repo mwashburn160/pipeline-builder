@@ -15,7 +15,7 @@ import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType, User }
 import { QuotaCard } from './QuotaCard';
 import { OrgListItem } from './OrgListItem';
 import { CurrentTierPanel } from './CurrentTierPanel';
-import { QUOTA_KEYS, TIER_KEYS, TIER_PRESETS, pillClassFor } from './constants';
+import { QUOTA_KEYS, TIER_KEYS, TIER_PRESETS, pillClassFor, type TierPreset } from './constants';
 
 /**
  * System-admin master-detail quota view: an org sidebar plus the selected org's
@@ -29,6 +29,7 @@ export function QuotasAdmin({
   loadError,
   editTier,
   editValues,
+  tierPresets = TIER_PRESETS,
   dirty,
   saving,
   platformOrgs,
@@ -55,6 +56,9 @@ export function QuotasAdmin({
   loadError: string | null;
   editTier: QuotaTier;
   editValues: Record<DisplayedQuotaType, number>;
+  /** Effective per-tier presets (server-sourced, env-override-aware). Defaults to
+   *  the hardcoded `TIER_PRESETS` fallback when the page hasn't threaded them. */
+  tierPresets?: Record<QuotaTier, TierPreset>;
   dirty: boolean;
   saving: boolean;
   platformOrgs: { id: string; name: string; slug?: string }[];
@@ -106,8 +110,8 @@ export function QuotasAdmin({
         {orgData.orgId}
       </span>
       <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${pillClassFor(editTier)}`}>
-        <span className={`w-1.5 h-1.5 rounded-full ${TIER_PRESETS[editTier].color}`} />
-        {TIER_PRESETS[editTier].label}
+        <span className={`w-1.5 h-1.5 rounded-full ${tierPresets[editTier].color}`} />
+        {tierPresets[editTier].label}
       </span>
     </div>
   ) : undefined;
@@ -262,7 +266,7 @@ export function QuotasAdmin({
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {TIER_KEYS.map((tier) => {
-                    const preset = TIER_PRESETS[tier];
+                    const preset = tierPresets[tier];
                     const isSelected = editTier === tier;
                     return (
                       <button

@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
+import { Sparkles } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { SectionCard } from '@/components/ui/SectionCard';
+import { Badge } from '@/components/ui/Badge';
+import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
@@ -122,12 +126,11 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
   };
 
   return (
-    <>
-      <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">AI Providers</h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-        Configure API keys for AI-powered pipeline generation. Keys are stored at the organization level.
-      </p>
-
+    <SectionCard
+      icon={Sparkles}
+      title="AI providers"
+      description="API keys for AI-powered pipeline generation, stored at the organization level."
+    >
       <ErrorAlert message={error} className="mb-4" />
       <SuccessAlert message={success} className="mb-4" />
 
@@ -140,17 +143,15 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
             const isEditing = editingProvider === id;
 
             return (
-              <div key={id} className="flex items-center gap-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+              <div key={id} className="flex items-center gap-4 p-3 rounded-xl border border-[var(--pb-border)] bg-[var(--pb-surface-muted)]">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    <span className="text-sm font-medium text-[var(--pb-text)]">
                       {displayName(id)}
                     </span>
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                      Configured
-                    </span>
+                    <Badge color="green">Configured</Badge>
                     {status?.hint && (
-                      <span className="text-xs text-gray-400 dark:text-gray-500">
+                      <span className="text-xs text-[var(--pb-text-muted)]">
                         Key: {status.hint}
                       </span>
                     )}
@@ -197,7 +198,7 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
                       </Button>
                     </div>
                   ) : (
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                    <p className="text-xs text-[var(--pb-text-muted)]">
                       Key ending in {status?.hint}
                     </p>
                   )}
@@ -209,41 +210,39 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
       )}
 
       {configuredIds.length === 0 && (
-        <p className="text-sm text-gray-400 dark:text-gray-500 mb-4">No AI providers configured yet.</p>
+        <p className="text-sm text-[var(--pb-text-muted)] mb-4">No AI providers configured yet.</p>
       )}
 
       {/* Add new provider — admin only */}
       {canEdit && availableProviders.length > 0 && (
-        <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Add Provider</h3>
+        <div className="border-t border-[var(--pb-border)] pt-4">
+          <h3 className="text-sm font-medium text-[var(--pb-text)] mb-3">Add provider</h3>
           <div className="flex items-end gap-3">
             <div className="flex-shrink-0">
-              <label htmlFor="ai-provider-select" className="label text-xs">Provider</label>
-              <Select
-                id="ai-provider-select"
-                value={selectedProvider}
-                onChange={(e) => setSelectedProvider(e.target.value)}
-                className="text-sm"
-                disabled={addLoading}
-              >
-                <option value="">Select provider...</option>
-                {availableProviders.map(([id, name]) => (
-                  <option key={id} value={id}>{name}</option>
-                ))}
-              </Select>
+              <FormField label="Provider">
+                <Select
+                  value={selectedProvider}
+                  onChange={(e) => setSelectedProvider(e.target.value)}
+                  disabled={addLoading}
+                >
+                  <option value="">Select provider...</option>
+                  {availableProviders.map(([id, name]) => (
+                    <option key={id} value={id}>{name}</option>
+                  ))}
+                </Select>
+              </FormField>
             </div>
             <div className="flex-1">
-              <label htmlFor="ai-api-key" className="label text-xs">API Key</label>
-              <Input
-                id="ai-api-key"
-                type="password"
-                autoComplete="off"
-                value={newApiKey}
-                onChange={(e) => setNewApiKey(e.target.value)}
-                placeholder="Enter API key"
-                className="text-sm"
-                disabled={addLoading || !selectedProvider}
-              />
+              <FormField label="API key">
+                <Input
+                  type="password"
+                  autoComplete="off"
+                  value={newApiKey}
+                  onChange={(e) => setNewApiKey(e.target.value)}
+                  placeholder="Enter API key"
+                  disabled={addLoading || !selectedProvider}
+                />
+              </FormField>
             </div>
             <Button
               onClick={handleAdd}
@@ -254,6 +253,6 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
           </div>
         </div>
       )}
-    </>
+    </SectionCard>
   );
 }

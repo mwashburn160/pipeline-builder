@@ -46,6 +46,7 @@ const mockCalculatePeriodEnd = jest.fn(() => new Date('2026-08-01T00:00:00.000Z'
 const mockCreateBillingEvent = jest.fn(async () => undefined);
 const mockSyncEntitlements = jest.fn(async () => undefined);
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  recordReactivatePlanMissing: async () => undefined,
   MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
   calculatePeriodEnd: (...a: unknown[]) => mockCalculatePeriodEnd(...a),
   createBillingEvent: (...a: unknown[]) => mockCreateBillingEvent(...a),

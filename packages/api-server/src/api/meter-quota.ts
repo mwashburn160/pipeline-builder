@@ -4,6 +4,7 @@
 import { incrementQuota, isServicePrincipal, createLogger } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaService } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
+import { getContext } from './get-context.js';
 
 const logger = createLogger('meter-quota');
 
@@ -42,8 +43,14 @@ export function meterQuotaOnSuccess(quotaService: QuotaService, quotaType: Quota
       try {
         // Only successful responses are billable.
         if (res.statusCode < 200 || res.statusCode >= 300) return;
-        // Prefer the VERIFIED auth org over the spoofable header identity.
-        const orgId = req.user?.organizationId;
+        // Resolve the org id from the SAME source `checkQuota` reads —
+        // `getContext().identity.orgId`, which is normalized (trimmed + lowercased).
+        // Metering off the raw `req.user.organizationId` while the gate checks the
+        // normalized id would land increments on a different key than the check
+        // reads (a silent bypass if an org id ever carries mixed case). Fall back to
+        // the raw auth org only when context middleware isn't mounted.
+        let orgId: string | undefined;
+        try { orgId = getContext(req).identity.orgId; } catch { orgId = req.user?.organizationId; }
         if (!orgId) return;
         // Internal service-to-service calls must not consume a tenant's quota.
         if (isServicePrincipal(req)) return;

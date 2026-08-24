@@ -58,10 +58,53 @@ export function pillClassFor(tier: QuotaTier): string {
         : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300';
 }
 
-export const TIER_PRESETS: Record<QuotaTier, { label: string; description: string; color: string; limits: Record<DisplayedQuotaType, number> }> = {
-  developer:  { label: TIER_META.developer.label,  description: TIER_DESCRIPTIONS.developer,  color: TIER_META.developer.dotClass,  limits: TIER_LIMITS.developer },
-  pro:        { label: TIER_META.pro.label,        description: TIER_DESCRIPTIONS.pro,        color: TIER_META.pro.dotClass,        limits: TIER_LIMITS.pro },
-  team:       { label: TIER_META.team.label,       description: TIER_DESCRIPTIONS.team,       color: TIER_META.team.dotClass,       limits: TIER_LIMITS.team },
-  enterprise: { label: TIER_META.enterprise.label, description: TIER_DESCRIPTIONS.enterprise, color: TIER_META.enterprise.dotClass, limits: TIER_LIMITS.enterprise },
-  unlimited:  { label: TIER_META.unlimited.label,  description: TIER_DESCRIPTIONS.unlimited,  color: TIER_META.unlimited.dotClass,  limits: TIER_LIMITS.unlimited },
-};
+export type TierPreset = { label: string; description: string; color: string; limits: Record<DisplayedQuotaType, number> };
+
+/**
+ * Build the per-tier presets from a limits table (label/description/color stay
+ * local; only the numeric limits vary by deployment). {@link buildTierPresets}
+ * uses this to overlay server-provided limits onto the hardcoded fallback.
+ */
+function presetsFromLimits(limits: Record<QuotaTier, Record<DisplayedQuotaType, number>>): Record<QuotaTier, TierPreset> {
+  return {
+    developer:  { label: TIER_META.developer.label,  description: TIER_DESCRIPTIONS.developer,  color: TIER_META.developer.dotClass,  limits: limits.developer },
+    pro:        { label: TIER_META.pro.label,        description: TIER_DESCRIPTIONS.pro,        color: TIER_META.pro.dotClass,        limits: limits.pro },
+    team:       { label: TIER_META.team.label,       description: TIER_DESCRIPTIONS.team,       color: TIER_META.team.dotClass,       limits: limits.team },
+    enterprise: { label: TIER_META.enterprise.label, description: TIER_DESCRIPTIONS.enterprise, color: TIER_META.enterprise.dotClass, limits: limits.enterprise },
+    unlimited:  { label: TIER_META.unlimited.label,  description: TIER_DESCRIPTIONS.unlimited,  color: TIER_META.unlimited.dotClass,  limits: limits.unlimited },
+  };
+}
+
+/**
+ * The hardcoded fallback presets — used until (and if) the server's effective
+ * presets load. Sourced from the local `TIER_LIMITS` mirror of the backend
+ * defaults.
+ */
+export const TIER_PRESETS: Record<QuotaTier, TierPreset> = presetsFromLimits(TIER_LIMITS);
+
+/**
+ * Merge server-provided effective tier limits (from `/config`'s `tierPresets`,
+ * which honors `QUOTA_TIER_*` env overrides) over the hardcoded fallback, and
+ * return the full presets. Fail-soft: any tier/field the server omits keeps its
+ * hardcoded value, and passing `undefined` (config not loaded / fetch failed)
+ * returns the fallback unchanged. This is the drift fix for pkg#9 — the editor
+ * prefills from the deployment's REAL limits, not a frontend copy that silently
+ * diverges under env overrides.
+ */
+export function buildTierPresets(
+  serverPresets?: Partial<Record<QuotaTier, Partial<Record<DisplayedQuotaType, number>>>>,
+): Record<QuotaTier, TierPreset> {
+  if (!serverPresets) return TIER_PRESETS;
+  const merged = {} as Record<QuotaTier, Record<DisplayedQuotaType, number>>;
+  for (const tier of Object.keys(TIER_LIMITS) as QuotaTier[]) {
+    merged[tier] = { ...TIER_LIMITS[tier] };
+    const fromServer = serverPresets[tier];
+    if (fromServer) {
+      for (const key of QUOTA_KEYS) {
+        const v = fromServer[key];
+        if (typeof v === 'number' && Number.isFinite(v)) merged[tier][key] = v;
+      }
+    }
+  }
+  return presetsFromLimits(merged);
+}

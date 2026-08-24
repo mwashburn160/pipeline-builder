@@ -26,6 +26,9 @@ interface PlanGridProps {
   billingInterval: BillingInterval;
   actionLoading: boolean;
   canChangePlan: boolean;
+  /** False for Marketplace-billed accounts — plans are managed in AWS, so the CTAs
+   *  render read-only ("Managed in AWS Marketplace") instead of active buttons. */
+  selfService?: boolean;
   onSubscribe: (planId: string) => void;
 }
 
@@ -36,6 +39,7 @@ export function PlanGrid({
   billingInterval,
   actionLoading,
   canChangePlan,
+  selfService = true,
   onSubscribe,
 }: PlanGridProps) {
   return (    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -86,14 +90,15 @@ export function PlanGrid({
               variant="primary"
               fullWidth
               onClick={() => onSubscribe(plan.id)}
-              disabled={isCurrent || actionLoading || !canChangePlan}
+              disabled={isCurrent || actionLoading || !canChangePlan || !selfService}
               className={`justify-center ${
-                isCurrent || !canChangePlan
+                isCurrent || !canChangePlan || !selfService
                   ? 'bg-[var(--pb-surface-muted)] text-[var(--pb-text-muted)] cursor-not-allowed'
 : ''
               }`}
             >
               {actionLoading ? (                    <LoadingSpinner size="sm" />
+              ): !selfService ? (                    'Managed in AWS Marketplace'
               ): isCurrent ? (                    'Current Plan'
               ): subscription ? (                    'Switch to this plan'
               ): (                    'Get Started'

@@ -166,12 +166,19 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
   },
 };
 
-/** Read an integer env var, falling back to the code default. `-1` = unlimited. */
+/**
+ * Read an integer env var, falling back to the code default. `-1` = unlimited.
+ * Rejects (→ fallback) anything that isn't a clean integer string and any value
+ * `< -1`: a decimal (`50.5`) or a nonsense negative (`-5`) would otherwise ship a
+ * broken finite limit (parity with `envCents`'s rigor for prices).
+ */
 function envInt(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw === undefined || raw === '') return fallback;
-  const n = parseInt(raw, 10);
-  return Number.isNaN(n) ? fallback : n;
+  const trimmed = raw.trim();
+  if (!/^-?\d+$/.test(trimmed)) return fallback; // no decimals / non-numeric
+  const n = parseInt(trimmed, 10);
+  return Number.isNaN(n) || n < -1 ? fallback : n;
 }
 
 /** Read a string env var, falling back to the code default. */

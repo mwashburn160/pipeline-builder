@@ -46,6 +46,7 @@ jest.unstable_mockModule('../src/helpers/promotion-engine.js', () => ({
   batchEvaluatePromotion: mockBatch,
   previewPromotion: mockPreview,
   loadManageableSubscription: mockLoadSub,
+  aggregatePromotionLedgerSpend: async () => ({ cents: 0, grants: 0 }),
 }));
 
 // Models.

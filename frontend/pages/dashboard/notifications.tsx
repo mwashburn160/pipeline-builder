@@ -16,12 +16,13 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Bell } from 'lucide-react';
+import { Bell, SlidersHorizontal } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { Card } from '@/components/ui/Card';
-import { Checkbox } from '@/components/ui/Checkbox';
+import { SectionCard } from '@/components/ui/SectionCard';
+import { ToggleRow } from '@/components/ui/SettingRow';
+import { Badge } from '@/components/ui/Badge';
 
 /** localStorage keys for in-app preferences. Bumped if the shape changes. */
 const PREF_KEY = 'pb-notification-prefs:v1';
@@ -75,68 +76,53 @@ export default function NotificationsPage() {
 
   if (!isReady || !user) return <LoadingPage />;
 
+  const PREFS = [
+    { key: 'muteQuotaWarnings' as const, label: 'Mute quota-warning banners', hint: 'Pause "X% of quota used" toasts.' },
+    { key: 'muteBuildFailures' as const, label: 'Mute build-failure toasts', hint: 'Failed builds still appear in the executions list and inbox.' },
+    { key: 'muteAuditMentions' as const, label: 'Mute audit-mention notifications', hint: 'Hide red dots on audit-event mentions.' },
+  ];
+
   return (
     <DashboardLayout
       title="Notifications"
       subtitle="What you get pinged about — and where"
     >
-      {/* In-app preferences. Stored in localStorage; survives reloads but
-          doesn't sync across devices. Mute is a UI-level filter — the
-          underlying alerts still fire on the platform side. */}
-      <Card className="mb-4">
-        <div className="flex items-center gap-2 mb-1">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">In-app preferences</h2>
-          {/* These prefs live only in this browser's localStorage — no backend
-              user-preferences endpoint exists yet, so make the scope explicit
-              rather than implying they follow the user across devices. */}
-          <span className="inline-flex items-center rounded-full bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-500 dark:text-gray-400">
-            This browser only
-          </span>
-        </div>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          Saved in this browser only — they don&apos;t sync across devices, and they don&apos;t stop org-level Slack / webhook delivery.
-        </p>
-        <ul className="space-y-2 text-sm">
-          {[
-            { key: 'muteQuotaWarnings' as const, label: 'Mute quota-warning banners', hint: 'Pause "X% of quota used" toasts.' },
-            { key: 'muteBuildFailures' as const, label: 'Mute build-failure toasts', hint: 'Failed builds still appear in the executions list and inbox.' },
-            { key: 'muteAuditMentions' as const, label: 'Mute audit-mention notifications', hint: 'Hide red dots on audit-event mentions.' },
-          ].map(({ key, label, hint }) => (
-            <li key={key} className="flex items-start justify-between gap-3 py-1">
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-gray-800 dark:text-gray-200">{label}</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">{hint}</div>
-              </div>
-              <label className="inline-flex items-center cursor-pointer">
-                <Checkbox
-                  checked={prefs[key]}
-                  onChange={(e) => update({ [key]: e.target.checked } as Partial<Prefs>)}
-                  className="h-4 w-4"
-                />
-              </label>
-            </li>
-          ))}
-        </ul>
-      </Card>
-
-      {/* Where alerts go is org-level config — link out instead of duplicating
-          the destinations list (it lives only on the Alert destinations page). */}
-      <Card>
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <Bell className="h-5 w-5 text-gray-400 shrink-0" />
-            <div className="min-w-0">
-              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Alert delivery</h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Where {user.organizationName || 'your organization'} sends production alerts (Slack, webhooks, in-app).
-              </p>
-            </div>
+      <div className="space-y-6">
+        {/* In-app preferences — localStorage only; mute is a UI-level filter (the
+            underlying alerts still fire on the platform side). */}
+        <SectionCard
+          icon={SlidersHorizontal}
+          title="In-app preferences"
+          description="Saved in this browser only — they don't sync across devices, and they don't stop org-level Slack / webhook delivery."
+          actions={<Badge color="gray">This browser only</Badge>}
+          bodyClassName="px-5"
+        >
+          <div className="divide-y divide-[var(--pb-border)]">
+            {PREFS.map(({ key, label, hint }) => (
+              <ToggleRow
+                key={key}
+                label={label}
+                description={hint}
+                checked={prefs[key]}
+                onChange={(v) => update({ [key]: v } as Partial<Prefs>)}
+              />
+            ))}
           </div>
-          <Link href="/dashboard/observability/alert-destinations" className="action-link text-sm shrink-0">
-            Alert destinations →
-          </Link>
-        </div>
-      </Card>
+        </SectionCard>
+
+        {/* Where alerts go is org-level config — link out instead of duplicating
+            the destinations list (it lives only on the Alert destinations page). */}
+        <SectionCard
+          icon={Bell}
+          title="Alert delivery"
+          description={`Where ${user.organizationName || 'your organization'} sends production alerts (Slack, webhooks, in-app).`}
+          actions={
+            <Link href="/dashboard/observability/alert-destinations" className="action-link text-sm shrink-0">
+              Alert destinations →
+            </Link>
+          }
+        />
+      </div>
     </DashboardLayout>
   );
 }

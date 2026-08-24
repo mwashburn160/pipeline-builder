@@ -111,6 +111,10 @@ export const config = {
     frontendUrl: process.env.PLATFORM_FRONTEND_URL || DEFAULT_PLATFORM_URL,
   },
 
+  // Deployment target (aws-ec2 | aws-eks | local | docker | minikube), surfaced by
+  // the public /config endpoint so the frontend can gate target-specific UI.
+  deployTarget: process.env.DEPLOY_TARGET || 'local',
+
   server: {
     trustProxy: parseInt(process.env.TRUST_PROXY || '1', 10),
   },

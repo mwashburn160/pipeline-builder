@@ -323,15 +323,21 @@ export const verifyEmail = withController('Verify email', async (req, res) => {
  * POST /auth/mark-email-verified
  *
  * Directly mark the CURRENT user's email verified WITHOUT the emailed link — a
- * convenience for privileged operators (e.g. environments with no outbound
- * email). Gated to admin/owner role or superadmin; a non-privileged user must
- * still verify via the emailed token. Requires auth (route middleware).
+ * convenience for platform operators in environments with no outbound email.
+ *
+ * SUPERADMIN ONLY. It only ever verifies the caller's OWN email, so an
+ * "admin/owner" delegation was never meaningful — and every self-registered user
+ * is `owner` of their personal org, which made the old admin/owner gate
+ * effectively "any authenticated user can self-assert verification." Since
+ * `isEmailVerified` is the sole proof-of-control the domain-based-join flow
+ * trusts, that let an attacker register `x@bigcorp.com`, self-verify, and
+ * auto-join bigcorp's org. Restricting to superadmin closes that path. Requires
+ * auth (route middleware).
  */
 export const markEmailVerified = withController('Mark email verified', async (req, res) => {
   if (!req.user) return sendError(res, 401, 'Authentication required');
-  const privileged = req.user.isSuperAdmin === true || req.user.role === 'admin' || req.user.role === 'owner';
-  if (!privileged) {
-    return sendError(res, 403, 'Only an admin or superadmin can mark an email verified directly');
+  if (req.user.isSuperAdmin !== true) {
+    return sendError(res, 403, 'Only a superadmin can mark an email verified directly');
   }
   const user = await authService.markEmailVerifiedById(req.user.sub);
   if (!user) return sendError(res, 404, 'User not found');

@@ -17,10 +17,10 @@ import {
   parseQueryString,
   validateBody,
 } from '@pipeline-builder/api-core';
-import { incCounter, withRoute } from '@pipeline-builder/api-server';
+import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import { billingServiceAuth, buildSubscriptionResponse, createBillingEvent, MANAGEABLE_SUBSCRIPTION_STATUSES, syncEntitlements, syncProviderAddons } from '../helpers/billing-helpers.js';
+import { billingServiceAuth, buildSubscriptionResponse, createBillingEvent, MANAGEABLE_SUBSCRIPTION_STATUSES, recordReactivatePlanMissing, syncEntitlements, syncProviderAddons } from '../helpers/billing-helpers.js';
 import { applyPlanTierChange, applyTierIncludedAddonPrune } from '../helpers/addon-prune.js';
 import { BillingEvent } from '../models/billing-event.js';
 import { Plan } from '../models/plan.js';
@@ -44,6 +44,30 @@ const BASELINE_TIER = 'developer' as const;
 /** Whether a subscription status is entitlement-worthy (paid tier enforced). */
 function isEntitledStatus(status: string): boolean {
   return (MANAGEABLE_SUBSCRIPTION_STATUSES as readonly string[]).includes(status);
+}
+
+/** Project a BillingEvent lean doc → API response. Shared by the admin
+ *  `/admin/events` list and the caller-scoped `/events` list so the two can't
+ *  drift (mirrors `toDiscountResponse` / `toPromotionResponse`). */
+function toBillingEventResponse(event: {
+  _id: { toString(): string };
+  orgId: string;
+  subscriptionId?: string | null;
+  type: string;
+  actorId?: string | null;
+  details: unknown;
+  createdAt: Date;
+}) {
+  return {
+    id: event._id.toString(),
+    orgId: event.orgId,
+    subscriptionId: event.subscriptionId,
+    type: event.type,
+    // Who initiated it (undefined for system/webhook/cron rows).
+    actorId: event.actorId,
+    details: event.details,
+    createdAt: event.createdAt.toISOString(),
+  };
 }
 
 /**
@@ -250,10 +274,9 @@ export function createAdminSubscriptionRoutes(): Router {
               logger.warn('Admin reactivation could not sync — subscription plan not found', {
                 subscriptionId, planId: subscription.planId, fromStatus: prevStatus, toStatus: status,
               });
-              await createBillingEvent(orgId, 'subscription_updated', {
-                reason: 'reactivate_plan_missing', status, planId: subscription.planId,
-              }, subscriptionId, actorId);
-              incCounter('billing_reactivate_plan_missing_total', { source: 'admin' });
+              await recordReactivatePlanMissing(orgId, subscriptionId, 'admin', {
+                status, planId: subscription.planId,
+              }, actorId);
             }
           }
         });
@@ -314,16 +337,7 @@ export function createAdminSubscriptionRoutes(): Router {
         BillingEvent.countDocuments(filter),
       ]);
 
-      const result = events.map((event) => ({
-        id: event._id.toString(),
-        orgId: event.orgId,
-        subscriptionId: event.subscriptionId,
-        type: event.type,
-        // Who initiated it (undefined for system/webhook/cron rows).
-        actorId: event.actorId,
-        details: event.details,
-        createdAt: event.createdAt.toISOString(),
-      }));
+      const result = events.map(toBillingEventResponse);
 
       ctx.log('COMPLETED', 'Listed billing events', { total, limit, offset });
       return sendSuccess(res, 200, { events: result, total, limit, offset });
@@ -344,15 +358,7 @@ export function createAdminSubscriptionRoutes(): Router {
         BillingEvent.find({ orgId }).sort({ createdAt: -1 }).skip(offset).limit(limit).lean(),
         BillingEvent.countDocuments({ orgId }),
       ]);
-      const result = events.map((event) => ({
-        id: event._id.toString(),
-        orgId: event.orgId,
-        subscriptionId: event.subscriptionId,
-        type: event.type,
-        actorId: event.actorId,
-        details: event.details,
-        createdAt: event.createdAt.toISOString(),
-      }));
+      const result = events.map(toBillingEventResponse);
       return sendSuccess(res, 200, { events: result, total, limit, offset });
     }),
   );

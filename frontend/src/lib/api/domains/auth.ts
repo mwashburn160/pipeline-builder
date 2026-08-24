@@ -25,7 +25,15 @@ export function authApi(core: ApiCore) {
 
     /** Get platform service feature flags (public, no auth required). */
     getConfig: async () => {
-      return core.request<ApiResponse<{ serviceFeatures: Record<string, boolean>; supportAlias?: string; supportAliases?: string[]; deployTarget?: string }>>('/api/config');
+      return core.request<ApiResponse<{
+        serviceFeatures: Record<string, boolean>;
+        supportAlias?: string;
+        supportAliases?: string[];
+        deployTarget?: string;
+        /** Effective per-tier quota presets (honors QUOTA_TIER_* env overrides).
+         *  Keyed by tier → the four displayed flow dimensions. */
+        tierPresets?: Record<string, { plugins: number; pipelines: number; apiCalls: number; aiCalls: number }>;
+      }>>('/api/config');
     },
 
     // ============================================

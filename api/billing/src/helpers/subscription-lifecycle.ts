@@ -6,6 +6,7 @@ import { incCounter } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
 import { billingServiceAuth, createBillingEvent, deriveComplianceSets, effectiveEntitlements, effectiveFeatureSet, getBundleCatalog, pushComplianceSetsToCompliance, syncEntitlements, syncProviderAddons } from './billing-helpers.js';
+import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { complianceSetsDiffer, computeEntitlementDrift, readActualEntitlements, readEnforcedComplianceSets } from './entitlement-drift.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
@@ -357,7 +358,7 @@ async function sendRenewalReminders(): Promise<void> {
  */
 async function reconcileFailedEntitlementSyncs(): Promise<void> {
   const pending = await Subscription.find({
-    'status': 'active',
+    'status': { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
     'metadata.entitlementSyncPending': true,
   });
 
@@ -426,7 +427,7 @@ async function reconcileFailedEntitlementSyncs(): Promise<void> {
  */
 async function reconcileFailedProviderAddonSyncs(): Promise<void> {
   const pending = await Subscription.find({
-    'status': 'active',
+    'status': { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
     'metadata.providerAddonSyncPending': true,
   });
 
@@ -505,7 +506,7 @@ async function reconcileEntitlementDrift(): Promise<void> {
   const cutoff = new Date(Date.now() - config.entitlementDriftIntervalMs).toISOString();
   const candidates = await Subscription.find(
     {
-      status: 'active',
+      status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
       $or: [
         { 'metadata.lastReconciledAt': { $exists: false } },
         { 'metadata.lastReconciledAt': { $lte: cutoff } },

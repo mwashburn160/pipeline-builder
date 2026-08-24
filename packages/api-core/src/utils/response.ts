@@ -128,13 +128,18 @@ export function sendQuotaExceeded(
   const resetDate = resetAt ? new Date(resetAt) : new Date();
   const resetIn = Math.max(0, Math.ceil((resetDate.getTime() - Date.now()) / 1000));
 
-  res.setHeader('Retry-After', resetIn);
-  res.setHeader('X-Quota-Limit', quota.limit);
-  res.setHeader('X-Quota-Used', quota.used);
-  res.setHeader('X-Quota-Remaining', Math.max(0, quota.remaining));
+  // Guard like the sibling helpers: `setHeader` throws synchronously once the
+  // response has been sent, so skip the quota headers (and let `sendError` no-op)
+  // instead of crashing the handler on an already-committed response.
+  if (!res.headersSent) {
+    res.setHeader('Retry-After', resetIn);
+    res.setHeader('X-Quota-Limit', quota.limit);
+    res.setHeader('X-Quota-Used', quota.used);
+    res.setHeader('X-Quota-Remaining', Math.max(0, quota.remaining));
 
-  if (resetAt) {
-    res.setHeader('X-Quota-Reset', resetAt);
+    if (resetAt) {
+      res.setHeader('X-Quota-Reset', resetAt);
+    }
   }
 
   sendError(

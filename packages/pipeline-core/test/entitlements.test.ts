@@ -83,4 +83,13 @@ describe('effectiveEntitlements', () => {
     expect(limits.idpConfigs).toBe(dev.idpConfigs + 5); // +5, not +15
     expect(features).toContain('sso');
   });
+
+  it('clamps a stackable bundle to its maxQuantity even if a larger qty is stored', () => {
+    // A retention pack caps at maxQuantity 7; a stored/drifted qty of 20 must NOT
+    // grant 20×90 days (which would blow past the retention ceiling the cap holds).
+    const dev = getTierLimits('developer');
+    const capped = [bundle({ id: 'retention_pack', grants: { eventRetentionDays: 90 }, maxQuantity: 7 })];
+    const { limits } = effectiveEntitlements('developer', [{ bundleId: 'retention_pack', quantity: 20 }], capped);
+    expect(limits.eventRetentionDays).toBe(dev.eventRetentionDays + 7 * 90); // clamped to 7, not 20
+  });
 });

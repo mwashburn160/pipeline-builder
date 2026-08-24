@@ -35,6 +35,7 @@ const mockApplyPlanTierChange = jest.fn((subscription: any, plan: { tier: string
   });
 });
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  recordReactivatePlanMissing: async () => undefined,
   applyPlanTierChange: mockApplyPlanTierChange,
   billingServiceAuth: (_orgId: string) => 'Bearer service-token',
   syncTierToQuotaService: (...args: unknown[]) => mockSyncTier(...args),
@@ -121,8 +122,9 @@ jest.unstable_mockModule('../src/models/plan.js', () => ({
 
 // Mock Subscription model
 const mockSubscriptionCreate = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockSubscriptionFindOne = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(null);
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
-  Subscription: { findOne: jest.fn(), create: (...args: unknown[]) => mockSubscriptionCreate(...args) },
+  Subscription: { findOne: (...a: unknown[]) => mockSubscriptionFindOne(...a), create: (...args: unknown[]) => mockSubscriptionCreate(...args), countDocuments: jest.fn<(...a: unknown[]) => Promise<number>>().mockResolvedValue(1) },
 }));
 
 // Mock provider factory
@@ -132,10 +134,12 @@ const mockGetStripeClient = jest.fn().mockReturnValue({
   webhooks: { constructEvent: (...args: unknown[]) => mockConstructEvent(...args) },
 });
 
+const mockCancelSubscriptionNow = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
   getPaymentProvider: () => ({
     getStripeClient: mockGetStripeClient,
     getWebhookSecret: mockGetWebhookSecret,
+    cancelSubscriptionNow: (...a: unknown[]) => mockCancelSubscriptionNow(...a),
     // StripeProvider instanceof check needs help
     constructor: { name: 'StripeProvider' },
   }),
@@ -423,7 +427,7 @@ describe('handleSubscriptionCreated (checkout provisioning)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFindByStripeId.mockResolvedValue(null); // no local row yet
-    mockPlanFindOne.mockResolvedValue({ _id: 'team', tier: 'team', name: 'Team', isActive: true });
+    mockPlanFindOne.mockResolvedValue({ _id: 'team', tier: 'team', name: 'Team', isActive: true, prices: { monthly: 7900, annual: 79000 } });
     mockSubscriptionCreate.mockResolvedValue({ _id: { toString: () => 'sub-new' } });
   });
 
@@ -459,6 +463,16 @@ describe('handleSubscriptionCreated (checkout provisioning)', () => {
   it('delegates to the update handler when a local row already exists', async () => {
     mockFindByStripeId.mockResolvedValue({ orgId: 'org-9', status: 'active', save: jest.fn(), _id: { toString: () => 'sub-x' } });
     await handleSubscriptionCreated(created({ orgId: 'org-9', planId: 'team', interval: 'monthly' }));
+    expect(mockSubscriptionCreate).not.toHaveBeenCalled();
+  });
+
+  it('cancels a DUPLICATE incoming sub when the org already has a manageable one bound elsewhere', async () => {
+    // No local row for THIS externalId, but the org already has a manageable sub
+    // bound to a DIFFERENT Stripe sub (two checkouts completed) → cancel the
+    // incoming duplicate immediately, don't create/orphan a second billing sub.
+    mockSubscriptionFindOne.mockResolvedValue({ externalId: 'sub_KEEPER', status: 'active' });
+    await handleSubscriptionCreated(created({ orgId: 'org-9', planId: 'team', interval: 'monthly' }));
+    expect(mockCancelSubscriptionNow).toHaveBeenCalledWith('sub_ext');
     expect(mockSubscriptionCreate).not.toHaveBeenCalled();
   });
 });

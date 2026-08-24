@@ -445,6 +445,7 @@ describe('StripeProvider', () => {
       expect(mockStripeSubscriptionsUpdate).toHaveBeenCalledWith('sub_stripe_789', {
         items: [{ id: 'si_item_1', price: 'price_dev_mo' }],
         metadata: { planId: 'developer', interval: 'monthly' },
+        proration_behavior: 'create_prorations',
       });
     });
 
@@ -462,6 +463,7 @@ describe('StripeProvider', () => {
       expect(mockStripeSubscriptionsUpdate).toHaveBeenCalledWith('sub_stripe_789', {
         items: [{ id: 'si_item_1', price: 'price_dev_yr' }],
         metadata: { planId: 'developer', interval: 'annual' },
+        proration_behavior: 'create_prorations',
       });
     });
 
@@ -476,6 +478,7 @@ describe('StripeProvider', () => {
       expect(mockStripeSubscriptionsUpdate).toHaveBeenCalledWith('sub_stripe_789', {
         items: [{ id: 'si_item_1', price: 'price_pro_yr' }],
         metadata: { planId: 'pro', interval: 'annual' },
+        proration_behavior: 'create_prorations',
       });
     });
 

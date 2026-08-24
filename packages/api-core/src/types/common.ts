@@ -171,11 +171,10 @@ export interface JwtPayload {
   /**
    * Global super-admin flag (cross-org). When `true`, the user is treated
    * as a system administrator regardless of which org they're currently
-   * acting under. This is the canonical signal for sysadmin authority —
-   * previously the only path was membership in the well-known "system" org
-   * with role admin/owner, which conflated "Pipeline Builder operator" with
-   * "real customer tenant" in the data model. Either path still works
-   * during the rollout; new users should be granted via `isSuperAdmin`.
+   * acting under. This is the SOLE signal for sysadmin authority — the old path
+   * (membership in the well-known "system" org with role admin/owner) has been
+   * removed because it conflated "Pipeline Builder operator" with "real customer
+   * tenant" in the data model. Grant sysadmin only via `isSuperAdmin`.
    */
   isSuperAdmin?: boolean;
   /** Organization's quota tier. */

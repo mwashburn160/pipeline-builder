@@ -165,7 +165,7 @@ export function loadBillingConfig(): BillingConfig {
       id: 'enterprise',
       name: process.env.BILLING_PLAN_ENTERPRISE_NAME || 'Enterprise',
       description: process.env.BILLING_PLAN_ENTERPRISE_DESCRIPTION
-        || 'Org-wide scale with unlimited seats and priority support',
+        || 'Org-wide scale with a high seat baseline (expandable via Member Seat add-ons) and priority support',
       tier: 'enterprise',
       prices: {
         monthly: envCents(process.env.BILLING_PLAN_ENTERPRISE_MONTHLY, 59900),
@@ -261,8 +261,42 @@ function loadComboDiscounts(bundles: BundleConfig[]): ComboDiscountConfig[] {
     // bundled $27.99/mo (~30% off, ~$11.99 credit). Both members all-tier.
     c('scale_bundle', 'Scale Bundle', ['api_pack', 'storage_pack'], 2799, 27990, 3),
   ];
+  assertCombosValid(combos, bundles);
   warnOnNonDiscountCombos(combos, bundles);
   return combos;
+}
+
+/**
+ * Config-load guardrail for combos: every `bundleId` must resolve to an ACTIVE
+ * bundle and every `minQuantities` key must be one of the combo's `bundleIds`.
+ * A typo'd member or stray minQuantity key otherwise ships a permanently-inert
+ * combo (missing bundle treated as unit price 0, or a min never satisfiable),
+ * silently never applying. Throws so misconfig fails fast at boot.
+ */
+export function assertCombosValid(combos: ComboDiscountConfig[], bundles: BundleConfig[]): void {
+  const activeIds = new Set(bundles.filter((b) => b.isActive).map((b) => b.id));
+  for (const combo of combos) {
+    for (const id of combo.bundleIds) {
+      if (!activeIds.has(id)) {
+        throw new Error(`Combo "${combo.id}" references bundle "${id}", which is not an active bundle.`);
+      }
+    }
+    for (const key of Object.keys(combo.minQuantities ?? {})) {
+      if (!combo.bundleIds.includes(key)) {
+        throw new Error(`Combo "${combo.id}" minQuantities key "${key}" is not one of its bundleIds.`);
+      }
+    }
+  }
+}
+
+/** The volume-discount percent applying to `quantity` units of a bundle — the
+ *  highest `volumeTiers` entry whose `minQuantity ≤ quantity`, else 0. Mirrors
+ *  `volumeDiscountPct` in api/billing's combo-pricing (which can't be imported the
+ *  other way); the combo credit math and this guardrail MUST use the same basis. */
+function volumeDiscountPctAt(bundle: BundleConfig | undefined, quantity: number): number {
+  let pct = 0;
+  for (const t of bundle?.volumeTiers ?? []) if (quantity >= t.minQuantity) pct = t.discountPercent;
+  return pct;
 }
 
 /**
@@ -275,7 +309,16 @@ function warnOnNonDiscountCombos(combos: ComboDiscountConfig[], bundles: BundleC
   const byId = new Map(bundles.map((b) => [b.id, b]));
   for (const combo of combos) {
     for (const interval of ['monthly', 'annual'] as const) {
-      const basket = combo.bundleIds.reduce((s, id) => s + (byId.get(id)?.prices[interval] ?? 0) * (combo.minQuantities?.[id] ?? 1), 0);
+      // Post-volume basis (mirrors `comboBasisCents`): a member with volume tiers is
+      // basised on its DISCOUNTED unit at the combo's minQty, so this guardrail can't
+      // silently miss a combo that grants no real credit once volume is applied.
+      const basket = combo.bundleIds.reduce((s, id) => {
+        const b = byId.get(id);
+        const qty = combo.minQuantities?.[id] ?? 1;
+        const rawUnit = b?.prices[interval] ?? 0;
+        const unit = Math.round((rawUnit * (100 - volumeDiscountPctAt(b, qty))) / 100);
+        return s + unit * qty;
+      }, 0);
       if (combo.prices[interval] >= basket) {
         // eslint-disable-next-line no-console
         console.warn(`[billing-config] Combo "${combo.id}" ${interval} price ${combo.prices[interval]} ≥ member basket ${basket}; it grants no discount.`);
@@ -335,16 +378,27 @@ type VolumeTier = { minQuantity: number; discountPercent: number };
 function applyVolumeTiersOverride(id: string, defaultTiers?: VolumeTier[]): VolumeTier[] | undefined {
   const raw = process.env[`BILLING_BUNDLE_${id.toUpperCase()}_VOLUME_TIERS`];
   const sortAsc = (t: VolumeTier[]) => [...t].sort((a, b) => a.minQuantity - b.minQuantity);
-  if (!raw) return defaultTiers ? sortAsc(defaultTiers) : undefined;
+  const fallback = () => (defaultTiers ? sortAsc(defaultTiers) : undefined);
+  if (!raw) return fallback();
   try {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) return defaultTiers ? sortAsc(defaultTiers) : undefined;
+    if (!Array.isArray(parsed) || parsed.length === 0) return fallback();
+    // Each entry: integer minQuantity ≥ 1, 0 < discountPercent ≤ 100.
     const valid = parsed.filter((t): t is VolumeTier =>
-      t && typeof t.minQuantity === 'number' && t.minQuantity >= 1
+      t && typeof t.minQuantity === 'number' && Number.isInteger(t.minQuantity) && t.minQuantity >= 1
       && typeof t.discountPercent === 'number' && t.discountPercent > 0 && t.discountPercent <= 100);
-    return valid.length === parsed.length ? sortAsc(valid) : (defaultTiers ? sortAsc(defaultTiers) : undefined);
+    if (valid.length !== parsed.length) return fallback();
+    const sorted = sortAsc(valid);
+    // Reject a non-monotonic curve: buying MORE must never earn a SMALLER discount,
+    // and duplicate thresholds are ambiguous. (`volumeDiscountPct` picks the last
+    // qualifying tier, so a descending percent would penalize higher quantities.)
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i].minQuantity === sorted[i - 1].minQuantity) return fallback();
+      if (sorted[i].discountPercent <= sorted[i - 1].discountPercent) return fallback();
+    }
+    return sorted;
   } catch {
-    return defaultTiers ? sortAsc(defaultTiers) : undefined;
+    return fallback();
   }
 }
 

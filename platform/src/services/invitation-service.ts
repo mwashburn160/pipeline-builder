@@ -168,7 +168,7 @@ class InvitationService {
    * single Mongo transaction so half-completed sends can't leak rows.
    */
   async send(input: SendInvitationInput): Promise<SendInvitationResult> {
-    return withMongoTransaction(async (session) => {
+    const { invitation, inviterName, organizationName, allowedOAuthProviders } = await withMongoTransaction(async (session) => {
       const org = await Organization.findById(toOrgId(input.orgId)).session(session);
       if (!org) throw new Error(INV_ORG_NOT_FOUND);
 
@@ -238,22 +238,35 @@ class InvitationService {
 
       const [invitation] = await Invitation.create([data], { session });
 
+      // Post-write seat re-check — pairs with the pre-write `seatCapacityAvailable`
+      // above. Two concurrent invites can both clear the pre-check, so re-verify
+      // against the freshly-written state and roll back the loser. Mirrors every
+      // other seat-consuming path (members/user-admin/domain-join).
+      if (!(await seatCapacityStillWithinCap(input.orgId, session))) {
+        throw new Error(INV_SEAT_LIMIT);
+      }
+
       const inviter = await User.findById(input.inviterId).session(session);
       if (!inviter) throw new Error(INV_INVITER_NOT_FOUND);
 
-      const emailSent = await emailService.sendInvitation({
-        recipientEmail: input.email.toLowerCase(),
-        inviterName: inviter.username,
-        organizationName: org.name,
-        invitationToken: invitation.token,
-        expiresAt: invitation.expiresAt,
-        role: input.role,
-        invitationType: input.invitationType,
-        allowedOAuthProviders: invitation.allowedOAuthProviders,
-      });
-
-      return { invitation, emailSent };
+      // Return the fields the email needs; SEND it after commit (below). The send is
+      // a non-idempotent side effect and must not run inside the retryable
+      // transaction body — a commit-retry would otherwise re-send the invitation.
+      return { invitation, inviterName: inviter.username, organizationName: org.name, allowedOAuthProviders: invitation.allowedOAuthProviders };
     });
+
+    const emailSent = await emailService.sendInvitation({
+      recipientEmail: input.email.toLowerCase(),
+      inviterName,
+      organizationName,
+      invitationToken: invitation.token,
+      expiresAt: invitation.expiresAt,
+      role: input.role,
+      invitationType: input.invitationType,
+      allowedOAuthProviders,
+    });
+
+    return { invitation, emailSent };
   }
 
   /**
@@ -491,6 +504,14 @@ class InvitationService {
 
     const inviter = await User.findById(invitation.invitedBy);
     if (!inviter) throw new Error(INV_INVITER_NOT_FOUND);
+
+    // A LAPSED (expired-but-still-pending) invite no longer counts toward seat
+    // usage (`seats.ts` guards `expiresAt > now`); re-arming it re-reserves a seat,
+    // so re-check capacity against the (possibly billing-reduced) cap first. A
+    // still-live invite already holds its seat — no re-check needed.
+    if (invitation.expiresAt.getTime() < Date.now() && !(await seatCapacityAvailable(orgId, 1))) {
+      throw new Error(INV_SEAT_LIMIT);
+    }
 
     invitation.expiresAt = getExpirationDate();
     await invitation.save();

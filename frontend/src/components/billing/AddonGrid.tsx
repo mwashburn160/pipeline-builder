@@ -27,7 +27,12 @@ function SeatEntry({ bundle, qty, interval, disabled, requestAddonChange }: {
   // Re-sync the field when the committed quantity changes (e.g. after a purchase).
   useEffect(() => setValue(String(qty)), [qty]);
 
-  const target = Math.max(0, Math.floor(Number(value) || 0));
+  // An empty / non-numeric / negative field is NOT a "set to 0" — treat it as "no
+  // change" so clearing the box (or a fat-finger) can't silently remove all seats.
+  const trimmed = value.trim();
+  const parsed = trimmed === '' ? NaN : Number(trimmed);
+  const valid = Number.isFinite(parsed) && parsed >= 0;
+  const target = valid ? Math.floor(parsed) : qty;
   const delta = target - qty;
   const unit = interval === 'annual' ? bundle.prices.annual : bundle.prices.monthly;
   const hint = (bundle.volumeTiers ?? [])
@@ -35,11 +40,17 @@ function SeatEntry({ bundle, qty, interval, disabled, requestAddonChange }: {
     .join(' · ');
 
   const submit = () => {
-    if (delta === 0) return;
-    if (target >= SEAT_CONFIRM_THRESHOLD
-      && !window.confirm(`Set ${bundle.name.toLowerCase()}s to ${target}? That's ${formatCents(unit * target)}/${interval === 'annual' ? 'yr' : 'mo'} before discounts.`)) {
-      return;
-    }
+    if (!valid || delta === 0) return;
+    // Confirm on a large INCREASE (fat-finger charge) OR a destructive DECREASE
+    // (removing all, or a big chunk of, seats).
+    const bigIncrease = target >= SEAT_CONFIRM_THRESHOLD;
+    const bigDecrease = target === 0 || delta <= -Math.max(5, Math.ceil(qty / 2));
+    const noun = `${bundle.name.toLowerCase()}s`;
+    const priced = `${formatCents(unit * target)}/${interval === 'annual' ? 'yr' : 'mo'} before discounts`;
+    const msg = target < qty
+      ? `Reduce ${noun} from ${qty} to ${target}? Members over the new limit can't be added back without buying seats again.`
+      : `Set ${noun} to ${target}? That's ${priced}.`;
+    if ((bigIncrease || bigDecrease) && !window.confirm(msg)) return;
     requestAddonChange(bundle.id, bundle.name, target);
   };
 
@@ -55,12 +66,13 @@ function SeatEntry({ bundle, qty, interval, disabled, requestAddonChange }: {
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
           aria-label={`Number of ${bundle.name.toLowerCase()}s`}
+          aria-describedby={`${bundle.id}-seat-delta`}
         />
-        <Button size="sm" disabled={disabled || delta === 0} onClick={submit}>
+        <Button size="sm" disabled={disabled || !valid || delta === 0} onClick={submit}>
           {qty === 0 ? 'Add' : 'Update'}
         </Button>
       </div>
-      <p className="mt-1 text-xs text-[var(--pb-text-muted)] tabular-nums">
+      <p id={`${bundle.id}-seat-delta`} aria-live="polite" className="mt-1 text-xs text-[var(--pb-text-muted)] tabular-nums">
         {qty} → {target}{delta !== 0 ? ` (${delta > 0 ? '+' : ''}${delta})` : ''}
       </p>
       {hint && <p className="mt-0.5 text-xs text-[var(--pb-text-muted)]">Volume discount — {hint}</p>}
@@ -78,6 +90,10 @@ interface AddonGridProps {
   subscribed?: boolean;
   actionLoading: boolean;
   previewLoading: boolean;
+  /** True while an add-on change is staged in the preview modal. Disables the
+   *  seat inputs / +/- controls so a stray Enter can't fire a SECOND
+   *  `requestAddonChange` and swap the staged change out from under the modal. */
+  changePending?: boolean;
   addonQty: (bundleId: string) => number;
   requestAddonChange: (bundleId: string, name: string, quantity: number) => void;
   /** Feature flag to emphasize + scroll to (from `?highlight=` on billing). */
@@ -102,6 +118,7 @@ export function AddonGrid({
   subscribed = true,
   actionLoading,
   previewLoading,
+  changePending = false,
   addonQty,
   requestAddonChange,
   highlightFeature = null,
@@ -111,6 +128,10 @@ export function AddonGrid({
   // stack them on. Otherwise the catalog renders read-only (a preview / marketplace-
   // managed view).
   const canBuy = bundleSelfService && subscribed;
+  // Every mutating control is disabled while a request is in flight OR a change is
+  // already staged in the preview modal (else the re-enabled input could fire a
+  // second requestAddonChange behind the open modal).
+  const controlsDisabled = actionLoading || previewLoading || changePending;
   // "Pair to save" nudge for a bundle: fires when adding this bundle would COMPLETE a
   // combo — i.e. this member is below its minimum quantity while every OTHER member is
   // already at its minimum. A member is *satisfied* at `addonQty(id) >= minQty(id)`.
@@ -209,14 +230,14 @@ export function AddonGrid({
                     bundle={b}
                     qty={qty}
                     interval={billingInterval}
-                    disabled={actionLoading || previewLoading}
+                    disabled={controlsDisabled}
                     requestAddonChange={requestAddonChange}
                   />
                 ): b.stackable ? (                        <>
                     <Button
                       variant="secondary"
                       size="sm"
-                      disabled={actionLoading || previewLoading || qty === 0}
+                      disabled={controlsDisabled || qty === 0}
                       onClick={() => requestAddonChange(b.id, b.name, qty - 1)}
                       aria-label={`Remove one ${b.name}`}
                     >&minus;</Button>
@@ -224,7 +245,7 @@ export function AddonGrid({
                     <Button
                       variant="secondary"
                       size="sm"
-                      disabled={actionLoading || previewLoading}
+                      disabled={controlsDisabled}
                       onClick={() => requestAddonChange(b.id, b.name, qty + 1)}
                       aria-label={`Add one ${b.name}`}
                     >+</Button>
@@ -232,7 +253,7 @@ export function AddonGrid({
                 ): (                        <Button
                     variant={qty > 0 ? 'secondary': 'primary'}
                     size="sm"
-                    disabled={actionLoading || previewLoading}
+                    disabled={controlsDisabled}
                     onClick={() => requestAddonChange(b.id, b.name, qty > 0 ? 0: 1)}
                   >
                     {qty > 0 ? 'Remove': 'Add'}

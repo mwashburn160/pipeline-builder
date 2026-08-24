@@ -3,7 +3,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Globe, Check, Trash2, RefreshCw } from 'lucide-react';
-import { Card } from '@/components/ui/Card';
+import { SectionCard } from '@/components/ui/SectionCard';
+import { Callout } from '@/components/ui/Callout';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
@@ -71,16 +72,11 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
   };
 
   return (
-    <Card className="p-5">
-      <div className="flex items-center gap-2 mb-1">
-        <Globe className="w-4 h-4 text-[var(--pb-brand)]" />
-        <h3 className="font-semibold">Domain-based join</h3>
-      </div>
-      <p className="text-sm text-[var(--pb-text-muted)] mb-4">
-        Let people with a verified company email domain discover and join this organization.
-        {!entitled && ' Requires the Team or Enterprise tier to enable.'}
-      </p>
-
+    <SectionCard
+      icon={Globe}
+      title="Domain-based join"
+      description={`Let people with a verified company email domain discover and join this organization.${!entitled ? ' Requires the Team or Enterprise tier to enable.' : ''}`}
+    >
       {error && <div className="mb-3"><ErrorAlert message={error} /></div>}
 
       {loading ? (
@@ -103,9 +99,9 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
               <Button type="submit" disabled={busy || !newDomain.trim()}>Add</Button>
             </form>
           ) : (
-            <p className="mb-4 text-sm text-[var(--pb-text-muted)] rounded-md bg-[var(--pb-surface-muted)] p-3">
+            <Callout variant="neutral" className="mb-4">
               Upgrade to the Team or Enterprise tier to register domains for join.
-            </p>
+            </Callout>
           )}
 
           {/* Domain list */}
@@ -195,6 +191,6 @@ export function DomainJoinSettings({ orgId }: { orgId: string }) {
           }}
         />
       )}
-    </Card>
+    </SectionCard>
   );
 }

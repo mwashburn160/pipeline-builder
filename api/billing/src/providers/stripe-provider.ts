@@ -92,7 +92,7 @@ export class StripeProvider implements PaymentProvider {
     customerId: string,
     planId: string,
     interval: BillingInterval,
-    opts: { orgId: string; successUrl: string; cancelUrl: string },
+    opts: { orgId: string; successUrl: string; cancelUrl: string; referralCode?: string },
   ): Promise<string> {
     const priceKey = `${planId}_${interval}`;
     const priceId = this.stripeConfig.priceToPlanMap[priceKey];
@@ -102,7 +102,10 @@ export class StripeProvider implements PaymentProvider {
         + `Expected key "${priceKey}" in STRIPE_PRICE_MAP.`,
       );
     }
-    const metadata = { orgId: opts.orgId, planId, interval };
+    const metadata: Record<string, string> = { orgId: opts.orgId, planId, interval };
+    // Carry the referral/promo code so the webhook can grant signup credit on
+    // completion (parity with the in-app create path).
+    if (opts.referralCode) metadata.referralCode = opts.referralCode;
     const session = await this.stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: customerId,
@@ -130,6 +133,16 @@ export class StripeProvider implements PaymentProvider {
     });
 
     logger.info('Stripe subscription marked for cancellation', { externalId });
+  }
+
+  /**
+   * Cancel a Stripe subscription IMMEDIATELY (not at period end). Used to clean up
+   * a DUPLICATE subscription (two checkouts completed for one org) so the customer
+   * isn't billed twice — the keeper is the org's existing bound subscription.
+   */
+  async cancelSubscriptionNow(externalId: string): Promise<void> {
+    logger.warn('Canceling duplicate Stripe subscription immediately', { externalId });
+    await this.stripe.subscriptions.cancel(externalId);
   }
 
   /**
@@ -165,6 +178,9 @@ export class StripeProvider implements PaymentProvider {
     await this.stripe.subscriptions.update(externalId, {
       items: [{ id: currentItem.id, price: priceId }],
       metadata: { planId, interval },
+      // Deterministic proration regardless of the Stripe account default (matches
+      // syncAddons' explicit behavior) so plan/interval changes bill consistently.
+      proration_behavior: 'create_prorations',
     });
 
     logger.info('Stripe subscription updated', { externalId, planId, interval, priceId });

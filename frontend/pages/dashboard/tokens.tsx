@@ -1,11 +1,13 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { motion } from 'framer-motion';
 import { RefreshCw, ChevronRight, ShieldOff, KeyRound } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
-import { Card } from '@/components/ui/Card';
+import { SectionCard } from '@/components/ui/SectionCard';
+import { CodeBlock } from '@/components/ui/CodeBlock';
+import { DescriptionList, type DescriptionItem } from '@/components/ui/DescriptionList';
+import { SegmentedFilter } from '@/components/ui/SegmentedFilter';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
@@ -60,98 +62,81 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
 
   if (!token) {
     return (
-      <Card>
-        <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">{title}</h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400">No token available</p>
-      </Card>
+      <SectionCard title={title}>
+        <p className="text-sm text-[var(--pb-text-muted)]">No token available</p>
+      </SectionCard>
     );
   }
 
   const expired = decoded ? isExpired(decoded.payload) : false;
   const ttl = decoded ? expiresIn(decoded.payload) : null;
 
+  const payloadItems: DescriptionItem[] = decoded
+    ? Object.entries(decoded.payload).map(([key, value]) => {
+      const label = FIELD_LABELS[key] || key;
+      const isTime = KNOWN_TIME_FIELDS.has(key);
+      const formattedTime = isTime ? formatTimestamp(value) : null;
+      return {
+        label: <span title={key}>{label}</span>,
+        // Claim keys are kept as-is; claim VALUES can carry an account-id-shaped
+        // token (e.g. an ARN in a custom claim), so redact id-shaped runs first.
+        value: (
+          <span className="font-mono text-xs leading-5">
+            {formattedTime ? (
+              <span>{formattedTime}<span className="ml-2 text-[var(--pb-text-muted)]">({String(value)})</span></span>
+            ) : typeof value === 'object' ? (
+              JSON.stringify(redactDetails(value))
+            ) : (
+              redactString(String(value))
+            )}
+          </span>
+        ),
+      };
+    })
+    : [];
+
   return (
-    <Card>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center space-x-3">
-          <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">{title}</h2>
-          {decoded && (
-            expired
-              ? <Badge color="red">Expired</Badge>
-              : <Badge color="green">Valid</Badge>
-          )}
+    <SectionCard
+      title={
+        <span className="inline-flex items-center gap-2">
+          {title}
+          {decoded && (expired ? <Badge color="red">Expired</Badge> : <Badge color="green">Valid</Badge>)}
           {ttl && !expired && <Badge color="blue">{ttl}</Badge>}
-        </div>
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => setShowRaw(!showRaw)}
-            className="action-link text-xs"
-          >
+        </span>
+      }
+      actions={
+        <>
+          <button onClick={() => setShowRaw(!showRaw)} className="action-link text-xs">
             {showRaw ? 'Decoded' : 'Raw'}
           </button>
           <CopyButton text={token} />
-        </div>
-      </div>
-
+        </>
+      }
+    >
       {showRaw ? (
-        <pre className="card p-4 text-xs font-mono text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
-          {token}
-        </pre>
+        <CodeBlock code={token} language="jwt" copyable={false} className="max-h-48 overflow-y-auto" />
       ) : decoded ? (
         <div className="space-y-4">
           <div>
             <button
               onClick={() => setExpanded(!expanded)}
-              className="flex items-center text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+              className="flex items-center text-xs font-semibold text-[var(--pb-text-muted)] uppercase tracking-wider hover:text-[var(--pb-text)] transition-colors"
             >
               <ChevronRight className={`w-3.5 h-3.5 mr-1 transition-transform ${expanded ? 'rotate-90' : ''}`} />
               Header
             </button>
-            {expanded && (
-              <pre className="card mt-2 p-3 text-xs font-mono text-gray-600 dark:text-gray-400">
-                {JSON.stringify(decoded.header, null, 2)}
-              </pre>
-            )}
+            {expanded && <CodeBlock className="mt-2" language="json" copyable={false} code={JSON.stringify(decoded.header, null, 2)} />}
           </div>
 
           <div>
-            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Payload</p>
-            <Card className="p-0 divide-y divide-gray-100 dark:divide-gray-800 overflow-hidden">
-              {Object.entries(decoded.payload).map(([key, value]) => {
-                const label = FIELD_LABELS[key] || key;
-                const isTime = KNOWN_TIME_FIELDS.has(key);
-                const formattedTime = isTime ? formatTimestamp(value) : null;
-
-                return (
-                  <div key={key} className="flex items-start px-4 py-2.5 text-sm">
-                    <span className="w-44 shrink-0 font-medium text-gray-500 dark:text-gray-400 truncate" title={key}>
-                      {label}
-                    </span>
-                    <span className="text-gray-900 dark:text-gray-200 break-all font-mono text-xs leading-5">
-                      {/* Claim keys are kept as-is; claim VALUES can carry an
-                          account-id-shaped token (e.g. an ARN in a custom
-                          claim), so redact id-shaped runs before rendering. */}
-                      {formattedTime ? (
-                        <span>
-                          {formattedTime}
-                          <span className="ml-2 text-gray-400 dark:text-gray-500">({String(value)})</span>
-                        </span>
-                      ) : typeof value === 'object' ? (
-                        JSON.stringify(redactDetails(value))
-                      ) : (
-                        redactString(String(value))
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
-            </Card>
+            <p className="text-xs font-semibold text-[var(--pb-text-muted)] uppercase tracking-wider mb-1">Payload</p>
+            <DescriptionList items={payloadItems} />
           </div>
         </div>
       ) : (
-        <p className="text-sm text-red-600 dark:text-red-400">Failed to decode token</p>
+        <p className="text-sm text-[var(--pb-danger)]">Failed to decode token</p>
       )}
-    </Card>
+    </SectionCard>
   );
 }
 
@@ -250,9 +235,9 @@ export default function TokensPage() {
   };
 
   const tokenHistoryColumns: Column<TokenHistoryEntry>[] = [
-    { id: 'id', header: 'ID', cellClassName: 'font-mono text-xs text-gray-500 dark:text-gray-500', render: (t) => t.id },
-    { id: 'created', header: 'Created', cellClassName: 'text-gray-700 dark:text-gray-300', render: (t) => <RelativeTime value={t.createdAt} /> },
-    { id: 'expires', header: 'Expires', cellClassName: 'text-gray-700 dark:text-gray-300', render: (t) => <RelativeTime value={t.expiresAt} /> },
+    { id: 'id', header: 'ID', cellClassName: 'font-mono text-xs text-[var(--pb-text-muted)]', render: (t) => t.id },
+    { id: 'created', header: 'Created', cellClassName: 'text-[var(--pb-text)]', render: (t) => <RelativeTime value={t.createdAt} /> },
+    { id: 'expires', header: 'Expires', cellClassName: 'text-[var(--pb-text)]', render: (t) => <RelativeTime value={t.expiresAt} /> },
     {
       id: 'status',
       header: 'Status',
@@ -266,104 +251,75 @@ export default function TokensPage() {
 
   return (
     <DashboardLayout title="API Tokens" subtitle="Create and revoke API tokens" maxWidth="4xl">
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-        className="card mb-6"
-      >
-        <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Generate New Token</h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-          Generate a fresh access / refresh token pair. This replaces your current session tokens and
-          can be used for CLI or API access.
-        </p>
-
-        <ErrorAlert message={genError} />
-        <SuccessAlert message={genSuccess} />
-
-        <Button onClick={handleGenerateToken} loading={generating}>
-          {generating ? 'Generating...' : <><RefreshCw className="w-4 h-4 mr-2" />Generate Token</>}
-        </Button>
-      </motion.div>
-
-      <div className="mb-6">
-        <PatSection />
-      </div>
-
       <div className="space-y-6">
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.1 }}>
-          <TokenCard title="Access Token" token={accessToken} />
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.2 }}>
-          <TokenCard title="Refresh Token" token={refreshToken} />
-        </motion.div>
+        <SectionCard
+          icon={KeyRound}
+          title="Generate new token"
+          description="Generate a fresh access / refresh token pair. This replaces your current session tokens and can be used for CLI or API access."
+        >
+          <ErrorAlert message={genError} />
+          <SuccessAlert message={genSuccess} />
+
+          <Button onClick={handleGenerateToken} loading={generating} className={genError || genSuccess ? 'mt-4' : ''}>
+            {generating ? 'Generating...' : <><RefreshCw className="w-4 h-4 mr-2" />Generate Token</>}
+          </Button>
+        </SectionCard>
+
+        <PatSection />
+
+        <TokenCard title="Access Token" token={accessToken} />
+        <TokenCard title="Refresh Token" token={refreshToken} />
 
         {/* ─── Token history + sign-out-everywhere ─── */}
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.3 }} className="card">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 inline-flex items-center gap-2">
-                Active sessions & recent tokens
-                <Badge color={activeSessionCount > 0 ? 'green' : 'gray'}>
-                  {activeSessionCount} active
-                </Badge>
-              </h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Last 20 access tokens issued for your account, with computed status. Each unexpired+unrevoked token is an active session.
-                JWTs cannot be revoked individually — use &ldquo;Sign out everywhere&rdquo; to invalidate all of them at once.
-              </p>
-            </div>
-            <Button
-              variant="danger"
-              onClick={() => setPendingRevokeAll(true)}
-              loading={revoking}
-              className="flex-shrink-0"
-            >
+        <SectionCard
+          title={
+            <span className="inline-flex items-center gap-2">
+              Active sessions &amp; recent tokens
+              <Badge color={activeSessionCount > 0 ? 'green' : 'gray'}>{activeSessionCount} active</Badge>
+            </span>
+          }
+          description="Last 20 access tokens issued for your account, with computed status. Each unexpired + unrevoked token is an active session. JWTs cannot be revoked individually — use “Sign out everywhere” to invalidate all of them at once."
+          actions={
+            <Button variant="danger" onClick={() => setPendingRevokeAll(true)} loading={revoking} className="flex-shrink-0">
               {revoking ? 'Revoking…' : <><ShieldOff className="w-4 h-4 mr-2" />Sign out everywhere</>}
             </Button>
-          </div>
-
+          }
+        >
           <ErrorAlert message={historyError} className="mb-3" />
           <ErrorAlert message={revokeError} className="mb-3" />
           <SuccessAlert message={revokeSuccess} className="mb-3" />
 
           {history.length === 0 ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400 italic">No tokens issued yet.</p>
+            <p className="text-sm text-[var(--pb-text-muted)] italic">No tokens issued yet.</p>
           ) : (
             <>
-            <div className="flex flex-wrap items-center gap-1 mb-3" role="group" aria-label="Filter tokens by status">
-              {([['all', 'All'], ['active', 'Active'], ['expired', 'Expired'], ['revoked', 'Revoked']] as const).map(([value, label]) => {
-                const count = value === 'all' ? history.length : history.filter((t) => t.status === value).length;
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setStatusFilter(value)}
-                    aria-pressed={statusFilter === value}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${statusFilter === value
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-                  >
-                    {label} ({count})
-                  </button>
-                );
-              })}
-            </div>
-            <DataTable
-              data={filteredHistory}
-              columns={tokenHistoryColumns}
-              isLoading={false}
-              animated={false}
-              getRowKey={(t) => t.id}
-              emptyState={{
-                icon: KeyRound,
-                title: statusFilter === 'all' ? 'No tokens' : `No ${statusFilter} tokens`,
-                description: 'No tokens match the selected status filter.',
-              }}
-            />
+              <SegmentedFilter
+                className="mb-3 flex-wrap"
+                ariaLabel="Filter tokens by status"
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={[
+                  { value: 'all', label: 'All', count: history.length },
+                  { value: 'active', label: 'Active', count: history.filter((t) => t.status === 'active').length },
+                  { value: 'expired', label: 'Expired', count: history.filter((t) => t.status === 'expired').length },
+                  { value: 'revoked', label: 'Revoked', count: history.filter((t) => t.status === 'revoked').length },
+                ]}
+              />
+              <DataTable
+                data={filteredHistory}
+                columns={tokenHistoryColumns}
+                isLoading={false}
+                animated={false}
+                getRowKey={(t) => t.id}
+                emptyState={{
+                  icon: KeyRound,
+                  title: statusFilter === 'all' ? 'No tokens' : `No ${statusFilter} tokens`,
+                  description: 'No tokens match the selected status filter.',
+                }}
+              />
             </>
           )}
-        </motion.div>
+        </SectionCard>
       </div>
 
       {pendingRevokeAll && (

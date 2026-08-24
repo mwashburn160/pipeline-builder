@@ -95,6 +95,27 @@ export async function createBillingEvent(
 }
 
 /**
+ * Record the "reactivated INTO an entitled status but the subscription's planId
+ * points at a missing/deleted plan, so no tier could be re-granted" signal —
+ * a `subscription_updated` audit row (`reason: 'reactivate_plan_missing'`) plus
+ * the `billing_reactivate_plan_missing_total` metric. Shared by the three
+ * reactivation paths (stripe webhook / admin / marketplace) so the event reason
+ * string and metric name can't drift between them; each caller keeps its own
+ * contextual WARN log. `details` carries the path-specific extras (provider,
+ * status, planId).
+ */
+export async function recordReactivatePlanMissing(
+  orgId: string,
+  subscriptionId: string | undefined,
+  source: 'stripe_webhook' | 'admin' | 'marketplace',
+  details: Record<string, unknown>,
+  actorId?: string,
+): Promise<void> {
+  await createBillingEvent(orgId, 'subscription_updated', { reason: 'reactivate_plan_missing', ...details }, subscriptionId, actorId);
+  incCounter('billing_reactivate_plan_missing_total', { source });
+}
+
+/**
  * Shared entitlement-sync leg: PUT the effective entitlement to a downstream
  * service and, on any failure, write a `*_sync_failed` `subscription_updated`
  * audit row so support can see the local billing state drifted. Every sync

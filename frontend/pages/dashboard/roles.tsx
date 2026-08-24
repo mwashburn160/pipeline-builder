@@ -6,13 +6,17 @@ import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
-import { Card } from '@/components/ui/Card';
+import { SectionCard } from '@/components/ui/SectionCard';
+import { Callout } from '@/components/ui/Callout';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
+import { FormField } from '@/components/ui/FormField';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ModalFooter } from '@/components/ui/ModalFooter';
@@ -241,63 +245,45 @@ export default function RolesPage() {
     >
       <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="roles" size="sm" />
 
-      <div className="mb-4 flex items-start gap-2 px-3 py-2 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 text-xs text-gray-600 dark:text-gray-400">
-        <ShieldCheck className="w-3.5 h-3.5 text-gray-400 shrink-0 mt-0.5" />
-        <span>
-          A member&apos;s access is the union of their Roles. Adding someone to the <strong>Admin</strong> role grants
-          them org-admin; removing them revokes it. The <strong>Superadmins</strong> role (system organization only)
-          grants platform-wide admin. The organization <strong>owner</strong> always keeps owner access regardless of Roles.
-        </span>
-      </div>
+      <Callout variant="neutral" icon={ShieldCheck} className="mb-4">
+        A member&apos;s access is the union of their Roles. Adding someone to the <strong>Admin</strong> role grants
+        them org-admin; removing them revokes it. The <strong>Superadmins</strong> role (system organization only)
+        grants platform-wide admin. The organization <strong>owner</strong> always keeps owner access regardless of Roles.
+      </Callout>
 
       <ErrorAlert message={error} onDismiss={() => setError(null)} />
 
       {isLoading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading roles…</p>
+        <div className="space-y-4">
+          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-28 rounded-2xl" />)}
+        </div>
       ) : roles.length === 0 ? (
-        <Card className="text-center py-10">
-          <Users className="w-8 h-8 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
-          <p className="text-sm text-gray-500 dark:text-gray-400">No roles in this organization yet.</p>
-          {canManageRoles && (
-            <div className="mt-4">
-              <Button onClick={openCreate}>
-                <Plus className="w-4 h-4 mr-1.5" /> Create your first role
-              </Button>
-            </div>
-          )}
-        </Card>
+        <EmptyState
+          icon={Users}
+          title="No roles yet"
+          description="Roles are named permission sets you assign to members. Create one to grant scoped access."
+          action={canManageRoles ? <Button onClick={openCreate}><Plus className="w-4 h-4 mr-1.5" /> Create your first role</Button> : undefined}
+        />
       ) : (
         <div className="space-y-4">
           {roles.map((r) => {
             const editable = canEditRole(r);
             const isSuperRole = r.grantsRole === 'superadmin';
             return (
-              <Card key={r.id}>
-                {/* Identity header — role name, kind badge, one-line summary + actions */}
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2 flex-wrap">
-                      {isSuperRole ? <ShieldAlert className="w-4 h-4 text-red-500" /> : <ShieldCheck className="w-4 h-4 text-gray-400" />}
-                      {roleDisplayName(r.name)}
-                      {r.system
-                        ? <Badge color={ROLE_BADGE[r.grantsRole]}>{r.grantsRole}</Badge>
-                        : <Badge color="blue">custom</Badge>}
-                    </h2>
-                    {r.description && (
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{r.description}</p>
-                    )}
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 inline-flex items-center gap-1.5">
-                      <span className="font-medium text-gray-600 dark:text-gray-300">
-                        {r.system ? ROLE_LABEL[r.grantsRole] : `${r.permissions.length} permission${r.permissions.length === 1 ? '' : 's'}`}
-                      </span>
-                      <span className="text-gray-300 dark:text-gray-600">·</span>
-                      <span className="inline-flex items-center gap-1">
-                        <Users className="w-3 h-3 text-gray-400" />
-                        {r.members.length} member{r.members.length === 1 ? '' : 's'}
-                      </span>
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
+              <SectionCard
+                key={r.id}
+                title={
+                  <span className="inline-flex flex-wrap items-center gap-2">
+                    {isSuperRole ? <ShieldAlert className="w-4 h-4 text-red-500" /> : <ShieldCheck className="w-4 h-4 text-[var(--pb-text-muted)]" />}
+                    {roleDisplayName(r.name)}
+                    {r.system
+                      ? <Badge color={ROLE_BADGE[r.grantsRole]}>{r.grantsRole}</Badge>
+                      : <Badge color="blue">custom</Badge>}
+                  </span>
+                }
+                description={r.description || undefined}
+                actions={
+                  <div className="flex items-center gap-1.5">
                     {editable && !r.system && (
                       <>
                         <IconButton tone="primary" onClick={() => openEdit(r)} title={`Edit ${roleDisplayName(r.name)}`} aria-label={`Edit ${roleDisplayName(r.name)}`}>
@@ -314,22 +300,33 @@ export default function RolesPage() {
                       </Button>
                     )}
                   </div>
-                </div>
+                }
+              >
+                <p className="text-xs text-[var(--pb-text-muted)] inline-flex items-center gap-1.5">
+                  <span className="font-medium text-[var(--pb-text)]">
+                    {r.system ? ROLE_LABEL[r.grantsRole] : `${r.permissions.length} permission${r.permissions.length === 1 ? '' : 's'}`}
+                  </span>
+                  <span className="text-[var(--pb-border)]">·</span>
+                  <span className="inline-flex items-center gap-1">
+                    <Users className="w-3 h-3 text-[var(--pb-text-muted)]" />
+                    {r.members.length} member{r.members.length === 1 ? '' : 's'}
+                  </span>
+                </p>
 
                 {/* Permissions — compact category-count summary, expandable to the full chip list */}
                 {r.permissions.length > 0 && (() => {
                   const expanded = expandedPerms.has(r.id);
                   const summary = summarizePermissions(r.permissions);
                   return (
-                    <div className="mt-3 rounded-md border border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/30 px-3 py-2">
+                    <div className="mt-3 rounded-md border border-[var(--pb-border)] bg-[var(--pb-surface-muted)] px-3 py-2">
                       <div className="flex items-center justify-between gap-3">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-gray-400 min-w-0">
-                          <KeyRound className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--pb-text-muted)] min-w-0">
+                          <KeyRound className="w-3.5 h-3.5 text-[var(--pb-text-muted)] shrink-0" />
                           {summary.map((s, i) => (
                             <span key={s.category} className="inline-flex items-center gap-1 whitespace-nowrap">
-                              {i > 0 && <span className="text-gray-300 dark:text-gray-600">·</span>}
+                              {i > 0 && <span className="text-[var(--pb-border)]">·</span>}
                               <span>{s.category}</span>
-                              <span className="font-semibold text-gray-700 dark:text-gray-200">{s.count}</span>
+                              <span className="font-semibold text-[var(--pb-text)]">{s.count}</span>
                             </span>
                           ))}
                         </div>
@@ -343,10 +340,10 @@ export default function RolesPage() {
                         </button>
                       </div>
                       {expanded && (
-                        <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+                        <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-[var(--pb-border)]">
                           {r.permissions.map((p) => (
-                            <span key={p} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
-                              <KeyRound className="w-2.5 h-2.5 text-gray-400" />{permissionLabel(p)}
+                            <span key={p} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-[var(--pb-surface-muted)] text-[var(--pb-text-muted)]">
+                              <KeyRound className="w-2.5 h-2.5 text-[var(--pb-text-muted)]" />{permissionLabel(p)}
                             </span>
                           ))}
                         </div>
@@ -356,28 +353,28 @@ export default function RolesPage() {
                 })()}
 
                 {/* Members */}
-                <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                <div className="mt-3 pt-3 border-t border-[var(--pb-border)]">
                 {r.members.length === 0 ? (
-                  <p className="text-xs text-gray-400 dark:text-gray-500 italic">No members.</p>
+                  <p className="text-xs text-[var(--pb-text-muted)] italic">No members.</p>
                 ) : (
-                  <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+                  <ul className="divide-y divide-[var(--pb-border)]">
                     {r.members.map((m) => {
                       const blockReason = removeBlockReason(r, m.id);
                       return (
                         <li key={m.id} className="py-2 flex items-center justify-between gap-2 text-sm">
                           <div className="min-w-0">
-                            <span className="font-medium text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
+                            <span className="font-medium text-[var(--pb-text)] inline-flex items-center gap-1.5">
                               {m.username}
-                              {m.id === user?.id && <span className="text-xs text-gray-400">(you)</span>}
+                              {m.id === user?.id && <span className="text-xs text-[var(--pb-text-muted)]">(you)</span>}
                             </span>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{m.email}</p>
+                            <p className="text-xs text-[var(--pb-text-muted)] truncate">{m.email}</p>
                           </div>
                           {editable && (
                             <IconButton
                               tone="danger"
                               onClick={() => setRemoveTarget({ role: r, member: m })}
                               disabled={!!blockReason}
-                              className="disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-400 disabled:hover:bg-transparent"
+                              className="disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-[var(--pb-text-muted)] disabled:hover:bg-transparent"
                               title={blockReason ?? `Remove ${m.username} from ${roleDisplayName(r.name)}`}
                               aria-label={`Remove ${m.username} from ${roleDisplayName(r.name)}`}
                             >
@@ -390,7 +387,7 @@ export default function RolesPage() {
                   </ul>
                 )}
                 </div>
-              </Card>
+              </SectionCard>
             );
           })}
         </div>
@@ -411,25 +408,25 @@ export default function RolesPage() {
             />
           }
         >
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
-            Enter the email of an <strong>existing organization member</strong> to add to <strong>{roleDisplayName(addToRole.name)}</strong>.
-          </p>
           {addToRole.grantsRole !== 'member' && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 mb-3 inline-flex items-start gap-1.5">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <Callout variant="warning" icon={AlertTriangle} className="mb-4">
               This role {addToRole.grantsRole === 'superadmin' ? 'grants platform-wide admin' : 'grants organization admin'}. Add with care.
-            </p>
+            </Callout>
           )}
-          <Input
-            type="email"
-            placeholder="user@example.com"
-            value={addEmail}
-            onChange={(e) => setAddEmail(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-            className="text-sm mt-1"
-            autoFocus
-          />
-          {addForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{addForm.error}</p>}
+          <FormField
+            label="Member email"
+            hint="Must be an existing organization member."
+            error={addForm.error || undefined}
+          >
+            <Input
+              type="email"
+              placeholder="user@example.com"
+              value={addEmail}
+              onChange={(e) => setAddEmail(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              autoFocus
+            />
+          </FormField>
         </Modal>
       )}
 
@@ -452,10 +449,10 @@ export default function RolesPage() {
             <div className="shrink-0 w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
               <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
             </div>
-            <div className="text-sm text-gray-600 dark:text-gray-300">
+            <div className="text-sm text-[var(--pb-text-muted)]">
               <p>
-                Remove <strong className="text-gray-900 dark:text-gray-100">{removeTarget.member.username}</strong> from{' '}
-                <strong className="text-gray-900 dark:text-gray-100">{roleDisplayName(removeTarget.role.name)}</strong>?
+                Remove <strong className="text-[var(--pb-text)]">{removeTarget.member.username}</strong> from{' '}
+                <strong className="text-[var(--pb-text)]">{roleDisplayName(removeTarget.role.name)}</strong>?
               </p>
               {removeTarget.role.grantsRole === 'superadmin' && (
                 <p className="mt-2 text-amber-700 dark:text-amber-400">
@@ -469,7 +466,7 @@ export default function RolesPage() {
                 </p>
               )}
               {removeTarget.role.grantsRole === 'member' && (
-                <p className="mt-2 text-gray-500 dark:text-gray-400">They&apos;ll remain an organization member; only this role assignment is removed.</p>
+                <p className="mt-2 text-[var(--pb-text-muted)]">They&apos;ll remain an organization member; only this role assignment is removed.</p>
               )}
             </div>
           </div>
@@ -491,40 +488,34 @@ export default function RolesPage() {
             />
           }
         >
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Name</label>
+          <div className="space-y-4">
+            <FormField label="Name">
               <Input
                 type="text"
                 placeholder="e.g. Deployers, QA, Read-only"
                 value={roleName}
                 onChange={(e) => setRoleName(e.target.value)}
-                className="text-sm"
                 autoFocus
                 disabled={editorForm.loading}
               />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                Description <span className="text-gray-400 font-normal">(optional)</span>
-              </label>
+            </FormField>
+            <FormField label="Description" hint="Optional — what this role is for.">
               <Input
                 type="text"
                 placeholder="What this role is for"
                 value={roleDesc}
                 onChange={(e) => setRoleDesc(e.target.value)}
-                className="text-sm"
                 disabled={editorForm.loading}
               />
-            </div>
+            </FormField>
             <div className="space-y-1">
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                Permissions <span className="text-gray-400 font-normal">({rolePerms.size} selected)</span>
+              <label className="block text-xs font-medium text-[var(--pb-text)]">
+                Permissions <span className="text-[var(--pb-text-muted)] font-normal">({rolePerms.size} selected)</span>
               </label>
-              <div className="max-h-72 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800">
+              <div className="max-h-72 overflow-y-auto border border-[var(--pb-border)] rounded-lg divide-y divide-[var(--pb-border)]">
                 {ORG_ASSIGNABLE_CATEGORIES.map(({ category, permissions }) => (
                   <div key={category} className="p-2.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">{category}</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--pb-text-muted)]">{category}</p>
                     <div className="mt-1.5 space-y-1.5">
                       {permissions.map((p) => (
                         <label key={p.id} className="flex items-start gap-2 text-xs cursor-pointer">
@@ -535,8 +526,8 @@ export default function RolesPage() {
                             className="mt-0.5"
                           />
                           <span className="min-w-0">
-                            <span className="font-medium text-gray-800 dark:text-gray-200">{p.label}</span>
-                            <span className="block text-gray-400 dark:text-gray-500">{p.description}</span>
+                            <span className="font-medium text-[var(--pb-text)]">{p.label}</span>
+                            <span className="block text-[var(--pb-text-muted)]">{p.description}</span>
                           </span>
                         </label>
                       ))}
@@ -544,12 +535,12 @@ export default function RolesPage() {
                   </div>
                 ))}
               </div>
-              <p className="text-[11px] text-gray-400 dark:text-gray-500">
+              <p className="text-[11px] text-[var(--pb-text-muted)]">
                 Members of this role get these permissions on top of their base access. The org owner and admins already have everything.
               </p>
             </div>
+            {editorForm.error && <ErrorAlert message={editorForm.error} />}
           </div>
-          {editorForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{editorForm.error}</p>}
         </Modal>
       )}
 

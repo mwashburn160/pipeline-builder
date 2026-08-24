@@ -76,6 +76,7 @@ const mockBuildSubscriptionResponse = jest.fn((sub: any) => ({
 }));
 const mockSyncTierToQuotaService = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
 const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+const mockRecordReactivate = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 // Double-billing prune: default no-op (returns []). applyTierIncludedAddonPrune
 // mutates subscription.addons in place; a dedicated test overrides it.
 const mockApplyTierIncludedAddonPrune = jest.fn(
@@ -107,6 +108,7 @@ const mockApplyPlanTierChange = jest.fn((subscription: any, plan: { tier: string
 });
 
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  recordReactivatePlanMissing: (...a: unknown[]) => mockRecordReactivate(...a),
   applyPlanTierChange: mockApplyPlanTierChange,
   billingServiceAuth: (_orgId: string) => 'Bearer service-token',
   buildSubscriptionResponse: mockBuildSubscriptionResponse,
@@ -410,14 +412,13 @@ describe('PUT /admin/subscriptions/:id', () => {
 
     // No entitlement sync fired (no tier to grant).
     expect(mockSyncTierToQuotaService).not.toHaveBeenCalled();
-    // A dedicated billing_events row records the gap.
-    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
-      'org-1', 'subscription_updated',
-      { reason: 'reactivate_plan_missing', status: 'active', planId: 'ghost-plan' },
-      'sub-1', 'admin-1',
+    // The shared reactivate-plan-missing recorder captures the gap (event + metric
+    // live in that helper now) with the admin source + context.
+    expect(mockRecordReactivate).toHaveBeenCalledWith(
+      'org-1', 'sub-1', 'admin',
+      { status: 'active', planId: 'ghost-plan' },
+      'admin-1',
     );
-    // And a counter so SRE can alert.
-    expect(mockIncCounter).toHaveBeenCalledWith('billing_reactivate_plan_missing_total', { source: 'admin' });
   });
 
   it('downgrades entitlements to the baseline tier when admin cancels (status → canceled)', async () => {

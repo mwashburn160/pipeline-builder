@@ -154,10 +154,9 @@ let tokenRevocationStore: TokenRevocationStore | undefined;
 
 /**
  * Register (or clear, with `undefined`) the process-wide token-revocation store.
- * When unset (the default), `requireAuth` performs NO revocation check and
- * behaves exactly as before — so this is fully backward compatible and services
- * opt in at boot by wiring their Redis client. Platform keeps its own Mongo-
- * backed check and need not register one.
+ * When unset (the default), `requireAuth` performs NO revocation check (it relies
+ * on the short access-token TTL); services opt in at boot by wiring their Redis
+ * client. Platform keeps its own Mongo-backed check and need not register one.
  */
 export function setTokenRevocationStore(store: TokenRevocationStore | undefined): void {
   tokenRevocationStore = store;

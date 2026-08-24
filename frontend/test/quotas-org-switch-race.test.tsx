@@ -68,6 +68,9 @@ jest.mock('@/lib/api', () => ({
     getOrgQuotas: (orgId: string) => getDeferred(orgId).promise,
     getOwnQuotas: jest.fn(),
     getAllOrgQuotas: jest.fn(),
+    // The page fetches effective tier presets from /config on mount (pkg#9);
+    // return none so it keeps the hardcoded fallback and this race test is unaffected.
+    getConfig: jest.fn().mockResolvedValue({ success: true, data: {} }),
   },
 }));
 

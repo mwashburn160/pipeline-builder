@@ -13,12 +13,12 @@ import { incCounter } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response } from 'express';
 import type Stripe from 'stripe';
 import { config } from '../config.js';
-import { billingServiceAuth, createBillingEvent, calculatePeriodEnd, syncEntitlements, MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/billing-helpers.js';
+import { billingServiceAuth, createBillingEvent, calculatePeriodEnd, syncEntitlements, recordReactivatePlanMissing, MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/billing-helpers.js';
 import { applyPlanTierChange, applyTierIncludedAddonPrune } from '../helpers/addon-prune.js';
 import type { PrunedAddon } from '../helpers/billing-helpers.js';
 import { ingestStripeInvoice, reverseLedgerInvoice } from '../helpers/billing-ledger.js';
 import { clearDiscountsOnCancel, reconcileDiscountsOnInvoice } from '../helpers/discount-helpers.js';
-import { clawbackRecentPromotions, grantRecurringPromotions, qualifyReferral, recurringPeriodKey } from '../helpers/promotion-engine.js';
+import { clawbackRecentPromotions, evaluatePromotions, grantRecurringPromotions, processReferralSignup, qualifyReferral, recurringPeriodKey } from '../helpers/promotion-engine.js';
 import { findSubscriptionByCustomerId, findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers.js';
 import { Plan } from '../models/plan.js';
 import { Subscription, type SubscriptionDocument, type BillingInterval } from '../models/subscription.js';
@@ -225,10 +225,27 @@ export async function handleSubscriptionCreated(stripeSubscription: Stripe.Subsc
     await createBillingEvent(orgId, 'subscription_created', { unbound: true, externalId, planId });
     return;
   }
+
+  // Duplicate guard: the org already has a manageable subscription bound to a
+  // DIFFERENT Stripe sub (two checkouts completed, or checkout raced an in-app
+  // create). Cancel this incoming duplicate IMMEDIATELY so the customer isn't
+  // double-billed — the existing row is the keeper — and alert.
+  const existingForOrg = await Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } });
+  if (existingForOrg && existingForOrg.externalId !== externalId) {
+    await cancelDuplicateStripeSub(externalId, orgId);
+    return;
+  }
+
   const interval = (stripeSubscription.metadata?.interval === 'annual' ? 'annual' : 'monthly') as BillingInterval;
   const customerId = typeof stripeSubscription.customer === 'string' ? stripeSubscription.customer : stripeSubscription.customer?.id;
   const status = mapStripeStatus(stripeSubscription.status);
-  const now = new Date();
+  // Prefer Stripe's real period (matters for trials / annual) when the SDK surfaces
+  // it; else wall-clock (corrected on the first invoice.payment_succeeded anyway).
+  const stripePeriod = stripeSubscription as unknown as { current_period_start?: number; current_period_end?: number };
+  const periodStart = stripePeriod.current_period_start ? new Date(stripePeriod.current_period_start * 1000) : new Date();
+  const periodEnd = stripePeriod.current_period_end
+    ? new Date(stripePeriod.current_period_end * 1000)
+    : calculatePeriodEnd(periodStart, interval);
 
   let subscription: SubscriptionDocument;
   try {
@@ -237,17 +254,22 @@ export async function handleSubscriptionCreated(stripeSubscription: Stripe.Subsc
       planId,
       status,
       interval,
-      currentPeriodStart: now,
-      currentPeriodEnd: calculatePeriodEnd(now, interval),
+      currentPeriodStart: periodStart,
+      currentPeriodEnd: periodEnd,
       cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end ?? false,
       externalId,
       externalCustomerId: customerId,
       metadata: { provider: 'stripe' },
     });
   } catch (err) {
-    // Lost the {orgId,status:'active'} uniqueness race (a concurrent provision /
-    // redelivered event already created the active row) → converge via update.
-    if ((err as { code?: number }).code === 11000) return handleSubscriptionUpdated(stripeSubscription);
+    // Lost the {orgId,status:'active'} uniqueness race — a concurrent provision won.
+    // This incoming Stripe sub is the DUPLICATE → cancel it (don't delegate to
+    // update, which would find no row for THIS externalId and no-op, orphaning a
+    // billing sub).
+    if ((err as { code?: number }).code === 11000) {
+      await cancelDuplicateStripeSub(externalId, orgId);
+      return;
+    }
     throw err;
   }
 
@@ -256,9 +278,38 @@ export async function handleSubscriptionCreated(stripeSubscription: Stripe.Subsc
   // a later `.updated`→active). Mirrors the in-app create's gating.
   if (status === 'active' || status === 'trialing') {
     await syncEntitlements(orgId, plan.tier, billingServiceAuth(orgId), subscription._id.toString());
+    // Promotions + referral signup — parity with the in-app create path, so a
+    // Checkout signup with a referral/promo code still earns its credit. Fail-soft.
+    const referralCode = (stripeSubscription.metadata?.referralCode || '').trim();
+    const promoCtx = { tier: plan.tier, interval, planPriceCents: plan.prices[interval] };
+    try {
+      const isFirstSubscription = (await Subscription.countDocuments({ orgId })) <= 1;
+      await evaluatePromotions(orgId, subscription, 'subscription_created', { ...promoCtx, isFirstSubscription });
+    } catch (e) {
+      logger.warn('Promotion eval failed on checkout provision', { orgId, err: (e as Error).message });
+    }
+    if (referralCode) {
+      try {
+        await processReferralSignup(orgId, referralCode, promoCtx);
+      } catch (e) {
+        logger.warn('Referral signup failed on checkout provision', { orgId, err: (e as Error).message });
+      }
+    }
   }
   await createBillingEvent(orgId, 'subscription_created', { planId, interval, tier: plan.tier, via: 'checkout' }, subscription._id.toString());
   logger.info('Provisioned Stripe subscription from checkout', { orgId, externalId, planId, status });
+}
+
+/** Cancel a DUPLICATE Stripe subscription immediately (best-effort) + alert, so a
+ *  concurrent second checkout can't double-bill the org. */
+async function cancelDuplicateStripeSub(externalId: string, orgId: string): Promise<void> {
+  logger.error('Duplicate Stripe subscription for org — canceling to prevent double-billing', { orgId, externalId });
+  incCounter('billing_duplicate_stripe_subscription_total', { reason: 'concurrent_checkout' });
+  const provider = getPaymentProvider();
+  if (provider.cancelSubscriptionNow) {
+    await provider.cancelSubscriptionNow(externalId).catch((e) => logger.error('Failed to cancel duplicate Stripe sub — operator refund may be needed', { externalId, err: (e as Error).message }));
+  }
+  await createBillingEvent(orgId, 'subscription_updated', { duplicate: true, canceledExternalId: externalId, reason: 'duplicate_checkout' });
 }
 
 /**
@@ -531,10 +582,9 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
       logger.warn('Payment recovery could not re-upgrade — subscription plan not found', {
         orgId: subscription.orgId, stripeSubscriptionId, planId: subscription.planId,
       });
-      await createBillingEvent(subscription.orgId, 'subscription_updated', {
-        reason: 'reactivate_plan_missing', provider: 'stripe', planId: subscription.planId,
-      }, subscription._id.toString());
-      incCounter('billing_reactivate_plan_missing_total', { source: 'stripe_webhook' });
+      await recordReactivatePlanMissing(subscription.orgId, subscription._id.toString(), 'stripe_webhook', {
+        provider: 'stripe', planId: subscription.planId,
+      });
     }
   }
 
@@ -751,7 +801,24 @@ async function handleChargeDisputeCreated(dispute: Stripe.Dispute): Promise<void
     logger.warn('Stripe client unavailable — cannot resolve disputed charge', { disputeId: dispute.id, chargeId });
     return;
   }
-  const charge = await stripe.charges.retrieve(chargeId);
+  // Re-fetch the charge (the Dispute event carries only the charge id). If the
+  // retrieve fails we RE-THROW: the ledger reversal + promotion clawback (the
+  // subscribe-grab-refund fraud defense) are all-or-nothing on this fetch, so
+  // swallowing the error and returning 200 would tell Stripe "done" and it would
+  // NOT redeliver — permanently skipping the reversal on any transient blip.
+  // Throwing lets the dispatcher release the dedupe lease + 500 so Stripe retries
+  // over its ~3-day window (disputes are rare; a few retries are fine). The metric
+  // surfaces a persistently-failing dispute for operator follow-up.
+  let charge: Stripe.Charge;
+  try {
+    charge = await stripe.charges.retrieve(chargeId);
+  } catch (err) {
+    incCounter('billing_dispute_retrieve_failed_total', { reason: 'charge_retrieve_error' });
+    logger.error('Stripe dispute charge retrieve failed — rethrowing so Stripe redelivers', {
+      disputeId: dispute.id, chargeId, error: errorMessage(err),
+    });
+    throw err;
+  }
   const netPaidCents = Math.max(0, (charge.amount ?? 0) - (dispute.amount ?? 0));
   await applyChargeReversal(charge, 'disputed', 'invoice_disputed', netPaidCents, {
     disputedCents: dispute.amount ?? 0,

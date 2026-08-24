@@ -62,7 +62,9 @@ const REDACTED = '[REDACTED]';
 
 function redactDeep(value: unknown, depth = 0): unknown {
   // Cap depth so a malicious / pathological circular object can't lock the logger.
-  if (depth > 6) return value;
+  // Degrade to a placeholder rather than the raw subtree: returning `value` here
+  // would log a secret-keyed field nested deeper than the cap in cleartext.
+  if (depth > 6) return '[TRUNCATED]';
   if (value == null || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.map((v) => redactDeep(v, depth + 1));
   const out: Record<string, unknown> = {};

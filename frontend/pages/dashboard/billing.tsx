@@ -23,6 +23,7 @@ import { BillingDashboard } from '@/components/billing/BillingDashboard';
 import { TeamUsageCard } from '@/components/billing/TeamUsageCard';
 import { PlanGrid } from '@/components/billing/PlanGrid';
 import { AddonGrid } from '@/components/billing/AddonGrid';
+import { newSubscriptionAction } from '@/components/billing/subscribe-action';
 import { DiscountRedeem } from '@/components/billing/DiscountRedeem';
 import { AddonPreviewModal } from '@/components/billing/AddonPreviewModal';
 import { PlanChangeModal } from '@/components/billing/PlanChangeModal';
@@ -198,23 +199,39 @@ export default function BillingPage() {
   }, [isSuperAdmin]);
 
   useEffect(() => {
-    if (user) fetchData();
-  }, [user, fetchData]);
+    // Skip the plain mount fetch on a checkout-success return — the checkout effect
+    // below drives a POLLED refetch instead (avoids two concurrent loads racing).
+    // Wait for `router.isReady`: until then `router.query` is `{}`, so the
+    // `checkout` param reads as undefined and this fetch would fire anyway,
+    // racing the polling effect it exists to defer to.
+    if (user && router.isReady && router.query.checkout !== 'success') fetchData();
+  }, [user, router.isReady, fetchData]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Returning from hosted Stripe Checkout: acknowledge the outcome and refetch
-  // (the subscription is provisioned asynchronously by the webhook, so it may take
-  // a moment to appear as active). Strip the query param so a reload won't re-toast.
+  // Returning from hosted Stripe Checkout: acknowledge the outcome. The
+  // subscription is provisioned ASYNCHRONOUSLY by the webhook, so poll a few times
+  // (with backoff) until it appears rather than a single immediate refetch that
+  // usually races the webhook and shows the user as un-subscribed. Strip the query
+  // param so a reload won't re-toast.
   useEffect(() => {
     const outcome = Array.isArray(router.query.checkout) ? router.query.checkout[0] : router.query.checkout;
     if (!outcome) return;
+    let cancelled = false;
     if (outcome === 'success') {
       toast.success('Checkout complete — activating your subscription…');
-      void fetchData();
+      void (async () => {
+        for (let i = 0; i < 6 && !cancelled; i++) {
+          const res = await api.getSubscription().catch(() => null);
+          if (res?.success && res.data?.subscription) break;
+          await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+        }
+        if (!cancelled) await fetchData();
+      })();
     } else if (outcome === 'cancelled') {
       toast.info('Checkout cancelled — no changes were made.');
     }
     const { checkout: _omit, ...rest } = router.query;
     void router.replace({ query: rest }, undefined, { shallow: true });
+    return () => { cancelled = true; };
   }, [router.query.checkout]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A proposed plan switch, held while the user confirms. Unlike add-ons there's
@@ -244,13 +261,22 @@ export default function BillingPage() {
           await fetchData();
         }
       } else {
-        // Brand-new subscription. Stripe requires a card, so send the user through
-        // hosted Checkout (which collects payment + creates the sub; the webhook
-        // provisions the local row). A free plan or the `stub` provider needs no
-        // card, so create directly.
+        // Brand-new subscription — branch by provider (pure decision, unit-tested).
         const plan = plans.find((p) => p.id === planId);
         const isFree = !!plan && plan.prices.monthly === 0 && plan.prices.annual === 0;
-        if (billingProvider === 'stripe' && !isFree) {
+        const action = newSubscriptionAction(billingProvider, isFree);
+        if (action === 'blocked-loading') {
+          toast.info('Billing is still loading — try again in a moment.');
+          return;
+        }
+        if (action === 'blocked-marketplace') {
+          toast.info('This account is billed through AWS Marketplace — manage plans from your AWS Marketplace subscription.');
+          return;
+        }
+        // Stripe requires a card → hosted Checkout (collects payment + creates the
+        // sub; the webhook provisions the local row). A free plan or `stub` needs no
+        // card → create directly.
+        if (action === 'checkout') {
           const res = await api.createCheckoutSession(planId, billingInterval);
           if (res.success && res.data?.url) {
             window.location.href = res.data.url; // leave for hosted Checkout
@@ -490,6 +516,7 @@ export default function BillingPage() {
               billingInterval={billingInterval}
               actionLoading={actionLoading}
               canChangePlan={canChangePlan}
+              selfService={billingProvider !== 'aws-marketplace'}
               onSubscribe={requestPlanChange}
             />
 
@@ -513,6 +540,7 @@ export default function BillingPage() {
                 subscribed={!!subscription}
                 actionLoading={actionLoading}
                 previewLoading={previewLoading}
+                changePending={!!pendingAddon}
                 addonQty={addonQty}
                 requestAddonChange={requestAddonChange}
                 highlightFeature={highlightFeature}

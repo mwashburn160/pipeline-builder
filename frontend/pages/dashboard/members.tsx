@@ -15,6 +15,7 @@ import { SearchInput } from '@/components/ui/SearchInput';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
+import { Callout } from '@/components/ui/Callout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable } from '@/components/ui/DataTable';
@@ -411,31 +412,23 @@ export default function MembersPage() {
         const unlimited = seatUsage.limit === -1;
         const atCap = !unlimited && seatUsage.used >= seatUsage.limit;
         return (
-          <div className={`mb-4 flex items-center gap-2 px-3 py-2 rounded border text-xs ${
-            atCap
-              ? 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200'
-              : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 text-gray-600 dark:text-gray-400'
-          }`}>
-            <UserPlus className="w-3.5 h-3.5 shrink-0" />
-            <span>
-              <strong>{seatUsage.used}</strong>{unlimited ? '' : ` of ${seatUsage.limit}`} account {seatUsage.limit === 1 ? 'seat' : 'seats'} used
-              {unlimited ? ' (unlimited)' : atCap ? (
-                <> — at capacity; remove a member or{' '}
-                  {canManageBilling ? (
-                    <Link href="/dashboard/billing" className="action-link font-medium underline">add a seat pack</Link>
-                  ) : 'add a seat pack'}{' '}to invite more</>
-              ) : ''}
-              {activeOrgIsRoot ? '' : ' (pooled across your organization)'}
-            </span>
-          </div>
+          <Callout variant={atCap ? 'warning' : 'neutral'} icon={UserPlus} className="mb-4">
+            <strong>{seatUsage.used}</strong>{unlimited ? '' : ` of ${seatUsage.limit}`} account {seatUsage.limit === 1 ? 'seat' : 'seats'} used
+            {unlimited ? ' (unlimited)' : atCap ? (
+              <> — at capacity; remove a member or{' '}
+                {canManageBilling ? (
+                  <Link href="/dashboard/billing" className="action-link font-medium underline">add a seat pack</Link>
+                ) : 'add a seat pack'}{' '}to invite more</>
+            ) : ''}
+            {activeOrgIsRoot ? '' : ' (pooled across your organization)'}
+          </Callout>
         );
       })()}
 
       {activeOrg?.parentOrgId && (
-        <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 text-xs text-gray-600 dark:text-gray-400">
-          <Building2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-          <span>This organization is a <strong>team</strong> nested under a parent organization. Its members, quotas, and billing are scoped here.</span>
-        </div>
+        <Callout variant="neutral" icon={Building2} className="mb-4">
+          This organization is a <strong>team</strong> nested under a parent organization. Its members, quotas, and billing are scoped here.
+        </Callout>
       )}
 
       {/* Teams list — the org's teams. Open one to manage its
@@ -473,9 +466,9 @@ export default function MembersPage() {
       )}
 
       {(teamsLoadWarning || seatLoadWarning) && (
-        <div className="mb-3 px-3 py-2 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 text-xs text-gray-500 dark:text-gray-400">
+        <Callout variant="neutral" className="mb-3">
           Couldn&apos;t load {teamsLoadWarning && seatLoadWarning ? 'the teams list and seat usage' : teamsLoadWarning ? 'the teams list' : 'seat usage'} — that section is hidden. Everything else works normally.
-        </div>
+        </Callout>
       )}
 
       <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />

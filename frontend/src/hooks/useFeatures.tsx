@@ -48,20 +48,37 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    api.getConfig().then((res) => {
-      if (!cancelled && res.success && res.data) {
-        setServiceFeatures(res.data.serviceFeatures);
-        if (res.data.supportAlias) setSupportAlias(res.data.supportAlias);
-        if (res.data.supportAliases?.length) setSupportAliases(res.data.supportAliases);
-        if (res.data.deployTarget) setDeployTarget(res.data.deployTarget);
-      }
-    }).catch(() => {
-      // Config fetch failed — default billing shown
-      if (!cancelled) setServiceFeatures({ billing: true, email: false, oauth: false });
-    }).finally(() => {
-      if (!cancelled) setIsLoaded(true);
-    });
-    return () => { cancelled = true; };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    // Retry with capped backoff instead of freezing a fallback — a transient
+    // /config failure (e.g. a boot-window 502) would otherwise leave `deployTarget`
+    // at 'local' and permanently hide the AWS onboarding CLI-setup section.
+    const run = () => {
+      api.getConfig().then((res) => {
+        if (cancelled) return;
+        if (res.success && res.data) {
+          setServiceFeatures(res.data.serviceFeatures);
+          if (res.data.supportAlias) setSupportAlias(res.data.supportAlias);
+          if (res.data.supportAliases?.length) setSupportAliases(res.data.supportAliases);
+          if (res.data.deployTarget) setDeployTarget(res.data.deployTarget);
+          setIsLoaded(true);
+        } else {
+          // 200 but `success:false` (no data): still release the loading gate so
+          // the page doesn't hang on it forever (the old `.finally` covered this).
+          setIsLoaded(true);
+        }
+      }).catch(() => {
+        if (cancelled) return;
+        // Show a safe default meanwhile, but keep retrying (1s, 2s, 4s … max 30s).
+        setServiceFeatures((prev) => (Object.keys(prev).length ? prev : { billing: true, email: false, oauth: false }));
+        setIsLoaded(true);
+        const delay = Math.min(30_000, 1_000 * 2 ** attempt);
+        attempt += 1;
+        timer = setTimeout(run, delay);
+      });
+    };
+    run();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, []);
 
   const value = useMemo(() => {

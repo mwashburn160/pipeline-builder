@@ -4,7 +4,7 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { createLogger } from '@pipeline-builder/api-core';
 import nodemailer, { type Transporter } from 'nodemailer';
-import { invitationTemplate, invitationAcceptedTemplate } from './email-templates.js';
+import { invitationTemplate, invitationAcceptedTemplate, htmlEscape } from './email-templates.js';
 import { config } from '../config/index.js';
 import type { InvitationType, InvitationOAuthProvider } from '../models/invitation.js';
 
@@ -130,9 +130,10 @@ class EmailService {
           : {}),
       });
 
+      // No recipient address in the operational log — it's PII. The audit trail
+      // carries the recipient where it's genuinely needed.
       logger.info('Email sent successfully', {
         messageId: result.messageId,
-        to: options.to,
         subject: options.subject,
       });
 
@@ -170,9 +171,14 @@ class EmailService {
    */
   async sendJoinRequestReceived(adminEmails: string[], organizationName: string, requesterEmail: string): Promise<boolean> {
     if (adminEmails.length === 0) return true;
+    // Escape interpolated values — a registered email local-part / org name can
+    // carry HTML metacharacters (emailSchema permits them), so raw interpolation
+    // would inject markup into admins' inboxes.
+    const safeRequester = htmlEscape(requesterEmail);
+    const safeOrg = htmlEscape(organizationName);
     const subject = `New request to join ${organizationName}`;
     const text = `${requesterEmail} has requested to join ${organizationName} on Pipeline Builder. Review it in Settings → Domain-based join.`;
-    const html = `<p><strong>${requesterEmail}</strong> has requested to join <strong>${organizationName}</strong> on Pipeline Builder.</p><p>Review it in <em>Settings → Domain-based join</em>.</p>`;
+    const html = `<p><strong>${safeRequester}</strong> has requested to join <strong>${safeOrg}</strong> on Pipeline Builder.</p><p>Review it in <em>Settings → Domain-based join</em>.</p>`;
     return this.send({ to: adminEmails, subject, text, html });
   }
 
@@ -182,7 +188,9 @@ class EmailService {
     const text = approved
       ? `Your request to join ${organizationName} on Pipeline Builder was approved — you can switch to it from the org menu.`
       : `Your request to join ${organizationName} on Pipeline Builder was declined. Contact an org admin if you think this is a mistake.`;
-    const html = `<p>${text}</p>`;
+    // `text` interpolates the (target-org-controlled) org name, so escape before
+    // embedding it in the HTML body.
+    const html = `<p>${htmlEscape(text)}</p>`;
     return this.send({ to: userEmail, subject, text, html });
   }
 }

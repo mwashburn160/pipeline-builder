@@ -114,11 +114,20 @@ export async function claimWebhookEvent(source: WebhookSource, eventId: string):
  * Phase 2 — promote the in-progress claim to a durable `done` marker (30d TTL).
  * Call ONLY after the event's side-effects have succeeded. Idempotent: a redelivery
  * that races here still re-stamps the same (source, eventId) row.
+ *
+ * `upsert` is load-bearing: if a slow handler outlives the 15-min in-progress lease
+ * and Mongo's TTL reaps the claim before this runs, a plain updateOne would match
+ * nothing and write NO done-marker — yet the caller returns 200, so the completed
+ * event's side-effects would re-run on the next redelivery. Upserting writes the
+ * done row even when the lease has vanished. (A concurrent re-claim can't collide:
+ * the unique (source,eventId) index makes its insert a duplicate → treated as a
+ * dup delivery.)
  */
 export async function markWebhookEventDone(source: WebhookSource, eventId: string): Promise<void> {
   await WebhookDedupe.updateOne(
     { source, eventId },
     { $set: { status: 'done', expireAt: new Date(Date.now() + DONE_TTL_SECONDS * 1000) } },
+    { upsert: true },
   );
 }
 

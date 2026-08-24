@@ -234,6 +234,35 @@ describe('loadBillingConfig', () => {
       expect(bundles.find((x) => x.id === 'seat')?.grants).toEqual({ seats: 2 });
     });
 
+    it('overrides seat volume tiers from BILLING_BUNDLE_SEAT_VOLUME_TIERS (sorted ascending)', () => {
+      process.env.BILLING_BUNDLE_SEAT_VOLUME_TIERS = '[{"minQuantity":20,"discountPercent":25},{"minQuantity":8,"discountPercent":12}]';
+      const { bundles } = loadBillingConfig();
+      expect(bundles.find((x) => x.id === 'seat')?.volumeTiers).toEqual([
+        { minQuantity: 8, discountPercent: 12 },
+        { minQuantity: 20, discountPercent: 25 },
+      ]);
+    });
+
+    it('falls back to the default volume tiers on a malformed / non-monotonic override', () => {
+      const cases = [
+        'not-json',
+        '[]',
+        '[{"minQuantity":1.5,"discountPercent":10}]',            // fractional minQuantity
+        '[{"minQuantity":5,"discountPercent":30},{"minQuantity":15,"discountPercent":20}]', // descending pct
+        '[{"minQuantity":5,"discountPercent":10},{"minQuantity":5,"discountPercent":20}]',  // duplicate minQuantity
+      ];
+      const dflt = [
+        { minQuantity: 5, discountPercent: 10 },
+        { minQuantity: 15, discountPercent: 20 },
+        { minQuantity: 40, discountPercent: 30 },
+      ];
+      for (const c of cases) {
+        process.env.BILLING_BUNDLE_SEAT_VOLUME_TIERS = c;
+        const { bundles } = loadBillingConfig();
+        expect(bundles.find((x) => x.id === 'seat')?.volumeTiers).toEqual(dflt);
+      }
+    });
+
     it('ignores a malformed or negative grant override', () => {
       process.env.BILLING_BUNDLE_PIPELINE_PACK_GRANT = 'abc';
       process.env.BILLING_BUNDLE_PLUGIN_PACK_GRANT = '-5';

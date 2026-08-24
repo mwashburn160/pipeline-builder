@@ -80,6 +80,7 @@ jest.unstable_mockModule('../src/helpers/usage-helpers.js', () => ({
 
 const mockBundlesEnabled = jest.fn(() => false);
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  recordReactivatePlanMissing: async () => undefined,
   bundlesEnabled: (...a: unknown[]) => mockBundlesEnabled(...(a as [])),
   bundleSelfServiceAllowed: () => true,
   getBundleCatalog: () => [],

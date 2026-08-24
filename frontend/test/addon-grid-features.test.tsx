@@ -7,7 +7,7 @@
  * deep-link emphasizes the matching bundle card.
  */
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { AddonGrid } from '../src/components/billing/AddonGrid';
 import type { Bundle } from '../src/types';
 
@@ -75,6 +75,57 @@ describe('AddonGrid — feature discoverability', () => {
     } as unknown as Bundle;
     render(<AddonGrid {...baseProps} bundles={[seatBundle, historyPack]} highlightFeature="dora_history_pack" />);
     expect(window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+});
+
+describe('AddonGrid — SeatEntry (typed per-seat entry with volume tiers)', () => {
+  const seat = {
+    id: 'seat', name: 'Member Seat', description: 'One seat.',
+    grants: { seats: 1 }, prices: { monthly: 1999, annual: 19990 }, stackable: true,
+    availableForTiers: [],
+    volumeTiers: [{ minQuantity: 5, discountPercent: 10 }, { minQuantity: 15, discountPercent: 20 }],
+  } as unknown as Bundle;
+
+  it('renders a typed number input + volume-tier hint (not the ±1 stepper)', () => {
+    render(<AddonGrid {...baseProps} bundles={[seat]} addonQty={() => 0} />);
+    expect(screen.getByRole('spinbutton', { name: /number of member seats/i })).toBeInTheDocument();
+    expect(screen.getByText(/5\+: 10% off/i)).toBeInTheDocument();
+  });
+
+  it('commits the typed ABSOLUTE count', () => {
+    const requestAddonChange = jest.fn();
+    render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[seat]} addonQty={() => 3} />);
+    const input = screen.getByRole('spinbutton', { name: /number of member seats/i });
+    fireEvent.change(input, { target: { value: '7' } });
+    fireEvent.click(screen.getByRole('button', { name: /update/i }));
+    expect(requestAddonChange).toHaveBeenCalledWith('seat', 'Member Seat', 7);
+  });
+
+  it('does NOT treat a cleared field as "set to 0" (no destructive removal)', () => {
+    const requestAddonChange = jest.fn();
+    render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[seat]} addonQty={() => 10} />);
+    const input = screen.getByRole('spinbutton', { name: /number of member seats/i });
+    fireEvent.change(input, { target: { value: '' } });
+    const btn = screen.getByRole('button', { name: /update/i });
+    expect(btn).toBeDisabled();
+    fireEvent.click(btn); // no-op even if clicked
+    expect(requestAddonChange).not.toHaveBeenCalled();
+  });
+
+  it('disables the seat input + button while a change is staged in the preview modal (changePending)', () => {
+    // fe#10: after the preview resolves, actionLoading/previewLoading are both
+    // false — without changePending the input re-enables behind the open modal, so
+    // a stray Enter could fire a SECOND requestAddonChange and swap the staged
+    // change. The `disabled` (which the browser enforces against typing/Enter) is
+    // the fix, so assert both controls are disabled.
+    render(<AddonGrid {...baseProps} changePending bundles={[seat]} addonQty={() => 3} />);
+    expect(screen.getByRole('spinbutton', { name: /number of member seats/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /update/i })).toBeDisabled();
+  });
+
+  it('leaves the seat controls enabled when no change is pending', () => {
+    render(<AddonGrid {...baseProps} bundles={[seat]} addonQty={() => 3} />);
+    expect(screen.getByRole('spinbutton', { name: /number of member seats/i })).not.toBeDisabled();
   });
 });
 

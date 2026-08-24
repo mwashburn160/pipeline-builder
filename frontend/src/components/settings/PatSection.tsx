@@ -3,12 +3,14 @@
 
 import { useCallback, useState } from 'react';
 import { KeyRound, Trash2 } from 'lucide-react';
-import { Card } from '@/components/ui/Card';
+import { SectionCard } from '@/components/ui/SectionCard';
+import { SecretReveal } from '@/components/ui/SecretReveal';
+import { RetryError } from '@/components/ui/RetryError';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { FormField } from '@/components/ui/FormField';
 import { Badge } from '@/components/ui/Badge';
-import { CopyButton } from '@/components/ui/CopyButton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useToast } from '@/components/ui/Toast';
@@ -129,15 +131,11 @@ export function PatSection() {
   ];
 
   return (
-    <Card>
-      <div className="flex items-center gap-2 mb-2">
-        <KeyRound className="w-5 h-5 text-gray-500" />
-        <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Personal Access Tokens</h2>
-      </div>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-        Named, long-lived tokens for CLI and automation. Unlike session tokens, each can be revoked individually.
-      </p>
-
+    <SectionCard
+      icon={KeyRound}
+      title="Personal access tokens"
+      description="Named, long-lived tokens for CLI and automation. Unlike session tokens, each can be revoked individually."
+    >
       <div className="flex flex-wrap items-end gap-2 mb-4">
         <FormField label="Name" className="flex-1 min-w-[180px]">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. ci-deploy" maxLength={100} disabled={creating} />
@@ -157,24 +155,13 @@ export function PatSection() {
       )}
 
       {newToken && (
-        <div className="mb-4 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-3">
-          <p className="text-sm font-medium text-amber-800 dark:text-amber-200 mb-2">Copy your token now — it won&apos;t be shown again.</p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 text-xs font-mono break-all text-gray-800 dark:text-gray-200">{newToken}</code>
-            <CopyButton text={newToken} />
-          </div>
-        </div>
+        <SecretReveal value={newToken} label="Personal access token" className="mb-4" />
       )}
 
       {loading && pats.length === 0 ? (
-        <p className="text-sm text-gray-400">Loading…</p>
+        <div className="space-y-2">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-10 rounded-lg" />)}</div>
       ) : loadError && pats.length === 0 ? (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300" role="alert">
-          <span>{loadError}</span>
-          <button type="button" onClick={() => void load()} className="underline hover:no-underline shrink-0">Retry</button>
-        </div>
-      ) : pats.length === 0 ? (
-        <p className="text-sm text-gray-400">No personal access tokens yet.</p>
+        <RetryError message={loadError} onRetry={() => void load()} />
       ) : (
         <div className="overflow-x-auto">
           <DataTable
@@ -187,6 +174,6 @@ export function PatSection() {
           />
         </div>
       )}
-    </Card>
+    </SectionCard>
   );
 }

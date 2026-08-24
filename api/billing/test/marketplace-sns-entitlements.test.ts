@@ -50,6 +50,7 @@ jest.unstable_mockModule('../src/config.js', () => ({ config: mockConfig }));
 
 const mockCalculatePeriodEnd = jest.fn(() => new Date('2026-08-01T00:00:00.000Z'));
 const mockCreateBillingEvent = jest.fn(async () => undefined);
+const mockRecordReactivate = jest.fn(async () => undefined);
 const mockSyncEntitlements = jest.fn(async () => undefined);
 // Double-billing prune: default no-op (returns []); a dedicated test overrides it.
 const mockApplyTierIncludedAddonPrune = jest.fn(
@@ -72,6 +73,7 @@ const mockApplyPlanTierChange = jest.fn((subscription: any, plan: { tier: string
   });
 });
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  recordReactivatePlanMissing: (...a: unknown[]) => mockRecordReactivate(...a),
   MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
   applyPlanTierChange: mockApplyPlanTierChange,
   calculatePeriodEnd: (...a: unknown[]) => mockCalculatePeriodEnd(...a),
@@ -412,14 +414,13 @@ describe('POST /marketplace/sns — Notification status changes', () => {
     await handler({ body: snsEnvelope({ Message: notification('subscribe-success') }) }, res);
 
     expect(doc.status).toBe('active');
-    // No entitlement sync (no tier to grant) — but the gap is now observable.
+    // No entitlement sync (no tier to grant) — but the gap is now observable via
+    // the shared reactivate-plan-missing recorder (event + metric live there now).
     expect(mockSyncEntitlements).not.toHaveBeenCalled();
-    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
-      'org-1', 'subscription_updated',
-      expect.objectContaining({ reason: 'reactivate_plan_missing', provider: 'aws-marketplace', planId: 'ghost-plan' }),
-      'sub-1',
+    expect(mockRecordReactivate).toHaveBeenCalledWith(
+      'org-1', 'sub-1', 'marketplace',
+      expect.objectContaining({ provider: 'aws-marketplace', planId: 'ghost-plan' }),
     );
-    expect(mockIncCounter).toHaveBeenCalledWith('billing_reactivate_plan_missing_total', { source: 'marketplace' });
     // The subscription_reactivated row still fires alongside the gap signal.
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'subscription_reactivated', expect.any(Object), 'sub-1',

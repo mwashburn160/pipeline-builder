@@ -6,7 +6,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
 import { overallHealthColor } from '@/lib/quota-helpers';
 import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType } from '@/types';
-import { QUOTA_KEYS, TIER_PRESETS } from '@/components/quotas/constants';
+import { QUOTA_KEYS, TIER_PRESETS, buildTierPresets } from '@/components/quotas/constants';
 import { QuotasReadOnly, type AtRiskDimension } from '@/components/quotas/QuotasReadOnly';
 import { QuotasAdmin } from '@/components/quotas/QuotasAdmin';
 import api from '@/lib/api';
@@ -59,6 +59,19 @@ export default function QuotasPage() {
   const [editValues, setEditValues] = useState({ plugins: 0, pipelines: 0, apiCalls: 0, aiCalls: 0 });
   const [editTier, setEditTier] = useState<QuotaTier>('developer');
   const [dirty, setDirty] = useState(false);
+
+  // Effective per-tier presets: seeded from the hardcoded fallback, then replaced
+  // with the server's env-override-aware values from /config once they load. Keeps
+  // the tier-preset prefill honest under `QUOTA_TIER_*` overrides (pkg#9); fetch
+  // failure silently keeps the fallback.
+  const [tierPresets, setTierPresets] = useState(TIER_PRESETS);
+  useEffect(() => {
+    let cancelled = false;
+    api.getConfig()
+      .then((res) => { if (!cancelled && res.success && res.data?.tierPresets) setTierPresets(buildTierPresets(res.data.tierPresets)); })
+      .catch(() => { /* fail-soft: keep the hardcoded fallback presets */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // System-admin only: orgs at >= 80% on any quota dimension. Refetched
   // alongside the org list so the banner updates after edits.
@@ -194,7 +207,7 @@ export default function QuotasPage() {
 
   function handleTierChange(tier: QuotaTier) {
     setEditTier(tier);
-    setEditValues({ ...TIER_PRESETS[tier].limits });
+    setEditValues({ ...tierPresets[tier].limits });
     setDirty(true);
   }
 
@@ -285,6 +298,7 @@ export default function QuotasPage() {
       loadError={loadError}
       editTier={editTier}
       editValues={editValues}
+      tierPresets={tierPresets}
       dirty={dirty}
       saving={saving}
       platformOrgs={platformOrgs}

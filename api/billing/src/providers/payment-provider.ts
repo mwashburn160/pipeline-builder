@@ -160,6 +160,13 @@ export interface PaymentProvider {
     customerId: string,
     planId: string,
     interval: BillingInterval,
-    opts: { orgId: string; successUrl: string; cancelUrl: string },
+    opts: { orgId: string; successUrl: string; cancelUrl: string; referralCode?: string },
   ): Promise<string>;
+
+  /**
+   * Cancel a subscription IMMEDIATELY (not at period end) — to clean up a DUPLICATE
+   * subscription so the customer isn't billed twice. Optional: providers that can't
+   * produce a duplicate (stub, marketplace) omit it.
+   */
+  cancelSubscriptionNow?(externalId: string): Promise<void>;
 }

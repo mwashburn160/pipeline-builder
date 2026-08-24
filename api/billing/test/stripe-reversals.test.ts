@@ -23,6 +23,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter: je
 // rest are stubbed so the module's heavy config graph never loads.
 const mockCreateBillingEvent = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  recordReactivatePlanMissing: async () => undefined,
   MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
   createBillingEvent: (...a: unknown[]) => mockCreateBillingEvent(...a),
   applyPlanTierChange: () => async () => undefined,
@@ -57,6 +58,8 @@ jest.unstable_mockModule('../src/helpers/promotion-engine.js', () => ({
   grantRecurringPromotions: jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined),
   qualifyReferral: jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined),
   recurringPeriodKey: () => '2026-08',
+  evaluatePromotions: jest.fn<(...a: unknown[]) => Promise<unknown[]>>().mockResolvedValue([]),
+  processReferralSignup: jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined),
 }));
 
 const mockFindByStripeId = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -166,6 +169,24 @@ describe('charge.dispute.created', () => {
     expect(mockChargesRetrieve).not.toHaveBeenCalled();
     expect(mockReverseLedgerInvoice).not.toHaveBeenCalled();
     expect(mockClawback).not.toHaveBeenCalled();
+  });
+
+  it('RE-THROWS a charge-retrieve failure so Stripe redelivers (no partial reversal)', async () => {
+    // The ledger reversal + promotion clawback are all-or-nothing on this fetch, so
+    // a transient retrieve failure must propagate: the dispatcher then 500s and
+    // Stripe redelivers over its retry window. Swallowing it (200) would tell Stripe
+    // "done" and permanently skip the reversal. No event row is written per attempt.
+    mockChargesRetrieve.mockRejectedValue(new Error('stripe 503'));
+
+    await expect(
+      handleChargeDisputeCreated({ id: 'dp_3', charge: 'ch_x', amount: 4900, status: 'needs_response' } as any),
+    ).rejects.toThrow('stripe 503');
+
+    expect(mockChargesRetrieve).toHaveBeenCalledWith('ch_x');
+    // Nothing partial ran, and no billing event was appended (a retry would dup it).
+    expect(mockReverseLedgerInvoice).not.toHaveBeenCalled();
+    expect(mockClawback).not.toHaveBeenCalled();
+    expect(mockCreateBillingEvent).not.toHaveBeenCalled();
   });
 });
 

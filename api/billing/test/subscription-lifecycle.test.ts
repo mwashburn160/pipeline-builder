@@ -623,11 +623,11 @@ describe('Subscription Lifecycle Checker', () => {
       startSubscriptionLifecycleChecker();
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      // Drift query: ACTIVE + (never reconciled OR reconciled before the cutoff),
-      // capped at the per-tick bound at the DB level.
+      // Drift query: MANAGEABLE (active/trialing/past_due) + (never reconciled OR
+      // reconciled before the cutoff), capped at the per-tick bound at the DB level.
       expect(mockFind).toHaveBeenCalledWith(
         expect.objectContaining({
-          status: 'active',
+          status: { $in: ['active', 'trialing', 'past_due'] },
           $or: [
             { 'metadata.lastReconciledAt': { $exists: false } },
             { 'metadata.lastReconciledAt': { $lte: expect.any(String) } },

@@ -6,7 +6,8 @@ import { Code, BookOpen, KeyRound } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { Card } from '@/components/ui/Card';
+import { SectionCard } from '@/components/ui/SectionCard';
+import { CodeBlock, EndpointChip } from '@/components/ui/CodeBlock';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 
 interface ServiceRow { name: string; purpose: string; prefixes: string[] }
@@ -44,9 +45,7 @@ const SERVICE_COLUMNS: Column<ServiceRow>[] = [
     cellClassName: 'align-top',
     render: (svc) => (
       <div className="flex flex-wrap gap-1">
-        {svc.prefixes.map((p) => (
-          <code key={p} className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-300">{p}</code>
-        ))}
+        {svc.prefixes.map((p) => <EndpointChip key={p}>{p}</EndpointChip>)}
       </div>
     ),
   },
@@ -58,29 +57,20 @@ export default function ApiCatalogPage() {
 
   return (
     <DashboardLayout title="API Catalog" subtitle="Services, their gateway routes, and how to call them">
-      <div className="page-section space-y-6">
-        <Card>
-          <div className="flex items-center gap-2 mb-2">
-            <KeyRound className="w-5 h-5 text-gray-500" />
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Authentication</h3>
-          </div>
-          <p className="text-sm text-gray-600 dark:text-gray-300">
-            All endpoints are reached through the gateway under <code>/api/*</code>. Authenticate with a bearer token and scope the request to your organization:
+      <div className="space-y-6">
+        <SectionCard icon={KeyRound} title="Authentication">
+          <p className="text-sm text-[var(--pb-text-muted)]">
+            All endpoints are reached through the gateway under <EndpointChip>/api/*</EndpointChip>. Authenticate with a bearer token and scope the request to your organization:
           </p>
-          <pre className="mt-2 px-4 py-3 text-xs font-mono rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 overflow-x-auto">{`Authorization: Bearer <token>
-x-org-id: <your-organization-id>`}</pre>
-          <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+          <CodeBlock className="mt-3" language="http" code={'Authorization: Bearer <token>\nx-org-id: <your-organization-id>'} />
+          <p className="mt-3 text-sm text-[var(--pb-text-muted)]">
             Create a token on the <Link href="/dashboard/tokens" className="action-link">API Tokens</Link> page. Full endpoint details are in the{' '}
             <Link href="/dashboard/help" className="action-link">API Reference</Link>.
           </p>
-        </Card>
+        </SectionCard>
 
-        <Card>
-          <div className="flex items-center gap-2 mb-3">
-            <Code className="w-5 h-5 text-gray-500" />
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Services</h3>
-          </div>
-          <div className="overflow-x-auto">
+        <SectionCard icon={Code} title="Services" bodyClassName="p-0">
+          <div className="overflow-x-auto p-5">
             <DataTable
               data={SERVICES}
               columns={SERVICE_COLUMNS}
@@ -90,19 +80,15 @@ x-org-id: <your-organization-id>`}</pre>
               emptyState={{ icon: Code, title: 'No services', description: 'No gateway services are configured.' }}
             />
           </div>
-        </Card>
+        </SectionCard>
 
-        <Card>
-          <div className="flex items-center gap-2 mb-2">
-            <BookOpen className="w-5 h-5 text-gray-500" />
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Machine-readable spec</h3>
-          </div>
-          <p className="text-sm text-gray-600 dark:text-gray-300">
-            Each service generates an OpenAPI 3.1 spec from its request schemas, served at <code>/docs/openapi.json</code> on the service
-            (with an interactive Swagger UI at <code>/docs</code> in non-production deployments). Point your client generator at those specs, or
+        <SectionCard icon={BookOpen} title="Machine-readable spec">
+          <p className="text-sm text-[var(--pb-text-muted)]">
+            Each service generates an OpenAPI 3.1 spec from its request schemas, served at <EndpointChip>/docs/openapi.json</EndpointChip> on the service
+            (with an interactive Swagger UI at <EndpointChip>/docs</EndpointChip> in non-production deployments). Point your client generator at those specs, or
             browse the hand-written reference in <Link href="/dashboard/help" className="action-link">Help → API Reference</Link>.
           </p>
-        </Card>
+        </SectionCard>
       </div>
     </DashboardLayout>
   );

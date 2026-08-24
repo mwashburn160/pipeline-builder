@@ -80,7 +80,7 @@ export const sendInvitation = withController('Send invitation', async (req, res)
   }
 
   logger.info('Invitation sent', {
-    invitationId: invitation._id, email: body.email, organizationId: orgId, role: body.role,
+    invitationId: invitation._id, organizationId: orgId, role: body.role,
   });
 
   // Audit the invite (fire-and-forget). NEVER the token — email + role only.

@@ -3,6 +3,7 @@
 
 import type winston from 'winston';
 import type { AuditEvent } from '../types/audit-events.js';
+import { scrubAwsIdentifiers } from './aws-scrub.js';
 
 /**
  * Emit a cross-service audit event as a structured log line.
@@ -21,7 +22,11 @@ export function emitAudit(
   audit: AuditEvent,
 ): void {
   try {
-    logger.info('audit', { eventCategory: 'audit', ...audit });
+    // Scrub any AWS account-id-shaped values (e.g. an ARN in `details`) before the
+    // event lands in the durable log store — the logger's secret-key redaction
+    // doesn't cover account ids, and this is exactly the persistence boundary the
+    // "never persist an AWS account id" rule targets.
+    logger.info('audit', scrubAwsIdentifiers({ eventCategory: 'audit', ...audit }));
   } catch (err) {
     // The winston logger normally never throws synchronously, but if a
     // transport explodes during a route call, we don't want the mutation

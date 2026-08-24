@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useState } from 'react';
+import { ShieldCheck } from 'lucide-react';
 import { formatError } from '@/lib/constants';
 import api, { ApiError } from '@/lib/api';
+import { SectionCard } from '@/components/ui/SectionCard';
+import { RetryError } from '@/components/ui/RetryError';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -124,17 +127,13 @@ export function OrgSsoSettings({ orgId }: { orgId: string }) {
   };
 
   return (
-    <>
-      <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-1">Single Sign-On (SSO)</h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-        Let members sign in through your identity provider. The client secret is encrypted at rest and never shown after saving.
-      </p>
-
+    <SectionCard
+      icon={ShieldCheck}
+      title="Single Sign-On (SSO)"
+      description="Let members sign in through your identity provider. The client secret is encrypted at rest and never shown after saving."
+    >
       {loadError ? (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300" role="alert">
-          <span>{loadError}</span>
-          <button type="button" onClick={() => void load()} className="underline hover:no-underline">Retry</button>
-        </div>
+        <RetryError message={loadError} onRetry={() => void load()} />
       ) : (
         <form onSubmit={handleSave} className="space-y-4">
           <ErrorAlert message={form.error} />
@@ -281,6 +280,6 @@ export function OrgSsoSettings({ orgId }: { orgId: string }) {
           </Button>
         </form>
       )}
-    </>
+    </SectionCard>
   );
 }

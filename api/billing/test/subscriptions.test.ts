@@ -470,7 +470,7 @@ describe('POST /subscriptions', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 409, expect.stringContaining('already has an active subscription'), 'DUPLICATE_ENTRY');
+    expect(mockSendError).toHaveBeenCalledWith(res, 409, expect.stringContaining('already has a subscription'), 'DUPLICATE_ENTRY');
   });
 
   it('returns 500 on payment provider error', async () => {

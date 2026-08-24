@@ -12,6 +12,7 @@ import {
 } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { pooledFeatureEntitlements, pooledSeatUsage } from '../helpers/seats.js';
+import { incCounter } from '../observability/metrics.js';
 import type { QuotaTier } from '../models/organization.js';
 import {
   organizationService,
@@ -490,6 +491,23 @@ export const updateOrganizationSeatLimit = withController('Update organization s
 
   const result = await organizationService.setSeatLimit(id, body.seats, features, tier);
   if (!result) return sendError(res, 404, 'Organization not found');
+
+  // Defense-in-depth for the trust boundary above: billing is authoritative and
+  // gates the downgrade caller-side, so we don't block — but a pushed cap BELOW
+  // current pooled usage means a caller-side gate regressed and members are
+  // stranded. Make it observable (metric + warn) instead of silent.
+  if (typeof body.seats === 'number' && body.seats >= 0) {
+    try {
+      const { used } = await pooledSeatUsage(id);
+      if (used > body.seats) {
+        logger.warn('Seat-limit pushed below current pooled usage — members may be stranded', { orgId: id, seats: body.seats, used });
+        incCounter('platform_seat_limit_below_usage_total');
+      }
+    } catch (err) {
+      // Observability only — never fail the (already-committed) seat-limit write.
+      logger.warn('Pooled-seat over-cap check failed', { orgId: id, err: err instanceof Error ? err.message : String(err) });
+    }
+  }
 
   // Entitlement mutation on the account root (+ its descendants) — leave an audit
   // trail like every other admin org mutation (setTier, member ops, delete).

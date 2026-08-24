@@ -77,8 +77,15 @@ export default function OnboardingPage() {
   const goToDashboard = async () => {
     // Refresh first (syncs the new org name), THEN re-apply the optimistic clear —
     // so a stale read-replica returning needsOnboarding:true can't overwrite it and
-    // bounce the user back to onboarding via the guard.
-    await refreshUser();
+    // bounce the user back to onboarding via the guard. A refresh failure must NOT
+    // strand the user (the install-step "Continue" calls this fire-and-forget), so
+    // swallow it and navigate regardless — markOnboardingComplete already cleared
+    // the flag locally.
+    try {
+      await refreshUser();
+    } catch {
+      /* transient — proceed to the dashboard anyway */
+    }
     markOnboardingComplete();
     router.replace('/dashboard');
   };

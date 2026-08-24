@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
 import { formatError } from '@/lib/constants';
-import { motion } from 'framer-motion';
-import { CheckCircle, MailWarning } from 'lucide-react';
+import { CheckCircle, MailWarning, User, Building2, Lock, Trash2, Clock } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { SectionCard } from '@/components/ui/SectionCard';
+import { FormSection } from '@/components/ui/FormSection';
+import { FormField } from '@/components/ui/FormField';
+import { Callout } from '@/components/ui/Callout';
+import { RetryError } from '@/components/ui/RetryError';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { ErrorAlert } from '@/components/ui/ErrorAlert';
-import { SuccessAlert } from '@/components/ui/SuccessAlert';
+import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { AIProviderConfig } from '@/components/settings/AIProviderConfig';
 import { DomainJoinSettings } from '@/components/settings/DomainJoinSettings';
 import { StepUpModal } from '@/components/admin/StepUpModal';
@@ -20,7 +23,7 @@ import { decodeJwt } from '@/lib/jwt';
 
 /** User and organization settings page. Manages profile info, AI provider API keys, password changes, and account deletion. */
 export default function SettingsPage() {
-  const { user, isReady, refreshUser, can, isAdmin, isSuperAdmin, isReadOnly } = useAuthGuard();
+  const { user, isReady, refreshUser, can, isSuperAdmin, isReadOnly } = useAuthGuard();
 
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -35,10 +38,12 @@ export default function SettingsPage() {
     );
   };
 
-  // Admin/superadmin can mark their email verified directly (no emailed link).
-  // The backend independently gates this to admin/owner/superadmin. `!isReadOnly`
-  // hides it under read-only impersonation (the POST would 403 there).
-  const canMarkVerified = (isAdmin || isSuperAdmin) && !isReadOnly;
+  // Superadmins can mark their email verified directly (no emailed link) — a
+  // no-outbound-email operator convenience. The backend gates this to superadmin
+  // ONLY (an admin/owner gate was insecure: every user owns their personal org,
+  // so it reduced to "anyone can self-verify" — the domain-join trust hole).
+  // `!isReadOnly` hides it under read-only impersonation (the POST would 403).
+  const canMarkVerified = isSuperAdmin && !isReadOnly;
   const markVerify = useFormState();
   const handleMarkVerified = async () => {
     await markVerify.run(
@@ -69,7 +74,7 @@ export default function SettingsPage() {
     }
   }, [user]);
 
-  const handleProfileSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const updates: { username?: string; email?: string } = {};
     if (username !== user?.username) updates.username = username;
@@ -87,7 +92,7 @@ export default function SettingsPage() {
     if (result !== null) await refreshUser();
   };
 
-  const handlePasswordSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
       password.setError('New passwords do not match');
@@ -131,166 +136,105 @@ export default function SettingsPage() {
 
   return (
     <DashboardLayout title="Settings" subtitle="Account preferences and defaults">
-      <div className="page-section">
-        {/* Profile Settings */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="card mb-6"
+      <div className="space-y-6">
+        {/* Profile */}
+        <FormSection
+          icon={User}
+          title="Profile"
+          description="Your display name and sign-in email."
+          error={profile.error}
+          success={profile.success}
+          onSubmit={handleProfileSubmit}
+          submitLabel="Save changes"
+          submitLoading={profile.loading}
         >
-          <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Profile Settings</h2>
+          <FormField label="Username">
+            <Input type="text" value={username} onChange={(e) => setUsername(e.target.value)} disabled={profile.loading} />
+          </FormField>
 
-          <form onSubmit={handleProfileSubmit} className="space-y-4">
-            <ErrorAlert message={profile.error} />
-            <SuccessAlert message={profile.success} />
+          <FormField label="Email">
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={profile.loading} />
+          </FormField>
 
-            <div>
-              <label htmlFor="username" className="label">Username</label>
-              <Input id="username" type="text" value={username} onChange={(e) => setUsername(e.target.value)} disabled={profile.loading} />
-            </div>
+          {user.isEmailVerified ? (
+            <Callout variant="success" icon={CheckCircle}>Your email address is verified.</Callout>
+          ) : (
+            <Callout variant="warning" icon={MailWarning} title="Your email address is unverified">
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {canMarkVerified && (
+                  <Button type="button" variant="secondary" size="sm" loading={markVerify.loading} onClick={handleMarkVerified}>
+                    Mark as verified
+                  </Button>
+                )}
+                <Button type="button" variant="secondary" size="sm" loading={verify.loading} onClick={handleResendVerification}>
+                  Resend verification email
+                </Button>
+              </div>
+            </Callout>
+          )}
+          {verify.error && <p className="text-xs text-[var(--pb-danger)]">{verify.error}</p>}
+          {verify.success && <p className="text-xs text-[var(--pb-success)]">{verify.success}</p>}
+          {markVerify.error && <p className="text-xs text-[var(--pb-danger)]">{markVerify.error}</p>}
+          {markVerify.success && <p className="text-xs text-[var(--pb-success)]">{markVerify.success}</p>}
 
-            <div>
-              <label htmlFor="email" className="label">Email</label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={profile.loading} />
-              {user.isEmailVerified ? (
-                <p className="mt-1.5 text-xs text-green-600 dark:text-green-400 inline-flex items-center gap-1">
-                  <CheckCircle className="w-3.5 h-3.5" /> Email verified
-                </p>
-              ) : (
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-400 bg-amber-100 px-3 py-2 text-xs font-medium text-amber-900 dark:border-amber-600 dark:bg-amber-900/40 dark:text-amber-100">
-                  <span className="inline-flex items-center gap-1.5">
-                    <MailWarning className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" /> Your email address is unverified.
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {canMarkVerified && (
-                      <Button type="button" variant="secondary" size="sm" loading={markVerify.loading} onClick={handleMarkVerified}>
-                        Mark as verified
-                      </Button>
-                    )}
-                    <Button type="button" variant="secondary" size="sm" loading={verify.loading} onClick={handleResendVerification}>
-                      Resend verification email
-                    </Button>
-                  </div>
-                </div>
-              )}
-              {verify.error && <p className="mt-1.5 text-xs text-red-600 dark:text-red-400">{verify.error}</p>}
-              {verify.success && <p className="mt-1.5 text-xs text-green-600 dark:text-green-400">{verify.success}</p>}
-              {markVerify.error && <p className="mt-1.5 text-xs text-red-600 dark:text-red-400">{markVerify.error}</p>}
-              {markVerify.success && <p className="mt-1.5 text-xs text-green-600 dark:text-green-400">{markVerify.success}</p>}
-            </div>
-
-            <SessionStartedRow />
-
-            <Button type="submit" loading={profile.loading}>
-              Save Changes
-            </Button>
-          </form>
-        </motion.div>
+          <SessionStartedRow />
+        </FormSection>
 
         {/* Organization Identity (owner/admin self-serve) */}
-        {can('org:settings') && (
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.04 }}
-            className="card mb-6"
-          >
-            <OrgIdentitySettings onSaved={refreshUser} />
-          </motion.div>
-        )}
+        {can('org:settings') && <OrgIdentitySettings onSaved={refreshUser} />}
 
         {/* Domain-based join (owner/admin self-serve) */}
         {can('org:settings') && user.organizationId && (
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.045 }}
-            className="mb-6"
-          >
-            <DomainJoinSettings orgId={user.organizationId} />
-          </motion.div>
+          <DomainJoinSettings orgId={user.organizationId} />
         )}
 
         {/* AI Providers */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.05 }}
-          className="card mb-6"
-        >
-          <AIProviderConfig canEdit={can('org:settings')} />
-        </motion.div>
+        <AIProviderConfig canEdit={can('org:settings')} />
 
         {/* Change Password */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.1 }}
-          className="card mb-6"
+        <FormSection
+          icon={Lock}
+          title="Password"
+          description="Change the password you use to sign in."
+          error={password.error}
+          success={password.success}
+          onSubmit={handlePasswordSubmit}
+          submitLabel="Change password"
+          submitLoading={password.loading}
         >
-          <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Change Password</h2>
-
-          <form onSubmit={handlePasswordSubmit} className="space-y-4">
-            <ErrorAlert message={password.error} />
-            <SuccessAlert message={password.success} />
-
-            <div>
-              <label htmlFor="currentPassword" className="label">Current Password</label>
-              <Input id="currentPassword" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} disabled={password.loading} />
-            </div>
-
-            <div>
-              <label htmlFor="newPassword" className="label">New Password</label>
-              <Input id="newPassword" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} disabled={password.loading} />
-            </div>
-
-            <div>
-              <label htmlFor="confirmPassword" className="label">Confirm New Password</label>
-              <Input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={password.loading} />
-            </div>
-
-            <Button type="submit" loading={password.loading}>
-              Change Password
-            </Button>
-          </form>
-        </motion.div>
+          <FormField label="Current password">
+            <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} disabled={password.loading} />
+          </FormField>
+          <FormField label="New password" hint="At least 8 characters.">
+            <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} disabled={password.loading} />
+          </FormField>
+          <FormField label="Confirm new password">
+            <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={password.loading} />
+          </FormField>
+        </FormSection>
 
         {/* Danger Zone */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.2 }}
-          className="card border-red-200/60 dark:border-red-800/60"
+        <SectionCard
+          icon={Trash2}
+          title="Delete account"
+          description="Permanently delete your account and all associated data. This cannot be undone."
+          className="border-[var(--pb-danger)]/40"
         >
-          <h2 className="text-lg font-medium text-red-600 dark:text-red-400 mb-4">Danger Zone</h2>
-
-          {!showDeleteConfirm ? (
-            <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Once you delete your account, there is no going back. Please be certain.
-              </p>
-              <Button variant="danger" onClick={() => setShowDeleteConfirm(true)}>
-                Delete Account
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <p className="text-sm text-red-600 dark:text-red-400 font-medium">
-                Are you absolutely sure you want to delete your account? This action cannot be undone.
-              </p>
-              <div className="flex space-x-3">
-                <Button variant="danger" onClick={handleDeleteAccount} loading={deleteLoading}>
-                  Yes, Delete My Account
-                </Button>
-                <Button variant="secondary" onClick={() => setShowDeleteConfirm(false)} disabled={deleteLoading}>
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
-        </motion.div>
+          <Button variant="danger" onClick={() => setShowDeleteConfirm(true)}>
+            Delete account
+          </Button>
+        </SectionCard>
       </div>
+
+      {showDeleteConfirm && (
+        <DeleteConfirmModal
+          title="Delete account"
+          itemName="your account"
+          loading={deleteLoading}
+          onConfirm={handleDeleteAccount}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      )}
 
       {pendingDelete && (
         <StepUpModal
@@ -347,7 +291,7 @@ function OrgIdentitySettings({ onSaved }: { onSaved: () => Promise<void> }) {
 
   useEffect(() => { void loadOrg(); }, [loadOrg]);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const updates: { name?: string; slug?: string } = {};
     const trimmedName = name.trim();
@@ -383,36 +327,33 @@ function OrgIdentitySettings({ onSaved }: { onSaved: () => Promise<void> }) {
     }
   };
 
+  if (loadError) {
+    return (
+      <SectionCard icon={Building2} title="Organization">
+        <RetryError message={loadError} onRetry={() => void loadOrg()} />
+      </SectionCard>
+    );
+  }
+
   return (
-    <>
-      <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Organization</h2>
-      {loadError ? (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300" role="alert">
-          <span>{loadError}</span>
-          <button type="button" onClick={() => void loadOrg()} className="underline hover:no-underline">Retry</button>
-        </div>
-      ) : (
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <ErrorAlert message={form.error} />
-        <SuccessAlert message={form.success} />
-
-        <div>
-          <label htmlFor="org-name" className="label">Organization name</label>
-          <Input id="org-name" type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={!loaded || form.loading} />
-        </div>
-
-        <div>
-          <label htmlFor="org-slug" className="label">URL slug</label>
-          <Input id="org-slug" type="text" value={slug} onChange={(e) => setSlug(e.target.value)} disabled={!loaded || form.loading} placeholder="my-organization" />
-          <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">Lowercase letters, numbers, and hyphens. Must be unique.</p>
-        </div>
-
-        <Button type="submit" loading={form.loading} disabled={!loaded}>
-          Save Organization
-        </Button>
-      </form>
-      )}
-    </>
+    <FormSection
+      icon={Building2}
+      title="Organization"
+      description="Your organization's display name and URL slug."
+      error={form.error}
+      success={form.success}
+      onSubmit={handleSubmit}
+      submitLabel="Save organization"
+      submitLoading={form.loading}
+      submitDisabled={!loaded}
+    >
+      <FormField label="Organization name">
+        <Input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={!loaded || form.loading} />
+      </FormField>
+      <FormField label="URL slug" hint="Lowercase letters, numbers, and hyphens. Must be unique.">
+        <Input type="text" value={slug} onChange={(e) => setSlug(e.target.value)} disabled={!loaded || form.loading} placeholder="my-organization" />
+      </FormField>
+    </FormSection>
   );
 }
 
@@ -432,15 +373,13 @@ function SessionStartedRow() {
   if (iat === null) return null;
   const issuedAt = iat * 1000;
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 px-3 py-2 text-xs text-gray-600 dark:text-gray-400 flex items-center justify-between gap-2">
-      <span>
-        Current session started{' '}
-        <strong className="text-gray-800 dark:text-gray-200">
-          <RelativeTime value={issuedAt} live />
-        </strong>
-        . If this looks wrong, sign out everywhere from{' '}
-        <Link href="/dashboard/tokens" className="action-link">Sessions &amp; tokens</Link>.
-      </span>
-    </div>
+    <Callout variant="neutral" icon={Clock}>
+      Current session started{' '}
+      <strong className="text-[var(--pb-text)]">
+        <RelativeTime value={issuedAt} live />
+      </strong>
+      . If this looks wrong, sign out everywhere from{' '}
+      <Link href="/dashboard/tokens" className="action-link">Sessions &amp; tokens</Link>.
+    </Callout>
   );
 }

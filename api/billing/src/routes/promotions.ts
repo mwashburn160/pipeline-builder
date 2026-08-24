@@ -17,12 +17,11 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import { grantPromotionToOrg, previewPromotion, promotionsEnabled, batchEvaluatePromotion, loadManageableSubscription } from '../helpers/promotion-engine.js';
+import { grantPromotionToOrg, previewPromotion, promotionsEnabled, batchEvaluatePromotion, loadManageableSubscription, aggregatePromotionLedgerSpend } from '../helpers/promotion-engine.js';
 import type { PromotionContext } from '../helpers/promotion-engine.js';
 import { Plan } from '../models/plan.js';
 import { Promotion } from '../models/promotion.js';
 import type { PromotionDocument } from '../models/promotion.js';
-import { Subscription } from '../models/subscription.js';
 import { getAuditClient } from '../services/audit.js';
 import { PromotionMintSchema, PromotionUpdateSchema, PromotionGrantSchema } from '../validation/schemas.js';
 
@@ -243,16 +242,7 @@ export function createPromotionRoutes(): Router {
     const promo = await Promotion.findById(id);
     if (!promo) return sendError(res, 404, 'Promotion not found');
 
-    const agg = await Subscription.aggregate([
-      { $unwind: '$creditLedger' },
-      { $match: { 'creditLedger.discountId': `promo:${id}` } },
-      // Count a COMPACTED carry row as the number of grants it folded
-      // (`grantCount`), an ordinary row as 1 — otherwise this endpoint under-
-      // reports grants after ledger compaction (matches reconcilePromotionSpend).
-      { $group: { _id: null, cents: { $sum: '$creditLedger.cents' }, grants: { $sum: { $ifNull: ['$creditLedger.grantCount', 1] } } } },
-    ]);
-    const ledgerCents = agg[0]?.cents ?? 0;
-    const ledgerGrants = agg[0]?.grants ?? 0;
+    const { cents: ledgerCents, grants: ledgerGrants } = await aggregatePromotionLedgerSpend(String(promo._id));
 
     return sendSuccess(res, 200, {
       spend: {

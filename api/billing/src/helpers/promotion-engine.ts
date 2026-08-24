@@ -338,6 +338,23 @@ export async function batchEvaluatePromotion(promo: PromotionDocument): Promise<
 }
 
 /**
+ * Aggregate a promotion's true spend from the LEDGER: Σ `cents` and Σ grants of
+ * its `promo:<id>` entries across all subscriptions. A compaction carry row
+ * (credit-ledger-compaction) counts as the grants it folded (`grantCount`), an
+ * ordinary row as 1 — so a bounded/compacted ledger still totals the true spend +
+ * grant count. Shared by {@link reconcilePromotionSpend} (the healer) and the
+ * `/promotions/:id/spend` read endpoint so the two can't drift.
+ */
+export async function aggregatePromotionLedgerSpend(promoId: string): Promise<{ cents: number; grants: number }> {
+  const agg = await Subscription.aggregate([
+    { $unwind: '$creditLedger' },
+    { $match: { 'creditLedger.discountId': `promo:${promoId}` } },
+    { $group: { _id: null, cents: { $sum: '$creditLedger.cents' }, grants: { $sum: { $ifNull: ['$creditLedger.grantCount', 1] } } } },
+  ]);
+  return { cents: agg[0]?.cents ?? 0, grants: agg[0]?.grants ?? 0 };
+}
+
+/**
  * Heal a promotion's advisory `spentCents`/`grantsCount` from the LEDGER (the
  * source of truth) — Σ of its `promo:<id>` entries across all subscriptions.
  * Corrects the recurring re-grant drift: it reserves budget then persists the
@@ -350,16 +367,7 @@ export async function batchEvaluatePromotion(promo: PromotionDocument): Promise<
 export async function reconcilePromotionSpend(
   promo: Pick<PromotionDocument, '_id' | 'spentCents' | 'grantsCount'>,
 ): Promise<void> {
-  const agg = await Subscription.aggregate([
-    { $unwind: '$creditLedger' },
-    { $match: { 'creditLedger.discountId': `promo:${promo._id}` } },
-    // Count a compaction carry row (credit-ledger-compaction) as the grants it
-    // folded (`grantCount`), and an ordinary row as 1 — so a bounded ledger still
-    // reconciles to the true spend + grant count.
-    { $group: { _id: null, cents: { $sum: '$creditLedger.cents' }, grants: { $sum: { $ifNull: ['$creditLedger.grantCount', 1] } } } },
-  ]);
-  const cents = agg[0]?.cents ?? 0;
-  const grants = agg[0]?.grants ?? 0;
+  const { cents, grants } = await aggregatePromotionLedgerSpend(String(promo._id));
   if (cents !== promo.spentCents || grants !== promo.grantsCount) {
     await Promotion.updateOne({ _id: promo._id }, { $set: { spentCents: cents, grantsCount: grants } });
     logger.info('Reconciled promotion spend cache from ledger', { promotionId: promo._id, spentCents: cents, grantsCount: grants, wasSpentCents: promo.spentCents });

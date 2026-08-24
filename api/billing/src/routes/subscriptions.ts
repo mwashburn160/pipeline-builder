@@ -109,16 +109,21 @@ export function createSubscriptionRoutes(): Router {
 
     const rawEmail = req.user?.email;
     const customerEmail = typeof rawEmail === 'string' && rawEmail.length > 0 ? rawEmail : undefined;
-    // Reuse one Stripe customer per org across abandoned/retried checkouts.
-    const customerId = await provider.createCustomer(orgId, customerEmail, `checkout_cust_${orgId}`);
+    // Reuse the org's existing Stripe customer (from a prior/cancelled sub) so its
+    // balance / usage-credit mirror carries over and we don't strand orphan
+    // customers on abandoned checkouts; else mint one (idempotent per org).
+    const prior = await Subscription.findOne({ orgId, externalCustomerId: { $ne: null } });
+    const customerId = prior?.externalCustomerId
+      || await provider.createCustomer(orgId, customerEmail, `checkout_cust_${orgId}`);
 
     const origin = (req.headers.origin as string | undefined) || config.frontendUrl;
-    if (!origin) return sendError(res, 500, 'Cannot determine a return URL for checkout');
+    if (!origin) return sendError(res, 400, 'Cannot determine a return URL for checkout (no Origin header or configured frontend URL)', ErrorCode.VALIDATION_ERROR);
     const base = `${origin.replace(/\/$/, '')}/dashboard/billing`;
     const url = await provider.createCheckoutSession(customerId, planId, interval, {
       orgId,
       successUrl: `${base}?checkout=success`,
       cancelUrl: `${base}?checkout=cancelled`,
+      ...(validation.value.referralCode ? { referralCode: validation.value.referralCode } : {}),
     });
     logger.info('Created checkout session', { orgId, planId, interval });
     return sendSuccess(res, 200, { url });
@@ -150,11 +155,13 @@ export function createSubscriptionRoutes(): Router {
       return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
     }
 
-    // Check for existing active subscription
-    const existing = await Subscription.findOne({ orgId, status: 'active' });
+    // Reject when a manageable OR still-settling (`incomplete`) subscription
+    // already exists — otherwise a second create mints another provider sub while
+    // the first `incomplete` one is still live at the provider (~23h).
+    const existing = await Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES, 'incomplete'] } });
     if (existing) {
       return sendError( res, 409,
-        'Organization already has an active subscription. Use PUT to change plans.',
+        'Organization already has a subscription. Use PUT to change plans.',
         ErrorCode.DUPLICATE_ENTRY,
       );
     }

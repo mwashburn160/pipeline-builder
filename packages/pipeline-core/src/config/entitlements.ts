@@ -11,7 +11,7 @@
  * come from api-core (`getTierLimits`) and the bundle catalog is passed in.
  */
 
-import { getTierLimits, type QuotaTier } from '@pipeline-builder/api-core';
+import { getTierLimits, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
 import type { BundleConfig } from './config-types.js';
 
 /**
@@ -23,21 +23,23 @@ export function effectiveEntitlements(
   tier: QuotaTier,
   addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
   bundles: readonly BundleConfig[],
-): { limits: Record<string, number>; features: string[] } {
-  const limits: Record<string, number> = { ...getTierLimits(tier) };
+): { limits: Record<keyof QuotaTierLimits, number>; features: string[] } {
+  const limits = { ...getTierLimits(tier) } as Record<keyof QuotaTierLimits, number>;
   const features = new Set<string>();
   const byId = new Map(bundles.map((b) => [b.id, b]));
   for (const { bundleId, quantity } of addons) {
     const bundle = byId.get(bundleId);
     if (!bundle || quantity <= 0) continue;
-    // Enforce the non-stackable invariant in the CANONICAL math, not just at the
-    // purchase route: a `stackable:false` bundle counts once regardless of a
-    // stored quantity > 1, so a non-route caller (drift reconciler,
-    // subscription-lifecycle) can't over-grant its quota.
-    const effectiveQty = bundle.stackable ? quantity : 1;
-    for (const [field, delta] of Object.entries(bundle.grants)) {
+    // Enforce the non-stackable invariant AND the maxQuantity ceiling in the
+    // CANONICAL math, not just at the purchase route: a `stackable:false` bundle
+    // counts once, and a stackable pack is clamped to its `maxQuantity` — so a
+    // non-route caller (drift reconciler, subscription-lifecycle) can't over-grant
+    // a quota from a stored/drifted quantity (e.g. a retention pack past its cap).
+    const effectiveQty = bundle.stackable ? Math.min(quantity, bundle.maxQuantity ?? quantity) : 1;
+    for (const [rawField, delta] of Object.entries(bundle.grants)) {
       // `grants` is a Partial map, so a value can be undefined — skip those.
       if (delta === undefined) continue;
+      const field = rawField as keyof QuotaTierLimits; // grants keys ARE quota fields
       if (limits[field] === -1) continue; // already unlimited
       limits[field] = (limits[field] ?? 0) + delta * effectiveQty;
     }

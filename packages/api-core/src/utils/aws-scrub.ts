@@ -47,11 +47,15 @@ export function scrubAwsIdentifiers<T>(value: T): T {
     return value.map((v) => scrubAwsIdentifiers(v)) as unknown as T;
   }
   if (value && typeof value === 'object') {
-    // Only recurse PLAIN objects. A Date/Buffer/Map/class instance is not a
-    // plain object, and walking it via Object.entries would clobber it to `{}`
-    // (or a byte map) — silently destroying e.g. a Date held in audit `details`
-    // or event `detail`. Leave any non-plain object untouched.
-    if (Object.getPrototypeOf(value) !== Object.prototype) return value;
+    // Recurse plain AND null-prototype objects (data bags). A Date/Buffer/Map/
+    // class instance is NOT a plain object, and walking it via Object.entries
+    // would clobber it to `{}` (or a byte map) — silently destroying e.g. a Date
+    // held in audit `details`. But a null-prototype object (`Object.create(null)`,
+    // some JSON.parse revivers, BSON docs) is a plain data bag that must still be
+    // scrubbed — skipping it was a hole at the very persistence boundary this
+    // module guards. Leave only prototyped non-plain objects untouched.
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) return value;
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       if (ACCOUNT_KEY_RE.test(k) && (typeof v === 'string' || typeof v === 'number')) {

@@ -27,9 +27,10 @@ const RAW_HTML_KEYS = new Set(['oauthHtml', 'body']);
 
 /**
  * Escape HTML-significant characters to prevent XSS via user-supplied values
- * injected into email templates.
+ * injected into email templates. Exported so ad-hoc HTML emails (e.g. the
+ * domain-join notifications in `email.ts`) escape interpolated values too.
  */
-function htmlEscape(s: string): string {
+export function htmlEscape(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

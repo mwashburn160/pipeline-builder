@@ -2,15 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { Siren, KeyRound, Webhook, FlaskConical, Clock, Archive } from 'lucide-react';
-import { Card } from '@/components/ui/Card';
+import { SectionCard } from '@/components/ui/SectionCard';
+import { CodeBlock } from '@/components/ui/CodeBlock';
+import { StatCard } from '@/components/ui/StatCard';
+import { Callout } from '@/components/ui/Callout';
+import { SecretReveal } from '@/components/ui/SecretReveal';
+import { RetryError } from '@/components/ui/RetryError';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { Button } from '@/components/ui/Button';
+import { LinkButton } from '@/components/ui/LinkButton';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { FormField } from '@/components/ui/FormField';
 import { Badge } from '@/components/ui/Badge';
-import { CopyButton } from '@/components/ui/CopyButton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useToast } from '@/components/ui/Toast';
@@ -206,7 +211,7 @@ export function IncidentReportingSettings() {
   );
 
   const incidentColumns: Column<IncidentListItem>[] = [
-    { id: 'incidentId', header: 'Incident', cellClassName: 'font-mono text-xs text-gray-800 dark:text-gray-200', render: (i) => i.incidentId },
+    { id: 'incidentId', header: 'Incident', cellClassName: 'font-mono text-xs text-[var(--pb-text)]', render: (i) => i.incidentId },
     { id: 'environment', header: 'Environment', render: (i) => i.environment },
     { id: 'severity', header: 'Severity', render: (i) => <Badge color="gray">{i.severity}</Badge> },
     {
@@ -216,8 +221,8 @@ export function IncidentReportingSettings() {
     {
       id: 'correlated', header: 'Correlated deploy',
       render: (i) => (i.correlatedExecutionId
-        ? <span className="font-mono text-xs text-gray-600 dark:text-gray-300">{i.correlatedExecutionId}</span>
-        : <span className="text-xs text-gray-400">none</span>),
+        ? <span className="font-mono text-xs text-[var(--pb-text-muted)]">{i.correlatedExecutionId}</span>
+        : <span className="text-xs text-[var(--pb-text-muted)]">none</span>),
     },
     { id: 'openedAt', header: 'Opened', render: (i) => (i.openedAt ? <RelativeTime value={i.openedAt} /> : '—') },
   ];
@@ -225,53 +230,40 @@ export function IncidentReportingSettings() {
   return (
     <div className="space-y-6">
       {/* Overview */}
-      <Card>
-        <div className="flex items-center gap-2 mb-2">
-          <Siren className="w-5 h-5 text-gray-500" />
-          <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Incident reporting</h2>
-        </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          Point your incident tooling (PagerDuty, Datadog, or in-cluster Alertmanager) at Pipeline Builder to feed
+      <SectionCard
+        icon={Siren}
+        title="Incident reporting"
+        description={
+          <>Point your incident tooling (PagerDuty, Datadog, or in-cluster Alertmanager) at Pipeline Builder to feed
           DORA <strong>automated post-deploy Change Failure Rate</strong> + <strong>real Mean Time To Restore</strong>.
-          Each incident is correlated to the most recent successful deploy to its environment.
-        </p>
-      </Card>
+          Each incident is correlated to the most recent successful deploy to its environment.</>
+        }
+      />
 
       {/* Endpoints */}
-      <Card>
-        <div className="flex items-center gap-2 mb-3">
-          <Webhook className="w-5 h-5 text-gray-500" />
-          <h3 className="text-base font-medium text-gray-900 dark:text-gray-100">Webhook endpoints</h3>
-        </div>
+      <SectionCard icon={Webhook} title="Webhook endpoints">
         <div className="space-y-3">
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Generic (PagerDuty / Datadog / any JSON)</p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 text-xs font-mono break-all text-gray-800 dark:text-gray-200">{genericUrl}</code>
-              <CopyButton text={genericUrl} />
-            </div>
+            <p className="text-xs font-medium text-[var(--pb-text-muted)] mb-1">Generic (PagerDuty / Datadog / any JSON)</p>
+            <CodeBlock code={genericUrl} language="POST" />
           </div>
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Alertmanager adapter (native webhook payload)</p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 text-xs font-mono break-all text-gray-800 dark:text-gray-200">{alertmanagerUrl}</code>
-              <CopyButton text={alertmanagerUrl} />
-            </div>
+            <p className="text-xs font-medium text-[var(--pb-text-muted)] mb-1">Alertmanager adapter (native webhook payload)</p>
+            <CodeBlock code={alertmanagerUrl} language="POST" />
           </div>
         </div>
-      </Card>
+      </SectionCard>
 
       {/* Webhook token */}
-      <Card>
-        <div className="flex items-center gap-2 mb-2">
-          <KeyRound className="w-5 h-5 text-gray-500" />
-          <h3 className="text-base font-medium text-gray-900 dark:text-gray-100">Webhook token</h3>
-        </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-          Generate an org-bound token carrying only the <code className="font-mono">reporting:ingest</code> scope for your
+      <SectionCard
+        icon={KeyRound}
+        title="Webhook token"
+        description={
+          <>Generate an org-bound token carrying only the <code className="font-mono">reporting:ingest</code> scope for your
           incident tool to authenticate with (<code className="font-mono">Authorization: Bearer &lt;token&gt;</code>). To
-          rotate, generate a new one and revoke the old token on the <a className="underline" href="/dashboard/tokens">API Tokens</a> page.
-        </p>
+          rotate, generate a new one and revoke the old token on the <a className="action-link" href="/dashboard/tokens">API Tokens</a> page.</>
+        }
+      >
         <Button onClick={requestToken} loading={creating || !!pendingCreate}>Generate webhook token</Button>
 
         {pendingCreate && (
@@ -282,20 +274,11 @@ export function IncidentReportingSettings() {
           />
         )}
 
-        {newToken && (
-          <div className="mt-4 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-3">
-            <p className="text-sm font-medium text-amber-800 dark:text-amber-200 mb-2">Copy your token now — it won&apos;t be shown again.</p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 text-xs font-mono break-all text-gray-800 dark:text-gray-200">{newToken}</code>
-              <CopyButton text={newToken} />
-            </div>
-          </div>
-        )}
-      </Card>
+        {newToken && <SecretReveal value={newToken} label="Webhook token" className="mt-4" />}
+      </SectionCard>
 
       {/* Provider presets */}
-      <Card>
-        <h3 className="text-base font-medium text-gray-900 dark:text-gray-100 mb-3">Provider setup</h3>
+      <SectionCard title="Provider setup">
         <FormField label="Provider" className="max-w-xs mb-3">
           <Select value={provider} onChange={(e) => setProvider(e.target.value as ProviderKey)}>
             <option value="alertmanager">Alertmanager (native)</option>
@@ -304,28 +287,24 @@ export function IncidentReportingSettings() {
             <option value="generic">Generic (JSON)</option>
           </Select>
         </FormField>
-        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{guide.label} — POST to:</p>
-        <div className="flex items-center gap-2 mb-3">
-          <code className="flex-1 text-xs font-mono break-all text-gray-800 dark:text-gray-200">{guide.endpoint}</code>
-          <CopyButton text={guide.endpoint} />
-        </div>
-        <ol className="list-decimal ml-5 space-y-1 text-sm text-gray-600 dark:text-gray-300">
+        <p className="text-xs font-medium text-[var(--pb-text-muted)] mb-1">{guide.label} — POST to:</p>
+        <CodeBlock code={guide.endpoint} language="POST" className="mb-3" />
+        <ol className="list-decimal ml-5 space-y-1 text-sm text-[var(--pb-text-muted)]">
           {guide.steps.map((s, i) => <li key={i}>{s}</li>)}
         </ol>
-      </Card>
+      </SectionCard>
 
       {/* Correlation window */}
-      <Card>
-        <div className="flex items-center gap-2 mb-2">
-          <Clock className="w-5 h-5 text-gray-500" />
-          <h3 className="text-base font-medium text-gray-900 dark:text-gray-100">Correlation window</h3>
-        </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-          An incident is attributed to the most recent successful deploy that completed within this many hours before it
+      <SectionCard
+        icon={Clock}
+        title="Correlation window"
+        description={
+          <>An incident is attributed to the most recent successful deploy that completed within this many hours before it
           opened. {settingsLoading ? 'Loading…' : (
             <>Currently <strong>{`${effectiveWindow}h`}</strong>{settings?.incidentWindowHours == null ? ' (default)' : ' (override)'}.</>
-          )}
-        </p>
+          )}</>
+        }
+      >
         <div className="flex flex-wrap items-end gap-2">
           <FormField label="Window (hours)" className="w-40">
             <Input
@@ -338,55 +317,43 @@ export function IncidentReportingSettings() {
           </FormField>
           <Button onClick={saveWindow} loading={savingWindow} disabled={!windowInput}>Save window</Button>
         </div>
-      </Card>
+      </SectionCard>
 
       {/* Retention (Phase 7) — READ-ONLY (billing-owned) */}
-      <Card>
-        <div className="flex items-center gap-2 mb-2">
-          <Archive className="w-5 h-5 text-gray-500" />
-          <h3 className="text-base font-medium text-gray-900 dark:text-gray-100">Retention</h3>
-        </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-          Reporting data is purged by age on a split schedule. Retention is part of your plan — raise it by adding a
-          retention / DORA-History pack. DORA history is bounded by the DORA-source window; reports hard-cap at 730 days
-          regardless, so a longer window preserves raw source rows within that ceiling.
-        </p>
+      <SectionCard
+        icon={Archive}
+        title="Retention"
+        description="Reporting data is purged by age on a split schedule. Retention is part of your plan — raise it by adding a retention / DORA-History pack. DORA history is bounded by the DORA-source window; reports hard-cap at 730 days regardless, so a longer window preserves raw source rows within that ceiling."
+      >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-3">
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Standard events</p>
-            <p className="mt-0.5 text-lg font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-              {settingsLoading ? '…' : fmtRetentionDays(effectiveEventDays)}
-            </p>
-            <p className="text-[11px] text-gray-400 dark:text-gray-500">
-              {settings?.eventRetentionDays == null ? 'plan default' : 'from your plan / packs'}
-            </p>
-          </div>
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-3">
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">DORA source</p>
-            <p className="mt-0.5 text-lg font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-              {settingsLoading ? '…' : fmtRetentionDays(effectiveDoraDays)}
-            </p>
-            <p className="text-[11px] text-gray-400 dark:text-gray-500">
-              {settings?.doraRetentionDays == null ? 'plan default' : 'from your plan / packs'}
-            </p>
-          </div>
+          <StatCard
+            variant="detailed"
+            label="Standard events"
+            value={settingsLoading ? '…' : fmtRetentionDays(effectiveEventDays)}
+            sub={settings?.eventRetentionDays == null ? 'plan default' : 'from your plan / packs'}
+          />
+          <StatCard
+            variant="detailed"
+            label="DORA source"
+            value={settingsLoading ? '…' : fmtRetentionDays(effectiveDoraDays)}
+            sub={settings?.doraRetentionDays == null ? 'plan default' : 'from your plan / packs'}
+          />
         </div>
-        <Link href={RETENTION_PACK_HIGHLIGHT} className="btn btn-secondary btn-sm mt-3 inline-flex">
+        <LinkButton href={RETENTION_PACK_HIGHLIGHT} variant="secondary" size="sm" className="mt-3 inline-flex">
           Extend retention
-        </Link>
-      </Card>
+        </LinkButton>
+      </SectionCard>
 
       {/* Send test incident */}
-      <Card>
-        <div className="flex items-center gap-2 mb-2">
-          <FlaskConical className="w-5 h-5 text-gray-500" />
-          <h3 className="text-base font-medium text-gray-900 dark:text-gray-100">Send test incident</h3>
-        </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-          A non-persisting dry-run: checks whether a synthetic incident opening now for the given environment would
+      <SectionCard
+        icon={FlaskConical}
+        title="Send test incident"
+        description={
+          <>A non-persisting dry-run: checks whether a synthetic incident opening now for the given environment would
           correlate to a recent successful deploy under your window. It does <strong>not</strong> write an incident or
-          affect your metrics.
-        </p>
+          affect your metrics.</>
+        }
+      >
         <div className="flex flex-wrap items-end gap-2">
           <FormField label="Environment" className="w-56">
             <Input value={testEnv} onChange={(e) => setTestEnv(e.target.value)} placeholder="production" disabled={testing} />
@@ -394,33 +361,28 @@ export function IncidentReportingSettings() {
           <Button onClick={sendTest} loading={testing}>Send test incident</Button>
         </div>
         {testResult && (
-          <div className={`mt-3 rounded-lg border px-4 py-3 text-sm ${testResult.correlated
-            ? 'border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200'
-            : 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200'}`}>
+          <Callout variant={testResult.correlated ? 'success' : 'warning'} className="mt-3">
             {testResult.correlated ? (
               <>Correlated to deploy <code className="font-mono">{testResult.executionId}</code> (completed {testResult.deployCompletedAt}). Window {testResult.windowHours}h.</>
             ) : (
               <>No successful deploy to <strong>{testResult.environment}</strong> in the last {testResult.windowHours}h. Confirm the environment name matches your deploy stage and that a deploy ran recently.</>
             )}
-          </div>
+          </Callout>
         )}
-      </Card>
+      </SectionCard>
 
       {/* Recent incidents */}
-      <Card>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-base font-medium text-gray-900 dark:text-gray-100">Recent incidents</h3>
-          <Button variant="ghost" size="xs" onClick={() => void reloadIncidents()}>Refresh</Button>
-        </div>
+      <SectionCard
+        title="Recent incidents"
+        actions={<Button variant="ghost" size="xs" onClick={() => void reloadIncidents()}>Refresh</Button>}
+        bodyClassName="p-0"
+      >
         {incidentsLoading && incidents.length === 0 ? (
-          <p className="text-sm text-gray-400">Loading…</p>
+          <div className="space-y-2 p-5">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-10 rounded-lg" />)}</div>
         ) : incidentsError && incidents.length === 0 ? (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300" role="alert">
-            <span>{incidentsError}</span>
-            <button type="button" onClick={() => void reloadIncidents()} className="underline hover:no-underline shrink-0">Retry</button>
-          </div>
+          <div className="p-5"><RetryError message={incidentsError} onRetry={() => void reloadIncidents()} /></div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto p-5">
             <DataTable
               data={incidents}
               columns={incidentColumns}
@@ -431,7 +393,7 @@ export function IncidentReportingSettings() {
             />
           </div>
         )}
-      </Card>
+      </SectionCard>
     </div>
   );
 }

@@ -17,6 +17,7 @@ import {
   calculatePeriodEnd,
   createBillingEvent,
   syncEntitlements,
+  recordReactivatePlanMissing,
   MANAGEABLE_SUBSCRIPTION_STATUSES,
 } from '../helpers/billing-helpers.js';
 import { applyPlanTierChange, applyTierIncludedAddonPrune } from '../helpers/addon-prune.js';
@@ -182,10 +183,9 @@ async function processMarketplaceNotification(notification: MarketplaceNotificat
       logger.warn('Marketplace reactivation could not sync — subscription plan not found', {
         orgId: subscription.orgId, customerIdentifier, planId: subscription.planId,
       });
-      await createBillingEvent(subscription.orgId, 'subscription_updated', {
-        reason: 'reactivate_plan_missing', provider: 'aws-marketplace', planId: subscription.planId,
-      }, subscription._id.toString());
-      incCounter('billing_reactivate_plan_missing_total', { source: 'marketplace' });
+      await recordReactivatePlanMissing(subscription.orgId, subscription._id.toString(), 'marketplace', {
+        provider: 'aws-marketplace', planId: subscription.planId,
+      });
     }
     await createBillingEvent(subscription.orgId, 'subscription_reactivated', {
       action,
