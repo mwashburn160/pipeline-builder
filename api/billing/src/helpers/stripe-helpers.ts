@@ -3,7 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { Subscription } from '../models/subscription.js';
-import type { SubscriptionStatus } from '../models/subscription.js';
+import type { SubscriptionStatus, SubscriptionDocument } from '../models/subscription.js';
 
 const logger = createLogger('stripe-helpers');
 
@@ -46,15 +46,25 @@ export async function findSubscriptionByStripeId(stripeSubscriptionId: string) {
 }
 
 /**
- * Find the account's newest Stripe subscription by its external customer id — the
- * lookup the charge-level reversal webhooks (charge.refunded /
- * charge.dispute.created) use, since a Charge/Dispute carries the customer but not
- * the subscription. Newest-first so a cancel→resubscribe (multiple rows sharing a
- * customer) resolves to the current subscription, not a stale canceled one.
+ * Resolve the subscription a charge-level reversal (charge.refunded /
+ * charge.dispute.created) should CLAW BACK against. A Charge/Dispute carries the
+ * customer but NOT the subscription, so a customer with exactly ONE Stripe
+ * subscription is an unambiguous match. With MULTIPLE rows sharing the customer
+ * (cancel→resubscribe), newest-by-customer could be a DIFFERENT subscription than
+ * the one this charge belongs to — clawing back the wrong sub's promotions. In
+ * that case we report `ambiguous` so the caller reverses the (invoice-keyed)
+ * ledger but SKIPS the sub-scoped clawback rather than attributing it wrong.
+ *
+ * `.limit(2)` is enough to distinguish "one" from "more than one".
  */
-export async function findSubscriptionByCustomerId(externalCustomerId: string) {
-  return Subscription.findOne({
+export async function findReversalSubscription(
+  externalCustomerId: string,
+): Promise<{ subscription: SubscriptionDocument | null; ambiguous: boolean }> {
+  const subs = await Subscription.find({
     'externalCustomerId': externalCustomerId,
     'metadata.provider': 'stripe',
-  }).sort({ createdAt: -1 });
+  }).sort({ createdAt: -1 }).limit(2);
+  if (subs.length === 0) return { subscription: null, ambiguous: false };
+  if (subs.length > 1) return { subscription: null, ambiguous: true };
+  return { subscription: subs[0], ambiguous: false };
 }

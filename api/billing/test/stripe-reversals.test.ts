@@ -63,10 +63,12 @@ jest.unstable_mockModule('../src/helpers/promotion-engine.js', () => ({
 }));
 
 const mockFindByStripeId = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockFindByCustomerId = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+// findReversalSubscription returns { subscription, ambiguous }. This helper defaults
+// each test's charge-customer lookup to a single unambiguous match.
+const mockFindReversalSub = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/helpers/stripe-helpers.js', () => ({
   findSubscriptionByStripeId: (...a: unknown[]) => mockFindByStripeId(...a),
-  findSubscriptionByCustomerId: (...a: unknown[]) => mockFindByCustomerId(...a),
+  findReversalSubscription: (...a: unknown[]) => mockFindReversalSub(...a),
   mapStripeStatus: (s: string) => s,
 }));
 
@@ -104,7 +106,7 @@ beforeEach(() => {
 describe('charge.refunded', () => {
   it('reverses the ledger with net-of-refund amount and claws back recent promotions', async () => {
     const sub = subDoc();
-    mockFindByCustomerId.mockResolvedValue(sub);
+    mockFindReversalSub.mockResolvedValue({ subscription: sub, ambiguous: false });
     mockClawback.mockResolvedValue(2);
 
     await handleChargeRefunded({ id: 'ch_1', invoice: 'in_1', customer: 'cus_1', amount: 4900, amount_refunded: 4900, refunded: true } as any);
@@ -112,7 +114,7 @@ describe('charge.refunded', () => {
     // Ledger reversed as 'refunded' with net paid = amount − amount_refunded = 0.
     expect(mockReverseLedgerInvoice).toHaveBeenCalledWith('in_1', 'refunded', 0);
     // Subscription resolved by CUSTOMER id (a charge has no subscription ref).
-    expect(mockFindByCustomerId).toHaveBeenCalledWith('cus_1');
+    expect(mockFindReversalSub).toHaveBeenCalledWith('cus_1');
     expect(mockClawback).toHaveBeenCalledWith(sub);
     // A save must NOT happen — clawback persists via atomic $pull/$inc.
     expect(sub.save).not.toHaveBeenCalled();
@@ -124,21 +126,32 @@ describe('charge.refunded', () => {
   });
 
   it('handles a PARTIAL refund — net paid = amount − amount_refunded', async () => {
-    mockFindByCustomerId.mockResolvedValue(subDoc());
+    mockFindReversalSub.mockResolvedValue({ subscription: subDoc(), ambiguous: false });
     await handleChargeRefunded({ id: 'ch_2', invoice: 'in_2', customer: 'cus_1', amount: 4900, amount_refunded: 1000, refunded: false } as any);
     expect(mockReverseLedgerInvoice).toHaveBeenCalledWith('in_2', 'refunded', 3900);
   });
 
   it('reverses the ledger but skips clawback when no local subscription matches', async () => {
-    mockFindByCustomerId.mockResolvedValue(null);
+    mockFindReversalSub.mockResolvedValue({ subscription: null, ambiguous: false });
     await handleChargeRefunded({ id: 'ch_3', invoice: 'in_3', customer: 'cus_x', amount: 4900, amount_refunded: 4900 } as any);
     expect(mockReverseLedgerInvoice).toHaveBeenCalledWith('in_3', 'refunded', 0);
     expect(mockClawback).not.toHaveBeenCalled();
     expect(mockCreateBillingEvent).not.toHaveBeenCalled();
   });
 
+  it('reverses the ledger but SKIPS clawback when the customer has multiple subs (ambiguous attribution)', async () => {
+    // cancel→resubscribe: newest-by-customer could be a different sub than the one
+    // this charge belongs to, so the sub-scoped clawback must be skipped (the
+    // invoice-keyed ledger reversal still runs).
+    mockFindReversalSub.mockResolvedValue({ subscription: null, ambiguous: true });
+    await handleChargeRefunded({ id: 'ch_a', invoice: 'in_a', customer: 'cus_multi', amount: 4900, amount_refunded: 4900 } as any);
+    expect(mockReverseLedgerInvoice).toHaveBeenCalledWith('in_a', 'refunded', 0);
+    expect(mockClawback).not.toHaveBeenCalled();
+    expect(mockCreateBillingEvent).not.toHaveBeenCalled();
+  });
+
   it('skips the ledger reversal for a charge with no invoice (non-subscription charge)', async () => {
-    mockFindByCustomerId.mockResolvedValue(subDoc());
+    mockFindReversalSub.mockResolvedValue({ subscription: subDoc(), ambiguous: false });
     await handleChargeRefunded({ id: 'ch_4', invoice: null, customer: 'cus_1', amount: 500, amount_refunded: 500 } as any);
     expect(mockReverseLedgerInvoice).not.toHaveBeenCalled();
     // Still claws back on the resolved subscription.
@@ -149,7 +162,7 @@ describe('charge.refunded', () => {
 describe('charge.dispute.created', () => {
   it('re-fetches the disputed charge, reverses the ledger, and claws back', async () => {
     mockChargesRetrieve.mockResolvedValue({ id: 'ch_d', invoice: 'in_d', customer: 'cus_1', amount: 4900 });
-    mockFindByCustomerId.mockResolvedValue(subDoc());
+    mockFindReversalSub.mockResolvedValue({ subscription: subDoc(), ambiguous: false });
 
     await handleChargeDisputeCreated({ id: 'dp_1', charge: 'ch_d', amount: 4900, status: 'warning_needs_response' } as any);
 

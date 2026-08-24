@@ -19,7 +19,7 @@ import type { PrunedAddon } from '../helpers/billing-helpers.js';
 import { ingestStripeInvoice, reverseLedgerInvoice } from '../helpers/billing-ledger.js';
 import { clearDiscountsOnCancel, reconcileDiscountsOnInvoice } from '../helpers/discount-helpers.js';
 import { clawbackRecentPromotions, evaluatePromotions, grantRecurringPromotions, processReferralSignup, qualifyReferral, recurringPeriodKey } from '../helpers/promotion-engine.js';
-import { findSubscriptionByCustomerId, findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers.js';
+import { findReversalSubscription, findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers.js';
 import { Plan } from '../models/plan.js';
 import { Subscription, type SubscriptionDocument, type BillingInterval } from '../models/subscription.js';
 import { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent } from '../models/webhook-dedupe.js';
@@ -262,10 +262,11 @@ export async function handleSubscriptionCreated(stripeSubscription: Stripe.Subsc
       metadata: { provider: 'stripe' },
     });
   } catch (err) {
-    // Lost the {orgId,status:'active'} uniqueness race — a concurrent provision won.
-    // This incoming Stripe sub is the DUPLICATE → cancel it (don't delegate to
-    // update, which would find no row for THIS externalId and no-op, orphaning a
-    // billing sub).
+    // Lost the per-org manageable-subscription uniqueness race — a concurrent
+    // provision won. This incoming Stripe sub is the DUPLICATE → cancel it (don't
+    // delegate to update, which would find no row for THIS externalId and no-op,
+    // orphaning a billing sub). The index now covers active/trialing/past_due, so
+    // this fires for a `trialing` collision too, not just `active`.
     if ((err as { code?: number }).code === 11000) {
       await cancelDuplicateStripeSub(externalId, orgId);
       return;
@@ -760,11 +761,24 @@ async function applyChargeReversal(
     await reverseLedgerInvoice(invoiceId, ledgerStatus, netAmountPaidCents);
   }
 
-  const subscription = customerId ? await findSubscriptionByCustomerId(customerId) : null;
+  const { subscription, ambiguous } = customerId
+    ? await findReversalSubscription(customerId)
+    : { subscription: null, ambiguous: false };
   if (!subscription) {
-    logger.warn('Charge reversal without a matching local subscription — ledger reversed, no clawback', {
-      reason, chargeId: charge.id, invoiceId, customerId,
-    });
+    if (ambiguous) {
+      // Multiple subs share this customer (cancel→resubscribe): the charge can't be
+      // attributed to one from the charge alone. Ledger is already reversed (keyed
+      // by invoice); skip the sub-scoped clawback so we don't claw the wrong sub's
+      // promotions, and flag it for operator review.
+      incCounter('billing_charge_reversal_ambiguous_sub_total', { reason });
+      logger.warn('Charge reversal: multiple subscriptions for customer — ledger reversed, clawback skipped (ambiguous attribution)', {
+        reason, chargeId: charge.id, invoiceId, customerId,
+      });
+    } else {
+      logger.warn('Charge reversal without a matching local subscription — ledger reversed, no clawback', {
+        reason, chargeId: charge.id, invoiceId, customerId,
+      });
+    }
     return;
   }
   await clawbackAndRecordReversal(subscription, reason, { ...details, invoiceId });

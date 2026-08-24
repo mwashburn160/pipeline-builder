@@ -272,10 +272,13 @@ export function organizationsApi(core: ApiCore) {
       return core.request<ApiResponse<OrgAIConfig>>('/api/organization/ai-config');
     },
 
-    updateOrgAIConfig: async (data: Record<string, string | null>) => {
+    /** Update org AI provider keys. Step-up-gated server-side (persists provider
+     *  secrets), so the caller forwards a `stepUpToken` obtained via StepUpModal. */
+    updateOrgAIConfig: async (data: Record<string, string | null>, stepUpToken?: string) => {
       return core.request<ApiResponse<OrgAIConfig>>('/api/organization/ai-config', {
         method: 'PUT',
         body: JSON.stringify(data),
+        headers: core.stepUpHeader(stepUpToken),
       });
     },
 

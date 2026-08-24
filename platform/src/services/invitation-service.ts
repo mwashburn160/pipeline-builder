@@ -236,7 +236,7 @@ class InvitationService {
         data.allowedOAuthProviders = input.allowedOAuthProviders;
       }
 
-      const [invitation] = await Invitation.create([data], { session });
+      const [created] = await Invitation.create([data], { session });
 
       // Post-write seat re-check — pairs with the pre-write `seatCapacityAvailable`
       // above. Two concurrent invites can both clear the pre-check, so re-verify
@@ -252,7 +252,7 @@ class InvitationService {
       // Return the fields the email needs; SEND it after commit (below). The send is
       // a non-idempotent side effect and must not run inside the retryable
       // transaction body — a commit-retry would otherwise re-send the invitation.
-      return { invitation, inviterName: inviter.username, organizationName: org.name, allowedOAuthProviders: invitation.allowedOAuthProviders };
+      return { invitation: created, inviterName: inviter.username, organizationName: org.name, allowedOAuthProviders: created.allowedOAuthProviders };
     });
 
     const emailSent = await emailService.sendInvitation({

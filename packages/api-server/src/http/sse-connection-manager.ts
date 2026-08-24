@@ -7,7 +7,7 @@ import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import type { Response } from 'express';
 import { v7 as uuid } from 'uuid';
 import type { SSERelay, SSERelayMessage } from './sse-relay.js';
-import { createMemoryTicketStore, type SSETicketStore } from './sse-ticket-store.js';
+import { createMemoryTicketStore, type SSEStreamTicketStore } from './sse-ticket-store.js';
 
 const logger = createLogger('sse-manager');
 
@@ -86,11 +86,11 @@ export interface SSEManagerOptions {
   /**
    * Ticket + stream-ownership backend. Defaults to an in-memory store (correct
    * single-replica only). Inject `createEnvRedisTicketStore()` (or a bespoke
-   * `SSETicketStore`) so ticket mint/redeem AND stream ownership work across
+   * `SSEStreamTicketStore`) so ticket mint/redeem AND stream ownership work across
    * horizontally-scaled pods and — critically — so the platform stream producer
    * (a different service) can bind ownership that this service reads.
    */
-  ticketStore?: SSETicketStore;
+  ticketStore?: SSEStreamTicketStore;
   /**
    * TTL for a stream-ownership binding (default: `SSE_STREAM_OWNER_TTL_MS` env or
    * 1h). Long enough to outlive a build; the producer re-binds as needed.
@@ -157,7 +157,7 @@ export class SSEManager {
   /** Ticket + stream-ownership backend (in-memory default; Redis for multi-pod).
    *  Bounded by `maxTotalTickets` / `maxTicketsPerOrg`, enforced in createTicket;
    *  expiry is validated at consume time and swept on the cleanup interval. */
-  private readonly ticketStore: SSETicketStore;
+  private readonly ticketStore: SSEStreamTicketStore;
   private readonly maxClientsPerRequest: number;
   private readonly maxTotalClients: number;
   private readonly maxClientsPerOrg: number;

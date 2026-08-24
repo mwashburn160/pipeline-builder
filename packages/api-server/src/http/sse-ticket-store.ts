@@ -6,7 +6,7 @@ import { createLogger, createEnvRedisClient } from '@pipeline-builder/api-core';
 const logger = createLogger('sse-ticket-store');
 
 /** A minted ticket's bound identity: owning org + normalized stream subject. */
-export interface SSETicketRecord {
+export interface SSEStreamTicketRecord {
   orgId: string;
   /** Normalized (dashes stripped, lowercased) stream subject id. */
   requestId: string;
@@ -14,6 +14,12 @@ export interface SSETicketRecord {
 
 /**
  * Pluggable backend for SSE log-stream tickets AND stream-ownership.
+ *
+ * NOTE: distinct from api-core's `SseTicketStore` (services/sse-ticket-store.ts),
+ * which is the message-service ticket store (issue + abuse counters). This one
+ * (api-server) additionally tracks stream ownership. The names deliberately differ
+ * (`SSEStreamTicketStore` here vs `SseTicketStore` there) so consumers don't pick
+ * the wrong one.
  *
  * Two concerns share one store because both must be consistent across pods:
  * - **Tickets** — short-lived, single-use, bound to (org, subject). The default
@@ -27,11 +33,11 @@ export interface SSETicketRecord {
  * All methods are async (Redis is async) and best-effort on the failure side per
  * their doc — a store outage must degrade gracefully, never crash the stream.
  */
-export interface SSETicketStore {
+export interface SSEStreamTicketStore {
   /** Persist a single-use ticket bound to `record`, expiring after `ttlMs`. */
-  put(ticketId: string, record: SSETicketRecord, ttlMs: number): Promise<void>;
+  put(ticketId: string, record: SSEStreamTicketRecord, ttlMs: number): Promise<void>;
   /** Atomically fetch-and-delete a ticket (single-use). Null if absent/expired. */
-  consume(ticketId: string): Promise<SSETicketRecord | null>;
+  consume(ticketId: string): Promise<SSEStreamTicketRecord | null>;
   /** Count of live (unexpired) tickets held for an org (per-org cap). */
   countForOrg(orgId: string): Promise<number>;
   /** Count of all live tickets across the store (capacity cap). */
@@ -44,7 +50,7 @@ export interface SSETicketStore {
   sweep?(): Promise<void>;
 }
 
-interface StoredTicket extends SSETicketRecord {
+interface StoredTicket extends SSEStreamTicketRecord {
   expiresAt: number;
 }
 
@@ -57,7 +63,7 @@ interface StoredOwner {
  * In-memory ticket store — the default. Correct for a single replica only;
  * mirrors the behavior the SSEManager previously implemented inline.
  */
-export function createMemoryTicketStore(): SSETicketStore {
+export function createMemoryTicketStore(): SSEStreamTicketStore {
   const tickets = new Map<string, StoredTicket>();
   const owners = new Map<string, StoredOwner>();
 
@@ -126,7 +132,7 @@ const OWNER_PREFIX = 'sse:owner:';
  * read). Stream ownership is a per-subject key with its own TTL. All reads are
  * fail-safe (null / 0) so a Redis blip never wedges the stream.
  */
-export function createRedisTicketStore(redis: RedisTicketClient): SSETicketStore {
+export function createRedisTicketStore(redis: RedisTicketClient): SSEStreamTicketStore {
   const tkey = (id: string): string => `${TICKET_PREFIX}${id}`;
   const orgKey = (orgId: string): string => `${ORG_ZSET_PREFIX}${orgId}`;
   const ownerKey = (requestId: string): string => `${OWNER_PREFIX}${requestId}`;
@@ -154,7 +160,7 @@ export function createRedisTicketStore(redis: RedisTicketClient): SSETicketStore
         // saw a non-null value before the delete; the ZREM cleans the counters.
         await redis.del(tkey(ticketId));
         if (!raw) return null;
-        const rec = JSON.parse(raw) as SSETicketRecord;
+        const rec = JSON.parse(raw) as SSEStreamTicketRecord;
         await redis.zrem(orgKey(rec.orgId), ticketId);
         await redis.zrem(ALL_ZSET, ticketId);
         return rec;
@@ -195,7 +201,7 @@ export function createRedisTicketStore(redis: RedisTicketClient): SSETicketStore
  * the rate-limiter / audit-spool). Returns null when Redis isn't configured so
  * the caller keeps the in-memory default. Never throws.
  */
-export function createEnvRedisTicketStore(): SSETicketStore | null {
+export function createEnvRedisTicketStore(): SSEStreamTicketStore | null {
   const client = createEnvRedisClient<RedisTicketClient>('sse-ticket');
   if (!client) return null;
   logger.info('Redis SSE ticket store initialized');

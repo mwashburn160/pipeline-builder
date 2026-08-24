@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import Link from 'next/link';
 import { formatError } from '@/lib/constants';
 import { motion } from 'framer-motion';
 import { Clock, Loader, CheckCircle2, XCircle, PauseCircle, RefreshCw, ChevronUp, ChevronDown, Inbox, AlertTriangle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { StatCard } from '@/components/ui/StatCard';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { BuildsTabs } from '@/components/ui/BuildsTabs';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -76,44 +76,15 @@ const TIER_COLUMNS: Column<TierRow>[] = [
 // Stat card
 // ---------------------------------------------------------------------------
 
-interface StatCardProps {
+/** One build-queue stat tile's data (rendered via the shared `ui/StatCard` nav
+ *  variant). `accentClass` colors the icon tile; `value` is null while loading. */
+interface QueueStatCard {
   label: string;
   value: number | null;
   icon: LucideIcon;
-  accent: string;
-  delay: number;
+  accentClass: string;
   /** When set, the card becomes a link (e.g. Failed → the triage tab). */
   href?: string;
-}
-
-function StatCard({ label, value, icon: Icon, accent, delay, href }: StatCardProps) {
-  const card = (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay }}
-      className={`card flex items-center gap-4 h-full ${href ? 'transition-colors hover:border-blue-400 dark:hover:border-blue-500' : ''}`}
-    >
-      <div className={`rounded-xl p-3 text-white ${accent}`}>
-        <Icon className="w-6 h-6" />
-      </div>
-      <div>
-        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{label}</p>
-        {value !== null ? (
-          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 tabular-nums">
-            {value.toLocaleString()}
-          </p>
-        ) : (
-          <div className="h-8 w-16 skeleton rounded" />
-        )}
-      </div>
-    </motion.div>
-  );
-  return href ? (
-    <Link href={href} title={`View ${label.toLowerCase()} builds`} className="block rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500">
-      {card}
-    </Link>
-  ) : card;
 }
 
 // ---------------------------------------------------------------------------
@@ -526,12 +497,12 @@ export default function BuildQueuePage() {
     ? Object.values(status.tiers).every((c) => ((c.waiting ?? 0) + (c.active ?? 0) + (c.failed ?? 0) + (c.delayed ?? 0)) === 0)
     : false;
 
-  const cards: Omit<StatCardProps, 'delay'>[] = [
-    { label: 'Waiting', value: status?.waiting ?? null, icon: Clock, accent: 'bg-yellow-500' },
-    { label: 'Active', value: status?.active ?? null, icon: Loader, accent: 'bg-blue-500' },
-    { label: 'Completed', value: status?.completed ?? null, icon: CheckCircle2, accent: 'bg-green-500' },
-    { label: 'Failed', value: status?.failed ?? null, icon: XCircle, accent: 'bg-red-500', href: '/dashboard/triage' },
-    { label: 'Delayed', value: status?.delayed ?? null, icon: PauseCircle, accent: 'bg-gray-500' },
+  const cards: QueueStatCard[] = [
+    { label: 'Waiting', value: status?.waiting ?? null, icon: Clock, accentClass: 'bg-yellow-500' },
+    { label: 'Active', value: status?.active ?? null, icon: Loader, accentClass: 'bg-blue-500' },
+    { label: 'Completed', value: status?.completed ?? null, icon: CheckCircle2, accentClass: 'bg-green-500' },
+    { label: 'Failed', value: status?.failed ?? null, icon: XCircle, accentClass: 'bg-red-500', href: '/dashboard/triage' },
+    { label: 'Delayed', value: status?.delayed ?? null, icon: PauseCircle, accentClass: 'bg-gray-500' },
   ];
 
   return (
@@ -570,8 +541,16 @@ export default function BuildQueuePage() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        {cards.map((card, i) => (
-          <StatCard key={card.label} {...card} delay={0.05 + i * 0.05} />
+        {cards.map((card) => (
+          <StatCard
+            key={card.label}
+            variant="nav"
+            icon={card.icon}
+            label={card.label}
+            accentClass={card.accentClass}
+            href={card.href}
+            value={card.value == null ? null : card.value.toLocaleString()}
+          />
         ))}
       </div>
 

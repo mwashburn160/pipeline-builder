@@ -21,6 +21,7 @@ import {
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
+import { StatCard } from '@/components/ui/StatCard';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { CopyableId } from '@/components/ui/CopyableId';
@@ -33,28 +34,6 @@ interface AdminSummary {
   users: { total: number; sysadmins: number };
   encryption: { perOrgKmsEnabled: boolean };
   rls: { contextMode: 'warn' | 'strict' | 'silent' };
-}
-
-function StatCard({
-  icon: Icon, label, value, sub, href,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: React.ReactNode;
-  sub?: React.ReactNode;
-  href?: string;
-}) {
-  const inner = (
-    <Card className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors h-full">
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className="w-4 h-4 text-gray-500" />
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{label}</span>
-      </div>
-      <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{value}</div>
-      {sub && <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{sub}</div>}
-    </Card>
-  );
-  return href ? <Link href={href}>{inner}</Link> : inner;
 }
 
 export function SysadminHome() {
@@ -99,12 +78,14 @@ export function SysadminHome() {
               respective management surfaces. */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <StatCard
+              variant="nav"
               icon={Building2}
               label="Organizations"
               value={summary.orgs.total}
               href="/dashboard/organizations"
             />
             <StatCard
+              variant="nav"
               icon={Users}
               label="Users"
               value={summary.users.total}
@@ -112,12 +93,13 @@ export function SysadminHome() {
               href="/dashboard/users"
             />
             <StatCard
+              variant="nav"
               icon={KeyRound}
               label="Per-org KMS"
               value={
                 <span>
                   {summary.orgs.perOrgKms}
-                  <span className="text-base font-normal text-gray-500 dark:text-gray-400"> / {summary.orgs.total}</span>
+                  <span className="text-base font-normal text-[var(--pb-text-muted)]"> / {summary.orgs.total}</span>
                 </span>
               }
               sub={summary.encryption.perOrgKmsEnabled
@@ -125,12 +107,13 @@ export function SysadminHome() {
                 : <span className="text-amber-600 dark:text-amber-400">opt-in disabled</span>}
             />
             <StatCard
+              variant="nav"
               icon={ShieldCheck}
               label="SSO enabled"
               value={
                 <span>
                   {summary.orgs.ssoEnabled}
-                  <span className="text-base font-normal text-gray-500 dark:text-gray-400"> / {summary.orgs.total}</span>
+                  <span className="text-base font-normal text-[var(--pb-text-muted)]"> / {summary.orgs.total}</span>
                 </span>
               }
               sub="orgs with active IdP config"

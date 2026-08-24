@@ -9,6 +9,7 @@ import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
+import { StepUpModal } from '@/components/admin/StepUpModal';
 import { type AIProviderStatus } from '@/types';
 import { AI_PROVIDER_NAMES } from '@/lib/ai-constants';
 import { formatError } from '@/lib/constants';
@@ -40,6 +41,11 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [editApiKey, setEditApiKey] = useState('');
 
+  // Writing a provider secret is step-up-gated server-side. Hold the intended op
+  // until the user re-confirms their password in StepUpModal; the fresh token is
+  // then forwarded to the PUT. Mirrors OrgKmsConfigModal.
+  const [pendingOp, setPendingOp] = useState<{ type: 'add' } | { type: 'update'; id: string } | { type: 'remove'; id: string } | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -68,14 +74,34 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
 
   const displayName = (id: string) => AI_PROVIDER_NAMES[id] || id;
 
-  const handleAdd = async () => {
-    const key = newApiKey.trim();
-    if (!selectedProvider || !key) return;
+  // ── request* : validate, then hand off to the step-up modal ──
+  const requestAdd = () => {
+    if (!selectedProvider || !newApiKey.trim()) return;
     setError(null);
     setSuccess(null);
+    setPendingOp({ type: 'add' });
+  };
+
+  const requestUpdate = (id: string) => {
+    if (!editApiKey.trim()) return;
+    setError(null);
+    setSuccess(null);
+    setPendingOp({ type: 'update', id });
+  };
+
+  const requestRemove = (id: string) => {
+    setError(null);
+    setSuccess(null);
+    setPendingOp({ type: 'remove', id });
+  };
+
+  // ── execute* : run the gated PUT with the fresh step-up token ──
+  const executeAdd = async (stepUpToken: string) => {
+    const key = newApiKey.trim();
+    if (!selectedProvider || !key) return;
     setAddLoading(true);
     try {
-      const response = await api.updateOrgAIConfig({ [selectedProvider]: key });
+      const response = await api.updateOrgAIConfig({ [selectedProvider]: key }, stepUpToken);
       if (response.data?.providers) setProviders(response.data.providers);
       setSuccess(`${displayName(selectedProvider)} added`);
       setSelectedProvider('');
@@ -87,14 +113,12 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
     }
   };
 
-  const handleUpdate = async (id: string) => {
+  const executeUpdate = async (id: string, stepUpToken: string) => {
     const key = editApiKey.trim();
     if (!key) return;
-    setError(null);
-    setSuccess(null);
     setLoading(prev => ({ ...prev, [id]: true }));
     try {
-      const response = await api.updateOrgAIConfig({ [id]: key });
+      const response = await api.updateOrgAIConfig({ [id]: key }, stepUpToken);
       if (response.data?.providers) setProviders(response.data.providers);
       setSuccess(`${displayName(id)} API key updated`);
       setEditingProvider(null);
@@ -106,12 +130,10 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
     }
   };
 
-  const handleRemove = async (id: string) => {
-    setError(null);
-    setSuccess(null);
+  const executeRemove = async (id: string, stepUpToken: string) => {
     setLoading(prev => ({ ...prev, [id]: true }));
     try {
-      const response = await api.updateOrgAIConfig({ [id]: null });
+      const response = await api.updateOrgAIConfig({ [id]: null }, stepUpToken);
       if (response.data?.providers) setProviders(response.data.providers);
       setSuccess(`${displayName(id)} removed`);
       if (editingProvider === id) {
@@ -123,6 +145,15 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
     } finally {
       setLoading(prev => ({ ...prev, [id]: false }));
     }
+  };
+
+  const onStepUpConfirmed = async (stepUpToken: string) => {
+    const op = pendingOp;
+    setPendingOp(null);
+    if (!op) return;
+    if (op.type === 'add') await executeAdd(stepUpToken);
+    else if (op.type === 'update') await executeUpdate(op.id, stepUpToken);
+    else await executeRemove(op.id, stepUpToken);
   };
 
   return (
@@ -168,7 +199,7 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
                         disabled={isItemLoading}
                       />
                       <Button
-                        onClick={() => handleUpdate(id)}
+                        onClick={() => requestUpdate(id)}
                         disabled={isItemLoading || !editApiKey.trim()}
                       >
                         {isItemLoading ? <LoadingSpinner size="sm" /> : 'Save'}
@@ -191,7 +222,7 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
                       </Button>
                       <Button
                         variant="danger"
-                        onClick={() => handleRemove(id)}
+                        onClick={() => requestRemove(id)}
                         disabled={isItemLoading}
                       >
                         {isItemLoading ? <LoadingSpinner size="sm" /> : 'Remove'}
@@ -245,13 +276,25 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
               </FormField>
             </div>
             <Button
-              onClick={handleAdd}
+              onClick={requestAdd}
               disabled={addLoading || !selectedProvider || !newApiKey.trim()}
             >
               {addLoading ? <LoadingSpinner size="sm" /> : 'Add'}
             </Button>
           </div>
         </div>
+      )}
+
+      {pendingOp && (
+        <StepUpModal
+          action={
+            pendingOp.type === 'remove'
+              ? `Re-confirm your password to remove the ${displayName(pendingOp.id)} API key.`
+              : 'Re-confirm your password to save an AI provider API key.'
+          }
+          onConfirmed={onStepUpConfirmed}
+          onClose={() => setPendingOp(null)}
+        />
       )}
     </SectionCard>
   );

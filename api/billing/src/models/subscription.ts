@@ -126,10 +126,18 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
   },
 );
 
-// Only one active subscription per org
+// At most one MANAGEABLE (non-terminal) subscription per org — the ATOMIC backstop
+// behind the app-level duplicate pre-check (`findOne({orgId, status IN manageable})`).
+// Keyed on orgId alone (not orgId+status) and filtered on the full manageable set,
+// so two concurrent provisions can't both land — e.g. two completed checkouts that
+// both map to `trialing` (or `active`+`trialing`). The loser hits a 11000 duplicate-
+// key error and is canceled as a duplicate, preventing double-billing. An active-only
+// filter on the compound key missed this: two `trialing` rows had distinct keys and
+// never collided. Statuses mirror MANAGEABLE_SUBSCRIPTION_STATUSES (helpers/subscription-status.ts);
+// kept inline to avoid a model↔helper import cycle. (`$in` in a partial filter needs Mongo 5.0+; we run 8.x.)
 subscriptionSchema.index(
-  { orgId: 1, status: 1 },
-  { unique: true, partialFilterExpression: { status: 'active' } },
+  { orgId: 1 },
+  { unique: true, partialFilterExpression: { status: { $in: ['active', 'trialing', 'past_due'] } } },
 );
 
 // Sparse index for AWS Marketplace customer lookup (SNS webhook queries).
