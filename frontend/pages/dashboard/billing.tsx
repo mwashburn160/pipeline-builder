@@ -13,7 +13,8 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import ReportTabs from '@/components/reports/ReportTabs';
 import { LoadingPage } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
-import { Receipt } from 'lucide-react';
+import { Receipt, CreditCard } from 'lucide-react';
+import { Badge } from '@/components/ui/Badge';
 import type { Plan, Subscription, Bundle, ComboDiscount, AddonResult, BillingInterval, UsageRollup } from '@/types';
 import type { MarketplaceEntitlements, MarketplaceEntitlement } from '@/lib/api/domains/billing';
 import api, { ApiError } from '@/lib/api';
@@ -39,7 +40,8 @@ const PLAN_RANK: readonly string[] = TIER_KEYS;
 // deep-linkable via `?tab=` so links/back-forward land on the right section.
 const BILLING_TABS = [
   { id: 'overview', label: 'Overview' },
-  { id: 'plans', label: 'Plans & Add-ons' },
+  { id: 'plans', label: 'Plans' },
+  { id: 'addons', label: 'Add-ons' },
   { id: 'history', label: 'Billing History' },
 ] as const;
 type BillingTab = (typeof BILLING_TABS)[number]['id'];
@@ -116,12 +118,12 @@ export default function BillingPage() {
       return;
     }
     // A `?highlight=<feature>` upsell link (no explicit tab) targets an add-on,
-    // which lives on the Plans & Add-ons tab — land there.
-    if (router.query.highlight && activeTab !== 'plans') setActiveTab('plans');
+    // which lives on the Add-ons tab — land there.
+    if (router.query.highlight && activeTab !== 'addons') setActiveTab('addons');
   }, [router.query.tab, router.query.highlight]); // eslint-disable-line react-hooks/exhaustive-deps
   const changeTab = (id: string) => {
     setActiveTab(id as BillingTab);
-    // A DORA upsell deep-link (`?highlight=`) lands on Plans & Add-ons; preserve it.
+    // A DORA upsell deep-link (`?highlight=`) lands on the Add-ons tab; preserve it.
     void router.replace({ query: { ...router.query, tab: id } }, undefined, { shallow: true });
   };
 
@@ -442,12 +444,68 @@ export default function BillingPage() {
     );
   }
 
+  // Monthly/annual toggle — shared by the Plans and Add-ons tabs (both price per
+  // interval), so it's defined once and rendered on each.
+  const intervalToggle = (
+    <div className="flex justify-center">
+      <Card className="inline-flex items-center p-1">
+        <button
+          onClick={() => setBillingInterval('monthly')}
+          className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+            billingInterval === 'monthly'
+              ? 'bg-blue-600 text-white'
+              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+          }`}
+        >
+          Monthly
+        </button>
+        <button
+          onClick={() => setBillingInterval('annual')}
+          className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+            billingInterval === 'annual'
+              ? 'bg-blue-600 text-white'
+              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+          }`}
+        >
+          Annual
+          <span className="ml-1 text-xs text-green-500">Save ~17%</span>
+        </button>
+      </Card>
+    </div>
+  );
+
   return (    <DashboardLayout title="Billing" subtitle="Plans, invoices, and payment details">
       <div className="page-section space-y-8">
         <ReportTabs tabs={[...BILLING_TABS]} activeTab={activeTab} onTabChange={changeTab} />
 
         {activeTab === 'overview' && (
           <div className="space-y-8">
+            {/* Payment provider — deployment-level config (BILLING_PROVIDER), NOT a
+                dashboard setting. Surfaced read-only so operators can see which
+                provider a deployment runs (e.g. local/docker ships `stub`, which is
+                why there are no Stripe / Marketplace controls or a card prompt). */}
+            {(() => {
+              const info = {
+                stripe: { label: 'Stripe', color: 'blue' as const, desc: 'Card payments are collected through Stripe Checkout.' },
+                'aws-marketplace': { label: 'AWS Marketplace', color: 'purple' as const, desc: 'Plans and payments are managed through your AWS Marketplace subscription.' },
+                stub: { label: 'Local / dev (stub)', color: 'gray' as const, desc: 'No real payment provider is configured — subscriptions activate immediately with no card. Set BILLING_PROVIDER to stripe or aws-marketplace (in the billing service env) to enable real billing.' },
+              }[billingProvider ?? 'stub'];
+              return (
+                <Card className="flex items-center justify-between gap-3 p-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <CreditCard className="w-5 h-5 shrink-0 text-gray-400" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Payment provider</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {billingProvider === undefined ? 'Detecting…' : info.desc}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge color={info.color}>{info.label}</Badge>
+                </Card>
+              );
+            })()}
+
             {/* Current subscription status */}
             {subscription && (
               <SubscriptionStatusCard
@@ -482,32 +540,7 @@ export default function BillingPage() {
 
         {activeTab === 'plans' && (
           <div className="space-y-8">
-            {/* Billing interval toggle */}
-            <div className="flex justify-center">
-              <Card className="inline-flex items-center p-1">
-                <button
-                  onClick={() => setBillingInterval('monthly')}
-                  className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                    billingInterval === 'monthly'
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
-                  }`}
-                >
-                  Monthly
-                </button>
-                <button
-                  onClick={() => setBillingInterval('annual')}
-                  className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                    billingInterval === 'annual'
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
-                  }`}
-                >
-                  Annual
-                  <span className="ml-1 text-xs text-green-500">Save ~17%</span>
-                </button>
-              </Card>
-            </div>
+            {intervalToggle}
 
             {/* Plan cards (tier pricing) */}
             <PlanGrid
@@ -527,12 +560,18 @@ export default function BillingPage() {
                   : 'Contact an organization admin to change your plan.'}
               </p>
             )}
+          </div>
+        )}
+
+        {activeTab === 'addons' && (
+          <div className="space-y-8">
+            {intervalToggle}
 
             {/* Add-on bundles — extra capacity that stacks on the base plan and
                 pools across the account's teams. Shown to plan managers even without
                 an active subscription (read-only preview via `subscribed={false}`);
                 purchase controls unlock once subscribed. */}
-            {canChangePlan && bundles.length > 0 && (
+            {canChangePlan && bundles.length > 0 ? (
               <AddonGrid
                 bundles={bundles}
                 billingInterval={billingInterval}
@@ -546,6 +585,14 @@ export default function BillingPage() {
                 highlightFeature={highlightFeature}
                 comboDiscounts={comboDiscounts}
               />
+            ) : (
+              <p className="text-sm text-gray-400 dark:text-gray-500 text-center">
+                {!canChangePlan
+                  ? (activeOrgIsTeam
+                    ? 'This is a team. Its plan, add-ons and billing are managed by an admin at the parent organization.'
+                    : 'Contact an organization admin to manage add-ons.')
+                  : 'No add-ons are available for your plan.'}
+              </p>
             )}
 
             {/* Discount-code redemption — attaches to the active subscription as a

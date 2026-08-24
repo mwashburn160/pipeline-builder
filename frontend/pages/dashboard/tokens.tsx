@@ -1,8 +1,10 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/router';
 import { RefreshCw, ChevronRight, ShieldOff, KeyRound } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { TabBar } from '@/components/ui/TabBar';
 import { Badge } from '@/components/ui/Badge';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { CodeBlock } from '@/components/ui/CodeBlock';
@@ -145,8 +147,31 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
 // ---------------------------------------------------------------------------
 
 /** API token management page. Generates new access/refresh token pairs and displays decoded JWT details. */
+// Page is split into tabs so token management, live sessions, and the decoded
+// current token don't stack into one long scroll. Each is deep-linkable via `?tab=`.
+const TOKEN_TABS = [
+  { id: 'tokens', label: 'Tokens' },
+  { id: 'sessions', label: 'Active sessions' },
+  { id: 'access', label: 'Access Token' },
+] as const;
+type TokenTab = (typeof TOKEN_TABS)[number]['id'];
+const TOKEN_TAB_IDS = TOKEN_TABS.map((t) => t.id) as readonly string[];
+
 export default function TokensPage() {
   const { user, isReady, isAuthenticated } = useAuthGuard();
+  const router = useRouter();
+
+  // Active tab, hydrated from `?tab=` and kept in sync (shallow) so it's
+  // shareable / back-forward-friendly — same pattern as the Billing page.
+  const [activeTab, setActiveTab] = useState<TokenTab>('tokens');
+  useEffect(() => {
+    const raw = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
+    if (raw && TOKEN_TAB_IDS.includes(raw) && raw !== activeTab) setActiveTab(raw as TokenTab);
+  }, [router.query.tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  const changeTab = (id: string) => {
+    setActiveTab(id as TokenTab);
+    void router.replace({ query: { ...router.query, tab: id } }, undefined, { shallow: true });
+  };
 
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
@@ -252,25 +277,36 @@ export default function TokensPage() {
   return (
     <DashboardLayout title="API Tokens" subtitle="Create and revoke API tokens" maxWidth="4xl">
       <div className="space-y-6">
-        <SectionCard
-          icon={KeyRound}
-          title="Generate new token"
-          description="Generate a fresh access / refresh token pair. This replaces your current session tokens and can be used for CLI or API access."
-        >
-          <ErrorAlert message={genError} />
-          <SuccessAlert message={genSuccess} />
+        <TabBar items={[...TOKEN_TABS]} activeId={activeTab} onSelect={changeTab} />
 
-          <Button onClick={handleGenerateToken} loading={generating} className={genError || genSuccess ? 'mt-4' : ''}>
-            {generating ? 'Generating...' : <><RefreshCw className="w-4 h-4 mr-2" />Generate Token</>}
-          </Button>
-        </SectionCard>
+        {activeTab === 'tokens' && (
+          <div className="space-y-6">
+            <SectionCard
+              icon={KeyRound}
+              title="Generate new token"
+              description="Generate a fresh access / refresh token pair. This replaces your current session tokens and can be used for CLI or API access."
+            >
+              <ErrorAlert message={genError} />
+              <SuccessAlert message={genSuccess} />
 
-        <PatSection />
+              <Button onClick={handleGenerateToken} loading={generating} className={genError || genSuccess ? 'mt-4' : ''}>
+                {generating ? 'Generating...' : <><RefreshCw className="w-4 h-4 mr-2" />Generate Token</>}
+              </Button>
+            </SectionCard>
 
-        <TokenCard title="Access Token" token={accessToken} />
-        <TokenCard title="Refresh Token" token={refreshToken} />
+            <PatSection />
+          </div>
+        )}
 
-        {/* ─── Token history + sign-out-everywhere ─── */}
+        {activeTab === 'access' && (
+          <div className="space-y-6">
+            <TokenCard title="Access Token" token={accessToken} />
+            <TokenCard title="Refresh Token" token={refreshToken} />
+          </div>
+        )}
+
+        {activeTab === 'sessions' && (
+        /* ─── Token history + sign-out-everywhere ─── */
         <SectionCard
           title={
             <span className="inline-flex items-center gap-2">
@@ -320,6 +356,7 @@ export default function TokensPage() {
             </>
           )}
         </SectionCard>
+        )}
       </div>
 
       {pendingRevokeAll && (
