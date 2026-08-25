@@ -243,6 +243,9 @@ export const config: AppConfig = {
       // Default: dimension key == bundle ID (a metered quantity of "packs
       // purchased"). Register these dimensions on the listing, or override this
       // map to translate bundle IDs → the listing's actual dimension names.
+      // Keep this in sync with the sellable bundles in
+      // packages/pipeline-core/src/config/billing-config.ts — an add-on absent
+      // here (and with no override) is granted but NEVER metered on Marketplace.
       {
         seat: 'seat',
         pipeline_pack: 'pipeline_pack',
@@ -252,6 +255,12 @@ export const config: AppConfig = {
         storage_pack: 'storage_pack',
         audit_log: 'audit_log',
         sso: 'sso',
+        // Feature add-ons that are INCLUDED in Enterprise/Unlimited but sold to
+        // lower tiers — metered "packs purchased" (quantity 1) for Marketplace.
+        advanced_reporting: 'advanced_reporting',
+        team_usage_analytics: 'team_usage_analytics',
+        compliance_standard: 'compliance_standard',
+        compliance_advanced: 'compliance_advanced',
         // Phase 8 retention add-ons (metered "packs purchased"). The reporting
         // retention-sync leg carries the effective days; these dimensions meter
         // the purchase for Marketplace-billed accounts.

@@ -89,19 +89,34 @@ Add-ons are charged as extra **subscription line items** on the same subscriptio
 
 > If a purchased bundle's `<bundleId>_<interval>` key is **absent** from the map, its line item is **silently skipped** — the customer gets the entitlement but is **never charged** for it. Map every bundle you enable (see `BILLING_BUNDLES_ENABLED`), only for the intervals you sell.
 
-#### Example (plans + a few add-ons)
+#### Complete example (all paid plans + every add-on)
+
+Copy-paste and replace each `price_REPLACE` with the real `price_…` id from your Stripe dashboard (or let the provisioning helper above emit the whole map). Provide it as a **single line** — it's expanded here only for readability. The free `developer` tier is intentionally absent (nothing is charged); the hidden `unlimited` tier is never sold.
 
 ```bash
 STRIPE_PRICE_MAP='{
-  "pro_monthly":"price_1AbcPro","pro_annual":"price_1AbcProYr",
-  "team_monthly":"price_1DefTeam","team_annual":"price_1DefTeamYr",
-  "enterprise_monthly":"price_1GhiEnt","enterprise_annual":"price_1GhiEntYr",
-  "seat_monthly":"price_1JklSeat","seat_annual":"price_1JklSeatYr",
-  "sso_monthly":"price_1MnoSso","sso_annual":"price_1MnoSsoYr"
+  "pro_monthly":"price_REPLACE","pro_annual":"price_REPLACE",
+  "team_monthly":"price_REPLACE","team_annual":"price_REPLACE",
+  "enterprise_monthly":"price_REPLACE","enterprise_annual":"price_REPLACE",
+
+  "seat_monthly":"price_REPLACE","seat_annual":"price_REPLACE",
+  "pipeline_pack_monthly":"price_REPLACE","pipeline_pack_annual":"price_REPLACE",
+  "plugin_pack_monthly":"price_REPLACE","plugin_pack_annual":"price_REPLACE",
+  "api_pack_monthly":"price_REPLACE","api_pack_annual":"price_REPLACE",
+  "ai_pack_monthly":"price_REPLACE","ai_pack_annual":"price_REPLACE",
+  "storage_pack_monthly":"price_REPLACE","storage_pack_annual":"price_REPLACE",
+  "retention_pack_monthly":"price_REPLACE","retention_pack_annual":"price_REPLACE",
+  "dora_history_pack_monthly":"price_REPLACE","dora_history_pack_annual":"price_REPLACE",
+  "audit_log_monthly":"price_REPLACE","audit_log_annual":"price_REPLACE",
+  "sso_monthly":"price_REPLACE","sso_annual":"price_REPLACE",
+  "advanced_reporting_monthly":"price_REPLACE","advanced_reporting_annual":"price_REPLACE",
+  "team_usage_analytics_monthly":"price_REPLACE","team_usage_analytics_annual":"price_REPLACE",
+  "compliance_standard_monthly":"price_REPLACE","compliance_standard_annual":"price_REPLACE",
+  "compliance_advanced_monthly":"price_REPLACE","compliance_advanced_annual":"price_REPLACE"
 }'
 ```
 
-(Provide it as a single line — expanded here only for readability. Extend it with the remaining bundle keys from the table for every add-on you sell.)
+That's the full set: 3 paid plans + 14 add-ons, each with a `_monthly` and `_annual` key. Drop any interval you don't sell (e.g. omit the `_annual` keys for monthly-only pricing), and drop any add-on you haven't enabled via `BILLING_BUNDLES_ENABLED` — an unmapped bundle's line item is silently skipped (entitlement granted, never charged), so only omit what you deliberately don't bill.
 
 ### Step 4 — Register the webhook
 
