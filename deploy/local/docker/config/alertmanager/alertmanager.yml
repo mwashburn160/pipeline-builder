@@ -121,6 +121,46 @@ receivers:
           *Detail:*  {{ .Annotations.description }}
           {{ end }}
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # OPTIONAL: DORA incident feed (self-hosted single-tenant).
+  #
+  # Distinct from `platform-relay` above — that NOTIFIES an org's Slack/webhook
+  # destinations; THIS records firing alerts as DORA INCIDENTS (automated
+  # post-deploy Change Failure Rate + real MTTR) via the reporting service's
+  # Alertmanager adapter. Uncomment the receiver AND add the matching route
+  # under `route.routes:` above to enable it.
+  #
+  # Requirements:
+  #   • An org-scoped `reporting:ingest` token — generate it in the app under
+  #     Incident Reporting → Webhooks → "Generate webhook token", then mount it
+  #     as a Secret at the credentials_file path below. The token binds to ONE
+  #     org, so a shared Alertmanager attributes every incident to that org
+  #     (fine for a single-tenant self-host; multi-tenant customers point their
+  #     OWN cluster's Alertmanager here with their own token instead).
+  #   • Alerting rules must set an `environment` label matching your deploy
+  #     stage's environment (e.g. `production`, not `prod`) and a `severity`
+  #     label. Alerts without a stable fingerprint or an `environment` label are
+  #     skipped. If your label isn't literally `environment`, append
+  #     `?environmentLabel=<label>` to the url.
+  #
+  # - name: 'pb-incidents'
+  #   webhook_configs:
+  #     - url: 'http://nginx/api/reports/incidents/alertmanager'   # in-cluster gateway (or your public https ingress)
+  #       http_config:
+  #         authorization:
+  #           type: Bearer
+  #           credentials_file: /etc/alertmanager/secrets/pb-ingest-token
+  #       send_resolved: true   # endsAt → resolvedAt — this is what MTTR measures
+  #       max_alerts: 1000      # the adapter rejects (doesn't truncate) larger batches
+  #
+  # Route deploy-environment alerts to it (keep `continue: true` if they should
+  # ALSO relay/notify). Add under `route.routes:` above:
+  #
+  #   - matchers:
+  #       - environment =~ ".+"
+  #     receiver: 'pb-incidents'
+  #     continue: true
+
 # Inhibition rules: a higher-severity alert silences related lower-severity ones
 # (e.g. when something is `critical`, the matching `warning` is noise).
 inhibit_rules:
