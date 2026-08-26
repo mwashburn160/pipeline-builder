@@ -184,10 +184,10 @@ describe('ai-core provider-registry', () => {
     it('should return correct models for each provider', async () => {
       const { getProviderModels } = await freshImport();
 
-      expect(getProviderModels('anthropic').map((m) => m.id)).toContain('claude-sonnet-4-20250514');
-      expect(getProviderModels('openai').map((m) => m.id)).toContain('gpt-4o');
-      expect(getProviderModels('google').map((m) => m.id)).toContain('gemini-2.0-flash');
-      expect(getProviderModels('xai').map((m) => m.id)).toContain('grok-3');
+      expect(getProviderModels('anthropic').map((m) => m.id)).toContain('claude-sonnet-5');
+      expect(getProviderModels('openai').map((m) => m.id)).toContain('gpt-5.6-sol');
+      expect(getProviderModels('google').map((m) => m.id)).toContain('gemini-3.7-flash');
+      expect(getProviderModels('xai').map((m) => m.id)).toContain('grok-4.6');
       expect(getProviderModels('amazon-bedrock').length).toBeGreaterThan(0);
     });
   });
@@ -222,7 +222,7 @@ describe('ai-core provider-registry', () => {
       const { resolveModel } = await freshImport();
 
       // resolveModel should trigger init
-      resolveModel('anthropic', 'claude-sonnet-4-20250514');
+      resolveModel('anthropic', 'claude-sonnet-5');
       expect(createAnthropic).toHaveBeenCalled();
     });
   });
@@ -238,7 +238,7 @@ describe('ai-core provider-registry', () => {
 
       const { resolveModel } = await freshImport();
 
-      expect(() => resolveModel('anthropic', 'claude-sonnet-4-20250514')).toThrow(
+      expect(() => resolveModel('anthropic', 'claude-sonnet-5')).toThrow(
         'AI provider "anthropic" is not configured',
       );
     });
@@ -277,10 +277,10 @@ describe('ai-core provider-registry', () => {
       delete process.env.AWS_ACCESS_KEY_ID;
 
       const { resolveModel } = await freshImport();
-      const model = resolveModel('anthropic', 'claude-sonnet-4-20250514');
+      const model = resolveModel('anthropic', 'claude-sonnet-5');
 
       expect(model).toBeDefined();
-      expect(mockAnthropicFactory).toHaveBeenCalledWith('claude-sonnet-4-20250514');
+      expect(mockAnthropicFactory).toHaveBeenCalledWith('claude-sonnet-5');
     });
 
     it('should resolve models for each configured provider', async () => {
@@ -292,11 +292,11 @@ describe('ai-core provider-registry', () => {
 
       const { resolveModel } = await freshImport();
 
-      expect(resolveModel('anthropic', 'claude-sonnet-4-20250514')).toBeDefined();
-      expect(resolveModel('openai', 'gpt-4o')).toBeDefined();
-      expect(resolveModel('google', 'gemini-2.0-flash')).toBeDefined();
-      expect(resolveModel('xai', 'grok-3')).toBeDefined();
-      expect(resolveModel('amazon-bedrock', 'anthropic.claude-3-5-sonnet-20241022-v2:0')).toBeDefined();
+      expect(resolveModel('anthropic', 'claude-sonnet-5')).toBeDefined();
+      expect(resolveModel('openai', 'gpt-5.6-sol')).toBeDefined();
+      expect(resolveModel('google', 'gemini-3.7-flash')).toBeDefined();
+      expect(resolveModel('xai', 'grok-4.6')).toBeDefined();
+      expect(resolveModel('amazon-bedrock', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0')).toBeDefined();
     });
   });
 
@@ -327,7 +327,7 @@ describe('ai-core provider-registry', () => {
     it('should create a model with a custom key for Anthropic', async () => {
       const { createModelWithKey } = await freshImport();
 
-      const model = createModelWithKey('anthropic', 'claude-sonnet-4-20250514', 'custom-key');
+      const model = createModelWithKey('anthropic', 'claude-sonnet-5', 'custom-key');
 
       expect(model).toBeDefined();
       expect(createAnthropic).toHaveBeenCalledWith({ apiKey: 'custom-key' });
@@ -336,7 +336,7 @@ describe('ai-core provider-registry', () => {
     it('should create a model with a custom key for OpenAI', async () => {
       const { createModelWithKey } = await freshImport();
 
-      const model = createModelWithKey('openai', 'gpt-4o', 'custom-key');
+      const model = createModelWithKey('openai', 'gpt-5.6-sol', 'custom-key');
 
       expect(model).toBeDefined();
       expect(createOpenAI).toHaveBeenCalledWith({ apiKey: 'custom-key' });
@@ -345,7 +345,7 @@ describe('ai-core provider-registry', () => {
     it('should create a model with a custom key for Google', async () => {
       const { createModelWithKey } = await freshImport();
 
-      const model = createModelWithKey('google', 'gemini-2.0-flash', 'custom-key');
+      const model = createModelWithKey('google', 'gemini-3.7-flash', 'custom-key');
 
       expect(model).toBeDefined();
       expect(createGoogleGenerativeAI).toHaveBeenCalledWith({ apiKey: 'custom-key' });
@@ -354,7 +354,7 @@ describe('ai-core provider-registry', () => {
     it('should create a model with a custom key for xAI', async () => {
       const { createModelWithKey } = await freshImport();
 
-      const model = createModelWithKey('xai', 'grok-3', 'custom-key');
+      const model = createModelWithKey('xai', 'grok-4.6', 'custom-key');
 
       expect(model).toBeDefined();
       expect(createXai).toHaveBeenCalledWith({ apiKey: 'custom-key' });
@@ -366,7 +366,7 @@ describe('ai-core provider-registry', () => {
 
       const { createModelWithKey } = await freshImport();
 
-      const model = createModelWithKey('amazon-bedrock', 'anthropic.claude-3-5-sonnet-20241022-v2:0', 'key');
+      const model = createModelWithKey('amazon-bedrock', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', 'key');
 
       expect(model).toBeDefined();
       // The supplied key is dropped: the Bedrock factory is called with no key.
@@ -378,7 +378,7 @@ describe('ai-core provider-registry', () => {
       const { createModelWithKey } = await freshImport();
 
       expect(() =>
-        createModelWithKey('amazon-bedrock', 'anthropic.claude-3-5-sonnet-20241022-v2:0', 'key'),
+        createModelWithKey('amazon-bedrock', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', 'key'),
       ).toThrow('authenticates via the AWS IAM role');
       expect(createAmazonBedrock).not.toHaveBeenCalled();
     });
@@ -404,7 +404,7 @@ describe('ai-core provider-registry', () => {
       const { createModelWithKey, getAvailableProviders } = await freshImport();
 
       // createModelWithKey works without env vars
-      const model = createModelWithKey('anthropic', 'claude-sonnet-4-20250514', 'custom-key');
+      const model = createModelWithKey('anthropic', 'claude-sonnet-5', 'custom-key');
       expect(model).toBeDefined();
 
       // But registry is still empty

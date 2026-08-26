@@ -456,9 +456,9 @@ const aiCore = new PackageProject({
   outdir: './packages/ai-core',
   deps: [
     `@pipeline-builder/api-core@${pkg.apiCore}`,
-    'ai@7.0.48',
-    '@ai-sdk/anthropic@4.0.27', '@ai-sdk/openai@4.0.27', '@ai-sdk/google@4.0.31',
-    '@ai-sdk/xai@4.0.25', '@ai-sdk/amazon-bedrock@5.0.40', '@ai-sdk/openai-compatible@3.0.20',
+    'ai@7.0.79',
+    '@ai-sdk/anthropic@4.0.42', '@ai-sdk/openai@4.0.47', '@ai-sdk/google@4.0.51',
+    '@ai-sdk/xai@4.0.44', '@ai-sdk/amazon-bedrock@5.0.62', '@ai-sdk/openai-compatible@3.0.37',
   ],
   devDeps: ['@types/node@26.1.2', `typescript@${typescriptVersion}`],
 });

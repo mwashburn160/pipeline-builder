@@ -154,7 +154,7 @@ curl -X POST https://localhost:8443/api/pipelines \
 curl -X POST https://localhost:8443/api/pipelines/generate \
   -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG_ID" \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Build a Node.js app from GitHub, run tests, and deploy with CDK", "provider": "anthropic", "model": "claude-sonnet-4-20250514"}'
+  -d '{"prompt": "Build a Node.js app from GitHub, run tests, and deploy with CDK", "provider": "anthropic", "model": "claude-sonnet-5"}'
 ```
 
 See the [API Reference](api-reference.md) for the full endpoint list.

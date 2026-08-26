@@ -46,8 +46,8 @@ jest.unstable_mockModule('@ai-sdk/xai', () => ({
 }));
 
 const AI_CATALOG = {
-  anthropic: { id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' }] },
-  openai: { id: 'openai', name: 'OpenAI', models: [{ id: 'gpt-4o', name: 'GPT-4o' }] },
+  anthropic: { id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-sonnet-5', name: 'Claude Sonnet 4' }] },
+  openai: { id: 'openai', name: 'OpenAI', models: [{ id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' }] },
 };
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -69,7 +69,7 @@ const baseRequest: GenerationRequest = {
   plugins: [],
   orgId: 'test-org',
   provider: 'anthropic',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-5',
 };
 
 const OK_OUTPUT = {
@@ -111,6 +111,6 @@ describe('F3b — BYO key must not fall back to platform provider keys', () => {
 
     // Fallback still works for platform requests: served by openai's platform key.
     expect(mockGenerateText).toHaveBeenCalledTimes(1);
-    expect(result.servedBy).toEqual({ provider: 'openai', model: 'gpt-4o' });
+    expect(result.servedBy).toEqual({ provider: 'openai', model: 'gpt-5.6-sol' });
   });
 });

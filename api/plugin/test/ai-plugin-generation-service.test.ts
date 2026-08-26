@@ -17,11 +17,11 @@ const mockStreamText = jest.fn();
 // (unknown provider, invalid model) still hit a throw and don't silently
 // succeed against the mock.
 const PROVIDER_MODELS: Record<string, string[]> = {
-  'anthropic': ['claude-sonnet-4-20250514', 'claude-haiku-4-5-20251001'],
-  'openai': ['gpt-4o'],
-  'google': ['gemini-2.0-flash'],
-  'xai': ['grok-3'],
-  'amazon-bedrock': ['anthropic.claude-3-5-sonnet-20241022-v2:0'],
+  'anthropic': ['claude-sonnet-5', 'claude-haiku-4-5-20251001'],
+  'openai': ['gpt-5.6-sol'],
+  'google': ['gemini-3.7-flash'],
+  'xai': ['grok-4.6'],
+  'amazon-bedrock': ['us.anthropic.claude-sonnet-4-5-20250929-v1:0'],
 };
 function validateModel(provider: string, modelId: string): void {
   const models = PROVIDER_MODELS[provider];
@@ -62,13 +62,13 @@ jest.unstable_mockModule('@pipeline-builder/ai-core', () => ({
   getProviderModels: jest.fn((id: string) => {
     const catalog: Record<string, Array<{ id: string; name: string }>> = {
       'anthropic': [
-        { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
+        { id: 'claude-sonnet-5', name: 'Claude Sonnet 4' },
         { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
       ],
-      'openai': [{ id: 'gpt-4o', name: 'GPT-4o' }],
-      'google': [{ id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' }],
-      'xai': [{ id: 'grok-3', name: 'Grok 3' }],
-      'amazon-bedrock': [{ id: 'anthropic.claude-3-5-sonnet-20241022-v2:0', name: 'Claude 3.5 Sonnet v2' }],
+      'openai': [{ id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' }],
+      'google': [{ id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' }],
+      'xai': [{ id: 'grok-4.6', name: 'Grok 4.6' }],
+      'amazon-bedrock': [{ id: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', name: 'Claude Sonnet 4.5' }],
     };
     return catalog[id] ?? [];
   }),
@@ -80,7 +80,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       id: 'anthropic',
       name: 'Anthropic',
       models: [
-        { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
+        { id: 'claude-sonnet-5', name: 'Claude Sonnet 4' },
         { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
       ],
     },
@@ -88,28 +88,28 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       id: 'openai',
       name: 'OpenAI',
       models: [
-        { id: 'gpt-4o', name: 'GPT-4o' },
+        { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' },
       ],
     },
     'google': {
       id: 'google',
       name: 'Google',
       models: [
-        { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
+        { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
       ],
     },
     'xai': {
       id: 'xai',
       name: 'xAI (Grok)',
       models: [
-        { id: 'grok-3', name: 'Grok 3' },
+        { id: 'grok-4.6', name: 'Grok 4.6' },
       ],
     },
     'amazon-bedrock': {
       id: 'amazon-bedrock',
       name: 'Amazon Bedrock',
       models: [
-        { id: 'anthropic.claude-3-5-sonnet-20241022-v2:0', name: 'Claude 3.5 Sonnet v2' },
+        { id: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', name: 'Claude Sonnet 4.5' },
       ],
     },
   },
@@ -128,13 +128,13 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getAIProviderModels: jest.fn((id: string) => {
     const catalog: Record<string, any[]> = {
       'anthropic': [
-        { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
+        { id: 'claude-sonnet-5', name: 'Claude Sonnet 4' },
         { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
       ],
-      'openai': [{ id: 'gpt-4o', name: 'GPT-4o' }],
-      'google': [{ id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' }],
-      'xai': [{ id: 'grok-3', name: 'Grok 3' }],
-      'amazon-bedrock': [{ id: 'anthropic.claude-3-5-sonnet-20241022-v2:0', name: 'Claude 3.5 Sonnet v2' }],
+      'openai': [{ id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' }],
+      'google': [{ id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' }],
+      'xai': [{ id: 'grok-4.6', name: 'Grok 4.6' }],
+      'amazon-bedrock': [{ id: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', name: 'Claude Sonnet 4.5' }],
     };
     return catalog[id] ?? [];
   }),
@@ -197,7 +197,7 @@ describe('ai-plugin-generation-service', () => {
       prompt: 'Create a Node.js build plugin',
       orgId: 'test-org',
       provider: 'anthropic',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-5',
       apiKey: 'test-custom-key',
     };
 

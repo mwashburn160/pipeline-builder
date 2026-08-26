@@ -31,7 +31,7 @@ Providers and their env vars: Anthropic (`ANTHROPIC_API_KEY`), OpenAI (`OPENAI_A
 ```typescript
 import { resolveModel, generateText } from '@pipeline-builder/ai-core';
 
-const model = resolveModel('anthropic', 'claude-sonnet-4-20250514');
+const model = resolveModel('anthropic', 'claude-sonnet-5');
 const { text } = await generateText({ model, prompt: 'Generate a pipeline spec…' });
 ```
 

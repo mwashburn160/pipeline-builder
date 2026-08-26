@@ -34,14 +34,14 @@
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
-    "@ai-sdk/amazon-bedrock": "5.0.40",
-    "@ai-sdk/anthropic": "4.0.27",
-    "@ai-sdk/google": "4.0.31",
-    "@ai-sdk/openai": "4.0.27",
-    "@ai-sdk/openai-compatible": "3.0.20",
-    "@ai-sdk/xai": "4.0.25",
+    "@ai-sdk/amazon-bedrock": "5.0.62",
+    "@ai-sdk/anthropic": "4.0.42",
+    "@ai-sdk/google": "4.0.51",
+    "@ai-sdk/openai": "4.0.47",
+    "@ai-sdk/openai-compatible": "3.0.37",
+    "@ai-sdk/xai": "4.0.44",
     "@pipeline-builder/api-core": "workspace:*",
-    "ai": "7.0.48"
+    "ai": "7.0.79"
   },
   "keywords": [
     "ci-cd",

@@ -250,7 +250,7 @@ curl -X POST https://localhost:8443/api/pipelines/generate \
   -d '{
     "prompt": "Build a Node.js app from GitHub, run tests, and deploy with CDK",
     "provider": "anthropic",
-    "model": "claude-sonnet-4-20250514"
+    "model": "claude-sonnet-5"
   }'
 ```
 
@@ -264,7 +264,7 @@ curl -X POST https://localhost:8443/api/plugins/generate \
   -d '{
     "prompt": "A Node.js 20 build plugin that runs npm ci, npm test, and npm run build",
     "provider": "anthropic",
-    "model": "claude-sonnet-4-20250514"
+    "model": "claude-sonnet-5"
   }'
 
 # Step 2: Deploy (review/edit the generated output, then submit)

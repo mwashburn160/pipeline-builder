@@ -5,9 +5,9 @@
 
 /** Metadata for a single AI model. */
 export interface AIModelInfo {
-  /** Model identifier used in API calls (e.g. "claude-sonnet-4-20250514"). */
+  /** Model identifier used in API calls (e.g. "claude-sonnet-5"). */
   id: string;
-  /** Human-readable display name (e.g. "Claude Sonnet 4"). */
+  /** Human-readable display name (e.g. "Claude Sonnet 5"). */
   name: string;
 }
 
@@ -33,7 +33,8 @@ export const AI_PROVIDER_CATALOG: Record<string, AIProviderInfo> = {
     id: 'anthropic',
     name: 'Anthropic',
     models: [
-      { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
+      { id: 'claude-sonnet-5', name: 'Claude Sonnet 5' },
+      { id: 'claude-opus-5', name: 'Claude Opus 5' },
       { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
     ],
   },
@@ -41,32 +42,36 @@ export const AI_PROVIDER_CATALOG: Record<string, AIProviderInfo> = {
     id: 'openai',
     name: 'OpenAI',
     models: [
-      { id: 'gpt-4o', name: 'GPT-4o' },
-      { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+      { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' },
+      { id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra' },
+      { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna' },
     ],
   },
   'google': {
     id: 'google',
     name: 'Google',
     models: [
-      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
-      { id: 'gemini-2.5-pro-preview-06-05', name: 'Gemini 2.5 Pro' },
+      { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
+      { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro' },
     ],
   },
   'xai': {
     id: 'xai',
     name: 'xAI (Grok)',
     models: [
-      { id: 'grok-3', name: 'Grok 3' },
-      { id: 'grok-3-fast', name: 'Grok 3 Fast' },
-      { id: 'grok-3-mini', name: 'Grok 3 Mini' },
+      { id: 'grok-4.6', name: 'Grok 4.6' },
+      { id: 'grok-4.5', name: 'Grok 4.5' },
+      { id: 'grok-4.3', name: 'Grok 4.3' },
     ],
   },
   'amazon-bedrock': {
     id: 'amazon-bedrock',
     name: 'Amazon Bedrock',
+    // Bedrock ids are region-scoped cross-region inference profiles; the `us.`
+    // prefix targets US regions — swap the prefix (eu./apac./…) to match your
+    // deploy region, and confirm availability in the Bedrock console.
     models: [
-      { id: 'anthropic.claude-3-5-sonnet-20241022-v2:0', name: 'Claude 3.5 Sonnet v2' },
+      { id: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', name: 'Claude Sonnet 4.5' },
       { id: 'us.amazon.nova-pro-v1:0', name: 'Amazon Nova Pro' },
       { id: 'us.amazon.nova-lite-v1:0', name: 'Amazon Nova Lite' },
     ],

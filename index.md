@@ -58,7 +58,7 @@ Generate a complete pipeline — sources, stages, plugins, env vars — from a G
 
 | Provider | Models |
 |----------|--------|
-| Anthropic | Claude Sonnet 4, Claude Haiku 4.5 |
+| Anthropic | Claude Sonnet 5, Claude Haiku 4.5 |
 | OpenAI | GPT-4o, GPT-4o Mini |
 | Google | Gemini 2.0 Flash, Gemini 2.5 Pro |
 | xAI | Grok 3, Grok 3 Fast, Grok 3 Mini |

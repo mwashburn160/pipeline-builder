@@ -27,7 +27,7 @@ export interface PluginGenerationRequest {
   orgId: string;
   /** AI provider to use (e.g. "anthropic", "openai", "google"). */
   provider: string;
-  /** AI model to use (e.g. "claude-sonnet-4-20250514"). */
+  /** AI model to use (e.g. "claude-sonnet-5"). */
   model: string;
   /** Optional custom API key overriding the server/org key. */
   apiKey?: string;

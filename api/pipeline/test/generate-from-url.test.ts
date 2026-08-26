@@ -261,7 +261,7 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
     body: {
       gitUrl: 'https://github.com/test/app',
       provider: 'anthropic',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-5',
     },
     headers: { authorization: 'Bearer test-token' },
     context: {
@@ -388,7 +388,7 @@ describe('POST /generate/from-url/stream', () => {
       value: {
         gitUrl: 'https://github.com/test/app',
         provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-5',
       },
     });
     mockParseGitUrl.mockReturnValue(VALID_PARSED_URL);
@@ -486,7 +486,7 @@ describe('POST /generate/from-url/stream', () => {
       prompt: 'Generated prompt for test/app',
       orgId: 'test-org',
       provider: 'anthropic',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-5',
     }));
   });
 
@@ -510,12 +510,12 @@ describe('POST /generate/from-url/stream', () => {
       value: {
         gitUrl: 'not-a-valid-url',
         provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-5',
       },
     });
     mockParseGitUrl.mockReturnValue(null);
 
-    const req = mockReq({ body: { gitUrl: 'not-a-valid-url', provider: 'anthropic', model: 'claude-sonnet-4-20250514' } });
+    const req = mockReq({ body: { gitUrl: 'not-a-valid-url', provider: 'anthropic', model: 'claude-sonnet-5' } });
     const res = mockSseRes();
     await handler(req, res);
 
@@ -1032,7 +1032,7 @@ describe('POST /generate/from-url/stream', () => {
       value: {
         gitUrl: 'https://github.com/test/app',
         provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-5',
         repoToken: 'ghp_secret123',
       },
     });
@@ -1063,7 +1063,7 @@ describe('POST /generate/from-url/stream', () => {
       value: {
         gitUrl: 'https://github.com/test/app',
         provider: 'openai',
-        model: 'gpt-4o',
+        model: 'gpt-5.6-sol',
         apiKey: 'sk-custom-key',
       },
     });
@@ -1085,7 +1085,7 @@ describe('POST /generate/from-url/stream', () => {
 
     expect(mockStreamPipelineConfig).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'openai',
-      model: 'gpt-4o',
+      model: 'gpt-5.6-sol',
       apiKey: 'sk-custom-key',
     }));
   });
@@ -1265,7 +1265,7 @@ describe('POST /generate/from-url/stream', () => {
       value: {
         gitUrl: 'https://user:s3cr3t-token@github.com/test/app',
         provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-5',
       },
     });
     // parseGitUrl strips creds — it yields only host/owner/repo/provider.
@@ -1308,7 +1308,7 @@ describe('POST /generate (aiCalls refund policy)', () => {
     jest.clearAllMocks();
     mockValidateBody.mockReturnValue({
       ok: true,
-      value: { prompt: 'build a node app', provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
+      value: { prompt: 'build a node app', provider: 'anthropic', model: 'claude-sonnet-5' },
     });
     mockReserveQuota.mockResolvedValue({ exceeded: false, quota: { type: 'aiCalls', limit: 1000, used: 1, remaining: 999, resetAt: '2026-01-01T00:00:00Z' } });
   });
@@ -1340,7 +1340,7 @@ describe('POST /generate (aiCalls refund policy)', () => {
       props: { project: 'app', organization: 'test' },
       description: 'desc',
       keywords: ['node'],
-      servedBy: { provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
+      servedBy: { provider: 'anthropic', model: 'claude-sonnet-5' },
       promptVersion: '2.0',
     });
 

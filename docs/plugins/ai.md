@@ -42,7 +42,7 @@ The `dockerfile-multi-provider` plugin supports the following cloud AI providers
 | xAI | `xai` | `AI_API_KEY` set to your xAI API key |
 | AWS Bedrock | `bedrock` | No `AI_API_KEY` required; uses AWS IAM credentials from the execution environment |
 
-Set `AI_MODEL` to the model identifier for the selected provider (for example `claude-sonnet-4` for Anthropic, `gpt-4o` for OpenAI, `gemini-2.0-flash` for Google). The plugin defaults to `AI_PROVIDER=anthropic` with the Anthropic Claude Sonnet model if neither variable is set.
+Set `AI_MODEL` to the model identifier for the selected provider (for example `claude-sonnet-5` for Anthropic, `gpt-5.6-sol` for OpenAI, `gemini-3.7-flash` for Google). The plugin defaults to `AI_PROVIDER=anthropic` with the Anthropic Claude Sonnet model if neither variable is set.
 
 `AI_API_KEY` is an optional secret: it is injected at build time from AWS Secrets Manager via CodeBuild and is required for every provider except `bedrock`, which authenticates with the CodeBuild role's IAM credentials.
 

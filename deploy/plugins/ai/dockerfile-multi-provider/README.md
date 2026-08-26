@@ -55,7 +55,7 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AI_PROVIDER` | `anthropic` | AI provider (anthropic, openai, google, xai, bedrock) |
-| `AI_MODEL` | `claude-sonnet-4-20250514` | AI model identifier for the chosen provider |
+| `AI_MODEL` | `claude-sonnet-5` | AI model identifier for the chosen provider |
 
 ## Output
 
@@ -71,7 +71,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "plugin": "dockerfile-multi-provider",
   "env": {
     "AI_PROVIDER": "anthropic",
-    "AI_MODEL": "claude-sonnet-4-20250514"
+    "AI_MODEL": "claude-sonnet-5"
   }
 }
 ```

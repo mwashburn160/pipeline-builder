@@ -47,24 +47,27 @@ export interface AIProviderInfo {
  */
 export const ORG_PROVIDER_MODELS: Record<string, AIModelInfo[]> = {
   anthropic: [
-    { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
+    { id: 'claude-sonnet-5', name: 'Claude Sonnet 5' },
+    { id: 'claude-opus-5', name: 'Claude Opus 5' },
     { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
   ],
   openai: [
-    { id: 'gpt-4o', name: 'GPT-4o' },
-    { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+    { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' },
+    { id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra' },
+    { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna' },
   ],
   google: [
-    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
-    { id: 'gemini-2.5-pro-preview-06-05', name: 'Gemini 2.5 Pro' },
+    { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
+    { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro' },
   ],
   xai: [
-    { id: 'grok-3', name: 'Grok 3' },
-    { id: 'grok-3-fast', name: 'Grok 3 Fast' },
-    { id: 'grok-3-mini', name: 'Grok 3 Mini' },
+    { id: 'grok-4.6', name: 'Grok 4.6' },
+    { id: 'grok-4.5', name: 'Grok 4.5' },
+    { id: 'grok-4.3', name: 'Grok 4.3' },
   ],
   'amazon-bedrock': [
-    { id: 'anthropic.claude-3-5-sonnet-20241022-v2:0', name: 'Claude 3.5 Sonnet v2' },
+    // `us.` = US cross-region inference profile; swap for your deploy region.
+    { id: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', name: 'Claude Sonnet 4.5' },
     { id: 'us.amazon.nova-pro-v1:0', name: 'Amazon Nova Pro' },
     { id: 'us.amazon.nova-lite-v1:0', name: 'Amazon Nova Lite' },
   ],

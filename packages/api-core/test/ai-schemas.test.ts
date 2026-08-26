@@ -9,7 +9,7 @@ describe('AIGenerateBodySchema', () => {
   const validBody = {
     prompt: 'Build a Node.js pipeline with testing',
     provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-5',
   };
 
   it('accepts a valid body', () => {
@@ -38,7 +38,7 @@ describe('AIGenerateBodySchema', () => {
   });
 
   it('rejects missing provider', () => {
-    const result = AIGenerateBodySchema.safeParse({ prompt: 'test', model: 'gpt-4o' });
+    const result = AIGenerateBodySchema.safeParse({ prompt: 'test', model: 'gpt-5.6-sol' });
     expect(result.success).toBe(false);
   });
 

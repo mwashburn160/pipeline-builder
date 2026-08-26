@@ -29,10 +29,10 @@ export const aiGenerationTopic: HelpTopic = {
           type: 'table',
           headers: ['Provider', 'Models', 'Env Variable'],
           rows: [
-            ['Anthropic', 'Claude Sonnet 4, Claude Haiku 4.5', 'ANTHROPIC_API_KEY'],
-            ['OpenAI', 'GPT-4o, GPT-4o Mini', 'OPENAI_API_KEY'],
-            ['Google', 'Gemini 2.0 Flash, Gemini 2.5 Pro', 'GOOGLE_GENERATIVE_AI_API_KEY'],
-            ['xAI (Grok)', 'Grok 3, Grok 3 Fast, Grok 3 Mini', 'XAI_API_KEY'],
+            ['Anthropic', 'Claude Sonnet 5, Claude Haiku 4.5', 'ANTHROPIC_API_KEY'],
+            ['OpenAI', 'GPT-5.6 Sol, GPT-5.6 Terra, GPT-5.6 Luna', 'OPENAI_API_KEY'],
+            ['Google', 'Gemini 3.7 Flash, Gemini 3.1 Pro', 'GOOGLE_GENERATIVE_AI_API_KEY'],
+            ['xAI (Grok)', 'Grok 4.6, Grok 4.5, Grok 4.3', 'XAI_API_KEY'],
             ['Amazon Bedrock', 'Claude 3.5 Sonnet, Nova Pro, Nova Lite', 'AWS_ACCESS_KEY_ID'],
           ],
         },
@@ -72,7 +72,7 @@ export const aiGenerationTopic: HelpTopic = {
   -d '{
     "prompt": "CI/CD pipeline for a Next.js app with unit tests and production deploy",
     "provider": "anthropic",
-    "model": "claude-sonnet-4-20250514"
+    "model": "claude-sonnet-5"
   }'`,
         },
       ],
