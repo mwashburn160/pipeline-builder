@@ -59,6 +59,25 @@ multi-step tool-calling. So the agent routes by task:
 - **Frontend Ask panel** — slide-over (or `/dashboard/ask`), reusing the existing
   SSE + chat plumbing (message service / `sseManager`).
 
+### Topbar entry point
+
+The `DashboardLayout` topbar today has three icon actions: Search/⌘K (command
+palette), Bell (notifications), and **Help** (`HelpCircle` → `/dashboard/help`).
+
+**Replace the Help icon with an Ask action** (`MessageCircleQuestion` / `Sparkles`)
+that opens the Ask slide-over — Ask is grounded in the *same* help corpus, so it's a
+superset of "browse help." **Do not delete the reference**: keep the
+`/dashboard/help` page and surface a **"Browse all help →"** link *inside* the Ask
+panel, so users who'd rather read than chat still reach the browsable docs. This is
+the single topbar change; Search and Bell are untouched.
+
+**Styling:** the Ask action is **blue** — the icon glyph uses the brand-blue token
+`--pb-brand` (`#0f6fff` light / `#63a6ff` dark), set inside a **blue circular badge**
+(a `rounded-full` background tinted from `--pb-brand`, e.g. `color-mix`/low-opacity
+brand fill). Unlike the neutral Search/Bell/Help icons, Ask reads as a colored
+call-to-action — the one blue accent in the topbar — while staying token-driven and
+dark-mode-correct.
+
 ---
 
 ## Phases
