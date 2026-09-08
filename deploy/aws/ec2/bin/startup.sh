@@ -375,6 +375,23 @@ log "Applying Kubernetes manifests"
 # lean_filter drops optional workloads when LEAN=1 (pass-through otherwise).
 mk kubectl kustomize "$K8S_DIR" | sed "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" | lean_filter | mk kubectl apply -f -
 
+# istio-cni enrolls a pod's netns into the ambient mesh only at pod CREATE time.
+# `kubectl apply` above does NOT recreate pods whose spec didn't change, so any
+# workload created in a PRIOR run (or in a run where the istiod/ztunnel/istio-cni
+# waits above timed out but the script continued anyway) can be left running
+# un-enrolled: it can still resolve/dial peers, but its traffic never gets
+# HBONE-wrapped, so a STRICT-mTLS peer (postgres, redis-sentinel, ...) silently
+# drops it — surfacing in the app as a plain connection TIMEOUT, not a clean
+# refusal. Force every workload to restart now that the mesh waits above have
+# passed, so istio-cni enrolls them on recreate. Cheap and idempotent.
+log "Restarting workloads to (re)enroll in the ambient mesh"
+# A `while read` loop (not `xargs`) so `mk` — a shell function, not a PATH
+# binary — stays callable: the loop runs in a forked subshell of THIS bash
+# process, which inherits shell functions; a process xargs execs would not.
+mk kubectl get deploy,statefulset -n "$NAMESPACE" -o name | while IFS= read -r wl; do
+  mk kubectl rollout restart -n "$NAMESPACE" "$wl"
+done
+
 log "Post-deploy fixups"
 mk minikube ssh --profile="$PROFILE" -- "sudo chown -R 1000:1000 ${DATA_DIR}/minio-data"
 REGISTRY_IP=$(mk kubectl get svc registry -n "$NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
