@@ -238,7 +238,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [platform, pipeline, plugin, message, quota, billing, compliance, reporting, image-registry, redis, redis-sentinel]
+                values: [platform, pipeline, plugin, message, quota, billing, compliance, reporting, image-registry, ask, redis, redis-sentinel]
       ports:
         - { port: 6379 }
 ---
@@ -256,6 +256,6 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [platform, pipeline, plugin, message, quota, billing, compliance, reporting, image-registry, redis, redis-sentinel]
+                values: [platform, pipeline, plugin, message, quota, billing, compliance, reporting, image-registry, ask, redis, redis-sentinel]
       ports:
         - { port: 26379 }

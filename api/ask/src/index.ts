@@ -44,4 +44,8 @@ getDocsIndex()
   .then((index) => logger.info('Ask docs index ready', { chunks: index.size }))
   .catch((err) => logger.error('Failed to build ask docs index', { error: String(err) }));
 
-runServer(app, { name: 'Ask Service' });
+// No datastore (see above): skip runServer's default PostgreSQL readiness probe.
+// Left on, the readiness guard would 503 every request until a Postgres
+// connection the service never uses succeeds — and the mesh (correctly) doesn't
+// let ask reach Postgres, so it never would.
+runServer(app, { name: 'Ask Service', testDatabase: false, closeDatabase: false });

@@ -306,6 +306,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/reporting
               - cluster.local/ns/pipeline-builder/sa/image-registry
+              - cluster.local/ns/pipeline-builder/sa/ask
               - cluster.local/ns/pipeline-builder/sa/redis
               - cluster.local/ns/pipeline-builder/sa/redis-sentinel
       to:
@@ -337,6 +338,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/reporting
               - cluster.local/ns/pipeline-builder/sa/image-registry
+              - cluster.local/ns/pipeline-builder/sa/ask
               - cluster.local/ns/pipeline-builder/sa/redis
               - cluster.local/ns/pipeline-builder/sa/redis-sentinel
       to:

@@ -315,6 +315,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/reporting
               - cluster.local/ns/pipeline-builder/sa/image-registry
+              - cluster.local/ns/pipeline-builder/sa/ask
       to:
         - operation:
             ports: ["6379"]
