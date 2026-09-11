@@ -88,6 +88,18 @@ spec:
         app.kubernetes.io/component: database
     spec:
       serviceAccountName: mongodb
+      # mongod's replica-set membership check ("isSelf") resolves the member
+      # host `mongodb:27017` — the Service name — and, since that isn't a local
+      # address, dials it through the Service. Under the Istio ambient mesh that
+      # dial fails while ztunnel is still enrolling a freshly started pod (e.g.
+      # after a node/cluster restart); mongod then marks itself REMOVED ("not a
+      # member of the config") and, as a single-node set with no peer
+      # heartbeats, never recovers until restarted. Pinning `mongodb` to loopback
+      # inside this pod makes isSelf a local-address match with no network
+      # dependency. Every other pod still resolves `mongodb` to the Service.
+      hostAliases:
+        - ip: "127.0.0.1"
+          hostnames: ["mongodb"]
       initContainers:
         # Fix keyfile permissions (MongoDB requires 400)
         - name: fix-keyfile-permissions
