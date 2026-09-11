@@ -48,11 +48,11 @@ function asSpan(n: number): 3 | 4 | 6 | 8 | 9 | 12 {
   return (valid.find(v => v === n) ?? 6) as 3 | 4 | 6 | 8 | 9 | 12;
 }
 
-/** URL-param filters that log-mode TablePanels forward to the Loki query.
+/** URL-param filters that log-mode TablePanels forward to the audit-trail query.
  * These are read from the page's router query so a deep-link from
  * the registry-audit helper preserves its filter context across the
  * redirect from /audit-activity to /<dashboard-id>. */
-interface LogUrlFilters { event?: string; actor?: string; digest?: string }
+interface LogUrlFilters { event?: string; actor?: string }
 
 /** Render a single panel by its `vizKind`. Unknown kinds fall through to
  * LinePanel — keeps a misconfigured dashboard partially-functional instead
@@ -62,15 +62,9 @@ function PanelRenderer({ panel, range, urlFilters }: { panel: DashboardPanel; ra
   const format = panel.format ? FORMATTERS[panel.format]: undefined;
   const groupBy = panel.groupBy ?? undefined;
 
-  // Catalog `vars` (e.g. plugin name) are bound at the panel level — the
-  // backend's substituteVars consumes them server-side after sanitization.
-  const vars = Object.keys(panel.vars).length > 0
-    ? { plugin: panel.vars.plugin }
-    : undefined;
-
   switch (panel.vizKind) {
     case 'stat':
-      return <StatPanel title={panel.title} queryKey={panel.queryKey} range={range} span={span} format={format} vars={vars} />;
+      return <StatPanel title={panel.title} queryKey={panel.queryKey} range={range} span={span} format={format} />;
     case 'table':
       // Heuristic to pick logs vs topk for the table panel without a
       // dedicated DB field: catalog keys ending in `_recent_*` are logs;
@@ -87,8 +81,8 @@ function PanelRenderer({ panel, range, urlFilters }: { panel: DashboardPanel; ra
             topkLabel={groupBy}
             // forward URL filters to log-mode panels only.
             // The audit-activity deep-link helper uses these to pre-filter
-            // a recent-events log query to a single event / actor / digest.
-            logOpts={isLogsMode && (urlFilters.event || urlFilters.actor || urlFilters.digest)
+            // a recent-events log query to a single event / actor.
+            logOpts={isLogsMode && (urlFilters.event || urlFilters.actor)
               ? { ...urlFilters, limit: 50 }
               : undefined}
           />
@@ -98,7 +92,7 @@ function PanelRenderer({ panel, range, urlFilters }: { panel: DashboardPanel; ra
       return <StackedBarPanel title={panel.title} queryKey={panel.queryKey} range={range} span={span} groupBy={groupBy} />;
     case 'line':
     default:
-      return <LinePanel title={panel.title} queryKey={panel.queryKey} range={range} span={span} groupBy={groupBy} format={format} vars={vars} />;
+      return <LinePanel title={panel.title} queryKey={panel.queryKey} range={range} span={span} groupBy={groupBy} format={format} />;
   }
 }
 
@@ -111,7 +105,7 @@ function ObservabilityDegradedBanner() {
     <WarningAlert
       className="mb-4"
       message={degraded
-        ? 'Monitoring backend unavailable — Prometheus/Loki are not reachable (this deployment may be running in LEAN mode, which omits them). Panels below show no data.'
+        ? 'Monitoring backend unavailable — Prometheus is not reachable (this deployment may be running in LEAN mode, which omits it). Metric panels below show no data.'
         : undefined}
     />
   );
@@ -141,9 +135,8 @@ export default function DashboardPage() {
   const urlFilters: LogUrlFilters = {
     event: typeof router.query.event === 'string' ? router.query.event : undefined,
     actor: typeof router.query.actor === 'string' ? router.query.actor : undefined,
-    digest: typeof router.query.digest === 'string' ? router.query.digest : undefined,
   };
-  const hasFilter = !!(urlFilters.event || urlFilters.actor || urlFilters.digest);
+  const hasFilter = !!(urlFilters.event || urlFilters.actor);
 
   const ready = isReady && isAuthenticated && !!id;
   // Measure container width for the grid driver. ResizeObserver follows
@@ -280,7 +273,6 @@ export default function DashboardPage() {
           <span className="text-blue-700 dark:text-blue-300 font-medium">Filtered by:</span>
           {urlFilters.event && <span className="font-mono text-blue-700 dark:text-blue-300">event={urlFilters.event}</span>}
           {urlFilters.actor && <span className="font-mono text-blue-700 dark:text-blue-300">actor={urlFilters.actor}</span>}
-          {urlFilters.digest && <span className="font-mono text-blue-700 dark:text-blue-300 break-all">digest={urlFilters.digest.slice(0, 19)}…</span>}
           <Button
             variant="link"
             onClick={() => void router.replace({ pathname: router.pathname, query: { id: router.query.id, range } }, undefined, { shallow: true })}

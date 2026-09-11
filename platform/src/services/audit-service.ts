@@ -81,6 +81,49 @@ export interface PaginatedAuditResult {
 }
 
 /**
+ * Translate an {@link AuditFilter} into a Mongo query. Shared by the paginated
+ * list (`GET /audit`) and the Audit Activity dashboard panels
+ * (`observability/audit-store-client.ts`) so both surfaces apply the SAME
+ * org-scoping predicate — an org admin's dashboard can never see a row their
+ * audit log wouldn't.
+ */
+export function buildAuditQuery(filter: AuditFilter): Record<string, unknown> {
+  const query: Record<string, unknown> = {};
+
+  if (filter.orgIdOrAffected) {
+    // Org-admin reads need union: events actor=their-org OR target=their-org.
+    query.$or = [
+      { orgId: filter.orgIdOrAffected },
+      { affectedOrgId: filter.orgIdOrAffected },
+    ];
+  } else {
+    if (filter.orgId) query.orgId = filter.orgId;
+    if (filter.affectedOrgId) query.affectedOrgId = filter.affectedOrgId;
+  }
+  if (filter.actorId) query.actorId = filter.actorId;
+  if (filter.action) {
+    query.action = { $regex: escapeRegex(filter.action), $options: 'i' };
+  }
+  if (filter.targetType) query.targetType = filter.targetType;
+  if (filter.targetId) query.targetId = filter.targetId;
+  if (filter.groupId) query.groupId = filter.groupId;
+  if (filter.impersonatorId) query.impersonatorId = filter.impersonatorId;
+  if (filter.outcome) query.outcome = filter.outcome;
+  if (filter.requestId) query.requestId = filter.requestId;
+  // Read-time createdAt range predicate. `createdAt` is the ingest timestamp
+  // (mongoose `timestamps`) and the chain-ordering field — filtering on it
+  // never touches audit record semantics or the hash chain. Either bound may
+  // be present independently.
+  if (filter.createdFrom || filter.createdTo) {
+    const range: Record<string, Date> = {};
+    if (filter.createdFrom) range.$gte = filter.createdFrom;
+    if (filter.createdTo) range.$lte = filter.createdTo;
+    query.createdAt = range;
+  }
+  return query;
+}
+
+/**
  * Service layer for audit events — replaces inline Mongoose queries in routes.
  */
 class AuditService {
@@ -92,38 +135,7 @@ class AuditService {
     offset: number,
     limit: number,
   ): Promise<PaginatedAuditResult> {
-    const query: Record<string, unknown> = {};
-
-    if (filter.orgIdOrAffected) {
-      // Org-admin reads need union: events actor=their-org OR target=their-org.
-      query.$or = [
-        { orgId: filter.orgIdOrAffected },
-        { affectedOrgId: filter.orgIdOrAffected },
-      ];
-    } else {
-      if (filter.orgId) query.orgId = filter.orgId;
-      if (filter.affectedOrgId) query.affectedOrgId = filter.affectedOrgId;
-    }
-    if (filter.actorId) query.actorId = filter.actorId;
-    if (filter.action) {
-      query.action = { $regex: escapeRegex(filter.action), $options: 'i' };
-    }
-    if (filter.targetType) query.targetType = filter.targetType;
-    if (filter.targetId) query.targetId = filter.targetId;
-    if (filter.groupId) query.groupId = filter.groupId;
-    if (filter.impersonatorId) query.impersonatorId = filter.impersonatorId;
-    if (filter.outcome) query.outcome = filter.outcome;
-    if (filter.requestId) query.requestId = filter.requestId;
-    // Read-time createdAt range predicate. `createdAt` is the ingest timestamp
-    // (mongoose `timestamps`) and the chain-ordering field — filtering on it
-    // never touches audit record semantics or the hash chain. Either bound may
-    // be present independently.
-    if (filter.createdFrom || filter.createdTo) {
-      const range: Record<string, Date> = {};
-      if (filter.createdFrom) range.$gte = filter.createdFrom;
-      if (filter.createdTo) range.$lte = filter.createdTo;
-      query.createdAt = range;
-    }
+    const query = buildAuditQuery(filter);
 
     const [events, total] = await Promise.all([
       AuditEvent.find(query).sort({ createdAt: -1 }).skip(offset).limit(limit).lean(),

@@ -122,13 +122,6 @@ export const dashboardPanel = pgTable('dashboard_panels', {
   position: integer('position')
     .default(0)
     .notNull(),
-  // Optional template var values bound at panel level (e.g. `plugin=X` for
-  // the per-plugin drill-down panel). Sanitized server-side via the catalog
-  // substituteVars allow-list.
-  vars: jsonb('vars')
-    .$type<Record<string, string>>()
-    .default({})
-    .notNull(),
 }, (table) => ({
   // The render path is "fetch all panels for dashboard X in order".
   dashboardPositionIdx: index('dashboard_panel_dashboard_position_idx')

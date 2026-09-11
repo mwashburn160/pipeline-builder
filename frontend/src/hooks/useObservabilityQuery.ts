@@ -14,19 +14,15 @@ import { useObservabilityResource } from './useObservabilityResource';
  * The data shape is the raw envelope from the backend (samples for instant,
  * series for range). Panel components decide how to render it.
  */
-export function useObservabilityQuery(key: string, range: RangeKey, vars?: { plugin?: string }) {
-  // Stringify `vars` for the dep key — primitive keys keep React's
-  // dependency comparator cheap and stable across re-renders.
-  const varsKey = JSON.stringify(vars ?? {});
-  const cacheKey = `${key}|${range}|${varsKey}`;
+export function useObservabilityQuery(key: string, range: RangeKey) {
+  const cacheKey = `${key}|${range}`;
 
   const fetcher = useCallback(
     async (signal: AbortSignal): Promise<ObservabilityQueryResponse | undefined> => {
-      const res = await api.observabilityQuery(key, range, signal, vars);
+      const res = await api.observabilityQuery(key, range, signal);
       return res.data;
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- vars tracked via varsKey
-    [key, range, varsKey],
+    [key, range],
   );
 
   return useObservabilityResource<ObservabilityQueryResponse>(fetcher, cacheKey);

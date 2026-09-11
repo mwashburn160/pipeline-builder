@@ -74,7 +74,7 @@ export default function ObservabilityIndexPage() {
   return (
     <DashboardLayout
       title="Observability"
-      subtitle="Native operator dashboards over Prometheus + Loki"
+      subtitle="Native dashboards over Prometheus metrics and the audit trail"
       actions={
         // Only surface the create entry point to users who can actually create a
         // dashboard (the destination already disables its Create button, but a

@@ -42,7 +42,6 @@ interface SeedPanel {
   span: number;
   groupBy?: string;
   format?: 'percent' | 'seconds';
-  vars?: Record<string, string>;
 }
 
 interface SeedDashboard {
@@ -111,7 +110,6 @@ export async function seedDefaultDashboards(): Promise<void> {
               groupBy: p.groupBy ?? null,
               format: p.format ?? null,
               position: i,
-              vars: p.vars ?? {},
             })),
           );
           logger.info('Seeded default dashboard', { name: def.name, panels: def.panels.length });

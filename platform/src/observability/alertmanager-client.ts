@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Thin Alertmanager v2 HTTP client. Mirrors the shape of prometheus-client /
- * loki-client (uses Node 24 native fetch, reads ALERTMANAGER_URL at call
+ * Thin Alertmanager v2 HTTP client. Mirrors the shape of prometheus-client
+ * (uses Node 24 native fetch, reads ALERTMANAGER_URL at call
  * time so tests can stub the env without import-order pain).
  *
  * Alertmanager API reference: https://prometheus.io/docs/alerting/latest/clients/

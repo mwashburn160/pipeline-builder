@@ -42,9 +42,6 @@ export function RecentActionsPanel({ actions }: RecentActionsPanelProps) {
     >
       <ul className="max-h-48 overflow-auto px-4 pb-2 space-y-1 text-xs">
         {actions.map((a) => {
-            const auditHref = a.kind === 'copy'
-              ? buildAuditLogLink({ kind: 'copy', at: a.at, digest: a.digest, source: a.source, target: a.target })
-              : buildAuditLogLink({ kind: 'delete', at: a.at, digest: a.digest, repo: a.repo, ref: a.ref });
             return (
               // Stable key (kind+timestamp+digest) — this is a shifting ring buffer,
               // so an index key would bind a row's copy-state to the wrong entry.
@@ -71,19 +68,17 @@ export function RecentActionsPanel({ actions }: RecentActionsPanelProps) {
                     <CopyButton text={a.digest} />
                   </span>
                 )}
-                {auditHref && (
-                  <a
-                    href={auditHref}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="View this event in the audit log (Grafana Explore / Loki)"
-                    aria-label="View in audit log"
-                    className="flex-shrink-0 inline-flex items-center gap-0.5 text-gray-500 hover:text-blue-600 dark:hover:text-blue-400"
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                    <span className="hidden sm:inline">audit</span>
-                  </a>
-                )}
+                <a
+                  href={buildAuditLogLink(a.kind)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="View this event type in Audit Activity"
+                  aria-label="View in audit log"
+                  className="flex-shrink-0 inline-flex items-center gap-0.5 text-gray-500 hover:text-blue-600 dark:hover:text-blue-400"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  <span className="hidden sm:inline">audit</span>
+                </a>
               </li>
             );
           })}

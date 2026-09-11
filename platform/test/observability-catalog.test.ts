@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  canQueryCatalogKey,
   QUERIES,
-  substituteVars,
+  substituteOrg,
   stepForRange,
   rangeSeconds,
 } from '../src/observability/catalog.js';
@@ -28,122 +29,53 @@ describe('observability catalog', () => {
       expect(QUERIES).toHaveProperty('audit_top_actors_24h');
     });
 
-    it('only declares template vars from the allow-list', () => {
-      // `digest` and `plugin` were dropped from the catalog — no live callers.
-      // `requestId` is a Loki line filter for audit-event correlation.
-      const allowed = new Set(['event', 'actor', 'requestId']);
+    it('keeps every entry well-formed', () => {
+      const allowedVars = new Set(['event', 'actor', 'requestId']);
       for (const [key, entry] of Object.entries(QUERIES)) {
-        for (const v of entry.allowedVars) {
-          expect(allowed.has(v)).toBe(true);
-        }
-        // catalog source must be one of the three supported kinds
-        expect(['prometheus-instant', 'prometheus-range', 'loki-range'])
-          .toContain(entry.source);
-        // catalog query non-empty
+        expect(['prometheus-instant', 'prometheus-range', 'audit-store']).toContain(entry.source);
         expect(entry.query.trim().length).toBeGreaterThan(0);
-        // Sanity: key matches snake_case
         expect(key).toMatch(/^[a-z][a-z0-9_]*$/);
+        if (entry.source === 'audit-store') {
+          for (const v of entry.allowedVars ?? []) expect(allowedVars.has(v)).toBe(true);
+        } else {
+          // `$ORG` is the only PromQL placeholder — nothing user-supplied is
+          // ever spliced into a query string.
+          expect(entry.query.replaceAll('$ORG', '')).not.toContain('$');
+        }
+      }
+    });
+
+    it('confines every audit-store entry to the caller\'s org and to admins', () => {
+      // Tenancy invariant: the audit trail is an admin surface (GET /audit is
+      // admin-gated) and must never be served unscoped to an org member.
+      const auditEntries = Object.values(QUERIES).filter(e => e.source === 'audit-store');
+      expect(auditEntries.length).toBeGreaterThan(0);
+      for (const entry of auditEntries) {
+        expect(entry.orgScoped).toBe(true);
+        expect(entry.adminOnly).toBe(true);
+        expect(['events_by_action', 'top_actors_24h', 'recent_events']).toContain(entry.query);
       }
     });
   });
 
-  describe('substituteVars', () => {
-    it('substitutes a valid event into the EVENT placeholder', () => {
-      const out = substituteVars(
-        '{eventCategory="audit"$EVENT}',
-        { event: 'registry.tag.copy' },
-        ['event'],
-      );
-      expect(out).toBe('{eventCategory="audit",event="registry.tag.copy"}');
-    });
-
-    it('drops the EVENT placeholder when not in allowedVars', () => {
-      const out = substituteVars(
-        '{eventCategory="audit"$EVENT}',
-        { event: 'registry.tag.copy' },
-        [],
-      );
-      expect(out).toBe('{eventCategory="audit"}');
-    });
-
-    it('rejects a hostile event value (rune injection)', () => {
-      const out = substituteVars(
-        '{eventCategory="audit"$EVENT}',
-        { event: 'foo"} or 1=1 //' },
-        ['event'],
-      );
-      // Invalid characters → placeholder dropped, not injected.
-      expect(out).toBe('{eventCategory="audit"}');
-    });
-
-    // `$DIGEST` placeholder + `digest` var were dropped from the catalog —
-    // no live dashboard used them. Tests removed alongside the source.
-
-    it('substitutes a valid actor into the ACTOR placeholder', () => {
-      const out = substituteVars(
-        '{eventCategory="audit"$ACTOR}',
-        { actor: 'user@example.com' },
-        ['actor'],
-      );
-      expect(out).toBe('{eventCategory="audit",actor="user@example.com"}');
-    });
-
-    it('drops all placeholders when no vars supplied', () => {
-      const out = substituteVars(
-        '{eventCategory="audit"$EVENT$ACTOR}',
-        {},
-        ['event', 'actor'],
-      );
-      expect(out).toBe('{eventCategory="audit"}');
-    });
-
-    it('audit_recent_events template renders with all vars omitted', () => {
-      const out = substituteVars(
-        QUERIES.audit_recent_events.query,
-        {},
-        QUERIES.audit_recent_events.allowedVars,
-      );
-      expect(out).toBe('{eventCategory="audit"}');
-    });
-
-    it('appends a requestId as a Loki line filter', () => {
-      const out = substituteVars(
-        QUERIES.audit_recent_events.query,
-        { requestId: 'abc-123-def' },
-        QUERIES.audit_recent_events.allowedVars,
-      );
-      expect(out).toBe('{eventCategory="audit"} |= "abc-123-def"');
-    });
-
-    it('drops a hostile requestId (line-filter injection)', () => {
-      const out = substituteVars(
-        QUERIES.audit_recent_events.query,
-        { requestId: 'x" |~ "secret' },
-        QUERIES.audit_recent_events.allowedVars,
-      );
-      // Invalid characters → placeholder dropped, bare selector returned.
-      expect(out).toBe('{eventCategory="audit"}');
-    });
-  });
-
-  describe('substituteVars: $ORG (server-driven, not from allowedVars)', () => {
+  describe('substituteOrg (server-driven $ORG)', () => {
     it('substitutes a regex wildcard for sysadmins', () => {
-      const out = substituteVars('foo{a="b"$ORG}', { isSuperAdmin: true }, []);
+      const out = substituteOrg('foo{a="b"$ORG}', { isSuperAdmin: true });
       expect(out).toBe('foo{a="b",org_id=~".+"}');
     });
 
     it('substitutes a literal match for non-sysadmins with a valid org', () => {
-      const out = substituteVars('foo{a="b"$ORG}', { org: 'org-acme', isSuperAdmin: false }, []);
+      const out = substituteOrg('foo{a="b"$ORG}', { org: 'org-acme', isSuperAdmin: false });
       expect(out).toBe('foo{a="b",org_id="org-acme"}');
     });
 
     it('substitutes a never-match clause when non-sysadmin has no org', () => {
-      const out = substituteVars('foo{a="b"$ORG}', { isSuperAdmin: false }, []);
+      const out = substituteOrg('foo{a="b"$ORG}', { isSuperAdmin: false });
       expect(out).toBe('foo{a="b",org_id="__no_org__"}');
     });
 
     it('rejects a hostile org value (regex injection)', () => {
-      const out = substituteVars('foo{$ORG}', { org: 'foo".+",other="bar', isSuperAdmin: false }, []);
+      const out = substituteOrg('foo{$ORG}', { org: 'foo".+",other="bar', isSuperAdmin: false });
       // Invalid org chars → empty-match selector instead of injection
       expect(out).toBe('foo{,org_id="__no_org__"}');
     });
@@ -152,13 +84,13 @@ describe('observability catalog', () => {
       // Regression: ratio-style panels reference $ORG twice. A first-only
       // replace left the second `$ORG` literal, which Prometheus rejects
       // with "unexpected character inside braces: '$'" (HTTP 400 → 500).
-      const out = substituteVars('a{x="1"$ORG} / b{y="2"$ORG}', { isSuperAdmin: true }, []);
+      const out = substituteOrg('a{x="1"$ORG} / b{y="2"$ORG}', { isSuperAdmin: true });
       expect(out).toBe('a{x="1",org_id=~".+"} / b{y="2",org_id=~".+"}');
       expect(out).not.toContain('$ORG');
     });
 
     it('renders the real success-rate panel query with no leftover placeholder', () => {
-      const rendered = substituteVars(QUERIES.plugin_build_success_rate_5m.query, { isSuperAdmin: true }, []);
+      const rendered = substituteOrg(QUERIES.plugin_build_success_rate_5m.query, { isSuperAdmin: true });
       expect(rendered).not.toContain('$');
     });
   });
@@ -172,6 +104,33 @@ describe('observability catalog', () => {
 
     it('defaults to 60s for unknown range', () => {
       expect(stepForRange('whatever')).toBe('60s');
+    });
+  });
+
+  describe('canQueryCatalogKey', () => {
+    const member = { isSuperAdmin: false, isOrgAdmin: false };
+    const orgAdmin = { isSuperAdmin: false, isOrgAdmin: true };
+    const sysadmin = { isSuperAdmin: true, isOrgAdmin: false };
+
+    it('lets any org member run an orgScoped key ($ORG confines it)', () => {
+      expect(canQueryCatalogKey('plugin_builds_per_min', member)).toBe(true);
+      expect(canQueryCatalogKey('plugin_builds_per_min', sysadmin)).toBe(true);
+    });
+
+    it('lets an org admin — but not a plain member — run the org-scoped audit trail', () => {
+      expect(canQueryCatalogKey('audit_recent_events', orgAdmin)).toBe(true);
+      expect(canQueryCatalogKey('audit_recent_events', member)).toBe(false);
+      expect(canQueryCatalogKey('audit_recent_events', sysadmin)).toBe(true);
+    });
+
+    it('restricts fleet-wide keys to sysadmins, even for org admins', () => {
+      expect(canQueryCatalogKey('platform_orgs_total', orgAdmin)).toBe(false);
+      expect(canQueryCatalogKey('platform_orgs_total', sysadmin)).toBe(true);
+    });
+
+    it('rejects unknown keys and inherited Object.prototype names, even for sysadmins', () => {
+      expect(canQueryCatalogKey('nope', sysadmin)).toBe(false);
+      expect(canQueryCatalogKey('toString', sysadmin)).toBe(false);
     });
   });
 

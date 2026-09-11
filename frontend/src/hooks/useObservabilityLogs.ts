@@ -7,9 +7,9 @@ import type { ObservabilityLogsResponse, ObservabilityLogsParams, RangeKey } fro
 import { useObservabilityResource } from './useObservabilityResource';
 
 /**
- * Mirror of useObservabilityQuery for Loki-backed catalog queries.
- * Templated params (event/digest/actor) are passed through verbatim — the
- * backend sanitizes them server-side via substituteVars.
+ * Mirror of useObservabilityQuery for audit-trail (`audit-store`) catalog
+ * queries. Filter params are passed through verbatim — the backend keeps only
+ * the ones the catalog entry allows.
  */
 export function useObservabilityLogs(
   key: string,

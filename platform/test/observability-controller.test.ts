@@ -4,15 +4,13 @@
 /**
  * Route-level tests for the observability controllers.
  *
- * Mocks the prom/loki client modules and asserts:
- *  - sysadmin gate (403 for non-sysadmin)
- *  - 400 for unknown catalog keys / wrong-source key (Prom key on /logs etc.)
+ * Mocks the Prometheus + audit-store client modules and asserts:
+ *  - catalog scope gate (fleet-wide keys sysadmin-only, audit trail admin-only)
+ *  - 400 for unknown catalog keys / wrong-source key (Prom key on /logs)
  *  - 500 on upstream 4xx (catalog bug, not user input)
  *  - 200 + empty `degraded:true` envelope on upstream unreachable (LEAN deploys
- *    omit prometheus/loki, so reads degrade rather than 502)
- *  - 200 + correct envelope shape for instant + range queries
- *  - templated Loki params reach the client unchanged (sanitization is
- *    in catalog.substituteVars, separately tested)
+ *    omit prometheus, so reads degrade rather than 502)
+ *  - 200 + correct envelope shape for instant + range + audit-store queries
  */
 
 import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
@@ -27,25 +25,32 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => {
 // Mocks for the upstream clients
 const mockPromQuery = jest.fn();
 const mockPromQueryRange = jest.fn();
-const mockLokiStreams = jest.fn();
-const mockLokiMatrix = jest.fn();
 
 jest.unstable_mockModule('../src/observability/prometheus-client.js', () => ({
   query: (...a: unknown[]) => mockPromQuery(...a),
   queryRange: (...a: unknown[]) => mockPromQueryRange(...a),
 }));
-jest.unstable_mockModule('../src/observability/loki-client.js', () => ({
-  queryStreams: (...a: unknown[]) => mockLokiStreams(...a),
-  queryMatrix: (...a: unknown[]) => mockLokiMatrix(...a),
+
+// The audit-store panels read platform's MongoDB audit trail.
+const mockAuditStore = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+jest.unstable_mockModule('../src/observability/audit-store-client.js', () => ({
+  queryAuditStore: (...a: unknown[]) => mockAuditStore(...a),
 }));
 
 // Mock the controller-helper functions we depend on. The controller uses
-// requireAuth (gate) + isSystemAdmin (predicate) — per-org $ORG substitution
-// scopes data; sysadmin sees all orgs via regex wildcard.
+// requireAuth (gate) + getAdminContext (sysadmin / org-admin predicates) —
+// per-org scoping confines data; sysadmin sees all orgs.
+const mockIsSystemAdmin = jest.fn<(req?: unknown) => boolean>();
+const mockIsOrgAdmin = jest.fn<(req?: unknown) => boolean>();
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   withController: (_desc: string, fn: any) => fn,
   requireAuth: jest.fn(),
-  isSystemAdmin: jest.fn(),
+  isSystemAdmin: (req: unknown) => mockIsSystemAdmin(req),
+  getAdminContext: (req: unknown) => ({
+    isSuperAdmin: mockIsSystemAdmin(req),
+    isOrgAdmin: mockIsOrgAdmin(req),
+    adminType: 'org admin',
+  }),
 }));
 
 // The controller now audits silence create/delete; stub the audit helper so the
@@ -54,13 +59,13 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({
   audit: jest.fn(),
 }));
 
-const { requireAuth, isSystemAdmin } = await import('../src/helpers/controller-helper.js');
-const { observabilityQuery, observabilityLogs } = await import('../src/observability/controller.js');
+const { requireAuth } = await import('../src/helpers/controller-helper.js');
+const { observabilityQuery, observabilityLogs, observabilityCatalog } = await import('../src/observability/controller.js');
 
 import type { Request, Response } from 'express';
 
 const mockRequireAuth = requireAuth as jest.MockedFunction<typeof requireAuth>;
-const mockIsSystemAdmin = isSystemAdmin as jest.MockedFunction<typeof isSystemAdmin>;
+
 
 function makeRes(): Response & { _status: number; _body: unknown } {
   const r: any = {
@@ -73,8 +78,8 @@ function makeRes(): Response & { _status: number; _body: unknown } {
   return r as Response & { _status: number; _body: unknown };
 }
 
-function makeReq(query: Record<string, string> = {}): Request {
-  return { query } as unknown as Request;
+function makeReq(query: Record<string, string> = {}, user?: { organizationId?: string }): Request {
+  return { query, user } as unknown as Request;
 }
 
 beforeEach(() => {
@@ -82,6 +87,7 @@ beforeEach(() => {
   // Default: authenticated + sysadmin (broadest case so test setup is short)
   mockRequireAuth.mockReturnValue(true);
   mockIsSystemAdmin.mockReturnValue(true);
+  mockIsOrgAdmin.mockReturnValue(false);
 });
 
 describe('observabilityQuery', () => {
@@ -109,21 +115,6 @@ describe('observabilityQuery', () => {
     await observabilityQuery(makeReq({ key: 'definitely_not_a_real_query', range: '1h' }), res);
     expect(res._status).toBe(400);
     expect((res._body as { message?: string }).message).toMatch(/Unknown observability query key/);
-  });
-
-  it('delegates a Loki range key on /query to loki.queryMatrix (same envelope)', async () => {
-    // /query now accepts loki-range keys so the frontend can stay endpoint-
-    // agnostic — both prometheus-range and loki-range return {series, range, step}.
-    mockLokiMatrix.mockResolvedValue([{ labels: { event: 'login' }, points: [] }]);
-    const res = makeRes();
-    await observabilityQuery(makeReq({ key: 'audit_events_per_hour_by_event', range: '1h' }), res);
-    expect(res._status).toBe(200);
-    expect(mockLokiMatrix).toHaveBeenCalledTimes(1);
-    expect(mockPromQueryRange).not.toHaveBeenCalled();
-    const body = res._body as { success: boolean; data: { series: unknown[]; range: string } };
-    expect(body.success).toBe(true);
-    expect(body.data.range).toBe('1h');
-    expect(body.data.series).toHaveLength(1);
   });
 
   it('returns 200 + samples for an instant query', async () => {
@@ -182,25 +173,18 @@ describe('observabilityQuery', () => {
 });
 
 describe('fleet-wide (non-orgScoped) catalog keys require system admin', () => {
-  // A non-orgScoped key has NO $ORG confinement — it queries a tenant-level
-  // stream (the audit trail) or a fleet-wide metric, so a normal org member must
-  // be 403'd. An orgScoped key stays open to org members ($ORG confines it).
+  // A non-orgScoped key has NO $ORG confinement — it queries a fleet-wide
+  // metric, so anyone but a sysadmin (org admins included) must be 403'd. An
+  // orgScoped key stays open to org members ($ORG confines it).
 
-  it('403s a non-sysadmin requesting the audit stream (loki-range, not orgScoped) on /query', async () => {
+  it('403s an org admin requesting a fleet-wide instant metric (platform_orgs_total)', async () => {
     mockIsSystemAdmin.mockReturnValue(false);
+    mockIsOrgAdmin.mockReturnValue(true);
     const res = makeRes();
-    await observabilityQuery(makeReq({ key: 'audit_events_per_hour_by_event', range: '1h' }), res);
+    await observabilityQuery(makeReq({ key: 'platform_orgs_total' }), res);
     expect(res._status).toBe(403);
-    expect(mockLokiMatrix).not.toHaveBeenCalled();
-    expect(mockPromQueryRange).not.toHaveBeenCalled();
-  });
-
-  it('403s a non-sysadmin requesting the audit stream on /logs', async () => {
-    mockIsSystemAdmin.mockReturnValue(false);
-    const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }), res);
-    expect(res._status).toBe(403);
-    expect(mockLokiStreams).not.toHaveBeenCalled();
+    expect((res._body as { message?: string }).message).toMatch(/system admin/);
+    expect(mockPromQuery).not.toHaveBeenCalled();
   });
 
   it('403s a non-sysadmin requesting a fleet-wide metric (plugin_failed_builds_rate_5m)', async () => {
@@ -211,13 +195,20 @@ describe('fleet-wide (non-orgScoped) catalog keys require system admin', () => {
     expect(mockPromQueryRange).not.toHaveBeenCalled();
   });
 
-  it('allows a SYSADMIN to read the audit stream on /logs', async () => {
-    mockIsSystemAdmin.mockReturnValue(true);
-    mockLokiStreams.mockResolvedValue([{ time: '1', line: 'audit', labels: {} }]);
+  it('allows a SYSADMIN to read a fleet-wide metric', async () => {
+    mockPromQuery.mockResolvedValue([]);
     const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }), res);
+    await observabilityQuery(makeReq({ key: 'platform_orgs_total' }), res);
     expect(res._status).toBe(200);
-    expect(mockLokiStreams).toHaveBeenCalledTimes(1);
+    expect(mockPromQuery).toHaveBeenCalledWith('platform_orgs_total');
+  });
+
+  it('scopes an orgScoped PromQL query to the caller\'s org', async () => {
+    mockIsSystemAdmin.mockReturnValue(false);
+    mockPromQueryRange.mockResolvedValue([]);
+    const res = makeRes();
+    await observabilityQuery(makeReq({ key: 'plugin_builds_per_min', range: '1h' }, { organizationId: 'org-1' }), res);
+    expect(mockPromQueryRange.mock.calls[0][0]).toContain('org_id="org-1"');
   });
 
   it('still allows a NON-sysadmin to read an orgScoped key ($ORG confines it)', async () => {
@@ -230,85 +221,138 @@ describe('fleet-wide (non-orgScoped) catalog keys require system admin', () => {
   });
 });
 
-describe('observabilityLogs', () => {
-  it('returns 401 when caller is not authenticated', async () => {
-    mockRequireAuth.mockReturnValue(false);
+describe('observabilityCatalog', () => {
+  const keysOf = (res: { _body: unknown }) =>
+    (res._body as { data: { entries: Array<{ key: string }> } }).data.entries.map(e => e.key);
+
+  it('offers a plain org member only the orgScoped, non-admin keys', async () => {
+    mockIsSystemAdmin.mockReturnValue(false);
     const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }), res);
-    expect(mockLokiStreams).not.toHaveBeenCalled();
+    await observabilityCatalog(makeReq(), res);
+    const keys = keysOf(res);
+    expect(keys).toContain('plugin_builds_per_min');
+    expect(keys).not.toContain('audit_recent_events');
+    expect(keys).not.toContain('platform_orgs_total');
   });
 
-  it('returns 400 for a Prometheus key on the Loki endpoint', async () => {
+  it('offers an org admin their org-scoped audit trail, but still no fleet-wide keys', async () => {
+    mockIsSystemAdmin.mockReturnValue(false);
+    mockIsOrgAdmin.mockReturnValue(true);
     const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'plugin_builds_per_min', range: '1h' }), res);
-    expect(res._status).toBe(400);
-    expect((res._body as { message?: string }).message).toMatch(/not a Loki query/);
+    await observabilityCatalog(makeReq(), res);
+    const keys = keysOf(res);
+    expect(keys).toContain('audit_recent_events');
+    expect(keys).not.toContain('platform_orgs_total');
   });
 
-  it('returns streams-shaped response for raw-stream queries', async () => {
-    mockLokiStreams.mockResolvedValue([
-      { time: '1700000000000000000', line: 'audit', labels: { event: 'registry.tag.copy' } },
-    ]);
+  it('offers a sysadmin every key', async () => {
     const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }), res);
-    expect(res._status).toBe(200);
-    const body = res._body as { data: { entries: unknown[] } };
-    expect(body.data.entries).toHaveLength(1);
-    expect(mockLokiStreams).toHaveBeenCalledTimes(1);
-    expect(mockLokiMatrix).not.toHaveBeenCalled();
+    await observabilityCatalog(makeReq(), res);
+    expect(keysOf(res)).toContain('audit_recent_events');
+  });
+});
+
+describe('audit trail (audit-store) — org-scoped, admin-only', () => {
+  const ORG_USER = { organizationId: 'org-1' };
+
+  beforeEach(() => {
+    mockIsSystemAdmin.mockReturnValue(false);
+    mockIsOrgAdmin.mockReturnValue(true);
+    mockAuditStore.mockResolvedValue({ kind: 'stream', entries: [{ time: '1', line: 'pipeline:p1', labels: {} }] });
   });
 
-  it('returns matrix-shaped response for aggregate queries', async () => {
-    mockLokiMatrix.mockResolvedValue([
-      { labels: { event: 'registry.tag.copy' }, values: [{ time: 1700000000, value: '5' }] },
-    ]);
+  it('403s a plain org member (the audit trail is an admin surface)', async () => {
+    mockIsOrgAdmin.mockReturnValue(false);
     const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'audit_events_per_hour_by_event', range: '6h' }), res);
-    expect(res._status).toBe(200);
-    const body = res._body as { data: { series: unknown[]; step: string } };
-    expect(body.data.series).toHaveLength(1);
-    expect(body.data.step).toBe('60s');
-    expect(mockLokiMatrix).toHaveBeenCalledTimes(1);
+    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }, ORG_USER), res);
+    expect(res._status).toBe(403);
+    expect(mockAuditStore).not.toHaveBeenCalled();
   });
 
-  it('passes event/actor params through to the catalog substitution', async () => {
-    mockLokiStreams.mockResolvedValue([]);
+  it('serves an org admin their own org\'s trail, with allowed filters passed through', async () => {
     const res = makeRes();
     await observabilityLogs(
-      makeReq({ key: 'audit_recent_events', range: '1h', event: 'registry.tag.copy', actor: 'user@example.com' }),
+      makeReq({ key: 'audit_recent_events', range: '6h', event: 'pipeline.delete', actor: 'u@x.com', requestId: 'r-1' }, ORG_USER),
       res,
     );
     expect(res._status).toBe(200);
-    // The first arg to queryStreams is the substituted LogQL — assert it
-    // includes both filters baked in (the actual substitution logic is
-    // covered separately in observability-catalog.test.ts).
-    const logQL = mockLokiStreams.mock.calls[0][0] as string;
-    expect(logQL).toContain('event="registry.tag.copy"');
-    expect(logQL).toContain('actor="user@example.com"');
+    expect((res._body as { data: { entries: unknown[] } }).data.entries).toHaveLength(1);
+    const [name, scope, params] = mockAuditStore.mock.calls[0] as [string, unknown, { range: string; limit: number; vars: unknown }];
+    expect(name).toBe('recent_events');
+    expect(scope).toEqual({ isSuperAdmin: false, orgId: 'org-1' });
+    expect(params.range).toBe('6h');
+    expect(params.limit).toBe(50);
+    expect(params.vars).toEqual({ event: 'pipeline.delete', actor: 'u@x.com', requestId: 'r-1' });
+  });
+
+  it('gives a sysadmin the unscoped (every-org) view', async () => {
+    mockIsSystemAdmin.mockReturnValue(true);
+    const res = makeRes();
+    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }, { organizationId: 'system' }), res);
+    expect(res._status).toBe(200);
+    expect((mockAuditStore.mock.calls[0] as unknown[])[1]).toEqual({ isSuperAdmin: true, orgId: 'system' });
+  });
+
+  it('returns the matrix envelope for aggregate entries, on /logs and /query alike', async () => {
+    mockAuditStore.mockResolvedValue({ kind: 'matrix', series: [{ labels: { event: 'pipeline.create' }, values: [] }], step: '1800s' });
+    for (const handler of [observabilityLogs, observabilityQuery]) {
+      const res = makeRes();
+      await handler(makeReq({ key: 'audit_events_per_hour_by_event', range: '6h' }, ORG_USER), res);
+      expect(res._status).toBe(200);
+      expect((res._body as { data: unknown }).data).toEqual({
+        series: [{ labels: { event: 'pipeline.create' }, values: [] }],
+        range: '6h',
+        step: '1800s',
+      });
+    }
+  });
+
+  it('drops filters the entry does not allow', async () => {
+    mockAuditStore.mockResolvedValue({ kind: 'matrix', series: [], step: '86400s' });
+    const res = makeRes();
+    await observabilityLogs(makeReq({ key: 'audit_top_actors_24h', event: 'pipeline.delete' }, ORG_USER), res);
+    expect(((mockAuditStore.mock.calls[0] as unknown[])[2] as { vars: { event?: string } }).vars.event).toBeUndefined();
+  });
+
+  it('400s an invalid range before touching the store', async () => {
+    const res = makeRes();
+    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '7d' }, ORG_USER), res);
+    expect(res._status).toBe(400);
+    expect(mockAuditStore).not.toHaveBeenCalled();
+  });
+});
+
+describe('observabilityLogs', () => {
+  const ORG_USER = { organizationId: 'org-1' };
+
+  beforeEach(() => {
+    mockAuditStore.mockResolvedValue({ kind: 'stream', entries: [] });
+  });
+
+  it('returns 401 when caller is not authenticated', async () => {
+    mockRequireAuth.mockReturnValue(false);
+    const res = makeRes();
+    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }, ORG_USER), res);
+    expect(mockAuditStore).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for a Prometheus key (the endpoint serves only the audit trail)', async () => {
+    const res = makeRes();
+    await observabilityLogs(makeReq({ key: 'plugin_builds_per_min', range: '1h' }), res);
+    expect(res._status).toBe(400);
+    expect((res._body as { message?: string }).message).toMatch(/not an audit-trail query/);
+    expect(mockPromQueryRange).not.toHaveBeenCalled();
   });
 
   it('clamps limit to 500 when caller asks for more', async () => {
-    mockLokiStreams.mockResolvedValue([]);
     const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h', limit: '99999' }), res);
-    expect(mockLokiStreams.mock.calls[0][3]).toBe(500);
+    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h', limit: '99999' }, ORG_USER), res);
+    expect(((mockAuditStore.mock.calls[0] as unknown[])[2] as { limit: number }).limit).toBe(500);
   });
 
   it('defaults limit to 50 when missing', async () => {
-    mockLokiStreams.mockResolvedValue([]);
     const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }), res);
-    expect(mockLokiStreams.mock.calls[0][3]).toBe(50);
-  });
-
-  it('degrades to an empty 200 (degraded:true) when Loki is unreachable', async () => {
-    // A LEAN deploy omits Loki — a read degrades to an empty, degraded result rather than 502.
-    mockLokiStreams.mockRejectedValue({ kind: 'unreachable', message: 'ECONNREFUSED' });
-    const res = makeRes();
-    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }), res);
-    expect(res._status).toBe(200);
-    const body = res._body as { data: { entries: unknown[]; degraded?: boolean } };
-    expect(body.data.degraded).toBe(true);
-    expect(body.data.entries).toHaveLength(0);
+    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }, ORG_USER), res);
+    expect(((mockAuditStore.mock.calls[0] as unknown[])[2] as { limit: number }).limit).toBe(50);
   });
 });

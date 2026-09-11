@@ -286,7 +286,31 @@ export const auditEventsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Audit log lines land in Loki with service_name, eventCategory, event, actor, and pluginName promoted to labels. From the UI, the Audit Activity dashboard at /dashboard/observability/audit-activity is the operator-facing surface; deep-link to a filtered view via the registry's buildAuditLogLink helper (frontend/src/lib/registry-audit-link.ts)."
+          "content": "From the UI, two admin surfaces read the MongoDB audit trail, both scoped the same way: an org admin sees events where their org was the actor's org (orgId) or the affected org (affectedOrgId); a system admin sees every org; plain members see neither."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Audit Log (/dashboard/audit) — the searchable, paginated list with the"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "integrity (/audit/verify) check."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Audit Activity dashboard (/dashboard/observability/audit-activity) —"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "events over time by type, top actors (24h), and recent events. Its catalog entries (audit_* in platform/src/observability/catalog.ts) use the audit-store source and are orgScoped + adminOnly, so the observability API applies the same predicate as GET /audit (buildAuditQuery in platform/src/services/audit-service.ts)."
+        },
+        {
+          "type": "text",
+          "content": "The cross-service emitAudit lines described above also land in Loki with service_name, eventCategory, event, actor, and pluginName promoted to labels, searchable from the Logs page. They carry no org label, so they are not a tenant-scoped surface. Deep-link to a filtered Audit Activity view via the registry's buildAuditLogLink helper (frontend/src/lib/registry-audit-link.ts)."
         },
         {
           "type": "text",

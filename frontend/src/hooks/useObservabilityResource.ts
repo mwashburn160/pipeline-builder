@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useReportPanelHealth } from './useObservabilityHealth';
 
-/** Default panel refresh cadence — Prometheus/Loki scrape intervals are 15-30s
+/** Default panel refresh cadence — Prometheus scrape intervals are 15-30s
  *  so any tighter than this would mostly return identical samples. */
 const REFRESH_INTERVAL_MS = 30_000;
 
@@ -47,7 +47,7 @@ export function useObservabilityResource<T>(
       const res = await fetcherRef.current(controller.signal);
       if (controller.signal.aborted) return;
       setState({ data: res ?? null, loading: false, error: null });
-      // A degraded envelope means the backend (Prometheus/Loki) was unreachable.
+      // A degraded envelope means the backend (Prometheus/Alertmanager) was unreachable.
       const degraded = Boolean(res && typeof res === 'object' && (res as { degraded?: boolean }).degraded);
       reportRef.current(cacheKey, degraded);
     } catch (err) {

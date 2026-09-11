@@ -201,7 +201,6 @@ export default function DashboardEditPage() {
         groupBy: null,
         format: null,
         position: prev.length,
-        vars: {},
       },
     ]);
     setPanelKeys((prev) => [...prev, `panel-${panelKeySeq.current++}`]);
@@ -231,7 +230,6 @@ export default function DashboardEditPage() {
           groupBy: p.groupBy ?? undefined,
           format: p.format ?? undefined,
           position: i,
-          vars: p.vars,
         })),
       };
       await api.updateDashboard(original.id, body);

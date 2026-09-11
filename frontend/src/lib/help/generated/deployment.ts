@@ -24,7 +24,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Observability is the native /dashboard/observability page across all deployments. Five dashboards (Platform Overview, Plugin Builds, Queue Health, Registry Activity, Audit Activity) are seeded into the database at platform cold start as public rows owned by the system org (org_id = the configured SYSTEM_ORG_ID, default 000000000000000000000001), so they appear automatically for any logged-in org and open at /dashboard/observability/<id>. Audit Activity also has a dedicated page at /dashboard/observability/audit-activity."
+          "content": "Observability is the native /dashboard/observability page across all deployments. Five dashboards (Platform Overview, Plugin Builds, Queue Health, Registry Activity, Audit Activity) are seeded into the database at platform cold start as public rows owned by the system org (org_id = the configured SYSTEM_ORG_ID, default 000000000000000000000001), so they appear automatically for any logged-in org and open at /dashboard/observability/<id>. Panels backed by fleet-wide queries (catalog entries that aren't orgScoped — platform totals, queue/registry metrics) are shown only to system admins, and a dashboard with no panel the caller can render is hidden. Org members see Plugin Builds and the org-scoped part of Platform Overview; org admins also get Audit Activity, which reads the MongoDB audit trail scoped to their org; Queue Health and Registry Activity are system-admin only. Audit Activity also has a dedicated page at /dashboard/observability/audit-activity."
         },
         {
           "type": "text",

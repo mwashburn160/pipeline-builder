@@ -16,16 +16,14 @@ interface LinePanelProps {
   groupBy?: string;
   /** Y-axis value formatter — e.g. percent, seconds, bytes. */
   format?: (v: number) => string;
-  /** Optional template variables (e.g. plugin name for the per-plugin drill-down). */
-  vars?: { plugin?: string };
 }
 
 const CHART_WIDTH = 480;
 const CHART_HEIGHT = 160;
 const PAD = { top: 8, right: 8, bottom: 18, left: 32 };
 
-export function LinePanel({ queryKey, title, range, span = 6, groupBy, format = defaultFormat, vars }: LinePanelProps) {
-  const { data, loading, error } = useObservabilityQuery(queryKey, range, vars);
+export function LinePanel({ queryKey, title, range, span = 6, groupBy, format = defaultFormat }: LinePanelProps) {
+  const { data, loading, error } = useObservabilityQuery(queryKey, range);
 
   const series = (data && 'series' in data) ? data.series : [];
   const prepared = prepareSeries(series, groupBy);

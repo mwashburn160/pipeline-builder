@@ -428,9 +428,7 @@ CREATE TABLE IF NOT EXISTS dashboard_panels (    id UUID PRIMARY KEY DEFAULT gen
     group_by VARCHAR(50),
     format VARCHAR(20),
     -- 0-based render order within the dashboard
-    position INTEGER NOT NULL DEFAULT 0,
-    -- Optional template-var values bound at panel level (sanitized at render time)
-    vars JSONB NOT NULL DEFAULT '{}'::jsonb
+    position INTEGER NOT NULL DEFAULT 0
 );
 
 -- The render path is "fetch all panels for dashboard X in order".

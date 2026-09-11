@@ -13,11 +13,9 @@ const LOGS_COLUMNS: Column<ObservabilityLogEntry>[] = [
     id: 'time',
     header: 'Time',
     cellClassName: 'whitespace-nowrap text-gray-500',
-    render: (e) => {
-      // Loki time is in nanoseconds (string). Convert to JS Date via ms.
-      const ms = Math.floor(Number(e.time) / 1_000_000);
-      return <span title={new Date(ms).toLocaleString([], { hour12: false })}>{new Date(ms).toLocaleTimeString([], { hour12: false })}</span>;
-    },
+    render: (e) => (
+      <span title={new Date(e.time).toLocaleString([], { hour12: false })}>{new Date(e.time).toLocaleTimeString([], { hour12: false })}</span>
+    ),
   },
   { id: 'event', header: 'Event', cellClassName: 'whitespace-nowrap font-mono', render: (e) => e.labels.event ?? '—' },
   { id: 'actor', header: 'Actor', cellClassName: 'whitespace-nowrap font-mono', render: (e) => e.labels.actor ?? '—' },
@@ -31,15 +29,15 @@ interface TablePanelProps {
   span?: 3 | 4 | 6 | 8 | 9 | 12;
   /** Catalog query mode: 'logs' for stream entries, 'topk' for matrix→ranked list. */
   mode: 'logs' | 'topk';
-  /** Optional templated params for the logs mode (event/digest/actor/plugin). */
-  logOpts?: { event?: string; digest?: string; actor?: string; plugin?: string; limit?: number };
+  /** Optional filters for the logs mode (exact event, actor id/email, row limit). */
+  logOpts?: { event?: string; actor?: string; limit?: number };
   /** For topk mode, the label key holding the rank label (default 'actor'). */
   topkLabel?: string;
 }
 
 /**
- * Renders either a recent-events list (Loki streams) or a top-N table
- * (Loki matrix aggregated by label). Both visuals share the same shell:
+ * Renders either a recent-events list (audit-trail entries) or a top-N table
+ * (a series set ranked by label). Both visuals share the same shell:
  * a scrollable HTML table, one row per record.
  */
 export function TablePanel({ queryKey, title, range, span = 6, mode, logOpts = {}, topkLabel = 'actor' }: TablePanelProps) {

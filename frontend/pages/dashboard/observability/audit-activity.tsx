@@ -7,8 +7,8 @@
  * The page that USED to live here was the static replacement for Grafana's
  * Explore audit-log surface. That functionality migrated to the DB-stored
  * `Audit Activity` dashboard (seeded under org_id='system'), and the
- * DB-stored renderer now honours the URL-param filters (`?event=`, `?actor=`,
- * `?digest=`) that `buildAuditLogLink` produces.
+ * DB-stored renderer honours the URL-param filters (`?event=`, `?actor=`) that
+ * deep-links such as `buildAuditLogLink` produce.
  *
  * Keeping this file as a shim — rather than deleting it outright — preserves
  * existing deep-links (registry-audit-link, bookmarks) without requiring the
@@ -30,13 +30,10 @@ import { api, getErrorMessage } from '@/lib/api';
 const TARGET_DASHBOARD_NAME = 'Audit Activity';
 
 export default function AuditActivityRedirect() {
-  // Admin-only, matching the dedicated audit-log viewer at /dashboard/audit
-  // (`useAuthGuard({ requireAdmin: true })`, nav `adminOnly: true`). Audit
-  // events are a privileged surface; a plain member must not reach the Audit
-  // Activity dashboard via the observability path. Server-side, GET /audit is
-  // already admin-gated and org-scoped (platform/src/routes/audit.ts) — this
-  // gate is UI-consistency / defense-in-depth so both audit surfaces share the
-  // same access boundary. Non-admins are redirected to /dashboard by the guard.
+  // Admin-only, matching the audit-log viewer at /dashboard/audit. The Audit
+  // Activity panels read the MongoDB audit trail scoped to the caller's org (a
+  // sysadmin sees every org), and the observability API gates them `adminOnly`
+  // exactly like GET /audit — so a plain member is redirected by the guard.
   const { isReady, isAuthenticated } = useAuthGuard({ requireAdmin: true });
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +56,7 @@ export default function AuditActivityRedirect() {
         }
         // Preserve every URL param except `id` (which would conflict with
         // the dashboard route). The DB-stored renderer reads `range`,
-        // `event`, `actor`, `digest` directly.
+        // `event`, `actor` directly.
         const { id: _ignored, ...passThrough } = query;
         void router.replace(
           { pathname: `/dashboard/observability/${match.id}`, query: passThrough },

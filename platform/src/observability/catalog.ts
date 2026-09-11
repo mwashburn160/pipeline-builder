@@ -5,71 +5,91 @@
  * Server-side query catalog for the native Observability dashboards.
  *
  * Frontend asks for a query by key (e.g. `plugin_builds_per_min`); backend
- * looks up the PromQL/LogQL here, substitutes any allowed template
- * variables, and executes against the upstream Prometheus or Loki. This
- * indirection is the security boundary — frontend never sends raw
- * PromQL/LogQL, so injection / scope-escape attacks have no surface.
+ * looks up the entry here and runs it — PromQL against Prometheus, or a named
+ * aggregation over the MongoDB audit trail. This indirection is the security
+ * boundary — frontend never sends raw PromQL, so injection / scope-escape
+ * attacks have no surface.
  *
- * Adding a new query: pick a key, add an entry. Template variables are
- * limited to `$EVENT`, `$ACTOR`, `$REQUESTID` (frontend-supplied, sanitized)
- * and `$ORG` (server-driven scoping) — nothing else is allowed in catalog
- * strings.
+ * Adding a new query: pick a key, add an entry. The only PromQL template
+ * variable is `$ORG` (server-driven org scoping) — nothing user-supplied is
+ * ever spliced into a query string. Audit-store entries take their frontend
+ * filters (`allowedVars`) as Mongo equality values, never as query text.
  */
 
-export type QuerySource = 'prometheus-instant' | 'prometheus-range' | 'loki-range';
+/**
+ * Where a catalog entry's data lives. `audit-store` is platform's MongoDB audit
+ * trail — the tamper-evident, per-org record every service reports into — read
+ * through `audit-store-client.ts` rather than Prometheus.
+ */
+export type QuerySource = 'prometheus-instant' | 'prometheus-range' | 'audit-store';
 
 /** Canonical range keys understood by the observability controller. */
 export type RangeKey = '1h' | '6h' | '24h';
 
-export interface QueryEntry {
-  source: QuerySource;
-  /** Raw PromQL or LogQL. May contain `$EVENT`, `$ACTOR`, `$REQUESTID`, `$ORG` placeholders. */
-  query: string;
-  /** Allow-list of template variables the frontend may pass for this query. */
-  allowedVars: ReadonlyArray<'event' | 'actor' | 'requestId'>;
+/** Named aggregations over the MongoDB audit trail (see `audit-store-client.ts`). */
+export type AuditStoreQuery = 'events_by_action' | 'top_actors_24h' | 'recent_events';
+
+interface QueryEntryBase {
   /**
-   * When true, the controller substitutes `$ORG` with the caller's org
-   * (sysadmins get a regex wildcard, org admins get their literal org).
-   * Catalog entries that aggregate over an `org_id` label should set this;
-   * entries that have no org context (global health metrics) can omit it.
+   * When true, results are confined to the caller's org (sysadmins see every
+   * org): Prometheus entries via `$ORG` substitution on an `org_id` label,
+   * `audit-store` entries via the audit trail's `orgId`/`affectedOrgId`.
+   * Entries with no org context (fleet-wide health metrics) omit it and are
+   * sysadmin-only.
    */
   orgScoped?: boolean;
   /**
-   * Explicit hint for how a `loki-range` query's results should be rendered:
-   *   - `stream`  → raw log lines (use `/api/observability/logs`, returns `{entries}`)
-   *   - `matrix`  → aggregated time series (returns `{series}`)
-   * When omitted, the controller falls back to a syntactic heuristic on the
-   * query body — prefer setting this explicitly on new Loki entries.
+   * Readable only by org admins (and sysadmins), even though org-scoped — for
+   * data that is an admin surface in its own right. Audit entries set it to
+   * match `GET /audit`, which is admin-gated.
    */
-  kind?: 'stream' | 'matrix';
+  adminOnly?: boolean;
 }
+
+/** A Prometheus entry: a raw PromQL string. */
+export interface PrometheusQueryEntry extends QueryEntryBase {
+  source: 'prometheus-instant' | 'prometheus-range';
+  /** Raw PromQL. May contain the `$ORG` placeholder (see `substituteOrg`). */
+  query: string;
+}
+
+/** An entry served from the MongoDB audit trail by a named aggregation. */
+export interface AuditStoreQueryEntry extends QueryEntryBase {
+  source: 'audit-store';
+  query: AuditStoreQuery;
+  /**
+   * How the result renders: `stream` → individual events (`{entries}`),
+   * `matrix` → aggregated series (`{series}`).
+   */
+  kind: 'stream' | 'matrix';
+  /** Filters the frontend may pass (event = exact action, actor = id or email,
+   *  requestId = one HTTP request's events). Anything else is dropped. */
+  allowedVars?: ReadonlyArray<'event' | 'actor' | 'requestId'>;
+}
+
+export type QueryEntry = PrometheusQueryEntry | AuditStoreQueryEntry;
 
 export const QUERIES: Record<string, QueryEntry> = {
   // -- Platform Overview dashboard --------------------------------------------
   platform_orgs_total: {
     source: 'prometheus-instant',
     query: 'platform_orgs_total',
-    allowedVars: [],
   },
   platform_users_total: {
     source: 'prometheus-instant',
     query: 'platform_users_total',
-    allowedVars: [],
   },
   platform_logins_24h: {
     source: 'prometheus-instant',
     query: 'sum(increase(platform_logins_total[24h]))',
-    allowedVars: [],
   },
   platform_logins_per_min: {
     source: 'prometheus-range',
     query: 'sum(rate(platform_logins_total[1m]))',
-    allowedVars: [],
   },
   platform_memberships_active_total: {
     source: 'prometheus-instant',
     query: 'platform_memberships_active_total',
-    allowedVars: [],
   },
 
   // -- Plugin Builds dashboard ------------------------------------------------
@@ -82,7 +102,6 @@ export const QUERIES: Record<string, QueryEntry> = {
     // sample carries a status label, so this matches all build samples without
     // an artificial `org_id=~".+"`. `$ORG` adds the per-caller scoping suffix.
     query: 'sum by (status) (rate(plugin_builds_total{status!=""$ORG}[1m]))',
-    allowedVars: [],
     orgScoped: true,
   },
   plugin_build_success_rate_5m: {
@@ -92,13 +111,11 @@ export const QUERIES: Record<string, QueryEntry> = {
     query:
       'sum(rate(plugin_builds_total{status="success"$ORG}[5m])) '
       + '/ clamp_min(sum(rate(plugin_builds_total{status!=""$ORG}[5m])), 1)',
-    allowedVars: [],
     orgScoped: true,
   },
   plugin_queue_depth: {
     source: 'prometheus-range',
     query: 'sum by (queue, state) (plugin_queue_jobs)',
-    allowedVars: [],
   },
 
   // -- Plugin autoscaling visibility --------------------------------------
@@ -113,7 +130,6 @@ export const QUERIES: Record<string, QueryEntry> = {
   plugin_replicas: {
     source: 'prometheus-range',
     query: 'count(up{service="plugin"} == 1)',
-    allowedVars: [],
   },
   // Exact value KEDA's `type: prometheus` trigger reads each polling
   // cycle. Compare against the trigger's threshold=2 to predict the
@@ -121,7 +137,6 @@ export const QUERIES: Record<string, QueryEntry> = {
   plugin_keda_trigger_queue: {
     source: 'prometheus-range',
     query: 'sum(plugin_queue_jobs{state=~"waiting|active"})',
-    allowedVars: [],
   },
   // Per-pod CPU rate from prom-client's collectDefaultMetrics(). Process-
   // level (not cgroup-level), so absolute numbers differ slightly from
@@ -130,24 +145,20 @@ export const QUERIES: Record<string, QueryEntry> = {
   plugin_pod_cpu_seconds_rate: {
     source: 'prometheus-range',
     query: 'sum by (instance) (rate(process_cpu_seconds_total{service="plugin"}[1m]))',
-    allowedVars: [],
   },
   plugin_pod_memory_bytes: {
     source: 'prometheus-range',
     query: 'sum by (instance) (process_resident_memory_bytes{service="plugin"})',
-    allowedVars: [],
   },
   plugin_build_p95_duration_sec: {
     source: 'prometheus-range',
     query: 'histogram_quantile(0.95, sum by (le) (rate(plugin_build_duration_seconds_bucket[5m])))',
-    allowedVars: [],
   },
   plugin_builds_total_24h: {
     source: 'prometheus-instant',
     // `status!=""` anchors the selector without an artificial org_id matcher;
     // every emitted plugin_builds_total sample carries a status label.
     query: 'sum(increase(plugin_builds_total{status!=""$ORG}[24h]))',
-    allowedVars: [],
     orgScoped: true,
   },
 
@@ -155,22 +166,18 @@ export const QUERIES: Record<string, QueryEntry> = {
   plugin_job_wait_p50: {
     source: 'prometheus-range',
     query: 'histogram_quantile(0.5, sum by (le) (rate(plugin_job_wait_seconds_bucket[5m])))',
-    allowedVars: [],
   },
   plugin_job_wait_p95: {
     source: 'prometheus-range',
     query: 'histogram_quantile(0.95, sum by (le) (rate(plugin_job_wait_seconds_bucket[5m])))',
-    allowedVars: [],
   },
   plugin_job_wait_p99: {
     source: 'prometheus-range',
     query: 'histogram_quantile(0.99, sum by (le) (rate(plugin_job_wait_seconds_bucket[5m])))',
-    allowedVars: [],
   },
   plugin_dlq_size: {
     source: 'prometheus-range',
     query: 'sum by (state) (plugin_queue_jobs{queue="plugin-build-dlq"})',
-    allowedVars: [],
   },
   // Renamed from the former "plugin_retry_rate" key. The canonical seed JSON
   // (observability/dashboards/queue-health.json, loaded by the in-process
@@ -178,125 +185,104 @@ export const QUERIES: Record<string, QueryEntry> = {
   plugin_failed_builds_rate_5m: {
     source: 'prometheus-range',
     query: 'sum(rate(plugin_builds_total{status="failed"}[5m]))',
-    allowedVars: [],
   },
 
   // -- Registry Activity dashboard --------------------------------------------
   registry_copies_per_min: {
     source: 'prometheus-range',
     query: 'sum(rate(registry_tag_copy_total[1m]))',
-    allowedVars: [],
   },
   registry_deletes_per_min: {
     source: 'prometheus-range',
     query: 'sum(rate(registry_tag_delete_total[1m]))',
-    allowedVars: [],
   },
   registry_promotions_per_hour: {
     source: 'prometheus-range',
     query: 'sum(rate(registry_tag_promote_total[1h])) * 3600',
-    allowedVars: [],
   },
   registry_copies_24h: {
     source: 'prometheus-instant',
     query: 'sum(increase(registry_tag_copy_total[24h]))',
-    allowedVars: [],
   },
   registry_deletes_24h: {
     source: 'prometheus-instant',
     query: 'sum(increase(registry_tag_delete_total[24h]))',
-    allowedVars: [],
   },
   registry_promotions_24h: {
     source: 'prometheus-instant',
     query: 'sum(increase(registry_tag_promote_total[24h]))',
-    allowedVars: [],
   },
 
   // -- Audit Activity dashboard ----------------------------------------------
-  // not orgScoped: audit log stream has no org_id label; relies on platform-only RBAC
+  // Served from the MongoDB audit trail: the complete record (every service
+  // reports into it via platform's `POST /audit/events`), and every row carries
+  // `orgId`/`affectedOrgId`, so an org admin gets their own org's trail — the
+  // same rows `GET /audit` shows them. adminOnly mirrors `GET /audit`.
   audit_events_per_hour_by_event: {
-    source: 'loki-range',
-    query: 'sum by (event) (count_over_time({eventCategory="audit"}[1h]))',
-    allowedVars: [],
+    source: 'audit-store',
+    query: 'events_by_action',
+    orgScoped: true,
+    adminOnly: true,
     kind: 'matrix',
   },
-  // not orgScoped: audit log stream has no org_id label; relies on platform-only RBAC
   audit_recent_events: {
-    source: 'loki-range',
-    // `$REQUESTID` is a LogQL line filter (appended after the stream selector)
-    // rather than a label matcher: requestId/traceId are high-cardinality, so
-    // they live in the log line JSON, not in Loki labels. Lets an operator
-    // pull every audit line for one request/trace.
-    query: '{eventCategory="audit"$EVENT$ACTOR}$REQUESTID',
+    source: 'audit-store',
+    query: 'recent_events',
+    // event = exact action, actor = actor id or email, requestId = pull every
+    // audited action from one HTTP request.
     allowedVars: ['event', 'actor', 'requestId'],
+    orgScoped: true,
+    adminOnly: true,
     kind: 'stream',
   },
-  // not orgScoped: audit log stream has no org_id label; relies on platform-only RBAC
   audit_top_actors_24h: {
-    source: 'loki-range',
-    query: 'topk(10, sum by (actor) (count_over_time({eventCategory="audit"}[24h])))',
-    allowedVars: [],
+    source: 'audit-store',
+    query: 'top_actors_24h',
+    orgScoped: true,
+    adminOnly: true,
     kind: 'matrix',
   },
 };
 
+/** Who is asking — the two authorities a catalog entry can require. */
+export interface CatalogCaller {
+  isSuperAdmin: boolean;
+  isOrgAdmin: boolean;
+}
+
 /**
- * Substitute allowed template variables into a catalog query. Unknown
- * placeholders are left as-is on purpose: if the catalog declares a
- * variable but the frontend didn't send it, we drop it cleanly rather
- * than leaving a literal `$EVENT` in the query.
+ * Whether a caller may run the catalog entry for `key`. Sysadmins may run any
+ * entry. An `orgScoped` entry is confined to the caller's org, so an org member
+ * may run it — an org ADMIN when it's also `adminOnly` (the audit trail). An
+ * entry that is NOT `orgScoped` is fleet-wide (platform totals, queue/registry
+ * metrics) and is sysadmin-only. Unknown keys are never queryable.
  *
- * Template syntax is bespoke (not regex injection) so callers can't
- * compose a different query by sending crafted variable values — the
- * variable values get sanitized to allow only the character set of
- * legitimate audit-event names and actor IDs.
+ * Single source of truth for the query gate (observability controller) AND for
+ * withholding what a caller couldn't render anyway — catalog-picker entries,
+ * dashboard panels, and dashboards left with no renderable panel.
  */
-export function substituteVars(
-  query: string,
-  vars: { event?: string; actor?: string; requestId?: string; org?: string; isSuperAdmin?: boolean },
-  allowed: ReadonlyArray<'event' | 'actor' | 'requestId'>,
-): string {
-  let result = query;
+export function canQueryCatalogKey(key: string, caller: CatalogCaller): boolean {
+  if (!Object.hasOwn(QUERIES, key)) return false;
+  if (caller.isSuperAdmin) return true;
+  const entry = QUERIES[key];
+  if (entry.orgScoped !== true) return false;
+  return entry.adminOnly !== true || caller.isOrgAdmin;
+}
 
-  // event: alphanumerics + . + - + _ (matches our event-naming convention)
-  const eventClause = allowed.includes('event') && vars.event && /^[a-zA-Z0-9._-]+$/.test(vars.event)
-    ? `,event="${vars.event}"` : '';
-  result = result.replaceAll('$EVENT', eventClause);
-
-  // actor: alphanumerics + - + _ + . + @ (covers user IDs and service principals)
-  const actorClause = allowed.includes('actor') && vars.actor && /^[a-zA-Z0-9._@-]+$/.test(vars.actor)
-    ? `,actor="${vars.actor}"` : '';
-  result = result.replaceAll('$ACTOR', actorClause);
-
-  // requestId: a correlation id (uuid or OTel trace id). Appended as a LogQL
-  // line filter — alphanumerics + - + _ only, so the value can't break out of
-  // the `|= "…"` string and inject extra query clauses. Dropped cleanly when
-  // absent/invalid (the placeholder becomes empty, leaving the bare selector).
-  const requestIdClause = allowed.includes('requestId') && vars.requestId && /^[a-zA-Z0-9_-]+$/.test(vars.requestId)
-    ? ` |= "${vars.requestId}"` : '';
-  result = result.replaceAll('$REQUESTID', requestIdClause);
-
-  // org: substituted by the controller (not from the frontend). Sysadmins
-  // get a regex wildcard so they see all orgs; org admins get a literal
-  // match scoped to their org. The substitution happens regardless of
-  // `allowed` — `$ORG` is server-driven, not user-supplied.
-  // replaceAll, not replace: several panel queries reference $ORG more than
-  // once (e.g. the success-rate ratio divides two plugin_builds_total sums,
-  // each carrying $ORG). String.replace only swaps the first occurrence,
-  // leaving a literal `$ORG` in the second matcher that Prometheus rejects
-  // with "unexpected character inside braces: '$'".
-  if (vars.isSuperAdmin) {
-    result = result.replaceAll('$ORG', ',org_id=~".+"');
-  } else if (vars.org && /^[a-zA-Z0-9_-]+$/.test(vars.org)) {
-    result = result.replaceAll('$ORG', `,org_id="${vars.org}"`);
-  } else {
-    // Missing/invalid org for a non-sysadmin — substitute empty match so
-    // the query returns nothing rather than leaking all data.
-    result = result.replaceAll('$ORG', ',org_id="__no_org__"');
-  }
-
-  return result;
+/**
+ * Substitute the server-driven `$ORG` placeholder into a PromQL query. Never
+ * user-supplied: the org comes from the caller's token. Sysadmins get a regex
+ * wildcard so they see all orgs; org members get a literal match on their org.
+ * replaceAll, not replace: several queries reference `$ORG` more than once
+ * (e.g. the success-rate ratio divides two plugin_builds_total sums, each
+ * carrying `$ORG`); a leftover literal `$ORG` is rejected by Prometheus.
+ */
+export function substituteOrg(query: string, vars: { org?: string; isSuperAdmin?: boolean }): string {
+  if (vars.isSuperAdmin) return query.replaceAll('$ORG', ',org_id=~".+"');
+  if (vars.org && /^[a-zA-Z0-9_-]+$/.test(vars.org)) return query.replaceAll('$ORG', `,org_id="${vars.org}"`);
+  // Missing/invalid org for a non-sysadmin — substitute an impossible match so
+  // the query returns nothing rather than leaking all data.
+  return query.replaceAll('$ORG', ',org_id="__no_org__"');
 }
 
 /**

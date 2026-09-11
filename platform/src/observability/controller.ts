@@ -4,38 +4,41 @@
 /**
  * Controllers for the Observability endpoints.
  *
- *   GET /api/observability/query?key=&range=
- *   GET /api/observability/logs?key=&range=&limit=&event=&actor=
+ *   GET /api/observability/query?key=&range=   — Prometheus (or audit-store matrix) by key
+ *   GET /api/observability/logs?key=&range=&limit=&event=&actor=&requestId=
+ *                                              — the MongoDB audit trail (audit-store) by key
  *
  * Authenticated + org-scoped (`requireAuth`, then results are scoped to the
- * caller's org via `$ORG` substitution; a sysadmin gets a cross-org wildcard).
- * The catalog is the security boundary — frontend cannot request raw
- * PromQL/LogQL; only catalog keys.
+ * caller's org — `$ORG` substitution for PromQL, the audit trail's org fields
+ * for audit-store; a sysadmin sees every org). The catalog is the security
+ * boundary — frontend cannot request raw PromQL; only catalog keys.
  *
  * Error mapping:
  *   - Unknown catalog key                       → 400
- *   - Upstream Prom/Loki 4xx (syntax-error)     → 500 (catalog bug, not user input)
+ *   - Upstream Prometheus 4xx (syntax-error)    → 500 (catalog bug, not user input)
  *   - Upstream unreachable / timeout (READS)    → 200 with an empty body + `degraded: true`
- *       (a LEAN deploy omits prometheus/loki/alertmanager/thanos, so a dashboard reads a
+ *       (a LEAN deploy omits prometheus/alertmanager/thanos, so a dashboard reads a
  *        clean empty state instead of erroring; writes below still surface 502)
- *   - Valid query returning empty result        → 200 with `{datapoints: []}` / `{entries: []}`
+ *   - Valid query returning empty result        → 200 with `{samples: []}` / `{series: []}` / `{entries: []}`
  */
 
 import { parseQueryString, sendError, sendSuccess } from '@pipeline-builder/api-core';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import * as am from './alertmanager-client.js';
+import { queryAuditStore } from './audit-store-client.js';
 import {
+  type AuditStoreQueryEntry,
+  canQueryCatalogKey,
+  type CatalogCaller,
   QUERIES,
-  type QueryEntry,
   type RangeKey,
   rangeSeconds,
   stepForRange,
-  substituteVars,
+  substituteOrg,
 } from './catalog.js';
-import * as loki from './loki-client.js';
 import * as prom from './prometheus-client.js';
 import { audit } from '../helpers/audit.js';
-import { isSystemAdmin, requireAuth, withController } from '../helpers/controller-helper.js';
+import { getAdminContext, isSystemAdmin, requireAuth, withController } from '../helpers/controller-helper.js';
 import { isReasonableString } from '../utils/string-guards.js';
 
 /**
@@ -60,30 +63,69 @@ function parseLimit(raw: unknown): number {
 /**
  * Enforce the tenancy boundary for a catalog key.
  *
- * An `orgScoped` entry substitutes `$ORG` server-side, confining its result to
- * the caller's own org (sysadmins get a cross-org wildcard) — safe for any
- * authenticated org member. An entry that is NOT `orgScoped` has NO org
- * confinement: it queries a fleet-wide metric or a tenant-level Loki stream
- * (e.g. the `{eventCategory="audit"}` audit trail, platform totals). Exposing
- * those to a normal org member leaks every tenant's data, so they are
- * restricted to platform system admins. Writes a 403 and returns false when the
- * caller lacks the required authority.
+ * An `orgScoped` entry is confined server-side to the caller's own org
+ * (`$ORG` substitution, or the audit trail's org fields; sysadmins see every
+ * org) — safe for an org member, or only an org admin when it's `adminOnly`
+ * (the audit trail). An entry that is NOT `orgScoped` has NO org confinement:
+ * it queries a fleet-wide metric (platform totals, queue/registry health).
+ * Exposing those to a normal org member leaks every tenant's data, so they are
+ * restricted to platform system admins (see `canQueryCatalogKey`). Writes a 403
+ * and returns false when the caller lacks the required authority.
  */
-function requireCatalogScope(entry: QueryEntry, sysadmin: boolean, res: Response): boolean {
-  if (!entry.orgScoped && !sysadmin) {
-    sendError(res, 403, 'Forbidden: system admin access required for this observability query');
+function requireCatalogScope(key: string, caller: CatalogCaller, res: Response): boolean {
+  if (!canQueryCatalogKey(key, caller)) {
+    sendError(res, 403, QUERIES[key].orgScoped
+      ? 'Forbidden: admin access required for this observability query'
+      : 'Forbidden: system admin access required for this observability query');
     return false;
   }
   return true;
 }
 
-/** Convert a Prom/Loki error to the right HTTP response per the contract above. */
+/**
+ * Serve an `audit-store` entry from the MongoDB audit trail, org-scoped to the
+ * caller (sysadmins see every org): `{series, range, step}` for matrix entries
+ * (the same envelope as a Prometheus range query), `{entries, range}` for streams.
+ * No degraded fallback: Mongo is a hard dependency of platform, so a failure
+ * is a real 500 (via withController), not a LEAN-deploy empty state.
+ */
+async function sendAuditStoreResult(
+  req: Request,
+  res: Response,
+  entry: AuditStoreQueryEntry,
+  sysadmin: boolean,
+): Promise<void> {
+  const range = parseRange(req.query.range);
+  if (range === null) {
+    sendError(res, 400, "Invalid range — must be one of '1h', '6h', '24h'");
+    return;
+  }
+  const pick = (name: 'event' | 'actor' | 'requestId') =>
+    (entry.allowedVars?.includes(name) ? parseQueryString(req.query[name]) : undefined);
+  const result = await queryAuditStore(
+    entry.query,
+    { isSuperAdmin: sysadmin, orgId: req.user?.organizationId },
+    {
+      range,
+      end: Math.floor(Date.now() / 1000),
+      limit: parseLimit(req.query.limit),
+      vars: { event: pick('event'), actor: pick('actor'), requestId: pick('requestId') },
+    },
+  );
+  if (result.kind === 'stream') {
+    sendSuccess(res, 200, { entries: result.entries, range });
+  } else {
+    sendSuccess(res, 200, { series: result.series, range, step: result.step });
+  }
+}
+
+/** Convert a Prometheus/Alertmanager error to the right HTTP response per the contract above. */
 function sendUpstreamError(res: Response, err: unknown): void {
   const e = err as { kind?: string; status?: number; message?: string };
   if (e.kind === 'upstream-4xx') {
-    // 4xx from Prom/Loki means our catalog produced an unparseable query —
-    // user-supplied params alone can't reach this state because they're
-    // sanitized in substituteVars. So this is our bug, surface 500.
+    // 4xx from Prometheus means our catalog produced an unparseable query —
+    // no user-supplied value reaches PromQL (only the server-driven `$ORG`),
+    // so this is our bug, surface 500.
     sendError(res, 500, 'Upstream rejected query (catalog bug)');
     return;
   }
@@ -92,7 +134,7 @@ function sendUpstreamError(res: Response, err: unknown): void {
 
 /**
  * Read-endpoint degradation. An `unreachable` backend — the normal case on a LEAN
- * deploy, which omits prometheus/loki/alertmanager/thanos — yields the given empty
+ * deploy, which omits prometheus/alertmanager/thanos — yields the given empty
  * body with `degraded: true` and a 200, so dashboards render a clean empty state
  * instead of a 502. A reachable-but-erroring backend (`upstream-4xx`) still surfaces
  * as an error via sendUpstreamError. Returns true when it degraded.
@@ -118,7 +160,8 @@ export const observabilityQuery = withController('Observability query', async (r
   // Auth: any authenticated user with a valid token. Org-scoping happens
   // below via $ORG substitution; sysadmin gets a wildcard.
   if (!requireAuth(req, res)) return;
-  const sysadmin = isSystemAdmin(req);
+  const caller = getAdminContext(req);
+  const sysadmin = caller.isSuperAdmin;
 
   const key = parseQueryString(req.query.key);
   if (!key || !(key in QUERIES)) {
@@ -126,22 +169,17 @@ export const observabilityQuery = withController('Observability query', async (r
     return;
   }
   const entry = QUERIES[key];
-  if (!requireCatalogScope(entry, sysadmin, res)) return;
+  if (!requireCatalogScope(key, caller, res)) return;
+  if (entry.source === 'audit-store') {
+    await sendAuditStoreResult(req, res, entry, sysadmin);
+    return;
+  }
 
-  const queryStr = substituteVars(
-    entry.query,
-    {
-      event: parseQueryString(req.query.event),
-      actor: parseQueryString(req.query.actor),
-      org: req.user?.organizationId,
-      isSuperAdmin: sysadmin,
-    },
-    entry.allowedVars,
-  );
+  const promQL = substituteOrg(entry.query, { org: req.user?.organizationId, isSuperAdmin: sysadmin });
 
   try {
     if (entry.source === 'prometheus-instant') {
-      const samples = await prom.query(queryStr);
+      const samples = await prom.query(promQL);
       sendSuccess(res, 200, { samples });
       return;
     }
@@ -153,21 +191,8 @@ export const observabilityQuery = withController('Observability query', async (r
     const end = Math.floor(Date.now() / 1000);
     const start = end - rangeSeconds(range);
     const step = stepForRange(range);
-    // loki-range catalog entries return matrix results in the same
-    // {series, range, step} envelope as Prometheus range queries — let
-    // the frontend stay endpoint-agnostic and dispatch by catalog source
-    // here instead of duplicating the routing into every panel.
-    if (entry.source === 'loki-range') {
-      const series = await loki.queryMatrix(queryStr, start, end, step);
-      sendSuccess(res, 200, { series, range, step });
-      return;
-    }
-    if (entry.source === 'prometheus-range') {
-      const series = await prom.queryRange(queryStr, start, end, step);
-      sendSuccess(res, 200, { series, range, step });
-      return;
-    }
-    sendError(res, 400, `Query key source '${entry.source}' is not supported here`);
+    const series = await prom.queryRange(promQL, start, end, step);
+    sendSuccess(res, 200, { series, range, step });
   } catch (err) {
     // Degrade to the empty shape the frontend expects for this query kind.
     if (entry.source === 'prometheus-instant') {
@@ -180,15 +205,13 @@ export const observabilityQuery = withController('Observability query', async (r
 });
 
 /**
- * GET /api/observability/logs — Loki range query (streams or matrix) by key.
- *
- * Streams responses return `{entries: [...]}`; matrix responses return
- * `{series: [...]}`. The route picks based on the catalog `source` and
- * the resolved result type.
+ * GET /api/observability/logs — an `audit-store` entry (the MongoDB audit
+ * trail) by key: `{entries}` for stream entries, `{series}` for matrix ones.
+ * Admin-only and org-scoped per the catalog entry (see `requireCatalogScope`).
  */
 export const observabilityLogs = withController('Observability logs', async (req, res) => {
   if (!requireAuth(req, res)) return;
-  const sysadmin = isSystemAdmin(req);
+  const caller = getAdminContext(req);
 
   const key = parseQueryString(req.query.key);
   if (!key || !(key in QUERIES)) {
@@ -196,55 +219,12 @@ export const observabilityLogs = withController('Observability logs', async (req
     return;
   }
   const entry = QUERIES[key];
-  if (entry.source !== 'loki-range') {
-    sendError(res, 400, 'Query key is not a Loki query');
+  if (entry.source !== 'audit-store') {
+    sendError(res, 400, 'Query key is not an audit-trail query');
     return;
   }
-  if (!requireCatalogScope(entry, sysadmin, res)) return;
-
-  const range = parseRange(req.query.range);
-  if (range === null) {
-    sendError(res, 400, "Invalid range — must be one of '1h', '6h', '24h'");
-    return;
-  }
-  const end = Math.floor(Date.now() / 1000);
-  const start = end - rangeSeconds(range);
-  const limit = parseLimit(req.query.limit);
-
-  const vars = {
-    event: parseQueryString(req.query.event),
-    actor: parseQueryString(req.query.actor),
-    requestId: parseQueryString(req.query.requestId),
-    org: req.user?.organizationId,
-    isSuperAdmin: sysadmin,
-  };
-  const logQL = substituteVars(entry.query, vars, entry.allowedVars);
-
-  try {
-    // Prefer the explicit `kind` field on the catalog entry — set it on new
-    // Loki entries so the route shape is unambiguous. Fall back to a
-    // syntactic heuristic for legacy entries that haven't been migrated:
-    // queries starting with `{` and lacking aggregation operators return
-    // streams; everything else is matrix. Loki itself reports `resultType`
-    // in the response, but we need to pick the endpoint *before* calling.
-    const isStreams = entry.kind
-      ? entry.kind === 'stream'
-      : /^\s*\{/.test(entry.query) && !/count_over_time|sum\s|topk\(/.test(entry.query);
-    if (isStreams) {
-      const entries = await loki.queryStreams(logQL, start, end, limit);
-      sendSuccess(res, 200, { entries, range });
-    } else {
-      const step = stepForRange(range);
-      const series = await loki.queryMatrix(logQL, start, end, step);
-      sendSuccess(res, 200, { series, range, step });
-    }
-  } catch (err) {
-    // Match the shape chosen above (streams → entries, matrix → series).
-    const empty = (entry.kind ? entry.kind === 'stream' : /^\s*\{/.test(entry.query) && !/count_over_time|sum\s|topk\(/.test(entry.query))
-      ? { entries: [], range }
-      : { series: [], range, step: stepForRange(range) };
-    sendReadResultOrDegrade(res, err, empty);
-  }
+  if (!requireCatalogScope(key, caller, res)) return;
+  await sendAuditStoreResult(req, res, entry, caller.isSuperAdmin);
 });
 
 /**
@@ -252,16 +232,19 @@ export const observabilityLogs = withController('Observability logs', async (req
  *
  * Returned shape: `{ entries: [{ key, source, allowedVars, orgScoped }] }` —
  * just enough metadata for the dashboard editor's panel-add picker to render
- * the dropdown + decide whether `vars` inputs are needed. The raw PromQL/LogQL
+ * the dropdown + decide whether `vars` inputs are needed. The raw PromQL
  * is intentionally omitted; the catalog stays the security boundary even when
- * the picker is exposed to org admins.
+ * the picker is exposed to org admins. A non-sysadmin only gets the keys they
+ * can actually run (orgScoped) — offering a fleet-wide key would just build a
+ * panel that renders a 403.
  */
 export const observabilityCatalog = withController('Observability catalog', async (req, res) => {
   if (!requireAuth(req, res)) return;
-  const entries = Object.entries(QUERIES).map(([key, entry]) => ({
+  const caller = getAdminContext(req);
+  const entries = Object.entries(QUERIES).filter(([key]) => canQueryCatalogKey(key, caller)).map(([key, entry]) => ({
     key,
     source: entry.source,
-    allowedVars: entry.allowedVars,
+    allowedVars: (entry.source === 'audit-store' && entry.allowedVars) || [],
     orgScoped: entry.orgScoped ?? false,
   }));
   sendSuccess(res, 200, { entries });

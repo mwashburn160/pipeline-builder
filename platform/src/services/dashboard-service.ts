@@ -3,7 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { db, schema, withTenantTx, softDeleteRetentionMs } from '@pipeline-builder/pipeline-data';
-import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
 // The transaction object's full type is enormous; reuse drizzle's inferred
 // shape so insertPanels can take a tx without re-typing it everywhere.
@@ -30,7 +30,6 @@ export interface PanelInput {
   groupBy?: string | null;
   format?: string | null;
   position?: number;
-  vars?: Record<string, string>;
 }
 
 export interface DashboardCreate {
@@ -110,6 +109,27 @@ export class DashboardService {
         .orderBy(asc(schema.dashboardPanel.position));
       return { ...rows[0], panels };
     });
+  }
+
+  /**
+   * Panel query keys for a set of dashboards, keyed by dashboard id. Lets the
+   * list controller hide dashboards the caller has no renderable panel on
+   * without loading every full panel row. Dashboards with no panels are
+   * absent from the map.
+   */
+  async listPanelKeys(dashboardIds: string[]): Promise<Map<string, string[]>> {
+    const byDashboard = new Map<string, string[]>();
+    if (dashboardIds.length === 0) return byDashboard;
+    const rows = await withTenantTx(async (tx) => tx
+      .select({ dashboardId: schema.dashboardPanel.dashboardId, queryKey: schema.dashboardPanel.queryKey })
+      .from(schema.dashboardPanel)
+      .where(inArray(schema.dashboardPanel.dashboardId, dashboardIds)));
+    for (const { dashboardId, queryKey } of rows) {
+      const keys = byDashboard.get(dashboardId);
+      if (keys) keys.push(queryKey);
+      else byDashboard.set(dashboardId, [queryKey]);
+    }
+    return byDashboard;
   }
 
   /**
@@ -257,10 +277,12 @@ export class DashboardService {
    * visibility and an unsuffixed copy of the source name; if the name collides
    * with another dashboard in the caller's org, we append " (copy)" once and
    * fall back to ` (copy N)` for further conflicts.
+   *
+   * Takes the already-loaded source (the controller fetched it for its
+   * visibility check and drops panels the caller can't render), so the copy
+   * carries exactly the panels the caller could see.
    */
-  async clone(sourceId: string, caller: { orgId: string; userId: string }): Promise<DashboardWithPanels | null> {
-    const source = await this.findById(sourceId);
-    if (!source) return null;
+  async clone(source: DashboardWithPanels, caller: { orgId: string; userId: string }): Promise<DashboardWithPanels> {
     const name = await this.uniqueNameInOrg(source.name, caller.orgId);
     return this.create(
       {
@@ -276,7 +298,6 @@ export class DashboardService {
           groupBy: p.groupBy,
           format: p.format,
           position: p.position,
-          vars: p.vars,
         })),
       },
       caller,
@@ -330,7 +351,6 @@ export class DashboardService {
       // Honor explicit position if the client supplied one, otherwise fall
       // back to the array index (editor saves drag order this way).
       position: p.position ?? i,
-      vars: p.vars ?? {},
     }));
     return tx.insert(schema.dashboardPanel).values(rows).returning();
   }

@@ -20,9 +20,9 @@
 
 import { createLogger, getParam, sendError, sendQuotaExceeded, sendSuccess, userHasPermission } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { isSystemAdmin, requireAuthContext, withController } from '../helpers/controller-helper.js';
+import { getAdminContext, isSystemAdmin, requireAuthContext, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
-import { QUERIES } from '../observability/catalog.js';
+import { canQueryCatalogKey, type CatalogCaller, QUERIES } from '../observability/catalog.js';
 import { dashboardService, type PanelInput } from '../services/dashboard-service.js';
 import { isReasonableString } from '../utils/string-guards.js';
 
@@ -38,10 +38,24 @@ const MAX_TITLE = parseInt(process.env.DASHBOARD_MAX_PANEL_TITLE || '200', 10);
 const MAX_PANELS = parseInt(process.env.DASHBOARD_MAX_PANELS || '50', 10);
 
 
+/**
+ * Panels whose catalog key the caller can't run (a fleet-wide key for a
+ * non-sysadmin, an admin-only key for a plain member — see
+ * `canQueryCatalogKey`) are withheld from reads, and a dashboard left with
+ * nothing to render is hidden outright. Without this an org member sees the
+ * seeded public defaults (Queue Health, Registry Activity, …) and opens them to
+ * a wall of 403 panels. A dashboard with no panels at all stays visible — it's
+ * a fresh dashboard, not a restricted one.
+ */
+function hasRenderablePanel(queryKeys: string[], caller: CatalogCaller): boolean {
+  return queryKeys.length === 0 || queryKeys.some(k => canQueryCatalogKey(k, caller));
+}
+
 /** Validate + normalize a panel array from a JSON body. Returns null + sends
  *  a 400 response if anything is malformed; the catalog query-key check is
- *  the security-critical bit (rejects keys that don't exist in QUERIES). */
-function validatePanels(body: unknown, sendErr: (msg: string) => void): PanelInput[] | null {
+ *  the security-critical bit (rejects keys that don't exist in QUERIES, and
+ *  keys the caller couldn't render). */
+function validatePanels(body: unknown, caller: CatalogCaller, sendErr: (msg: string) => void): PanelInput[] | null {
   const arr = (body as { panels?: unknown }).panels;
   if (arr === undefined) return [];
   if (!Array.isArray(arr)) {
@@ -61,6 +75,10 @@ function validatePanels(body: unknown, sendErr: (msg: string) => void): PanelInp
     }
     if (!isReasonableString(p.queryKey, 100) || !(p.queryKey in QUERIES)) {
       sendErr(`panels[${i}].queryKey is not a known catalog entry`);
+      return null;
+    }
+    if (!canQueryCatalogKey(p.queryKey, caller)) {
+      sendErr(`panels[${i}].queryKey is not available to you`);
       return null;
     }
     if (!isReasonableString(p.title, MAX_TITLE)) {
@@ -83,7 +101,6 @@ function validatePanels(body: unknown, sendErr: (msg: string) => void): PanelInp
       groupBy: typeof p.groupBy === 'string' ? p.groupBy : null,
       format: typeof p.format === 'string' ? p.format : null,
       position: typeof p.position === 'number' ? p.position : i,
-      vars: (p.vars && typeof p.vars === 'object') ? (p.vars as Record<string, string>) : {},
     });
   }
   return cleaned;
@@ -94,28 +111,36 @@ export const listDashboards = withController('List dashboards', async (req, res)
   const ctx = requireAuthContext(req, res);
   if (!ctx) return;
   const { userId, orgId } = ctx;
+  const caller = getAdminContext(req);
 
-  const rows = await dashboardService.list({
-    orgId,
-    userId,
-    isSuperAdmin: isSystemAdmin(req),
-  });
-  sendSuccess(res, 200, { dashboards: rows });
+  const rows = await dashboardService.list({ orgId, userId, isSuperAdmin: caller.isSuperAdmin });
+  if (caller.isSuperAdmin) return sendSuccess(res, 200, { dashboards: rows });
+
+  const panelKeys = await dashboardService.listPanelKeys(rows.map(d => d.id));
+  const dashboards = rows.filter(d => hasRenderablePanel(panelKeys.get(d.id) ?? [], caller));
+  sendSuccess(res, 200, { dashboards });
 });
 
-/** GET /api/dashboards/:id — fetch one (visibility-gated). */
+/** GET /api/dashboards/:id — fetch one (visibility-gated, panels the caller
+ *  can't render withheld). */
 export const getDashboard = withController('Get dashboard', async (req, res) => {
   const ctx = requireAuthContext(req, res);
   if (!ctx) return;
   const { userId, orgId } = ctx;
+  const caller = getAdminContext(req);
 
   const dashboard = await dashboardService.findById(getParam(req.params, 'id')!);
   if (!dashboard) return sendError(res, 404, 'Dashboard not found');
 
-  const ok = dashboardService.canRead(dashboard, { orgId, userId, isSuperAdmin: isSystemAdmin(req) });
-  if (!ok) return sendError(res, 404, 'Dashboard not found'); // 404 not 403 to avoid leaking existence
+  const ok = dashboardService.canRead(dashboard, { orgId, userId, isSuperAdmin: caller.isSuperAdmin });
+  // 404 not 403 to avoid leaking existence — same for a dashboard with nothing
+  // the caller can render (it's hidden from their list too).
+  if (!ok || !hasRenderablePanel(dashboard.panels.map(p => p.queryKey), caller)) {
+    return sendError(res, 404, 'Dashboard not found');
+  }
 
-  sendSuccess(res, 200, { dashboard });
+  const panels = dashboard.panels.filter(p => canQueryCatalogKey(p.queryKey, caller));
+  sendSuccess(res, 200, { dashboard: { ...dashboard, panels } });
 });
 
 /** POST /api/dashboards — create. */
@@ -150,7 +175,7 @@ export const createDashboard = withController('Create dashboard', async (req, re
   }
 
   let bad = false;
-  const panels = validatePanels(req.body, (msg) => { sendError(res, 400, msg); bad = true; });
+  const panels = validatePanels(req.body, getAdminContext(req), (msg) => { sendError(res, 400, msg); bad = true; });
   if (bad || panels === null) return;
 
   // Per-org cap on dashboards; reserve atomically before insert.
@@ -222,7 +247,7 @@ export const updateDashboard = withController('Update dashboard', async (req, re
   let panels: PanelInput[] | null = null;
   if (body.panels !== undefined) {
     let bad = false;
-    panels = validatePanels(req.body, (msg) => { sendError(res, 400, msg); bad = true; });
+    panels = validatePanels(req.body, getAdminContext(req), (msg) => { sendError(res, 400, msg); bad = true; });
     if (bad || panels === null) return;
   }
 
@@ -348,14 +373,20 @@ export const cloneDashboard = withController('Clone dashboard', async (req, res)
   // namespace. Source visibility (canRead) is still checked below.
 
   const sourceId = getParam(req.params, 'id')!;
+  const caller = getAdminContext(req);
 
   // Cloning a dashboard you can't see is the same as cloning a non-existent
-  // one. Source must be visible to the caller.
+  // one. Source must be visible to the caller, with at least one panel they
+  // can render — and the copy only carries those panels.
   const source = await dashboardService.findById(sourceId);
   if (!source) return sendError(res, 404, 'Dashboard not found');
-  if (!dashboardService.canRead(source, { orgId, userId, isSuperAdmin: isSystemAdmin(req) })) {
+  if (
+    !dashboardService.canRead(source, { orgId, userId, isSuperAdmin: caller.isSuperAdmin })
+    || !hasRenderablePanel(source.panels.map(p => p.queryKey), caller)
+  ) {
     return sendError(res, 404, 'Dashboard not found');
   }
+  const visibleSource = { ...source, panels: source.panels.filter(p => canQueryCatalogKey(p.queryKey, caller)) };
 
   // Clone lands a NEW dashboard in the caller's org and counts against
   // that org's quota — mirror the create-path reserve/release pattern so
@@ -366,12 +397,7 @@ export const cloneDashboard = withController('Clone dashboard', async (req, res)
   }
 
   try {
-    const cloned = await dashboardService.clone(sourceId, { orgId, userId });
-    if (!cloned) {
-      releaseFeatureQuota(orgId, 'dashboards', logger.warn.bind(logger));
-      return sendError(res, 404, 'Dashboard not found');
-    }
-
+    const cloned = await dashboardService.clone(visibleSource, { orgId, userId });
     audit(req, 'dashboard.clone', { targetType: 'dashboard', targetId: cloned.id, details: { sourceId, name: cloned.name } });
     sendSuccess(res, 201, { dashboard: cloned });
   } catch (err) {

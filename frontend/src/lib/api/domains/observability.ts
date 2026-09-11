@@ -26,34 +26,32 @@ export function observabilityApi(core: ApiCore) {
       key: string,
       range: '1h' | '6h' | '24h',
       signal?: AbortSignal,
-      vars?: { plugin?: string },
     ) => {
       return core.request<ApiResponse<import('@/types/observability').ObservabilityQueryResponse>>(
-        `/api/observability/query${buildQuery({ key, range, ...vars })}`,
+        `/api/observability/query${buildQuery({ key, range })}`,
         { signal },
       );
     },
 
     /**
-     * Run a named Loki query from the catalog. Optional `event`, `digest`,
-     * `actor` params are validated server-side against the catalog entry's
-     * `allowedVars`; anything outside the allow-list is silently dropped.
+     * Run a named audit-trail (`audit-store`) query from the catalog — the
+     * caller's org's MongoDB audit events (all orgs for a sysadmin). Filter
+     * params are checked server-side against the entry's `allowedVars`;
+     * anything outside the allow-list is silently dropped.
      *
-     * Response shape depends on whether the catalog entry returns streams or
-     * matrix (see `controller.ts` for the heuristic).
+     * Response is `{entries}` for stream entries, `{series}` for matrix ones
+     * (the catalog entry's `kind`).
      */
     observabilityLogs: async (
       key: string,
       range: '1h' | '6h' | '24h',
-      opts: { limit?: number; event?: string; digest?: string; actor?: string; plugin?: string } = {},
+      opts: Omit<import('@/types/observability').ObservabilityLogsParams, 'range'> = {},
       signal?: AbortSignal,
     ) => {
       const params: Record<string, unknown> = { key, range };
       if (opts.limit !== undefined) params.limit = opts.limit;
       if (opts.event) params.event = opts.event;
-      if (opts.digest) params.digest = opts.digest;
       if (opts.actor) params.actor = opts.actor;
-      if (opts.plugin) params.plugin = opts.plugin;
       return core.request<ApiResponse<import('@/types/observability').ObservabilityLogsResponse>>(
         `/api/observability/logs${buildQuery(params)}`,
         { signal },

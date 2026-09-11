@@ -5,11 +5,11 @@
  *  these literal strings; keep in sync with the RangePicker preset list. */
 export type RangeKey = '1h' | '6h' | '24h';
 
-/** Time-value point in a Prometheus or Loki series. */
+/** Time-value point in a Prometheus or audit-trail series. */
 export interface DataPoint {
   /** Unix seconds. */
   time: number;
-  /** Value as string (Prometheus/Loki wire format — JS-parse downstream). */
+  /** Value as string (Prometheus wire format — JS-parse downstream). */
   value: string;
 }
 
@@ -33,29 +33,28 @@ export type ObservabilityQueryResponse =
   | { samples: InstantSample[]; degraded?: boolean }
   | { series: DataSeries[]; range: string; step: string; degraded?: boolean };
 
-/** A single log entry from `GET /api/observability/logs` (streams response). */
+/** A single audit event from `GET /api/observability/logs` (stream entries). */
 export interface ObservabilityLogEntry {
-  /** Unix nanoseconds (Loki convention; render as Date(time/1e6)). */
-  time: string;
+  /** Unix milliseconds. */
+  time: number;
   line: string;
   labels: Record<string, string>;
 }
 
-/** Response shape from `GET /api/observability/logs`. `degraded` marks a Loki backend
- *  that was unreachable — e.g. a LEAN deploy. */
+/** Response shape from `GET /api/observability/logs` — the MongoDB audit trail,
+ *  which is always present, so (unlike Prometheus) it never reports `degraded`. */
 export type ObservabilityLogsResponse =
-  | { entries: ObservabilityLogEntry[]; range: string; degraded?: boolean }
-  | { series: DataSeries[]; range: string; step: string; degraded?: boolean };
+  | { entries: ObservabilityLogEntry[]; range: string }
+  | { series: DataSeries[]; range: string; step: string };
 
 /** Optional templated params accepted by `GET /api/observability/logs`. */
 export interface ObservabilityLogsParams {
   range?: string;
   limit?: number;
+  /** Exact audit action (e.g. `pipeline.delete`). */
   event?: string;
-  digest?: string;
+  /** Actor id or email. */
   actor?: string;
-  /** Plugin name — used by the per-plugin drill-down's recent-builds query. */
-  plugin?: string;
 }
 
 /** A single Alertmanager-v2 alert. Mirrors the backend Alert type. */
@@ -104,8 +103,8 @@ export interface SilencesResponse {
  *  raw PromQL/LogQL is intentionally omitted from this surface. */
 export interface CatalogEntry {
   key: string;
-  source: 'prometheus-instant' | 'prometheus-range' | 'loki-range';
-  allowedVars: ReadonlyArray<'event' | 'digest' | 'actor' | 'plugin'>;
+  source: 'prometheus-instant' | 'prometheus-range' | 'audit-store';
+  allowedVars: ReadonlyArray<'event' | 'actor' | 'requestId'>;
   orgScoped: boolean;
 }
 
@@ -208,7 +207,6 @@ export interface DashboardPanel {
   groupBy: string | null;
   format: string | null;
   position: number;
-  vars: Record<string, string>;
 }
 
 /** A DB-stored, user-editable dashboard. */
@@ -254,6 +252,5 @@ export interface DashboardWrite {
     groupBy?: string | null;
     format?: string | null;
     position?: number;
-    vars?: Record<string, string>;
   }>;
 }

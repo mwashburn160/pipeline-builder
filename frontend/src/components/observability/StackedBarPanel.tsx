@@ -21,7 +21,7 @@ const CHART_HEIGHT = 160;
 const PAD = { top: 8, right: 8, bottom: 18, left: 32 };
 
 /**
- * Stacked-bar viz over a Loki matrix query. Each bar = one time bucket;
+ * Stacked-bar viz over an audit-trail series query. Each bar = one time bucket;
  * each color = one series (e.g. event name). Used for "audit events per
  * hour" where it's helpful to see the mix of event types over time.
  */
