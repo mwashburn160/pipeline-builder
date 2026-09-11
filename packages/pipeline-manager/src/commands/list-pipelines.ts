@@ -13,7 +13,7 @@ import { type CommonFilterParams } from '../utils/list-command-utils.js';
  * Combines common filters (pagination, sort, access) with pipeline-specific filters.
  */
 interface PipelineFilterParams extends CommonFilterParams {
-  accessModifier?: string;
+  visibility?: string;
   isDefault?: boolean;
 
   // Pipeline-specific filters
@@ -46,7 +46,7 @@ export function listPipelines(program: Command): void {
 
     // Common filter options
     .option('--id <id>', 'Filter by pipeline ID (can specify multiple with commas)')
-    .option('--access-modifier <modifier>', 'Filter by access modifier (public/private)')
+    .option('--visibility <rung>', 'Filter by sharing rung (private/org/public)')
     .option('--is-default <boolean>', 'Filter by default status (true/false)')
     .option('--is-active <boolean>', 'Filter by active status (true/false)')
     .option('--limit <number>', 'Maximum number of results (1-1000)', (v) => parseInt(v, 10), 50)
@@ -70,7 +70,7 @@ export function listPipelines(program: Command): void {
       commandName: 'list-pipelines',
       buildFilters: (options, base) => {
         const filters: PipelineFilterParams = { ...base };
-        if (options.accessModifier) filters.accessModifier = options.accessModifier as string;
+        if (options.visibility) filters.visibility = options.visibility as string;
         if (options.isDefault !== undefined) filters.isDefault = validateBoolean(options.isDefault as string, 'is-default');
         if (options.project) filters.project = options.project as string;
         if (options.organization) filters.organization = options.organization as string;
@@ -80,7 +80,7 @@ export function listPipelines(program: Command): void {
       activeFilters: (filters) => {
         const active: Record<string, unknown> = {};
         if (filters.id) active.ID = filters.id;
-        if (filters.accessModifier) active['Access Modifier'] = filters.accessModifier;
+        if (filters.visibility) active.Visibility = filters.visibility;
         if (filters.isDefault !== undefined) active['Is Default'] = filters.isDefault;
         if (filters.isActive !== undefined) active['Is Active'] = filters.isActive;
         if (filters.project) active.Project = filters.project;
@@ -97,7 +97,7 @@ export function listPipelines(program: Command): void {
         'Project': p.project,
         'Organization': p.organization,
         'Name': p.pipelineName || 'N/A',
-        'Access Modifier': p.accessModifier || 'private',
+        'Visibility': p.visibility || 'private',
         'Default': p.isDefault ? 'Yes' : 'No',
         'Active': p.isActive ? 'Yes' : 'No',
         'Created At': p.createdAt || 'N/A',

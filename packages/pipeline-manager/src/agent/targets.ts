@@ -209,7 +209,7 @@ export const LOAD_STEPS = [
   // The plugin build reads deploy/plugins/_base AND deploy/codebuild/bootstrap.
   { id: 'plugins', flag: 'withPlugins', env: 'LOAD_PLUGINS', paths: ['deploy/plugins', 'deploy/codebuild'] },
   { id: 'compliance', flag: 'withCompliance', env: 'LOAD_COMPLIANCE', paths: ['deploy/compliance'] },
-  { id: 'samples', flag: 'withSamples', env: 'LOAD_PIPELINES', paths: ['deploy/samples'] },
+  { id: 'samples', flag: 'withSamples', env: 'LOAD_TEMPLATES', paths: ['deploy/samples'] },
 ] as const;
 
 export type LoadStepId = (typeof LOAD_STEPS)[number]['id'];

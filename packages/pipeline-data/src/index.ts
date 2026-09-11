@@ -32,6 +32,7 @@ export * from './database/index.js';
 // Query builders and services
 export * from './api/query-builders.js';
 export * from './api/access-control-builder.js';
+export * from './api/viewer-context.js';
 export * from './api/crud-service.js';
 export * from './api/soft-delete-sweep.js';
 export * from './api/reporting-service.js';

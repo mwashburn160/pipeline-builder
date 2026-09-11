@@ -13,6 +13,7 @@ import { createPipeline } from './commands/create-pipeline.js';
 import { deploy } from './commands/deploy.js';
 import { getPipeline } from './commands/get-pipeline.js';
 import { getPlugin } from './commands/get-plugin.js';
+import { instantiateTemplate } from './commands/instantiate-template.js';
 import { listPipelines } from './commands/list-pipelines.js';
 import { listPlugins } from './commands/list-plugins.js';
 import { login } from './commands/login.js';
@@ -163,7 +164,7 @@ Command groups:
   auth      Authenticate and manage credentials (login, pat)
   pipeline  Create, inspect, and deploy pipelines (create, list, get, register, synth, deploy)
   plugin    Author, validate, and publish plugins (new, validate, upload, get, list)
-  template  Validate {{ ... }} templates (validate)
+  template  Instantiate golden-path pipeline templates and validate {{ ... }} syntax (instantiate, validate)
   infra     Set up and operate platform infrastructure (bootstrap, setup-events, redrive-events, store-token, provision)
   audit     Operator audits, cron-friendly (tokens, stacks)
   org       Organization data operations (export)
@@ -182,6 +183,7 @@ Examples:
   $ ${APP_NAME} pipeline list --project my-app
   $ ${APP_NAME} pipeline get --id pipe-123 --format json
   $ ${APP_NAME} pipeline create -f props.json --deploy --profile production
+  $ ${APP_NAME} template instantiate -n react-javascript -p react -o acme --input orgId=<uuid> --output props.json
   $ ${APP_NAME} plugin upload --file plugin.zip --organization acme
   $ ${APP_NAME} infra store-token --days 30 --region us-east-1
   $ ${APP_NAME} infra bootstrap --account 123456789012 --region us-east-1
@@ -231,8 +233,9 @@ Run '${APP_NAME} <group> --help' to see a group's subcommands.
   getPlugin(plugin); // plugin get
   listPlugins(plugin); // plugin list
 
-  // template — validate {{ ... }} templates
-  const template = program.command('template').description('Validate {{ ... }} templates in a pipeline or plugin spec');
+  // template — instantiate golden-path pipeline templates, validate {{ ... }} syntax
+  const template = program.command('template').description('Instantiate pipeline templates and validate {{ ... }} template syntax');
+  instantiateTemplate(template); // template instantiate — render a template into pipeline props
   validateTemplatesCommand(template); // template validate
 
   // infra — set up and operate platform infrastructure

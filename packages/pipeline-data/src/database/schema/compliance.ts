@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AccessModifier, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
@@ -70,8 +70,8 @@ export const compliancePolicy = pgTable('compliance_policies', {
   version: varchar('version', { length: 50 }).default('1.0.0').notNull(),
   isTemplate: boolean('is_template').default(false).notNull(),
 
-  accessModifier: varchar('access_modifier', { length: 10 })
-    .$type<AccessModifier>().default('private' as AccessModifier).notNull(),
+  // No sharing rung: compliance visibility is org + the system-org carve-out,
+  // applied in `buildCompliancePolicyConditions` / `buildComplianceRuleConditions`.
   isDefault: boolean('is_default').default(false).notNull(),
   isActive: boolean('is_active').default(true).notNull(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -138,8 +138,8 @@ export const complianceRule = pgTable('compliance_rules', {
   conditionMode: varchar('condition_mode', { length: 5 }).$type<RuleConditionMode>().default('all'),
 
   // Access and visibility
-  accessModifier: varchar('access_modifier', { length: 10 })
-    .$type<AccessModifier>().default('private' as AccessModifier).notNull(),
+  // No sharing rung: compliance visibility is org + the system-org carve-out,
+  // applied in `buildCompliancePolicyConditions` / `buildComplianceRuleConditions`.
   isDefault: boolean('is_default').default(false).notNull(),
   isActive: boolean('is_active').default(true).notNull(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),

@@ -25,7 +25,7 @@ export function createPurgePipelineRoutes(): Router {
   const router: Router = Router();
 
   router.post('/:id/purge', withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const result = await loadAndPurge(req, res, orgId, pipelineService, 'Pipeline', 'pipelines:publish');
+    const result = await loadAndPurge(req, res, orgId, pipelineService, 'Pipeline', 'pipelines:publish', userId);
     if (!result) return;
     const { existing, purgedId } = result;
 
@@ -42,7 +42,7 @@ export function createPurgePipelineRoutes(): Router {
       targetId: purgedId,
       details: {
         pipelineName: existing.pipelineName,
-        accessModifier: existing.accessModifier,
+        visibility: existing.visibility,
       },
     });
 

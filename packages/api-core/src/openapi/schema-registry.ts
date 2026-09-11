@@ -9,7 +9,7 @@ import {
   PluginDeployGeneratedSchema,
 } from '../validation/ai-schemas.js';
 import {
-  AccessModifierSchema,
+  VisibilitySchema,
   PaginationSchema,
   BaseFilterSchema,
 } from '../validation/common-schemas.js';
@@ -59,8 +59,8 @@ export const PaginatedResponseSchema = z.object({
 
 export function registerSchemas(): void {
   // Common schemas
-  registry.register('AccessModifier', AccessModifierSchema.openapi({
-    description: 'Resource visibility: "public" (visible to all) or "private" (organization only)',
+  registry.register('Visibility', VisibilitySchema.openapi({
+    description: 'Sharing rung: "private" (author only), "org" (everyone in the owning organization), or "public" (the org, its teams, and — from the system org — every org)',
     example: 'private',
   }));
 

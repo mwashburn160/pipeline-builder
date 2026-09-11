@@ -15,6 +15,8 @@ export interface ApiConfig {
   pipelineUrl: string;
   /** URL path for pipeline list/query operations. */
   pipelineListUrl: string;
+  /** URL path for the golden-path pipeline-template catalog (list/get/instantiate). */
+  pipelineTemplateUrl: string;
   /** URL path for single-plugin CRUD operations. */
   pluginUrl: string;
   /** URL path for plugin list/query operations. */

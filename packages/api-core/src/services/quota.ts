@@ -225,6 +225,13 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
             quota: q ?? { type: quotaType, limit: 0, used: 0, remaining: 0 },
           };
         }
+        // A non-QUOTA_EXCEEDED 429 is a TRANSIENT signal (the quota service's own
+        // rate limiter, or a gateway during a spike) — the tenant is NOT over quota,
+        // so fail OPEN (as for an unreachable service) rather than falsely blocking
+        // legitimate work. Do not fall through to the fail-closed non-ok default.
+        logger.warn('QUOTA_FAIL_OPEN: transient 429 on reserve (not quota-exceeded), allowing request', { orgId, quotaType });
+        emitCounter('quota_fail_open_total', { operation: 'reserve', reason: 'transient-429', quotaType });
+        return { exceeded: false, quota: { type: quotaType, limit: -1, used: 0, remaining: -1 } };
       }
 
       if (response.statusCode !== 200 || !response.body.success) {

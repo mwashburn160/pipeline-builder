@@ -4,9 +4,9 @@
 /**
  * Cross-store entitlement-drift detection.
  *
- * The Tier-1 reconciler (subscription-lifecycle.reconcileFailedEntitlementSyncs)
- * re-drives syncs that KNOWINGLY failed — the ones carrying
- * `metadata.entitlementSyncPending`. This module covers the SILENT-DRIFT case: a
+ * A KNOWN sync failure is retried via the durable event bus (syncEntitlements
+ * publishes an `entitlement.sync` retry that the billing consumer re-drives at-
+ * least-once). This module covers the SILENT-DRIFT case the bus can't see: a
  * sync that returned success but whose *enforced* state has since diverged from
  * what billing's Subscription (tier + add-ons) says it should be — an
  * out-of-band edit in the quota/platform store, a sync that didn't actually take

@@ -223,6 +223,8 @@ function registerMocks() {
     incCounter: jest.fn(),
     observe: jest.fn(),
     setGauge: jest.fn(),
+    withSpan: (_name: string, fn: (span: unknown) => Promise<unknown>) =>
+      fn({ addEvent: jest.fn(), setAttributes: jest.fn(), recordException: jest.fn(), setStatus: jest.fn(), end: jest.fn() }),
   }));
 }
 
@@ -279,7 +281,7 @@ function makeJobData(overrides: Partial<PluginBuildJobData> = {}): PluginBuildJo
       installCommands: [],
       commands: ['echo hello'],
 
-      accessModifier: 'private',
+      visibility: 'private',
       timeout: null,
       failureBehavior: 'fail',
       secrets: [],

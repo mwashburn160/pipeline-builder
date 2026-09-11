@@ -8,7 +8,10 @@ import { API_URL, base64UrlDecode, isStepUpErrorCode } from './util';
 
 /** SSE event received from AI streaming endpoints. */
 export interface StreamEvent {
-  type: 'partial' | 'done' | 'error' | 'analyzing' | 'analyzed' | 'checking-plugins' | 'creating-plugins';
+  type: 'partial' | 'done' | 'error' | 'analyzing' | 'analyzed' | 'checking-plugins' | 'creating-plugins'
+    // "Ask" agent stream: grounded sources, answer tokens, tool activity, and
+    // reviewable drafts (proposals) from the tool-calling agent.
+    | 'sources' | 'token' | 'tool-call' | 'proposal';
   data?: unknown;
   message?: string;
 }
@@ -528,6 +531,7 @@ export class ApiCore {
   async *streamRequest(
     endpoint: string,
     body: Record<string, unknown>,
+    _refreshed = false,
   ): AsyncGenerator<StreamEvent> {
     await this.ensureFreshToken();
 
@@ -547,6 +551,23 @@ export class ApiCore {
 
     if (!response.ok || !response.body) {
       const data = await response.json().catch(() => ({ message: 'Stream failed' }));
+      // Step-up rejection: a refresh won't help — re-prompt (mirrors request()).
+      if (response.status === 401 && isStepUpErrorCode(data.code)) {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('step-up-required', {
+            detail: { code: data.code, message: data.message, endpoint },
+          }));
+        }
+        throw new StepUpRequiredError(data.message || 'Step-up confirmation required', String(data.code), data.details);
+      }
+      // 401: refresh the access token once and retry the stream (mirrors request()).
+      if (response.status === 401 && this.refreshToken && !endpoint.includes('/auth/refresh') && !_refreshed) {
+        const refreshed = await this.refreshAccessToken();
+        if (refreshed) {
+          yield* this.streamRequest(endpoint, body, true);
+          return;
+        }
+      }
       throw new ApiError(data.message || 'Stream failed', response.status, data.code);
     }
 

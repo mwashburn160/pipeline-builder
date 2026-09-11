@@ -523,7 +523,15 @@ POST /api/pipeline-templates/<id>/instantiate
 //    a new pipeline builds github.com/acme/checkout
 ```
 
-**Visibility** — private templates go to your org catalog; public (needs `pipelines:publish`) is shared with your org and its teams; the shared **system catalog** across all orgs is a superadmin action from the system org.
+**Visibility** — templates use a three-rung ladder, unlike pipelines and plugins (which have only public/private):
+
+| Rung | Who can see it | Who can edit it |
+| --- | --- | --- |
+| `private` *(default)* | Only you — a personal draft | Only you |
+| `org` | Everyone in your organization | Anyone with `templates:write` |
+| `public` | Your org **and its teams**; from the system org, every org | `templates:publish` |
+
+New templates start `private`, so you can iterate before sharing. Moving one to `public` needs `templates:publish` — a caller without it is clamped to `org` rather than silently dropped back to a draft. The shared **system catalog** across all orgs is a superadmin action from the system org.
 
 ---
 

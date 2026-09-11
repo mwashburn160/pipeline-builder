@@ -38,7 +38,7 @@ export function createRestorePipelineRoutes(): Router {
       targetId: restored.id,
       details: {
         pipelineName: restored.pipelineName,
-        accessModifier: restored.accessModifier,
+        visibility: restored.visibility,
       },
     });
 

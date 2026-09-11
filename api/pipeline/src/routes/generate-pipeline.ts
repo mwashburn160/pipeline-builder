@@ -18,10 +18,9 @@ import {
   validateBody,
   AIGenerateBodySchema,
   AIGenerateFromUrlBodySchema,
-  AccessModifier,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
+import { createAuthenticatedWithOrgRoute, withRoute, rateLimitByOrg } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { getAvailableProviders, getFilteredPlugins, generatePipelineConfig, streamPipelineConfig, AIEmptyOutputError } from '../services/ai-generation-service.js';
@@ -110,6 +109,10 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
   router.post( '/generate',
     ...createAuthenticatedWithOrgRoute(),
     requireFeature('ai_generation'),
+    // Per-org burst cap on the expensive LLM path (spend protection), on top of
+    // the aiCalls quota. All /generate* variants share one 'pipeline-generate'
+    // bucket so a tenant can't fan a burst across them.
+    rateLimitByOrg({ name: 'pipeline-generate', max: 20, windowMs: 60_000, message: 'Too many pipeline generation requests, please slow down.' }),
     withRoute(async ({ req, res, ctx, orgId }) => {
       const validation = validateBody(req, AIGenerateBodySchema);
       if (!validation.ok) {
@@ -190,6 +193,10 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
   router.post( '/generate/stream',
     ...createAuthenticatedWithOrgRoute(),
     requireFeature('ai_generation'),
+    // Per-org burst cap on the expensive LLM path (spend protection), on top of
+    // the aiCalls quota. All /generate* variants share one 'pipeline-generate'
+    // bucket so a tenant can't fan a burst across them.
+    rateLimitByOrg({ name: 'pipeline-generate', max: 20, windowMs: 60_000, message: 'Too many pipeline generation requests, please slow down.' }),
     withRoute(async ({ req, res, ctx, orgId }) => {
       const validation = validateBody(req, AIGenerateBodySchema);
       if (!validation.ok) {
@@ -209,6 +216,10 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
       }
       let reserved = true;
+      // True once the FIRST partial flows — proof the provider responded (and its $
+      // cost was incurred). A failure after this keeps the slot; a pre-provider
+      // failure (model config / DB) refunds it.
+      let providerContacted = false;
 
       try {
         ctx.log('INFO', 'AI pipeline streaming generation requested', {
@@ -230,7 +241,10 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           ...(apiKey ? { apiKey }: {}),
         });
 
-        await streamPartials(result.partialOutputStream, res, sse.aborted, ctx.requestId);
+        await streamPartials(
+          (async function* () { for await (const p of result.partialOutputStream) { providerContacted = true; yield p; } })(),
+          res, sse.aborted, ctx.requestId,
+        );
 
         if (!sse.aborted()) {
           // Get final validated output
@@ -260,7 +274,9 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
       } catch (error) {
         const message = errorMessage(error);
         logger.error('AI pipeline streaming generation failed', { requestId: ctx.requestId, error: message });
-        if (reserved) {
+        // Keep-on-provider-contact: refund only when the provider was NEVER reached
+        // (a mid-stream failure arrives after the round-trip's $ cost was incurred).
+        if (reserved && !providerContacted) {
           decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
         }
         handleAIError(res, message, 'Failed to stream pipeline configuration');
@@ -286,6 +302,10 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
   router.post( '/generate/from-url/stream',
     ...createAuthenticatedWithOrgRoute(),
     requireFeature('ai_generation'),
+    // Per-org burst cap on the expensive LLM path (spend protection), on top of
+    // the aiCalls quota. All /generate* variants share one 'pipeline-generate'
+    // bucket so a tenant can't fan a burst across them.
+    rateLimitByOrg({ name: 'pipeline-generate', max: 20, windowMs: 60_000, message: 'Too many pipeline generation requests, please slow down.' }),
     withRoute(async ({ req, res, ctx, orgId }) => {
       const validation = validateBody(req, AIGenerateFromUrlBodySchema);
       if (!validation.ok) {
@@ -310,6 +330,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
       }
       let reserved = true;
+      let providerContacted = false; // true once the first LLM partial flows
 
       try {
         // Log only the parsed host/owner/repo — never the raw `gitUrl`, which
@@ -383,7 +404,10 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           ...(apiKey ? { apiKey }: {}),
         });
 
-        await streamPartials(result.partialOutputStream, res, sse.aborted, ctx.requestId);
+        await streamPartials(
+          (async function* () { for await (const p of result.partialOutputStream) { providerContacted = true; yield p; } })(),
+          res, sse.aborted, ctx.requestId,
+        );
 
         if (!sse.aborted()) {
           const finalOutput = await result.output;
@@ -422,7 +446,9 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
       } catch (error) {
         const message = errorMessage(error);
         logger.error('AI pipeline generation from URL failed', { requestId: ctx.requestId, error: message });
-        if (reserved) {
+        // Keep the slot once the provider was contacted (see the /generate/stream
+        // catch). A pre-LLM failure (repo analysis, model config) refunds it.
+        if (reserved && !providerContacted) {
           decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
         }
         handleAIError(res, message, 'Failed to generate pipeline from URL');
@@ -539,7 +565,7 @@ async function autoCreateMissingPlugins( res: import('express').Response,
         installCommands: [],
         commands: [`echo "Plugin ${name} — replace with real build commands"`],
         dockerfile: `FROM public.ecr.aws/codebuild/amazonlinux-x86_64-standard:6.0\nRUN echo "Plugin ${name}"`,
-        accessModifier: AccessModifier.PRIVATE,
+        visibility: 'private',
       }, {
         headers: {
           'Authorization': context.authToken,

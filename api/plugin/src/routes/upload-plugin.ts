@@ -3,9 +3,9 @@
 
 import * as fs from 'fs';
 
-import { ErrorCode, createLogger, errorMessage, getServiceAuthHeader, requirePermission, reserveQuota, decrementQuota, resolveAccessModifier, sendBadRequest, sendError, sendQuotaExceeded, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
+import { ErrorCode, createLogger, errorMessage, getServiceAuthHeader, requirePermission, reserveQuota, decrementQuota, resolveVisibility, sendBadRequest, sendError, sendQuotaExceeded, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { requireAuth, requireOrgId, withRoute, withTenantContext, type SSEManager } from '@pipeline-builder/api-server';
+import { requireAuth, requireOrgId, withRoute, withTenantContext, rateLimitByOrg, type SSEManager } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request, type Response, type RequestHandler, type ErrorRequestHandler } from 'express';
 import multer from 'multer';
@@ -85,12 +85,15 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
     // enforces the permission for custom groups. Runs after auth/orgId so it
     // sees the resolved principal, before any tenant-scoped work.
     requirePermission('plugins:write') as RequestHandler,
+    // Per-org burst cap on the build-triggering upload path (each upload runs an
+    // async Docker build). Runs after auth/orgId so it keys on the verified org.
+    rateLimitByOrg({ name: 'plugin-upload', max: 30, windowMs: 60_000, message: 'Too many plugin uploads, please slow down.' }) as RequestHandler,
     // Open the RLS tenant scope (orgId + isSuperAdmin) so deployVersion's reads/writes
     // against the FORCE-RLS plugins table see the caller's org — the factory routes get
     // this via createProtectedRoute, but this route hand-wires its chain.
     withTenantContext() as RequestHandler,
-    // Any authenticated org member may upload a plugin. The accessModifier is
-    // resolved by `resolveAccessModifier` below  only admins/owners can mark
+    // Any authenticated org member may upload a plugin. The visibility is
+    // resolved by `resolveVisibility` below  only admins/owners can mark
     // a plugin 'public'; member uploads are forced to 'private' (org-scoped).
     // quota is reserved inside the handler (atomic check+increment)
     // so two concurrent uploads at the limit can't both succeed. The slot is
@@ -116,7 +119,8 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         if (!validation.ok) {
           return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
         }
-        const accessModifier = resolveAccessModifier(req, validation.value.accessModifier, 'plugins:publish');
+        // Defaults to `org` like pipelines — an uploaded plugin is a team asset.
+        const visibility = resolveVisibility(req, validation.value.visibility, 'plugins:publish', 'org');
 
         // Reserve the plugins quota slot. Done AFTER multer + body validation
         // so a bad-request never consumes quota. Two concurrent uploads at the
@@ -133,7 +137,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         ctx.log('INFO', 'Upload received', {
           originalName: req.file.originalname,
           sizeBytes: req.file.size,
-          accessModifier,
+          visibility,
         });
 
         // -- Parse & validate ZIP ---------------------------------------------
@@ -159,7 +163,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             buildArgs: s.buildArgs,
             installCommands: s.installCommands,
             commands: s.commands,
-            accessModifier,
+            visibility,
             secrets: s.secrets,
             metadata: s.metadata,
             keywords: s.keywords,
@@ -211,7 +215,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           keywords: s.keywords || [],
           installCommands: s.installCommands || [],
           commands: s.commands || [],
-          accessModifier,
+          visibility,
           timeout: s.timeout ?? null,
           failureBehavior: s.failureBehavior || 'fail',
           secrets: s.secrets || [],
@@ -238,7 +242,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             details: {
               pluginName: s.name,
               version: s.version,
-              accessModifier,
+              visibility,
               buildType: 'metadata_only',
             },
           });
@@ -333,7 +337,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           details: {
             pluginName: s.name,
             version: s.version || '0.0.0',
-            accessModifier,
+            visibility,
             buildType: plugin.buildType,
           },
         });

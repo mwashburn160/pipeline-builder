@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { entityEvents, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
-import { CoreConstants, AccessModifier, ComputeType, PluginType } from '@pipeline-builder/pipeline-core';
+import { CoreConstants, ComputeType, PluginType } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildPluginConditions, getTenantContext, schema, withTenantTx, type PluginFilter } from '@pipeline-builder/pipeline-data';
 import { and, eq, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
@@ -173,7 +173,7 @@ export class PluginService extends CrudService<
           ...data,
           pluginType: data.pluginType as PluginType,
           computeType: data.computeType as ComputeType,
-          accessModifier: data.accessModifier as AccessModifier,
+          visibility: data.visibility,
           // Catalog ownership: always the creating user on the insert branch (a
           // client-supplied ownerId is ignored, matching the pipeline convention
           // so a member can't mint a plugin owned by someone else). Not touched on
@@ -203,7 +203,7 @@ export class PluginService extends CrudService<
             installCommands: data.installCommands,
             commands: data.commands,
             dockerfile: data.dockerfile,
-            accessModifier: data.accessModifier as AccessModifier,
+            visibility: data.visibility,
             isDefault: true,
             isActive: true,
             deletedAt: null,

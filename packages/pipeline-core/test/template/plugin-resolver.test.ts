@@ -20,7 +20,7 @@ function mkPlugin(overrides: Partial<Plugin> = {}): Plugin {
     secrets: [],
     metadata: {},
     keywords: [],
-    accessModifier: 'public',
+    visibility: 'public',
     isActive: true,
     isDefault: false,
     failureBehavior: 'fail',

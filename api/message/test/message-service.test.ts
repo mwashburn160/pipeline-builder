@@ -25,6 +25,11 @@ jest.unstable_mockModule('../src/services/attachment-storage.js', () => ({
   deleteAttachments: jest.fn(async () => undefined),
 }));
 
+// Spy on the cache KEY as well as passing through to the loader — the inbox
+// key carries the viewer segment, and a key collision between two users is a
+// cross-user read, so it needs to be assertable.
+const mockCacheGetOrSet = jest.fn((_key: string, loader: () => unknown) => loader());
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createCacheService: () => ({
     get: jest.fn(),
@@ -32,7 +37,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     del: jest.fn(),
     invalidate: jest.fn(),
     invalidatePattern: jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined),
-    getOrSet: (_key: string, loader: () => unknown) => loader(),
+    getOrSet: (key: string, loader: () => unknown) => mockCacheGetOrSet(key, loader),
   }),
 }));
 
@@ -47,6 +52,13 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
     CrudService: MockCrudService,
     CoreConstants: { CACHE_TTL_MESSAGE: 300 },
     buildMessageConditions: (f: unknown, o: string) => mockBuildMessageConditions(f, o),
+    // Viewer plumbing: the service stamps the request's viewer onto every filter
+    // via `withViewerContext` and keys the inbox cache off `currentViewerUserId`.
+    // These stubs make both a no-op/`undefined` so the existing assertions on the
+    // filter shape stay exact; the viewer behavior itself is covered in
+    // pipeline-data's viewer-context tests.
+    withViewerContext: (f: unknown) => mockWithViewerContext(f),
+    currentViewerUserId: () => mockCurrentViewerUserId(),
     // message-service.{markAsRead,markThreadAsRead,getUnreadCount,deleteThread}
     // were migrated to withTenantTx — pass through the same spies the test
     // already tracks (mockDbUpdate / mockDbSelect).
@@ -70,11 +82,17 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
         updatedAt: 'updatedAt',
         createdBy: 'createdBy',
         updatedBy: 'updatedBy',
-        accessModifier: 'accessModifier',
+        visibility: 'visibility',
       },
     },
   };
 });
+// Viewer plumbing. Kept as an identity passthrough so the filter-shape
+// assertions below stay exact — what matters is that EVERY predicate is routed
+// through it, which `routes every filter through the viewer stamp` pins.
+const mockWithViewerContext = jest.fn((f: unknown) => f);
+const mockCurrentViewerUserId = jest.fn((): string | undefined => undefined);
+
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   class MockCrudService {
     find = mockFind;
@@ -86,6 +104,13 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     CrudService: MockCrudService,
     CoreConstants: { CACHE_TTL_MESSAGE: 300 },
     buildMessageConditions: (f: unknown, o: string) => mockBuildMessageConditions(f, o),
+    // Viewer plumbing: the service stamps the request's viewer onto every filter
+    // via `withViewerContext` and keys the inbox cache off `currentViewerUserId`.
+    // These stubs make both a no-op/`undefined` so the existing assertions on the
+    // filter shape stay exact; the viewer behavior itself is covered in
+    // pipeline-data's viewer-context tests.
+    withViewerContext: (f: unknown) => mockWithViewerContext(f),
+    currentViewerUserId: () => mockCurrentViewerUserId(),
     // message-service.{markAsRead,markThreadAsRead,getUnreadCount,deleteThread}
     // were migrated to withTenantTx — pass through the same spies the test
     // already tracks (mockDbUpdate / mockDbSelect).
@@ -109,7 +134,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
         updatedAt: 'updatedAt',
         createdBy: 'createdBy',
         updatedBy: 'updatedBy',
-        accessModifier: 'accessModifier',
+        visibility: 'visibility',
       },
     },
   };
@@ -298,7 +323,7 @@ describe('MessageService', () => {
       await service.markAsRead('msg-1', 'org-1', 'user-1');
 
       expect(mockBuildMessageConditions).toHaveBeenCalledWith(
-        { id: 'msg-1', isActive: true, viewerUserId: 'user-1' },
+        { id: 'msg-1', isActive: true },
         'org-1',
       );
     });
@@ -316,9 +341,10 @@ describe('MessageService', () => {
       await service.markAsRead('msg-1', 'org-1', 'user-1');
 
       // Called for both the update predicate and the fallback existence select,
-      // each with the shared {id, isActive:true} filter + the viewer id.
+      // each with the shared {id, isActive:true} filter. The viewer is no longer
+      // an explicit key here — it arrives via the withViewerContext stamp.
       expect(mockBuildMessageConditions).toHaveBeenCalledWith(
-        { id: 'msg-1', isActive: true, viewerUserId: 'user-1' },
+        { id: 'msg-1', isActive: true },
         'org-1',
       );
       expect(mockBuildMessageConditions).toHaveBeenCalledTimes(2);
@@ -346,7 +372,7 @@ describe('MessageService', () => {
       // Participant predicate centralized through the shared builder (thread-scoped),
       // scoped to the calling user for per-user targeted rows.
       expect(mockBuildMessageConditions).toHaveBeenCalledWith(
-        { threadId: 'root-1', isActive: true, viewerUserId: 'user-1' },
+        { threadId: 'root-1', isActive: true },
         'org-1',
       );
     });
@@ -419,4 +445,85 @@ describe('MessageService', () => {
       expect(whereFn).toHaveBeenCalled();
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Viewer plumbing
+  // -------------------------------------------------------------------------
+  //
+  // Per-user targeting used to be hand-threaded: each read method took an
+  // optional `viewerUserId` and forwarded it. That failed OPEN — a call site
+  // that forgot the argument silently widened the read to every org-wide row,
+  // which is how the post-mark-read unread counts ended up counting messages
+  // addressed to OTHER users. The viewer now rides the request's tenant context
+  // and is stamped in `buildConditions`, so these tests pin the two properties
+  // that make the scheme safe: no predicate can bypass the stamp, and the inbox
+  // cache key reads the SAME source the predicate does.
+
+  describe('viewer scoping', () => {
+    it('feeds the stamped filter into the predicate builder, never the raw one', async () => {
+      // `find`/`findPaginated` are stubbed on the mock base class, so the paths
+      // that reach buildConditions in this harness are the ones that call it
+      // DIRECTLY — exactly the hand-rolled write predicates that used to carry
+      // their own `viewerUserId` argument.
+      mockWithViewerContext.mockImplementation((f: unknown) => ({ ...(f as object), viewerUserId: 'stamped' }));
+      mockDbSelect.mockReturnValue({
+        from: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue([{ count: 0 }]) }),
+      });
+      mockDbUpdate.mockReturnValue({
+        set: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({ returning: jest.fn<() => Promise<unknown>>().mockResolvedValue([]) }),
+        }),
+      });
+
+      await service.getUnreadCount('org-1');
+      await service.markThreadAsRead('root-1', 'org-1', 'user-1');
+
+      // Every predicate built passed through the stamp first…
+      expect(mockWithViewerContext).toHaveBeenCalledTimes(mockBuildMessageConditions.mock.calls.length);
+      expect(mockBuildMessageConditions.mock.calls.length).toBeGreaterThanOrEqual(2);
+      // …and it is the stamp's OUTPUT that reaches the builder, not the input.
+      for (const [filter] of mockBuildMessageConditions.mock.calls) {
+        expect(filter).toEqual(expect.objectContaining({ viewerUserId: 'stamped' }));
+      }
+    });
+
+    it('no longer accepts a viewer argument on the read methods', () => {
+      // Arity is the guard: re-adding an optional viewer parameter would let a
+      // call site drop it again and silently widen the read.
+      expect(service.findVisibleById).toHaveLength(2);
+      expect(service.findThreadMessages).toHaveLength(2);
+      expect(service.getUnreadCount).toHaveLength(1);
+    });
+
+    it('keys the conversations cache on the viewer from the tenant context', async () => {
+      mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+
+      mockCurrentViewerUserId.mockReturnValue('user-a');
+      await service.findConversations('org-1', { limit: 25, offset: 0 });
+      mockCurrentViewerUserId.mockReturnValue('user-b');
+      await service.findConversations('org-1', { limit: 25, offset: 0 });
+
+      // Two DIFFERENT viewers on identical org+page must not share a cache entry —
+      // a collision here would serve user A's per-user targeted rows to user B.
+      const keys = mockCacheGetOrSet.mock.calls.map((c) => c[0]);
+      expect(keys).toHaveLength(2);
+      expect(keys[0]).not.toEqual(keys[1]);
+      expect(keys[0]).toContain('user-a');
+      expect(keys[1]).toContain('user-b');
+    });
+
+    it('keeps the announcements cache shared per-org (never user-targeted)', async () => {
+      mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+
+      mockCurrentViewerUserId.mockReturnValue('user-a');
+      await service.findAnnouncements('org-1', { limit: 25, offset: 0 });
+      mockCurrentViewerUserId.mockReturnValue('user-b');
+      await service.findAnnouncements('org-1', { limit: 25, offset: 0 });
+
+      const keys = mockCacheGetOrSet.mock.calls.map((c) => c[0]);
+      expect(keys[0]).toEqual(keys[1]);
+      expect(keys[0]).not.toContain('user-a');
+    });
+  });
+
 });

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendError, sendSuccess, sendEntityNotFound, validateBody, PipelineUpdateSchema, pickDefined, normalizeArrayFields, createComplianceClient, getServiceAuthHeader, errorMessage } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, requireVisibilityWriteAccess, resolveVisibility, sendBadRequest, sendError, sendSuccess, sendEntityNotFound, validateBody, PipelineUpdateSchema, pickDefined, normalizeArrayFields, createComplianceClient, getServiceAuthHeader, errorMessage } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator.js';
@@ -45,8 +45,9 @@ export function createUpdatePipelineRoutes(): Router {
 
     if (!existing) return sendEntityNotFound(res, 'Pipeline');
 
-    // Only system admins can edit non-private pipelines
-    if (!requirePublicAccess(req, res, existing, 'pipelines:publish')) return;
+    // Visibility ladder: `pipelines:publish` for a public pipeline, authorship
+    // for a private one, plain `pipelines:write` (already checked) for an org one.
+    if (!requireVisibilityWriteAccess(req, res, existing, userId, 'pipelines:publish')) return;
 
     // Build update data from validated body
     const updateData: Record<string, unknown> = {
@@ -69,7 +70,7 @@ export function createUpdatePipelineRoutes(): Router {
         ? pickDefined({ ownerId: body.ownerId, ownerType: body.ownerType })
         : {}),
       // Access modifier requires special handling (admin-only public)
-      ...(body.accessModifier !== undefined ? { accessModifier: resolveAccessModifier(req, body.accessModifier, 'pipelines:publish') } : {}),
+      ...(body.visibility !== undefined ? { visibility: resolveVisibility(req, body.visibility, 'pipelines:publish') } : {}),
       updatedAt: new Date(),
       updatedBy: userId || 'system',
     };
@@ -78,10 +79,10 @@ export function createUpdatePipelineRoutes(): Router {
     // An update that changes the pipeline's config or visibility must not be
     // allowed to turn a compliant pipeline non-compliant (create already gates
     // this; without it, edits were a detective-only hole). Only re-validate when
-    // a compliance-relevant field changed (props / accessModifier) — a metadata-
+    // a compliance-relevant field changed (props / visibility) — a metadata-
     // or name-only edit doesn't alter the compliance posture, so we don't make
     // those pay a compliance round-trip or get blocked by a compliance outage.
-    if (body.props !== undefined || body.accessModifier !== undefined) {
+    if (body.props !== undefined || body.visibility !== undefined) {
       const serviceAuth = getServiceAuthHeader({ serviceName: 'pipeline', orgId, role: 'member' });
       const resolvedName = (updateData.pipelineName ?? existing.pipelineName) as string | undefined;
       try {
@@ -90,7 +91,7 @@ export function createUpdatePipelineRoutes(): Router {
           organization: existing.organization,
           pipelineName: resolvedName,
           props: updateData.props ?? existing.props,
-          accessModifier: updateData.accessModifier ?? existing.accessModifier,
+          visibility: updateData.visibility ?? existing.visibility,
         }, serviceAuth, existing.id, resolvedName, 'update');
 
         if (complianceResult.blocked) {

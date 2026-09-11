@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendBadRequest, sendSuccess, ErrorCode, resolveAccessModifier, isSystemAdmin } from '@pipeline-builder/api-core';
+import { sendBadRequest, sendSuccess, ErrorCode, resolveVisibility, isSystemAdmin, VisibilitySchema } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
@@ -21,7 +21,7 @@ const BulkPluginUpdateDataSchema = z.object({
   category: z.string().max(100).optional(),
   description: z.string().max(2000).optional(),
   keywords: z.array(z.string()).optional(),
-  accessModifier: z.enum(['public', 'private']).optional(),
+  visibility: VisibilitySchema.optional(),
 }).strict();
 
 
@@ -47,7 +47,7 @@ export function createBulkPluginRoutes(): Router {
     ctx.log('INFO', 'Bulk delete plugins', { count: ids.length });
 
     // Non-sysadmins may only bulk-delete their PRIVATE plugins — public plugins
-    // are shared/sysadmin-managed (mirrors the single-delete requirePublicAccess
+    // are shared/sysadmin-managed (mirrors the single-delete requireVisibilityWriteAccess
     // gate). Public plugins in the id set are simply skipped, not deleted.
     const deleted = await pluginService.bulkDelete(ids, orgId, userId, !isSystemAdmin(req));
 
@@ -95,11 +95,11 @@ export function createBulkPluginRoutes(): Router {
     }
 
     // Same escalation guard the single-update path applies: only admins/owners
-    // may set `accessModifier: 'public'`. Without this, any member with the
+    // may set `visibility: 'public'`. Without this, any member with the
     // bulk-ops feature could flip every plugin in the org to public.
     const updateData = { ...dataValidation.data };
-    if (updateData.accessModifier !== undefined) {
-      updateData.accessModifier = resolveAccessModifier(req, updateData.accessModifier, 'plugins:publish');
+    if (updateData.visibility !== undefined) {
+      updateData.visibility = resolveVisibility(req, updateData.visibility, 'plugins:publish');
     }
 
     ctx.log('INFO', 'Bulk update plugins', { count: ids.length });

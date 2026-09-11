@@ -120,7 +120,9 @@ interface PluginSummary {
   total: number;
   active: number;
   inactive: number;
+  /** Counts per sharing rung — one bucket per `visibility` value. */
   public: number;
+  org: number;
   private: number;
   uniqueNames: number;
 }
@@ -1326,7 +1328,9 @@ export class ReportingService {
 
     // Per-env accumulator.
     interface Acc {
-      deployments: number; deployTimeFailures: number; attempts: number;
+      deployments: number;
+      deployTimeFailures: number;
+      attempts: number;
       leadGaps: number[];
     }
     const envs = new Map<string, Acc>();
@@ -1440,7 +1444,10 @@ export class ReportingService {
         const postDeployFailures = postDeployByEnv.get(environment) ?? 0;
         const rawPerDay = a.deployments / days;
         const numerator = a.deployTimeFailures + postDeployFailures;
-        const rawRate = a.attempts > 0 ? (numerator / a.attempts) * 100 : 0;
+        // Clamp to [0,100]: post-deploy failures can correlate to a deploy that
+        // completed just before the window (kept for correlation), so the numerator
+        // can transiently exceed in-window attempts — a CFR > 100% is never valid.
+        const rawRate = a.attempts > 0 ? Math.min(100, (numerator / a.attempts) * 100) : 0;
         const ltMedian = median(a.leadGaps);
         return {
           environment,
@@ -1640,13 +1647,14 @@ export class ReportingService {
           COUNT(*)::int AS total,
           COUNT(*) FILTER (WHERE ${schema.plugin.isActive})::int AS active,
           COUNT(*) FILTER (WHERE NOT ${schema.plugin.isActive})::int AS inactive,
-          COUNT(*) FILTER (WHERE ${schema.plugin.accessModifier} = 'public')::int AS public,
-          COUNT(*) FILTER (WHERE ${schema.plugin.accessModifier} = 'private')::int AS private,
+          COUNT(*) FILTER (WHERE ${schema.plugin.visibility} = 'public')::int AS public,
+          COUNT(*) FILTER (WHERE ${schema.plugin.visibility} = 'org')::int AS org,
+          COUNT(*) FILTER (WHERE ${schema.plugin.visibility} = 'private')::int AS private,
           COUNT(DISTINCT ${schema.plugin.name})::int AS unique_names
         FROM ${schema.plugin}
         WHERE ${schema.plugin.orgId} = ${orgId}
       `));
-      return (drizzleRows<PluginSummary>(rows.rows)[0] || { total: 0, active: 0, inactive: 0, public: 0, private: 0, uniqueNames: 0 });
+      return (drizzleRows<PluginSummary>(rows.rows)[0] || { total: 0, active: 0, inactive: 0, public: 0, org: 0, private: 0, uniqueNames: 0 });
     });
   }
 
@@ -1945,11 +1953,11 @@ export class ReportingService {
         ORDER BY i.opened_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `).then((r) => drizzleRows<IncidentListItem>(r.rows).map((row) => ({
-        ...row,
-        resolved: row.resolved === true || (row.resolved as unknown) === 't',
-        correlatedExecutionId: row.correlatedExecutionId ?? null,
-        deployCompletedAt: row.deployCompletedAt ?? null,
-      }))));
+      ...row,
+      resolved: row.resolved === true || (row.resolved as unknown) === 't',
+      correlatedExecutionId: row.correlatedExecutionId ?? null,
+      deployCompletedAt: row.deployCompletedAt ?? null,
+    }))));
   }
 
   /**

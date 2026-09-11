@@ -17,7 +17,7 @@ import {
   AIGenerateBodySchema,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { withRoute, rateLimitByOrg } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
@@ -51,7 +51,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
   }));
 
   // -- POST /generate  generate plugin config from natural language ----------
-  router.post('/generate', requireFeature('ai_generation'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/generate', requireFeature('ai_generation'), rateLimitByOrg({ name: 'plugin-generate', max: 20, windowMs: 60_000, message: 'Too many plugin generation requests, please slow down.' }), withRoute(async ({ req, res, ctx, orgId }) => {
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error);
@@ -98,7 +98,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
   }));
 
   // -- POST /generate/stream  stream plugin config as SSE events -------------
-  router.post('/generate/stream', requireFeature('ai_generation'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/generate/stream', requireFeature('ai_generation'), rateLimitByOrg({ name: 'plugin-generate', max: 20, windowMs: 60_000, message: 'Too many plugin generation requests, please slow down.' }), withRoute(async ({ req, res, ctx, orgId }) => {
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error);

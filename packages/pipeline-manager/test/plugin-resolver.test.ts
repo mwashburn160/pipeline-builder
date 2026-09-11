@@ -47,7 +47,7 @@ describe('resolvePluginsForProps — lookup response unwrapping', () => {
     const sent: Array<Record<string, unknown>> = [];
     const client = clientCapturing({ data: { plugin: PLUGIN } }, sent);
     await resolvePluginsForProps(client, propsWithPlugin('cdk-synth', {
-      version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true, // no `name`
+      version: '1.0.0', visibility: 'public', isActive: true, isDefault: true, // no `name`
     }));
     expect(sent).toHaveLength(1);
     expect(sent[0].name).toBe('cdk-synth');
@@ -89,10 +89,10 @@ describe('resolvePluginsForProps — lookup filter carries the plugin name', () 
     const sent: Array<Record<string, unknown>> = [];
     const client = clientCapturing({ data: { plugin: PLUGIN } }, sent);
     await resolvePluginsForProps(client, propsWithPlugin('checkstyle', {
-      version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true,
+      version: '1.0.0', visibility: 'public', isActive: true, isDefault: true,
     }));
     expect(sent[0]).toEqual({
-      name: 'checkstyle', version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true,
+      name: 'checkstyle', version: '1.0.0', visibility: 'public', isActive: true, isDefault: true,
     });
   });
 
@@ -107,7 +107,7 @@ describe('resolvePluginsForProps — lookup filter carries the plugin name', () 
     const sent: Array<Record<string, unknown>> = [];
     const client = clientCapturing({ data: { plugin: { name: 'cdk-synth' } } }, sent);
     await resolvePluginsForProps(client, propsWithSynth('cdk-synth', {
-      version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true,
+      version: '1.0.0', visibility: 'public', isActive: true, isDefault: true,
     }));
     expect(sent).toHaveLength(1);
     expect(sent[0].name).toBe('cdk-synth');

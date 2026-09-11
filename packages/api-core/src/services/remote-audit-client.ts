@@ -169,6 +169,12 @@ export const REMOTE_AUDIT_ACTIONS = [
   // rather than invisible. `details` carries the required permission + path;
   // `outcome` is 'failure'.
   'authz.denied',
+  // "Ask" assistant activity — visibility into what the assistant did on a user's
+  // behalf. `ask.query` is a read-only how-to turn; `ask.agent.turn` is a tool-calling
+  // turn. `details` carry SAFE METADATA ONLY (tools used, proposal kinds, query
+  // length, outcome), never the raw query text.
+  'ask.query',
+  'ask.agent.turn',
 ] as const;
 
 export type RemoteAuditAction = typeof REMOTE_AUDIT_ACTIONS[number];

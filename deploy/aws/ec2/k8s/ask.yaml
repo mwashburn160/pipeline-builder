@@ -1,0 +1,158 @@
+---
+# =============================================================================
+# Ask Service — read-only "Ask" agent (grounded how-to). No datastore; the docs
+# grounding corpus is baked into the image (ASK_DOCS_DIR=/app/docs).
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: ask
+  labels:
+    app: ask
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: ask
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ask
+  labels:
+    app: ask
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: ask
+  template:
+    metadata:
+      labels:
+        app: ask
+        app.kubernetes.io/component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: ask
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: ask
+                topologyKey: kubernetes.io/hostname
+      # No initContainer: the ask service has no datastore dependency (v1
+      # conversation state is client-held; the docs corpus is in the image).
+      containers:
+        - name: ask
+          image: ghcr.io/mwashburn160/ask:3.4.153
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-env
+            - secretRef:
+                name: jwt-secret
+          env:
+            - name: SERVICE_NAME
+              value: "ask"
+            # Self-hosted model (deploy/*/k8s/ask-model.yaml, opt-in) — uncomment to route:
+            # - name: OPENAI_COMPATIBLE_BASE_URL
+            #   value: "http://ask-model:11434/v1"
+            # - name: OPENAI_COMPATIBLE_MODELS
+            #   value: "qwen2.5-coder:7b|Qwen 2.5 Coder"
+          resources:
+            limits:
+              cpu: "350m"
+              memory: 384Mi
+            requests:
+              cpu: "100m"
+              memory: 160Mi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ask
+  labels:
+    app: ask
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ask
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 120
+    scaleDown:
+      stabilizationWindowSeconds: 300
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ask
+  labels:
+    app: ask
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ask

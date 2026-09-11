@@ -5,7 +5,7 @@ import type { Response } from 'express';
 import { createLogger } from './logger.js';
 import type { QuotaInfo } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
-import { MAX_PAGE_LIMIT } from '../validation/common-schemas.js';
+import { MAX_PAGE_LIMIT, MAX_PAGE_OFFSET } from '../validation/common-schemas.js';
 
 const logger = createLogger('response');
 
@@ -295,7 +295,10 @@ export interface PaginationParams {
 /** Parse pagination/sort params from query string, clamping to safe defaults. */
 export function parsePaginationParams(query: Record<string, unknown>): PaginationParams {
   const limit = Math.min(Math.max(parseInt(String(query.limit), 10) || 10, 1), MAX_PAGE_LIMIT);
-  const offset = Math.max(parseInt(String(query.offset), 10) || 0, 0);
+  // Clamp offset too — an unbounded offset forces Postgres to scan+discard huge row
+  // counts on hot list endpoints (a cheap DoS amplifier). Deep paging should use the
+  // cursor API. Ceiling = MAX_PAGE_OFFSET.
+  const offset = Math.min(Math.max(parseInt(String(query.offset), 10) || 0, 0), MAX_PAGE_OFFSET);
   const sortBy = String(query.sortBy || 'createdAt');
   const sortOrder: 'asc' | 'desc' =
     String(query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';

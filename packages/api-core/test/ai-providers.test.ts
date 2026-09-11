@@ -1,12 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 
 import {
   AI_PROVIDER_CATALOG,
   AI_PROVIDER_ENV_VARS,
+  OPENAI_COMPATIBLE_PROVIDER_ID,
   getAIProviderModels,
+  getOpenAICompatibleProvider,
   type AIProviderInfo,
   type AIModelInfo,
 } from '../src/constants/ai-providers.js';
@@ -92,5 +94,62 @@ describe('getAIProviderModels', () => {
     for (const [id, info] of Object.entries(AI_PROVIDER_CATALOG)) {
       expect(getAIProviderModels(id)).toEqual(info.models);
     }
+  });
+});
+
+// getOpenAICompatibleProvider (deployment-defined local endpoint)
+
+describe('getOpenAICompatibleProvider', () => {
+  const keys = [
+    'OPENAI_COMPATIBLE_BASE_URL',
+    'OPENAI_COMPATIBLE_MODELS',
+    'OPENAI_COMPATIBLE_MODEL',
+    'OPENAI_COMPATIBLE_NAME',
+  ] as const;
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const k of keys) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+  afterEach(() => {
+    for (const k of keys) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it('returns null when no base URL is configured', () => {
+    expect(getOpenAICompatibleProvider()).toBeNull();
+    expect(getAIProviderModels(OPENAI_COMPATIBLE_PROVIDER_ID)).toEqual([]);
+  });
+
+  it('is NOT part of the static catalog', () => {
+    expect(AI_PROVIDER_CATALOG).not.toHaveProperty(OPENAI_COMPATIBLE_PROVIDER_ID);
+  });
+
+  it('parses id[|name] model entries and honors the name override', () => {
+    process.env.OPENAI_COMPATIBLE_BASE_URL = 'http://ask-model:12434/v1';
+    process.env.OPENAI_COMPATIBLE_MODELS = 'qwen2.5-coder|Qwen 2.5 Coder, llama3.3';
+    process.env.OPENAI_COMPATIBLE_NAME = 'On-prem model';
+
+    const provider = getOpenAICompatibleProvider();
+    expect(provider).toEqual({
+      id: OPENAI_COMPATIBLE_PROVIDER_ID,
+      name: 'On-prem model',
+      models: [
+        { id: 'qwen2.5-coder', name: 'Qwen 2.5 Coder' },
+        { id: 'llama3.3', name: 'llama3.3' },
+      ],
+    });
+    // getAIProviderModels routes through the dynamic resolver for this provider id
+    expect(getAIProviderModels(OPENAI_COMPATIBLE_PROVIDER_ID)).toEqual(provider!.models);
+  });
+
+  it('defaults to a single "local" model when only a base URL is set', () => {
+    process.env.OPENAI_COMPATIBLE_BASE_URL = 'http://ask-model:12434/v1';
+    expect(getOpenAICompatibleProvider()!.models).toEqual([{ id: 'local', name: 'Local model' }]);
   });
 });

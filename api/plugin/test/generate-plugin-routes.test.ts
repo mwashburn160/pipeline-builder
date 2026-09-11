@@ -44,6 +44,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  rateLimitByOrg: () => (_req: any, _res: any, next: () => void) => next(),
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = req.context;
     const orgId = ctx.identity.orgId?.toLowerCase() || '';

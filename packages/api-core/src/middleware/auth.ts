@@ -12,6 +12,7 @@ import { type Permission, hasPermission } from '../types/permissions.js';
 import { getHeaderString } from '../utils/headers.js';
 import { getIdentity, type RequestIdentity } from '../utils/identity.js';
 import { createLogger } from '../utils/logger.js';
+import { emitCounter } from '../utils/metric-emitter.js';
 import { sendError } from '../utils/response.js';
 
 const logger = createLogger('auth-middleware');
@@ -160,7 +161,11 @@ let tokenRevocationStore: TokenRevocationStore | undefined;
  */
 export function setTokenRevocationStore(store: TokenRevocationStore | undefined): void {
   tokenRevocationStore = store;
+  if (store) revocationStoreMissingWarned = false; // re-arm if a store is (re)registered
 }
+
+/** One-shot guard so the "revocation inactive" warning doesn't flood the logs. */
+let revocationStoreMissingWarned = false;
 
 /**
  * Returns true when `decoded` has been revoked per the registered store: its
@@ -170,7 +175,18 @@ export function setTokenRevocationStore(store: TokenRevocationStore | undefined)
  */
 async function isTokenRevoked(decoded: JwtPayload): Promise<boolean> {
   const store = tokenRevocationStore;
-  if (!store || !decoded.sub || typeof decoded.tokenVersion !== 'number') return false;
+  if (!store) {
+    // Make the "revocation is OFF" state OBSERVABLE: a service that verifies user
+    // tokens but forgot `setTokenRevocationStore()` silently disables the session
+    // kill-switch. Warn ONCE (only for a revocable user token) so a misconfigured
+    // boot surfaces in the logs instead of failing open invisibly.
+    if (!revocationStoreMissingWarned && decoded.sub && typeof decoded.tokenVersion === 'number') {
+      revocationStoreMissingWarned = true;
+      logger.warn('Token revocation store NOT registered — revocation checks are INACTIVE (setTokenRevocationStore was never called); revoked/compromised sessions stay valid until natural TTL');
+    }
+    return false;
+  }
+  if (!decoded.sub || typeof decoded.tokenVersion !== 'number') return false;
   try {
     const current = await store.getCurrentVersion(decoded.sub);
     return current !== null && decoded.tokenVersion < current;
@@ -232,6 +248,18 @@ function _requireAuth(
 
     if (!decoded.sub || !decoded.role) {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Token missing required fields', ErrorCode.TOKEN_INVALID);
+    }
+
+    // Service-token kill-switch: reject a service principal whose service has
+    // been added to the denylist. Rotating the shared JWT secret is the only
+    // other way to invalidate a service token before its (short) TTL — but that
+    // nukes EVERY service token fleet-wide. This lets one compromised/rogue
+    // service be cut off surgically. O(1) Set lookup, zero cost when the denylist
+    // is empty (the default), so it never taxes the S2S hot path unless armed.
+    if (decoded.sub.startsWith('service:') && isServiceTokenDenied(decoded.sub)) {
+      emitCounter('service_token_denied_total', { service: decoded.sub.slice('service:'.length) });
+      logger.warn('Rejected denylisted service token', { sub: decoded.sub });
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Service token revoked', ErrorCode.TOKEN_REVOKED);
     }
 
     req.user = { ...decoded };
@@ -561,29 +589,6 @@ export function requireFeature(feature: string) {
   };
 }
 
-/**
- * Resolve the effective access modifier for an entity being created/updated.
- * 'public' is permitted only for a caller holding the relevant publish
- * capability (`pipelines:publish` / `plugins:publish`) — superadmins pass via
- * implicit-all. Everyone else (including callers who requested 'public' without
- * the permission, and service principals) gets 'private'.
- *
- * Permission-based (not coarse-role-based): a bespoke custom Role can be granted
- * publish rights and is no longer forced private by its `member` label. Built-in
- * Admin/Owner bundles carry the publish permissions, so their behavior is
- * unchanged; the built-in Member bundle does not, so members stay private-only.
- */
-export function resolveAccessModifier(
-  req: Request,
-  requested: string | undefined,
-  publishPermission: Permission,
-): 'public' | 'private' {
-  if (requested === 'public' && userHasPermission(req, publishPermission)) {
-    return 'public';
-  }
-  return 'private';
-}
-
 // ---------------------------------------------------------------------------
 // Service-to-service tokens
 //
@@ -600,6 +605,32 @@ export function resolveAccessModifier(
 // ---------------------------------------------------------------------------
 
 const DEFAULT_SERVICE_TOKEN_TTL_SECONDS = 300;
+
+/**
+ * Denylist of service NAMES (the `<name>` in `sub: service:<name>`) whose tokens
+ * `requireAuth` must reject. Seeded from `SERVICE_TOKEN_DENYLIST` (comma-separated)
+ * at module load; a service can push live updates (e.g. from a Redis-subscribed
+ * kill-switch) via {@link setServiceTokenDenylist} so a compromised service can be
+ * cut off WITHOUT rotating the shared JWT secret (which invalidates all of them).
+ */
+let serviceTokenDenylist = new Set(
+  (process.env.SERVICE_TOKEN_DENYLIST || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
+
+/** Replace the service-token denylist (service names). Empty ⇒ kill-switch off. */
+export function setServiceTokenDenylist(names: Iterable<string>): void {
+  serviceTokenDenylist = new Set([...names].map((s) => s.trim()).filter(Boolean));
+}
+
+/** True when `sub` is `service:<name>` and `<name>` is on the denylist. */
+export function isServiceTokenDenied(sub: string): boolean {
+  if (serviceTokenDenylist.size === 0) return false;
+  if (!sub.startsWith('service:')) return false;
+  return serviceTokenDenylist.has(sub.slice('service:'.length));
+}
 
 export interface ServiceTokenOptions {
   /** Calling service identifier (e.g. 'billing', 'platform'). Embedded as `sub: service:<name>`. */
@@ -619,6 +650,13 @@ export interface ServiceTokenOptions {
    * `isAdmin` is derived from this (admin|owner → true).
    */
   role: 'owner' | 'admin' | 'member';
+  /**
+   * Optional fine-grained permission claim. Prefer this + `role: 'member'` over a
+   * high role when a call needs ONE specific capability (e.g. `['plugins:write']`
+   * to push a plugin image) — the token then satisfies that permission gate
+   * WITHOUT carrying `isAdmin`, so a leaked token can't perform admin actions.
+   */
+  permissions?: Permission[];
 }
 
 /**
@@ -637,6 +675,9 @@ export function signServiceToken(opts: ServiceTokenOptions): string {
     type: 'access',
     organizationId: opts.orgId,
     organizationName: opts.orgName ?? opts.orgId,
+    // Least-privilege capability claim (optional) — lets a member-role token
+    // satisfy a specific permission gate without carrying isAdmin.
+    ...(opts.permissions && opts.permissions.length > 0 ? { permissions: opts.permissions } : {}),
   };
   // Match the optional issuer/audience that requireAuth verifies, when
   // configured. Without these, a service token signed here would fail
@@ -686,7 +727,11 @@ export function verifyServicePrincipal(req: Request): boolean {
     if (process.env.JWT_ISSUER) verifyOptions.issuer = process.env.JWT_ISSUER;
     if (process.env.JWT_AUDIENCE) verifyOptions.audience = process.env.JWT_AUDIENCE;
     const decoded = verifyJwtWithRotation(parts[1], verifyOptions);
-    return decoded.type === 'access' && typeof decoded.sub === 'string' && decoded.sub.startsWith('service:');
+    if (decoded.type !== 'access' || typeof decoded.sub !== 'string' || !decoded.sub.startsWith('service:')) return false;
+    // A denylisted (killed) service must NOT be treated as a trusted principal —
+    // otherwise it keeps the rate-limiter exemption even though requireAuth rejects
+    // it on real routes. Fold the kill-switch into the pre-auth check too.
+    return !isServiceTokenDenied(decoded.sub);
   } catch {
     return false;
   }

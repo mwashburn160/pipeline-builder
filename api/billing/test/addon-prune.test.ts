@@ -38,7 +38,7 @@ const CATALOG = [
 // addon_pruned rows.
 const mockSafePut = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({ statusCode: 200 });
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createSafeClient: () => ({ put: mockSafePut, get: jest.fn() }),
+  createSafeClient: () => ({ put: mockSafePut, get: jest.fn(), destroy: () => undefined }),
 }));
 
 // billing-helpers loads incCounter from api-server; capture it so the provider

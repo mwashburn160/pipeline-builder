@@ -88,6 +88,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   incCounter: () => undefined,
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   createAuthenticatedWithOrgRoute: () => [],
+  rateLimitByOrg: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   incrementQuotaFromCtx: jest.fn(),
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = {
@@ -158,7 +159,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
       orgId: 'orgId',
       isActive: 'isActive',
       deletedAt: 'deletedAt',
-      accessModifier: 'accessModifier',
+      visibility: 'visibility',
     },
   },
 }));
@@ -199,7 +200,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
       orgId: 'orgId',
       isActive: 'isActive',
       deletedAt: 'deletedAt',
-      accessModifier: 'accessModifier',
+      visibility: 'visibility',
     },
   },
 }));;
@@ -803,7 +804,7 @@ describe('POST /generate/from-url/stream', () => {
         version: '1.0.0',
         pluginType: 'CodeBuildStep',
         computeType: 'MEDIUM',
-        accessModifier: 'private',
+        visibility: 'private',
       }),
       expect.objectContaining({
         headers: expect.objectContaining({

@@ -13,18 +13,19 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import api from '@/lib/api';
-import { Pipeline, BuilderProps } from '@/types';
+import { Pipeline, BuilderProps, Visibility } from '@/types';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import CollapsibleSection from './editors/CollapsibleSection';
 import { WIZARD_STEPS } from '@/lib/wizard-validation';
 import { formatJSON } from '@/lib/constants';
+import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 
 /** Props for {@link EditPipelineModal}. */
 interface EditPipelineModalProps {
   /** The pipeline record to edit (may be partial; full data is fetched on mount). */
   pipeline: Pipeline;
-  /** Whether the current user is a system admin (controls access modifier editing). */
-  isSuperAdmin: boolean;
+  /** `pipelines:publish` — required for the `public` rung of the visibility ladder. */
+  canPublish: boolean;
   /** Callback to close the modal. */
   onClose: () => void;
   /** Callback invoked after a successful save so the parent can refresh its list. */
@@ -39,10 +40,10 @@ interface EditPipelineModalProps {
  * read-only System Information section and controls for access modifier,
  * active/default status.
  */
-export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onSaved }: EditPipelineModalProps) {
+export default function EditPipelineModal({ pipeline, canPublish, onClose, onSaved }: EditPipelineModalProps) {
   const [isActive, setIsActive] = useState(pipeline.isActive);
   const [isDefault, setIsDefault] = useState(pipeline.isDefault);
-  const [accessModifier, setAccessModifier] = useState<'public' | 'private'>(pipeline.accessModifier);
+  const [visibility, setVisibility] = useState<Visibility>(pipeline.visibility);
   const { execute: saveAsync, loading, error, clearError } = useAsyncCallback(
     (data: Parameters<typeof api.updatePipeline>[1]) => api.updatePipeline(pipeline.id, data),
   );
@@ -86,7 +87,7 @@ export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onS
     if (!fullPipeline) return;
     setIsActive(fullPipeline.isActive);
     setIsDefault(fullPipeline.isDefault);
-    setAccessModifier(fullPipeline.accessModifier);
+    setVisibility(fullPipeline.visibility);
   }, [fullPipeline]);
 
   // Scroll to top when step changes
@@ -176,7 +177,7 @@ export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onS
       props: parsedProps,
       isActive,
       isDefault,
-      accessModifier,
+      visibility,
     });
 
     if (response?.success) {
@@ -193,14 +194,15 @@ export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onS
       <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Access & Status</h3>
       <div className="grid grid-cols-2 gap-4 mb-3">
         <div>
-          <label className="label">Access Modifier</label>
-          <Select value={accessModifier} onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')} className="disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500" disabled={loading || !isSuperAdmin}>
-            <option value="private">Private</option>
-            <option value="public">Public</option>
-          </Select>
-          {!isSuperAdmin && (
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Only system admins can change access level</p>
-          )}
+          <label className="label" htmlFor="editPipelineVisibility">Visibility</label>
+          <VisibilitySelect
+            id="editPipelineVisibility"
+            value={visibility}
+            onChange={setVisibility}
+            canPublish={canPublish}
+            disabled={loading}
+          />
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{visibilityHint(canPublish, 'pipelines:publish')}</p>
         </div>
       </div>
       <div className="flex items-center space-x-6">

@@ -34,7 +34,7 @@ Database layer for [Pipeline Builder](https://mwashburn160.github.io/pipeline-bu
 ### Query builders & filters
 | Export | Purpose |
 |---|---|
-| `AccessControlQueryBuilder` | Row-level, org-scoped condition builder enforcing tenant isolation and `accessModifier` visibility |
+| `AccessControlQueryBuilder` | Row-level, org-scoped condition builder enforcing tenant isolation and the three-rung `visibility` ladder |
 | `buildPipelineConditions`, `buildPluginConditions`, `buildMessageConditions`, and the compliance condition builders | Filter-to-SQL translators used by the services |
 | `PipelineFilter`, `PluginFilter`, `MessageFilter`, the compliance filter types | Typed filter interfaces |
 | `drizzleRows`, `drizzleCount` | Drizzle result type helpers |

@@ -94,8 +94,18 @@ async function ensureBucket(): Promise<void> {
           await s3().send(new CreateBucketCommand({ Bucket: ATTACHMENT_BUCKET }));
           logger.info('Created attachments bucket', { bucket: ATTACHMENT_BUCKET });
         } catch (err) {
-          // Another replica may have created it between our HEAD and CREATE.
-          logger.warn('Attachments bucket ensure race (continuing)', { error: String(err) });
+          // CreateBucket failed — could be a benign race (another replica created it
+          // between our HEAD and CREATE) or a real outage (MinIO unreachable). Re-HEAD
+          // to tell them apart: if it now exists the race is benign; otherwise DON'T
+          // memoize the failure (reset so a later call retries) and fail this attempt,
+          // rather than caching a permanently-broken "ready" for the process lifetime.
+          try {
+            await s3().send(new HeadBucketCommand({ Bucket: ATTACHMENT_BUCKET }));
+            logger.warn('Attachments bucket ensure race (now exists, continuing)', { error: String(err) });
+          } catch {
+            bucketReady = null;
+            throw new Error(`Attachments bucket unavailable: ${String(err)}`);
+          }
         }
       }
     })();

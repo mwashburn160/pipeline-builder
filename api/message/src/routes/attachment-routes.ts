@@ -175,7 +175,7 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
       // (not yet attached) is readable only by its uploader (RLS already bounds
       // it to the uploader's org; this pins it to the specific user).
       if (att.messageId) {
-        const msg = await messageService.findVisibleById(att.messageId, orgId, userId);
+        const msg = await messageService.findVisibleById(att.messageId, orgId);
         if (!msg) return sendEntityNotFound(res, 'Attachment');
       } else if (att.uploadedBy !== userId) {
         return sendEntityNotFound(res, 'Attachment');

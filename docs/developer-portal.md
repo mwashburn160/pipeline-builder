@@ -32,7 +32,7 @@ The command palette (**⌘K**) searches actual resources — pipelines and plugi
 
 ## Golden-path templates
 
-A **pipeline template** is a parameterized starter: its body is a `BuilderProps` with `{{ vars.* }}` placeholders, and it declares the `inputs` a developer fills in to instantiate it. System-org **public** templates form a shared golden-path catalog visible to every org (the same sharing model as sample pipelines and compliance rule templates); org-private templates are visible only to their org.
+A **pipeline template** is a parameterized starter: its body is a `BuilderProps` with `{{ vars.* }}` placeholders, and it declares the `inputs` a developer fills in to instantiate it. System-org **public** templates form a shared golden-path catalog visible to every org (the same sharing model as the sample template catalog and compliance rule templates); org-private templates are visible only to their org.
 
 **Instantiate flow** (dashboard → Build → *Templates* → *Use template*):
 
@@ -44,11 +44,11 @@ A **pipeline template** is a parameterized starter: its body is a `BuilderProps`
 
 | Method | Path | Notes |
 |--------|------|-------|
-| `GET` | `/pipeline-templates` | List the catalog (own-org + shared system-org), paginated/filterable. |
+| `GET` | `/pipeline-templates` | List the catalog you can see — your org's shared templates, your own private drafts, and the system-org catalog. Paginated/filterable (incl. `visibility`). |
 | `GET` | `/pipeline-templates/{id}` | Fetch a template. |
 | `POST` | `/pipeline-templates/{id}/instantiate` | Render → `{ props, description, keywords }`. Body: `{ project, organization, pipelineName?, inputs }`. |
-| `POST` | `/pipeline-templates` | Author a template (`pipelines:write`; `pipelines:publish` to make it public). |
-| `PUT` / `DELETE` | `/pipeline-templates/{id}` | Update / soft-delete (`pipelines:write`). |
+| `POST` | `/pipeline-templates` | Author a template (`templates:write`). Defaults to `visibility: private`; `org` shares it org-wide, `public` needs `templates:publish`. |
+| `PUT` / `DELETE` | `/pipeline-templates/{id}` | Update / soft-delete (`templates:write`, plus `templates:publish` for a `public` template and authorship for a `private` one). |
 
 ## Maturity scorecards
 

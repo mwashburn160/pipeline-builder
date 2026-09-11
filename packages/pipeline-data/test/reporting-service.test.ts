@@ -188,9 +188,15 @@ describe('ReportingService', () => {
 
       await service.ingestEvents([
         {
-          pipelineId: 'pl-1', eventSource: 'codepipeline', eventType: 'STAGE', status: 'SUCCEEDED',
-          executionId: 'e1', stageName: 'Deploy-prod', environment: 'production',
-          commitTimestamp: '2026-07-02T00:00:00Z', commitCount: 3,
+          pipelineId: 'pl-1',
+          eventSource: 'codepipeline',
+          eventType: 'STAGE',
+          status: 'SUCCEEDED',
+          executionId: 'e1',
+          stageName: 'Deploy-prod',
+          environment: 'production',
+          commitTimestamp: '2026-07-02T00:00:00Z',
+          commitCount: 3,
         },
       ], (m) => metrics.push(m));
 
@@ -416,7 +422,7 @@ describe('ReportingService', () => {
           { environment: 'staging', status: 'SUCCEEDED', completed_at: '2026-07-02T00:00:00Z', commit_ts: null },
         ],
         [
-          { environment: 'production', outcome: 'failed' },   // post-deploy failure
+          { environment: 'production', outcome: 'failed' }, // post-deploy failure
           { environment: 'production', outcome: 'restored' },
           { environment: 'staging', outcome: 'failed' },
         ],
@@ -828,9 +834,12 @@ describe('ReportingService', () => {
       mockExecute.mockResolvedValueOnce({ rows: [{ incident_window_hours: 6, event_retention_days: null, dora_retention_days: null }] });
       const s = await service.getIncidentSettings('acme');
       expect(s).toEqual({
-        incidentWindowHours: 6, defaultWindowHours: 24,
-        eventRetentionDays: null, doraRetentionDays: null,
-        defaultEventRetentionDays: 30, defaultDoraRetentionDays: 180,
+        incidentWindowHours: 6,
+        defaultWindowHours: 24,
+        eventRetentionDays: null,
+        doraRetentionDays: null,
+        defaultEventRetentionDays: 30,
+        defaultDoraRetentionDays: 180,
       });
     });
 
@@ -838,9 +847,12 @@ describe('ReportingService', () => {
       mockExecute.mockResolvedValueOnce({ rows: [] });
       const s = await service.getIncidentSettings('acme');
       expect(s).toEqual({
-        incidentWindowHours: null, defaultWindowHours: 24,
-        eventRetentionDays: null, doraRetentionDays: null,
-        defaultEventRetentionDays: 30, defaultDoraRetentionDays: 180,
+        incidentWindowHours: null,
+        defaultWindowHours: 24,
+        eventRetentionDays: null,
+        doraRetentionDays: null,
+        defaultEventRetentionDays: 30,
+        defaultDoraRetentionDays: 180,
       });
     });
 
@@ -885,10 +897,12 @@ describe('ReportingService', () => {
     it('listIncidents resolves the window then LATERAL-correlates each incident', async () => {
       mockExecute
         .mockResolvedValueOnce({ rows: [] }) // getIncidentSettings → default window
-        .mockResolvedValueOnce({ rows: [
-          { incidentId: 'i1', environment: 'production', severity: 'critical', openedAt: '2026-07-02T02:00:00Z', resolvedAt: '2026-07-02T03:00:00Z', createdAt: '2026-07-02T02:00:01Z', resolved: true, correlatedExecutionId: 'exec-A', deployCompletedAt: '2026-07-02T00:00:00Z' },
-          { incidentId: 'i2', environment: 'staging', severity: 'warning', openedAt: '2026-07-03T00:00:00Z', resolvedAt: null, createdAt: '2026-07-03T00:00:01Z', resolved: false, correlatedExecutionId: null, deployCompletedAt: null },
-        ] });
+        .mockResolvedValueOnce({
+          rows: [
+            { incidentId: 'i1', environment: 'production', severity: 'critical', openedAt: '2026-07-02T02:00:00Z', resolvedAt: '2026-07-02T03:00:00Z', createdAt: '2026-07-02T02:00:01Z', resolved: true, correlatedExecutionId: 'exec-A', deployCompletedAt: '2026-07-02T00:00:00Z' },
+            { incidentId: 'i2', environment: 'staging', severity: 'warning', openedAt: '2026-07-03T00:00:00Z', resolvedAt: null, createdAt: '2026-07-03T00:00:01Z', resolved: false, correlatedExecutionId: null, deployCompletedAt: null },
+          ],
+        });
 
       const items = await service.listIncidents('acme', { limit: 25, offset: 0 });
 
@@ -1336,10 +1350,10 @@ describe('reporting retention (Phase 7)', () => {
     });
 
     it('rejects out-of-range/invalid overrides (clamps max, ignores < 1 and non-integers)', () => {
-      expect(resolveEventRetentionDays(0)).toBe(30);      // below min → default
-      expect(resolveEventRetentionDays(-5)).toBe(30);     // negative → default
-      expect(resolveEventRetentionDays(1.5)).toBe(30);    // non-integer → default
-      expect(resolveDoraRetentionDays(9999)).toBe(730);   // above max → clamped
+      expect(resolveEventRetentionDays(0)).toBe(30); // below min → default
+      expect(resolveEventRetentionDays(-5)).toBe(30); // negative → default
+      expect(resolveEventRetentionDays(1.5)).toBe(30); // non-integer → default
+      expect(resolveDoraRetentionDays(9999)).toBe(730); // above max → clamped
     });
 
     it('passes the -1 unlimited sentinel through (Phase 8) instead of falling back to the default', () => {
@@ -1373,11 +1387,11 @@ describe('reporting retention (Phase 7)', () => {
       const now = new Date('2026-08-20T00:00:00Z');
       mockExecute
         .mockResolvedValueOnce({ rows: [{ org_id: 'acme' }] }) // enumerate orgs
-        .mockResolvedValueOnce({ rows: [] })                   // overrides (none → defaults)
-        .mockResolvedValueOnce({ rows: rows(5) })              // standard events
-        .mockResolvedValueOnce({ rows: rows(3) })              // dora events
-        .mockResolvedValueOnce({ rows: rows(2) })              // deployment_outcomes
-        .mockResolvedValueOnce({ rows: rows(1) });             // incidents
+        .mockResolvedValueOnce({ rows: [] }) // overrides (none → defaults)
+        .mockResolvedValueOnce({ rows: rows(5) }) // standard events
+        .mockResolvedValueOnce({ rows: rows(3) }) // dora events
+        .mockResolvedValueOnce({ rows: rows(2) }) // deployment_outcomes
+        .mockResolvedValueOnce({ rows: rows(1) }); // incidents
 
       const res = await service.purgeExpiredReportingData({ now });
       expect(res).toEqual({ orgs: 1, standardEvents: 5, doraEvents: 3, deploymentOutcomes: 2, incidents: 1 });
@@ -1419,12 +1433,12 @@ describe('reporting retention (Phase 7)', () => {
       const now = new Date('2026-08-20T00:00:00Z');
       mockExecute
         .mockResolvedValueOnce({ rows: [{ org_id: 'acme' }] }) // enumerate
-        .mockResolvedValueOnce({ rows: [] })                   // overrides
-        .mockResolvedValueOnce({ rows: rows(2) })              // std batch 1 (== batchSize → loop)
-        .mockResolvedValueOnce({ rows: rows(1) })              // std batch 2 (< batchSize → drained)
-        .mockResolvedValueOnce({ rows: [] })                   // dora
-        .mockResolvedValueOnce({ rows: [] })                   // outcomes
-        .mockResolvedValueOnce({ rows: [] });                  // incidents
+        .mockResolvedValueOnce({ rows: [] }) // overrides
+        .mockResolvedValueOnce({ rows: rows(2) }) // std batch 1 (== batchSize → loop)
+        .mockResolvedValueOnce({ rows: rows(1) }) // std batch 2 (< batchSize → drained)
+        .mockResolvedValueOnce({ rows: [] }) // dora
+        .mockResolvedValueOnce({ rows: [] }) // outcomes
+        .mockResolvedValueOnce({ rows: [] }); // incidents
 
       const res = await service.purgeExpiredReportingData({ now, batchSize: 2 });
       expect(res.standardEvents).toBe(3); // 2 + 1 across two batches
@@ -1436,9 +1450,9 @@ describe('reporting retention (Phase 7)', () => {
       mockExecute
         .mockResolvedValueOnce({ rows: [{ org_id: 'acme' }] }) // enumerate
         .mockResolvedValueOnce({ rows: [{ org_id: 'acme', event_retention_days: -1, dora_retention_days: 180 }] })
-        .mockResolvedValueOnce({ rows: rows(3) })              // dora events (standard skipped → this is first delete)
-        .mockResolvedValueOnce({ rows: rows(2) })              // deployment_outcomes
-        .mockResolvedValueOnce({ rows: rows(1) });             // incidents
+        .mockResolvedValueOnce({ rows: rows(3) }) // dora events (standard skipped → this is first delete)
+        .mockResolvedValueOnce({ rows: rows(2) }) // deployment_outcomes
+        .mockResolvedValueOnce({ rows: rows(1) }); // incidents
 
       const res = await service.purgeExpiredReportingData({ now });
       expect(res).toEqual({ orgs: 1, standardEvents: 0, doraEvents: 3, deploymentOutcomes: 2, incidents: 1 });
@@ -1455,7 +1469,7 @@ describe('reporting retention (Phase 7)', () => {
       mockExecute
         .mockResolvedValueOnce({ rows: [{ org_id: 'acme' }] }) // enumerate
         .mockResolvedValueOnce({ rows: [{ org_id: 'acme', event_retention_days: 30, dora_retention_days: -1 }] })
-        .mockResolvedValueOnce({ rows: rows(4) });             // standard events (only delete issued)
+        .mockResolvedValueOnce({ rows: rows(4) }); // standard events (only delete issued)
 
       const res = await service.purgeExpiredReportingData({ now });
       expect(res).toEqual({ orgs: 1, standardEvents: 4, doraEvents: 0, deploymentOutcomes: 0, incidents: 0 });
@@ -1482,10 +1496,10 @@ describe('reporting retention (Phase 7)', () => {
       mockExecute
         .mockResolvedValueOnce({ rows: [{ org_id: 'unlimited' }, { org_id: 'acme' }] }) // enumerate (unlimited first)
         .mockResolvedValueOnce({ rows: [{ org_id: 'unlimited', event_retention_days: -1, dora_retention_days: -1 }] }) // acme has no override row → defaults
-        .mockResolvedValueOnce({ rows: rows(5) })              // acme standard events
-        .mockResolvedValueOnce({ rows: rows(3) })              // acme dora events
-        .mockResolvedValueOnce({ rows: rows(2) })              // acme deployment_outcomes
-        .mockResolvedValueOnce({ rows: rows(1) });             // acme incidents
+        .mockResolvedValueOnce({ rows: rows(5) }) // acme standard events
+        .mockResolvedValueOnce({ rows: rows(3) }) // acme dora events
+        .mockResolvedValueOnce({ rows: rows(2) }) // acme deployment_outcomes
+        .mockResolvedValueOnce({ rows: rows(1) }); // acme incidents
 
       const res = await service.purgeExpiredReportingData({ now });
       expect(res).toEqual({ orgs: 2, standardEvents: 5, doraEvents: 3, deploymentOutcomes: 2, incidents: 1 });

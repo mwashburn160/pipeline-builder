@@ -17,6 +17,25 @@ import { jest } from '@jest/globals';
 // Shared tier fixture — deep path is NOT intercepted by the api-core module mock
 // (see tier-mock.ts). Sources the tier NAME LIST from the real VALID_TIERS.
 import { MOCK_TIER_NAMES, mockIsValidTier, mockQuotaTiers } from '@pipeline-builder/api-core/lib/testing/tier-mock.js';
+// Deep-import the REAL canonical constants from side-effect-free submodules (NOT
+// the mocked barrel — same trick as tier-mock: deep paths aren't intercepted by
+// the api-core module mock, and these modules have only type-imports so loading
+// them pulls in no config/secrets). Re-exporting the real values instead of
+// hand-copying them makes drift STRUCTURALLY impossible — a new permission /
+// feature / audit-action added to api-core is reflected here automatically, so it
+// can never cause the "does not provide an export named X" link failures or the
+// silent value-drift that a mirrored copy invites. mock-parity.test.ts backstops
+// this.
+import {
+  ALL_PERMISSIONS,
+  ROLE_PERMISSIONS,
+  SUPERADMIN_ONLY_PERMISSIONS,
+  ORG_ASSIGNABLE_PERMISSIONS,
+  resolveUserPermissions,
+} from '@pipeline-builder/api-core/lib/types/permissions.js';
+import { ALL_FEATURE_FLAGS, TIER_FEATURES } from '@pipeline-builder/api-core/lib/types/feature-flags.js';
+import { scrubAwsIdentifiers } from '@pipeline-builder/api-core/lib/utils/aws-scrub.js';
+import { REMOTE_AUDIT_ACTIONS } from '@pipeline-builder/api-core/lib/services/remote-audit-client.js';
 
 /** The 4-method logger stub every suite repeats; a fresh set of spies per call. */
 export const loggerMock = () => ({
@@ -29,112 +48,10 @@ export const loggerMock = () => ({
 /** Mirrors api-core: `ErrorCode.ANY_CODE` resolves to the string `'ANY_CODE'`. */
 const ErrorCode = new Proxy({}, { get: (_t, key) => key }) as Record<string, string>;
 
-/** Canonical org-scoped permission identifiers (mirrors api-core ALL_PERMISSIONS). */
-const ALL_PERMISSIONS: readonly string[] = [
-  'pipelines:read', 'pipelines:write',
-  'plugins:read', 'plugins:write',
-  'compliance:read', 'compliance:write',
-  'members:manage', 'roles:manage', 'invitations:manage',
-  'dashboards:read', 'dashboards:write',
-  'observability:read', 'observability:write',
-  'reports:read',
-  'messages:read', 'messages:write',
-  'billing:read', 'billing:manage',
-  'quotas:read',
-  'registry:read', 'registry:write',
-  'org:settings',
-];
-
-/** Canonical feature-flag identifiers (mirrors api-core ALL_FEATURE_FLAGS). */
-const ALL_FEATURE_FLAGS: readonly string[] = [
-  'priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations',
-  'audit_log', 'sso', 'advanced_reporting',
-];
-
-/** Mirrors api-core's SUPERADMIN_ONLY_PERMISSIONS (the shared image registry). */
-const SUPERADMIN_ONLY_PERMISSIONS: readonly string[] = ['registry:read', 'registry:write'];
-
-/** Mirrors api-core's ORG_ASSIGNABLE_PERMISSIONS (ALL minus the superadmin-only). */
-const ORG_ASSIGNABLE_PERMISSIONS: readonly string[] =
-  ALL_PERMISSIONS.filter((p) => !SUPERADMIN_ONLY_PERMISSIONS.includes(p));
-
-/** Mirrors api-core's MEMBER seed bundle (a read-heavy subset of ALL_PERMISSIONS). */
-const MEMBER_PERMISSIONS: readonly string[] = [
-  'pipelines:read', 'pipelines:write',
-  'plugins:read', 'plugins:write',
-  'compliance:read',
-  'dashboards:read',
-  'observability:read',
-  'reports:read',
-  'messages:read', 'messages:write',
-  'billing:read',
-  'quotas:read',
-  'registry:read',
-];
-
-/**
- * Seed bundles for the built-in Roles, keyed by coarse role (mirrors api-core
- * `ROLE_PERMISSIONS`). Consumed by `seedDefaultRoles` + the backfill to
- * populate a built-in Role's own `permissions[]`. owner == admin == all.
- */
-const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
-  member: MEMBER_PERMISSIONS,
-  admin: ALL_PERMISSIONS,
-  owner: ALL_PERMISSIONS,
-};
-
-/**
- * Faithful single-source resolver (mirrors api-core `resolveUserPermissions`):
- * superadmin ⇒ ALL; otherwise exactly the union of the passed Role permissions,
- * in canonical order. No role-derived baseline.
- */
-function resolveUserPermissions(assignedPermissions?: readonly string[] | null, isSuperAdmin?: boolean): string[] {
-  if (isSuperAdmin) return [...ALL_PERMISSIONS];
-  const set = new Set((assignedPermissions ?? []).filter((p) => ALL_PERMISSIONS.includes(p)));
-  return ALL_PERMISSIONS.filter((p) => set.has(p));
-}
-
-/**
- * Faithful mirror of api-core `REMOTE_AUDIT_ACTIONS` — the subset a non-platform
- * service may emit through `POST /audit/events`. The audit ingest route validates
- * against this (NOT the full platform union), so any suite loading the route needs
- * it. Kept as a superset-safe copy; the real drift guard lives in
- * `audit-remote-subset.test.ts` (which loads the REAL api-core).
- */
-const REMOTE_AUDIT_ACTIONS: readonly string[] = [
-  'plugin.build.completed', 'plugin.build.failed', 'plugin.build.timeout',
-  'plugin.delete', 'plugin.update', 'plugin.upload', 'plugin.deploy',
-  'pipeline.create', 'pipeline.update', 'pipeline.delete',
-  'pipeline.execution.start', 'pipeline.execution.cancel',
-  'quota.reset', 'quota.limit.update',
-  'compliance.exemption.approve', 'compliance.rule.toggle', 'compliance.scan.cancel',
-  'registry.gc', 'registry.image.delete',
-  'authz.denied',
-  'observability.silence.create', 'observability.silence.delete',
-];
-
-/**
- * Faithful mirror of api-core `scrubAwsIdentifiers` — deep-redacts AWS account
- * ids (bare 12-digit tokens incl. the account segment of any ARN) and any
- * account-named key. audit-chain.ts applies this at the append choke point, so
- * suites that mock api-core and load the appender need it to behave for real.
- */
-const AWS_ACCOUNT_ID_RE = /(?<!\d)\d{12}(?!\d)/g;
-const ACCOUNT_KEY_RE = /account/i;
-function scrubAwsIdentifiers<T>(value: T): T {
-  if (typeof value === 'string') return value.replace(AWS_ACCOUNT_ID_RE, '[REDACTED]') as unknown as T;
-  if (Array.isArray(value)) return value.map((v) => scrubAwsIdentifiers(v)) as unknown as T;
-  if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = (ACCOUNT_KEY_RE.test(k) && (typeof v === 'string' || typeof v === 'number'))
-        ? '[REDACTED]'
-        : scrubAwsIdentifiers(v);
-    }
-    return out as T;
-  }
-  return value;
-}
+// ALL_PERMISSIONS, ROLE_PERMISSIONS, SUPERADMIN_ONLY_PERMISSIONS,
+// ORG_ASSIGNABLE_PERMISSIONS, resolveUserPermissions, ALL_FEATURE_FLAGS,
+// TIER_FEATURES, REMOTE_AUDIT_ACTIONS, and scrubAwsIdentifiers are now the REAL
+// api-core values (deep-imported above) — no hand-copies to drift.
 
 /** Mirrors api-core's NotFoundError (statusCode 404 / code NOT_FOUND). */
 class NotFoundError extends Error {
@@ -179,22 +96,14 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       team: { seats: 10 },
       enterprise: { seats: -1 },
     }),
-    // Tier → default feature set (mirrors api-core TIER_FEATURES). user-admin's
-    // feature-override entitlement gate reads this to decide which features an org
-    // admin may enable without a purchase.
-    TIER_FEATURES: {
-      developer: [],
-      pro: ['priority_support', 'ai_generation', 'bulk_operations'],
-      team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso'],
-      enterprise: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso'],
-      unlimited: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso'],
-    },
-    // Canonical feature-flag registry (mirrors api-core ALL_FEATURE_FLAGS /
-    // isValidFeatureFlag). The seat-limit controller whitelists the caller's
-    // `features[]` against this before persisting, so any suite loading that
-    // controller needs the export to link + behave for real.
+    // Tier → default feature set — the REAL api-core TIER_FEATURES (deep-imported).
+    // user-admin's feature-override entitlement gate reads this to decide which
+    // features an org admin may enable without a purchase.
+    TIER_FEATURES,
+    // Canonical feature-flag registry (the REAL ALL_FEATURE_FLAGS). The seat-limit
+    // controller whitelists the caller's `features[]` against this before persisting.
     ALL_FEATURE_FLAGS,
-    isValidFeatureFlag: (v: string) => ALL_FEATURE_FLAGS.includes(v),
+    isValidFeatureFlag: (v: string) => (ALL_FEATURE_FLAGS as readonly string[]).includes(v),
     // Resolve a tier + account-feature entitlements → feature list (sync). Pulled
     // in via helpers/sso-enforcement (loaded transitively by controllers/auth).
     // Default: no extra features (not SSO-forced); a suite testing entitlement
@@ -210,7 +119,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     resolveRootOrgIdWith: async (orgId: string) => orgId,
     isAncestorOrgWith: async () => false,
     expandOrgScopeWith: async (orgId: string) => [orgId],
-    AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
+    
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,

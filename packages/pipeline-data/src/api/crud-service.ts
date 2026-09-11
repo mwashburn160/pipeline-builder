@@ -107,13 +107,13 @@ export interface PaginatedResult<T> {
  */
 /** Structural view of the subclass table's columns the base class touches
  *  directly. `id`/`isActive`/`isDefault` are always present on a CRUD entity;
- *  `accessModifier` only on public-visibility entities; the index signature
+ *  `visibility` only on visibility-bearing entities; the index signature
  *  covers dynamic (sparse-fieldset) column access. */
 interface CrudColumns {
   id: AnyColumn;
   isActive: AnyColumn;
   isDefault: AnyColumn;
-  accessModifier?: AnyColumn;
+  visibility?: AnyColumn;
   // Soft-delete lifecycle columns (present on tombstone-bearing entities only;
   // `restore`/`purgeExpired` are no-ops when absent).
   deletedAt?: AnyColumn;
@@ -150,7 +150,7 @@ export abstract class CrudService<
    * Typed column view of {@link schema}. `PgTable` exposes no static columns, so
    * the base class previously reached for `(this.schema as any).id` etc. at each
    * use; centralize that single unavoidable cast here so callers get structured,
-   * typed access instead. `accessModifier` is optional (not every entity has it)
+   * typed access instead. `visibility` is optional (not every entity has it)
    * and the index signature covers dynamic sparse-fieldset column lookup.
    */
   private get cols(): CrudColumns {
@@ -526,9 +526,17 @@ export abstract class CrudService<
   // (`Partial<TUpdate>`) call sites use it without the `as unknown as TInsert`
   // round-trip they previously needed — the org-stamp logic is identical for
   // either shape (it only touches the `orgId` key).
-  protected enforceOrgId<T>(data: T): T {
+  protected enforceOrgId<T>(data: T, isCreate = false): T {
     const ctx = getTenantContext();
     const d = data as Record<string, unknown>;
+    // Refuse a context-less, orgId-less INSERT on an org-scoped entity: the `orgId`
+    // column defaults to SYSTEM_ORG_ID, so such a row would silently land in the
+    // public cross-org catalog. A background job that forgot `runWithTenantContext`
+    // (and didn't pass an explicit orgId) must fail loudly, not leak into `system`.
+    // (Sysadmin/seed writes carry a context or an explicit orgId, so they pass.)
+    if (isCreate && !ctx && d.orgId == null && this.cols.orgId != null) {
+      throw new Error(`${this.constructor.name}.create requires an orgId (no tenant context and none supplied) — refusing to default to the system org`);
+    }
     if (ctx && !ctx.isSuperAdmin && ctx.orgId && d.orgId !== ctx.orgId) {
       // Distinguish the two cases that reach here so the log stays useful and
       // quiet: a PRESENT-but-mismatched `orgId` is an actual override attempt
@@ -550,7 +558,7 @@ export abstract class CrudService<
    * Create a new entity
    */
   async create(data: TInsert, userId: string): Promise<TEntity> {
-    const safeData = this.enforceOrgId(data);
+    const safeData = this.enforceOrgId(data, /* isCreate */ true);
     const [created] = await withTenantTx(async (tx) => tx
       .insert(this.schema)
       .values({
@@ -858,7 +866,7 @@ export abstract class CrudService<
     /** When true, only PRIVATE records are deleted — mirrors the single-delete
      *  `requirePublicAccess` gate so a non-sysadmin can't bulk-delete public
      *  (shared/sysadmin-managed) records. No-op for entities without an
-     *  `accessModifier` column. Callers pass `!isSystemAdmin(req)`. */
+     *  `visibility` column. Callers pass `!isSystemAdmin(req)`. */
     restrictToPrivate = false,
   ): Promise<TEntity[]> {
     if (ids.length === 0) return [];
@@ -868,7 +876,7 @@ export abstract class CrudService<
     // Owner-scope the bulk soft-delete: buildConditions also matches system/other
     // -org PUBLIC rows, so without the strict orgId pin a tenant could delete
     // shared records by id. (See writeConditions.)
-    const accessCol = this.cols.accessModifier;
+    const accessCol = this.cols.visibility;
     const conditions = [
       inArray(this.cols.id, ids),
       ...this.buildConditions({} as Partial<TFilter>, orgId),

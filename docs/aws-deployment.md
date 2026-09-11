@@ -728,7 +728,7 @@ After deploying (EC2 or EKS), complete these steps to initialize the platform an
 
 ### 1. Initialize the Platform
 
-Register the admin user and load pre-built plugins and sample pipelines:
+Register the admin user and load pre-built plugins and sample pipeline templates:
 
 ```bash
 cd deploy
@@ -796,7 +796,7 @@ Use `--force` on `init-platform.sh` to rebuild the base images and the CodeBuild
 | `init-platform.sh` | Register admin + select build strategy + load plugins + pipelines (interactive) |
 | `build-plugin-images.sh` | Pre-build Docker images for plugins (prebuilt strategy) |
 | `load-plugins.sh` | Upload plugins from `deploy/plugins/` |
-| `load-pipelines.sh` | Upload pipelines from `deploy/samples/pipelines/` |
+| `load-templates.sh` | Upload pipeline templates from `deploy/samples/templates/` |
 | `test-plugins.sh` | Validate plugin specs and Dockerfiles |
 | `build-codebuild-bootstrap.sh` | Build + publish the CodeBuild bootstrap image (`CODEBUILD_DEFAULT_IMAGE` fallback runtime) |
 

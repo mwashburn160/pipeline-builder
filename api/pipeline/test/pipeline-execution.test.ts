@@ -64,8 +64,9 @@ jest.unstable_mockModule('../src/services/audit.js', () => ({
 // (set in beforeEach) claims successfully; a test overrides it to simulate a
 // duplicate trigger arriving inside the window.
 const mockClaim = jest.fn<(orgId: string, pipelineId: string) => Promise<boolean>>();
+const mockRelease = jest.fn<(orgId: string, pipelineId: string) => Promise<void>>();
 jest.unstable_mockModule('../src/services/execution-idempotency.js', () => ({
-  executionIdempotency: { claim: mockClaim },
+  executionIdempotency: { claim: mockClaim, release: mockRelease },
 }));
 
 // Shared ctx.log spy so tests can assert on what the handler logs (e.g. that an
@@ -107,6 +108,7 @@ describe('pipeline execution write routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockClaim.mockResolvedValue(true); // idempotency window free by default
+    mockRelease.mockResolvedValue(undefined);
     router = createExecutionRoutes(quotaServiceStub);
     mockFindByPipelineId.mockResolvedValue({ pipelineName: 'acme-pipe', region: 'us-east-1' });
   });

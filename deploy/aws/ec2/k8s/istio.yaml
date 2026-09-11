@@ -602,3 +602,112 @@ spec:
       to:
         - operation:
             ports: ["3000"]
+---
+# =============================================================================
+# "Ask" agent — ServiceAccount + istio authz (appended; additive to the per-
+# service policies above so ask's egress to quota/platform is permitted).
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: ask, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: ask-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: ask
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+      to:
+        - operation:
+            ports: ["3000"]
+---
+# ask -> quota (aiCalls reservation). Unions with quota-allow.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: quota-allow-ask
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: quota
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/ask
+      to:
+        - operation:
+            ports: ["3000"]
+---
+# ask -> platform (audit ingest). Unions with platform-allow.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: platform-allow-ask
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: platform
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/ask
+      to:
+        - operation:
+            ports: ["3000"]
+---
+# ask -> pipeline (propose_pipeline / list_pipelines forward the user token).
+# Additive; unions with pipeline-allow.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: pipeline-allow-ask
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: pipeline
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/ask
+      to:
+        - operation:
+            ports: ["3000"]
+---
+# ask -> plugin (propose_plugin forwards the user token). Additive; unions with plugin-allow.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: plugin-allow-ask
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: plugin
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/ask
+      to:
+        - operation:
+            ports: ["3000"]

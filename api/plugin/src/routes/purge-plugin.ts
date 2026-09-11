@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, getParam, requirePublicAccess, sendBadRequest, sendEntityNotFound, sendSuccess } from '@pipeline-builder/api-core';
+import { ErrorCode, getParam, requireVisibilityWriteAccess, sendBadRequest, sendEntityNotFound, sendSuccess } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { emitPluginAudit } from '../services/audit.js';
@@ -41,7 +41,7 @@ export function createPurgePluginRoutes(): Router {
     if (!existing) return sendEntityNotFound(res, 'Plugin');
 
     // Public (shared) plugins: same publish gate as delete/restore.
-    if (!requirePublicAccess(req, res, existing, 'plugins:publish')) return;
+    if (!requireVisibilityWriteAccess(req, res, existing, userId, 'plugins:publish')) return;
 
     // Reuse the retention sweep's hard-delete machinery for a single id, pinned
     // to the caller's org. Null → the tombstone vanished between load and purge.
@@ -60,7 +60,7 @@ export function createPurgePluginRoutes(): Router {
       details: {
         pluginName: existing.name,
         version: existing.version,
-        accessModifier: existing.accessModifier,
+        visibility: existing.visibility,
       },
     });
 

@@ -98,7 +98,14 @@ export function useCrudResource<T extends { id: string }, TCreate, TUpdate, TPar
 
   const remove = useCallback(async (id: string): Promise<boolean> => {
     try {
-      await api.delete(id);
+      // A 2xx soft-failure envelope ({ success: false }) must NOT drop the row from
+      // the list — only remove it when the server actually deleted it (matches the
+      // create/update result-gating). A void/204 response is treated as success.
+      const res = await api.delete(id) as { success?: boolean } | null | undefined;
+      if (res && res.success === false) {
+        setError(toError(new Error(`Failed to delete ${entityName}`), `Failed to delete ${entityName}`));
+        return false;
+      }
       setItems((prev) => prev.filter((i) => i.id !== id));
       return true;
     } catch (err) {

@@ -374,9 +374,16 @@ export async function issueImpersonationToken(
 
 /** Verify and decode a JWT refresh token. */
 export function verifyRefreshToken(token: string): RefreshTokenPayload {
-  return jwt.verify(token, config.auth.refreshToken.secret, {
+  const payload = jwt.verify(token, config.auth.refreshToken.secret, {
     algorithms: [config.auth.jwt.algorithm],
   }) as RefreshTokenPayload;
+  // Assert token type (mirrors requireAuth's `access` check + verifyStepUpToken's
+  // `step-up` check): reject an access/step-up token presented on the refresh path,
+  // which matters if REFRESH_TOKEN_SECRET is ever misconfigured to equal JWT_SECRET.
+  if ((payload as { type?: unknown }).type !== 'refresh') {
+    throw new jwt.JsonWebTokenError('Invalid token type for refresh');
+  }
+  return payload;
 }
 
 /**

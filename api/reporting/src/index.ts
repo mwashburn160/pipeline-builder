@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requireAuth, requirePermission, requireFeature, wireServiceSecurity } from '@pipeline-builder/api-core';
-import { createApp, runServer, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
+import { requireAuth, requirePermission, requireFeature, wireServiceSecurity, createEnvSseTicketStore, SSE_TICKET_TTL_MS } from '@pipeline-builder/api-core';
+import { createApp, runServer, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck, registerSseTicketChannel } from '@pipeline-builder/api-server';
+import type { RequestHandler } from 'express';
 
 import { createDeploymentOutcomeRoutes } from './routes/deployment-outcomes.js';
 import { createEventIngestRoutes } from './routes/event-ingest.js';
@@ -28,7 +29,34 @@ app.use(attachRequestContext(sseManager));
 // /reports/execution and /reports/plugins below. NOT gated by `reports:read`:
 // this is a machine WRITE path authorized inside the router by the
 // `reporting:ingest` token scope, not a user dashboard read.
-app.use('/reports/events', requireAuth, createEventIngestRoutes());
+app.use('/reports/events', requireAuth, createEventIngestRoutes(sseManager));
+
+// ── Live execution-status channel (per-org SSE) ─────────────────────────────
+// Replaces the executions dashboard's manual-refresh/poll: after an ingest lands
+// new events for an org, event-ingest pushes an `execution-updated` frame to that
+// org's SSE subject (cross-pod via the SSEManager relay). Mirrors the message
+// service's org-scoped notification channel: a JWT is exchanged for a single-use,
+// org-bound ticket, then the EventSource opens with `?ticket=` so the JWT never
+// lands in a URL/access log.
+const executionTicketStore = createEnvSseTicketStore({
+  ttlMs: SSE_TICKET_TTL_MS,
+  maxTotal: parseInt(process.env.SSE_MAX_TOTAL_TICKETS || '1000', 10),
+  maxPerOrg: parseInt(process.env.SSE_MAX_TICKETS_PER_ORG || '10', 10),
+  // Distinct keyspace so an execution-stream ticket can't be redeemed on another
+  // service's SSE channel (e.g. message notifications) that shares the same Redis.
+  keyPrefix: 'reporting-exec',
+});
+
+// Shared org-SSE channel helper (same one the message service uses). Gated on
+// reports:read so the live channel matches the data route's authorization.
+registerSseTicketChannel(app, {
+  ticketPath: '/reports/execution/stream/ticket',
+  streamPath: '/reports/execution/stream',
+  ticketStore: executionTicketStore,
+  sseManager,
+  label: 'execution-stream',
+  ticketGuards: [requirePermission('reports:read') as RequestHandler],
+});
 
 // Ingest-health endpoint — same machine credential as /reports/events (the
 // `reporting:ingest` token scope is checked inside the router). Distinct prefix

@@ -26,6 +26,20 @@ import { ImportTemplateModal } from '@/components/pipeline/ImportTemplateModal';
 import api from '@/lib/api';
 import type { PipelineTemplate, TemplateInput } from '@/types';
 
+/** Badge tint per visibility rung — widest reach is the most prominent. */
+const VISIBILITY_BADGE: Record<string, string> = {
+  private: 'bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300',
+  org: 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300',
+  public: 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300',
+};
+
+/** Hover text spelling out who each rung actually reaches. */
+const VISIBILITY_TITLE: Record<string, string> = {
+  private: 'Private — only you can see this draft',
+  org: 'Org — everyone in your organization can see this',
+  public: 'Public — shared with your organization and its teams',
+};
+
 /** Coerce a form value (always a string from inputs) to its declared type.
  *  Empty values are filtered out by the caller before this runs. */
 function coerceValue(type: TemplateInput['type'], raw: string | boolean): string | number | boolean {
@@ -44,8 +58,13 @@ export default function TemplatesPage() {
   const { user, isReady, can } = useAuthGuard();
   const toast = useToast();
   const router = useRouter();
-  const canWrite = can('pipelines:write');
-  const canPublish = can('pipelines:publish');
+  // Authoring a template is `templates:*`; INSTANTIATING one creates a pipeline,
+  // which is still gated by `pipelines:write` on the create endpoint — the two
+  // are deliberately separate so a curator can author starters without pipeline
+  // write access, and a developer can use them without authoring any.
+  const canWrite = can('templates:write');
+  const canPublish = can('templates:publish');
+  const canCreatePipeline = can('pipelines:write');
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [deletedView, setDeletedView] = useState<'active' | 'deleted'>('active');
@@ -57,11 +76,20 @@ export default function TemplatesPage() {
   // Edit state
   const [editTarget, setEditTarget] = useState<PipelineTemplate | null>(null);
 
-  // Deleting a PUBLIC (shared) template needs pipelines:publish; a private one
-  // needs pipelines:write — mirrors the backend gate on DELETE /pipeline-templates/:id.
-  const canDelete = useCallback(
-    (t: PipelineTemplate) => (t.accessModifier === 'public' ? canPublish : canWrite),
-    [canPublish, canWrite],
+  // Mirrors the backend ladder gate on PUT/DELETE /pipeline-templates/:id:
+  // a PUBLIC (shared) template needs pipelines:publish, a PRIVATE one belongs to
+  // its author alone, and an ORG one just needs pipelines:write.
+  const canManage = useCallback(
+    (t: PipelineTemplate) => {
+      if (user?.isSuperAdmin) return true;
+      if (t.visibility === 'public') return canPublish;
+      // `createdBy` is the author's user id — the same `sub` the frontend stores
+      // as `user.id` — so a colleague sees no edit/delete affordance on a draft
+      // the backend would refuse them anyway.
+      if (t.visibility === 'private') return canWrite && t.createdBy === user?.id;
+      return canWrite;
+    },
+    [canPublish, canWrite, user?.id, user?.isSuperAdmin],
   );
 
   const [templates, setTemplates] = useState<PipelineTemplate[]>([]);
@@ -148,7 +176,7 @@ export default function TemplatesPage() {
         pipelineName: pipelineName.trim() || undefined,
         description: inst.data.description,
         keywords: inst.data.keywords,
-        accessModifier: 'private',
+        visibility: 'private',
         props: inst.data.props,
       });
       if (created.success && created.data) {
@@ -189,7 +217,7 @@ export default function TemplatesPage() {
   const modalFooter = (
     <div className="flex items-center justify-end gap-3">
       <Button variant="secondary" onClick={() => setSelected(null)} disabled={submitting}>Cancel</Button>
-      <Button onClick={handleCreate} loading={submitting} disabled={!canWrite} title={canWrite ? undefined : 'Requires pipelines:write'}>Create pipeline</Button>
+      <Button onClick={handleCreate} loading={submitting} disabled={!canCreatePipeline} title={canCreatePipeline ? undefined : 'Requires pipelines:write'}>Create pipeline</Button>
     </div>
   );
 
@@ -234,7 +262,9 @@ export default function TemplatesPage() {
           <RecentlyDeletedPanel
             resource="template"
             onRestored={fetchAll}
-            canRestoreRow={(r) => (r.accessModifier === 'public' ? canPublish : canWrite)}
+            // The tombstone list carries only the display `access` value, so the
+            // private rung is gated by the backend's authorship check on restore.
+            canRestoreRow={(r) => (r.access === 'public' ? canPublish : canWrite)}
           />
         ) : (
         <ResourceList<PipelineTemplate>
@@ -250,8 +280,8 @@ export default function TemplatesPage() {
             // in. Read-only users can't publish, so they get context instead of
             // dead buttons.
             description: canWrite
-              ? 'Golden-path templates let anyone spin up a governed pipeline by filling a few fields. Create one from an existing pipeline, or import a template file to get started.'
-              : 'Golden-path templates published to your org (or the shared system catalog) appear here. Ask an org admin to publish one.',
+              ? 'Golden-path templates let anyone spin up a governed pipeline by filling a few fields. Create one from an existing pipeline, or import a template file to get started — new templates start private, so you can iterate before sharing them with your org.'
+              : 'Your own private drafts, templates shared with your org, and the shared system catalog all appear here. Ask an org admin to share one.',
             action: canWrite ? (
               <div className="flex flex-wrap items-center justify-center gap-2">
                 <Button onClick={() => setShowCreate(true)}>
@@ -271,7 +301,13 @@ export default function TemplatesPage() {
                   <h3 className="font-semibold text-gray-900 dark:text-gray-100">{t.name}</h3>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300">{t.category}</span>
-                    {canDelete(t) && (
+                    <span
+                      className={`text-[11px] px-2 py-0.5 rounded ${VISIBILITY_BADGE[t.visibility] ?? VISIBILITY_BADGE.private}`}
+                      title={VISIBILITY_TITLE[t.visibility] ?? VISIBILITY_TITLE.private}
+                    >
+                      {t.visibility}
+                    </span>
+                    {canManage(t) && (
                       <IconButton
                         onClick={() => setEditTarget(t)}
                         title="Edit template"
@@ -281,7 +317,7 @@ export default function TemplatesPage() {
                         <Pencil className="w-4 h-4" />
                       </IconButton>
                     )}
-                    {canDelete(t) && (
+                    {canManage(t) && (
                       <IconButton
                         onClick={() => setDeleteTarget(t)}
                         title="Delete template"
@@ -296,7 +332,7 @@ export default function TemplatesPage() {
                 {t.description && <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 line-clamp-3">{t.description}</p>}
                 <div className="mt-2 text-xs text-gray-400">{(t.inputs?.length ?? 0)} input{(t.inputs?.length ?? 0) === 1 ? '' : 's'}</div>
                 <div className="mt-auto pt-3">
-                  <Button onClick={() => openInstantiate(t)} disabled={!canWrite} title={canWrite ? undefined : 'Requires pipelines:write'} className="w-full">
+                  <Button onClick={() => openInstantiate(t)} disabled={!canCreatePipeline} title={canCreatePipeline ? undefined : 'Requires pipelines:write'} className="w-full">
                     <Sparkles className="w-4 h-4 mr-1.5" /> Use template
                   </Button>
                 </div>

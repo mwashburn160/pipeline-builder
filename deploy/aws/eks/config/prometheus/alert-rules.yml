@@ -232,3 +232,139 @@ groups:
         annotations:
           summary: "Quota service has been failing open for 10+ minutes"
           description: "{{ $value | humanize }} fail-open events/sec averaged over 5m. The quota service is unreachable or unhealthy — every quota check is returning 'allowed' regardless of actual usage. Investigate the quota service before noisy orgs exhaust shared resources."
+
+      # ---- Audit durability (security log) ----
+      # The audit trail is compliance-relevant, so losing it must PAGE. Two loss
+      # points, both already instrumented but previously unalerted:
+      #   * audit_dropped_total — the remote-audit client exhausted all retries
+      #     for an event and dropped it.
+      #   * audit_spool_dropped_total — the durable Redis spool overflowed and
+      #     trimmed its OLDEST entries to stay bounded (platform down long enough
+      #     that buffered audit events aged out before they could flush).
+      # Any sustained drop is a security-log gap.
+      - alert: AuditEventsDropped
+        expr: sum(rate(audit_dropped_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: audit
+          tenancy: platform
+        annotations:
+          summary: "Audit events are being dropped (security log gap)"
+          description: "{{ $value | humanize }} audit events/sec dropped by the remote-audit client over 5m — the tamper-evident audit trail is losing records. Investigate platform audit ingest before the gap widens."
+
+      - alert: AuditSpoolDropped
+        expr: sum(rate(audit_spool_dropped_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: audit
+          tenancy: platform
+        annotations:
+          summary: "Durable audit spool is overflowing (oldest events dropped)"
+          description: "{{ $value | humanize }} spooled audit events/sec trimmed over 5m — the platform has been unreachable long enough that buffered audit events are aging out. Restore audit ingest; the spool is shedding the oldest security records."
+
+      # ---- Billing → entitlement/quota sync ----
+      # billing_quota_sync_failed_total: a subscription/entitlement change failed
+      # to propagate to the quota service (the org's effective limits now lag its
+      # plan). billing_entitlement_drift_total: the periodic reconciler found the
+      # stored entitlement disagreeing with the source of truth. Both are money /
+      # capability-correctness signals — warn (not page): they self-heal on the
+      # next sync/reconcile, but a SUSTAINED rate means the leg is stuck.
+      - alert: BillingQuotaSyncFailing
+        expr: sum(rate(billing_quota_sync_failed_total[5m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Billing → quota sync failing"
+          description: "{{ $value | humanize }} sync failures/sec over 5m sustained for 15m — plan changes are not reaching the quota service, so orgs' effective limits lag their subscriptions. Check the billing→quota sync leg."
+
+      - alert: BillingEntitlementDriftSustained
+        expr: sum(rate(billing_entitlement_drift_total[15m])) > 0
+        for: 30m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Billing entitlement drift persisting"
+          description: "The entitlement reconciler keeps finding stored entitlements out of sync with the source of truth ({{ $value | humanize }}/sec over 15m, sustained 30m). Usually self-heals; a persistent signal means a sync leg is stuck — inspect the reconciler logs."
+
+      # ---- Auth: failed-login burst (credential stuffing / brute force) ----
+      # platform_logins_failed_total is a platform-wide counter (no per-IP/org
+      # label), so this is a coarse "someone is hammering login" signal. Warn on a
+      # sustained elevated rate; investigate source IPs at the ALB/WAF.
+      - alert: LoginFailureBurst
+        expr: sum(rate(platform_logins_failed_total[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "Elevated failed-login rate (possible brute force)"
+          description: "{{ $value | humanize }} failed logins/sec over 5m sustained for 10m — possible credential stuffing/brute force. Check source IPs at the ALB/WAF and consider rate-limiting or lockout."
+
+      # ---- Generic app 5xx burst ----
+      # image-registry has its own faster RegistryErrorBurst above; this covers
+      # every OTHER app service via the shared http_requests_total counter
+      # (emitted by api-server's metricsMiddleware, `service` default label).
+      # One series per service so the page names the culprit.
+      - alert: ServiceError5xxBurst
+        expr: sum by (service) (rate(http_requests_total{service!="image-registry", status_code=~"5.."}[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: critical
+          component: api
+          tenancy: platform
+        annotations:
+          summary: "Service {{ $labels.service }} returning 5xx errors"
+          description: "{{ $value | humanize }} 5xx/s from {{ $labels.service }} over 5m sustained for 10m — check that service's logs and dependencies."
+
+      # ---- S2S circuit breaker ----
+      # s2s_circuit_opened_total increments when the shared InternalHttpClient trips
+      # a target's breaker open (≥ threshold consecutive failures) and starts fast-
+      # failing to shed load. Firing means a downstream dependency is in a sustained
+      # brownout — callers are load-shedding instead of piling on retries.
+      - alert: ServiceCircuitOpen
+        expr: sum by (target) (increase(s2s_circuit_opened_total[5m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: api
+          tenancy: platform
+        annotations:
+          summary: "S2S circuit opened for {{ $labels.target }}"
+          description: "The circuit breaker to {{ $labels.target }} opened {{ $value | humanize }} time(s) in 5m — that downstream is in a sustained brownout and callers are shedding load. Check {{ $labels.target }}'s health."
+
+      # ---- Token revocation degradation ----
+      # token_revocation_fail_open_total increments when a Redis-backed revocation
+      # read errors and the check fails OPEN. While sustained, forced logouts and
+      # privilege revocations silently stop taking effect until natural token expiry.
+      - alert: TokenRevocationFailingOpen
+        expr: sum(rate(token_revocation_fail_open_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: critical
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "Token revocation is failing open"
+          description: "{{ $value | humanize }} revocation read failures/sec over 5m sustained for 10m — forced logouts / privilege revocations are NOT taking effect until token expiry. Restore the revocation Redis."
+
+      # ---- AI provider errors ----
+      # ai_requests_total{outcome="error"} increments on a failed AI turn (provider
+      # brownout, bad key, timeout). A burst usually means a provider-side outage.
+      - alert: AIProviderErrorBurst
+        expr: sum by (provider) (rate(ai_requests_total{outcome="error"}[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: ai
+          tenancy: platform
+        annotations:
+          summary: "AI provider {{ $labels.provider }} erroring"
+          description: "{{ $value | humanize }} failed AI turns/sec for provider {{ $labels.provider }} over 5m sustained for 10m — likely a provider brownout or credential issue. Check the ask/generation logs."

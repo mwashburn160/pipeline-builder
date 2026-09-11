@@ -43,12 +43,45 @@ This reference documents Pipeline Builder's per-org, permission-based access con
   **display and authority only** (ownership transfer, seat accounting). It is
   *derived*, and it does **not** grant permissions — those come only from Roles.
 
+## The visibility ladder
+
+Every catalog entity — pipelines, plugins, templates, dashboards — shares ONE
+three-rung sharing model, stored as a `visibility` column:
+
+| Rung | Who can see it | Who can edit it |
+| --- | --- | --- |
+| `private` | Only the author (`createdBy`) — a personal draft | The author (plus super admins) |
+| `org` | Everyone in the owning org | The resource's `:write` permission |
+| `public` | The org **and its child teams**; from the system org, every org | The resource's `:publish` permission |
+
+`public` never crosses tenant boundaries on its own: it means "beyond just me,
+within my org tree". The only globally-visible content is what lives in the
+**system org**, which is a superadmin action.
+
+**Create-time defaults differ per entity**, deliberately — the ladder is
+identical, only the starting rung differs:
+
+- **pipelines / plugins** default to `org`. They are team assets that deploy
+  shared infrastructure, so creating one must not hide it from the team. A
+  personal draft is available, but opt-in.
+- **templates** default to `private`. Draft-first is the point: you iterate on a
+  golden-path starter before sharing it.
+
+Enforcement lives in exactly two places, so no entity can drift:
+`AccessControlQueryBuilder.buildAccessControl` builds the read predicate, and
+`requireVisibilityWriteAccess` gates the writes.
+
+> **Messages are not on the ladder.** Their visibility is a bespoke
+> sender/recipient/broadcast predicate plus per-user targeting, so they carry no
+> `visibility` column at all.
+
 ## Permission catalog
 
 | Category | Permissions | Notes |
 |----------|-------------|-------|
-| Pipelines | `pipelines:read`, `pipelines:write`, `pipelines:publish` | `:publish` allows setting a pipeline `public` |
-| Plugins | `plugins:read`, `plugins:write`, `plugins:publish` | `:publish` allows setting a plugin `public` |
+| Pipelines | `pipelines:read`, `pipelines:write`, `pipelines:publish` | `:publish` allows the `public` rung |
+| Templates | `templates:read`, `templates:write`, `templates:publish` | Golden-path [pipeline templates](templates.md). Split out of `pipelines:*` so a platform team can curate starters without pipeline write access. `:write` covers the `private` and `org` rungs; `:publish` is required for `public`. **Instantiating** a template creates a pipeline, so that still needs `pipelines:write`. |
+| Plugins | `plugins:read`, `plugins:write`, `plugins:publish` | `:publish` allows the `public` rung |
 | Compliance | `compliance:read`, `compliance:write` | |
 | Members & access | `members:manage`, `roles:manage`, `invitations:manage` | |
 | Observability | `dashboards:read`, `dashboards:write`, `observability:read`, `observability:write` | |
@@ -62,7 +95,9 @@ This reference documents Pipeline Builder's per-org, permission-based access con
 
 **`:read` permissions are enforced.** Withholding `quotas:read` / `reports:read` /
 `billing:read` / `messages:read` from a custom Role actually blocks that read
-(backend routes and the frontend nav/page guards check it). Built-in Admin and
+(backend routes and the frontend nav/page guards check it). `pipelines:read` and
+`templates:read` are the exceptions — the catalog reads are auth-only at the API
+(gate-writes-only), so those two are declarative today. Built-in Admin and
 Member both include all reads, so only bespoke custom Roles that drop a read are
 affected.
 
@@ -74,12 +109,12 @@ is a Super Admin via implicit-all.
 ### Built-in Role bundles
 
 - **Member** — the read + author baseline: `pipelines:*` (read/write),
-  `plugins:*` (read/write), `compliance:read`, `dashboards:read`,
+  `templates:*` (read/write), `plugins:*` (read/write), `compliance:read`, `dashboards:read`,
   `observability:read`, `reports:read`, `messages:read/write`, `billing:read`,
   `quotas:read`. No `:publish`, no management, no `:rollup`.
 - **Admin / Owner** — every **org-assignable** permission (the full catalog minus
   the Super-Admin-only registry pair). Includes `pipelines:publish`,
-  `plugins:publish`, and `reports:rollup`.
+  `templates:publish`, `plugins:publish`, and `reports:rollup`.
 - **Super Admin** — implicit-all, including `registry:*`.
 
 ## Enforcement
@@ -101,7 +136,7 @@ request also emits an [`authz.denied` audit event](audit-events.md#action-catalo
 | `requireAllPermissions(a, b, …)` | passes only if the caller holds **all** listed permissions |
 | `requirePermissionOrService(a, …)` | like `requirePermission`, but ALSO admits an internal `service:*` principal — used on READ routes that both users and service-to-service callers hit (a service token carries no permission claims and would otherwise be wrongly denied) |
 
-Public-visibility is permission-based too: `resolveAccessModifier` grants `public`
+Public-visibility is permission-based too: `resolveVisibility` grants `public`
 only to a caller holding the resource's `:publish` permission — so a custom Role
 can be granted publish rights instead of being forced private by its coarse label.
 Downward report roll-up (`?includeDescendants`) requires `reports:rollup`.

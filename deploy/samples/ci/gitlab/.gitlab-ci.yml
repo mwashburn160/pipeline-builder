@@ -1,10 +1,12 @@
-# Sample GitLab CI/CD pipeline: create + deploy a Pipeline Builder pipeline
-# in one step with `pipeline-manager pipeline create --deploy`.
+# Sample GitLab CI/CD pipeline: instantiate a Pipeline Builder template, then
+# create + deploy the resulting pipeline in one step with
+# `pipeline-manager pipeline create --deploy`.
 #
 # Copy this file to `.gitlab-ci.yml` at your repo root (or `include:` it) and
-# adjust the props path, region, and variables. The job creates the pipeline
-# record on the platform and then runs `cdk deploy` for it (registering the
-# deployed ARN), so a green job means the pipeline exists AND is deployed.
+# adjust the template name, region, and variables. The job renders a golden-path
+# template into concrete pipeline props, creates the pipeline record on the
+# platform, and then runs `cdk deploy` for it (registering the deployed ARN), so
+# a green job means the pipeline exists AND is deployed.
 #
 # ── Prerequisites ────────────────────────────────────────────────────────────
 # CI/CD variables (Settings → CI/CD → Variables), all masked/protected:
@@ -12,6 +14,9 @@
 #                         (e.g. https://pipeline.example.com)
 #   PLATFORM_TOKEN        A Personal Access Token — create with
 #                         `pipeline-manager auth pat` or the dashboard.
+#   PB_ORG_ID             Your organization's ID (UUID). Supplied as the
+#                         template's `orgId` input; selects the GitHub token
+#                         secret at pipeline-builder/<orgId>/github-token.
 #   AWS_DEPLOY_ROLE_ARN   IAM role to assume via GitLab OIDC (ID token). The role
 #                         trusts GitLab's OIDC provider and carries CDK deploy
 #                         permissions. (Kept in a variable, never committed — the
@@ -31,7 +36,11 @@ deploy_pipeline:
   # Node 24+ is required by pipeline-manager.
   image: node:24
   variables:
-    PROPS_FILE: deploy/samples/pipelines/react-javascript/pipeline.json
+    # Any template in the catalog — see deploy/samples/templates/ for the ones
+    # seeded by `load-templates.sh`.
+    TEMPLATE_NAME: react-javascript
+    PB_PROJECT: react
+    PB_ORGANIZATION: AcmeCorp
   id_tokens:
     GITLAB_OIDC_TOKEN:
       aud: https://gitlab.com # set to your instance URL if self-managed
@@ -42,8 +51,9 @@ deploy_pipeline:
     # `pipeline create --deploy` shells out to `cdk deploy`, whose synth uses
     # esbuild + pnpm. Install the CLI + CDK toolchain on PATH.
     - npm install -g @pipeline-builder/pipeline-manager aws-cdk esbuild pnpm
-    # Exchange the GitLab OIDC token for temporary AWS credentials via STS.
+    # awscli for the STS exchange below.
     - apt-get update && apt-get install -y awscli
+    # Exchange the GitLab OIDC token for temporary AWS credentials via STS.
     - >
       export $(aws sts assume-role-with-web-identity
       --role-arn "$AWS_DEPLOY_ROLE_ARN"
@@ -53,9 +63,19 @@ deploy_pipeline:
       --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]'
       --output text | awk '{print "AWS_ACCESS_KEY_ID="$1"\nAWS_SECRET_ACCESS_KEY="$2"\nAWS_SESSION_TOKEN="$3}')
   script:
+    # Render the golden-path template into concrete pipeline props. This creates
+    # nothing on the platform — it only resolves the template's declared inputs
+    # into a props file for the create step below.
+    - >
+      pipeline-manager template instantiate
+      --name "$TEMPLATE_NAME"
+      --project "$PB_PROJECT"
+      --organization "$PB_ORGANIZATION"
+      --input "orgId=$PB_ORG_ID"
+      --output pipeline-props.json
     - >
       pipeline-manager pipeline create
-      --file "$PROPS_FILE"
+      --file pipeline-props.json
       --deploy
       --region "$AWS_REGION"
       --require-approval never

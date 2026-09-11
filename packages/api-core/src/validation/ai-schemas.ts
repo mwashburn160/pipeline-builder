@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { z } from 'zod';
-import { AccessModifierSchema } from './common-schemas.js';
+import { VisibilitySchema } from './common-schemas.js';
 
 const MAX_PROMPT_LENGTH = parseInt(process.env.MAX_PROMPT_LENGTH || '5000', 10);
 
@@ -79,7 +79,7 @@ export const PluginDeployGeneratedSchema = z.object({
   dockerfile: z.string().min(1, 'Dockerfile content is required'),
 
   /** Access visibility. */
-  accessModifier: AccessModifierSchema.default('private'),
+  visibility: VisibilitySchema.default('private'),
 });
 
 // AI Generate From URL Request

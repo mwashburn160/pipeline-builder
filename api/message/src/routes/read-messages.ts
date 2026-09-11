@@ -103,12 +103,12 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   }));
 
   // GET /messages/conversations — List conversations (paginated + hard-capped).
-  router.get('/conversations', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.get('/conversations', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset, sortBy, sortOrder } = parsePaginationParams(req.query);
     ctx.log('INFO', 'Fetching conversations', { orgId });
     const result = await messageService.findConversations(orgId, {
       limit, offset, sortBy: sortBy || 'createdAt', sortOrder: sortOrder || 'desc',
-    }, userId);
+    });
 
     ctx.log('COMPLETED', 'Conversations fetched', { count: result.data.length });
     incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
@@ -120,10 +120,10 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   }));
 
   // GET /messages/unread/count — Get unread count
-  router.get('/unread/count', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.get('/unread/count', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     ctx.log('INFO', 'Fetching unread count', { orgId });
 
-    const count = await messageService.getUnreadCount(orgId, userId);
+    const count = await messageService.getUnreadCount(orgId);
 
     // Parity with every other read handler — the frontend polls this frequently,
     // so omitting the increment systematically under-counts apiCalls.
@@ -149,14 +149,14 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   }));
 
   // GET /messages/:id — Get single message
-  router.get('/:id', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.get('/:id', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
     // Viewer-scoped: a per-user targeted message is returned only to its target
     // (plus the sender org / system org), never to other members of the org.
-    const message = await messageService.findVisibleById(id, orgId, userId);
+    const message = await messageService.findVisibleById(id, orgId);
     if (!message) {
       return sendEntityNotFound(res, 'Message');
     }
@@ -167,7 +167,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   }));
 
   // GET /messages/:id/thread — Get thread messages
-  router.get('/:id/thread', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.get('/:id/thread', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -176,13 +176,13 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
 
     // Get the root message first (viewer-scoped: a per-user targeted root is
     // only visible to its target, so the thread stays private to them).
-    const rootMessage = await messageService.findVisibleById(id, orgId, userId);
+    const rootMessage = await messageService.findVisibleById(id, orgId);
     if (!rootMessage) {
       return sendEntityNotFound(res, 'Thread');
     }
 
     // Get all replies in the thread (same viewer scope as the root).
-    const replies = await messageService.findThreadMessages(id, orgId, userId);
+    const replies = await messageService.findThreadMessages(id, orgId);
 
     // Combine root + replies, sorted by creation date
     const thread = [rootMessage, ...replies].sort(
@@ -213,11 +213,11 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   // GET /messages/:id/attachments — list a message's attachment metadata. Gated
   // on the SAME viewer-scoped visibility as the message itself: a per-user
   // targeted message's attachment list is only visible to its target.
-  router.get('/:id/attachments', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.get('/:id/attachments', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    const message = await messageService.findVisibleById(id, orgId, userId);
+    const message = await messageService.findVisibleById(id, orgId);
     if (!message) return sendEntityNotFound(res, 'Message');
 
     const rows = await attachmentService.findByMessageId(id);

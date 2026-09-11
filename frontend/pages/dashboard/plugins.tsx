@@ -48,7 +48,7 @@ const PLUGIN_SORT_FIELD: Record<string, string> = {
   category: 'category',
   type: 'pluginType',
   compute: 'computeType',
-  access: 'accessModifier',
+  access: 'visibility',
   uri: 'uri',
   timeout: 'timeout',
   failureBehavior: 'failureBehavior',
@@ -99,6 +99,9 @@ export default function PluginsPage() {
   // unlock on `plugins:write`, not org-admin role, so a custom-group member
   // granted the capability gets them too. Role-admins hold it in their bundle.
   const canWrite = can('plugins:write');
+  // Shared inputs for the visibility gate — mirrors the backend's
+  // requireVisibilityWriteAccess so the UI never offers an action the API refuses.
+  const pluginGateOpts = { isSuperAdmin, canPublish: can('plugins:publish'), userId: user?.id };
   // Publishing (making a plugin PUBLIC) is a distinct capability the backend
   // gates upload/update/delete/bulk on — mirror the pipelines pattern
   // (`can('pipelines:publish')`) instead of the old `isSuperAdmin` proxy, so a
@@ -256,7 +259,7 @@ export default function PluginsPage() {
       isLoading: list.isLoading,
       flags: [
         { label: 'inactive', pred: (p) => !p.isActive },
-        { label: 'private', pred: (p) => p.accessModifier !== 'public' },
+        { label: 'private', pred: (p) => p.visibility !== 'public' },
       ],
     }),
     [filteredPlugins, list.isLoading, list.pagination.total],
@@ -334,7 +337,7 @@ export default function PluginsPage() {
       header: '',
       locked: true,
       render: (plugin: Plugin) => (
-        canModify(isSuperAdmin, plugin.accessModifier) ? (
+        canModify(plugin, pluginGateOpts) ? (
           <Checkbox
             checked={selectedIds.has(plugin.id)}
             onChange={(e) => {
@@ -443,8 +446,8 @@ export default function PluginsPage() {
     {
       id: 'access',
       header: 'Access',
-      sortValue: (p) => p.accessModifier,
-      render: (p) => <AccessCell modifier={p.accessModifier} />,
+      sortValue: (p) => p.visibility,
+      render: (p) => <AccessCell modifier={p.visibility} />,
     },
     {
       id: 'uri',
@@ -524,7 +527,7 @@ export default function PluginsPage() {
           // Edit stays a link; registry cross-link + delete are icons (delete
           // muted, red-on-hover, guarded by the confirm modal).
           <div className="flex items-center gap-1">
-            {canWrite && canModify(isSuperAdmin, plugin.accessModifier) && (
+            {canWrite && canModify(plugin, pluginGateOpts) && (
               <button onClick={() => setEditPlugin(plugin)} className="action-link">Edit</button>
             )}
             {/* Sysadmin-only registry cross-link — closes the Plugins↔Registry
@@ -539,7 +542,7 @@ export default function PluginsPage() {
                 <Boxes className="w-4 h-4" />
               </Link>
             )}
-            {canWrite && canModify(isSuperAdmin, plugin.accessModifier) && (
+            {canWrite && canModify(plugin, pluginGateOpts) && (
               <IconButton tone="danger" title="Delete plugin" aria-label="Delete plugin" onClick={() => del.open(plugin)}>
                 <Trash2 className="h-4 w-4" />
               </IconButton>
@@ -594,7 +597,7 @@ export default function PluginsPage() {
         )}
 
         {canWrite && deletedView === 'deleted' ? (
-          <RecentlyDeletedPanel resource="plugin" onRestored={list.refresh} canRestoreRow={(r) => canModify(isSuperAdmin, r.accessModifier ?? 'private')} />
+          <RecentlyDeletedPanel resource="plugin" onRestored={list.refresh} canRestoreRow={(r) => canModify({ visibility: r.access, createdBy: r.createdBy }, pluginGateOpts)} />
         ) : (
         <>
         {/* Sticky search + advanced-filter panel stays above the list shell.
@@ -759,7 +762,7 @@ export default function PluginsPage() {
               <Detail label="Category" value={viewPlugin.category || '—'} />
               <Detail label="Type" value={viewPlugin.pluginType} />
               <Detail label="Compute" value={viewPlugin.computeType} />
-              <Detail label="Access" value={viewPlugin.accessModifier} />
+              <Detail label="Access" value={viewPlugin.visibility} />
               <Detail label="Timeout" value={viewPlugin.timeout ? `${viewPlugin.timeout} min` : '—'} />
               <Detail label="Active" value={viewPlugin.isActive ? 'Yes' : 'No'} />
               <Detail label="Default" value={viewPlugin.isDefault ? 'Yes' : 'No'} />

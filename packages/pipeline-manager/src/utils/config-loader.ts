@@ -24,6 +24,7 @@ const defaultConfig: Omit<Config, 'auth'> = {
     timeout: 30_000,
     pipelineUrl: '/api/pipeline',
     pipelineListUrl: '/api/pipelines',
+    pipelineTemplateUrl: '/api/pipeline-templates',
     pluginUrl: '/api/plugin',
     pluginListUrl: '/api/plugins',
     pluginUploadUrl: '/api/plugin/upload',

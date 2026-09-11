@@ -4,7 +4,7 @@
 import { describe, it, expect } from '@jest/globals';
 
 import {
-  AccessModifierSchema,
+  VisibilitySchema,
   SortOrderSchema,
   PaginationSchema,
   BooleanQuerySchema,
@@ -13,18 +13,18 @@ import {
   BaseFilterSchema,
 } from '../src/validation/common-schemas.js';
 
-describe('AccessModifierSchema', () => {
+describe('VisibilitySchema', () => {
   it('should accept "public"', () => {
-    expect(AccessModifierSchema.parse('public')).toBe('public');
+    expect(VisibilitySchema.parse('public')).toBe('public');
   });
 
   it('should accept "private"', () => {
-    expect(AccessModifierSchema.parse('private')).toBe('private');
+    expect(VisibilitySchema.parse('private')).toBe('private');
   });
 
   it('should reject invalid values', () => {
-    expect(() => AccessModifierSchema.parse('protected')).toThrow();
-    expect(() => AccessModifierSchema.parse('')).toThrow();
+    expect(() => VisibilitySchema.parse('protected')).toThrow();
+    expect(() => VisibilitySchema.parse('')).toThrow();
   });
 });
 
@@ -109,11 +109,11 @@ describe('UUIDPrefixSchema', () => {
 describe('BaseFilterSchema', () => {
   it('should parse valid base filter', () => {
     const result = BaseFilterSchema.parse({
-      accessModifier: 'public',
+      visibility: 'public',
       isActive: true,
       isDefault: 'false',
     });
-    expect(result.accessModifier).toBe('public');
+    expect(result.visibility).toBe('public');
     expect(result.isActive).toBe(true);
     expect(result.isDefault).toBe(false);
   });
@@ -139,6 +139,6 @@ describe('BaseFilterSchema', () => {
   it('should allow all fields to be optional', () => {
     const result = BaseFilterSchema.parse({});
     expect(result.id).toBeUndefined();
-    expect(result.accessModifier).toBeUndefined();
+    expect(result.visibility).toBeUndefined();
   });
 });

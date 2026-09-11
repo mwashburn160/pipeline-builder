@@ -26,4 +26,11 @@ export interface HelpTopic {
   description: string;
   icon: LucideIcon;
   sections: HelpSection[];
+  /**
+   * The `docs/*.md` file this topic is GENERATED from (single source of truth —
+   * docs are what the Ask agent grounds on). Present on generated topics; absent
+   * on the few hand-authored, docs-less topics (e.g. getting-started). Regenerate
+   * with `npm run generate:help` (frontend).
+   */
+  sourceDoc?: string;
 }

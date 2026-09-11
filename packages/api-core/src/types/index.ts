@@ -6,6 +6,7 @@ export * from './common.js';
 export * from './pipeline.js';
 export * from './catalog-metadata.js';
 export * from './pipeline-template.js';
+export * from './visibility.js';
 export * from './http.js';
 export * from './quota-tiers.js';
 export * from './feature-flags.js';

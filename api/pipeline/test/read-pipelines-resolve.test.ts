@@ -22,7 +22,7 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   ValidationError: class ValidationError extends Error {},
   getParam: (p: any, k: string) => p[k],
-  requirePublicAccess: () => true,
+  requireVisibilityWriteAccess: () => true,
   sendBadRequest: jest.fn((res: any, msg: string, code?: string) => {
     res.status(400).json({ success: false, statusCode: 400, message: msg, code });
   }),
@@ -112,7 +112,7 @@ describe('GET /pipelines/:id ?resolve=true', () => {
   it('returns source (unresolved) when resolve is not set', async () => {
     mockFindById.mockResolvedValue({
       id: 'pid-1',
-      accessModifier: 'public',
+      visibility: 'public',
       pipelineName: 'p1',
       metadata: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' },
       vars: {},
@@ -128,7 +128,7 @@ describe('GET /pipelines/:id ?resolve=true', () => {
   it('returns resolved form when resolve=true', async () => {
     mockFindById.mockResolvedValue({
       id: 'pid-1',
-      accessModifier: 'public',
+      visibility: 'public',
       pipelineName: 'p1',
       metadata: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' },
       vars: {},
@@ -143,7 +143,7 @@ describe('GET /pipelines/:id ?resolve=true', () => {
   it('returns source when resolve=false (any value other than "true")', async () => {
     mockFindById.mockResolvedValue({
       id: 'pid-1',
-      accessModifier: 'public',
+      visibility: 'public',
       pipelineName: 'p1',
       metadata: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' },
     });
@@ -160,7 +160,7 @@ describe('GET /pipelines/:id ?resolve=true', () => {
     }));
     mockFindById.mockResolvedValue({
       id: 'pid-1',
-      accessModifier: 'public',
+      visibility: 'public',
       pipelineName: 'p1',
       metadata: { a: '{{ metadata.b }}', b: '{{ metadata.a }}' },
     });

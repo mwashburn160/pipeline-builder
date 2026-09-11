@@ -42,6 +42,13 @@ export interface CreateAppOptions {
   enableJsonBody?: boolean;
   /** JSON body size limit (default: '1mb') */
   jsonLimit?: string;
+  /**
+   * Path prefixes the global JSON body parser must NOT touch — for routes that need
+   * the raw body (e.g. a Stripe webhook whose HMAC is computed over the exact bytes).
+   * Without this the global parser consumes the body first and a later `express.raw()`
+   * on the same path is a no-op, breaking signature verification.
+   */
+  jsonBodyExclude?: string[];
   /** Enable URL-encoded body parsing (default: true) */
   enableUrlEncoded?: boolean;
   /** URL-encoded body size limit (default: '1mb') */
@@ -214,7 +221,15 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
 
   // Body parsing
   if (enableJsonBody) {
-    app.use(express.json({ limit: jsonLimit }));
+    const jsonParser = express.json({ limit: jsonLimit });
+    const exclude = options.jsonBodyExclude ?? [];
+    if (exclude.length > 0) {
+      // Skip the global JSON parser for raw-body paths so a per-path `express.raw()`
+      // can read the exact bytes (see `jsonBodyExclude`).
+      app.use((req, res, next) => (exclude.some((p) => req.path.startsWith(p)) ? next() : jsonParser(req, res, next)));
+    } else {
+      app.use(jsonParser);
+    }
   }
 
   if (enableUrlEncoded) {
@@ -348,9 +363,11 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     const start = Date.now();
     res.on('finish', () => {
       const duration = Date.now() - start;
-      durationLogger.info(`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`, {
+      // Log `req.path` (no query string) — a stray `?token=`/`?ticket=` must not be
+      // persisted verbatim on every request (mirrors the authz-denial auditor's strip).
+      durationLogger.info(`${req.method} ${req.path} ${res.statusCode} ${duration}ms`, {
         method: req.method,
-        path: req.originalUrl,
+        path: req.path,
         statusCode: res.statusCode,
         durationMs: duration,
         requestId: req.requestId,

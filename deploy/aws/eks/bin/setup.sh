@@ -427,6 +427,11 @@ echo "  Istio ambient installed (HA istiod + ztunnel + istio-cni)"
 
 # ---- Phase 7: apply workloads (kustomize overlay) --------------------------
 log "Phase 7: apply workloads"
+# Supply-chain gate (ENFORCED): every ghcr image the manifests reference must
+# carry a valid cosign signature from this repo's release workflow before we run
+# it. Refuses the deploy on an unsigned/look-alike image. Break-glass:
+# SKIP_IMAGE_SIGNATURE_VERIFY=1. EKS pulls the CI-published (signed) images.
+bash "$(dirname "${BASH_SOURCE[0]}")/../../../bin/verify-image-signatures.sh"
 # Restricted envsubst: ONLY our deploy tokens are expanded, so $host / $1$... in
 # the inline nginx/pgbouncer configmaps are left intact.
 kubectl kustomize "$K8S_DIR" \
@@ -468,7 +473,7 @@ fi
 
 # ---- Phase 9: initialize the platform (parity with ec2 bootstrap Phase 10) -
 # AUTO_INIT (default true) runs init-platform.sh once the workloads are applied:
-# registers the admin user and loads plugins + compliance rules + sample pipelines
+# registers the admin user and loads plugins + compliance rules + sample pipeline templates
 # (building the CodeBuild bootstrap image and the plugin images first). Every prompt
 # is env-gated to "y" so it runs non-interactively, and it port-forwards to nginx via
 # kubectl — so this works in BOTH deploy modes (the internal ALB isn't reachable from
@@ -497,7 +502,7 @@ if [ "$AUTO_INIT" = true ]; then
   # goes straight through the API server, so init works regardless of DNS/ALB warm-up and
   # in both deploy modes (the internal ALB isn't reachable from here in private mode).
   env -u PLATFORM_BASE_URL \
-    BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_PIPELINES=y NAMESPACE="$NAMESPACE" \
+    BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y NAMESPACE="$NAMESPACE" \
     PLATFORM_PASSWORD="$_admin_pw" \
     bash "$INIT_PLATFORM" --continue-on-build-failure eks \
     || echo "  WARNING: auto-init exited non-zero — re-run by hand: env -u PLATFORM_BASE_URL ./deploy/bin/init-platform.sh eks" >&2

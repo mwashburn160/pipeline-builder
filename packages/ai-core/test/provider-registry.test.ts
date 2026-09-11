@@ -17,17 +17,22 @@ const mockGoogleFactory = jest.fn((id: string) => ({ ...mockGoogleModel, modelId
 const mockXaiFactory = jest.fn((id: string) => ({ ...mockXaiModel, modelId: id }));
 const mockBedrockFactory = jest.fn((id: string) => ({ ...mockBedrockModel, modelId: id }));
 
+const mockCompatModel = { provider: 'openai-compatible', modelId: '' };
+const mockCompatFactory = jest.fn((id: string) => ({ ...mockCompatModel, modelId: id }));
+
 const createAnthropic = jest.fn(() => mockAnthropicFactory);
 const createOpenAI = jest.fn(() => mockOpenAIFactory);
 const createGoogleGenerativeAI = jest.fn(() => mockGoogleFactory);
 const createXai = jest.fn(() => mockXaiFactory);
 const createAmazonBedrock = jest.fn(() => mockBedrockFactory);
+const createOpenAICompatible = jest.fn(() => mockCompatFactory);
 
 jest.unstable_mockModule('@ai-sdk/anthropic', () => ({ createAnthropic }));
 jest.unstable_mockModule('@ai-sdk/openai', () => ({ createOpenAI }));
 jest.unstable_mockModule('@ai-sdk/google', () => ({ createGoogleGenerativeAI }));
 jest.unstable_mockModule('@ai-sdk/xai', () => ({ createXai }));
 jest.unstable_mockModule('@ai-sdk/amazon-bedrock', () => ({ createAmazonBedrock }));
+jest.unstable_mockModule('@ai-sdk/openai-compatible', () => ({ createOpenAICompatible }));
 
 // Helpers
 
@@ -54,6 +59,13 @@ describe('ai-core provider-registry', () => {
     // "no key" cases are deterministic; the Bedrock-specific tests set it.
     delete process.env.AWS_REGION;
     delete process.env.AWS_DEFAULT_REGION;
+    // The OpenAI-compatible (local) provider registers when a base URL is present —
+    // clear it so the fixed-provider counts are deterministic; its own tests set it.
+    delete process.env.OPENAI_COMPATIBLE_BASE_URL;
+    delete process.env.OPENAI_COMPATIBLE_MODELS;
+    delete process.env.OPENAI_COMPATIBLE_MODEL;
+    delete process.env.OPENAI_COMPATIBLE_NAME;
+    delete process.env.OPENAI_COMPATIBLE_API_KEY;
     jest.clearAllMocks();
   });
 
@@ -410,6 +422,58 @@ describe('ai-core provider-registry', () => {
       // But registry is still empty
       const providers = getAvailableProviders();
       expect(providers).toEqual([]);
+    });
+  });
+
+  // OpenAI-compatible (local / self-hosted Docker model) provider
+  describe('openai-compatible (local) provider', () => {
+    it('does NOT register when no base URL is configured', async () => {
+      const { getAvailableProviders } = await freshImport();
+      expect(getAvailableProviders().map((p) => p.id)).not.toContain('openai-compatible');
+    });
+
+    it('registers from OPENAI_COMPATIBLE_BASE_URL with models parsed from env', async () => {
+      process.env.OPENAI_COMPATIBLE_BASE_URL = 'http://ask-model:12434/v1';
+      process.env.OPENAI_COMPATIBLE_MODELS = 'qwen2.5-coder|Qwen 2.5 Coder, llama3.3';
+
+      const { getAvailableProviders } = await freshImport();
+      const compat = getAvailableProviders().find((p) => p.id === 'openai-compatible');
+
+      expect(compat).toBeDefined();
+      expect(compat!.models).toEqual([
+        { id: 'qwen2.5-coder', name: 'Qwen 2.5 Coder' },
+        { id: 'llama3.3', name: 'llama3.3' },
+      ]);
+    });
+
+    it('falls back to a generic "local" model when no model list is set', async () => {
+      process.env.OPENAI_COMPATIBLE_BASE_URL = 'http://ask-model:12434/v1';
+
+      const { getAvailableProviders } = await freshImport();
+      const compat = getAvailableProviders().find((p) => p.id === 'openai-compatible');
+
+      expect(compat!.models).toEqual([{ id: 'local', name: 'Local model' }]);
+    });
+
+    it('resolveModel builds the model via createOpenAICompatible with the configured base URL', async () => {
+      process.env.OPENAI_COMPATIBLE_BASE_URL = 'http://ask-model:12434/v1';
+      process.env.OPENAI_COMPATIBLE_MODELS = 'qwen2.5-coder';
+
+      const { resolveModel } = await freshImport();
+      const model = resolveModel('openai-compatible', 'qwen2.5-coder') as unknown as { modelId: string };
+
+      expect(createOpenAICompatible).toHaveBeenCalledWith(
+        expect.objectContaining({ baseURL: 'http://ask-model:12434/v1', name: 'openai-compatible' }),
+      );
+      expect(model.modelId).toBe('qwen2.5-coder');
+    });
+
+    it('resolveModel rejects a model id not served by the local endpoint', async () => {
+      process.env.OPENAI_COMPATIBLE_BASE_URL = 'http://ask-model:12434/v1';
+      process.env.OPENAI_COMPATIBLE_MODELS = 'qwen2.5-coder';
+
+      const { resolveModel } = await freshImport();
+      expect(() => resolveModel('openai-compatible', 'not-served')).toThrow(/not available/);
     });
   });
 

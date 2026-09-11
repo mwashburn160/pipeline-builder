@@ -11,18 +11,6 @@
 type ValueOf<T> = T[keyof T];
 
 /**
- * Access modifier for plugins and resources
- *
- * @property PUBLIC - Accessible to all users and organizations
- * @property PRIVATE - Restricted to specific users or organizations
- */
-export const AccessModifier = {
-  PUBLIC: 'public',
-  PRIVATE: 'private',
-} as const;
-export type AccessModifier = ValueOf<typeof AccessModifier>;
-
-/**
  * AWS CodeBuild compute resource sizes
  *
  * @property SMALL - 3 GB memory, 2 vCPUs

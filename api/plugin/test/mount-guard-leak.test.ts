@@ -55,6 +55,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  rateLimitByOrg: () => (_req: any, _res: any, next: () => void) => next(),
   createApp: () => ({ app: capturedApp, sseManager: {} }),
   runServer: jest.fn(),
   postgresHealthCheck: () => async () => ({ ok: true }),

@@ -13,7 +13,7 @@ import { loadAndRestore, type RestorableService } from '../src/helpers/restore-h
 
 beforeAll(() => { process.env.JWT_SECRET = 'test'; });
 
-interface Row { orgId: string; accessModifier?: string; name?: string }
+interface Row { orgId: string; visibility?: string; name?: string }
 
 function mockReq(params: Record<string, string>, user?: Record<string, unknown>): Request {
   return { params, user } as unknown as Request;
@@ -54,9 +54,9 @@ describe('loadAndRestore', () => {
     expect(svc.restore).not.toHaveBeenCalled();
   });
 
-  it('restores a PRIVATE tombstone (no publish gate) and returns { existing, restored }', async () => {
-    const existing = { orgId: 'org1', accessModifier: 'private', name: 'p' };
-    const restored = { orgId: 'org1', accessModifier: 'private', name: 'p' };
+  it('restores the AUTHOR\'s own PRIVATE tombstone (no publish gate) and returns { existing, restored }', async () => {
+    const existing = { orgId: 'org1', visibility: 'private', createdBy: 'u1', name: 'p' };
+    const restored = { orgId: 'org1', visibility: 'private', createdBy: 'u1', name: 'p' };
     const res = mockRes();
     const svc = stubService(existing, restored);
     const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u1' }), res, 'org1', 'u1', svc, 'Pipeline', 'pipelines:publish');
@@ -68,16 +68,47 @@ describe('loadAndRestore', () => {
   it('denies a non-publisher restoring a PUBLIC tombstone (403 + null, no restore)', async () => {
     const res = mockRes();
     // user: not sysadmin, no pipelines:publish permission.
-    const svc = stubService({ orgId: 'org1', accessModifier: 'public', name: 'p' }, null);
+    const svc = stubService({ orgId: 'org1', visibility: 'public', name: 'p' }, null);
     const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u1', permissions: [] }), res, 'org1', 'u1', svc, 'Pipeline', 'pipelines:publish');
     expect(out).toBeNull();
     expect(res._status).toBe(403);
     expect(svc.restore).not.toHaveBeenCalled();
   });
 
+  it('denies a COLLEAGUE restoring someone else\'s private tombstone (403 + null)', async () => {
+    // Load-bearing: the tombstone load is org-scoped, not visibility-scoped
+    // (soft-delete is one shared code path), so this gate is the only thing
+    // stopping any org member from resurrecting another user's personal draft.
+    const res = mockRes();
+    const svc = stubService({ orgId: 'org1', visibility: 'private', createdBy: 'author', name: 'p' }, null);
+    const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u2', permissions: [] }), res, 'org1', 'u2', svc, 'Pipeline', 'pipelines:publish');
+    expect(out).toBeNull();
+    expect(res._status).toBe(403);
+    expect(svc.restore).not.toHaveBeenCalled();
+  });
+
+  it('denies an author-less private tombstone outright (fails closed)', async () => {
+    // No `createdBy` means nobody can claim authorship — an empty userId must
+    // never match an empty author and hand the row over.
+    const res = mockRes();
+    const svc = stubService({ orgId: 'org1', visibility: 'private', name: 'p' }, null);
+    const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u1', permissions: [] }), res, 'org1', 'u1', svc, 'Pipeline', 'pipelines:publish');
+    expect(out).toBeNull();
+    expect(res._status).toBe(403);
+  });
+
+  it('lets ANY org member restore an `org` tombstone (the ladder\'s middle rung)', async () => {
+    const existing = { orgId: 'org1', visibility: 'org', createdBy: 'author', name: 'p' };
+    const res = mockRes();
+    const svc = stubService(existing, existing);
+    const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u2', permissions: [] }), res, 'org1', 'u2', svc, 'Pipeline', 'pipelines:publish');
+    expect(out).toEqual({ existing, restored: existing });
+    expect(res._status).toBe(0);
+  });
+
   it('404 + null when restore matches no row', async () => {
     const res = mockRes();
-    const svc = stubService({ orgId: 'org1', accessModifier: 'private' }, null);
+    const svc = stubService({ orgId: 'org1', visibility: 'private', createdBy: 'u1' }, null);
     const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u1' }), res, 'org1', 'u1', svc, 'Pipeline', 'pipelines:publish');
     expect(out).toBeNull();
     expect(res._status).toBe(404);

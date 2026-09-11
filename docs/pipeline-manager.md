@@ -169,6 +169,7 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 | `plugin new` | Scaffold a local plugin directory (`config.yaml`, `plugin-spec.yaml`, starter `Dockerfile`) ready to edit and upload |
 | `plugin upload` | Publish a custom plugin spec + Dockerfile to the platform |
 | `plugin validate` | Validate a local plugin directory (spec + config + `{{ ... }}` templates) before upload — exits non-zero on any problem (CI-friendly) |
+| `template instantiate` | Render a golden-path pipeline template into concrete pipeline `props` — resolve it by `--name` (or `--id`), supply its declared inputs with repeatable `--input k=v` / `--inputs-file`, and write the result to `--output` (or stdout). **Creates nothing**: feed the props to `pipeline create --file`, which is where compliance and quota apply |
 | `template validate` | Parse and validate `{{ ... }}` templates in a pipeline or plugin spec (local file, registered pipeline by ID, or registered plugin by `name:version`) |
 | `org export` | Export an organization's data as JSON for GDPR portability (sysadmins can export any org; org admins their own only) |
 
@@ -275,6 +276,23 @@ pipeline-manager pipeline synth
 pipeline-manager pipeline deploy
 pipeline-manager status
 ```
+
+### Start from a golden-path template
+
+```bash
+# Render the template into concrete props (nothing is created yet) …
+pipeline-manager template instantiate \
+  --name react-javascript \
+  --project react --organization AcmeCorp \
+  --input orgId=1234abcd-... \
+  --output pipeline-props.json
+
+# … then create + deploy from them, through the normal (compliance + quota) path
+pipeline-manager pipeline create --file pipeline-props.json --deploy --region us-east-1
+```
+
+Pipe it instead of writing a file with `--json`, which suppresses all decorative
+output: `pipeline-manager template instantiate --name react-javascript -p react -o AcmeCorp --json | jq .stages`.
 
 ### Schedule drift detection (cron)
 

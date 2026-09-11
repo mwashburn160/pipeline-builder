@@ -27,6 +27,11 @@
         "{projectRoot}/dist"
       ],
       "cache": true
+    },
+    "test": {
+      "dependsOn": [
+        "^build"
+      ]
     }
   },
   "release": {

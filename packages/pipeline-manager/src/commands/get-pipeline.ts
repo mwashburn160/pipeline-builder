@@ -38,7 +38,7 @@ export function getPipeline(program: Command): void {
         'Project': pipeline.project,
         'Organization': pipeline.organization,
         'Name': pipeline.pipelineName || '(not set)',
-        'Access': pipeline.accessModifier || 'private',
+        'Visibility': pipeline.visibility || 'org',
         'Default': pipeline.isDefault ? 'Yes' : 'No',
         'Active': pipeline.isActive ? 'Yes' : 'No',
         'Created At': pipeline.createdAt || '(not available)',

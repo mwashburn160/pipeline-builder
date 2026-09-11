@@ -247,9 +247,9 @@ describe('loadBillingConfig', () => {
       const cases = [
         'not-json',
         '[]',
-        '[{"minQuantity":1.5,"discountPercent":10}]',            // fractional minQuantity
+        '[{"minQuantity":1.5,"discountPercent":10}]', // fractional minQuantity
         '[{"minQuantity":5,"discountPercent":30},{"minQuantity":15,"discountPercent":20}]', // descending pct
-        '[{"minQuantity":5,"discountPercent":10},{"minQuantity":5,"discountPercent":20}]',  // duplicate minQuantity
+        '[{"minQuantity":5,"discountPercent":10},{"minQuantity":5,"discountPercent":20}]', // duplicate minQuantity
       ];
       const dflt = [
         { minQuantity: 5, discountPercent: 10 },

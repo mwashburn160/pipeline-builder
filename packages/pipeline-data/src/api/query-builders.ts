@@ -76,15 +76,10 @@ const IMPOSSIBLE: SQL = sql`false`;
 /**
  * Build SQL conditions for pipeline queries
  *
- * Access control behavior:
- * - No orgId: system org public only
- * - accessModifier='private': Own org private only
- * - accessModifier='public': Own org public only
- * - No accessModifier (default): Own org public + system org public
- *
- * `parentOrgId` (org → team hierarchy) widens the default catalog view so a team
- * org also sees its parent's public pipelines — parity with the plugin and
- * template builders. Absent for root orgs, leaving the condition unchanged.
+ * Access control is the shared three-rung `visibility` ladder — see
+ * `AccessControlQueryBuilder.buildAccessControl` for the full predicate.
+ * `parentOrgId` (org → team hierarchy) widens the catalog view so a team org
+ * also sees its parent's public pipelines.
  *
  * @param filter - Pipeline filter criteria
  * @param orgId - User's organization ID (optional — anonymous gets system public only)
@@ -96,7 +91,7 @@ export function buildPipelineConditions(
   orgId?: string,
   parentOrgId?: string,
 ): SQL[] {
-  // Use generic builder for common conditions (access control, ID, booleans, accessModifier)
+  // Use generic builder for common conditions (access control, ID, booleans, visibility)
   const conditions = pipelineBuilder.buildCommonConditions(filter, orgId, parentOrgId);
 
   // Add pipeline-specific filters
@@ -135,11 +130,8 @@ export function buildPipelineConditions(
 /**
  * Build SQL conditions for plugin queries
  *
- * Access control behavior:
- * - No orgId: system org public only
- * - accessModifier='private': Own org private only
- * - accessModifier='public': Own org public only
- * - No accessModifier (default): Own org public + system org public
+ * Access control is the shared three-rung `visibility` ladder — see
+ * `AccessControlQueryBuilder.buildAccessControl`.
  *
  * @param filter - Plugin filter criteria
  * @param orgId - User's organization ID (optional — anonymous gets system public only)
@@ -150,7 +142,7 @@ export function buildPluginConditions(
   orgId?: string,
   parentOrgId?: string,
 ): SQL[] {
-  // Use generic builder for common conditions (access control, ID, booleans, accessModifier)
+  // Use generic builder for common conditions (access control, ID, booleans, visibility)
   const conditions = pluginBuilder.buildCommonConditions(filter, orgId, parentOrgId);
 
   // Add plugin-specific filters
@@ -189,9 +181,10 @@ export function buildPluginConditions(
 /**
  * Build SQL conditions for pipeline-template queries.
  *
- * Visibility mirrors plugins/pipelines: the caller's own-org rows (any modifier)
- * plus the system org's PUBLIC templates (the shared golden-path catalog) and,
- * for a team, the parent org's public templates.
+ * Templates were briefly the only entity on the three-rung ladder and needed a
+ * bespoke predicate; now that every catalog entity shares it, they are back on
+ * the SAME `AccessControlQueryBuilder` as pipelines and plugins. Visibility
+ * semantics live in one place — see `buildAccessControl`.
  */
 export function buildPipelineTemplateConditions(
   filter: Partial<PipelineTemplateFilter>,

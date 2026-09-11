@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AccessModifier, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { boolean, varchar, pgTable, text, timestamp, uuid, jsonb, index } from 'drizzle-orm/pg-core';
 
@@ -94,11 +94,11 @@ export const message = pgTable('messages', {
     .default('normal' as MessagePriority)
     .notNull(),
 
-  // Access and visibility
-  accessModifier: varchar('access_modifier', { length: 10 })
-    .$type<AccessModifier>()
-    .default('private' as AccessModifier)
-    .notNull(),
+  // NOTE: messages carry NO sharing rung. Their visibility is the bespoke
+  // sender/recipient/broadcast predicate in `buildMessageConditions` (plus the
+  // per-user `recipient_user_id` narrowing) — a ladder would be meaningless and
+  // the `access_modifier` column this replaced was written as a hardcoded
+  // 'private' on every path and never read.
   isDefault: boolean('is_default')
     .default(false)
     .notNull(),

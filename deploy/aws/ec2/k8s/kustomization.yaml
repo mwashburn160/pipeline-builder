@@ -20,6 +20,8 @@ resources:
   - plugin.yaml
   - message.yaml
   - reporting.yaml
+  - ask.yaml
+  # - ask-model.yaml  # opt-in self-hosted model (Ollama); see file header
   - quota.yaml
   - billing.yaml
   - compliance.yaml

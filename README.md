@@ -330,7 +330,7 @@ Full docs hub: **[docs/](docs/README.md)** — grouped by task. Looking for a te
 | [Metadata Keys](docs/metadata-keys.md) | Typed CodePipeline / CodeBuild / networking / IAM configuration keys |
 | [Plugin Catalog](docs/plugins/README.md) | 119 pre-built plugins across 10 categories |
 | [Developer Portal](docs/developer-portal.md) | Catalog ownership & My Services, golden-path templates, maturity scorecards |
-| [Samples](docs/samples.md) | Ready-to-load pipeline configs for 7 languages + CDK patterns |
+| [Samples](docs/samples.md) | Ready-to-load pipeline templates for 7 languages + CDK patterns |
 
 ### Govern
 

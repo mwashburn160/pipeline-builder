@@ -1,0 +1,129 @@
+{
+  "name": "aspnetcore-dotnet",
+  "description": "Golden-path template for an ASP.NET Core (net10.0) web app on GitHub. Builds with the .NET SDK and runs dependency, container, and secret scanning.",
+  "category": "backend",
+  "keywords": [
+    "dotnet",
+    "csharp",
+    "backend",
+    "web-api"
+  ],
+  "visibility": "public",
+  "inputs": [
+    {
+      "name": "orgId",
+      "label": "Organization ID",
+      "description": "Your organization's ID (the UUID, not the display name). Selects the GitHub OAuth token secret at pipeline-builder/<orgId>/github-token.",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "props": {
+    "global": {
+      "aws:cdk:pipelines:codepipeline:selfmutation": true,
+      "aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation": true,
+      "aws:cdk:pipelines:codepipeline:publishassetsinparallel": true,
+      "aws:cdk:pipelines:codepipeline:crossaccountkeys": true,
+      "aws:cdk:pipelines:codepipeline:enablekeyrotation": true,
+      "aws:cdk:pipelines:codepipeline:reusecrossregionsupportstacks": true,
+      "aws:cdk:pipelines:codepipeline:usechangesets": false
+    },
+    "synth": {
+      "source": {
+        "type": "github",
+        "options": {
+          "repo": "Azure-Samples/dotnetcore-docs-hello-world",
+          "branch": "main",
+          "trigger": "NONE",
+          "token": "secretsmanager:pipeline-builder/{{ pipeline.vars.orgId }}/github-token"
+        }
+      },
+      "plugin": {
+        "name": "BuildSynth",
+        "filter": {
+          "name": "cdk-synth",
+          "version": "1.0.0",
+          "visibility": "public",
+          "isActive": true,
+          "isDefault": true
+        }
+      }
+    },
+    "stages": [
+      {
+        "stageName": "Build",
+        "alias": "BuildAndPackage",
+        "steps": [
+          {
+            "plugin": {
+              "name": "dotnet",
+              "filter": {
+                "name": "dotnet",
+                "version": "1.0.0",
+                "visibility": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "aws:cdk:codebuild:buildenvironment:computetype": "LARGE"
+              }
+            },
+            "position": "pre",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "stageName": "Security",
+        "alias": "SecurityScan",
+        "steps": [
+          {
+            "plugin": {
+              "name": "dotnet-security-scan",
+              "filter": {
+                "name": "dotnet-security-scan",
+                "version": "1.0.0",
+                "visibility": "public",
+                "isActive": true,
+                "isDefault": true
+              }
+            },
+            "position": "pre",
+            "failureBehavior": "warn"
+          },
+          {
+            "plugin": {
+              "name": "trivy",
+              "filter": {
+                "name": "trivy",
+                "version": "1.0.0",
+                "visibility": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "TRIVY_SEVERITY": "HIGH,CRITICAL"
+              }
+            },
+            "position": "pre",
+            "failureBehavior": "warn"
+          },
+          {
+            "plugin": {
+              "name": "git-secrets",
+              "filter": {
+                "name": "git-secrets",
+                "version": "1.0.0",
+                "visibility": "public",
+                "isActive": true,
+                "isDefault": true
+              }
+            },
+            "position": "post",
+            "failureBehavior": "warn"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -21,7 +21,7 @@ deploy/local/docker/bin/setup.sh                      # or minikube / aws target
 
 # 2. Register the admin + optionally load plugins/samples/compliance
 #    Loading is env-gated (or prompted on a TTY), NOT a flag:
-#    LOAD_PLUGINS / LOAD_COMPLIANCE / LOAD_PIPELINES = y|n
+#    LOAD_PLUGINS / LOAD_COMPLIANCE / LOAD_TEMPLATES = y|n
 LOAD_PLUGINS=y deploy/bin/init-platform.sh docker     # target: docker|minikube|ec2|eks
 ```
 
@@ -38,7 +38,7 @@ pipeline-manager infra provision --repo --with-plugins           # add --prompt 
 ## Shared orchestration ([`bin/`](bin/))
 
 - **Images** — `build-plugin-images.sh` (base + plugin images; defaults `PUBLISH_PLATFORM` to the host arch for local targets, wires `ensure-binfmt.sh` for cross-arch), `push-base-images.sh`, `build-codebuild-bootstrap.sh`, `sync-image-tags.sh` / `verify-image-tags.sh`.
-- **Init** — `init-platform.sh` (health-gates dependencies, registers admin, drives the `load-*` steps), `load-plugins.sh` / `load-plugin-worker.sh`, `load-pipelines.sh`, `load-compliance.sh`.
+- **Init** — `init-platform.sh` (health-gates dependencies, registers admin, drives the `load-*` steps), `load-plugins.sh` / `load-plugin-worker.sh`, `load-templates.sh`, `load-compliance.sh`.
 - **Secrets / TLS** — `gen-env-secrets.sh` (`pb_gen_env_secrets` fills the `.env` `CHANGE_ME` credentials with fresh random values and asserts none remain), `jwt-keys.sh` (registry signing keypair), `nginx-tls.sh` (gateway TLS), `mongo-keyfile.sh` (`pb_ensure_mongo_keyfile` — the replica-set keyfile, generated **per deploy**, never committed).
 - **Helpers** — `common.sh` (logging, retries, `preflight <tools…>`, `curl_with_retry`, health waits, image-tag hashing, `mc_setup_aliases`), `k8s-resources.sh`, `cfn-deploy.sh`, `provision-docker.sh`.
 
@@ -54,4 +54,4 @@ pipeline-manager infra provision --repo --with-plugins           # add --prompt 
 
 ## Not covered here
 
-Plugin sources, sample pipelines, compliance rule/policy seeds, and the CodeBuild bootstrap image live in sibling dirs — [`plugins/`](plugins/), [`samples/`](samples/), [`compliance/`](compliance/), [`codebuild/`](codebuild/) — and are loaded by the `load-*` / `init-platform.sh` steps above.
+Plugin sources, sample pipeline templates, compliance rule/policy seeds, and the CodeBuild bootstrap image live in sibling dirs — [`plugins/`](plugins/), [`samples/`](samples/), [`compliance/`](compliance/), [`codebuild/`](codebuild/) — and are loaded by the `load-*` / `init-platform.sh` steps above.

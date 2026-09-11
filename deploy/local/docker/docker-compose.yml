@@ -93,6 +93,57 @@ services:
   # ---------------------------------------------------------------------------
   # Infrastructure
   # ---------------------------------------------------------------------------
+  ask:
+    image: 'ghcr.io/mwashburn160/ask:3.4.153'
+    container_name: ask
+    restart: always
+    stop_grace_period: 10s
+    environment:
+      <<: [*common-env, *server-env]
+      SERVICE_NAME: ask
+      OPENAI_COMPATIBLE_BASE_URL: ${OPENAI_COMPATIBLE_BASE_URL:-}
+      OPENAI_COMPATIBLE_MODELS: ${OPENAI_COMPATIBLE_MODELS:-}
+    networks:
+      - backend-network
+    healthcheck: *api-healthcheck
+    deploy:
+      resources:
+        limits:
+          cpus: '0.35'
+          memory: 384M
+        reservations:
+          cpus: '0.10'
+          memory: 160M
+
+  # Opt-in self-hosted model (Ollama, OpenAI-compatible). Start with:
+  #   docker compose --profile ask-model up -d
+  # then set OPENAI_COMPATIBLE_BASE_URL=http://ask-model:11434/v1 and
+  #   OPENAI_COMPATIBLE_MODELS=qwen2.5-coder:7b|Qwen 2.5 Coder in your .env.
+  ask-model:
+    image: 'ollama/ollama:0.6.5'
+    container_name: ask-model
+    profiles: [ask-model]
+    restart: always
+    environment:
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5-coder:7b}
+      OLLAMA_HOST: 0.0.0.0:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama serve & sleep 4; ollama pull \"$$OLLAMA_MODEL\" || true; wait"]
+    volumes:
+      - ask-model-models:/root/.ollama
+    networks:
+      - backend-network
+    healthcheck:
+      test: ["CMD", "sh", "-c", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    deploy:
+      resources:
+        limits:
+          memory: 10G
+
   nginx:
     # Unprivileged (UID 101) nginx, matching the k8s gateways. The njs module is
     # bundled in the official 1.30 image; nginx.conf sets `pid /tmp/nginx.pid` so
@@ -116,6 +167,7 @@ services:
       - proxy-network
       - backend-network
     depends_on:
+      ask:            { condition: service_started }
       billing:        { condition: service_started }
       compliance:     { condition: service_started }
       frontend:       { condition: service_started }
@@ -1424,6 +1476,7 @@ networks:
     driver: bridge
 
 volumes:
+  ask-model-models:
   # buildkit-cache is the *only* named volume in this compose — see the
   # rationale on the buildkitd service. Everything else uses bind mounts
   # under ./data/ for one-command wipeability.

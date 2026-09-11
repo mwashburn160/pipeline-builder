@@ -87,46 +87,50 @@ describe('withTenantTx', () => {
   const chunksOf = (call: unknown): string =>
     JSON.stringify((call as { queryChunks?: unknown }).queryChunks ?? call);
 
-  it('SET LOCALs both RLS GUCs + statement_timeout from the surrounding context', async () => {
+  it('SET LOCALs both RLS GUCs + statement_timeout in a single round-trip', async () => {
     await runWithTenantContext({ orgId: 'org-x', isSuperAdmin: true }, async () => {
       await withTenantTx(async () => 'ok');
     });
-    // Two RLS GUCs + the server-side statement_timeout guard = three set_config's.
-    expect(mockExecute).toHaveBeenCalledTimes(3);
-    expect(chunksOf(mockExecute.mock.calls[0][0])).toContain('app.org_id');
-    expect(chunksOf(mockExecute.mock.calls[0][0])).toContain('org-x');
-    expect(chunksOf(mockExecute.mock.calls[1][0])).toContain('app.is_sysadmin');
-    expect(chunksOf(mockExecute.mock.calls[1][0])).toContain('true');
+    // Two RLS GUCs + statement_timeout are now composed into ONE set_config
+    // statement (one round-trip), not three separate tx.execute() calls.
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    const stmt = chunksOf(mockExecute.mock.calls[0][0]);
+    expect(stmt).toContain('app.org_id');
+    expect(stmt).toContain('org-x');
+    expect(stmt).toContain('app.is_sysadmin');
+    expect(stmt).toContain('true');
+    expect(stmt).toContain('statement_timeout');
   });
 
-  it('sets a server-side statement_timeout alongside the RLS GUCs (real query path)', async () => {
+  it('binds statement_timeout from the env value in the combined statement', async () => {
     const ORIGINAL_TIMEOUT = process.env.DB_STATEMENT_TIMEOUT_MS;
     process.env.DB_STATEMENT_TIMEOUT_MS = '12345';
     try {
       await runWithTenantContext({ orgId: 'org-t', isSuperAdmin: false }, async () => {
         await withTenantTx(async () => 'ok');
       });
-      // The third set_config is statement_timeout, bound to the env value (ms).
-      const third = chunksOf(mockExecute.mock.calls[2][0]);
-      expect(third).toContain('statement_timeout');
-      expect(third).toContain('12345');
+      const stmt = chunksOf(mockExecute.mock.calls[0][0]);
+      expect(stmt).toContain('statement_timeout');
+      expect(stmt).toContain('12345');
     } finally {
       if (ORIGINAL_TIMEOUT === undefined) delete process.env.DB_STATEMENT_TIMEOUT_MS;
       else process.env.DB_STATEMENT_TIMEOUT_MS = ORIGINAL_TIMEOUT;
     }
   });
 
-  it('omits the statement_timeout set_config when disabled with 0', async () => {
+  it('omits statement_timeout from the statement when disabled with 0', async () => {
     const ORIGINAL_TIMEOUT = process.env.DB_STATEMENT_TIMEOUT_MS;
     process.env.DB_STATEMENT_TIMEOUT_MS = '0';
     try {
       await runWithTenantContext({ orgId: 'org-z', isSuperAdmin: false }, async () => {
         await withTenantTx(async () => 'ok');
       });
-      // Only the two RLS GUCs — no statement_timeout statement.
-      expect(mockExecute).toHaveBeenCalledTimes(2);
-      expect(chunksOf(mockExecute.mock.calls[0][0])).toContain('app.org_id');
-      expect(chunksOf(mockExecute.mock.calls[1][0])).toContain('app.is_sysadmin');
+      // Still one round-trip, but only the two RLS GUCs — no statement_timeout.
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+      const stmt = chunksOf(mockExecute.mock.calls[0][0]);
+      expect(stmt).toContain('app.org_id');
+      expect(stmt).toContain('app.is_sysadmin');
+      expect(stmt).not.toContain('statement_timeout');
     } finally {
       if (ORIGINAL_TIMEOUT === undefined) delete process.env.DB_STATEMENT_TIMEOUT_MS;
       else process.env.DB_STATEMENT_TIMEOUT_MS = ORIGINAL_TIMEOUT;

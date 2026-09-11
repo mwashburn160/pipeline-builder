@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Request, Response } from 'express';
-import { requirePublicAccess } from './access-helpers.js';
+import { requireVisibilityWriteAccess } from './access-helpers.js';
 import { sendEntityNotFound } from './crud-helpers.js';
 import { ErrorCode } from '../types/error-codes.js';
 import type { Permission } from '../types/permissions.js';
@@ -12,7 +12,10 @@ import { sendBadRequest } from '../utils/response.js';
 /** Minimal shape a restore route needs from the entity it restores. */
 export interface RestorableEntity {
   orgId: string;
-  accessModifier?: string;
+  /** Rung the tombstone sat at — drives the restore/purge authority check. */
+  visibility?: string;
+  /** Author — the only non-admin who may restore/purge a `private` row. */
+  createdBy?: string;
 }
 
 /** The slice of a service a restore route uses (satisfied by any CrudService). */
@@ -23,8 +26,8 @@ export interface RestorableService<T extends RestorableEntity> {
 
 /**
  * Shared skeleton for a step-up-gated entity restore route: extract `:id`, load
- * the own-org tombstone, gate a PUBLIC entity on `publishPermission` (parity with
- * delete), restore, and 404 on miss. Returns `{ existing, restored }` on success,
+ * the own-org tombstone, gate it on the visibility ladder (parity with delete),
+ * restore, and 404 on miss. Returns `{ existing, restored }` on success,
  * or `null` when it has ALREADY sent a response (400/404/403) — the caller then
  * does the entity-specific audit + response. DRYs the near-identical
  * pipeline / plugin / pipeline_template restore routes (which differ only in
@@ -52,8 +55,10 @@ export async function loadAndRestore<T extends RestorableEntity>(
     return null;
   }
 
-  // Public (shared) entities: same publish gate as delete.
-  if (!requirePublicAccess(req, res, existing, publishPermission)) return null;
+  // Same ladder authority as delete: `:publish` for a public row, authorship for
+  // a private one. Load-bearing here — the tombstone load is org-scoped, not
+  // visibility-scoped, so this is what stops a colleague resurrecting a draft.
+  if (!requireVisibilityWriteAccess(req, res, existing, userId || '', publishPermission)) return null;
 
   const restored = await service.restore(id, orgId, userId || 'system');
   if (!restored) {
@@ -72,7 +77,7 @@ export interface PurgeableService<T extends RestorableEntity> {
 
 /**
  * Shared skeleton for an entity PURGE route: extract `:id`, load the own-org
- * tombstone, gate a PUBLIC entity on `publishPermission` (parity with
+ * tombstone, gate it on the visibility ladder (parity with
  * delete/restore), then permanently hard-delete it — but ONLY when it is a
  * genuine tombstone (a live/active row loads as `null` here and 404s, so purge
  * can never hard-delete a live row). Returns `{ existing, purgedId }` on success
@@ -89,6 +94,7 @@ export async function loadAndPurge<T extends RestorableEntity>(
   service: PurgeableService<T>,
   label: string,
   publishPermission: Permission,
+  userId: string,
 ): Promise<{ existing: T; purgedId: string } | null> {
   const id = getParam(req.params, 'id');
   if (!id) {
@@ -104,8 +110,8 @@ export async function loadAndPurge<T extends RestorableEntity>(
     return null;
   }
 
-  // Public (shared) entities: same publish gate as delete/restore.
-  if (!requirePublicAccess(req, res, existing, publishPermission)) return null;
+  // Same ladder authority as delete/restore (see loadAndRestore).
+  if (!requireVisibilityWriteAccess(req, res, existing, userId || '', publishPermission)) return null;
 
   // Reuse the retention sweep's single-id hard-delete (same tombstone match +
   // dependent-teardown hooks). Returns null on a race (already purged) → 404.

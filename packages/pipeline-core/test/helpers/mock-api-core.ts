@@ -18,6 +18,10 @@ import { jest } from '@jest/globals';
 // (see tier-mock.ts). Sources the tier NAME LIST from the real VALID_TIERS so a
 // new tier flows into this mock automatically.
 import { MOCK_TIER_NAMES, mockIsValidTier, mockQuotaTiers } from '@pipeline-builder/api-core/lib/testing/tier-mock.js';
+// Real TIER_FEATURES + FEATURE_METADATA (matched pair; side-effect-free deep
+// import) so these can't drift from api-core — a stale hand-copy diverges as
+// features are added, and a partial FEATURE_METADATA throws on the flags it omits.
+import { TIER_FEATURES, FEATURE_METADATA } from '@pipeline-builder/api-core/lib/types/feature-flags.js';
 
 /** The 4-method logger stub every suite repeats; a fresh set of spies per call. */
 export const loggerMock = () => ({
@@ -76,28 +80,15 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // billing-config.ts also derives marketed "included feature" perks from the
     // enforced entitlement set at import time, so the mock must expose both the
     // tier→feature map and the label metadata (must mirror the real api-core).
-    TIER_FEATURES: {
-      developer: [],
-      pro: ['priority_support', 'ai_generation', 'bulk_operations'],
-      team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log'],
-      enterprise: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso'],
-      unlimited: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso'],
-    },
-    FEATURE_METADATA: {
-      priority_support: { label: 'Priority Support', description: '' },
-      ai_generation: { label: 'AI Generation', description: '' },
-      bulk_operations: { label: 'Bulk Operations', description: '' },
-      custom_integrations: { label: 'Custom Integrations', description: '' },
-      audit_log: { label: 'Audit Log', description: '' },
-      sso: { label: 'SSO / IdP', description: '' },
-    },
+    TIER_FEATURES,
+    FEATURE_METADATA,
     // billing-config.ts derives its `plans` array from VALID_TIERS (in order) so
     // the plan set stays compile-bound to QuotaTier; the mock must expose it.
     VALID_TIERS: [...MOCK_TIER_NAMES],
     STANDARD_TIERS: MOCK_TIER_NAMES.filter((t) => t !== 'unlimited'),
     // billing-config.ts validates BILLING_BUNDLE_<ID>_TIERS entries with this.
     isValidTier: mockIsValidTier,
-    AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
+
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,

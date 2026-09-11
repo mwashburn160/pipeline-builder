@@ -50,7 +50,7 @@ export class MultiAccountPipelineStack extends Stack {
           plugin: {
             name: 'cdk-deploy',
             alias: `deploy-${alias}`,
-            filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+            filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
             metadata: {
               NODE_VERSION: '20',
               TARGET_ACCOUNT: account,
@@ -66,7 +66,7 @@ export class MultiAccountPipelineStack extends Stack {
           plugin: {
             name: 'health-check',
             alias: `health-${alias}`,
-            filter: { version: '1.0.0', accessModifier: 'public', isActive: true },
+            filter: { version: '1.0.0', visibility: 'public', isActive: true },
             metadata: { HEALTH_CHECK_URL: healthUrl, EXPECTED_STATUS: '200' },
           },
           position: 'post',
@@ -106,7 +106,7 @@ export class MultiAccountPipelineStack extends Stack {
         },
         plugin: {
           name: 'cdk-synth',
-          filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+          filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
           metadata: { NODE_VERSION: '20' },
         },
         env: {
@@ -123,7 +123,7 @@ export class MultiAccountPipelineStack extends Stack {
             {
               plugin: {
                 name: 'nodejs-build',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: {
                   NODE_VERSION: '20',
                   'aws:cdk:codebuild:buildenvironment:computetype': 'MEDIUM',
@@ -143,7 +143,7 @@ export class MultiAccountPipelineStack extends Stack {
             {
               plugin: {
                 name: 'snyk-nodejs',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: { SNYK_SEVERITY_THRESHOLD: 'high' },
               },
               position: 'pre',
@@ -152,7 +152,7 @@ export class MultiAccountPipelineStack extends Stack {
             {
               plugin: {
                 name: 'git-secrets',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true },
               },
               position: 'post',
               commands: ['git secrets --scan'],
@@ -176,7 +176,7 @@ export class MultiAccountPipelineStack extends Stack {
             {
               plugin: {
                 name: 'manual-approval',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: {
                   APPROVAL_COMMENT: `Approve deployment to production (account ${PRODUCTION_ACCOUNT})?`,
                 },

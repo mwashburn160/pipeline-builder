@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendError, sendSuccess, validateBody, PluginUpdateSchema, pickDefined, sendEntityNotFound, createComplianceClient, getServiceAuthHeader, errorMessage } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, requireVisibilityWriteAccess, resolveVisibility, sendBadRequest, sendError, sendSuccess, validateBody, PluginUpdateSchema, pickDefined, sendEntityNotFound, createComplianceClient, getServiceAuthHeader, errorMessage } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
@@ -15,7 +15,7 @@ const complianceClient = createComplianceClient();
 // catalog-metadata-only edit (description/labels/lifecycle) does not.
 const COMPLIANCE_RELEVANT_FIELDS = [
   'pluginType', 'computeType', 'timeout', 'failureBehavior', 'env', 'buildArgs',
-  'installCommands', 'commands', 'accessModifier', 'secrets',
+  'installCommands', 'commands', 'visibility', 'secrets',
 ] as const;
 
 /**
@@ -47,7 +47,7 @@ export function createUpdatePluginRoutes(): Router {
     if (!existing) return sendEntityNotFound(res, 'Plugin');
 
     // Only system admins can edit non-private plugins
-    if (!requirePublicAccess(req, res, existing, 'plugins:publish')) return;
+    if (!requireVisibilityWriteAccess(req, res, existing, userId, 'plugins:publish')) return;
 
     // Build update data from validated body
     const updateData: Record<string, unknown> = {
@@ -83,7 +83,7 @@ export function createUpdatePluginRoutes(): Router {
         ? pickDefined({ ownerId: body.ownerId, ownerType: body.ownerType })
         : {}),
       // Access modifier requires special handling (admin-only public)
-      ...(body.accessModifier !== undefined ? { accessModifier: resolveAccessModifier(req, body.accessModifier, 'plugins:publish') } : {}),
+      ...(body.visibility !== undefined ? { visibility: resolveVisibility(req, body.visibility, 'plugins:publish') } : {}),
     };
 
     // -- Compliance re-check on UPDATE (fail-closed) ------------------------
@@ -108,7 +108,7 @@ export function createUpdatePluginRoutes(): Router {
           buildArgs: val('buildArgs', existing.buildArgs),
           installCommands: val('installCommands', existing.installCommands),
           commands: val('commands', existing.commands),
-          accessModifier: val('accessModifier', existing.accessModifier),
+          visibility: val('visibility', existing.visibility),
           secrets: val('secrets', existing.secrets),
           metadata: val('metadata', existing.metadata),
           keywords: val('keywords', existing.keywords),
@@ -148,7 +148,7 @@ export function createUpdatePluginRoutes(): Router {
       details: {
         pluginName: updated.name,
         version: updated.version,
-        accessModifier: updated.accessModifier,
+        visibility: updated.visibility,
       },
     });
 

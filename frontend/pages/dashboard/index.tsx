@@ -229,12 +229,12 @@ export default function DashboardPage() {
     setShowCreateModal(true);
   };
 
-  const handleCreateSubmit = async (props: BuilderProps, accessModifier: 'public' | 'private', description?: string, keywords?: string[]) => {
+  const handleCreateSubmit = async (props: BuilderProps, visibility: 'public' | 'private', description?: string, keywords?: string[]) => {
     setCreateLoading(true);
     setCreateError(null);
     setCreateSuccess(null);
     try {
-      await api.createPipeline({ project: props.project || '', organization: props.organization || '', props, accessModifier, description, keywords });
+      await api.createPipeline({ project: props.project || '', organization: props.organization || '', props, visibility, description, keywords });
       setCreateSuccess('Pipeline created successfully!');
       setShowCreateModal(false);
       setGitUrl('');

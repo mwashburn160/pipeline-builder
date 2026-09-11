@@ -263,7 +263,13 @@ function writeAuthConfig(registry: RegistryInfo, orgId: string, ttlSeconds: numb
   // env, so its location is independent of the build context. Caller removes it
   // after the build/push completes.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-dockercfg-'));
-  const password = signServiceToken({ serviceName: 'platform', orgId, role: 'owner', ttlSeconds });
+  // Least-privilege registry credential: the image-registry authorizer grants
+  // push when `isAdmin || permissions.includes('plugins:write')` (auth-resolver
+  // canWritePlugins), so a member-role token carrying just `plugins:write` can
+  // push the built plugin image WITHOUT the org-wide `isAdmin` blast radius an
+  // owner token would leak if the auth config were ever exposed (as it once was
+  // via a Dockerfile `COPY . .`). Pull is open to all members either way.
+  const password = signServiceToken({ serviceName: 'platform', orgId, role: 'member', permissions: ['plugins:write'], ttlSeconds });
   const auth = Buffer.from(`_token:${password}`).toString('base64');
 
   const auths: Record<string, { auth: string }> = {

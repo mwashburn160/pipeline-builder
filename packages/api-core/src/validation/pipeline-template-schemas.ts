@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { z } from 'zod';
-import { AccessModifierSchema, BaseFilterSchema, BooleanQuerySchema, CatalogMetadataShape } from './common-schemas.js';
+import { BaseFilterSchema, BooleanQuerySchema, CatalogMetadataShape, VisibilitySchema } from './common-schemas.js';
 
 /**
  * One declared template input — mirrors the `TemplateInput` type. The `name` is
@@ -28,6 +28,7 @@ export const PipelineTemplateFilterSchema = BaseFilterSchema.extend({
   category: z.string().min(1).optional(),
   keyword: z.string().min(1).optional(),
   orgId: z.string().min(1).optional(),
+  visibility: VisibilitySchema.optional(),
 });
 
 /** Create a pipeline template (author a golden path). */
@@ -39,7 +40,7 @@ export const PipelineTemplateCreateSchema = z.object({
   description: z.string().max(2000).optional(),
   keywords: z.array(z.string().max(64)).max(50).optional(),
   category: z.string().min(1).max(50).optional(),
-  accessModifier: AccessModifierSchema.optional(),
+  visibility: VisibilitySchema.optional(),
   // Template body: a BuilderProps with `{{ vars.* }}` placeholders.
   props: z.record(z.string(), z.unknown()),
   inputs: z.array(TemplateInputSchema).max(100).optional(),
@@ -52,7 +53,7 @@ export const PipelineTemplateUpdateSchema = z.object({
   description: z.string().max(2000).optional(),
   keywords: z.array(z.string().max(64)).max(50).optional(),
   category: z.string().min(1).max(50).optional(),
-  accessModifier: AccessModifierSchema.optional(),
+  visibility: VisibilitySchema.optional(),
   props: z.record(z.string(), z.unknown()).optional(),
   inputs: z.array(TemplateInputSchema).max(100).optional(),
   isActive: BooleanQuerySchema.optional(),

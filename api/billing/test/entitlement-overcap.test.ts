@@ -35,7 +35,7 @@ const mockGet = jest.fn(async (path: string) => {
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createSafeClient: () => ({ get: mockGet, put: jest.fn() }),
+  createSafeClient: () => ({ get: mockGet, put: jest.fn(), destroy: () => undefined }),
   getServiceAuthHeader: jest.fn(() => 'Bearer svc'),
   setCounterEmitter: jest.fn(),
 }));

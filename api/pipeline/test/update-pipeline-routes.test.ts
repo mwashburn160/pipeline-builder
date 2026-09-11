@@ -34,8 +34,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   ValidationError: class ValidationError extends Error {},
   extractDbError: jest.fn(() => ({})),
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
-  resolveAccessModifier: jest.fn((_req: any, am?: string) => am || 'private'),
-  requirePublicAccess: jest.fn((_req: any, _res: any, _resource: any) => true),
+  resolveVisibility: jest.fn((_req: any, am?: string) => am || 'private'),
+  requireVisibilityWriteAccess: jest.fn((_req: any, _res: any, _resource: any) => true),
   pickDefined: jest.fn((obj: any) => {
     const result: any = {};
     for (const [k, v] of Object.entries(obj)) {
@@ -91,7 +91,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
-  AccessModifier: {},
   allowedScopeRoots: () => () => true,
   validateTemplates: () => ({ valid: true, errors: [] }),
   detectCycles: () => [],
@@ -99,7 +98,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   tokenize: () => [],
 }));
 
-const { sendBadRequest, validateBody, requirePublicAccess, sendEntityNotFound } = await import('@pipeline-builder/api-core');
+const { sendBadRequest, validateBody, requireVisibilityWriteAccess, sendEntityNotFound } = await import('@pipeline-builder/api-core');
 const { createUpdatePipelineRoutes } = await import('../src/routes/update-pipeline.js');
 
 // Helpers
@@ -118,7 +117,7 @@ const existingPipeline = {
   id: 'pipeline-uuid-1',
   pipelineName: 'test',
   orgId: 'org-1',
-  accessModifier: 'private',
+  visibility: 'private',
   isActive: true,
   isDefault: false,
 };
@@ -243,17 +242,17 @@ describe('PUT /pipelines/:id (update)', () => {
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
-  it('returns 403 when requirePublicAccess returns false', async () => {
+  it('returns 403 when requireVisibilityWriteAccess returns false', async () => {
     mockFindById.mockResolvedValue(existingPipeline);
-    (requirePublicAccess as jest.Mock).mockReturnValueOnce(false);
+    (requireVisibilityWriteAccess as jest.Mock).mockReturnValueOnce(false);
 
     const req = mockReq();
     const res = mockRes();
     await handler(req, res);
 
-    expect(requirePublicAccess).toHaveBeenCalledWith(req, res, existingPipeline, 'pipelines:publish');
-    // The route returns early when requirePublicAccess is false
-    // (requirePublicAccess itself sends the 403 response)
+    expect(requireVisibilityWriteAccess).toHaveBeenCalledWith(req, res, existingPipeline, 'user-1', 'pipelines:publish');
+    // The route returns early when requireVisibilityWriteAccess is false
+    // (requireVisibilityWriteAccess itself sends the 403 response)
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 

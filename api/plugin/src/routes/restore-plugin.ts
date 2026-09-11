@@ -37,7 +37,7 @@ export function createRestorePluginRoutes(): Router {
       details: {
         pluginName: restored.name,
         version: restored.version,
-        accessModifier: restored.accessModifier,
+        visibility: restored.visibility,
       },
     });
 

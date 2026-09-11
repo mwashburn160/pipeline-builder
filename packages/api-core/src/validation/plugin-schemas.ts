@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { z } from 'zod';
-import { BaseFilterSchema, BooleanQuerySchema, AccessModifierSchema, CatalogMetadataShape } from './common-schemas.js';
+import { BaseFilterSchema, BooleanQuerySchema, VisibilitySchema, CatalogMetadataShape } from './common-schemas.js';
 
 /**
  * Plugin filter schema for query parameters
@@ -26,7 +26,7 @@ export const PluginCreateSchema = z.object({
   orgId: z.string().min(1, 'Organization ID is required'),
   name: z.string().min(1, 'Plugin name is required'),
   version: z.string().min(1, 'Version is required'),
-  accessModifier: AccessModifierSchema.optional(),
+  visibility: VisibilitySchema.optional(),
   category: z.string().min(1).optional(),
   pluginType: z.string().optional(),
   computeType: z.string().optional(),
@@ -67,7 +67,7 @@ export const PluginUpdateSchema = z.object({
   commands: z.array(z.string()).optional(),
   isActive: BooleanQuerySchema.optional(),
   isDefault: BooleanQuerySchema.optional(),
-  accessModifier: AccessModifierSchema.optional(),
+  visibility: VisibilitySchema.optional(),
   timeout: z.number().int().positive().nullable().optional(),
   failureBehavior: z.enum(['fail', 'warn', 'ignore']).optional(),
   secrets: z.array(z.object({
@@ -81,5 +81,5 @@ export const PluginUpdateSchema = z.object({
  * Plugin upload body schema (multipart form-data text fields)
  */
 export const PluginUploadBodySchema = z.object({
-  accessModifier: AccessModifierSchema.optional(),
+  visibility: VisibilitySchema.optional(),
 });

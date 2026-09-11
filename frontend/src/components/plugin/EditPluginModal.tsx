@@ -15,7 +15,8 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import api from '@/lib/api';
 import { formatJSON, safeJSONParse } from '@/lib/constants';
-import { Plugin } from '@/types';
+import { Plugin, Visibility } from '@/types';
+import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 
 /** Props for the EditPluginModal component. */
 interface EditPluginModalProps {
@@ -50,7 +51,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
   const [timeout, setPluginTimeout] = useState<string>(plugin.timeout != null ? String(plugin.timeout) : '');
   const [failureBehavior, setFailureBehavior] = useState<'fail' | 'warn' | 'ignore'>(plugin.failureBehavior || 'fail');
   const [secrets, setSecrets] = useState(formatJSON(plugin.secrets || []));
-  const [accessModifier, setAccessModifier] = useState<'public' | 'private'>(plugin.accessModifier);
+  const [visibility, setVisibility] = useState<Visibility>(plugin.visibility);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const { execute: saveAsync, loading, error: saveError, clearError } = useAsyncCallback(
@@ -95,7 +96,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
     setPluginTimeout(fullPlugin.timeout != null ? String(fullPlugin.timeout) : '');
     setFailureBehavior(fullPlugin.failureBehavior || 'fail');
     setSecrets(formatJSON(fullPlugin.secrets || []));
-    setAccessModifier(fullPlugin.accessModifier);
+    setVisibility(fullPlugin.visibility);
   }, [fullPlugin]);
 
   // Resolved plugin data (fetched by ID, or fallback to list data)
@@ -143,7 +144,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
       commands: commands.split('\n').filter(c => c.trim()),
       isActive,
       isDefault,
-      accessModifier,
+      visibility,
       primaryOutputDirectory: primaryOutputDirectory.trim() || null,
       timeout: timeout.trim() ? parseInt(timeout, 10) : null,
       failureBehavior,
@@ -278,11 +279,8 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
           <div>
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Access & Status</h3>
             <div className="grid grid-cols-2 gap-4 mb-3">
-              <FormField label="Access Modifier" hint={!canPublish ? 'Changing access level requires the plugins:publish permission' : undefined}>
-                <Select value={accessModifier} onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')} className="disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500" disabled={loading || !canPublish}>
-                  <option value="private">Private</option>
-                  <option value="public">Public</option>
-                </Select>
+              <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish')}>
+                <VisibilitySelect value={visibility} onChange={setVisibility} canPublish={canPublish} disabled={loading} />
               </FormField>
             </div>
             <div className="flex items-center space-x-6">

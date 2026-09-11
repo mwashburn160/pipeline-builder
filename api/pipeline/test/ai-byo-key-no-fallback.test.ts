@@ -27,6 +27,9 @@ jest.unstable_mockModule('ai', () => ({
   generateText: mockGenerateText,
   streamText: mockStreamText,
   Output: { object: jest.fn((opts: any) => ({ type: 'object', schema: opts.schema })) },
+  tool: (def: unknown) => def,
+  generateObject: jest.fn(),
+  stepCountIs: jest.fn((n: number) => n),
 }));
 
 jest.unstable_mockModule('@ai-sdk/amazon-bedrock', () => ({

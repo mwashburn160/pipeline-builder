@@ -16,6 +16,7 @@ const mockSendEntityNotFound = jest.fn();
 const mockGetDoraMetrics = jest.fn<(...a: unknown[]) => Promise<any>>();
 const mockGetIncidentSettings = jest.fn<(...a: unknown[]) => Promise<any>>();
 const mockFindById = jest.fn<(...a: unknown[]) => Promise<any>>();
+const mockFindPaginated = jest.fn<(...a: unknown[]) => Promise<any>>();
 const mockIncrementQuota = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
@@ -35,6 +36,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createComplianceClient: () => ({
     dryRunPipeline: async () => ({ rulesEvaluated: 0, violations: [], warnings: [] }),
   }),
+  runConcurrent: async <T, R>(items: T[], _max: number, fn: (i: T) => Promise<R>) => Promise.all(items.map(fn)),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
@@ -45,7 +47,10 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
 }));
 
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
-  pipelineService: { findById: (...a: unknown[]) => mockFindById(...a) },
+  pipelineService: {
+    findById: (...a: unknown[]) => mockFindById(...a),
+    findPaginated: (...a: unknown[]) => mockFindPaginated(...a),
+  },
   toComplianceAttributes: (p: unknown) => p,
 }));
 
@@ -103,5 +108,50 @@ describe('GET /:id/scorecard', () => {
     await handler()({ params: { id: 'p1' } }, res());
     const [, , payload] = mockSendSuccess.mock.calls[0];
     expect(payload.scorecard.dora.deploymentFrequency).toBe('high');
+  });
+});
+
+describe('GET /scorecard (org-wide roll-up)', () => {
+  let router: any;
+  const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
+  const handler = () => {
+    const stack = router.stack.find((l: any) => l.route?.path === '/scorecard')?.route?.stack;
+    return stack[stack.length - 1].handle;
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetDoraMetrics.mockResolvedValue(sampleDora);
+    mockGetIncidentSettings.mockResolvedValue({ incidentWindowHours: null, defaultWindowHours: 24 });
+    router = createScorecardRoutes({} as any);
+  });
+
+  it('scores every org pipeline and returns a ranked leaderboard + aggregate stats', async () => {
+    mockFindPaginated.mockResolvedValue({
+      data: [{ id: 'p1', name: 'P1' }, { id: 'p2', name: 'P2' }],
+      hasMore: false, limit: 51, offset: 0,
+    });
+
+    await handler()({ params: {} }, res());
+
+    // One DORA compute per pipeline.
+    expect(mockGetDoraMetrics).toHaveBeenCalledTimes(2);
+    const [, , payload] = mockSendSuccess.mock.calls[0];
+    expect(payload.rollup.pipelineCount).toBe(2);
+    expect(payload.rollup.leaderboard).toHaveLength(2);
+    expect(payload.rollup.leaderboard.map((c: any) => c.name)).toEqual(expect.arrayContaining(['P1', 'P2']));
+    // Leaderboard is sorted score-desc.
+    const scores = payload.rollup.leaderboard.map((c: any) => c.score ?? -1);
+    expect(scores).toEqual([...scores].sort((a: number, b: number) => b - a));
+    expect(typeof payload.rollup.gradeDistribution).toBe('object');
+    expect(payload.rollup.truncated).toBe(false);
+  });
+
+  it('flags truncation when the org has more pipelines than the cap', async () => {
+    // hasMore true ⇒ the org exceeds the per-roll-up cap.
+    mockFindPaginated.mockResolvedValue({ data: [{ id: 'p1', name: 'P1' }], hasMore: true, limit: 51, offset: 0 });
+    await handler()({ params: {} }, res());
+    const [, , payload] = mockSendSuccess.mock.calls[0];
+    expect(payload.rollup.truncated).toBe(true);
   });
 });

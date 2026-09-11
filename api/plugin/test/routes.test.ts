@@ -174,8 +174,8 @@ describe('GET /plugins (list)', () => {
 
   it('returns paginated plugins', async () => {
     const plugins = [
-      { id: '1', name: 'lint', accessModifier: 'private' },
-      { id: '2', name: 'build', accessModifier: 'private' },
+      { id: '1', name: 'lint', visibility: 'private' },
+      { id: '2', name: 'build', visibility: 'private' },
     ];
     mockFindPaginated.mockResolvedValue({
       data: plugins,
@@ -199,7 +199,7 @@ describe('GET /plugins (list)', () => {
     }));
   });
 
-  it('does not inject accessModifier — service layer handles access scoping', async () => {
+  it('does not inject visibility — service layer handles access scoping', async () => {
     // Access control is enforced by AccessControlQueryBuilder in pluginService,
     // not by the route. The route forwards the caller's filter unchanged.
     mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
@@ -208,7 +208,7 @@ describe('GET /plugins (list)', () => {
     await handler(mockReq(), mockRes());
 
     expect(mockFindPaginated).toHaveBeenCalledWith(
-      expect.not.objectContaining({ accessModifier: 'private' }),
+      expect.not.objectContaining({ visibility: 'private' }),
       'org-1',
       expect.any(Object),
       // 4th arg: parentOrgId from the JWT (org → team inherited plugin visibility);
@@ -217,14 +217,14 @@ describe('GET /plugins (list)', () => {
     );
   });
 
-  it('does not force accessModifier for system admins', async () => {
+  it('does not force visibility for system admins', async () => {
     mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
 
     await handler(mockReq(), mockRes());
 
     expect(mockFindPaginated).toHaveBeenCalledWith(
-      expect.not.objectContaining({ accessModifier: 'private' }),
+      expect.not.objectContaining({ visibility: 'private' }),
       'org-1',
       expect.any(Object),
       // 4th arg: parentOrgId from the JWT (org → team inherited plugin visibility);
@@ -319,7 +319,7 @@ describe('GET /plugins/:id', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('returns a plugin by ID', async () => {
-    const plugin = { id: 'uuid-1', name: 'lint', accessModifier: 'private' };
+    const plugin = { id: 'uuid-1', name: 'lint', visibility: 'private' };
     mockFindById.mockResolvedValue(plugin);
 
     const req = mockReq({ params: { id: 'uuid-1' } });
@@ -346,7 +346,7 @@ describe('GET /plugins/:id', () => {
   });
 
   it('passes parentOrgId to findById so a team can fetch a parent public plugin', async () => {
-    mockFindById.mockResolvedValue({ id: 'uuid-1', name: 'shared', accessModifier: 'public' });
+    mockFindById.mockResolvedValue({ id: 'uuid-1', name: 'shared', visibility: 'public' });
 
     const req = mockReq({ params: { id: 'uuid-1' }, user: { parentOrganizationId: 'root-1' } });
     await handler(req, mockRes());
@@ -356,7 +356,7 @@ describe('GET /plugins/:id', () => {
   });
 
   it('passes undefined parentOrgId for a flat (root) org', async () => {
-    mockFindById.mockResolvedValue({ id: 'uuid-1', name: 'lint', accessModifier: 'private' });
+    mockFindById.mockResolvedValue({ id: 'uuid-1', name: 'lint', visibility: 'private' });
 
     const req = mockReq({ params: { id: 'uuid-1' } }); // no user.parentOrganizationId
     await handler(req, mockRes());
@@ -365,7 +365,7 @@ describe('GET /plugins/:id', () => {
   });
 
   it('allows non-admin to view public plugin (access control handled by service layer)', async () => {
-    const plugin = { id: 'uuid-1', name: 'shared', accessModifier: 'public' };
+    const plugin = { id: 'uuid-1', name: 'shared', visibility: 'public' };
     mockFindById.mockResolvedValue(plugin);
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
 
@@ -377,7 +377,7 @@ describe('GET /plugins/:id', () => {
   });
 
   it('allows system admin to view public plugin', async () => {
-    const plugin = { id: 'uuid-1', name: 'shared', accessModifier: 'public' };
+    const plugin = { id: 'uuid-1', name: 'shared', visibility: 'public' };
     mockFindById.mockResolvedValue(plugin);
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
 

@@ -5,18 +5,9 @@ import { useEffect, useState } from 'react';
 import { Gauge } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { useFeatures } from '@/hooks/useFeatures';
-import { doraLevelBadge } from '@/components/reports/ReportHelpers';
+import { doraLevelBadge, GRADE_STYLES } from '@/components/reports/ReportHelpers';
 import api from '@/lib/api';
 import type { PipelineScorecard, ScorecardDoraLevel } from '@/types';
-
-const GRADE_STYLES: Record<string, string> = {
-  A: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-  B: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300',
-  C: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
-  D: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
-  F: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
-  'N/A': 'bg-gray-100 text-gray-600 dark:bg-gray-700/40 dark:text-gray-300',
-};
 
 function Band({ label, level }: { label: string; level: ScorecardDoraLevel }) {
   const badge = doraLevelBadge(level);

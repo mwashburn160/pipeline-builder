@@ -649,6 +649,8 @@ const frontend = new FrontEndProject({
     'jest-environment-jsdom@30.4.1',
   ],
 });
+// Regenerate the in-app help topics from docs/*.md (single source of truth).
+frontend.addScripts({ 'generate:help': 'node scripts/generate-help.mjs' });
 if (frontend.jest) {
   frontend.jest.config.transform = { '^.+\\.tsx?$': ['ts-jest', { tsconfig: 'tsconfig.test.json', diagnostics: { ignoreCodes: [151002] } }] };
   frontend.jest.config.moduleNameMapper = {
@@ -738,6 +740,16 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     devDeps: ['@types/pg@8.20.3'],
   },
   {
+    // "Ask" agent: read-only conversational how-to grounded in docs/*.md (Phase 1),
+    // plus (later) write tools that forward the user's token to pipeline/plugin.
+    // Uses ai-core for model resolution + the grounding / answer-how-to core. No DB
+    // (v1 conversation is client-held) and no pipeline-data, so no pg/drizzle. The
+    // service image must bundle the repo's docs/*.md (grounding corpus; ASK_DOCS_DIR).
+    name: 'ask',
+    deps: [`@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.4.3'],
+    devDeps: [],
+  },
+  {
     name: 'compliance',
     deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.22.0', 'drizzle-orm@0.45.2', 'uuid@14.0.1', 'zod@4.4.3', 'bullmq@5.80.6'],
     devDeps: ['@types/pg@8.20.3'],
@@ -764,7 +776,22 @@ for (const svc of services) {
     deps: [...commonServiceDeps,...svc.deps],
     devDeps: [...commonServiceDevDeps,...(svc.devDeps ?? [])],
   });
-  project.addScripts(dockerScripts(svc.name));
+  const scripts = dockerScripts(svc.name);
+  if (svc.name === 'ask') {
+    // The ask image bundles the docs grounding corpus. buildx's context is the
+    // service dir, so stage the repo's docs/ into ./docs before the build (the
+    // leading rm clears a stale copy; ./docs is gitignored). The Dockerfile then
+    // `COPY docs/ /app/docs` and points ASK_DOCS_DIR at it.
+    const stageDocs = 'rm -rf docs && cp -R ../../docs docs';
+    project.addScripts({
+      ...scripts,
+      'docker:build': `${stageDocs}; ${scripts['docker:build']}`,
+      'docker:publish': `${stageDocs}; ${scripts['docker:publish']}`,
+    });
+    project.addGitIgnore('/docs/');
+  } else {
+    project.addScripts(scripts);
+  }
   project.eslint?.addRules(rules);
 }
 

@@ -17,7 +17,8 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import api from '@/lib/api';
-import { PipelineTemplate, BuilderProps, TemplateInput } from '@/types';
+import { PipelineTemplate, BuilderProps, TemplateInput, TemplateVisibility } from '@/types';
+import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import CollapsibleSection from './editors/CollapsibleSection';
 import { WIZARD_STEPS } from '@/lib/wizard-validation';
@@ -69,7 +70,7 @@ function buildInputs(rows: EditableInput[]): TemplateInput[] {
 interface EditTemplateModalProps {
   /** The template record to edit (may be partial; full data is fetched on mount). */
   template: PipelineTemplate;
-  /** `pipelines:publish` — required to change access to/from PUBLIC. */
+  /** `templates:publish` — required to change access to/from PUBLIC. */
   canPublish: boolean;
   /** Callback to close the modal. */
   onClose: () => void;
@@ -88,9 +89,7 @@ interface EditTemplateModalProps {
 export default function EditTemplateModal({ template, canPublish, onClose, onSaved }: EditTemplateModalProps) {
   const [name, setName] = useState(template.name);
   const [category, setCategory] = useState(template.category);
-  const [accessModifier, setAccessModifier] = useState<'public' | 'private'>(
-    template.accessModifier === 'public' ? 'public' : 'private',
-  );
+  const [visibility, setVisibility] = useState<TemplateVisibility>(template.visibility ?? 'private');
   const [inputs, setInputs] = useState<EditableInput[]>(toEditableInputs(template.inputs));
 
   const { execute: saveAsync, loading, error, clearError } = useAsyncCallback(
@@ -137,7 +136,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
     if (!fullTemplate) return;
     setName(fullTemplate.name);
     setCategory(fullTemplate.category);
-    setAccessModifier(fullTemplate.accessModifier === 'public' ? 'public' : 'private');
+    setVisibility(fullTemplate.visibility ?? 'private');
     setInputs(toEditableInputs(fullTemplate.inputs));
   }, [fullTemplate]);
 
@@ -236,7 +235,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
       description: desc,
       keywords: kw.split(',').map((k) => k.trim()).filter((k) => k),
       category: category.trim() || 'general',
-      accessModifier,
+      visibility,
       props: parsedProps,
       inputs: buildInputs(inputs),
     });
@@ -267,19 +266,15 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
       </div>
 
       <div>
-        <label className="label">Access Modifier</label>
-        <Select
-          value={accessModifier}
-          onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')}
-          className="disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500"
-          disabled={loading || !canPublish}
-        >
-          <option value="private">Private — your org catalog</option>
-          {(canPublish || accessModifier === 'public') && <option value="public">Public — shared with your org &amp; teams</option>}
-        </Select>
-        {!canPublish && (
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">You need the pipelines:publish permission to change the shared (public) access level</p>
-        )}
+        <label className="label" htmlFor="template-visibility">Visibility</label>
+        <VisibilitySelect
+          id="template-visibility"
+          value={visibility}
+          onChange={setVisibility}
+          canPublish={canPublish}
+          disabled={loading}
+        />
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{visibilityHint(canPublish, 'templates:publish')}</p>
       </div>
 
       {/* Inputs (parameters) — declared vars users fill in on instantiate. */}

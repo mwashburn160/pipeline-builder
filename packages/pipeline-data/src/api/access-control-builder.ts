@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AccessModifier, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { and, eq, or, sql, SQL } from 'drizzle-orm';
+import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { and, eq, ne, or, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 
 const FULL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -41,25 +41,87 @@ export function normalizeStringFilter(value: unknown): string {
 }
 
 /**
- * Schema table interface for access control queries
+ * Build an ID predicate with UUID prefix matching.
+ *
+ * - Full UUID → exact match
+ * - Partial UUID → prefix match via `LIKE` (a list-search affordance)
+ * - Absent → `null` (no predicate)
+ *
+ * Standalone so entities that DON'T use {@link AccessControlQueryBuilder}'s
+ * access control (e.g. pipeline templates, which carry their own three-rung
+ * visibility ladder) still share one id-matching implementation.
+ */
+export function buildIdCondition(idColumn: AnyColumn, id: unknown): SQL | null {
+  if (id === undefined || id === null) return null;
+
+  const idString = String(id).toLowerCase();
+  if (FULL_UUID.test(idString)) {
+    return eq(idColumn, idString);
+  }
+  // Escape SQL LIKE wildcards to prevent wildcard injection
+  const escaped = escapeLikeWildcards(idString);
+  return sql`${idColumn}::text LIKE ${escaped + '%'} ESCAPE '\\'`;
+}
+
+/**
+ * Build the `isDefault` / `isActive` predicates shared by every catalog entity.
+ * `isActive` defaults to true so soft-deleted rows stay out of normal reads.
+ * Standalone for the same reason as {@link buildIdCondition}.
+ */
+export function buildBooleanConditions(
+  columns: { isDefault: AnyColumn; isActive: AnyColumn },
+  filter: { isDefault?: unknown; isActive?: unknown },
+): SQL[] {
+  const conditions: SQL[] = [];
+
+  if (filter.isDefault !== undefined) {
+    conditions.push(eq(columns.isDefault, parseBooleanFilter(filter.isDefault)));
+  }
+
+  if (filter.isActive !== undefined) {
+    conditions.push(eq(columns.isActive, parseBooleanFilter(filter.isActive)));
+  } else {
+    // Default to active records only to exclude soft-deleted entities
+    conditions.push(eq(columns.isActive, true));
+  }
+
+  return conditions;
+}
+
+/**
+ * Schema table interface for access control queries. Every catalog entity
+ * carries the same five columns, which is what lets ONE predicate serve
+ * pipelines, plugins and templates alike.
  */
 export interface AccessControlSchema {
   id: AnyColumn;
   orgId: AnyColumn;
-  accessModifier: AnyColumn;
+  /** Three-rung sharing ladder — see api-core's `Visibility`. */
+  visibility: AnyColumn;
+  /** Author. Owns the `private` rung. */
+  createdBy: AnyColumn;
   isDefault: AnyColumn;
   isActive: AnyColumn;
 }
 
 /**
- * Base filter interface with common access control fields
+ * Base filter interface with common access control fields.
+ *
+ * `viewerUserId` / `viewerIsSuperAdmin` are SERVER-SET (stamped from the request's
+ * tenant context by `withViewerContext`), never client-supplied — see
+ * `viewer-context.ts` for why the tenant context is the channel.
  */
 export interface BaseAccessFilter {
   id?: string | string[];
-  accessModifier?: string;
+  visibility?: string;
   isDefault?: boolean | string;
   isActive?: boolean | string;
+  viewerUserId?: string;
+  viewerIsSuperAdmin?: boolean;
 }
+
+/** Fail-closed predicate: matches no rows. */
+const NO_ROWS: SQL = sql`false`;
 
 /**
  * Generic access control query builder for multi-tenant entities.
@@ -82,20 +144,28 @@ export class AccessControlQueryBuilder<
   ) {}
 
   /**
-   * Build access control conditions based on orgId and accessModifier filter.
+   * Build the caller's visible slice of a catalog, from the three-rung
+   * `visibility` ladder shared by every catalog entity.
    *
-   * Without orgId (anonymous):
-   *   orgId='system' AND accessModifier='public'
+   * Effective read set for a caller in org `O` as user `V` whose parent org is `P`:
    *
-   * With orgId:
-   *   - accessModifier='private': orgId=$org AND accessModifier='private'
-   *   - accessModifier='public':  orgId=$org AND accessModifier='public'
-   *   - no accessModifier:        orgId=$org (any access modifier)
-   *                               OR (accessModifier='public' AND (orgId='system' OR orgId=$parent))
+   *   (org_id = O AND (visibility <> 'private' OR created_by = V))
+   *   OR (visibility = 'public' AND (org_id = 'system' OR org_id = P))
    *
-   * `parentOrgId` (org → team hierarchy) widens the default catalog view so a
-   * team org also sees its parent's public records. Absent for root orgs, so
-   * the condition is unchanged for non-team callers.
+   * i.e. your own org's shared rungs plus your own drafts, widened by the system
+   * org's public catalog (the standing "system-org content is visible from every
+   * org" rule) and — for a team — its parent's public rows. The `public`-only
+   * restriction applies solely to those OTHER orgs' rows; within your own org you
+   * always see everything you are entitled to, or a freshly-created private row
+   * would vanish from its own author's listing.
+   *
+   * An explicit `visibility` filter NARROWS within that set, never widens it —
+   * so `?visibility=public` still surfaces the system-org catalog.
+   *
+   * Fails CLOSED on both axes: no `orgId` (anonymous) ⇒ system-org public only;
+   * no `viewerUserId` ⇒ the private rung matches nothing rather than everything.
+   * `viewerIsSuperAdmin` lifts the private rung only — a platform operator
+   * administers the whole catalog.
    *
    * @param filter - Filter criteria
    * @param orgId - User's organization ID (optional)
@@ -104,51 +174,34 @@ export class AccessControlQueryBuilder<
    */
   protected buildAccessControl(filter: Partial<TFilter>, orgId?: string, parentOrgId?: string): SQL[] {
     const conditions: SQL[] = [];
+    const requested = filter.visibility;
 
     if (!orgId) {
-      // No org context — only system org's public records
+      // No org context — only the system org's public catalog.
       conditions.push(eq(this.schema.orgId, SYSTEM_ORG_ID));
-      conditions.push(eq(this.schema.accessModifier, AccessModifier.PUBLIC));
+      conditions.push(eq(this.schema.visibility, 'public'));
+      // An anonymous caller asking for a narrower rung gets nothing, rather than
+      // having the narrowing silently ignored.
+      if (requested !== undefined && requested !== 'public') conditions.push(NO_ROWS);
       return conditions;
     }
 
     const normalizedOrgId = orgId.toLowerCase();
-    const accessModifier = filter.accessModifier as string | undefined;
 
-    if (accessModifier !== undefined) {
-      const normalized = typeof accessModifier === 'string'
-        ? accessModifier.toLowerCase()
-        : String(accessModifier).toLowerCase();
-      if (normalized === AccessModifier.PUBLIC) {
-        // Explicit "public" filter must STILL surface the system org's (and parent
-        // org's) public content — the standing rule that orgId='system' samples are
-        // visible from any org. Scoping to the caller's own org alone would hide them.
-        const ownPublic = and(eq(this.schema.orgId, normalizedOrgId), eq(this.schema.accessModifier, AccessModifier.PUBLIC))!;
-        const otherOrgScopes = [eq(this.schema.orgId, SYSTEM_ORG_ID)];
-        if (parentOrgId) otherOrgScopes.push(eq(this.schema.orgId, parentOrgId.toLowerCase()));
-        const otherOrgsPublic = and(eq(this.schema.accessModifier, AccessModifier.PUBLIC), or(...otherOrgScopes)!)!;
-        conditions.push(or(ownPublic, otherOrgsPublic)!);
-      } else {
-        // Explicit non-public (e.g. private): you can only ever see your own org's rows.
-        conditions.push(eq(this.schema.orgId, normalizedOrgId));
-        conditions.push(eq(this.schema.accessModifier, normalized));
-      }
-    } else {
-      // Default catalog view: ALL of the caller's own-org records (any access
-      // modifier — you always see what you own, including private), PLUS the
-      // PUBLIC records of the system org and the parent org (team → parent
-      // inheritance). The public restriction applies only to those other orgs'
-      // rows, never to your own — otherwise a freshly uploaded private plugin
-      // would vanish from its owner's own listing.
-      const ownOrg = eq(this.schema.orgId, normalizedOrgId);
-      const otherOrgScopes = [eq(this.schema.orgId, SYSTEM_ORG_ID)];
-      if (parentOrgId) otherOrgScopes.push(eq(this.schema.orgId, parentOrgId.toLowerCase()));
-      const otherOrgsPublic = and(
-        eq(this.schema.accessModifier, AccessModifier.PUBLIC),
-        or(...otherOrgScopes)!,
-      )!;
-      conditions.push(or(ownOrg, otherOrgsPublic)!);
-    }
+    // Own-org rows: everything EXCEPT other people's private drafts.
+    const ownDraftsOnly = filter.viewerUserId ? eq(this.schema.createdBy, filter.viewerUserId) : NO_ROWS;
+    const ownOrg = filter.viewerIsSuperAdmin
+      ? eq(this.schema.orgId, normalizedOrgId)
+      : and(eq(this.schema.orgId, normalizedOrgId), or(ne(this.schema.visibility, 'private'), ownDraftsOnly)!)!;
+
+    // Rows from OTHER orgs are only ever visible at the `public` rung.
+    const otherOrgScopes = [eq(this.schema.orgId, SYSTEM_ORG_ID)];
+    if (parentOrgId) otherOrgScopes.push(eq(this.schema.orgId, parentOrgId.toLowerCase()));
+    const otherOrgsPublic = and(eq(this.schema.visibility, 'public'), or(...otherOrgScopes)!)!;
+
+    conditions.push(or(ownOrg, otherOrgsPublic)!);
+
+    if (requested !== undefined) conditions.push(eq(this.schema.visibility, requested));
 
     return conditions;
   }
@@ -163,16 +216,7 @@ export class AccessControlQueryBuilder<
    * @returns SQL condition or null if no ID filter
    */
   protected buildIdFilter(id: unknown): SQL | null {
-    if (id === undefined || id === null) return null;
-
-    const idString = String(id).toLowerCase();
-    if (FULL_UUID.test(idString)) {
-      return eq(this.schema.id, idString);
-    } else {
-      // Escape SQL LIKE wildcards to prevent wildcard injection
-      const escaped = escapeLikeWildcards(idString);
-      return sql`${this.schema.id}::text LIKE ${escaped + '%'} ESCAPE '\\'`;
-    }
+    return buildIdCondition(this.schema.id, id);
   }
 
   /**
@@ -182,20 +226,7 @@ export class AccessControlQueryBuilder<
    * @returns Array of SQL conditions for boolean fields
    */
   protected buildBooleanFilters(filter: Partial<TFilter>): SQL[] {
-    const conditions: SQL[] = [];
-
-    if (filter.isDefault !== undefined) {
-      conditions.push(eq(this.schema.isDefault, parseBooleanFilter(filter.isDefault)));
-    }
-
-    if (filter.isActive !== undefined) {
-      conditions.push(eq(this.schema.isActive, parseBooleanFilter(filter.isActive)));
-    } else {
-      // Default to active records only to exclude soft-deleted entities
-      conditions.push(eq(this.schema.isActive, true));
-    }
-
-    return conditions;
+    return buildBooleanConditions(this.schema, filter);
   }
 
   /**
@@ -211,7 +242,7 @@ export class AccessControlQueryBuilder<
   public buildCommonConditions(filter: Partial<TFilter>, orgId?: string, parentOrgId?: string): SQL[] {
     const conditions: SQL[] = [];
 
-    // Access control (multi-tenant) — handles accessModifier internally
+    // Access control (multi-tenant) — handles visibility internally
     conditions.push(...this.buildAccessControl(filter, orgId, parentOrgId));
 
     // ID filter with prefix matching

@@ -62,8 +62,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => {
       sortBy: 'createdAt',
       sortOrder: 'desc',
     })),
-    requirePublicAccess: jest.fn((req: any, res: any, resource: any) => {
-      if (!mockIsSystemAdmin(req) && resource.accessModifier !== 'private') {
+    requireVisibilityWriteAccess: jest.fn((req: any, res: any, resource: any) => {
+      if (!mockIsSystemAdmin(req) && resource.visibility !== 'private') {
         res.status(404).json({ success: false, statusCode: 404, message: 'Pipeline not found.' });
         return false;
       }
@@ -168,8 +168,8 @@ describe('GET /pipelines (list)', () => {
 
   it('returns paginated pipelines', async () => {
     const pipelines = [
-      { id: '1', pipelineName: 'build', accessModifier: 'private' },
-      { id: '2', pipelineName: 'deploy', accessModifier: 'private' },
+      { id: '1', pipelineName: 'build', visibility: 'private' },
+      { id: '2', pipelineName: 'deploy', visibility: 'private' },
     ];
     mockFindPaginated.mockResolvedValue({
       data: pipelines,
@@ -193,7 +193,7 @@ describe('GET /pipelines (list)', () => {
     }));
   });
 
-  it('does not inject accessModifier — service layer handles access scoping', async () => {
+  it('does not inject visibility — service layer handles access scoping', async () => {
     // Access control is enforced by AccessControlQueryBuilder in pipelineService,
     // not by the route. The route forwards the caller's filter unchanged.
     mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
@@ -204,21 +204,21 @@ describe('GET /pipelines (list)', () => {
     // 4th arg is parentOrgId (org → team hierarchy widening); undefined for a
     // root-org caller (no `parentOrganizationId` claim).
     expect(mockFindPaginated).toHaveBeenCalledWith(
-      expect.not.objectContaining({ accessModifier: 'private' }),
+      expect.not.objectContaining({ visibility: 'private' }),
       'org-1',
       expect.any(Object),
       undefined,
     );
   });
 
-  it('does not force accessModifier for system admins', async () => {
+  it('does not force visibility for system admins', async () => {
     mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
 
     await handler(mockReq(), mockRes());
 
     expect(mockFindPaginated).toHaveBeenCalledWith(
-      expect.not.objectContaining({ accessModifier: 'private' }),
+      expect.not.objectContaining({ visibility: 'private' }),
       'org-1',
       expect.any(Object),
       undefined,
@@ -337,7 +337,7 @@ describe('GET /pipelines/:id', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('returns a pipeline by ID', async () => {
-    const pipeline = { id: 'uuid-1', pipelineName: 'build', accessModifier: 'private' };
+    const pipeline = { id: 'uuid-1', pipelineName: 'build', visibility: 'private' };
     mockFindById.mockResolvedValue(pipeline);
 
     const req = mockReq({ params: { id: 'uuid-1' } });
@@ -364,7 +364,7 @@ describe('GET /pipelines/:id', () => {
   });
 
   it('forwards parentOrganizationId to findById (org → team widening)', async () => {
-    mockFindById.mockResolvedValue({ id: 'uuid-1', pipelineName: 'build', accessModifier: 'private' });
+    mockFindById.mockResolvedValue({ id: 'uuid-1', pipelineName: 'build', visibility: 'private' });
 
     await handler(mockReq({ params: { id: 'uuid-1' }, user: { parentOrganizationId: 'parent-org' } }), mockRes());
 
@@ -373,10 +373,10 @@ describe('GET /pipelines/:id', () => {
   });
 
   it('lets a non-admin view a visible public/system pipeline (findById enforces visibility; no public-access gate on reads)', async () => {
-    // Regression: GET /:id previously applied requirePublicAccess, which blocked
-    // non-admins from the system-org sample pipelines that list returns. findById's
+    // Regression: GET /:id previously applied requireVisibilityWriteAccess, which blocked
+    // non-admins from the system-org public pipelines that list returns. findById's
     // read clause already scopes visibility, so any returned row is viewable.
-    const pipeline = { id: 'uuid-1', pipelineName: 'shared', accessModifier: 'public' };
+    const pipeline = { id: 'uuid-1', pipelineName: 'shared', visibility: 'public' };
     mockFindById.mockResolvedValue(pipeline);
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
 
@@ -388,7 +388,7 @@ describe('GET /pipelines/:id', () => {
   });
 
   it('allows system admin to view public pipeline', async () => {
-    const pipeline = { id: 'uuid-1', pipelineName: 'shared', accessModifier: 'public' };
+    const pipeline = { id: 'uuid-1', pipelineName: 'shared', visibility: 'public' };
     mockFindById.mockResolvedValue(pipeline);
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
 

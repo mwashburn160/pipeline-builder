@@ -79,9 +79,12 @@ CREATE TABLE IF NOT EXISTS plugins (    -- Identity & Audit Fields
     labels JSONB NOT NULL DEFAULT '{}',
     links JSONB NOT NULL DEFAULT '[]',
 
-    -- Access Control & Status
-    access_modifier VARCHAR(10) NOT NULL DEFAULT 'private'
-                        CHECK (access_modifier IN ('public', 'private')),
+    -- Access Control & Status. The shared three-rung sharing ladder:
+    --   private — only the author (created_by) sees or edits it
+    --   org     — everyone in the owning org sees it
+    --   public  — the org and its teams; from the system org, every org
+    visibility VARCHAR(10) NOT NULL DEFAULT 'private'
+                        CHECK (visibility IN ('private', 'org', 'public')),
     is_default BOOLEAN NOT NULL DEFAULT false,
     is_active BOOLEAN NOT NULL DEFAULT true,
 
@@ -119,9 +122,12 @@ CREATE TABLE IF NOT EXISTS pipelines (    -- Identity & Audit Fields
     labels JSONB NOT NULL DEFAULT '{}',
     links JSONB NOT NULL DEFAULT '[]',
 
-    -- Access Control & Status
-    access_modifier VARCHAR(10) NOT NULL DEFAULT 'private'
-                        CHECK (access_modifier IN ('public', 'private')),
+    -- Access Control & Status. The shared three-rung sharing ladder:
+    --   private — only the author (created_by) sees or edits it
+    --   org     — everyone in the owning org sees it
+    --   public  — the org and its teams; from the system org, every org
+    visibility VARCHAR(10) NOT NULL DEFAULT 'private'
+                        CHECK (visibility IN ('private', 'org', 'public')),
     is_default BOOLEAN NOT NULL DEFAULT false,
     is_active BOOLEAN NOT NULL DEFAULT true,
 
@@ -160,9 +166,13 @@ CREATE TABLE IF NOT EXISTS pipeline_templates (
     labels JSONB NOT NULL DEFAULT '{}',
     links JSONB NOT NULL DEFAULT '[]',
 
-    -- Access Control & Status
-    access_modifier VARCHAR(10) NOT NULL DEFAULT 'private'
-                        CHECK (access_modifier IN ('public', 'private')),
+    -- Access Control & Status. The shared three-rung sharing ladder:
+    --   private — only the author (created_by) sees or edits it
+    --   org     — everyone in the owning org sees it
+    --   public  — shared beyond the org (parent org's teams; the system org's
+    --             public templates are the golden-path catalog every org sees)
+    visibility VARCHAR(10) NOT NULL DEFAULT 'private'
+                        CHECK (visibility IN ('private', 'org', 'public')),
     is_default BOOLEAN NOT NULL DEFAULT false,
     is_active BOOLEAN NOT NULL DEFAULT true,
 
@@ -174,7 +184,9 @@ CREATE TABLE IF NOT EXISTS pipeline_templates (
 CREATE INDEX IF NOT EXISTS pipeline_template_org_id_idx ON pipeline_templates(org_id);
 CREATE INDEX IF NOT EXISTS pipeline_template_active_idx ON pipeline_templates(is_active);
 CREATE INDEX IF NOT EXISTS pipeline_template_category_idx ON pipeline_templates(category);
-CREATE INDEX IF NOT EXISTS pipeline_template_org_access_active_idx ON pipeline_templates(org_id, access_modifier, is_active);
+CREATE INDEX IF NOT EXISTS pipeline_template_org_visibility_active_idx ON pipeline_templates(org_id, visibility, is_active);
+-- Drives the "my private drafts" leg of the visibility predicate.
+CREATE INDEX IF NOT EXISTS pipeline_template_created_by_idx ON pipeline_templates(org_id, created_by);
 CREATE INDEX IF NOT EXISTS pipeline_template_owner_idx ON pipeline_templates(org_id, owner_id);
 CREATE INDEX IF NOT EXISTS pipeline_template_lifecycle_idx ON pipeline_templates(org_id, lifecycle);
 CREATE UNIQUE INDEX IF NOT EXISTS pipeline_template_name_org_unique ON pipeline_templates(name, org_id);
@@ -220,9 +232,10 @@ CREATE TABLE IF NOT EXISTS messages (    -- Identity & Audit Fields
     priority VARCHAR(20) NOT NULL DEFAULT 'normal'
                         CHECK (priority IN ('normal', 'high', 'urgent')),
 
-    -- Access Control & Status
-    access_modifier VARCHAR(10) NOT NULL DEFAULT 'private'
-                        CHECK (access_modifier IN ('public', 'private')),
+    -- Messages carry NO sharing rung: visibility is the bespoke sender /
+    -- recipient / broadcast predicate (plus per-user recipient_user_id
+    -- narrowing) in buildMessageConditions. The sharing column this replaced
+    -- was written as a hardcoded 'private' and never read.
     is_default BOOLEAN NOT NULL DEFAULT false,
     is_active BOOLEAN NOT NULL DEFAULT true,
 
@@ -578,8 +591,8 @@ CREATE INDEX IF NOT EXISTS idx_plugins_name
 CREATE INDEX IF NOT EXISTS idx_plugins_name_version
     ON plugins(name, version) WHERE deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_plugins_access_modifier
-    ON plugins(access_modifier) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_plugins_visibility
+    ON plugins(visibility) WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_plugins_is_default
     ON plugins(name, is_default) WHERE is_default = true AND deleted_at IS NULL;
@@ -592,8 +605,12 @@ CREATE INDEX IF NOT EXISTS idx_plugins_is_active
 
 
 -- Plugins composite indexes (matching Drizzle schema)
-CREATE INDEX IF NOT EXISTS plugin_org_access_idx
-    ON plugins(org_id, access_modifier);
+CREATE INDEX IF NOT EXISTS plugin_org_visibility_active_idx
+    ON plugins(org_id, visibility, is_active);
+
+-- Drives the "my private drafts" leg of the visibility predicate.
+CREATE INDEX IF NOT EXISTS plugin_created_by_idx
+    ON plugins(org_id, created_by);
 
 CREATE INDEX IF NOT EXISTS idx_plugins_org_created
     ON plugins(org_id, created_at DESC) WHERE deleted_at IS NULL;
@@ -625,8 +642,8 @@ CREATE INDEX IF NOT EXISTS idx_pipelines_organization
 CREATE INDEX IF NOT EXISTS idx_pipelines_project_org
     ON pipelines(project, organization) WHERE deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_pipelines_access_modifier
-    ON pipelines(access_modifier) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_pipelines_visibility
+    ON pipelines(visibility) WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_pipelines_is_default
     ON pipelines(project, organization, is_default)
@@ -636,8 +653,12 @@ CREATE INDEX IF NOT EXISTS idx_pipelines_is_active
     ON pipelines(is_active) WHERE deleted_at IS NULL;
 
 -- Pipelines composite indexes (matching Drizzle schema)
-CREATE INDEX IF NOT EXISTS pipeline_org_access_idx
-    ON pipelines(org_id, access_modifier);
+CREATE INDEX IF NOT EXISTS pipeline_org_visibility_active_idx
+    ON pipelines(org_id, visibility, is_active);
+
+-- Drives the "my private drafts" leg of the visibility predicate.
+CREATE INDEX IF NOT EXISTS pipeline_created_by_idx
+    ON pipelines(org_id, created_by);
 
 CREATE INDEX IF NOT EXISTS idx_pipelines_org_created
     ON pipelines(org_id, created_at DESC) WHERE deleted_at IS NULL;
@@ -902,7 +923,6 @@ CREATE TABLE IF NOT EXISTS compliance_policies (    id UUID PRIMARY KEY DEFAULT 
     version VARCHAR(50) NOT NULL DEFAULT '1.0.0',
     is_template BOOLEAN NOT NULL DEFAULT false,
 
-    access_modifier VARCHAR(10) NOT NULL DEFAULT 'private',
     is_default BOOLEAN NOT NULL DEFAULT false,
     is_active BOOLEAN NOT NULL DEFAULT true,
     deleted_at TIMESTAMPTZ,
@@ -953,7 +973,6 @@ CREATE TABLE IF NOT EXISTS compliance_rules (    id UUID PRIMARY KEY DEFAULT gen
     conditions JSONB,
     condition_mode VARCHAR(5) DEFAULT 'all',
 
-    access_modifier VARCHAR(10) NOT NULL DEFAULT 'private',
     is_default BOOLEAN NOT NULL DEFAULT false,
     is_active BOOLEAN NOT NULL DEFAULT true,
     deleted_at TIMESTAMPTZ,

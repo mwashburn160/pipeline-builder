@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, requirePublicAccess, sendBadRequest, sendSuccess, sendEntityNotFound } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, requireVisibilityWriteAccess, sendBadRequest, sendSuccess, sendEntityNotFound } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { emitPipelineAudit } from '../services/audit.js';
@@ -27,8 +27,9 @@ export function createDeletePipelineRoutes(): Router {
 
     if (!existing) return sendEntityNotFound(res, 'Pipeline');
 
-    // System admins or publish-permission holders can delete non-private (public) pipelines
-    if (!requirePublicAccess(req, res, existing, 'pipelines:publish')) return;
+    // Visibility ladder: `pipelines:publish` for a public pipeline, authorship
+    // for a private one, plain `pipelines:write` (already checked) for an org one.
+    if (!requireVisibilityWriteAccess(req, res, existing, userId, 'pipelines:publish')) return;
 
     // The delete write is pinned to the caller's org, so a public/system-org
     // sample the read surfaced matches zero rows → returns falsy. Don't report a
@@ -47,7 +48,7 @@ export function createDeletePipelineRoutes(): Router {
       targetId: id,
       details: {
         pipelineName: existing.pipelineName,
-        accessModifier: existing.accessModifier,
+        visibility: existing.visibility,
       },
     });
 

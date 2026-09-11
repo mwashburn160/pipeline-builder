@@ -3,7 +3,7 @@
 
 import { createCacheService } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
-import { CrudService, schema, withTenantTx, buildMessageConditions, type CrudTx, type MessageFilter, type PaginatedResult, type QueryOptions } from '@pipeline-builder/pipeline-data';
+import { CrudService, schema, withTenantTx, buildMessageConditions, currentViewerUserId, withViewerContext, type CrudTx, type MessageFilter, type PaginatedResult, type QueryOptions } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, or, sql, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -29,8 +29,17 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
     return schema.message as PgTable;
   }
 
+  /**
+   * Every read and write funnels through here, so this is the ONE place the
+   * viewer has to be stamped for per-user targeting to resolve. It replaces the
+   * viewer arguments that used to be hand-threaded through `findVisibleById` /
+   * `findThreadMessages` / `findInboxPaginated` / `getUnreadCount` — a scheme
+   * that failed open at whichever call site forgot the argument (and two did:
+   * the post-mark-read unread counts in update-message.ts counted rows targeted
+   * at OTHER users in the org). See `withViewerContext`.
+   */
   protected buildConditions(filter: Partial<MessageFilter>, orgId: string): SQL[] {
-    return buildMessageConditions(filter, orgId);
+    return buildMessageConditions(withViewerContext(filter), orgId);
   }
 
   protected getSortColumn(sortBy: string): AnyColumn | null {
@@ -109,30 +118,26 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
   /**
    * Get all reply messages in a thread (excludes the root message).
    *
+   * The viewer is stamped by `buildConditions`, so a reply targeted at one user
+   * is not returned to their colleagues.
+   *
    * @param threadId - ID of the root message
    * @param orgId - Organization ID for access control
    * @returns Array of reply messages in the thread
    */
-  async findThreadMessages(threadId: string, orgId: string, viewerUserId?: string): Promise<Message[]> {
-    return this.find(
-      { threadId, isActive: true, ...(viewerUserId ? { viewerUserId } : {}) } as Partial<MessageFilter>,
-      orgId,
-    );
+  async findThreadMessages(threadId: string, orgId: string): Promise<Message[]> {
+    return this.find({ threadId, isActive: true } as Partial<MessageFilter>, orgId);
   }
 
   /**
-   * Get a single visible message by id for a specific viewer. Mirrors
-   * `findById` but threads the viewer's `userId` through the shared
-   * `buildMessageConditions` so a per-user targeted message is returned only to
-   * its target (plus the sender org / system org) — a bare `findById(id, orgId)`
-   * would otherwise hand any member of the recipient org a message addressed to
-   * one specific user. Returns null when not visible / not found / inactive.
+   * Get a single visible message by id. Mirrors `findById` but pins
+   * `isActive: true`, so a soft-deleted row is never returned. The per-user
+   * visibility scope now comes from `buildConditions` like every other path —
+   * a message targeted at one user reaches only its target (plus the sender org
+   * and the system org). Returns null when not visible / not found / inactive.
    */
-  async findVisibleById(id: string, orgId: string, viewerUserId?: string): Promise<Message | null> {
-    const [message] = await this.find(
-      { id, isActive: true, ...(viewerUserId ? { viewerUserId } : {}) } as Partial<MessageFilter>,
-      orgId,
-    );
+  async findVisibleById(id: string, orgId: string): Promise<Message | null> {
+    const [message] = await this.find({ id, isActive: true } as Partial<MessageFilter>, orgId);
     return (message as Message) ?? null;
   }
 
@@ -155,27 +160,33 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
     orgId: string,
     messageType: 'announcement' | 'conversation',
     options: QueryOptions = {},
-    viewerUserId?: string,
   ): Promise<PaginatedResult<Message>> {
     const filter: Partial<MessageFilter> = {
       isActive: true,
       threadId: null, // SQL-level IS NULL — root messages only
       messageType,
-      ...(viewerUserId ? { viewerUserId } : {}),
     };
     return this.findPaginated(filter, orgId, options);
   }
 
   /**
    * Per-page cache key so distinct pages/sorts don't collide or over-cache.
-   * `viewerUserId` is part of the key because per-user targeted conversations
-   * make a page VIEWER-SPECIFIC — without it, user A's cached conversations page
-   * (which may include a message targeted only at A) could be served to user B
-   * in the same org. Announcements are org-wide (never user-targeted), so their
-   * key leaves the viewer segment empty and stays shared per-org.
+   *
+   * The viewer segment is LOAD-BEARING: per-user targeted conversations make a
+   * page viewer-specific, so without it user A's cached page (which may include
+   * a message targeted only at A) would be served to user B in the same org.
+   * Announcements are org-wide (never user-targeted), so their key leaves the
+   * segment empty and stays shared per-org.
+   *
+   * It reads `currentViewerUserId()` — the SAME tenant-context source
+   * `buildConditions` stamps the predicate from — precisely so the key and the
+   * query can never disagree about who is asking. Deriving the key from a
+   * separately-passed argument is what would make that divergence possible, and
+   * a divergence here is a cross-user read, not just a stale page.
    */
-  private inboxCacheKey(orgId: string, view: 'announcements' | 'conversations', o: QueryOptions, viewerUserId?: string): string {
-    return `${orgId}:${view}:${viewerUserId ?? ''}:${o.limit ?? ''}:${o.offset ?? ''}:${o.sortBy ?? ''}:${o.sortOrder ?? ''}`;
+  private inboxCacheKey(orgId: string, view: 'announcements' | 'conversations', o: QueryOptions): string {
+    const viewer = view === 'conversations' ? currentViewerUserId() ?? '' : '';
+    return `${orgId}:${view}:${viewer}:${o.limit ?? ''}:${o.offset ?? ''}:${o.sortBy ?? ''}:${o.sortOrder ?? ''}`;
   }
 
   /**
@@ -199,10 +210,10 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    * @param options - Pagination + sort options
    * @returns Paginated page of conversation root messages
    */
-  async findConversations(orgId: string, options: QueryOptions = {}, viewerUserId?: string): Promise<PaginatedResult<Message>> {
+  async findConversations(orgId: string, options: QueryOptions = {}): Promise<PaginatedResult<Message>> {
     return messageCache.getOrSet(
-      this.inboxCacheKey(orgId, 'conversations', options, viewerUserId),
-      () => this.findInboxPaginated(orgId, 'conversation', options, viewerUserId),
+      this.inboxCacheKey(orgId, 'conversations', options),
+      () => this.findInboxPaginated(orgId, 'conversation', options),
     );
   }
 
@@ -234,9 +245,9 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         // rows here (404 on markAsRead / wrong unread count). Routing through the
         // builder keeps read + write visibility identical. `isActive:true` blocks
         // stamping readBy on a soft-deleted row, matching markThreadAsRead/getUnreadCount.
-        // `viewerUserId` scopes per-user targeted rows to their target — a member
-        // can't mark-read a message addressed to a different user in their org.
-        ...this.buildConditions({ id, isActive: true, viewerUserId: userId } as Partial<MessageFilter>, orgId),
+        // The stamped viewer scopes per-user targeted rows to their target — a
+        // member can't mark-read a message addressed to a different user.
+        ...this.buildConditions({ id, isActive: true } as Partial<MessageFilter>, orgId),
         sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId})`,
       ))
       .returning());
@@ -254,10 +265,11 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       .select()
       .from(schema.message)
       .where(and(
-        // Same shared participant+isActive+id predicate as the update above, so
-        // a message not visible to this org reads as not-found and a soft-deleted
-        // one stays non-returnable (parity keeps idempotent re-marks correct).
-        ...this.buildConditions({ id, isActive: true, viewerUserId: userId } as Partial<MessageFilter>, orgId),
+        // Same shared participant+isActive+id predicate as the update above (the
+        // viewer included, via the stamp), so a message not visible to this org
+        // or user reads as not-found and a soft-deleted one stays non-returnable
+        // — parity keeps idempotent re-marks correct.
+        ...this.buildConditions({ id, isActive: true } as Partial<MessageFilter>, orgId),
       ))
       .limit(1));
     return (existing as Message) ?? null;
@@ -318,8 +330,8 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         // scoped to the thread. Replaces the divergent hand-rolled
         // or(orgId,recipientOrgId,'*') so the system support org can mark a
         // cross-org thread read rather than silently matching zero rows.
-        // `viewerUserId` keeps per-user targeted rows scoped to their target.
-        ...this.buildConditions({ threadId, isActive: true, viewerUserId: userId } as Partial<MessageFilter>, orgId),
+        // The stamped viewer keeps per-user targeted rows scoped to their target.
+        ...this.buildConditions({ threadId, isActive: true } as Partial<MessageFilter>, orgId),
         sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId})`,
       ))
       .returning());
@@ -336,7 +348,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    * @param orgId - Organization ID for access control + reader identity
    * @returns Number of unread active messages
    */
-  async getUnreadCount(orgId: string, viewerUserId?: string): Promise<number> {
+  async getUnreadCount(orgId: string): Promise<number> {
     const [row] = await withTenantTx(async (tx) => tx
       .select({ count: sql<number>`count(*)::int` })
       .from(schema.message)
@@ -346,10 +358,10 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         // what the org can actually read. coalesce so a NULL readBy (never-read
         // message) is treated as `{}` and counted as unread — matching
         // markAsRead/markThreadAsRead. Without it, `NULL ? orgId` → NULL →
-        // `not NULL` → NULL drops genuinely-unread rows. `viewerUserId` keeps the
+        // `not NULL` → NULL drops genuinely-unread rows. The stamped viewer keeps the
         // count consistent with the per-user inbox: a message targeted at another
         // member of the org is neither visible nor counted here.
-        ...this.buildConditions({ isActive: true, ...(viewerUserId ? { viewerUserId } : {}) } as Partial<MessageFilter>, orgId),
+        ...this.buildConditions({ isActive: true } as Partial<MessageFilter>, orgId),
         sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId})`,
       )));
     return row?.count ?? 0;

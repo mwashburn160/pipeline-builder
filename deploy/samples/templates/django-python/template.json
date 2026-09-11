@@ -1,0 +1,92 @@
+{
+  "name": "django-python",
+  "description": "Golden-path template for a Django (Python) app on GitHub. Runs SAST (Bandit) and secret scanning.",
+  "category": "backend",
+  "keywords": [
+    "python",
+    "django",
+    "backend",
+    "web-api"
+  ],
+  "visibility": "public",
+  "inputs": [
+    {
+      "name": "orgId",
+      "label": "Organization ID",
+      "description": "Your organization's ID (the UUID, not the display name). Selects the GitHub OAuth token secret at pipeline-builder/<orgId>/github-token.",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "props": {
+    "global": {
+      "aws:cdk:pipelines:codepipeline:selfmutation": true,
+      "aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation": true,
+      "aws:cdk:pipelines:codepipeline:publishassetsinparallel": true,
+      "aws:cdk:pipelines:codepipeline:crossaccountkeys": true,
+      "aws:cdk:pipelines:codepipeline:enablekeyrotation": true,
+      "aws:cdk:pipelines:codepipeline:reusecrossregionsupportstacks": true,
+      "aws:cdk:pipelines:codepipeline:usechangesets": false
+    },
+    "synth": {
+      "source": {
+        "type": "github",
+        "options": {
+          "repo": "django-ve/django-helloworld",
+          "branch": "master",
+          "trigger": "NONE",
+          "token": "secretsmanager:pipeline-builder/{{ pipeline.vars.orgId }}/github-token"
+        }
+      },
+      "plugin": {
+        "name": "BuildSynth",
+        "filter": {
+          "name": "cdk-synth",
+          "version": "1.0.0",
+          "visibility": "public",
+          "isActive": true,
+          "isDefault": true
+        }
+      }
+    },
+    "stages": [
+      {
+        "stageName": "Security",
+        "alias": "SecurityScan",
+        "steps": [
+          {
+            "plugin": {
+              "name": "bandit",
+              "filter": {
+                "name": "bandit",
+                "version": "1.0.0",
+                "visibility": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "BANDIT_SEVERITY": "medium"
+              }
+            },
+            "position": "pre",
+            "failureBehavior": "warn"
+          },
+          {
+            "plugin": {
+              "name": "git-secrets",
+              "filter": {
+                "name": "git-secrets",
+                "version": "1.0.0",
+                "visibility": "public",
+                "isActive": true,
+                "isDefault": true
+              }
+            },
+            "position": "post",
+            "failureBehavior": "warn"
+          }
+        ]
+      }
+    ]
+  }
+}

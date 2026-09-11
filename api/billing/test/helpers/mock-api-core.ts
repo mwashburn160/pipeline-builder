@@ -14,6 +14,9 @@
  * (spies it asserts on, a bespoke error class, a stateful cache, etc.).
  */
 import { jest } from '@jest/globals';
+// Real TIER_FEATURES (side-effect-free deep import) so the mock can't drift from
+// api-core as features are added — billing derives entitlement copy from it.
+import { TIER_FEATURES } from '@pipeline-builder/api-core/lib/types/feature-flags.js';
 
 /** No-op guard: the default mock covers route wiring, not the permission gate.
  *  Suites that assert the gate override `requirePermission` with real semantics. */
@@ -80,17 +83,10 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs'],
     // Tier→feature map — billing-helpers.pruneTierIncludedFeatureAddons reads this
     // to decide which pure-feature add-ons a destination tier now bundles in.
-    // Mirrors the real api-core TIER_FEATURES (developer < pro < team < enterprise).
-    TIER_FEATURES: {
-      developer: [],
-      pro: ['priority_support', 'ai_generation', 'bulk_operations'],
-      team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso'],
-      // Enterprise / Unlimited auto-include every flag (incl. both compliance
-      // content sets) — the compliance sync leg derives ['standard','advanced']
-      // from these for an already-entitled account.
-      enterprise: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso', 'advanced_reporting', 'team_usage_analytics', 'compliance_standard', 'compliance_advanced'],
-      unlimited: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso', 'advanced_reporting', 'team_usage_analytics', 'compliance_standard', 'compliance_advanced'],
-    },
+    // The REAL api-core TIER_FEATURES (deep-imported) — enterprise/unlimited
+    // auto-include every flag (incl. both compliance content sets); the compliance
+    // sync leg derives ['standard','advanced'] from these for an entitled account.
+    TIER_FEATURES,
     // `requirePermission(...perms)` / `requirePermissionOrService(...perms)` are
     // factories that RETURN middleware, so each stub is a function producing the
     // pass-through guard. Suites exercising the gate override these with real
@@ -116,7 +112,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // so suites that transitively load the boot module still link.
     setTokenRevocationStore: () => {},
     createEnvRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
-    AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
+    
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { normalizeArrayFields, SYSTEM_ORG_ID, type AccessModifier } from '@pipeline-builder/api-core';
+import { normalizeArrayFields, SYSTEM_ORG_ID, type Visibility } from '@pipeline-builder/api-core';
 import { type ComputeType, type PluginType } from '@pipeline-builder/pipeline-core';
 
 import type { BuildRequest, BuildType } from './docker-build.js';
@@ -74,7 +74,7 @@ export interface PluginRecordData {
   keywords: string[];
   installCommands: string[];
   commands: string[];
-  accessModifier: AccessModifier;
+  visibility: Visibility;
   timeout: number | null;
   failureBehavior: 'fail' | 'warn' | 'ignore';
   buildType: BuildType;
@@ -119,7 +119,7 @@ interface CreateBuildJobParams {
   orgId: string;
   userId: string;
   buildRequest: BuildRequest;
-  pluginRecord: Partial<PluginRecordData> & Pick<PluginRecordData, 'orgId' | 'name' | 'version' | 'commands' | 'accessModifier'>;
+  pluginRecord: Partial<PluginRecordData> & Pick<PluginRecordData, 'orgId' | 'name' | 'version' | 'commands' | 'visibility'>;
   /** ISO `resetAt` observed when the plugins slot was reserved (see
    *  {@link PluginBuildJobData.reservedResetAt}). Threaded through so the
    *  terminal-failure refund is period-safe. */

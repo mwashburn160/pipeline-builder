@@ -72,10 +72,10 @@ describe('MessageFilterSchema', () => {
 
   it('should inherit base filter fields', () => {
     const result = MessageFilterSchema.parse({
-      accessModifier: 'public',
+      visibility: 'public',
       isActive: true,
     });
-    expect(result.accessModifier).toBe('public');
+    expect(result.visibility).toBe('public');
     expect(result.isActive).toBe(true);
   });
 });

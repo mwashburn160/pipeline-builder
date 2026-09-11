@@ -148,7 +148,10 @@ describe('GET /attachments/:id (download visibility gate)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockFindVisibleById).toHaveBeenCalledWith('msg-1', 'org-1', 'user-1');
+    // No viewer argument: the per-user scope now rides on the request's tenant
+    // context (stamped in MessageService.buildConditions), so a caller can't
+    // drop it by forgetting a parameter.
+    expect(mockFindVisibleById).toHaveBeenCalledWith('msg-1', 'org-1');
     expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/png');
     expect(stream.pipe).toHaveBeenCalledWith(res);
   });

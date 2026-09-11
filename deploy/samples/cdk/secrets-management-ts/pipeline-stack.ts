@@ -80,7 +80,7 @@ export class SecretsManagementPipelineStack extends Stack {
         },
         plugin: {
           name: 'cdk-synth',
-          filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+          filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
           metadata: { NODE_VERSION: '20' },
         },
         env: {
@@ -105,7 +105,7 @@ export class SecretsManagementPipelineStack extends Stack {
             {
               plugin: {
                 name: 'nodejs-build',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: { NODE_VERSION: '20' },
               },
               position: 'pre',
@@ -132,7 +132,7 @@ export class SecretsManagementPipelineStack extends Stack {
             {
               plugin: {
                 name: 'snyk-nodejs',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: { SNYK_SEVERITY_THRESHOLD: 'high' },
               },
               position: 'pre',
@@ -146,7 +146,7 @@ export class SecretsManagementPipelineStack extends Stack {
             {
               plugin: {
                 name: 'git-secrets',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true },
               },
               position: 'post',
               commands: ['git secrets --scan'],
@@ -170,7 +170,7 @@ export class SecretsManagementPipelineStack extends Stack {
             {
               plugin: {
                 name: 'docker-build',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: {
                   DOCKERFILE: 'Dockerfile',
                   IMAGE_TAG: 'latest',
@@ -188,7 +188,7 @@ export class SecretsManagementPipelineStack extends Stack {
             {
               plugin: {
                 name: 'container-scan',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true },
                 metadata: { IMAGE: 'acmecorp/payment-gateway:latest' },
               },
               position: 'post',
@@ -213,7 +213,7 @@ export class SecretsManagementPipelineStack extends Stack {
             {
               plugin: {
                 name: 'cdk-deploy',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: {
                   NODE_VERSION: '20',
                   DEPLOY_STAGE: 'production',
@@ -242,7 +242,7 @@ export class SecretsManagementPipelineStack extends Stack {
             {
               plugin: {
                 name: 'slack-notify',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true },
                 metadata: {
                   SLACK_CHANNEL: '#deployments',
                   SLACK_MESSAGE: 'payment-gateway deployed to production',

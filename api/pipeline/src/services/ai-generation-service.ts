@@ -186,7 +186,7 @@ function buildPluginList(plugins: PluginSummary[]): string {
 
 const PluginFilterSchema = z.object({
   version: z.string().optional().describe('Semantic version of the plugin'),
-  accessModifier: z.enum(['public', 'private']).optional().describe('Plugin visibility'),
+  visibility: z.enum(['public', 'private']).optional().describe('Plugin visibility'),
   isActive: z.boolean().optional().describe('Whether the plugin is active'),
   isDefault: z.boolean().optional().describe('Whether to use the default version of this plugin'),
 }).optional().describe('Optional filter criteria for plugin resolution');
@@ -272,6 +272,7 @@ const PipelineGenerationSchema = z.object({
   synth: SynthSchema.describe('Synthesis step configuration'),
   stages: z.array(StageSchema).optional().describe('Pipeline stages after synth'),
   global: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional().describe('Global metadata inherited by all steps'),
+  vars: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional().describe('Pipeline-level variables referenced as {{ pipeline.vars.NAME }} in step commands/env — populate ONLY when the user asks for a parameterized pipeline, declaring each variable here with a sensible default'),
   role: z.object({
     roleArn: z.string().optional().describe('ARN of an existing IAM role for the pipeline'),
     roleName: z.string().optional().describe('Name of an existing IAM role to look up'),
@@ -312,7 +313,7 @@ ${pluginList}
    Optional top-level fields include **role** (custom IAM role with roleArn or roleName) and **schedule** (cron/rate expression for scheduled execution).
 3. **stages** are optional arrays of {stageName, steps: [{plugin: {name, filter: {isDefault: true}}, ...}]}
    - Every plugin reference MUST include filter with at minimum isDefault: true
-   - Optional filter fields: version, accessModifier ("public"|"private"), isActive
+   - Optional filter fields: version, visibility ("public"|"private"), isActive
 4. For source, default to "github" if the user mentions a repo. Default branch to "main" unless specified.
 5. trigger values: "NONE" (default, manual), "AUTO" (automatic on changes), or "SCHEDULE" (cron-based).
 6. Step position is "pre" (before deploy, default) or "post" (after deploy).
@@ -326,7 +327,8 @@ ${pluginList}
 12. When the user wants pipeline notifications, include in global metadata:
    - "aws:cdk:notifications:topic:arn": "<SNS topic ARN>"
    - "aws:cdk:notifications:events": "FAILED,SUCCEEDED" (comma-separated list of events)
-13. If the user's description is too vague, make reasonable assumptions and proceed.`;
+13. When the user wants a PARAMETERIZED pipeline (values they can change per run/deploy without editing the config), declare those values in the "vars" field with sensible defaults and reference them as {{ pipeline.vars.NAME }} in step commands and env. Omit "vars" entirely for a concrete, non-parameterized pipeline.
+14. If the user's description is too vague, make reasonable assumptions and proceed.`;
 }
 
 // -- Model resolution with fallback -------------------------------------------

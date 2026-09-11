@@ -76,9 +76,9 @@ describe('PluginDeployGeneratedSchema', () => {
     expect(result.computeType).toBe('MEDIUM');
   });
 
-  it('applies default accessModifier', () => {
+  it('applies default visibility', () => {
     const result = PluginDeployGeneratedSchema.parse(validBody);
-    expect(result.accessModifier).toBe('private');
+    expect(result.visibility).toBe('private');
   });
 
   it('requires at least one command', () => {

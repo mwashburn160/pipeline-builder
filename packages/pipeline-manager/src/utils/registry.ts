@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { promises as fs } from 'fs';
-import { resolveAwsRegion } from './aws-env.js';
-import { defaultPipelineName } from '../config/cli.constants.js';
 import { homedir } from 'os';
 import { join } from 'path';
 import { parsePlatformBaseUrl } from '@pipeline-builder/pipeline-core';
+import { resolveAwsRegion } from './aws-env.js';
 import { printInfo } from './output-utils.js';
+import { defaultPipelineName } from '../config/cli.constants.js';
 
 /**
  * Helpers for registering a deployed pipeline ARN with the platform.

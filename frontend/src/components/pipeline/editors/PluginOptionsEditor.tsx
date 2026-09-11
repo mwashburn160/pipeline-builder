@@ -43,7 +43,7 @@ export default function PluginOptionsEditor({
         ...value.filter,
         id: plugin.id,
         orgId: plugin.orgId,
-        accessModifier: plugin.accessModifier,
+        visibility: plugin.visibility,
         isDefault: String(plugin.isDefault),
         isActive: String(plugin.isActive),
         name: plugin.name,
@@ -53,7 +53,7 @@ export default function PluginOptionsEditor({
   }, [value, onChange]);
 
   const hasFilter = value.filter.id !== '' || value.filter.orgId !== '' ||
-    value.filter.accessModifier !== '' || value.filter.isDefault !== '' ||
+    value.filter.visibility !== '' || value.filter.isDefault !== '' ||
     value.filter.isActive !== '' || value.filter.name !== '' ||
     value.filter.version !== '';
 
@@ -105,8 +105,8 @@ export default function PluginOptionsEditor({
             <div>
               <label className="label">Access Modifier</label>
               <Select
-                value={value.filter.accessModifier}
-                onChange={(e) => updateFilter({ accessModifier: e.target.value })}
+                value={value.filter.visibility}
+                onChange={(e) => updateFilter({ visibility: e.target.value })}
                 disabled={disabled}
               >
                 <option value="">Any</option>

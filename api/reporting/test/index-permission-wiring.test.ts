@@ -23,6 +23,10 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const useCalls: unknown[][] = [];
 const app = {
   use: (...args: unknown[]) => { useCalls.push(args); return app; },
+  // index.ts also registers the live execution-status SSE routes directly on the
+  // app (POST ticket + GET stream); accept them as no-ops for this wiring test.
+  post: (..._args: unknown[]) => app,
+  get: (..._args: unknown[]) => app,
 };
 
 // Distinct marker objects per route factory so a mount is identified by its
@@ -41,6 +45,15 @@ const ROUTERS = {
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   // Passthrough auth guard (no __permission tag) — mounted on the events prefix.
   requireAuth: (_req: unknown, _res: unknown, next?: () => void) => next?.(),
+  // Live execution-status SSE wiring (index.ts constructs the ticket store at import).
+  SSE_TICKET_TTL_MS: 30_000,
+  createEnvSseTicketStore: () => ({
+    issue: async () => ({ ok: true, ticket: 't' }),
+    consume: async () => ({ orgId: 'o' }),
+  }),
+  sendSuccess: (_res: unknown, _code: number, _data?: unknown) => undefined,
+  sendError: (_res: unknown, _code: number, _msg: string) => undefined,
+  ErrorCode: new Proxy({}, { get: (_t, k) => k }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
@@ -49,6 +62,9 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   createAuthenticatedWithOrgRoute: () => [],
   attachRequestContext: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   postgresHealthCheck: async () => ({ ok: true }),
+  // The live execution-status channel is registered via this shared helper; the
+  // permission-wiring test only inspects the report-route mounts, so a no-op is fine.
+  registerSseTicketChannel: () => undefined,
 }));
 
 jest.unstable_mockModule('../src/routes/event-ingest.js', () => ({ createEventIngestRoutes: () => ROUTERS.events }));

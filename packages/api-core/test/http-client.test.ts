@@ -32,6 +32,10 @@ jest.unstable_mockModule('http', () => ({
 const http = await import('http');
 const { InternalHttpClient } = await import('../src/services/http-client.js');
 const { parseRetryAfter, addJitter } = await import('../src/services/retry-strategy.js');
+// The circuit breaker is a process-global keyed by host:port, so failure-
+// simulating tests that hammer the same target would otherwise trip it and leak
+// an open circuit into later tests. Reset between tests for isolation.
+const { resetCircuitBreakers } = await import('../src/services/circuit-breaker.js');
 
 // parseRetryAfter
 describe('parseRetryAfter', () => {
@@ -147,6 +151,7 @@ describe('InternalHttpClient retry behavior', () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
+    resetCircuitBreakers();
     mockRequest = http.request as unknown as typeof mockHttpRequest;
     mockRequest.mockReset();
     client = new InternalHttpClient({ host: 'localhost', port: 3000 });

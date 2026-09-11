@@ -47,6 +47,16 @@ export function registerPipelineRoutes(): void {
   });
 
   registry.registerPath({
+    method: 'get',
+    path: '/pipelines/scorecard',
+    summary: 'Org-wide scorecard roll-up (software-health leaderboard)',
+    description: 'Grades every pipeline in the organization and returns a ranked leaderboard plus aggregate stats (pipeline count, average score, grade distribution). Bounded per request. Requires the `advanced_reporting` feature.',
+    tags,
+    security: auth,
+    responses: { 200: { description: 'Org-wide scorecard roll-up' }, 403: { description: 'Feature not enabled' } },
+  });
+
+  registry.registerPath({
     method: 'post',
     path: '/pipelines',
     summary: 'Create a pipeline',

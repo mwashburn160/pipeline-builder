@@ -46,7 +46,7 @@ const PIPELINE_SORT_FIELD: Record<string, string> = {
   pipelineId: 'id',
   project: 'project',
   organization: 'organization',
-  access: 'accessModifier',
+  access: 'visibility',
   status: 'isActive',
   default: 'isDefault',
   createdBy: 'createdBy',
@@ -131,7 +131,7 @@ export default function PipelinesPage() {
       isLoading: list.isLoading,
       flags: [
         { label: 'inactive', pred: (p) => !p.isActive },
-        { label: 'private', pred: (p) => p.accessModifier !== 'public' },
+        { label: 'private', pred: (p) => p.visibility !== 'public' },
       ],
     }),
     [filteredPipelines, list.isLoading, list.pagination.total],
@@ -151,7 +151,7 @@ export default function PipelinesPage() {
   // shortcut (`?create=1`).
   useOpenOnCreateQuery(() => { if (canWrite) setShowCreateModal(true); });
 
-  const handleCreatePipeline = async (props: BuilderProps, accessModifier: 'public' | 'private', description?: string, keywords?: string[]) => {
+  const handleCreatePipeline = async (props: BuilderProps, visibility: 'public' | 'private', description?: string, keywords?: string[]) => {
     setCreateSuccess(null);
     const result = await createForm.run(() =>
       api.createPipeline({
@@ -161,7 +161,7 @@ export default function PipelinesPage() {
         description,
         keywords,
         props,
-        accessModifier,
+        visibility,
       }),
     );
     if (result?.success) {
@@ -299,7 +299,7 @@ export default function PipelinesPage() {
       header: '',
       locked: true,
       render: (pipeline: Pipeline) => (
-        canWritePipeline(can, isSuperAdmin, pipeline.accessModifier) ? (
+        canWritePipeline(can, isSuperAdmin, pipeline, user?.id) ? (
           <Checkbox
             checked={selectedIds.has(pipeline.id)}
             onChange={(e) => {
@@ -362,8 +362,8 @@ export default function PipelinesPage() {
     {
       id: 'access',
       header: 'Access',
-      sortValue: (p) => p.accessModifier,
-      render: (p) => <AccessCell modifier={p.accessModifier} />,
+      sortValue: (p) => p.visibility,
+      render: (p) => <AccessCell modifier={p.visibility} />,
     },
     {
       id: 'status',
@@ -419,7 +419,7 @@ export default function PipelinesPage() {
       header: 'Actions',
       cellClassName: 'text-sm',
       render: (pipeline) => (
-        canWritePipeline(can, isSuperAdmin, pipeline.accessModifier) ? (
+        canWritePipeline(can, isSuperAdmin, pipeline, user?.id) ? (
           <div className="flex items-center gap-1">
             <button onClick={() => setEditPipeline(pipeline)} className="action-link">Edit</button>
             {/* Delete as a muted icon (red only on hover, guarded by a confirm
@@ -476,7 +476,7 @@ export default function PipelinesPage() {
         )}
 
         {canWrite && deletedView === 'deleted' ? (
-          <RecentlyDeletedPanel resource="pipeline" onRestored={list.refresh} canRestoreRow={(r) => canWritePipeline(can, isSuperAdmin, r.accessModifier ?? 'private')} />
+          <RecentlyDeletedPanel resource="pipeline" onRestored={list.refresh} canRestoreRow={(r) => canWritePipeline(can, isSuperAdmin, { visibility: r.access, createdBy: r.createdBy }, user?.id)} />
         ) : (
         <>
         <DeployedPipelinesPanel canWrite={canWrite} />
@@ -601,7 +601,7 @@ export default function PipelinesPage() {
         >
           <div className="space-y-3 text-sm">
             <p className="text-gray-600 dark:text-gray-400">
-              Paste a JSON array of pipeline specs (each with <code className="font-mono">project</code>, <code className="font-mono">organization</code>, and <code className="font-mono">props</code>; optional <code className="font-mono">pipelineName</code>, <code className="font-mono">description</code>, <code className="font-mono">keywords</code>, <code className="font-mono">accessModifier</code>). A <code className="font-mono">{'{ "pipelines": [...] }'}</code> wrapper is also accepted.
+              Paste a JSON array of pipeline specs (each with <code className="font-mono">project</code>, <code className="font-mono">organization</code>, and <code className="font-mono">props</code>; optional <code className="font-mono">pipelineName</code>, <code className="font-mono">description</code>, <code className="font-mono">keywords</code>, <code className="font-mono">visibility</code>). A <code className="font-mono">{'{ "pipelines": [...] }'}</code> wrapper is also accepted.
             </p>
             <Textarea
               value={bulkText}
@@ -652,7 +652,7 @@ export default function PipelinesPage() {
       )}
 
       {editPipeline && (
-        <EditPipelineModal pipeline={editPipeline} isSuperAdmin={isSuperAdmin} onClose={() => setEditPipeline(null)} onSaved={list.refresh} />
+        <EditPipelineModal pipeline={editPipeline} canPublish={can('pipelines:publish')} onClose={() => setEditPipeline(null)} onSaved={list.refresh} />
       )}
 
       {/* Sticky bottom bulk actions bar */}

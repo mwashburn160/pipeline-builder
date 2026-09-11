@@ -22,10 +22,20 @@ interface DeletedRow {
   id: string;
   name: string;
   version?: string;
-  accessModifier?: string;
+  /** The row's sharing rung, rendered as the "Access" badge. */
+  access?: string;
+  /** Author — the restore gate needs it for the author-only `private` rung. */
+  createdBy?: string;
   deletedAt?: string | null;
   deletedBy?: string | null;
 }
+
+/** Badge tint per sharing level — widest reach is the most prominent. */
+const ACCESS_BADGE_COLOR: Record<string, 'blue' | 'green' | 'gray'> = {
+  public: 'blue',
+  org: 'green',
+  private: 'gray',
+};
 
 /**
  * Resources this panel supports. A resource qualifies ONLY if the backend
@@ -51,19 +61,20 @@ interface ResourceConfig {
 }
 
 function pipelineToRow(p: Pipeline): DeletedRow {
-  return { id: p.id, name: p.pipelineName || p.id, accessModifier: p.accessModifier, deletedAt: p.deletedAt, deletedBy: p.deletedBy };
+  return { id: p.id, name: p.pipelineName || p.id, access: p.visibility, createdBy: p.createdBy, deletedAt: p.deletedAt, deletedBy: p.deletedBy };
 }
 
 function pluginToRow(p: Plugin): DeletedRow {
-  return { id: p.id, name: p.name || p.id, version: p.version, accessModifier: p.accessModifier, deletedAt: p.deletedAt, deletedBy: p.deletedBy };
+  return { id: p.id, name: p.name || p.id, version: p.version, access: p.visibility, createdBy: p.createdBy, deletedAt: p.deletedAt, deletedBy: p.deletedBy };
 }
 
 function templateToRow(t: PipelineTemplate): DeletedRow {
-  return { id: t.id, name: t.name || t.id, accessModifier: t.accessModifier, deletedAt: t.deletedAt, deletedBy: t.deletedBy };
+  return { id: t.id, name: t.name || t.id, access: t.visibility, createdBy: t.createdBy, deletedAt: t.deletedAt, deletedBy: t.deletedBy };
 }
 
 function messageToRow(m: Message): DeletedRow {
-  return { id: m.id, name: m.subject || m.id, accessModifier: m.accessModifier, deletedAt: m.deletedAt, deletedBy: m.deletedBy };
+  // Messages carry no sharing rung — the Access column renders empty for them.
+  return { id: m.id, name: m.subject || m.id, deletedAt: m.deletedAt, deletedBy: m.deletedBy };
 }
 
 function ruleToRow(r: ComplianceRule): DeletedRow {
@@ -229,7 +240,7 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
     {
       id: 'access',
       header: 'Access',
-      render: (r) => (r.accessModifier ? <Badge color={r.accessModifier === 'public' ? 'blue' : 'gray'}>{r.accessModifier}</Badge> : null),
+      render: (r) => (r.access ? <Badge color={ACCESS_BADGE_COLOR[r.access] ?? 'gray'}>{r.access}</Badge> : null),
     },
     { id: 'deletedAt', header: 'Deleted', render: (r) => (r.deletedAt ? <RelativeTime value={r.deletedAt} /> : <span className="text-gray-400">—</span>) },
     { id: 'deletedBy', header: 'Deleted by', cellClassName: 'text-gray-600 dark:text-gray-400 text-sm', render: (r) => r.deletedBy || '—' },

@@ -30,7 +30,7 @@ export class MonorepoPipelineStack extends Stack {
       plugin: {
         name: 'nodejs-build',
         alias: `build-${serviceName}`,
-        filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+        filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
         metadata: { NODE_VERSION: '20' },
       },
       position: 'pre',
@@ -51,7 +51,7 @@ export class MonorepoPipelineStack extends Stack {
       plugin: {
         name: 'docker-build',
         alias: `docker-${serviceName}`,
-        filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+        filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
         metadata: {
           DOCKERFILE: `${workdir}/Dockerfile`,
           IMAGE_TAG: imageTag,
@@ -97,7 +97,7 @@ export class MonorepoPipelineStack extends Stack {
         },
         plugin: {
           name: 'cdk-synth',
-          filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+          filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
           metadata: { NODE_VERSION: '20' },
         },
         preInstallCommands: [
@@ -117,7 +117,7 @@ export class MonorepoPipelineStack extends Stack {
               plugin: {
                 name: 'eslint',
                 alias: 'lint-all',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: { NODE_VERSION: '20' },
               },
               position: 'pre',
@@ -128,7 +128,7 @@ export class MonorepoPipelineStack extends Stack {
               plugin: {
                 name: 'typescript-check',
                 alias: 'typecheck-all',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true },
                 metadata: { NODE_VERSION: '20' },
               },
               position: 'pre',
@@ -171,7 +171,7 @@ export class MonorepoPipelineStack extends Stack {
             {
               plugin: {
                 name: 'snyk-nodejs',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: { SNYK_SEVERITY_THRESHOLD: 'high' },
               },
               position: 'pre',
@@ -186,7 +186,7 @@ export class MonorepoPipelineStack extends Stack {
             {
               plugin: {
                 name: 'trivy',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: { TRIVY_SEVERITY: 'HIGH,CRITICAL' },
               },
               position: 'post',
@@ -207,7 +207,7 @@ export class MonorepoPipelineStack extends Stack {
             {
               plugin: {
                 name: 'cdk-deploy',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: {
                   NODE_VERSION: '20',
                   DEPLOY_STAGE: 'production',

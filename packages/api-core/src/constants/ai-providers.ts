@@ -90,6 +90,55 @@ export const AI_PROVIDER_ENV_VARS: Record<string, string> = {
   'amazon-bedrock': 'AWS_ACCESS_KEY_ID',
 };
 
+/**
+ * Provider id for a self-hosted, OpenAI-compatible endpoint — a Docker model image
+ * (Ollama, Docker Model Runner, vLLM) or any other server that speaks the OpenAI
+ * chat API. Unlike the fixed providers above, this one is NOT in the static catalog:
+ * its endpoint and model list are deployment-defined and resolved from env at
+ * runtime by {@link getOpenAICompatibleProvider}.
+ */
+export const OPENAI_COMPATIBLE_PROVIDER_ID = 'openai-compatible';
+
+/**
+ * Parse a `id[|Display Name][,id2[|Name2]]` env string into model metadata. The
+ * id/name separator is `|` (NOT `:`) because model ids commonly contain colons —
+ * e.g. Ollama tags (`qwen2.5-coder:7b`) and Bedrock inference profiles.
+ */
+function parseModelList(raw: string): AIModelInfo[] {
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const idx = entry.indexOf('|');
+      const id = (idx === -1 ? entry : entry.slice(0, idx)).trim();
+      const name = (idx === -1 ? '' : entry.slice(idx + 1)).trim() || id;
+      return { id, name };
+    })
+    .filter((m) => m.id.length > 0);
+}
+
+/**
+ * Resolve the OpenAI-compatible (local / self-hosted) provider from env, or `null`
+ * when no endpoint is configured. Enabled by `OPENAI_COMPATIBLE_BASE_URL`; the model
+ * list comes from `OPENAI_COMPATIBLE_MODELS` (comma list of `id[|Display Name]`),
+ * falling back to `OPENAI_COMPATIBLE_MODEL`, then a generic `local` id. The display
+ * name is overridable via `OPENAI_COMPATIBLE_NAME`.
+ *
+ * @returns Provider info for the configured local endpoint, or null if unset
+ */
+export function getOpenAICompatibleProvider(): AIProviderInfo | null {
+  const baseURL = process.env.OPENAI_COMPATIBLE_BASE_URL;
+  if (!baseURL) return null;
+  const raw = process.env.OPENAI_COMPATIBLE_MODELS ?? process.env.OPENAI_COMPATIBLE_MODEL ?? 'local|Local model';
+  const models = parseModelList(raw);
+  return {
+    id: OPENAI_COMPATIBLE_PROVIDER_ID,
+    name: process.env.OPENAI_COMPATIBLE_NAME || 'Local model (OpenAI-compatible)',
+    models: models.length > 0 ? models : [{ id: 'local', name: 'Local model' }],
+  };
+}
+
 // Helpers
 
 /**
@@ -99,5 +148,8 @@ export const AI_PROVIDER_ENV_VARS: Record<string, string> = {
  * @returns Array of models, or empty array if the provider is unknown
  */
 export function getAIProviderModels(providerId: string): AIModelInfo[] {
+  if (providerId === OPENAI_COMPATIBLE_PROVIDER_ID) {
+    return getOpenAICompatibleProvider()?.models ?? [];
+  }
   return AI_PROVIDER_CATALOG[providerId]?.models ?? [];
 }

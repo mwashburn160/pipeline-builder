@@ -103,6 +103,19 @@ export class Nx extends Component {
 
                         // Enable caching for build operations
                         cache: true
+                    },
+
+                    // Tests resolve internal packages (`@pipeline-builder/*`) from
+                    // their built `lib/` output, so a project's tests can only see
+                    // an upstream package's latest exports after that upstream is
+                    // rebuilt. `dependsOn: ['^build']` makes `nx affected --target
+                    // test` build upstream libs FIRST — this is what removes the
+                    // "does not provide an export named X" / stale-lib friction
+                    // that let source/test drift (e.g. the accessModifier→visibility
+                    // rename) reach main. Not cached: test side-effects/coverage make
+                    // caching unsafe under the custom (skipNxCache) strategy.
+                    test: {
+                        dependsOn: ['^build']
                     }
                 },
 

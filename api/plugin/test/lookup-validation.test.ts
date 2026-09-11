@@ -45,7 +45,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     computeType: z.string().optional(),
     isActive: z.union([z.boolean(), z.string()]).optional(),
     isDefault: z.union([z.boolean(), z.string()]).optional(),
-    accessModifier: z.enum(['public', 'private']).optional(),
+    visibility: z.enum(['public', 'private']).optional(),
     id: z.union([z.string(), z.array(z.string())]).optional(),
   }).strict(),
 }));

@@ -135,7 +135,7 @@ function assemblePluginFilter(filter: FormPluginOptions['filter']): Record<strin
   const result: Record<string, unknown> = {};
   if (filter.id) result.id = filter.id;
   if (filter.orgId) result.orgId = filter.orgId;
-  if (filter.accessModifier) result.accessModifier = filter.accessModifier;
+  if (filter.visibility) result.visibility = filter.visibility;
   if (filter.isDefault) result.isDefault = filter.isDefault === 'true';
   if (filter.isActive) result.isActive = filter.isActive === 'true';
   if (filter.name) result.name = filter.name;

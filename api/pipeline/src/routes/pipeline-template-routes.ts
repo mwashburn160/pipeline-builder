@@ -4,7 +4,7 @@
 import {
   getParam,
   ErrorCode,
-  resolveAccessModifier,
+  resolveVisibility,
   sendBadRequest,
   sendError,
   sendSuccess,
@@ -16,7 +16,7 @@ import {
   validateQuery,
   validateBody,
   requirePermission,
-  requirePublicAccess,
+  requireVisibilityWriteAccess,
   requireStepUp,
   loadAndRestore,
   loadAndPurge,
@@ -75,6 +75,20 @@ function undeclaredVars(props: Record<string, unknown> | undefined, inputs: Temp
   return [...missing];
 }
 
+/**
+ * Read side of the `private` rung, for the paths that DON'T go through the SQL
+ * visibility predicate — currently the tombstone listing, which is org-scoped by
+ * the shared soft-delete code path. Fails closed on a missing viewer.
+ */
+function canSeeTemplate(
+  template: { visibility?: string; createdBy?: string },
+  userId: string,
+  isSuperAdmin: boolean,
+): boolean {
+  if (isSuperAdmin || template.visibility !== 'private') return true;
+  return !!userId && template.createdBy === userId;
+}
+
 /** Ownership reassignment (ownerId/ownerType) is admin-only. */
 function canReassignOwner(req: { user?: { isAdmin?: boolean; isSuperAdmin?: boolean } }): boolean {
   return req.user?.isAdmin === true || req.user?.isSuperAdmin === true;
@@ -82,7 +96,7 @@ function canReassignOwner(req: { user?: { isAdmin?: boolean; isSuperAdmin?: bool
 
 /**
  * Golden-path pipeline templates: list/get the catalog, author templates
- * (`pipelines:write`), and instantiate a template into a concrete pipeline
+ * (`templates:write`), and instantiate a template into a concrete pipeline
  * `props` a developer can then create through the normal pipeline-create path.
  */
 export function createPipelineTemplateRoutes(): Router {
@@ -97,6 +111,8 @@ export function createPipelineTemplateRoutes(): Router {
     const includeTotal = req.query.includeTotal === 'true';
     const parentOrgId = req.user?.parentOrganizationId;
 
+    // The viewer (for the per-user `private` rung) is stamped by the service
+    // from the request's tenant context — never from the query string.
     const result = await pipelineTemplateService.findPaginated(filter.value, orgId, { limit, offset, sortBy, sortOrder, includeTotal }, parentOrgId);
 
     ctx.log('COMPLETED', 'Listed pipeline templates', { count: result.data.length });
@@ -108,12 +124,17 @@ export function createPipelineTemplateRoutes(): Router {
   // GET /pipeline-templates/deleted — org's soft-deleted template tombstones
   // (most-recently-deleted first), powering the "recently deleted" restore UI.
   // Registered BEFORE `/:id` so the literal path isn't swallowed by the id matcher.
-  router.get('/deleted', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/deleted', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const { limit, offset } = parsePaginationParams(req.query as Record<string, unknown>);
     const deleted = await pipelineTemplateService.findDeleted(orgId, { limit, offset });
 
-    ctx.log('COMPLETED', 'Listed deleted pipeline templates', { count: deleted.length });
-    return sendSuccess(res, 200, { templates: deleted.map(r => normalizeArrayFields(r, ['keywords'])) });
+    // `findDeleted` is org-scoped, not visibility-scoped (tombstones share one
+    // code path across every entity), so re-apply the private rung here — a
+    // deleted personal draft must not surface in a colleague's restore list.
+    const visible = deleted.filter((t) => canSeeTemplate(t, userId, req.user?.isSuperAdmin === true));
+
+    ctx.log('COMPLETED', 'Listed deleted pipeline templates', { count: visible.length });
+    return sendSuccess(res, 200, { templates: visible.map(r => normalizeArrayFields(r, ['keywords'])) });
   }));
 
   // GET /pipeline-templates/:id
@@ -153,7 +174,7 @@ export function createPipelineTemplateRoutes(): Router {
   }));
 
   // POST /pipeline-templates — author a template
-  router.post('/', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, PipelineTemplateCreateSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
@@ -173,11 +194,17 @@ export function createPipelineTemplateRoutes(): Router {
 
     // Reject a same-org name collision rather than silently upserting (which would
     // overwrite the existing body AND reassign its ownership to the re-creator).
-    const sameName = (await pipelineTemplateService.find({ name: body.name }, orgId))
-      .find((t) => t.orgId === orgId && t.name === body.name);
+    // Checked ORG-WIDE and visibility-blind, because the `(name, org_id)` unique
+    // index is org-wide: a visibility-scoped lookup would miss a colliding
+    // PRIVATE template owned by someone else and fall through to ON CONFLICT.
+    // It leaks only that the name is taken, which the index enforces anyway.
+    const sameName = await pipelineTemplateService.findByNameInOrg(body.name, orgId);
     if (sameName) return sendError(res, 409, `A template named "${body.name}" already exists in this organization.`, ErrorCode.CONFLICT);
 
-    const accessModifier = resolveAccessModifier(req, body.accessModifier, 'pipelines:publish');
+    // Templates default to `private` — draft-first is the point of the personal
+    // rung: you iterate on a starter before sharing it. (Pipelines and plugins
+    // default to `org` instead; same ladder, different centre of gravity.)
+    const visibility = resolveVisibility(req, body.visibility, 'templates:publish', 'private');
 
     const created = await pipelineTemplateService.create({
       orgId,
@@ -187,7 +214,7 @@ export function createPipelineTemplateRoutes(): Router {
       category: body.category ?? 'general',
       props: body.props,
       inputs: body.inputs ?? [],
-      accessModifier,
+      visibility,
       // Owner is always the creator on create (client-supplied ownerId ignored).
       ownerId: userId ?? 'system',
       ownerType: 'user',
@@ -196,6 +223,9 @@ export function createPipelineTemplateRoutes(): Router {
       ...(body.labels !== undefined ? { labels: body.labels } : {}),
       ...(body.links !== undefined ? { links: body.links } : {}),
     }, userId ?? 'system');
+    // NOTE: losing the race against a concurrent same-name create throws
+    // ConflictError from the service (→ 409), so nothing can slip past the
+    // pre-check above and clobber another author's private draft.
 
     ctx.log('COMPLETED', 'Created pipeline template', { id: created.id });
     emitPipelineAudit({
@@ -204,13 +234,13 @@ export function createPipelineTemplateRoutes(): Router {
       orgId,
       targetType: 'pipeline_template',
       targetId: created.id,
-      details: { name: created.name, category: created.category, accessModifier: created.accessModifier },
+      details: { name: created.name, category: created.category, visibility: created.visibility },
     });
     return sendSuccess(res, 201, { template: normalizeArrayFields(created, ['keywords']) });
   }));
 
   // PUT /pipeline-templates/:id
-  router.put('/:id', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/:id', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Template ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -218,13 +248,14 @@ export function createPipelineTemplateRoutes(): Router {
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
 
-    // Load the current row: needed to gate public (published) templates and to
-    // check declared-vars against the EXISTING inputs on a props-only update.
+    // Load the current row: needed to gate the visibility rung and to check
+    // declared-vars against the EXISTING inputs on a props-only update.
     const existing = await pipelineTemplateService.findById(id, orgId, req.user?.parentOrganizationId);
     if (!existing) return sendEntityNotFound(res, 'Template');
-    // A plain pipelines:write member must not modify a PUBLIC (shared) template —
-    // only a publisher/admin can (mirrors pipelines/plugins).
-    if (!requirePublicAccess(req, res, existing, 'pipelines:publish')) return;
+    // A plain templates:write member must not modify a PUBLIC (shared) template —
+    // only a publisher/admin can (mirrors pipelines/plugins) — and a PRIVATE
+    // template belongs to its author alone.
+    if (!requireVisibilityWriteAccess(req, res, existing, userId, 'templates:publish')) return;
 
     if (body.props) {
       try {
@@ -257,7 +288,7 @@ export function createPipelineTemplateRoutes(): Router {
       }),
       // Ownership reassignment is admin-only.
       ...(canReassignOwner(req) ? pickDefined({ ownerId: body.ownerId, ownerType: body.ownerType }) : {}),
-      ...(body.accessModifier !== undefined ? { accessModifier: resolveAccessModifier(req, body.accessModifier, 'pipelines:publish') } : {}),
+      ...(body.visibility !== undefined ? { visibility: resolveVisibility(req, body.visibility, 'templates:publish') } : {}),
     };
 
     const updated = await pipelineTemplateService.update(id, updateData, orgId, userId ?? 'system');
@@ -276,14 +307,15 @@ export function createPipelineTemplateRoutes(): Router {
   }));
 
   // DELETE /pipeline-templates/:id
-  router.delete('/:id', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.delete('/:id', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Template ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    // Gate deletion of a PUBLIC (shared) template on pipelines:publish, like PUT.
+    // Same ladder gate as PUT: templates:publish for a PUBLIC (shared) template,
+    // authorship for a PRIVATE one.
     const existing = await pipelineTemplateService.findById(id, orgId, req.user?.parentOrganizationId);
     if (!existing) return sendEntityNotFound(res, 'Template');
-    if (!requirePublicAccess(req, res, existing, 'pipelines:publish')) return;
+    if (!requireVisibilityWriteAccess(req, res, existing, userId, 'templates:publish')) return;
 
     const deleted = await pipelineTemplateService.delete(id, orgId, userId ?? 'system');
     if (!deleted) return sendEntityNotFound(res, 'Template');
@@ -302,10 +334,10 @@ export function createPipelineTemplateRoutes(): Router {
 
   // POST /pipeline-templates/:id/restore — undo a soft-delete within the
   // retention window. Step-up-gated (reverses a destructive action); mirrors the
-  // DELETE authority (auth + orgId + pipelines:write, +pipelines:publish for
-  // public templates).
-  router.post('/:id/restore', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), requireStepUp, withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const result = await loadAndRestore(req, res, orgId, userId ?? 'system', pipelineTemplateService, 'Template', 'pipelines:publish');
+  // DELETE authority (auth + orgId + templates:write, +templates:publish for
+  // public templates, authorship for private ones).
+  router.post('/:id/restore', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), requireStepUp, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const result = await loadAndRestore(req, res, orgId, userId ?? 'system', pipelineTemplateService, 'Template', 'templates:publish');
     if (!result) return;
     const { existing, restored } = result;
 
@@ -325,12 +357,12 @@ export function createPipelineTemplateRoutes(): Router {
   // POST /pipeline-templates/:id/purge — permanently hard-delete a soft-deleted
   // tombstone on demand (the manual counterpart to the retention sweep).
   // Step-up-gated (a permanent destructive action), mirroring the restore route;
-  // mirrors the DELETE authority (auth + orgId + pipelines:write, +pipelines:publish
-  // for public templates) plus a step-up re-verify. As a distinct route path
+  // mirrors the DELETE authority (auth + orgId + templates:write, +templates:publish
+  // for public templates, authorship for private ones) plus a step-up re-verify. As a distinct route path
   // (/:id/purge vs the restore route's /:id/restore) its `requireStepUp` runs
   // only for this path, so the single-use step-up jti is consumed exactly once.
-  router.post('/:id/purge', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), requireStepUp, withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const result = await loadAndPurge(req, res, orgId, pipelineTemplateService, 'Template', 'pipelines:publish');
+  router.post('/:id/purge', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), requireStepUp, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const result = await loadAndPurge(req, res, orgId, pipelineTemplateService, 'Template', 'templates:publish', userId);
     if (!result) return;
     const { existing, purgedId } = result;
 

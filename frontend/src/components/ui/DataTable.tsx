@@ -213,7 +213,7 @@ export function DataTable<T>({
               <Columns3 className="w-3.5 h-3.5" />
               Columns
               {hiddenColumns.size > 0 && (
-                <span className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-blue-600 text-white">
+                <span className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-[var(--pb-brand)] text-white">
                   {hiddenColumns.size}
                 </span>
               )}
@@ -239,7 +239,7 @@ export function DataTable<T>({
                         type="checkbox"
                         checked={!hiddenColumns.has(col.id)}
                         onChange={() => toggleColumn(col.id)}
-                        className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                        className="rounded border-gray-300 dark:border-gray-600 text-[var(--pb-brand)] focus:ring-[var(--pb-brand)]"
                       />
                       {col.header}
                     </label>

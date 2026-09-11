@@ -466,7 +466,7 @@ A full pipeline definition for a Spring Boot application:
 {
   "project": "my-api",
   "organization": "backend-team",
-  "accessModifier": "public",
+  "visibility": "public",
   "props": {
     "project": "my-api",
     "organization": "backend-team",

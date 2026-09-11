@@ -25,6 +25,13 @@ export type Permission =
   | 'pipelines:read'
   | 'pipelines:write'
   | 'pipelines:publish'
+  // Golden-path pipeline templates. Split out of `pipelines:*` so a platform
+  // team can curate the starter catalog WITHOUT write access to every pipeline
+  // (and vice versa) — the two used to share one gate. `:publish` maps to the
+  // template ladder's `public` rung; `org` and `private` need only `:write`.
+  | 'templates:read'
+  | 'templates:write'
+  | 'templates:publish'
   // Plugins
   | 'plugins:read'
   | 'plugins:write'
@@ -70,6 +77,7 @@ export type Permission =
 /** All valid permissions (order determines display order in the picker). */
 export const ALL_PERMISSIONS: readonly Permission[] = [
   'pipelines:read', 'pipelines:write', 'pipelines:publish',
+  'templates:read', 'templates:write', 'templates:publish',
   'plugins:read', 'plugins:write', 'plugins:publish',
   'compliance:read', 'compliance:write',
   'members:manage', 'roles:manage', 'invitations:manage',
@@ -130,8 +138,9 @@ export function isOrgAssignablePermission(permission: Permission): boolean {
  * {@link resolveUserPermissions}). The coarse `role` label (owner/admin/member)
  * survives only for `isAdmin`/ownership/display, never to grant permissions.
  *
- * - `member`  — day-to-day builder: read + write on pipelines/plugins, read
- *   elsewhere. No member/role/billing management, no compliance/alert authoring.
+ * - `member`  — day-to-day builder: read + write on pipelines/templates/plugins,
+ *   read elsewhere. No member/role/billing management, no compliance/alert
+ *   authoring, and no `:publish` on any catalog.
  * - `admin`   — full org administration: every ORG-ASSIGNABLE permission (i.e.
  *   ALL_PERMISSIONS minus the {@link SUPERADMIN_ONLY_PERMISSIONS}, so `registry:*`
  *   stay superadmin-implicit-only and are NOT granted to org admins).
@@ -140,6 +149,7 @@ export function isOrgAssignablePermission(permission: Permission): boolean {
  */
 const MEMBER_PERMISSIONS: readonly Permission[] = [
   'pipelines:read', 'pipelines:write',
+  'templates:read', 'templates:write',
   'plugins:read', 'plugins:write',
   'compliance:read',
   'dashboards:read',

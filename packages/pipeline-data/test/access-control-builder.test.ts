@@ -7,13 +7,12 @@
  * Exercises the buildCommonConditions() method which internally calls
  * buildAccessControl(), buildIdFilter(), and buildBooleanFilters().
  *
- * Access control rules:
+ * Access control is the shared three-rung `visibility` ladder:
  * - No orgId: system org public only (2 conditions)
- * - With orgId, no accessModifier: own org (any modifier) OR system/parent public,
- *   folded into a single OR (1 condition)
- * - With orgId, accessModifier='public': own public OR system/parent public,
- *   folded into a single OR (1 condition) — system-org samples stay visible
- * - With orgId, accessModifier='private': own org private only (2 conditions)
+ * - With orgId: own-org rows EXCEPT other people's private drafts, OR'd with
+ *   system/parent public rows — folded into a single OR (1 condition)
+ * - An explicit `visibility` NARROWS within that set (+1 condition); it never
+ *   widens it, so `visibility='public'` still surfaces system-org samples
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
@@ -33,7 +32,7 @@ const ORG_ID = 'org-abc-123';
 describe('AccessControlQueryBuilder - no orgId (anonymous access)', () => {
   it('should produce system-public-only conditions when no orgId', () => {
     const conditions = builder.buildCommonConditions({});
-    // access control (2: orgId=SYSTEM_ORG_ID + accessModifier='public') + isActive default (1) = 3
+    // access control (2: orgId=SYSTEM_ORG_ID + visibility='public') + isActive default (1) = 3
     expect(conditions.length).toBe(3);
   });
 
@@ -131,10 +130,10 @@ describe('AccessControlQueryBuilder - parentOrgId (team → parent inheritance)'
   });
 
   it('folds own + system/parent public into one OR for an explicit public filter (system samples stay visible)', () => {
-    const withParent = builder.buildCommonConditions({ accessModifier: 'public' }, ORG_ID, PARENT_ID);
-    // explicit public → or(ownPublic, and(public, or(system, parent))) (1) + isActive (1) = 2.
-    // The parent is an extra OR branch, not a new condition — and system/parent public is INCLUDED.
-    expect(withParent.length).toBe(2);
+    const withParent = builder.buildCommonConditions({ visibility: 'public' }, ORG_ID, PARENT_ID);
+    // access OR (1, with the parent as an extra BRANCH not a new condition)
+    // + rung narrowing (1) + isActive (1) = 3. System/parent public stays INCLUDED.
+    expect(withParent.length).toBe(3);
   });
 
   it('ignores parentOrgId for anonymous (no orgId) access', () => {
@@ -144,26 +143,39 @@ describe('AccessControlQueryBuilder - parentOrgId (team → parent inheritance)'
   });
 });
 
-// Default-view access semantics: own org is visible regardless of access
-// modifier; the public gate applies only to other orgs (system/parent).
-// Regression for: a freshly uploaded PRIVATE plugin vanishing from its own
-// org's default listing because the view forced accessModifier='public'.
-describe('AccessControlQueryBuilder - default view shows own-org private', () => {
+// Default-view access semantics: own-org rows are visible at every rung EXCEPT
+// another user's private draft; the `public` gate applies only to other orgs
+// (system/parent). Regression for: a freshly uploaded row vanishing from its own
+// org's default listing because the view forced visibility='public'.
+describe('AccessControlQueryBuilder - default view shows own-org rows', () => {
   const dialect = new PgDialect();
 
   it('OR-s in the own-org branch without a public constraint', () => {
-    const [accessControl] = builder.buildCommonConditions({}, ORG_ID);
+    const [accessControl] = builder.buildCommonConditions({ viewerUserId: 'user-1' }, ORG_ID);
     const { sql: text, params } = dialect.sqlToQuery(accessControl);
 
-    // The own org id is a bare branch of the top-level OR (own-org rows are
-    // returned for ANY access modifier), while 'public' only gates the
-    // system/parent rows. So 'private' must NOT appear anywhere here.
     expect(params).toContain(ORG_ID.toLowerCase());
     expect(params).toContain('000000000000000000000001');
     expect(params).toContain('public');
-    expect(params).not.toContain('private');
-    // own-org equality is OR'd in, not AND'ed with the public predicate.
-    expect(text.toLowerCase()).toMatch(/org_id"?\s*=\s*\$\d+\s+or\s+\(/);
+    // 'private' appears only in the `visibility <> 'private'` leg — the own-org
+    // branch is NOT constrained to public.
+    expect(text.toLowerCase()).toContain('<>');
+    // The viewer is bound so the author still sees their own draft.
+    expect(params).toContain('user-1');
+  });
+
+  it('fails CLOSED on the private rung when no viewer is stamped', () => {
+    const [accessControl] = builder.buildCommonConditions({}, ORG_ID);
+    const { sql: text } = dialect.sqlToQuery(accessControl);
+    // No viewer ⇒ the "mine" leg collapses to an impossible predicate rather
+    // than matching every private row in the org.
+    expect(text.toLowerCase()).toContain('false');
+  });
+
+  it('lifts the private rung for a superadmin', () => {
+    const [accessControl] = builder.buildCommonConditions({ viewerIsSuperAdmin: true }, ORG_ID);
+    const { sql: text } = dialect.sqlToQuery(accessControl);
+    expect(text.toLowerCase()).not.toContain('false');
   });
 });
 
@@ -184,41 +196,40 @@ describe('AccessControlQueryBuilder - combined common conditions', () => {
     expect(withId.length).toBe(without.length + 1);
   });
 
-  it('should add accessModifier explicit filter condition', () => {
-    const withPublic = builder.buildCommonConditions(
-      { accessModifier: 'public' },
-      ORG_ID,
-    );
-    // Explicit 'public' folds own-public + system/parent-public into a single OR
-    // (1 condition — system-org samples must stay visible) + isActive default (1) = 2.
-    expect(withPublic.length).toBe(2);
+  it('should add visibility explicit filter condition', () => {
+    const without = builder.buildCommonConditions({}, ORG_ID);
+    const withPublic = builder.buildCommonConditions({ visibility: 'public' }, ORG_ID);
+    // The rung filter NARROWS within the visible set: the full access OR stays,
+    // and the rung equality is one extra condition on top. That is what keeps
+    // system-org samples visible under `?visibility=public`.
+    expect(withPublic.length).toBe(without.length + 1);
   });
 
   it('should handle all common filters together', () => {
     const conditions = builder.buildCommonConditions(
       {
         id: '12345678-1234-1234-1234-123456789abc',
-        accessModifier: 'private',
+        visibility: 'private',
         isDefault: true,
         isActive: false,
       },
       ORG_ID,
     );
-    // access control for 'private' (2: orgId=$org + accessModifier='private') + id (1) + isDefault (1) + isActive (1) = 5
+    // access control (1 folded OR) + rung narrowing (1) + id (1) + isDefault (1) + isActive (1) = 5
     expect(conditions.length).toBe(5);
   });
 
   it('should produce fewer conditions for anonymous with all filters', () => {
     const withOrg = builder.buildCommonConditions(
-      { accessModifier: 'public', isDefault: true },
+      { visibility: 'public', isDefault: true },
       ORG_ID,
     );
     const withoutOrg = builder.buildCommonConditions(
       { isDefault: true },
     );
-    // withOrg explicit public: 1 OR access condition + isActive (1) + isDefault (1) = 3.
+    // withOrg explicit public: 1 OR access condition + rung narrowing (1) + isActive (1) + isDefault (1) = 4.
     // withoutOrg (anonymous): 2 access conditions (system + public) + isActive + isDefault = 4.
-    expect(withOrg.length).toBe(3);
+    expect(withOrg.length).toBe(4);
     expect(withoutOrg.length).toBe(4);
   });
 });

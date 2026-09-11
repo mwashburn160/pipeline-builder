@@ -8,6 +8,7 @@ import type { Response } from 'express';
 import { v7 as uuid } from 'uuid';
 import type { SSERelay, SSERelayMessage } from './sse-relay.js';
 import { createMemoryTicketStore, type SSEStreamTicketStore } from './sse-ticket-store.js';
+import { incCounter, setGauge } from '../api/metrics.js';
 
 const logger = createLogger('sse-manager');
 
@@ -216,6 +217,16 @@ export class SSEManager {
     return n;
   }
 
+  /**
+   * Publish the current live-connection count as a gauge so on-call can see SSE
+   * saturation (approach to the per-process cap) on a dashboard — previously
+   * these numbers lived only in `getStats()`/logs. Called after every add/remove/
+   * close/cleanup. Cheap (O(R)); metric helpers never throw.
+   */
+  private updateActiveGauge(): void {
+    setGauge('sse_active_connections', {}, this.totalClients());
+  }
+
   /** Current open-stream count for an org (0 if unseen). */
   getOrgClientCount(orgId: string): number {
     return this.orgClientCounts.get(orgId) ?? 0;
@@ -297,6 +308,7 @@ export class SSEManager {
     const owner = await this.ticketStore.getStreamOwner(normalized);
     if (owner && owner !== normalizedOrg) {
       logger.warn(`SSE ticket refused: org ${normalizedOrg} does not own stream subject`);
+      incCounter('sse_ticket_rejected_total', { reason: 'forbidden' });
       return { ok: false, reason: 'forbidden' };
     }
 
@@ -304,10 +316,12 @@ export class SSEManager {
     // the offender. Then the per-org cap for fair-share.
     if ((await this.ticketStore.total()) >= this.maxTotalTickets) {
       logger.warn(`SSE ticket cap reached (max: ${this.maxTotalTickets}); rejecting ticket request`);
+      incCounter('sse_ticket_rejected_total', { reason: 'capacity' });
       return { ok: false, reason: 'capacity' };
     }
     if ((await this.ticketStore.countForOrg(normalizedOrg)) >= this.maxTicketsPerOrg) {
       logger.warn(`Per-org SSE ticket cap reached for ${normalizedOrg} (max: ${this.maxTicketsPerOrg})`);
+      incCounter('sse_ticket_rejected_total', { reason: 'org-limit' });
       return { ok: false, reason: 'org-limit' };
     }
 
@@ -353,17 +367,25 @@ export class SSEManager {
    * @returns true if client was added, false if rejected (limit reached)
    */
   addClient(requestId: string, res: Response, orgId?: string): boolean {
+    // Normalize the map key: the subject id is allowed in two forms (dashed
+    // api-server uuid vs undashed nginx $request_id), and a producer/consumer that
+    // render it differently would otherwise key different Map entries — the client
+    // registers under one and every send()/relay writes to another, dropping all
+    // frames. Normalizing here (and in send/sendLocal/closeRequest/etc.) unifies them.
+    requestId = SSEManager.normalizeRequestId(requestId);
     const existing = this.clients.get(requestId) || [];
 
     // Check client limit
     if (existing.length >= this.maxClientsPerRequest) {
       logger.warn(`Client limit reached for request ${requestId} (max: ${this.maxClientsPerRequest})`);
+      incCounter('sse_connection_rejected_total', { reason: 'request-limit' });
       return false;
     }
 
     // Process-wide cap: protects fd table + memory from runaway dashboards.
     if (this.totalClients() >= this.maxTotalClients) {
       logger.warn(`Total SSE client cap reached (max: ${this.maxTotalClients}); rejecting new connection`);
+      incCounter('sse_connection_rejected_total', { reason: 'total-cap' });
       return false;
     }
 
@@ -376,6 +398,7 @@ export class SSEManager {
       const orgCurrent = this.orgClientCounts.get(orgId) ?? 0;
       if (orgCurrent >= this.maxClientsPerOrg) {
         logger.warn(`Per-org SSE client cap reached for ${orgId} (max: ${this.maxClientsPerOrg}); rejecting new connection`);
+        incCounter('sse_connection_rejected_total', { reason: 'org-cap' });
         return false;
       }
       this.orgClientCounts.set(orgId, orgCurrent + 1);
@@ -416,6 +439,8 @@ export class SSEManager {
 
     existing.push(client);
     this.clients.set(requestId, existing);
+    incCounter('sse_connections_total', {});
+    this.updateActiveGauge();
 
     logger.debug(`Client ${clientId} connected for request ${requestId} (total: ${existing.length})`);
     return true;
@@ -455,6 +480,7 @@ export class SSEManager {
     } else {
       this.clients.set(requestId, remaining);
     }
+    this.updateActiveGauge();
   }
 
   /**
@@ -467,6 +493,7 @@ export class SSEManager {
    * @returns Number of clients the message was sent to
    */
   send(requestId: string, type: SSEEventType, message: string, data?: unknown): number {
+    requestId = SSEManager.normalizeRequestId(requestId); // unify producer/consumer key forms
     const payload: SSEPayload = {
       ts: new Date().toISOString(),
       type,
@@ -489,6 +516,7 @@ export class SSEManager {
    * Never relays — callers decide whether to publish.
    */
   private sendLocal(requestId: string, payload: SSEPayload): number {
+    requestId = SSEManager.normalizeRequestId(requestId); // idempotent; covers the relay re-emit path
     const clients = [...(this.clients.get(requestId) || [])];
     let sentCount = 0;
     const serialized = `data: ${JSON.stringify(payload)}\n\n`;
@@ -506,6 +534,7 @@ export class SSEManager {
           // Disconnect clients that consistently can't keep up (10 consecutive backpressure events)
           if (client.backpressureCount >= CoreConstants.SSE_BACKPRESSURE_THRESHOLD) {
             logger.warn(`Disconnecting slow client ${client.id} for request ${requestId} (${client.backpressureCount} backpressure events)`);
+            incCounter('sse_backpressure_disconnects_total', {});
             this.removeClient(requestId, client.id);
             try { client.res.end(); } catch { /* already closed */ }
             continue;
@@ -567,6 +596,7 @@ export class SSEManager {
    * @param finalMessage - Optional final message to send before closing
    */
   closeRequest(requestId: string, finalMessage?: string): void {
+    requestId = SSEManager.normalizeRequestId(requestId);
     const clients = this.clients.get(requestId);
     if (!clients) return;
 
@@ -585,6 +615,7 @@ export class SSEManager {
     }
 
     this.clients.delete(requestId);
+    this.updateActiveGauge();
     logger.debug(`Closed all clients for request ${requestId}`);
   }
 
@@ -617,7 +648,7 @@ export class SSEManager {
    * Check if a request has any connected clients
    */
   hasClients(requestId: string): boolean {
-    const clients = this.clients.get(requestId);
+    const clients = this.clients.get(SSEManager.normalizeRequestId(requestId));
     return clients !== undefined && clients.length > 0;
   }
 
@@ -625,7 +656,7 @@ export class SSEManager {
    * Get the number of clients for a specific request
    */
   getClientCount(requestId: string): number {
-    return this.clients.get(requestId)?.length ?? 0;
+    return this.clients.get(SSEManager.normalizeRequestId(requestId))?.length ?? 0;
   }
 
   /**
@@ -764,6 +795,8 @@ export class SSEManager {
     }
 
     if (cleaned > 0) {
+      incCounter('sse_stale_cleaned_total', {}, cleaned);
+      this.updateActiveGauge();
       logger.info(`Cleaned up ${cleaned} stale SSE connections`);
     }
   }

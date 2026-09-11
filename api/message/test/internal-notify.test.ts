@@ -60,7 +60,7 @@ describe('POST /messages/internal/notify', () => {
 
     const data = mockCreate.mock.calls[0][0] as any;
     expect(data.orgId).toBe('000000000000000000000001'); // system is the sender
-    expect(data.recipientOrgId).toBe('org-1');            // lowercased
+    expect(data.recipientOrgId).toBe('org-1'); // lowercased
     expect(data.createdBy).toBe('system');
     expect(data.messageType).toBe('conversation');
     expect(mockSse.send).toHaveBeenCalledWith('org-1', 'MESSAGE', 'New message', expect.objectContaining({ action: 'NEW_MESSAGE', messageId: 'm1' }));

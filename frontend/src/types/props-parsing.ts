@@ -57,7 +57,7 @@ function parsePluginOptions(obj: unknown): FormPluginOptions {
     filter: {
       id: String(filter.id || ''),
       orgId: String(filter.orgId || ''),
-      accessModifier: String(filter.accessModifier || ''),
+      visibility: String(filter.visibility || ''),
       isDefault: filter.isDefault !== undefined ? String(filter.isDefault) : '',
       isActive: filter.isActive !== undefined ? String(filter.isActive) : '',
       name: String(filter.name || ''),

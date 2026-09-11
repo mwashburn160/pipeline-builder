@@ -5,24 +5,30 @@ export type { ContentBlock, HelpSection, HelpTopic } from './types';
 export type { PluginCategory } from './plugins';
 export { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES, PLUGIN_CATALOG } from './plugins';
 
+// Hand-authored topics — no 1:1 doc under docs/ (getting-started/ai-generation
+// have no doc; pipelines/plugins/registry map only fuzzily). These stay authored
+// here; `plugins` also backs the plugin catalog data.
 import { gettingStartedTopic } from './getting-started';
-import { organizationBenefitsTopic } from './organization-benefits';
-import { architectureFlowTopic } from './architecture-flow';
-import { developerGuideTopic } from './developer-guide';
 import { pipelinesTopic } from './pipelines';
 import { pluginsTopic } from './plugins';
-import { templatesTopic } from './templates';
-import { metadataKeysTopic } from './metadata-keys';
-import { cdkUsageTopic } from './cdk-usage';
 import { aiGenerationTopic } from './ai-generation';
-import { samplesTopic } from './samples';
-import { deploymentTopic } from './deployment';
-import { cliReferenceTopic } from './cli-reference';
 import { registryTopic } from './registry';
-import { complianceTopic } from './compliance';
-import { auditEventsTopic } from './audit-events';
-import { apiReferenceTopic } from './api-reference';
-import { envVariablesTopic } from './env-variables';
+// GENERATED topics — produced from docs/*.md by `npm run generate:help`. docs are
+// the single source of truth (also what the Ask agent grounds on), so these can
+// no longer drift from the docs. Do NOT edit files under ./generated/.
+import { organizationBenefitsTopic } from './generated/organization-benefits';
+import { architectureFlowTopic } from './generated/architecture-flow';
+import { developerGuideTopic } from './generated/developer-guide';
+import { templatesTopic } from './generated/templates';
+import { metadataKeysTopic } from './generated/metadata-keys';
+import { cdkUsageTopic } from './generated/cdk-usage';
+import { samplesTopic } from './generated/samples';
+import { deploymentTopic } from './generated/deployment';
+import { cliReferenceTopic } from './generated/cli-reference';
+import { complianceTopic } from './generated/compliance';
+import { auditEventsTopic } from './generated/audit-events';
+import { apiReferenceTopic } from './generated/api-reference';
+import { envVariablesTopic } from './generated/env-variables';
 import type { HelpTopic } from './types';
 
 /** A labelled group of help topics, for the categorized help nav. */

@@ -8,6 +8,7 @@ import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import helmet from 'helmet';
+import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client';
 
@@ -147,6 +148,25 @@ function peekJwtClaims(req: express.Request): {
 }
 
 /**
+ * Whether the request carries a VALID (signature-verified) access token with the
+ * `isSuperAdmin` flag. Used only for the rate-limit bypass, which must not honor a
+ * forged token. Unlike `peekJwtClaims` (unverified — fine for tier/key selection),
+ * this verifies against the same secret + pinned algorithm as `requireAuth`.
+ */
+function verifiedIsSuperAdmin(req: express.Request): boolean {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) return false;
+  try {
+    const payload = jwt.verify(auth.slice(7), config.auth.jwt.secret, {
+      algorithms: [config.auth.jwt.algorithm],
+    }) as { isSuperAdmin?: boolean };
+    return payload.isSuperAdmin === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Per-tier max calculator. JWT carries `tier` (set at issuance from the
  * org's planId); we multiply the baseline by the tier's multiplier so a
  * premium org gets proportionally more burst. Sysadmins bypass entirely
@@ -177,12 +197,12 @@ const limiter = rateLimit({
   // size it for the worst case. Same JWT-peek pattern as the key generator
   // so this works pre-`requireAuth`.
   skip: (req: Request) => {
-    // Sysadmin bypass — checks the JWT-stamped isSuperAdmin flag (the
-    // canonical signal after the system-org cutover). Unverified peek is
-    // safe: the worst a tampered token can do is grant itself the
-    // rate-limit bypass, and `requireAuth` later rejects it before any
-    // privileged action runs.
-    return peekJwtClaims(req).isSuperAdmin === true;
+    // Sysadmin bypass — VERIFY the signature (not just peek): the bypass removes
+    // throttling entirely, so an unsigned/forged `isSuperAdmin:true` token must not
+    // grant it (that would let an unauthenticated caller strip rate limiting from
+    // every route — a DoS-relevant control). `requireAuth` still re-checks later for
+    // the actual authorization; here we gate only the throttle bypass.
+    return verifiedIsSuperAdmin(req);
   },
   message: { success: false, statusCode: 429, message: 'Too many requests. Please try again later.' },
   standardHeaders: true,

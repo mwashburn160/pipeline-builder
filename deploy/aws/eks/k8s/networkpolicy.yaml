@@ -45,7 +45,7 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: [platform, pipeline, plugin, message, quota, billing, frontend, compliance, reporting, image-registry]
+        values: [platform, pipeline, plugin, message, quota, billing, frontend, compliance, reporting, image-registry, ask]
   policyTypes:
     - Ingress
   ingress:
@@ -616,3 +616,47 @@ spec:
                 values: [message, registry, minio-init, loki, prometheus, minio, thanos-store-gateway]
       ports:
         - port: 9000
+---
+# =============================================================================
+# Ask agent -> pipeline (token-forwarded propose/list). Without this, default-deny
+# drops ask->pipeline and the agent's create-pipeline drafts fail.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pipeline-from-ask
+spec:
+  podSelector:
+    matchLabels:
+      app: pipeline
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: ask
+      ports:
+        - port: 3000
+---
+# =============================================================================
+# Ask agent -> plugin (token-forwarded propose). Without this, default-deny drops
+# ask->plugin and the agent's create-plugin drafts fail.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-plugin-from-ask
+spec:
+  podSelector:
+    matchLabels:
+      app: plugin
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: ask
+      ports:
+        - port: 3000

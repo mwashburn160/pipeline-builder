@@ -118,7 +118,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
       const response = await api.deployGeneratedPlugin({
         ...generatedConfig,
         dockerfile: generatedDockerfile,
-        accessModifier: access,
+        visibility: access,
       });
 
       if (response.statusCode === 202 && response.data?.requestId) {

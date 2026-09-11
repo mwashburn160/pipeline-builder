@@ -46,7 +46,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   reserveQuota: mockReserveQuota,
   decrementQuota: mockDecrementQuota,
   getServiceAuthHeader: () => 'Bearer service-token',
-  resolveAccessModifier: (_req: any, val: string) => val || 'private',
+  resolveVisibility: (_req: any, val: string) => val || 'private',
   createComplianceClient: () => ({ validatePlugin: mockValidatePlugin }),
   validateBody: jest.fn(() => ({
     ok: true,
@@ -63,7 +63,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       env: {},
       buildArgs: {},
       dockerfile: 'FROM node',
-      accessModifier: 'private',
+      visibility: 'private',
     },
   })),
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),

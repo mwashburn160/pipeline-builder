@@ -39,6 +39,16 @@ class NotFoundError extends Error {
   }
 }
 
+/** Mirrors api-core's ConflictError (statusCode 409 / code CONFLICT). */
+class ConflictError extends Error {
+  statusCode = 409;
+  code = 'CONFLICT';
+  constructor(message?: string) {
+    super(message);
+    this.name = 'ConflictError';
+  }
+}
+
 /** Mirrors api-core's ValidationError (statusCode 400 / code VALIDATION_ERROR). */
 class ValidationError extends Error {
   statusCode = 400;
@@ -67,6 +77,11 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     createEnvRedisLock: () => null,
     requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
     SYSTEM_ORG_ID: '000000000000000000000001',
+    // The `openai-compatible` (local model) provider is deployment-defined; ai-core's
+    // provider-registry imports these from api-core, so the mock must expose them.
+    // Suites that exercise a local model override them.
+    OPENAI_COMPATIBLE_PROVIDER_ID: 'openai-compatible',
+    getOpenAICompatibleProvider: () => null,
     // S2S token minter — routes forward a service token (not the user bearer)
     // to quota/compliance. Suites that assert on the forwarded auth override this.
     getServiceAuthHeader: () => 'Bearer service-token',
@@ -94,7 +109,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // so suites that transitively load the boot module still link.
     setTokenRevocationStore: () => {},
     createEnvRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
-    AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
+
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,
@@ -113,6 +128,13 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     requireFeature: () => passThroughMiddleware,
     NotFoundError,
     ValidationError,
+    ConflictError,
+    // Template visibility gates — the pipeline-template routes link against
+    // these. Defaults allow the write and echo the requested rung (private when
+    // unspecified); suites exercising the ladder override them.
+    requireVisibilityWriteAccess: () => true,
+    resolveVisibility: (_req: unknown, requested?: string) =>
+      (requested === 'public' || requested === 'org' ? requested : 'private'),
     // Pipeline-template Zod schemas — the template routes import them as values
     // (passed to validateBody/validateQuery). Inert stubs suffice for ESM linking;
     // suites that exercise validation override validateBody/validateQuery anyway.

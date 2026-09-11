@@ -5,6 +5,7 @@ import type { RedisCacheClient } from './cache-service.js';
 import { createEnvRedisClient } from './env-redis.js';
 import type { TokenRevocationStore } from '../middleware/auth.js';
 import { createLogger } from '../utils/logger.js';
+import { emitCounter } from '../utils/metric-emitter.js';
 
 const logger = createLogger('token-revocation');
 
@@ -44,6 +45,14 @@ export function createRedisTokenRevocationStore(redis: RedisCacheClient): TokenR
         const n = Number(raw);
         return Number.isInteger(n) ? n : null;
       } catch (err) {
+        // Redis was reachable enough to try but the read errored — this is a
+        // DEGRADATION: while it persists, forced logouts / privilege revocations
+        // silently stop taking effect until natural token expiry. Emit a counter
+        // so `TokenRevocationFailingOpen` can alert on a SUSTAINED rate (mirrors
+        // the quota_fail_open_total pattern). Not emitted for the "Redis not
+        // configured" path (createEnvRedisTokenRevocationStore → null client),
+        // which is a deliberate opt-out, not a degradation.
+        emitCounter('token_revocation_fail_open_total', { reason: 'read-error' });
         logger.debug('Token-revocation read failed (fail-open)', {
           userId, error: err instanceof Error ? err.message : String(err),
         });

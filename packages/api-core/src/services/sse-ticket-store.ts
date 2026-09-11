@@ -44,6 +44,13 @@ export interface SseTicketStoreConfig {
   maxTotal: number;
   /** Per-org cap on tickets minted per TTL window (single-tenant abuse bound). */
   maxPerOrg: number;
+  /**
+   * Optional Redis key namespace so independent channels (e.g. message
+   * notifications vs. reporting execution-status) don't share one ticket
+   * keyspace — a ticket minted for one channel must not be redeemable on
+   * another. Omit for the default (shared) namespace.
+   */
+  keyPrefix?: string;
 }
 
 /** Minimal ioredis surface this store needs (GETDEL requires Redis ≥ 6.2). */
@@ -114,6 +121,11 @@ function createInMemorySseTicketStore(config: SseTicketStoreConfig): SseTicketSt
  */
 function createRedisSseTicketStore(redis: SseRedis, config: SseTicketStoreConfig): SseTicketStore {
   const ttlSec = Math.max(1, Math.ceil(config.ttlMs / 1000));
+  // Per-channel namespace so two services' ticket stores don't share keys.
+  const ns = config.keyPrefix ? `${config.keyPrefix}:` : '';
+  const ticketKey = (t: string) => `${ns}${TICKET_KEY_PREFIX}${t}`;
+  const orgCountKey = (o: string) => `${ns}${ORG_COUNT_PREFIX}${o}`;
+  const totalCountKey = `${ns}${TOTAL_COUNT_KEY}`;
 
   // Windowed counter: INCR, and on the first hit of a window set the TTL so it
   // auto-resets. Returns true while still within `limit` for this window.
@@ -126,10 +138,10 @@ function createRedisSseTicketStore(redis: SseRedis, config: SseTicketStoreConfig
   return {
     async issue(orgId: string): Promise<SseTicketIssueResult> {
       try {
-        if (!(await withinWindow(TOTAL_COUNT_KEY, config.maxTotal))) return { ok: false, reason: 'total' };
-        if (!(await withinWindow(`${ORG_COUNT_PREFIX}${orgId}`, config.maxPerOrg))) return { ok: false, reason: 'org' };
+        if (!(await withinWindow(totalCountKey, config.maxTotal))) return { ok: false, reason: 'total' };
+        if (!(await withinWindow(orgCountKey(orgId), config.maxPerOrg))) return { ok: false, reason: 'org' };
         const ticket = newTicketId();
-        await redis.set(`${TICKET_KEY_PREFIX}${ticket}`, orgId, 'EX', ttlSec);
+        await redis.set(ticketKey(ticket), orgId, 'EX', ttlSec);
         return { ok: true, ticket };
       } catch (err) {
         logger.warn('SSE ticket issue failed (fail-closed)', { error: err instanceof Error ? err.message : String(err) });
@@ -138,7 +150,7 @@ function createRedisSseTicketStore(redis: SseRedis, config: SseTicketStoreConfig
     },
     async consume(ticketId: string): Promise<{ orgId: string } | null> {
       try {
-        const orgId = await redis.getdel(`${TICKET_KEY_PREFIX}${ticketId}`);
+        const orgId = await redis.getdel(ticketKey(ticketId));
         return orgId ? { orgId } : null;
       } catch (err) {
         logger.warn('SSE ticket consume failed (fail-closed)', { error: err instanceof Error ? err.message : String(err) });

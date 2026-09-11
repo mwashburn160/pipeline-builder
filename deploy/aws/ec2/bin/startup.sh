@@ -369,6 +369,10 @@ pb_create_config_maps "$DEPLOY_DIR" "$CONFIG_DIR" "$NGINX_DIR"
 mk minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${DATA_DIR}/plugins-data && sudo chown -R 1000:1000 ${DATA_DIR}/plugins-data"
 
 log "Applying Kubernetes manifests"
+# Supply-chain gate (ENFORCED): refuse to deploy an unsigned/look-alike ghcr image —
+# every referenced image must carry a valid cosign signature from this repo's
+# release workflow. Break-glass: SKIP_IMAGE_SIGNATURE_VERIFY=1.
+bash "$(dirname "${BASH_SOURCE[0]}")/../../../bin/verify-image-signatures.sh"
 [ "$LEAN" = "1" ] && echo "  LEAN=1 — omitting optional observability + admin services (prometheus/thanos/loki/promtail/jaeger/alertmanager/mongo-express/pgadmin)"
 # Restricted envsubst: ONLY ${BUILDKIT_MEMORY_LIMIT} is expanded, so runtime
 # shell tokens in inline configmaps (nginx ${NS}/$s, etc.) are left intact.

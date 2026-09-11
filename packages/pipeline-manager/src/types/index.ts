@@ -7,5 +7,6 @@
 
 export * from './config.js';
 export * from './pipeline.js';
+export * from './pipeline-template.js';
 export * from './plugin.js';
 export * from './error.js';

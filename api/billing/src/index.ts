@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, ErrorCode, mongoSanitize, wireServiceSecurity } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, ErrorCode, mongoSanitize, wireServiceSecurity, createEnvRedisDurableEventBus } from '@pipeline-builder/api-core';
+import type { EventSubscription } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, mongoHealthCheck, connectMongo } from '@pipeline-builder/api-server';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -12,6 +13,7 @@ import { startPromotionBackfill } from './helpers/promotion-backfill.js';
 import { seedPlans } from './helpers/seed-plans.js';
 import { validateProviderConfig } from './helpers/validate-provider-config.js';
 import { startSubscriptionLifecycleChecker, stopSubscriptionLifecycleChecker } from './helpers/subscription-lifecycle.js';
+import { setEntitlementSyncBus, startEntitlementSyncConsumer } from './helpers/billing-helpers.js';
 import { createAddonRoutes } from './routes/addons.js';
 import { createAdminSubscriptionRoutes } from './routes/admin-subscriptions.js';
 import { createBillingSummaryRoutes } from './routes/billing-summary.js';
@@ -39,6 +41,10 @@ const { app, sseManager } = createApp({
   warmupHooks: config.enabled
     ? [async () => { await mongoose.connection.db?.admin().ping(); }]
     : [],
+  // Stripe webhook HMAC is computed over the EXACT raw bytes — keep the global JSON
+  // parser off this path so the per-path `express.raw()` (below) can read them.
+  // Without this, signature verification 400s on every real delivery.
+  jsonBodyExclude: ['/billing/stripe/webhook'],
 });
 
 // Mongo operator-injection guard — strips `$`-prefixed keys + dot-walks from
@@ -60,6 +66,9 @@ app.get('/billing/config', (_req, res) => {
 });
 
 if (config.enabled) {
+
+  // Handle to the durable entitlement-sync consumer so it can be stopped on shutdown.
+  let entitlementSyncSub: EventSubscription | null = null;
 
   app.use('/billing', createReadPlanRoutes());
   app.use('/billing', createSubscriptionRoutes());
@@ -85,6 +94,13 @@ if (config.enabled) {
       validateProviderConfig();
       await connectMongo(mongoose, config.mongodb.uri);
       await seedPlans();
+      // Durable entitlement-sync backbone: a failed sync publishes a retry event
+      // that this consumer re-drives at-least-once (replaces the old polling
+      // reconcileFailedEntitlementSyncs). Null when Redis isn't configured — the
+      // sync then still runs inline, just without durable retry.
+      const entitlementBus = createEnvRedisDurableEventBus();
+      setEntitlementSyncBus(entitlementBus);
+      if (entitlementBus) entitlementSyncSub = startEntitlementSyncConsumer(entitlementBus);
       startSubscriptionLifecycleChecker();
       startMarketplaceMetering();
       startPromotionBackfill();
@@ -93,6 +109,8 @@ if (config.enabled) {
     closeDatabase: async () => {
       stopSubscriptionLifecycleChecker();
       stopMarketplaceMetering();
+      await entitlementSyncSub?.stop();
+      setEntitlementSyncBus(null);
       await mongoose.connection.close(false);
     },
   });

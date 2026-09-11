@@ -39,7 +39,7 @@ import { JobPermission, JobStep } from 'projen/lib/github/workflows-model';
 import { TypeScriptProject } from 'projen/lib/typescript';
 
 /** Projects that are built as Docker images and pushed to registry */
-const IMAGE_PROJECTS = ['frontend', 'platform', 'billing', 'reporting', 'compliance', 'quota', 'message', 'pipeline', 'plugin', 'image-registry'] as const;
+const IMAGE_PROJECTS = ['frontend', 'platform', 'billing', 'reporting', 'compliance', 'quota', 'message', 'pipeline', 'plugin', 'image-registry', 'ask'] as const;
 
 /**
  * Projects that are published as npm packages. Used by the release workflow
@@ -86,13 +86,28 @@ export class Workflow extends Component {
         // Trigger: Manual workflow dispatch only (no automatic triggers)
         workflow.on({ workflowDispatch: {} });
 
-        // Define the four-stage workflow
+        // Define the release workflow stages
         workflow.addJobs({
             init: this.createInitJob(),                  // Stage 1: Detect affected projects
-            build: this.createBuildJob(),                // Stage 2: Build and publish libraries
+            build: this.createBuildJob(),                // Stage 2: Build, test-gate, and publish libraries
             publish: this.createPublishJob(),              // Stage 3: Build and push Docker images
             verify_release: this.createVerifyReleaseJob(), // Stage 4: Fail if a published npm dep / deploy image tag isn't actually published
+            record_build: this.createRecordBuildJob(),     // Stage 5: Advance .nx_base ONLY after a fully-successful publish+verify
         });
+
+        // Separate PR/push merge gate: run affected tests on every pull request
+        // (and on pushes to main). `buildWorkflow: false` disables projen's default
+        // PR build, so without this nothing runs the 500+ test files before a merge
+        // — which is how source/test drift (e.g. accessModifier→visibility, missing
+        // mock exports) reached main. Kept out of the manual, dispatch-only release
+        // workflow so it actually gates day-to-day changes.
+        const testWorkflow = new GithubWorkflow(root.github!, 'test');
+        testWorkflow.on({
+            pullRequest: {},
+            push: { branches: ['main'] },
+            workflowDispatch: {},
+        });
+        testWorkflow.addJobs({ test: this.createTestGateJob() });
     }
 
     /**
@@ -229,6 +244,21 @@ export class Workflow extends Component {
                     },
                 },
                 {
+                    // Release gate: run the affected projects' tests against the
+                    // just-built libs BEFORE versioning/publishing anything. A test
+                    // failure fails the build job, which skips `publish` (needs:
+                    // build) and `record_build` (which advances .nx_base) — so a
+                    // broken commit can neither ship an image nor move the affected
+                    // base forward. The `test` target dependsOn ['^build'] (nx.json),
+                    // so upstream libs are already built here. The dedicated `test`
+                    // workflow is the per-PR merge gate; this is the release-path gate.
+                    name: 'Run test target',
+                    run: 'pnpm nx affected --target test --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose',
+                    env: {
+                        GITHUB_TOKEN: '${{ secrets.GHRC_TOKEN }}',
+                    },
+                },
+                {
                     name: 'Semantic version',
                     run: 'pnpm nx release --first-release --skip-publish --verbose',
                     env: {
@@ -298,11 +328,11 @@ export class Workflow extends Component {
                     name: 'Push new tag to the repository',
                     run: 'git push --follow-tags',
                 },
-                {
-                    name: 'Build complete',
-                    if: '${{ success() }}',
-                    run: 'echo $(git rev-parse HEAD) > .nx_base && git add .nx_base && git commit -m "chore: updated last successfully built commit" && git push',
-                },
+                // NOTE: `.nx_base` is intentionally NOT advanced here. It is
+                // committed by the downstream `record_build` job, which runs only
+                // after `publish` (images) and `verify_release` succeed — so a
+                // failed image publish can no longer be silently forgotten by an
+                // already-advanced base (those images would never be rebuilt).
             ],
         };
     }
@@ -342,7 +372,12 @@ export class Workflow extends Component {
             permissions: {
                 actions: JobPermission.READ,
                 contents: JobPermission.WRITE,
-                packages: JobPermission.READ,
+                // WRITE so cosign can push the signature + SBOM attestation as OCI
+                // referrers alongside the image on GHCR (was READ — enough to pull).
+                packages: JobPermission.WRITE,
+                // Keyless cosign: the OIDC token is exchanged with Sigstore Fulcio
+                // for an ephemeral signing cert (no long-lived key to manage/leak).
+                idToken: JobPermission.WRITE,
             },
             if: '${{ needs.init.outputs.AFFECTED_IMAGES != \'[]\' }}',
             strategy: {
@@ -432,6 +467,44 @@ export class Workflow extends Component {
                         PROJECT_NAME: '${{ matrix.project_name }}',
                     },
                 },
+                {
+                    // Supply-chain provenance: cryptographically sign the pushed image
+                    // and attach an SBOM so a deploy can verify (a) the image is the one
+                    // CI built and (b) exactly what's inside it. Keyless (Sigstore
+                    // Fulcio/Rekor) — no key material to manage. Signatures/attestations
+                    // attach as OCI REFERRERS, so they don't add a platform entry to the
+                    // manifest index and `docker:verify` above stays happy (unlike
+                    // buildx's native --provenance, which is why that stays disabled).
+                    name: 'Install cosign',
+                    uses: 'sigstore/cosign-installer@v3',
+                },
+                {
+                    name: 'Install syft (SBOM generator)',
+                    uses: 'anchore/sbom-action/download-syft@v0',
+                },
+                {
+                    // Sign + attest by DIGEST (not the mutable tag). Resolve the digest
+                    // from the just-pushed manifest list, then cosign sign + SBOM attest.
+                    // Enforced (set -e): an unsigned release is a supply-chain gap, so a
+                    // signing failure fails the release rather than shipping unsigned.
+                    name: 'Sign image + attach SBOM (keyless)',
+                    run: [
+                        'set -euo pipefail',
+                        'PROJ_DIR=$(pnpm nx show project ${PROJECT_NAME} --json | jq -r .root)',
+                        'VERSION=$(jq -r .version "$PROJ_DIR/package.json")',
+                        'REF="ghcr.io/mwashburn160/${PROJECT_NAME}:${VERSION}"',
+                        'DIGEST=$(docker buildx imagetools inspect "$REF" --format \'{{ .Manifest.Digest }}\')',
+                        'IMG="ghcr.io/mwashburn160/${PROJECT_NAME}@${DIGEST}"',
+                        'echo "Signing $IMG"',
+                        'cosign sign --yes "$IMG"',
+                        'syft "$IMG" -o spdx-json=sbom.spdx.json',
+                        'cosign attest --yes --predicate sbom.spdx.json --type spdxjson "$IMG"',
+                    ].join(' && '),
+                    env: {
+                        PROJECT_NAME: '${{ matrix.project_name }}',
+                        COSIGN_YES: 'true',
+                    },
+                },
             ],
         };
     }
@@ -478,6 +551,140 @@ export class Workflow extends Component {
                     env: {
                         GHCR_TOKEN: '${{ secrets.GHRC_TOKEN }}',
                         GHCR_USER: '${{ github.actor }}',
+                    },
+                },
+            ],
+        };
+    }
+
+    /**
+     * Records a successful release by advancing `.nx_base` to the built HEAD.
+     *
+     * This is deliberately a SEPARATE, final job rather than a step in `build`.
+     * The affected-detection base (`.nx_base`) may only move forward once every
+     * artifact that was affected actually shipped:
+     *  - `build` succeeded (libs built + npm published),
+     *  - `publish` did not fail/cancel (images pushed — or legitimately skipped
+     *    when nothing image-affected), and
+     *  - `verify_release` confirmed the published npm/image refs resolve.
+     *
+     * Previously the base was committed at the end of `build`, before the
+     * downstream image `publish`. A failed publish then left the base advanced,
+     * so the next release computed `nx affected` from the advanced base and never
+     * rebuilt those images — the failed publish was silently forgotten.
+     *
+     * @returns Job configuration object
+     */
+    private createRecordBuildJob() {
+        return {
+            name: 'record build',
+            needs: ['init', 'build', 'publish', 'verify_release'],
+            runsOn: ['ubuntu-latest'],
+            permissions: {
+                contents: JobPermission.WRITE,
+            },
+            // Advance the base only on a fully-successful release. `always()` so a
+            // legitimately SKIPPED publish (nothing image-affected) still records,
+            // but any failure/cancel upstream — build, publish, or verify — holds
+            // the base where it is so the affected set is recomputed next run.
+            if: '${{ always() && needs.build.result == \'success\' && needs.publish.result != \'failure\' && needs.publish.result != \'cancelled\' && needs.verify_release.result == \'success\' }}',
+            steps: [
+                {
+                    name: 'Checkout repository',
+                    uses: 'actions/checkout@v6',
+                    with: {
+                        ref: 'main',
+                        'fetch-depth': 0,
+                    },
+                },
+                {
+                    name: 'Set git user',
+                    run: 'git config user.name "ci" && git config user.email "mwashburn160@gmail.com"',
+                },
+                {
+                    // main may have advanced (build pushed version-bump commits);
+                    // record the current tip so the next run's affected set starts
+                    // from exactly what this release built and verified.
+                    name: 'Advance .nx_base to the released HEAD',
+                    run: 'git pull --ff-only origin main && echo $(git rev-parse HEAD) > .nx_base && git add .nx_base && git commit -m "chore: updated last successfully built commit" && git push',
+                },
+            ],
+        };
+    }
+
+    /**
+     * Per-PR / push-to-main merge gate: run the affected projects' test target.
+     *
+     * Independent of the (manual, dispatch-only) release workflow so that every
+     * pull request and every push to main actually executes the test suite before
+     * it can merge/land. `nx affected --target test` builds upstream libs first
+     * (the `test` target's `dependsOn: ['^build']`), so tests see current exports.
+     *
+     * This job is intentionally SIDE-EFFECT-FREE (no tag pruning, no npm publish,
+     * no cache deletion, no git pushes) — it only checks out, installs, and tests.
+     *
+     * @returns Job configuration object
+     */
+    private createTestGateJob() {
+        const project = this.project as TypeScriptProject;
+        return {
+            name: 'test',
+            runsOn: ['ubuntu-latest'],
+            permissions: {
+                contents: JobPermission.READ,
+                packages: JobPermission.READ,
+            },
+            steps: [
+                {
+                    name: 'Disable Nx telemetry and daemon',
+                    run: 'echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV',
+                },
+                {
+                    // Full history so `nx affected --base origin/main` can diff.
+                    name: 'Checkout repository',
+                    uses: 'actions/checkout@v6',
+                    with: {
+                        'fetch-depth': 0,
+                    },
+                },
+                {
+                    name: 'Setup pnpm',
+                    uses: 'pnpm/action-setup@v6',
+                    with: {
+                        version: this.pnpmVersion,
+                    },
+                },
+                {
+                    name: 'Setup node',
+                    uses: 'actions/setup-node@v6',
+                    with: {
+                        cache: 'pnpm',
+                        'node-version': project.minNodeVersion,
+                        'package-manager-cache': 'pnpm',
+                    },
+                },
+                {
+                    name: 'Configure npm registry',
+                    run: 'export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/\:_authToken=$NPM_TOKEN && npm config set \@pipeline-builder\:registry=https://registry.npmjs.org/',
+                },
+                {
+                    name: 'Install dependencies',
+                    run: 'pnpm install --frozen-lockfile',
+                },
+                {
+                    // On a PR, GITHUB_BASE_REF is the target branch; fall back to
+                    // origin/main for pushes/dispatch. `nx affected` builds upstream
+                    // libs (test dependsOn ^build) then runs each affected test.
+                    name: 'Run affected tests',
+                    run: 'BASE="origin/${GITHUB_BASE_REF:-main}" && git rev-parse --verify "$BASE" >/dev/null 2>&1 || BASE="origin/main" && pnpm nx affected --target test --base "$BASE" --head HEAD --verbose',
+                    // Run the DB-backed integration suites too. They self-skip unless
+                    // this is set and use mongodb-memory-server (an ephemeral in-process
+                    // mongod — no external service), so CI is the right place to run
+                    // them; local `pnpm test` stays fast (env unset). The pipeline-manager
+                    // integration test needs a LIVE platform (PLATFORM_URL) and correctly
+                    // stays skipped here.
+                    env: {
+                        RUN_MONGO_INTEGRATION: 'true',
                     },
                 },
             ],

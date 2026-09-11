@@ -85,7 +85,7 @@ Every resource is scoped to an organization with role-based access control:
 | Resource | Isolation |
 |----------|-----------|
 | Pipelines | Scoped to (project, organization, orgId) |
-| Plugins | Scoped by orgId + accessModifier (public/private) |
+| Plugins | Scoped by orgId + visibility (private/org/public) |
 | Secrets | AWS Secrets Manager path: `{prefix}/{orgId}/{secretName}` |
 | Quotas | Per-org limits on plugins, pipelines, API calls, AI calls, storage, and more |
 | Compliance | Per-org rules and policies |

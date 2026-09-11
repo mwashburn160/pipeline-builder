@@ -7,7 +7,7 @@ import {
   sendSuccess,
   ErrorCode,
   errorMessage,
-  resolveAccessModifier,
+  resolveVisibility,
   reserveQuota,
   decrementQuota,
   getServiceAuthHeader,
@@ -19,7 +19,6 @@ import {
   pickDefined,
   isSystemAdmin,
   createComplianceClient,
-  AccessModifier,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
@@ -67,7 +66,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       created: number;
       updated: number;
       failed: number;
-      items: Array<{ index: number; accessModifier?: string; id?: string }>;
+      items: Array<{ index: number; visibility?: string; id?: string }>;
       errors: Array<{ index: number; error: string }>;
     } = { created: 0, updated: 0, failed: 0, items: [], errors: [] };
 
@@ -92,7 +91,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
         continue;
       }
 
-      const accessModifier = resolveAccessModifier(req, body.accessModifier, 'pipelines:publish');
+      const visibility = resolveVisibility(req, body.visibility, 'pipelines:publish', 'org');
       const project = replaceNonAlphanumeric(body.project, '_').toLowerCase();
       const organization = replaceNonAlphanumeric(body.organization, '_').toLowerCase();
 
@@ -119,7 +118,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
           organization,
           pipelineName,
           props: body.props,
-          accessModifier,
+          visibility,
         }, authHeader, undefined, pipelineName, 'create');
 
         if (complianceResult.blocked) {
@@ -138,7 +137,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
             description: body.description ?? '',
             keywords: body.keywords ?? [],
             props: body.props as unknown as PipelineInsert['props'],
-            accessModifier: accessModifier as AccessModifier,
+            visibility: visibility,
             createdBy: userId || 'system',
             // Catalog ownership: default to the creator so bulk-imported
             // pipelines also appear under "my services".
@@ -161,7 +160,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
           results.updated++;
           decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
         }
-        results.items.push({ index: i, accessModifier, id: pipeline.id });
+        results.items.push({ index: i, visibility, id: pipeline.id });
 
         // Best-effort attributed audit per successful item — emitted only
         // after the row landed. `inserted` distinguishes create vs. upsert.
@@ -175,7 +174,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
             project,
             organization,
             pipelineName,
-            accessModifier,
+            visibility,
             bulk: true,
           },
         });
@@ -209,7 +208,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     // caller isn't allowed to mutate.
     if (!isSystemAdmin(req)) {
       const matched = await pipelineService.findByIds(ids, orgId);
-      const nonPrivate = matched.filter((p) => p.accessModifier !== AccessModifier.PRIVATE);
+      const nonPrivate = matched.filter((p) => p.visibility !== 'private');
       if (nonPrivate.length > 0) {
         return sendError(
           res,
@@ -267,7 +266,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     // Sysadmin guard: if any matched row is non-private, only sysadmins can update.
     if (!isSystemAdmin(req)) {
       const matched = await pipelineService.findByIds(ids, orgId);
-      const nonPrivate = matched.filter((p) => p.accessModifier !== AccessModifier.PRIVATE);
+      const nonPrivate = matched.filter((p) => p.visibility !== 'private');
       if (nonPrivate.length > 0) {
         return sendError(
           res,
@@ -295,8 +294,8 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       props: validData.props,
       isActive: validData.isActive,
       isDefault: validData.isDefault,
-      ...(validData.accessModifier !== undefined
-        ? { accessModifier: resolveAccessModifier(req, validData.accessModifier, 'pipelines:publish') }
+      ...(validData.visibility !== undefined
+        ? { visibility: resolveVisibility(req, validData.visibility, 'pipelines:publish') }
         : {}),
     });
 

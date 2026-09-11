@@ -1,0 +1,159 @@
+---
+# =============================================================================
+# Ask model — OPT-IN self-hosted, OpenAI-compatible model (Ollama).
+#
+# NOT applied by default (commented out in kustomization.yaml). To enable:
+#   1) uncomment `- ask-model.yaml` in kustomization.yaml (or `kubectl apply -f`
+#      this file into the pipeline-builder namespace);
+#   2) point the ask service at it by setting on the `ask` Deployment (or app-env):
+#        OPENAI_COMPATIBLE_BASE_URL = http://ask-model:11434/v1
+#        OPENAI_COMPATIBLE_MODELS   = qwen2.5-coder:7b|Qwen 2.5 Coder
+#
+# Sizing: a 7B tool-capable model needs ~6-8Gi RAM (CPU) or a GPU. For GPU,
+# uncomment the nodeSelector/tolerations + resources.limits `nvidia.com/gpu` below.
+# Self-contained: bundles its ServiceAccount + istio authz + NetworkPolicy so
+# `kubectl apply -f ask-model.yaml` brings everything ask needs to reach it.
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: ask-model, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ask-model-models
+  labels:
+    app: ask-model
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: pb-ebs
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ask-model
+  labels:
+    app: ask-model
+spec:
+  type: ClusterIP
+  ports:
+    - port: 11434
+      targetPort: 11434
+      protocol: TCP
+      name: http
+  selector:
+    app: ask-model
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ask-model
+  labels:
+    app: ask-model
+    app.kubernetes.io/component: model
+spec:
+  replicas: 1
+  # Single writer on an RWO volume — recreate (don't run two pods on one PVC).
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ask-model
+  template:
+    metadata:
+      labels:
+        app: ask-model
+        app.kubernetes.io/component: model
+    spec:
+      serviceAccountName: ask-model
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: false   # ollama writes model blobs under /root/.ollama
+        fsGroup: 0
+      # GPU (uncomment to schedule on a GPU node):
+      # nodeSelector: { nvidia.com/gpu.present: "true" }
+      # tolerations: [{ key: nvidia.com/gpu, operator: Exists, effect: NoSchedule }]
+      containers:
+        - name: ollama
+          image: ollama/ollama:0.6.5
+          ports:
+            - containerPort: 11434
+              name: http
+          env:
+            - name: OLLAMA_MODEL
+              value: "qwen2.5-coder:7b"
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+          # Pull the configured model once serving is up (idempotent; cached on the PVC).
+          lifecycle:
+            postStart:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 4; ollama pull \"$OLLAMA_MODEL\" || true"]
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+          resources:
+            requests:
+              cpu: "1"
+              memory: 6Gi
+            limits:
+              cpu: "4"
+              memory: 10Gi
+              # GPU: nvidia.com/gpu: "1"
+          readinessProbe:
+            httpGet: { path: /api/version, port: 11434 }
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 10
+          livenessProbe:
+            httpGet: { path: /api/version, port: 11434 }
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ask-model-models
+---
+# ask -> ask-model (OpenAI-compatible inference). Additive istio authz.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: ask-model-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: ask-model
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/ask
+      to:
+        - operation:
+            ports: ["11434"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ask-model-from-ask
+spec:
+  podSelector:
+    matchLabels:
+      app: ask-model
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: ask
+      ports:
+        - port: 11434

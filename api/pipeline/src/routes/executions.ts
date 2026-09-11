@@ -104,6 +104,9 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
         return sendSuccess(res, 202, { executionId });
       } catch (err) {
         incCounter('pipeline_executions_total', { outcome: 'failed' });
+        // The run never started — reopen the idempotency window so the user's
+        // legitimate retry isn't blocked for the full TTL with a misleading 409.
+        await executionIdempotency.release(orgId, pipelineId);
         const code = errorMessage(err);
         if (code === PE_PIPELINE_NOT_REGISTERED) {
           return sendError(res, 404, 'Pipeline is not deployed/registered', ErrorCode.NOT_FOUND);

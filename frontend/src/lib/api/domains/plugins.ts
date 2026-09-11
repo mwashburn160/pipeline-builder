@@ -4,7 +4,7 @@
 import type { ApiCore } from '../core';
 import { buildQuery, API_URL } from '../util';
 import { ApiError } from '../errors';
-import type { ApiResponse, Plugin, QueueStatus } from '@/types';
+import type { ApiResponse, Plugin, QueueStatus , Visibility } from '@/types';
 
 export function pluginsApi(core: ApiCore) {
   return {
@@ -40,12 +40,12 @@ export function pluginsApi(core: ApiCore) {
       return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugin/${id}`);
     },
 
-    uploadPlugin: async (file: File, accessModifier: 'public' | 'private' = 'private', options?: { signal?: AbortSignal }) => {
+    uploadPlugin: async (file: File, visibility: 'public' | 'private' = 'private', options?: { signal?: AbortSignal }) => {
       await core.ensureFreshToken();
 
       const formData = new FormData();
       formData.append('plugin', file);
-      formData.append('accessModifier', accessModifier);
+      formData.append('visibility', visibility);
 
       const response = await fetch(`${API_URL}/api/plugin/upload`, {
         method: 'POST',
@@ -147,7 +147,7 @@ export function pluginsApi(core: ApiCore) {
       buildArgs?: Record<string, string>;
       installCommands?: string[];
       commands?: string[];
-      accessModifier?: 'public' | 'private';
+      visibility?: Visibility;
       isDefault?: boolean;
       isActive?: boolean;
       primaryOutputDirectory?: string | null;
@@ -231,7 +231,7 @@ export function pluginsApi(core: ApiCore) {
       commands: string[];
       env?: Record<string, string>;
       dockerfile: string;
-      accessModifier: 'public' | 'private';
+      visibility: 'public' | 'private';
     }) => {
       return core.request<ApiResponse<{
         requestId?: string;

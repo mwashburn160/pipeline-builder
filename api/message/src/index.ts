@@ -1,10 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, requireAuth, requirePermission, requireStepUp, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS, wireServiceSecurity, createEnvSseTicketStore } from '@pipeline-builder/api-core';
-import { createApp, runServer, attachRequestContext, createAuthenticatedWithOrgRoute, postgresHealthCheck } from '@pipeline-builder/api-server';
+import { createLogger, requirePermission, requireStepUp, createQuotaService, SSE_TICKET_TTL_MS, wireServiceSecurity, createEnvSseTicketStore } from '@pipeline-builder/api-core';
+import { createApp, runServer, attachRequestContext, createAuthenticatedWithOrgRoute, postgresHealthCheck, registerSseTicketChannel } from '@pipeline-builder/api-server';
 import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data';
-import type { Request, Response } from 'express';
 
 import { createAttachmentRoutes } from './routes/attachment-routes.js';
 import { createCreateMessageRoutes } from './routes/create-message.js';
@@ -47,65 +46,17 @@ const ticketStore = createEnvSseTicketStore({
   maxPerOrg: MAX_TICKETS_PER_ORG,
 });
 
-// POST /messages/notifications/ticket — exchange JWT for a single-use SSE ticket
-app.post(
-  '/messages/notifications/ticket',
-  requireAuth,
-  async (req: Request, res: Response) => {
-    const orgId = req.user?.organizationId?.toLowerCase();
-    if (!orgId) {
-      return sendError(res, 400, 'Token missing organization', ErrorCode.VALIDATION_ERROR);
-    }
-
-    const result = await ticketStore.issue(orgId);
-    if (!result.ok) {
-      return result.reason === 'total'
-        ? sendError(res, 503, 'Notification subsystem at capacity', ErrorCode.QUOTA_EXCEEDED)
-        : sendError(res, 429, 'Too many notification tickets issued', ErrorCode.QUOTA_EXCEEDED);
-    }
-    return sendSuccess(res, 200, { ticket: result.ticket });
-  },
-);
-
-// GET /messages/notifications?ticket=<ticket> — SSE endpoint using ticket auth
-app.get(
-  '/messages/notifications',
-  async (req: Request, res: Response) => {
-    const ticketId = req.query.ticket as string | undefined;
-    if (!ticketId) {
-      sendError(res, 401, 'Missing ticket parameter', ErrorCode.UNAUTHORIZED);
-      return;
-    }
-
-    const ticket = await ticketStore.consume(ticketId); // atomic single-use
-    if (!ticket) {
-      sendError(res, 401, 'Invalid or expired ticket', ErrorCode.UNAUTHORIZED);
-      return;
-    }
-
-    const { orgId } = ticket;
-
-    // Reserve a connection slot BEFORE flushing SSE headers. Once
-    // flushHeaders runs the response is committed at status 200, and any
-    // subsequent attempt to set 429 is silently dropped by Node. The
-    // previous order (set-headers → flush → addClient → 429-on-reject)
-    // was broken: rejected connections returned 200 with a body that
-    // looked like an error message.
-    const added = sseManager.addClient(orgId, res);
-    if (!added) {
-      sendError(res, 429, 'Too many notification connections', ErrorCode.QUOTA_EXCEEDED);
-      return;
-    }
-
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
-
-    logger.info('SSE notification client connected', { orgId });
-  },
-);
+// Per-org notification SSE channel via the shared helper (POST …/ticket exchanges
+// the JWT for a single-use org-bound ticket; GET …/notifications redeems it and
+// attaches an EventSource keyed by the org). The reporting execution-status
+// channel uses the same helper.
+registerSseTicketChannel(app, {
+  ticketPath: '/messages/notifications/ticket',
+  streamPath: '/messages/notifications',
+  ticketStore,
+  sseManager,
+  label: 'notification',
+});
 
 // -- /messages routes ---------------------------------------------------------
 // Each route attaches its own auth/quota middleware so that mounting these

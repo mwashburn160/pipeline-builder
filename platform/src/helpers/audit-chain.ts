@@ -187,6 +187,21 @@ function isIdempotencyDuplicate(err: unknown): boolean {
 }
 
 /**
+ * Whether `err` is a duplicate-key violation of the CHAIN-LINK unique index
+ * `(affectedOrgId, prevHash)` — i.e. another replica claimed this `prevHash` slot
+ * concurrently (a would-be fork). The append path retries with the advanced tail.
+ */
+function isChainLinkDuplicate(err: unknown): boolean {
+  const e = err as { code?: number; keyPattern?: Record<string, unknown>; message?: string } | null;
+  if (!e || e.code !== 11000) return false;
+  if (e.keyPattern && Object.prototype.hasOwnProperty.call(e.keyPattern, 'prevHash')) return true;
+  return typeof e.message === 'string' && e.message.includes('prevHash');
+}
+
+/** Max cross-replica CAS retries when another worker wins a chain-link slot. */
+const MAX_CHAIN_RETRIES = 5;
+
+/**
  * Append an audit event to its per-tenant hash chain and persist it. This is the
  * SINGLE shared "append to chain" function both write paths funnel through:
  *   - `helpers/audit.ts` `audit()` calls it directly, and
@@ -215,56 +230,68 @@ export async function appendAuditEvent(input: AuditCreateInput): Promise<AuditEv
     ? { ...input, details: scrubAwsIdentifiers(input.details) }
     : input;
 
+  // The in-process lock serializes appends within ONE replica; the (affectedOrgId,
+  // prevHash) unique index + this retry loop serialize them ACROSS replicas (a
+  // cross-process compare-and-set): a worker that loses the race for a chain-link
+  // slot re-reads the advanced tail and links after the winner instead of forking.
   return withChainLock(chainKey, async () => {
-    // Assign createdAt explicitly so the value hashed is exactly the value
-    // stored. Mongoose's `timestamps` plugin preserves an explicitly-provided
-    // createdAt on insert (it only auto-fills a missing one).
-    const createdAt = new Date();
+    for (let attempt = 0; ; attempt++) {
+      // Assign createdAt explicitly so the value hashed is exactly the value stored.
+      // Mongoose's `timestamps` plugin preserves an explicitly-provided createdAt.
+      // Re-taken each attempt so a retried event orders after the tail that beat it.
+      const createdAt = new Date();
 
-    let prevHash: string | null = GENESIS_PREV_HASH;
-    try {
-      const tail = await AuditEvent.findOne(chainFilter(chainKey))
-        .sort({ createdAt: -1, _id: -1 })
-        .select('hash')
-        .lean();
-      prevHash = (tail?.hash as string | undefined) ?? GENESIS_PREV_HASH;
-    } catch (err) {
-      // Best-effort: fall back to a genesis link rather than dropping the event.
-      logger.warn('Audit chain tail lookup failed; writing with genesis prevHash', {
-        chainKey, error: errMessage(err),
-      });
-      prevHash = GENESIS_PREV_HASH;
-    }
-
-    let hash: string;
-    try {
-      hash = computeAuditHash({ ...scrubbedInput, affectedOrgId, createdAt, prevHash });
-    } catch (err) {
-      logger.warn('Audit hash computation failed; writing sentinel hash', {
-        chainKey, error: errMessage(err),
-      });
-      hash = HASH_ERROR_SENTINEL;
-    }
-
-    try {
-      return await AuditEvent.create({ ...scrubbedInput, affectedOrgId, createdAt, prevHash, hash });
-    } catch (err) {
-      // Idempotency-Key collision: this exact event was already ingested (a
-      // retried 5xx/timeout delivery, possibly from another replica). Treat it
-      // as ALREADY-STORED — return the existing row WITHOUT extending the chain a
-      // second time. `create` failed, so nothing was written and the chain tail
-      // is unchanged; we only re-read the winner to return it. Any OTHER error
-      // propagates unchanged.
-      if (scrubbedInput.idempotencyKey && isIdempotencyDuplicate(err)) {
-        const existing = await AuditEvent.findOne({ idempotencyKey: scrubbedInput.idempotencyKey }).lean();
-        if (existing) {
-          logger.info('Audit ingest deduped on Idempotency-Key; not re-chaining', {
-            chainKey, idempotencyKey: scrubbedInput.idempotencyKey,
-          });
-          return existing as unknown as AuditEventDocument;
-        }
+      let prevHash: string | null = GENESIS_PREV_HASH;
+      try {
+        const tail = await AuditEvent.findOne(chainFilter(chainKey))
+          .sort({ createdAt: -1, _id: -1 })
+          .select('hash')
+          .lean();
+        prevHash = (tail?.hash as string | undefined) ?? GENESIS_PREV_HASH;
+      } catch (err) {
+        // Best-effort: fall back to a genesis link rather than dropping the event.
+        logger.warn('Audit chain tail lookup failed; writing with genesis prevHash', {
+          chainKey, error: errMessage(err),
+        });
+        prevHash = GENESIS_PREV_HASH;
       }
-      throw err;
+
+      let hash: string;
+      try {
+        hash = computeAuditHash({ ...scrubbedInput, affectedOrgId, createdAt, prevHash });
+      } catch (err) {
+        logger.warn('Audit hash computation failed; writing sentinel hash', {
+          chainKey, error: errMessage(err),
+        });
+        hash = HASH_ERROR_SENTINEL;
+      }
+
+      try {
+        return await AuditEvent.create({ ...scrubbedInput, affectedOrgId, createdAt, prevHash, hash });
+      } catch (err) {
+        // Idempotency-Key collision: this exact event was already ingested (a
+        // retried 5xx/timeout delivery, possibly from another replica). Treat it
+        // as ALREADY-STORED — return the existing row WITHOUT extending the chain a
+        // second time. `create` failed, so nothing was written and the chain tail
+        // is unchanged; we only re-read the winner to return it.
+        if (scrubbedInput.idempotencyKey && isIdempotencyDuplicate(err)) {
+          const existing = await AuditEvent.findOne({ idempotencyKey: scrubbedInput.idempotencyKey }).lean();
+          if (existing) {
+            logger.info('Audit ingest deduped on Idempotency-Key; not re-chaining', {
+              chainKey, idempotencyKey: scrubbedInput.idempotencyKey,
+            });
+            return existing as unknown as AuditEventDocument;
+          }
+        }
+        // Chain-link collision: another replica claimed this prevHash slot. Re-read
+        // the now-advanced tail and retry (bounded) so we link after the winner
+        // rather than fork the chain.
+        if (isChainLinkDuplicate(err) && attempt < MAX_CHAIN_RETRIES) {
+          logger.warn('Audit chain-link collision; retrying against the advanced tail', { chainKey, attempt });
+          continue;
+        }
+        throw err;
+      }
     }
   });
 }

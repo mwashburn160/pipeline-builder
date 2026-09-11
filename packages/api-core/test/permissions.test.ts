@@ -96,3 +96,48 @@ describe('hasPermission', () => {
     expect(hasPermission(null, 'pipelines:read', false)).toBe(false);
   });
 });
+
+describe('templates permission family', () => {
+  it('is a first-class family in the catalog, distinct from pipelines', () => {
+    for (const p of ['templates:read', 'templates:write', 'templates:publish']) {
+      expect(isValidPermission(p)).toBe(true);
+      expect(ALL_PERMISSIONS).toContain(p);
+    }
+  });
+
+  it('is org-assignable (not part of the superadmin carve-out)', () => {
+    // Unlike `registry:*`, a custom Role may grant template curation — that's the
+    // whole point of splitting it out of `pipelines:*`.
+    expect(ORG_ASSIGNABLE_PERMISSIONS).toContain('templates:write');
+    expect(ORG_ASSIGNABLE_PERMISSIONS).toContain('templates:publish');
+  });
+
+  it('mirrors the pipelines bundle split: Member gets read+write, not publish', () => {
+    expect(ROLE_PERMISSIONS.member).toContain('templates:read');
+    expect(ROLE_PERMISSIONS.member).toContain('templates:write');
+    expect(ROLE_PERMISSIONS.member).not.toContain('templates:publish');
+    // Same shape as the pipeline family it was split from, so a Member's
+    // day-to-day authoring reach is unchanged by the split.
+    expect(ROLE_PERMISSIONS.member.includes('pipelines:publish')).toBe(false);
+  });
+
+  it('gives Admin and Owner the full family including publish', () => {
+    for (const bundle of [ROLE_PERMISSIONS.admin, ROLE_PERMISSIONS.owner]) {
+      expect(bundle).toContain('templates:read');
+      expect(bundle).toContain('templates:write');
+      expect(bundle).toContain('templates:publish');
+    }
+  });
+
+  it('is grantable independently of the pipeline family', () => {
+    // A curator Role: authors + publishes starters, but cannot touch pipelines.
+    const curator = resolveUserPermissions(['templates:read', 'templates:write', 'templates:publish']);
+    expect(hasPermission(curator, 'templates:publish')).toBe(true);
+    expect(hasPermission(curator, 'pipelines:write')).toBe(false);
+
+    // …and the inverse: a developer who builds pipelines but authors no starters.
+    const developer = resolveUserPermissions(['pipelines:read', 'pipelines:write']);
+    expect(hasPermission(developer, 'pipelines:write')).toBe(true);
+    expect(hasPermission(developer, 'templates:write')).toBe(false);
+  });
+});

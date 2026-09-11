@@ -20,7 +20,7 @@ is the recommended installer and covers most of the setup below in one command.
 is the default, recommended way to stand up the platform** — and it does far more
 than deploy. In one command it deploys the target, **registers the initial `system`
 admin login**, and (with the flags below) **loads the plugin catalog, compliance
-rules, and sample pipelines**, plus wires up **event reporting** on AWS:
+rules, and sample pipeline templates**, plus wires up **event reporting** on AWS:
 
 ```bash
 # Local / Minikube — deploy + register system admin + load plugins/compliance/samples

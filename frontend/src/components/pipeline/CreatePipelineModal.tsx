@@ -26,7 +26,7 @@ interface CreatePipelineModalProps {
   /** Callback to close the modal. */
   onClose: () => void;
   /** Callback invoked with assembled BuilderProps when the user submits. */
-  onSubmit: (props: BuilderProps, accessModifier: 'public' | 'private', description?: string, keywords?: string[]) => Promise<void>;
+  onSubmit: (props: BuilderProps, visibility: 'public' | 'private', description?: string, keywords?: string[]) => Promise<void>;
   /** Whether a create request is in flight. */
   createLoading: boolean;
   /** Error message from the last create attempt, if any. */

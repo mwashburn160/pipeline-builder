@@ -36,7 +36,7 @@ export interface FormPluginFilter {
   // Common filter properties
   id: string;
   orgId: string;
-  accessModifier: string;
+  visibility: string;
   /** String "true"/"false" — coerced to boolean during assembly. */
   isDefault: string;
   /** String "true"/"false" — coerced to boolean during assembly. */
@@ -238,7 +238,7 @@ export function createEmptyNetworkConfig(): FormNetworkConfig {
  * @returns An empty {@link FormPluginFilter}.
  */
 export function createEmptyPluginFilter(): FormPluginFilter {
-  return { id: '', orgId: '', accessModifier: '', isDefault: '', isActive: '', name: '', version: '' };
+  return { id: '', orgId: '', visibility: '', isDefault: '', isActive: '', name: '', version: '' };
 }
 
 /**

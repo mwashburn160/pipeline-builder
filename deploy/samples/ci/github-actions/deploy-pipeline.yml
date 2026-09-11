@@ -1,10 +1,12 @@
-# Sample GitHub Actions workflow: create + deploy a Pipeline Builder pipeline
-# in one step with `pipeline-manager pipeline create --deploy`.
+# Sample GitHub Actions workflow: instantiate a Pipeline Builder template, then
+# create + deploy the resulting pipeline in one step with
+# `pipeline-manager pipeline create --deploy`.
 #
 # Copy this file to `.github/workflows/deploy-pipeline.yml` in your repo and
-# adjust the props path, region, and secrets. It creates the pipeline record on
-# the platform and then runs `cdk deploy` for it (registering the deployed ARN),
-# so a green run means the pipeline exists AND is deployed to AWS.
+# adjust the template name, region, and secrets. It renders a golden-path
+# template into concrete pipeline props, creates the pipeline record on the
+# platform, and then runs `cdk deploy` for it (registering the deployed ARN), so
+# a green run means the pipeline exists AND is deployed to AWS.
 #
 # ── Prerequisites ────────────────────────────────────────────────────────────
 # Secrets (Settings → Secrets and variables → Actions):
@@ -12,6 +14,9 @@
 #                         (e.g. https://pipeline.example.com)
 #   PLATFORM_TOKEN        A Personal Access Token — create with
 #                         `pipeline-manager auth pat` or the dashboard.
+#   PB_ORG_ID             Your organization's ID (UUID). Supplied as the
+#                         template's `orgId` input; selects the GitHub token
+#                         secret at pipeline-builder/<orgId>/github-token.
 #   AWS_DEPLOY_ROLE_ARN   IAM role to assume via GitHub OIDC. The role trusts
 #                         GitHub's OIDC provider and carries CDK/CloudFormation
 #                         deploy permissions. (Kept in secrets, never committed —
@@ -29,10 +34,18 @@ on:
   # Manual trigger from the Actions tab.
   workflow_dispatch:
     inputs:
-      props_file:
-        description: Path to the pipeline props JSON
+      template_name:
+        description: Name of the pipeline template to instantiate
         required: true
-        default: deploy/samples/pipelines/react-javascript/pipeline.json
+        default: react-javascript
+      project:
+        description: Project name for the new pipeline
+        required: true
+        default: react
+      organization:
+        description: Organization name for the new pipeline
+        required: true
+        default: AcmeCorp
   # Optional: deploy on every push to main.
   # push:
   #   branches: [main]
@@ -46,7 +59,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AWS_REGION: us-east-1
-      PROPS_FILE: ${{ github.event.inputs.props_file || 'deploy/samples/pipelines/react-javascript/pipeline.json' }}
+      TEMPLATE_NAME: ${{ github.event.inputs.template_name || 'react-javascript' }}
+      PB_PROJECT: ${{ github.event.inputs.project || 'react' }}
+      PB_ORGANIZATION: ${{ github.event.inputs.organization || 'AcmeCorp' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -60,12 +75,20 @@ jobs:
       - name: Install pipeline-manager and CDK toolchain
         run: npm install -g @pipeline-builder/pipeline-manager aws-cdk esbuild pnpm
 
-      # AWS credentials via OIDC — no stored keys.
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+      # Render the golden-path template into concrete pipeline props. This
+      # creates nothing on the platform — it only resolves the template's
+      # declared inputs into a props file for the next step.
+      - name: Instantiate pipeline template
+        env:
+          PLATFORM_BASE_URL: ${{ secrets.PLATFORM_BASE_URL }}
+          PLATFORM_TOKEN: ${{ secrets.PLATFORM_TOKEN }}
+        run: |
+          pipeline-manager template instantiate \
+            --name "$TEMPLATE_NAME" \
+            --project "$PB_PROJECT" \
+            --organization "$PB_ORGANIZATION" \
+            --input "orgId=${{ secrets.PB_ORG_ID }}" \
+            --output pipeline-props.json
 
       - name: Create and deploy pipeline
         env:
@@ -73,7 +96,7 @@ jobs:
           PLATFORM_TOKEN: ${{ secrets.PLATFORM_TOKEN }}
         run: |
           pipeline-manager pipeline create \
-            --file "$PROPS_FILE" \
+            --file pipeline-props.json \
             --deploy \
             --region "$AWS_REGION" \
             --require-approval never

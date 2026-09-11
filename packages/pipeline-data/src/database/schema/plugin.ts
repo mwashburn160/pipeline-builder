@@ -1,7 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AccessModifier, ComputeType, PluginType, SYSTEM_ORG_ID, type Criticality, type EntityLabels, type EntityLink, type Lifecycle, type OwnerType } from '@pipeline-builder/api-core';
+import {
+  ComputeType, PluginType, SYSTEM_ORG_ID, type Criticality, type EntityLabels, type EntityLink, type Lifecycle, type OwnerType,
+  type Visibility,
+} from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
 
@@ -20,7 +23,7 @@ export interface PluginSecret {
  * Plugins define the behavior of synth/build steps in CDK pipelines.
  *
  * Features * - Versioning support with semantic versioning
- * - Access control via orgId and accessModifier
+ * - Access control via orgId and the three-rung `visibility` ladder
  * - Full audit trail (created/updated by/at)
  * - Flexible metadata storage via JSONB
  * - Support for both ShellStep and CodeBuildStep types
@@ -134,10 +137,14 @@ export const plugin = pgTable('plugins', {
     .default([])
     .notNull(),
 
-  // Access and visibility
-  accessModifier: varchar('access_modifier', { length: 10 })
-    .$type<AccessModifier>()
-    .default('private' as AccessModifier)
+  // Access and visibility — the shared three-rung ladder (see api-core's
+  // `Visibility`): `private` is author-only (`created_by`), `org` is the whole
+  // owning org, `public` reaches the org's teams and — from the system org —
+  // every org. Constrained at the SQL layer too via a CHECK in postgres-init.sql
+  // so a typo can't sneak past the application layer.
+  visibility: varchar('visibility', { length: 10 })
+    .$type<Visibility>()
+    .default('private')
     .notNull(),
   isDefault: boolean('is_default')
     .default(false)
@@ -173,8 +180,10 @@ export const plugin = pgTable('plugins', {
   // Composite index for common access pattern (orgId + isActive)
   orgActiveIdx: index('plugin_org_active_idx').on(table.orgId, table.isActive),
 
-  // Composite index for filtered queries (orgId + accessModifier + isActive)
-  orgAccessActiveIdx: index('plugin_org_access_active_idx').on(table.orgId, table.accessModifier, table.isActive),
+  // Composite index for filtered queries (orgId + visibility + isActive)
+  orgVisibilityActiveIdx: index('plugin_org_visibility_active_idx').on(table.orgId, table.visibility, table.isActive),
+  // Drives the "my private drafts" leg of the visibility predicate.
+  createdByIdx: index('plugin_created_by_idx').on(table.orgId, table.createdBy),
 
   // Partial index for active-only queries (smaller, faster than full index)
   activeOnlyOrgIdx: index('plugin_active_only_org_idx').on(table.orgId, table.createdAt).where(sql`is_active = true`),

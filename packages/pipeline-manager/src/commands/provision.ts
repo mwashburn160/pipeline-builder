@@ -419,7 +419,7 @@ export async function resolveLoadsInteractively(
 ): Promise<{ enabledLoadIds: string[]; steps: PostStep[]; skipped: SkippedStep[] }> {
   const prompts: Record<string, string> = {
     plugins: 'Load plugins?',
-    samples: 'Load sample pipelines?',
+    samples: 'Load sample pipeline templates?',
     compliance: 'Load compliance rules?',
   };
   printSection('Optional post-install loads');
@@ -525,7 +525,7 @@ export function provision(program: Command): void {
     // Post-install loads — each opt-in step also adds its deploy folder to the sparse clone.
     .option('--with-plugins', 'Post-install: build + load plugins (adds deploy/plugins, deploy/codebuild)', false)
     .option('--with-compliance', 'Post-install: load sample compliance rules/policies (adds deploy/compliance)', false)
-    .option('--with-samples', 'Post-install: load sample pipelines (adds deploy/samples)', false)
+    .option('--with-samples', 'Post-install: load sample pipeline templates (adds deploy/samples)', false)
     .option('--with-all', 'Post-install: plugins + compliance + samples', false)
     .option('--build-bootstrap', 'Build + publish the CodeBuild bootstrap image during register (adds deploy/codebuild)', false)
     .option('--with-smoke-test', 'Post-install: read-only API reachability check', false)

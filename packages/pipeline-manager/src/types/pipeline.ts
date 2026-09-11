@@ -8,9 +8,11 @@
 export type PipelineProps = Record<string, unknown>;
 
 /**
- * Pipeline visibility level.
+ * Pipeline sharing rung — the platform-wide three-rung ladder.
+ * `private` is author-only, `org` is the whole owning org, `public` reaches the
+ * org's teams (and, from the system org, every org).
  */
-export type PipelineAccessModifier = 'public' | 'private';
+export type PipelineVisibility = 'private' | 'org' | 'public';
 
 /**
  * Core pipeline fields required on every pipeline record.
@@ -52,9 +54,9 @@ export interface PipelineMetadata {
   pipelineName?: string;
 
   /**
-   * Access modifier (public or private)
+   * Sharing rung: 'private' | 'org' | 'public'.
    */
-  accessModifier?: PipelineAccessModifier;
+  visibility?: PipelineVisibility;
 
   /**
    * Whether this is the default pipeline
@@ -120,7 +122,7 @@ export interface CreatePipelineRequest {
    * Access modifier (public or private)
    * @default 'private'
    */
-  accessModifier?: PipelineAccessModifier;
+  visibility?: PipelineVisibility;
 
   /**
    * Whether this is the default pipeline

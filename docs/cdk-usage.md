@@ -230,7 +230,7 @@ plugin: {
   version: '1.0.0',               // Pin a specific version
   alias: 'jest-unit',             // Alias for multiple uses of same plugin
   filter: {                        // Optional query filter
-    accessModifier: 'public',
+    visibility: 'public',
     isActive: true,
   },
   metadata: {                      // Plugin-level metadata overrides

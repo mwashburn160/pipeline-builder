@@ -24,8 +24,8 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   isSystemAdmin: mockIsSystemAdmin,
-  requirePublicAccess: jest.fn((_req: any, _res: any, _resource: any) => true),
-  resolveAccessModifier: jest.fn((_req: any, am?: string) => am || 'private'),
+  requireVisibilityWriteAccess: jest.fn((_req: any, _res: any, _resource: any) => true),
+  resolveVisibility: jest.fn((_req: any, am?: string) => am || 'private'),
   pickDefined: jest.fn((obj: any) => {
     const result: any = {};
     for (const [k, v] of Object.entries(obj)) {
@@ -81,7 +81,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   PluginType: {},
   ComputeType: {},
-  AccessModifier: {},
 }));
 
 const mockFindById = jest.fn();
@@ -97,7 +96,7 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 
 // Imports (after mocks)
 
-const { sendBadRequest, sendSuccess, requirePublicAccess, validateBody } = await import('@pipeline-builder/api-core');
+const { sendBadRequest, sendSuccess, requireVisibilityWriteAccess, validateBody } = await import('@pipeline-builder/api-core');
 const { createUpdatePluginRoutes } = await import('../src/routes/update-plugin.js');
 
 // Helpers
@@ -139,7 +138,7 @@ const existingPlugin = {
   name: 'test-plugin',
   version: '1.0.0',
   orgId: 'org-1',
-  accessModifier: 'private',
+  visibility: 'private',
   isActive: true,
   isDefault: false,
 };
@@ -242,15 +241,15 @@ describe('PUT /plugins/:id (update)', () => {
     }));
   });
 
-  it('returns 403 when requirePublicAccess returns false', async () => {
-    mockFindById.mockResolvedValue({ ...existingPlugin, accessModifier: 'public' });
-    (requirePublicAccess as jest.Mock).mockReturnValueOnce(false);
+  it('returns 403 when requireVisibilityWriteAccess returns false', async () => {
+    mockFindById.mockResolvedValue({ ...existingPlugin, visibility: 'public' });
+    (requireVisibilityWriteAccess as jest.Mock).mockReturnValueOnce(false);
 
     const req = mockReq();
     const res = mockRes();
     await handler(req, res);
 
-    expect(requirePublicAccess).toHaveBeenCalledWith(req, res, expect.objectContaining({ accessModifier: 'public' }), 'plugins:publish');
+    expect(requireVisibilityWriteAccess).toHaveBeenCalledWith(req, res, expect.objectContaining({ visibility: 'public' }), 'user-1', 'plugins:publish');
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 

@@ -21,7 +21,7 @@ the links below.
 
 ## A
 
-- **Access control / access modifier (public vs private)** — [Permissions](permissions.md#the-model), [CDK: IAM Roles](cdk-usage.md#iam-roles)
+- **Access control / visibility (private vs org vs public)** — [Permissions](permissions.md#the-model), [CDK: IAM Roles](cdk-usage.md#iam-roles)
 - **Admin UIs (pgAdmin, Mongo Express)** — [Env vars: Admin UIs](environment-variables.md#admin-uis-infrastructure)
 - **AI pipeline generation (prompt → pipeline)** — [Developer Guide: AI Prompt](developer-guide.md#2-ai-prompt), [API: AI Generation](api-reference.md#ai-generation), [AI Plugins](plugins/ai.md)
 - **Ambient mesh** — see **Service mesh** → [Service Mesh](service-mesh.md#why-ambient-not-sidecars)
@@ -170,7 +170,7 @@ the links below.
 
 ## S
 
-- **Samples (pipeline + CDK examples)** — [Samples](samples.md), [Loading Samples](samples.md#loading-samples)
+- **Samples (pipeline templates + CDK examples)** — [Samples](samples.md), [Loading Samples](samples.md#loading-samples)
 - **Scheduled pipelines (cron/EventBridge)** — [CDK: Scheduled Pipelines](cdk-usage.md#scheduled-pipelines)
 - **Scopes (compliance / metadata scope levels)** — [Compliance: Scopes](compliance.md#scopes), [Metadata: Scope Levels](metadata-keys.md#scope-levels)
 - **Secrets — usage & injection** — [CDK: Secrets Management](cdk-usage.md#secrets-management), [Plugins: How Secrets Work](plugins/README.md#how-secrets-work), [Env vars](environment-variables.md#authentication)
@@ -236,6 +236,6 @@ the links below.
 | [permissions](permissions.md) | RBAC model, permission catalog, enforcement, sessions |
 | [pipeline-manager](pipeline-manager.md) | CLI install, commands, workflows |
 | [plugins/README](plugins/README.md) | Plugin catalog, secrets, structure, versioning |
-| [samples](samples.md) | Language pipeline samples + CDK examples |
+| [samples](samples.md) | Language pipeline templates + CDK examples |
 | [service-mesh](service-mesh.md) | Istio ambient, mTLS, L4 authorization, egress |
 | [templates](templates.md) | `{{ }}` synth-time templating, scopes, filters, golden templates |

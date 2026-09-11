@@ -20,6 +20,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Activity, Filter, RefreshCw, XCircle, CheckCircle2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
+import { useExecutionStatusStream } from '@/hooks/useExecutionStatusStream';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
@@ -74,6 +75,11 @@ export default function ExecutionsPage() {
   );
   const rows = useMemo(() => data ?? [], [data]);
   const error = fetchError ? formatError(fetchError, 'Failed to load executions') : null;
+
+  // Live updates: the reporting service pushes an `execution-updated` SSE frame to
+  // this org whenever new pipeline events are ingested — refetch on receipt so the
+  // table stays current without polling. `refetch` is stable from useFetch.
+  const { connected: liveConnected } = useExecutionStatusStream(user?.organizationId ?? null, refetch);
 
   // Detect whether the active org parents any teams (subtree larger than self).
   useEffect(() => {
@@ -211,6 +217,11 @@ export default function ExecutionsPage() {
           >
             CSV
           </Button>
+          {liveConnected && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400" title="Live — updates automatically as executions complete">
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Live
+            </span>
+          )}
           <Button variant="secondary" onClick={() => refetch()} className="inline-flex items-center gap-1" disabled={loading}>
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </Button>

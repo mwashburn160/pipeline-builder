@@ -192,7 +192,7 @@ export default function WizardPluginTab({ canUploadPublic, disabled, onCreated, 
       setInstallCommands((p.installCommands ?? []).join('\n'));
       setCommands((p.commands ?? []).join('\n'));
       setEnvText(envToText(p.env));
-      setAccess(p.accessModifier === 'public' ? 'public' : 'private');
+      setAccess(p.visibility === 'public' ? 'public' : 'private');
       setTimeoutVal(p.timeout != null ? String(p.timeout) : '');
       setFailureBehavior(p.failureBehavior ?? 'fail');
       setIsActive(p.isActive);
@@ -232,7 +232,7 @@ export default function WizardPluginTab({ canUploadPublic, disabled, onCreated, 
         commands: toLines(commands),
         env: Object.keys(env).length ? env : undefined,
         dockerfile,
-        accessModifier: access,
+        visibility: access,
       });
       if (response.statusCode === 202 && response.data?.requestId) {
         setRequestId(response.data.requestId);
@@ -266,7 +266,7 @@ export default function WizardPluginTab({ canUploadPublic, disabled, onCreated, 
         env,
         installCommands: toLines(installCommands),
         commands: toLines(commands),
-        accessModifier: access,
+        visibility: access,
         isActive,
         isDefault,
         timeout: t ? Number(t) : null,
@@ -365,7 +365,7 @@ export default function WizardPluginTab({ canUploadPublic, disabled, onCreated, 
             <Select value={selectedId} onChange={(e) => void selectPlugin(e.target.value)} disabled={isWorking || pluginsLoading}>
               <option value="">Select a plugin…</option>
               {filtered.map((p) => (
-                <option key={p.id} value={p.id}>{p.name} v{p.version}{p.accessModifier === 'public' ? ' · public' : ''}</option>
+                <option key={p.id} value={p.id}>{p.name} v{p.version}{p.visibility === 'public' ? ' · public' : ''}</option>
               ))}
             </Select>
           </FormField>

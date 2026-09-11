@@ -8,7 +8,7 @@ import {
   requirePermission,
   reserveQuota,
   decrementQuota,
-  resolveAccessModifier,
+  resolveVisibility,
   sendBadRequest,
   sendError,
   sendQuotaExceeded,
@@ -72,10 +72,10 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
       const {
         name, description, version, pluginType, computeType, keywords,
         primaryOutputDirectory, installCommands, commands, env, buildArgs,
-        dockerfile, accessModifier: rawAccess,
+        dockerfile, visibility: rawAccess,
       } = validation.value;
 
-      const accessModifier = resolveAccessModifier(req, rawAccess || 'private', 'plugins:publish');
+      const visibility = resolveVisibility(req, rawAccess, 'plugins:publish', 'org');
 
       // Validate buildArgs (throws ValidationError → handled by withRoute)
       validateBuildArgs(buildArgs);
@@ -169,7 +169,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
           buildArgs: buildArgs || {},
           installCommands: installCommands || [],
           commands,
-          accessModifier,
+          visibility,
           keywords: keywords || [],
           buildType: 'build_image',
         }, authHeader, undefined, name, 'deploy-generated');
@@ -205,7 +205,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
       ctx.log('INFO', 'Deploying AI-generated plugin', {
         pluginName: name,
         version,
-        accessModifier,
+        visibility,
       });
 
       try {
@@ -246,7 +246,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
             keywords: keywords || [],
             installCommands: installCommands || [],
             commands,
-            accessModifier,
+            visibility,
             buildType: 'build_image',
           },
         });
@@ -280,7 +280,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
           details: {
             pluginName: name,
             version,
-            accessModifier,
+            visibility,
             buildType: 'build_image',
           },
         });

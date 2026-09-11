@@ -1,10 +1,13 @@
-# CI/CD samples — create & deploy from your pipeline
+# CI/CD samples — instantiate a template, create & deploy
 
-Ready-to-copy CI configurations that create a Pipeline Builder pipeline **and**
-deploy it to AWS in a single step, using:
+Ready-to-copy CI configurations that render a golden-path **pipeline template**
+into concrete pipeline props, then create the Pipeline Builder pipeline **and**
+deploy it to AWS in a single step:
 
 ```bash
-pipeline-manager pipeline create --file <props.json> --deploy --region <region>
+pipeline-manager template instantiate --name <template> -p <project> -o <org> \
+  --input orgId=<uuid> --output pipeline-props.json
+pipeline-manager pipeline create --file pipeline-props.json --deploy --region <region>
 ```
 
 `--deploy` creates the pipeline record on the platform, then runs `cdk deploy`
@@ -17,15 +20,19 @@ means the pipeline both **exists on the platform** and is **deployed to AWS**.
 | GitLab CI/CD | `.gitlab-ci.yml` | [gitlab/.gitlab-ci.yml](gitlab/.gitlab-ci.yml) |
 | CircleCI | `.circleci/config.yml` | [circleci/config.yml](circleci/config.yml) |
 
-Each sample deploys [`deploy/samples/pipelines/react-javascript/pipeline.json`](../pipelines/react-javascript/pipeline.json)
-by default — point `--file` / `PROPS_FILE` at your own props file (see the other
-folders under [`deploy/samples/pipelines/`](../pipelines/)).
+Each sample instantiates the [`react-javascript`](../templates/react-javascript/)
+template by default — set `TEMPLATE_NAME` (plus `PB_PROJECT` / `PB_ORGANIZATION`)
+to any other template in your catalog, such as the ones under
+[`deploy/samples/templates/`](../templates/). Instantiation runs against the
+platform's live catalog, so the template must already be loaded there
+(`deploy/bin/load-templates.sh` seeds these samples).
 
 ## What each job needs
 
 **Toolchain** (installed by every sample): Node 24+, plus `pipeline-manager`,
 `aws-cdk`, `esbuild`, and `pnpm` on `PATH` — `--deploy` shells out to
-`cdk deploy`, whose synth uses esbuild + pnpm.
+`cdk deploy`, whose synth uses esbuild + pnpm. The instantiate step needs nothing
+extra — it runs through the same CLI.
 
 **Platform auth** (CI secrets/variables):
 
@@ -33,6 +40,7 @@ folders under [`deploy/samples/pipelines/`](../pipelines/)).
 |------|-------|
 | `PLATFORM_BASE_URL` | Base URL of your platform, e.g. `https://pipeline.example.com` |
 | `PLATFORM_TOKEN` | A Personal Access Token — create with `pipeline-manager auth pat` or the dashboard |
+| `PB_ORG_ID` | Your organization's ID (UUID) — passed as the template's `orgId` input, which selects the GitHub token secret at `pipeline-builder/<orgId>/github-token` |
 
 **AWS auth**: every sample uses the provider's OIDC federation to assume a
 deploy role (no long-lived keys). Store the role ARN as a CI secret/variable

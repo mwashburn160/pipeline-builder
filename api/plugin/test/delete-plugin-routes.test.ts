@@ -22,7 +22,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
-  requirePublicAccess: jest.fn((_req: any, _res: any, _resource: any) => true),
+  requireVisibilityWriteAccess: jest.fn((_req: any, _res: any, _resource: any) => true),
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
     const response: any = { success: true, statusCode };
     if (data !== undefined) response.data = data;
@@ -68,7 +68,7 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 
 // Imports (after mocks)
 
-const { sendBadRequest, requirePublicAccess, sendSuccess } = await import('@pipeline-builder/api-core');
+const { sendBadRequest, requireVisibilityWriteAccess, sendSuccess } = await import('@pipeline-builder/api-core');
 const { createDeletePluginRoutes } = await import('../src/routes/delete-plugin.js');
 
 // Helpers
@@ -110,7 +110,7 @@ const existingPlugin = {
   name: 'test-plugin',
   version: '1.0.0',
   orgId: 'org-1',
-  accessModifier: 'private',
+  visibility: 'private',
   isActive: true,
   isDefault: false,
 };
@@ -184,15 +184,15 @@ describe('DELETE /plugins/:id (delete)', () => {
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
-  it('returns 403 when requirePublicAccess returns false', async () => {
-    mockFindById.mockResolvedValue({ ...existingPlugin, accessModifier: 'public' });
-    (requirePublicAccess as jest.Mock).mockReturnValueOnce(false);
+  it('returns 403 when requireVisibilityWriteAccess returns false', async () => {
+    mockFindById.mockResolvedValue({ ...existingPlugin, visibility: 'public' });
+    (requireVisibilityWriteAccess as jest.Mock).mockReturnValueOnce(false);
 
     const req = mockReq();
     const res = mockRes();
     await handler(req, res);
 
-    expect(requirePublicAccess).toHaveBeenCalledWith(req, res, expect.objectContaining({ accessModifier: 'public' }), 'plugins:publish');
+    expect(requireVisibilityWriteAccess).toHaveBeenCalledWith(req, res, expect.objectContaining({ visibility: 'public' }), 'user-1', 'plugins:publish');
     expect(mockDelete).not.toHaveBeenCalled();
   });
 

@@ -46,7 +46,7 @@ const mockValidatePipeline = jest.fn<(...args: any[]) => any>().mockResolvedValu
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   ValidationError: class ValidationError extends Error {},
   extractDbError: jest.fn(() => ({})),
-  resolveAccessModifier: jest.fn((_req: any, am?: string) => am || 'private'),
+  resolveVisibility: jest.fn((_req: any, am?: string) => am || 'private'),
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
     const response: any = { success: true, statusCode };
     if (data !== undefined) response.data = data;
@@ -113,7 +113,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
-  AccessModifier: {},
   replaceNonAlphanumeric: jest.fn((str: string, replacement: string) =>
     str.replace(/[^a-zA-Z0-9]/g, replacement),
   ),
@@ -188,7 +187,7 @@ describe('POST /pipelines (create)', () => {
       project: 'my_project',
       organization: 'my_org',
       pipelineName: 'my_org-my_project-pipeline',
-      accessModifier: 'private',
+      visibility: 'private',
       isDefault: true,
       isActive: true,
       createdAt: new Date().toISOString(),
@@ -217,7 +216,7 @@ describe('POST /pipelines (create)', () => {
       project: 'my_project',
       organization: 'my_org',
       pipelineName: 'my_org-my_project-pipeline',
-      accessModifier: 'private',
+      visibility: 'private',
       isDefault: true,
       isActive: true,
       createdAt: new Date().toISOString(),
@@ -310,7 +309,7 @@ describe('POST /pipelines (create)', () => {
       project: 'p',
       organization: 'o',
       pipelineName: 'pipe',
-      accessModifier: 'private',
+      visibility: 'private',
       isDefault: true,
       isActive: true,
       createdAt: new Date().toISOString(),
@@ -335,7 +334,7 @@ describe('POST /pipelines (create)', () => {
       project: 'p',
       organization: 'o',
       pipelineName: 'pipe',
-      accessModifier: 'private',
+      visibility: 'private',
       isDefault: true,
       isActive: true,
       createdAt: new Date().toISOString(),
@@ -370,7 +369,7 @@ describe('POST /pipelines (create)', () => {
       project: 'my_project',
       organization: 'my_org',
       pipelineName: 'my_org-my_project-pipeline',
-      accessModifier: 'private',
+      visibility: 'private',
       isDefault: true,
       isActive: true,
       createdAt: new Date().toISOString(),
@@ -397,7 +396,7 @@ describe('POST /pipelines (create)', () => {
       project: 'p',
       organization: 'o',
       pipelineName: 'custom-name',
-      accessModifier: 'private',
+      visibility: 'private',
       isDefault: true,
       isActive: true,
       createdAt: new Date().toISOString(),

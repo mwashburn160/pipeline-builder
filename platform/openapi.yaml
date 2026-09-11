@@ -964,9 +964,9 @@ paths:
         - name: isDefault
           in: query
           schema: { type: boolean }
-        - name: accessModifier
+        - name: visibility
           in: query
-          schema: { type: string, enum: [public, private] }
+          schema: { type: string, enum: [private, org, public] }
         - name: page
           in: query
           schema: { type: integer, default: 1 }
@@ -1007,7 +1007,7 @@ paths:
               required: [props]
               properties:
                 pipelineName: { type: string }
-                accessModifier: { type: string, enum: [public, private], default: private }
+                visibility: { type: string, enum: [private, org, public], default: org }
                 props:
                   type: object
                   description: Pipeline builder configuration (project, organization, synth, etc.)
@@ -1032,7 +1032,7 @@ paths:
                           project: { type: string }
                           organization: { type: string }
                           pipelineName: { type: string }
-                          accessModifier: { type: string }
+                          visibility: { type: string }
                           isDefault: { type: boolean }
                           isActive: { type: boolean }
                           createdAt: { type: string, format: date-time }
@@ -1066,9 +1066,9 @@ paths:
         - name: isDefault
           in: query
           schema: { type: boolean }
-        - name: accessModifier
+        - name: visibility
           in: query
-          schema: { type: string, enum: [public, private] }
+          schema: { type: string, enum: [private, org, public] }
       responses:
         '200':
           description: Pipeline found
@@ -1132,9 +1132,9 @@ paths:
         - name: isDefault
           in: query
           schema: { type: boolean }
-        - name: accessModifier
+        - name: visibility
           in: query
-          schema: { type: string, enum: [public, private] }
+          schema: { type: string, enum: [private, org, public] }
         - name: page
           in: query
           schema: { type: integer, default: 1 }
@@ -1178,10 +1178,10 @@ paths:
                   type: string
                   format: binary
                   description: ZIP archive containing spec and Dockerfile
-                accessModifier:
+                visibility:
                   type: string
-                  enum: [public, private]
-                  default: private
+                  enum: [private, org, public]
+                  default: org
       responses:
         '201':
           description: Plugin created
@@ -1200,7 +1200,7 @@ paths:
                           version: { type: string }
                           uri: { type: string, description: 'Computed image URI: <namespace>/<name>:<version>' }
                           fullImage: { type: string }
-                          accessModifier: { type: string }
+                          visibility: { type: string }
                           isDefault: { type: boolean }
                           isActive: { type: boolean }
                           createdBy: { type: string }
@@ -1236,9 +1236,9 @@ paths:
         - name: isDefault
           in: query
           schema: { type: boolean }
-        - name: accessModifier
+        - name: visibility
           in: query
-          schema: { type: string, enum: [public, private] }
+          schema: { type: string, enum: [private, org, public] }
       responses:
         '200':
           description: Plugin found

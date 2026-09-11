@@ -3,7 +3,7 @@
 
 
 // Re-export shared types from api-core for convenience
-export { AccessModifier, ComputeType, PluginType, type MetaDataType } from '@pipeline-builder/api-core';
+export { ComputeType, PluginType, type MetaDataType, type Visibility } from '@pipeline-builder/api-core';
 
 /**
  * Pipeline trigger behavior.

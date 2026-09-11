@@ -37,7 +37,7 @@ export function createPipeline(program: Command): void {
         .option('-p, --project <project>', 'Project name (falls back to value in props file)')
         .option('-o, --organization <organization>', 'Organization name (falls back to value in props file)')
         .option('-n, --name <name>', 'Pipeline name')
-        .option('-a, --access <modifier>', 'Access modifier (public|private)', 'private')
+        .option('-a, --visibility <rung>', 'Sharing rung (private|org|public). Pipelines default to org — a team asset is visible to the team.', 'org')
         .option('--default', 'Set as default pipeline', false)
         .option('--active', 'Set pipeline as active', true)
         .option('--no-active', 'Create the pipeline as inactive')
@@ -63,7 +63,7 @@ export function createPipeline(program: Command): void {
           'Project': options.project || '(from props file)',
           'Organization': options.organization || '(from props file)',
           'Name': options.name || '(not set)',
-          'Access Modifier': options.access,
+          'Visibility': options.visibility,
           'Default Pipeline': options.default ? 'Yes' : 'No',
           'Active': options.active ? 'Yes' : 'No',
           'Deploy After Create': options.deploy ? `Yes (profile: ${options.profile || 'default'})` : 'No',
@@ -179,8 +179,8 @@ export function createPipeline(program: Command): void {
         };
 
         // Add optional fields only if provided
-        if (options.access) {
-          payload.accessModifier = options.access;
+        if (options.visibility) {
+          payload.visibility = options.visibility;
         }
         if (options.default !== undefined) {
           payload.isDefault = options.default;
@@ -250,7 +250,7 @@ export function createPipeline(program: Command): void {
           'Project': pipeline.project,
           'Organization': pipeline.organization,
           'Name': pipeline.pipelineName || '(not set)',
-          'Access': pipeline.accessModifier || 'private',
+          'Visibility': pipeline.visibility || 'org',
           'Default': pipeline.isDefault ? 'Yes' : 'No',
           'Active': pipeline.isActive ? 'Yes' : 'No',
           'Properties': pipeline.props ? `${Object.keys(pipeline.props).length} keys` : '(not returned)',

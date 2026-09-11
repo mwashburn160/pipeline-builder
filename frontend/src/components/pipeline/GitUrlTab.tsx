@@ -177,7 +177,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
           id: plugin.id,
           orgId: plugin.orgId,
           version: plugin.version,
-          accessModifier: plugin.accessModifier,
+          visibility: plugin.visibility,
           isDefault: plugin.isDefault,
           isActive: plugin.isActive,
         };

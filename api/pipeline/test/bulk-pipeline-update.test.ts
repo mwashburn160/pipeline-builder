@@ -44,7 +44,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     for (const [k, v] of Object.entries(obj)) if (v !== undefined) out[k] = v;
     return out;
   },
-  resolveAccessModifier: (_req: any, am?: string) => am || 'private',
+  resolveVisibility: (_req: any, am?: string) => am || 'private',
   isSystemAdmin: () => true,
   reserveQuota: jest.fn(),
   decrementQuota: jest.fn(),

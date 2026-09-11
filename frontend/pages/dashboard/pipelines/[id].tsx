@@ -306,7 +306,7 @@ export default function PipelineDetailPage() {
   // `pipelines:write` capability and ownership of the resource — the backend
   // gates every pipeline mutation on `pipelines:write`, so a read-only member
   // must not see them enabled (matches the list page).
-  const canEdit = pipeline ? canWritePipeline(can, isSuperAdmin, pipeline.accessModifier) : false;
+  const canEdit = pipeline ? canWritePipeline(can, isSuperAdmin, pipeline, user?.id) : false;
 
   return (
     <DashboardLayout
@@ -425,7 +425,7 @@ export default function PipelineDetailPage() {
                 <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Identity</h3>
               </div>
               <div className="flex flex-wrap items-center gap-1">
-                <Badge color={pipeline.accessModifier === 'public' ? 'green' : 'gray'}>{pipeline.accessModifier}</Badge>
+                <Badge color={pipeline.visibility === 'public' ? 'green' : 'gray'}>{pipeline.visibility}</Badge>
                 <Badge color={pipeline.isActive ? 'green' : 'red'}>{pipeline.isActive ? 'Active' : 'Inactive'}</Badge>
                 {pipeline.isDefault && <Badge color="blue">Default</Badge>}
               </div>
@@ -577,7 +577,7 @@ export default function PipelineDetailPage() {
       {showEdit && pipeline && (
         <EditPipelineModal
           pipeline={pipeline}
-          isSuperAdmin={isSuperAdmin}
+          canPublish={can('pipelines:publish')}
           onClose={() => setShowEdit(false)}
           onSaved={() => { setShowEdit(false); reloadPipeline(); }}
         />

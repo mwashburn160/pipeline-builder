@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, requirePublicAccess, sendBadRequest, sendSuccess, sendEntityNotFound } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, requireVisibilityWriteAccess, sendBadRequest, sendSuccess, sendEntityNotFound } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { emitPluginAudit } from '../services/audit.js';
@@ -28,7 +28,7 @@ export function createDeletePluginRoutes(): Router {
     if (!existing) return sendEntityNotFound(res, 'Plugin');
 
     // System admins or publish-permission holders can delete non-private (public) plugins
-    if (!requirePublicAccess(req, res, existing, 'plugins:publish')) return;
+    if (!requireVisibilityWriteAccess(req, res, existing, userId, 'plugins:publish')) return;
 
     // The delete is pinned to the caller's org, so a public/system-org sample the
     // read surfaced matches zero rows → falsy. Don't 200 or emit a `plugin.delete`
@@ -48,7 +48,7 @@ export function createDeletePluginRoutes(): Router {
       details: {
         pluginName: existing.name,
         version: existing.version,
-        accessModifier: existing.accessModifier,
+        visibility: existing.visibility,
       },
     });
 

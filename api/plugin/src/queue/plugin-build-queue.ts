@@ -6,7 +6,7 @@ import path from 'path';
 
 import { createLogger, decrementQuota, DEFAULT_TIER, errorMessage, extractDbError, getServiceAuthHeader, reserveQuota, VALID_TIERS } from '@pipeline-builder/api-core';
 import type { QuotaService, QuotaTier } from '@pipeline-builder/api-core';
-import { incCounter, observe } from '@pipeline-builder/api-server';
+import { incCounter, observe, withSpan } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import type { PluginBuildConfig } from '@pipeline-builder/pipeline-core';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
@@ -434,12 +434,15 @@ export function waitForWorkerReady(timeoutMs = getBuildCfg().workerTimeoutMs): P
       if (!worker) return rej(new Error(`Worker for tier ${tier} not started`));
       const conn = connectionsByDb.get(getRedisDbForTier(tier));
       if (conn?.status === 'ready') return res();
-      const onReady = () => res();
+      // One NAMED listener so the timeout removes the exact one it registered (the
+      // previous code off()'d a function it never added, leaking the listener and
+      // letting a late 'ready' res() after rej()).
+      const onReady = () => { clearTimeout(timer); res(); };
       const timer = setTimeout(() => {
         worker.off('ready', onReady);
         rej(new Error(`Worker for tier ${tier} not ready after ${timeoutMs}ms`));
       }, timeoutMs);
-      worker.on('ready', () => { clearTimeout(timer); onReady(); });
+      worker.on('ready', onReady);
     }));
 
     Promise.all(waiters).then(() => resolve(), (err) => reject(err));
@@ -622,7 +625,9 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
   const processor = async (job: Job<PluginBuildJobData>, token?: string) => {
     const { requestId, orgId, userId, buildRequest, pluginRecord } = job.data;
 
-    return runWithTenantContext({ orgId, isSuperAdmin: false }, async () => {
+    // Custom span around the whole build: BullMQ jobs run out-of-band from any
+    // inbound HTTP span, so without this a slow/hung build shows no trace detail.
+    return withSpan('plugin.build', () => runWithTenantContext({ orgId, isSuperAdmin: false }, async () => {
       // Qualify the owner-hash key by queue name: BullMQ job ids are
       // per-queue-monotonic, so the four per-tier queues mint colliding ids
       // and a bare id would let one tier's job overwrite another's owner
@@ -730,6 +735,10 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
       } finally {
         await releaseOrgSlot(orgId, slotJobId);
       }
+    }), {
+      'pb.org_id': orgId,
+      'pb.plugin': `${pluginRecord.name}:${pluginRecord.version}`,
+      'pb.job_id': String(job.id ?? job.name),
     });
   };
 

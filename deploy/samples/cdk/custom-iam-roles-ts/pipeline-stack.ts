@@ -110,7 +110,7 @@ export class CustomIamRolesPipelineStack extends Stack {
         },
         plugin: {
           name: 'cdk-synth',
-          filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+          filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
           metadata: { NODE_VERSION: '20' },
         },
       },
@@ -122,7 +122,7 @@ export class CustomIamRolesPipelineStack extends Stack {
             {
               plugin: {
                 name: 'nodejs-build',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: {
                   NODE_VERSION: '20',
                   'aws:cdk:codebuild:buildenvironment:computetype': 'MEDIUM',
@@ -148,7 +148,7 @@ export class CustomIamRolesPipelineStack extends Stack {
             {
               plugin: {
                 name: 'snyk-nodejs',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: {
                   SNYK_SEVERITY_THRESHOLD: 'high',
 
@@ -166,7 +166,7 @@ export class CustomIamRolesPipelineStack extends Stack {
             {
               plugin: {
                 name: 'trivy',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: {
                   TRIVY_SEVERITY: 'HIGH,CRITICAL',
 
@@ -191,7 +191,7 @@ export class CustomIamRolesPipelineStack extends Stack {
             {
               plugin: {
                 name: 'cdk-deploy',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: {
                   NODE_VERSION: '20',
                   DEPLOY_STAGE: 'production',

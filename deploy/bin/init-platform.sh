@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Initialize the platform — register admin, optionally load plugins and pipelines.
+# Initialize the platform — register admin, optionally load plugins and pipeline templates.
 #
 # Usage:
 #   ./init-platform.sh                                         # defaults to "docker"
@@ -453,18 +453,18 @@ else
   echo "  Skipping plugin loading."
 fi
 
-# Load pipelines
+# Load pipeline templates
 echo ""
-# Env-overridable (LOAD_PIPELINES=y|n) for non-interactive runs; prompt on a TTY when unset.
-prompt_toggle LOAD_PIPELINES "Load sample pipelines? [y/N]"
-if _truthy "$LOAD_PIPELINES"; then
-  # The pipeline bulk-create validates each item via compliance — wait for both
-  # services so the load doesn't race a still-starting compliance service (the
-  # failure that motivated this gate).
+# Env-overridable (LOAD_TEMPLATES=y|n) for non-interactive runs; prompt on a TTY when unset.
+prompt_toggle LOAD_TEMPLATES "Load sample pipeline templates? [y/N]"
+if _truthy "$LOAD_TEMPLATES"; then
+  # Template create runs the same plugin/template validation as pipeline create —
+  # wait for both services so the load doesn't race a still-starting compliance
+  # service (the failure that motivated this gate).
   gate_services_ready compliance pipeline || exit 1
-  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-pipelines.sh"
+  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-templates.sh"
 else
-  echo "  Skipping pipeline loading."
+  echo "  Skipping pipeline template loading."
 fi
 
 # Load compliance rules and policy templates

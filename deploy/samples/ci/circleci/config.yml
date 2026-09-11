@@ -1,10 +1,12 @@
-# Sample CircleCI config: create + deploy a Pipeline Builder pipeline in one
-# step with `pipeline-manager pipeline create --deploy`.
+# Sample CircleCI config: instantiate a Pipeline Builder template, then create +
+# deploy the resulting pipeline in one step with
+# `pipeline-manager pipeline create --deploy`.
 #
-# Copy this file to `.circleci/config.yml` in your repo and adjust the props
-# path, region, and context. The job creates the pipeline record on the platform
-# and then runs `cdk deploy` for it (registering the deployed ARN), so a green
-# job means the pipeline exists AND is deployed to AWS.
+# Copy this file to `.circleci/config.yml` in your repo and adjust the template
+# name, region, and context. The job renders a golden-path template into concrete
+# pipeline props, creates the pipeline record on the platform, and then runs
+# `cdk deploy` for it (registering the deployed ARN), so a green job means the
+# pipeline exists AND is deployed to AWS.
 #
 # ── Prerequisites ────────────────────────────────────────────────────────────
 # Create a CircleCI context (Organization Settings → Contexts), e.g.
@@ -13,6 +15,9 @@
 #                         (e.g. https://pipeline.example.com)
 #   PLATFORM_TOKEN        A Personal Access Token — create with
 #                         `pipeline-manager auth pat` or the dashboard.
+#   PB_ORG_ID             Your organization's ID (UUID). Supplied as the
+#                         template's `orgId` input; selects the GitHub token
+#                         secret at pipeline-builder/<orgId>/github-token.
 #   AWS_REGION            e.g. us-east-1
 #   AWS_DEPLOY_ROLE_ARN   IAM role to assume via CircleCI OIDC. The role trusts
 #                         CircleCI's OIDC provider (aud = your org id) and
@@ -31,7 +36,11 @@ jobs:
     docker:
       - image: cimg/node:24.14 # pipeline-manager requires Node 24+
     environment:
-      PROPS_FILE: deploy/samples/pipelines/react-javascript/pipeline.json
+      # Any template in the catalog — see deploy/samples/templates/ for the ones
+      # seeded by `load-templates.sh`.
+      TEMPLATE_NAME: react-javascript
+      PB_PROJECT: react
+      PB_ORGANIZATION: AcmeCorp
     steps:
       - checkout
       - run:
@@ -53,10 +62,21 @@ jobs:
             echo "export AWS_SECRET_ACCESS_KEY=$(echo "$CREDS" | cut -f2)" >> "$BASH_ENV"
             echo "export AWS_SESSION_TOKEN=$(echo "$CREDS" | cut -f3)"     >> "$BASH_ENV"
       - run:
+          name: Instantiate pipeline template
+          # Creates nothing on the platform — this only resolves the template's
+          # declared inputs into a props file for the create step below.
+          command: |
+            pipeline-manager template instantiate \
+              --name "$TEMPLATE_NAME" \
+              --project "$PB_PROJECT" \
+              --organization "$PB_ORGANIZATION" \
+              --input "orgId=$PB_ORG_ID" \
+              --output pipeline-props.json
+      - run:
           name: Create and deploy pipeline
           command: |
             pipeline-manager pipeline create \
-              --file "$PROPS_FILE" \
+              --file pipeline-props.json \
               --deploy \
               --region "$AWS_REGION" \
               --require-approval never

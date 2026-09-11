@@ -17,6 +17,10 @@ import { jest } from '@jest/globals';
 // Shared tier fixture — deep path is NOT intercepted by the api-core module mock
 // (see tier-mock.ts). Sources the tier NAME LIST from the real VALID_TIERS.
 import { MOCK_TIER_NAMES, mockIsValidTier, mockQuotaTiers } from '@pipeline-builder/api-core/lib/testing/tier-mock.js';
+// The REAL TIER_FEATURES (side-effect-free deep import, same pattern as tier-mock)
+// so this can't drift from api-core — a hand-copy silently diverges as features
+// are added.
+import { TIER_FEATURES, FEATURE_METADATA } from '@pipeline-builder/api-core/lib/types/feature-flags.js';
 
 /** The 4-method logger stub every suite repeats; a fresh set of spies per call. */
 export const loggerMock = () => ({
@@ -97,23 +101,13 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     STANDARD_TIERS: MOCK_TIER_NAMES.filter((t) => t !== 'unlimited'),
     // billing-config also derives marketed feature copy from the enforced entitlement
     // set + labels, so the transitively-loaded graph needs these too (ESM linking).
-    TIER_FEATURES: {
-      developer: [],
-      pro: ['priority_support', 'ai_generation', 'bulk_operations'],
-      team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso'],
-      enterprise: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso', 'custom_integrations'],
-      unlimited: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso', 'custom_integrations'],
-    },
-    FEATURE_METADATA: {
-      priority_support: { label: 'Priority Support', description: '' },
-      ai_generation: { label: 'AI Generation', description: '' },
-      bulk_operations: { label: 'Bulk Operations', description: '' },
-      audit_log: { label: 'Audit Log', description: '' },
-      sso: { label: 'SSO', description: '' },
-      custom_integrations: { label: 'Custom Integrations', description: '' },
-    },
+    TIER_FEATURES,
+    // Deep-imported alongside TIER_FEATURES (matched pair) so every flag the real
+    // TIER_FEATURES references has metadata — a partial hand-copy threw on the
+    // flags a stale copy omitted.
+    FEATURE_METADATA,
     isValidTier: mockIsValidTier,
-    AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
+
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,

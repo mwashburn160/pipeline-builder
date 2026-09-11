@@ -41,7 +41,7 @@ export class BasicPipelineStack extends Stack {
           name: 'cdk-synth',
           filter: {
             version: '1.0.0',
-            accessModifier: 'public',
+            visibility: 'public',
             isActive: true,
             isDefault: true,
           },
@@ -59,7 +59,7 @@ export class BasicPipelineStack extends Stack {
             {
               plugin: {
                 name: 'eslint',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true },
                 metadata: { NODE_VERSION: '20' },
               },
               position: 'pre',
@@ -68,7 +68,7 @@ export class BasicPipelineStack extends Stack {
             {
               plugin: {
                 name: 'prettier',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true },
                 metadata: { NODE_VERSION: '20' },
               },
               position: 'post',
@@ -82,7 +82,7 @@ export class BasicPipelineStack extends Stack {
             {
               plugin: {
                 name: 'jest',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: { NODE_VERSION: '20' },
               },
               position: 'pre',
@@ -97,7 +97,7 @@ export class BasicPipelineStack extends Stack {
             {
               plugin: {
                 name: 'nodejs-build',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: {
                   NODE_VERSION: '20',
                   'aws:cdk:codebuild:buildenvironment:computetype': 'MEDIUM',
@@ -115,7 +115,7 @@ export class BasicPipelineStack extends Stack {
             {
               plugin: {
                 name: 'snyk-nodejs',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: { SNYK_SEVERITY_THRESHOLD: 'high' },
               },
               position: 'pre',
@@ -125,7 +125,7 @@ export class BasicPipelineStack extends Stack {
             {
               plugin: {
                 name: 'git-secrets',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true },
               },
               position: 'post',
               commands: ['git secrets --scan'],

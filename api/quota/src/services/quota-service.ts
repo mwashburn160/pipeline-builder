@@ -389,7 +389,7 @@ export class QuotaService {
       );
       if (!org) throw new OrgNotFoundError(orgId);
 
-      const limit = org.quotas[quotaType];
+      const limit = org.quotas[quotaType] ?? config.quota.defaults[quotaType];
       const usage = org.usage[quotaType] ?? {
         used: amount,
         resetAt: getNextResetDate(config.quota.resetDays),
@@ -421,24 +421,28 @@ export class QuotaService {
     // value is computed from `$$NOW` via `$dateAdd` so the period boundary
     // is set by the server, not a captured `new Date()` from the API node.
     const resetDays = config.quota.resetDays;
+    // Coalesce a MISSING stored limit to the tier default — Mongoose `default:` only
+    // fires on insert, so a newly-added quota type on an un-backfilled org doc would
+    // otherwise match no branch and hard-429 (the read + pooled paths already default).
+    const limitExpr = { $ifNull: [`$quotas.${quotaType}`, config.quota.defaults[quotaType]] };
     const org = await Organization.findOneAndUpdate(
       {
         _id: toOrgId(orgId),
         $expr: {
           $or: [
-            { $eq: [`$quotas.${quotaType}`, -1] },
+            { $eq: [limitExpr, -1] },
             // Period expired: amount alone must fit within limit (post-reset).
             {
               $and: [
                 { $lte: [`$${usagePath}.resetAt`, '$$NOW'] },
-                { $lte: [amount, `$quotas.${quotaType}`] },
+                { $lte: [amount, limitExpr] },
               ],
             },
             // Period not expired: current used + amount must fit.
             {
               $and: [
                 { $gt: [`$${usagePath}.resetAt`, '$$NOW'] },
-                { $lte: [{ $add: [`$${usagePath}.used`, amount] }, `$quotas.${quotaType}`] },
+                { $lte: [{ $add: [`$${usagePath}.used`, amount] }, limitExpr] },
               ],
             },
           ],
@@ -477,7 +481,7 @@ export class QuotaService {
       const existing = await Organization.findById(toOrgId(orgId));
       if (!existing) throw new OrgNotFoundError(orgId);
 
-      const limit = existing.quotas[quotaType];
+      const limit = existing.quotas[quotaType] ?? config.quota.defaults[quotaType];
       const currentUsage = existing.usage[quotaType] ?? {
         used: 0,
         resetAt: getNextResetDate(config.quota.resetDays),

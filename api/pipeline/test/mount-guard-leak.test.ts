@@ -83,8 +83,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   initSSEStream: () => ({ aborted: () => false }),
   isSystemAdmin: () => false,
   pickDefined: (o: any) => o,
-  requirePublicAccess: () => true,
-  resolveAccessModifier: (_req: any, am?: string) => am ?? 'private',
+  requireVisibilityWriteAccess: () => true,
+  resolveVisibility: (_req: any, am?: string) => am ?? 'private',
   runConcurrent: async <T, R>(items: T[], _max: number, fn: (i: T) => Promise<R>) => Promise.all(items.map(fn)),
   PipelineCreateSchema: {},
   PipelineUpdateSchema: {},
@@ -104,6 +104,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   // controls req.user via the request-context middleware below.
   createProtectedRoute: () => [],
   createAuthenticatedWithOrgRoute: () => [],
+  rateLimitByOrg: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   // Stand-in for attachRequestContext: seed req.user + req.context from headers.
   attachRequestContext: () => (req: any, _res: any, next: () => void) => {
     const list = (h: unknown) => (typeof h === 'string' && h ? h.split(',') : []);
@@ -151,7 +152,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
     CACHE_CONTROL_LIST: 'private',
     CACHE_CONTROL_DETAIL: 'private',
   },
-  AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
+
   replaceNonAlphanumeric: (s: string, r: string) => s.replace(/[^a-zA-Z0-9]/g, r),
   // Template routes tokenize the body to find undeclared-var references.
   tokenize: () => [],

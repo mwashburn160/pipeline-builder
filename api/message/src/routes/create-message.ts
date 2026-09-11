@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  AccessModifier,
   SYSTEM_ORG_ID,
   sendError,
   sendBadRequest,
@@ -157,7 +156,6 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       priority,
       createdBy: userId,
       updatedBy: userId,
-      accessModifier: AccessModifier.PRIVATE,
     };
 
     const message = await messageService.create(messageData, userId);
@@ -249,7 +247,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
     // Find the root message, VIEWER-SCOPED: if the root is targeted at a specific
     // user, only that user (and the sender org / system org) can load it — so a
     // non-target member of the recipient org can't reply into a private thread.
-    const rootMessage = await messageService.findVisibleById(id, orgId, userId);
+    const rootMessage = await messageService.findVisibleById(id, orgId);
     if (!rootMessage) {
       return sendEntityNotFound(res, 'Message');
     }
@@ -323,7 +321,6 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       priority: rootMessage.priority,
       createdBy: userId,
       updatedBy: userId,
-      accessModifier: AccessModifier.PRIVATE,
     };
 
     const reply = await messageService.create(replyData, userId);

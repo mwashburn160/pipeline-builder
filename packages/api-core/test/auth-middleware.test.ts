@@ -6,7 +6,7 @@ import { jest, describe, it, expect, beforeAll } from '@jest/globals';
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import {
-  requireAuth, isSystemAdmin, resolveAccessModifier,
+  requireAuth, isSystemAdmin,
   signServiceToken, getServiceAuthHeader, isServicePrincipal, verifyServicePrincipal,
   requirePermission, requireSystemAdmin, setAuthzDenialAuditor,
   requireAllPermissions, setTokenRevocationStore, requireFeature,
@@ -222,57 +222,6 @@ describe('isSystemAdmin', () => {
     const req = createMockReq();
     req.user = { role: 'owner', organizationId: '000000000000000000000001' } as any;
     expect(isSystemAdmin(req)).toBe(false);
-  });
-});
-
-// resolveAccessModifier
-
-describe('resolveAccessModifier', () => {
-  it('should return "public" when a superadmin requests public (implicit-all)', () => {
-    const req = createMockReq();
-    req.user = { role: 'admin', isSuperAdmin: true } as any;
-    expect(resolveAccessModifier(req, 'public', 'pipelines:publish')).toBe('public');
-  });
-
-  it('should return "public" when the caller holds the publish permission', () => {
-    // Permission-based, not label-based: a bespoke custom Role granted
-    // pipelines:publish can publish public even though its coarse label is member.
-    const req = createMockReq();
-    req.user = { role: 'member', permissions: ['pipelines:publish'] } as any;
-    expect(resolveAccessModifier(req, 'public', 'pipelines:publish')).toBe('public');
-  });
-
-  it('should return "private" when the caller lacks the publish permission', () => {
-    // A coarse admin label no longer grants publish — only the permission does.
-    const req = createMockReq();
-    req.user = { role: 'admin', permissions: ['pipelines:write'] } as any;
-    expect(resolveAccessModifier(req, 'public', 'pipelines:publish')).toBe('private');
-  });
-
-  it('should gate on the SPECIFIC publish permission requested', () => {
-    // Holding plugins:publish must not let you publish a public pipeline.
-    const req = createMockReq();
-    req.user = { role: 'member', permissions: ['plugins:publish'] } as any;
-    expect(resolveAccessModifier(req, 'public', 'pipelines:publish')).toBe('private');
-    expect(resolveAccessModifier(req, 'public', 'plugins:publish')).toBe('public');
-  });
-
-  it('should return "private" for a service principal without the permission', () => {
-    const req = createMockReq();
-    req.user = { sub: 'service:pipeline', role: 'member', permissions: [] } as any;
-    expect(resolveAccessModifier(req, 'public', 'pipelines:publish')).toBe('private');
-  });
-
-  it('should return "private" when private is requested', () => {
-    const req = createMockReq();
-    req.user = { role: 'admin', permissions: ['pipelines:publish'] } as any;
-    expect(resolveAccessModifier(req, 'private', 'pipelines:publish')).toBe('private');
-  });
-
-  it('should return "private" when undefined is requested', () => {
-    const req = createMockReq();
-    req.user = { role: 'admin', permissions: ['pipelines:publish'] } as any;
-    expect(resolveAccessModifier(req, undefined, 'pipelines:publish')).toBe('private');
   });
 });
 

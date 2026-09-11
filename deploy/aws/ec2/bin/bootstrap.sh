@@ -180,7 +180,7 @@ echo "  minikube installed"
 # here, so no sudo). Identical handling to the eks/minikube targets.
 
 # conntrack + socat (required by minikube). jq is required by the auto-init
-# path (init-platform builds the admin-register payload with it; load-pipelines
+# path (init-platform builds the admin-register payload with it; load-templates
 # and load-compliance parse JSON with it) and is NOT in the AL2023 base image, so
 # install it here — otherwise Phase 10's `preflight … jq` would abort auto-init.
 dnf install -y conntrack-tools socat jq
@@ -432,7 +432,7 @@ if [ "${AUTO_INIT:-false}" = "true" ]; then
   # environment (not .env) for its private-mode prerequisite gate — pass them through.
   # PLATFORM_PASSWORD is passed explicitly (runuser does not carry the exported var).
   runuser -u minikube -- env \
-    BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_PIPELINES=y \
+    BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y \
     PLATFORM_BASE_URL="https://${DOMAIN}" \
     PLATFORM_PASSWORD="$ADMIN_PASSWORD" \
     DEPLOY_MODE="${DEPLOY_MODE:-private}" \
@@ -468,6 +468,35 @@ echo "========================================"
 # down — so the in-cluster names in .env don't need to be host-reachable.
 BACKUP_SH="${INSTALL_DIR}/deploy/aws/ec2/bin/backup.sh"
 if [ -f "$BACKUP_SH" ]; then
+  # --- Install backup client prereqs (best-effort; never fail the provision) ---
+  # backup.sh needs pg_dump (postgresql client) + mongodump (mongodb-database-tools),
+  # and mc (MinIO client) only for the optional object-storage mirror. Install them
+  # here so the timer can actually run. Each install is NON-FATAL: if a repo is
+  # unreachable the enable gate below re-checks `command -v` and simply leaves the
+  # timer disabled, so a failed install never regresses a provision that previously
+  # just shipped the timer disabled.
+  echo "  Installing backup clients (pg_dump / mongodump / mc)…"
+  dnf install -y postgresql16 >/dev/null 2>&1 || dnf install -y postgresql15 >/dev/null 2>&1 \
+    || echo "  WARN: could not install postgresql client (pg_dump) — backup timer will stay disabled"
+  # mongodb-database-tools from MongoDB's AL2023 repo (provides mongodump).
+  cat > /etc/yum.repos.d/mongodb-org-8.0.repo <<'MONGOREPO'
+[mongodb-org-8.0]
+name=MongoDB Repository
+baseurl=https://repo.mongodb.org/yum/amazon/2023/mongodb-org/8.0/x86_64/
+gpgcheck=1
+enabled=1
+gpgkey=https://pgp.mongodb.com/server-8.0.asc
+MONGOREPO
+  dnf install -y mongodb-database-tools >/dev/null 2>&1 \
+    || echo "  WARN: could not install mongodb-database-tools (mongodump) — backup timer will stay disabled"
+  # mc is a single static binary (only needed when MINIO_ENDPOINT is set for the
+  # object-storage mirror); install best-effort so a MinIO-configured backup works.
+  if ! command -v mc >/dev/null 2>&1; then
+    curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc 2>/dev/null \
+      && chmod +x /usr/local/bin/mc \
+      || echo "  WARN: could not install mc (MinIO client) — object-storage mirror unavailable"
+  fi
+
   cat > /etc/systemd/system/pipeline-backup.service <<BACKUPSVC
 [Unit]
 Description=Pipeline Builder DB backup (postgres + mongo) to S3
@@ -497,9 +526,38 @@ WantedBy=timers.target
 BACKUPTIMER
 
   systemctl daemon-reload
-  echo "  Installed pipeline-backup.{service,timer} (DISABLED)."
-  echo "  To enable after installing DB clients (pg_dump/mongodump/mc) + BACKUP_BUCKET:"
-  echo "    sudo systemctl enable --now pipeline-backup.timer"
+
+  # Auto-enable the timer when it can actually succeed: a backup bucket must be
+  # configured in the deploy .env AND the required clients must be present. This
+  # flips backups from "always installed disabled" to "on by default whenever the
+  # prerequisites are satisfied" — the common production case — while a provision
+  # with no BACKUP_BUCKET (or where a client failed to install) keeps the timer
+  # DISABLED rather than failing a backup nightly (a false-red every night).
+  # Provisioning the bucket and granting the instance role s3:PutObject remains
+  # operator-owned (AWS-account specific); this only decides enablement, it never
+  # creates the bucket or touches IAM.
+  BACKUP_ENV="${DEPLOY_DIR}/.env"
+  backup_bucket="$(grep -E '^BACKUP_BUCKET=' "$BACKUP_ENV" 2>/dev/null | tail -n1 | cut -d= -f2-)"
+  backup_bucket="${backup_bucket%\"}"; backup_bucket="${backup_bucket#\"}"   # strip double quotes
+  backup_bucket="${backup_bucket%\'}"; backup_bucket="${backup_bucket#\'}"   # strip single quotes
+  backup_bucket="$(printf '%s' "$backup_bucket" | tr -d '[:space:]')"
+  if [ -n "$backup_bucket" ] && command -v pg_dump >/dev/null 2>&1 && command -v mongodump >/dev/null 2>&1; then
+    systemctl enable --now pipeline-backup.timer
+    echo "  ENABLED pipeline-backup.timer (BACKUP_BUCKET=${backup_bucket}; nightly 03:30 UTC)."
+    echo "  Confirm the instance role grants s3:PutObject on that bucket, then TEST A RESTORE"
+    echo "  (an untested backup is not a backup):"
+    echo "    ${INSTALL_DIR}/deploy/aws/ec2/bin/restore.sh --confirm-destructive"
+  else
+    systemctl disable pipeline-backup.timer >/dev/null 2>&1 || true
+    echo "  Installed pipeline-backup.{service,timer} (DISABLED)."
+    if [ -z "$backup_bucket" ]; then
+      echo "    Reason: BACKUP_BUCKET is not set in ${BACKUP_ENV}."
+    else
+      echo "    Reason: pg_dump/mongodump are not available on the host."
+    fi
+    echo "  Set BACKUP_BUCKET (+ grant the instance role s3:PutObject) and re-run, or enable manually:"
+    echo "    sudo systemctl enable --now pipeline-backup.timer"
+  fi
 else
   echo "  backup.sh not found at $BACKUP_SH — skipping backup timer install"
 fi

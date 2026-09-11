@@ -1,0 +1,78 @@
+{
+  "name": "spring-boot-java",
+  "description": "Golden-path template for a Spring Boot (Java/Maven) service on GitHub. Compiles and packages the application on Amazon Corretto.",
+  "category": "backend",
+  "keywords": [
+    "java",
+    "spring-boot",
+    "backend",
+    "web-api"
+  ],
+  "visibility": "public",
+  "inputs": [
+    {
+      "name": "orgId",
+      "label": "Organization ID",
+      "description": "Your organization's ID (the UUID, not the display name). Selects the GitHub OAuth token secret at pipeline-builder/<orgId>/github-token.",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "props": {
+    "global": {
+      "aws:cdk:pipelines:codepipeline:selfmutation": true,
+      "aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation": true,
+      "aws:cdk:pipelines:codepipeline:publishassetsinparallel": true,
+      "aws:cdk:pipelines:codepipeline:crossaccountkeys": true,
+      "aws:cdk:pipelines:codepipeline:enablekeyrotation": true,
+      "aws:cdk:pipelines:codepipeline:reusecrossregionsupportstacks": true,
+      "aws:cdk:pipelines:codepipeline:usechangesets": false
+    },
+    "synth": {
+      "source": {
+        "type": "github",
+        "options": {
+          "repo": "dstar55/docker-hello-world-spring-boot",
+          "branch": "master",
+          "trigger": "NONE",
+          "token": "secretsmanager:pipeline-builder/{{ pipeline.vars.orgId }}/github-token"
+        }
+      },
+      "plugin": {
+        "name": "BuildSynth",
+        "filter": {
+          "name": "cdk-synth",
+          "version": "1.0.0",
+          "visibility": "public",
+          "isActive": true,
+          "isDefault": true
+        }
+      }
+    },
+    "stages": [
+      {
+        "stageName": "Build",
+        "alias": "BuildAndPackage",
+        "steps": [
+          {
+            "plugin": {
+              "name": "java",
+              "filter": {
+                "name": "java-corretto",
+                "version": "1.0.0",
+                "visibility": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "KOTLIN_VERSION": "2.2.21"
+              }
+            },
+            "position": "pre",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

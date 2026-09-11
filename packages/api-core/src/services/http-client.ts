@@ -13,6 +13,8 @@ import {
 import { HttpStatus } from '../constants/http-status.js';
 import type { ServiceConfig } from '../types/common.js';
 import { createLogger } from '../utils/logger.js';
+import { emitCounter } from '../utils/metric-emitter.js';
+import { getCircuitBreaker, CircuitOpenError } from './circuit-breaker.js';
 
 const logger = createLogger('http-client');
 
@@ -189,6 +191,14 @@ export class InternalHttpClient {
     body?: unknown,
     options?: RequestOptions,
   ): Promise<HttpClientResponse<T>> {
+    // A malformed path is a CLIENT bug, not a downstream fault — reject it up
+    // front so it never burns retries or feeds the circuit breaker (which would
+    // otherwise shed traffic to a perfectly healthy downstream). request() keeps
+    // the same guard as defence-in-depth.
+    if (path.includes('://') || path.startsWith('//') || /[\r\n\0]/.test(path)) {
+      throw new Error(`Invalid request path: ${path}`);
+    }
+
     const retryConfig: RetryConfig = {
       maxRetries: options?.maxRetries ?? DEFAULT_MAX_RETRIES,
       maxRateLimitRetries: options?.maxRateLimitRetries ?? DEFAULT_MAX_RATE_LIMIT_RETRIES,
@@ -207,6 +217,18 @@ export class InternalHttpClient {
       options?.idempotent === true ||
       !!(options?.headers && (options.headers['Idempotency-Key'] || options.headers['idempotency-key']));
 
+    // Per-target circuit breaker + S2S request metrics. `target` is the shared
+    // breaker/metric key so one bad downstream trips once (not once-per-client)
+    // and dashboards can see S2S health per callee.
+    const target = `${this.config.host}:${this.config.port}`;
+    const breaker = getCircuitBreaker(target);
+    if (!breaker.allowRequest()) {
+      // Fast-fail without touching the network — this is the load-shedding that
+      // prevents a downstream brownout from cascading via retry storms.
+      emitCounter('s2s_requests_total', { target, method, outcome: 'circuit_open' });
+      throw new CircuitOpenError(target);
+    }
+
     let lastError: Error | undefined;
 
     for (let attempt = 0; attempt <= totalMaxAttempts; attempt++) {
@@ -218,10 +240,22 @@ export class InternalHttpClient {
         // 5xx/gateway error is only retried when the request is retry-safe.
         if (decision.shouldRetry && (response.statusCode === 429 || retrySafe)) {
           logger.debug(decision.reason + ', retrying', { method, path, attempt: attempt + 1, delayMs: decision.delayMs });
+          emitCounter('s2s_request_retries_total', { target, method });
           await this.sleep(decision.delayMs);
           continue;
         }
 
+        // Terminal response. A 5xx is a downstream fault (feeds the breaker); a
+        // 429 is backpressure, not a fault — the service answered, so it counts
+        // as success for breaker purposes (never trip the breaker on rate limits).
+        const isServerFault = response.statusCode >= 500 && response.statusCode <= 599;
+        if (isServerFault) {
+          breaker.recordFailure();
+          emitCounter('s2s_requests_total', { target, method, outcome: 'server_error' });
+        } else {
+          breaker.recordSuccess();
+          emitCounter('s2s_requests_total', { target, method, outcome: 'success' });
+        }
         return response;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
@@ -229,14 +263,21 @@ export class InternalHttpClient {
         const decision = getErrorRetryDecision(attempt, retryConfig);
         if (decision.shouldRetry && retrySafe) {
           logger.debug('Retrying after error', { method, path, error: lastError.message, attempt: attempt + 1 });
+          emitCounter('s2s_request_retries_total', { target, method });
           await this.sleep(decision.delayMs);
           continue;
         }
-        // Not retrying (non-idempotent, or attempts exhausted) — fail now.
+        // Not retrying (non-idempotent, or attempts exhausted) — a connection
+        // error/timeout is a downstream fault: feed the breaker and fail now.
+        breaker.recordFailure();
+        emitCounter('s2s_requests_total', { target, method, outcome: 'error' });
         throw lastError;
       }
     }
 
+    // Loop exhausted without returning (all attempts retried then ran out).
+    breaker.recordFailure();
+    emitCounter('s2s_requests_total', { target, method, outcome: 'error' });
     throw lastError!;
   }
 

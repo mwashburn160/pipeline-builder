@@ -210,7 +210,7 @@ describe('createCodeBuildStep — env var precedence', () => {
     commands: ['echo build'],
     dockerfile: null,
     buildType: 'metadata_only',
-    accessModifier: 'public',
+    visibility: 'public',
     isDefault: true,
     isActive: true,
     createdBy: 'system',

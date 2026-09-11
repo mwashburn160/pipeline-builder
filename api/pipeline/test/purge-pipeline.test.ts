@@ -12,7 +12,7 @@
  * api-core's shared `loadAndPurge`. Because the whole api-core package is
  * wholesale-mocked here (its real graph is too heavy to link in-suite), this
  * suite installs a FAITHFUL re-implementation of `loadAndPurge` in the mock that
- * delegates to the passed-in service singleton + the same `requirePublicAccess`
+ * delegates to the passed-in service singleton + the same `requireVisibilityWriteAccess`
  * / `sendEntityNotFound` / `sendBadRequest` spies the real helper uses. That lets
  * the suite exercise every branch the real helper takes (400 missing-id, 404
  * tombstone-miss, 403 publish-gate, 404 purge-race-miss, happy path) end-to-end
@@ -55,7 +55,7 @@ const sendBadRequest = jest.fn((res: any, msg: string, code?: string) => {
 const sendEntityNotFound = jest.fn((res: any, entity: string) => {
   res.status(404).json({ success: false, statusCode: 404, message: `${entity} not found.` });
 });
-const requirePublicAccess = jest.fn((_req: any, _res: any, _resource: any, _perm?: string) => true);
+const requireVisibilityWriteAccess = jest.fn((_req: any, _res: any, _resource: any, _perm?: string) => true);
 const sendSuccess = jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
   const response: any = { success: true, statusCode };
   if (data !== undefined) response.data = data;
@@ -65,7 +65,7 @@ const sendSuccess = jest.fn((res: any, statusCode: number, data?: any, message?:
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
-  requirePublicAccess,
+  requireVisibilityWriteAccess,
   sendSuccess,
   sendBadRequest,
   sendEntityNotFound,
@@ -77,6 +77,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     service: any,
     label: string,
     publishPermission: string,
+    userId: string,
   ) => {
     const id = req.params?.id;
     if (!id) {
@@ -88,7 +89,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       sendEntityNotFound(res, label);
       return null;
     }
-    if (!requirePublicAccess(req, res, existing, publishPermission)) return null;
+    if (!requireVisibilityWriteAccess(req, res, existing, userId, publishPermission)) return null;
     const purgedId = await service.purgeById(id, orgId);
     if (!purgedId) {
       sendEntityNotFound(res, label);
@@ -121,7 +122,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
-  AccessModifier: {},
 }));
 
 const { createPurgePipelineRoutes } = await import('../src/routes/purge-pipeline.js');
@@ -143,7 +143,7 @@ const existingPipeline = {
   id: 'pipeline-uuid-1',
   pipelineName: 'test',
   orgId: 'org-1',
-  accessModifier: 'private',
+  visibility: 'private',
   keywords: ['a', 'b'],
   isActive: false,
   isDefault: false,
@@ -210,7 +210,7 @@ describe('POST /pipelines/:id/purge (purge)', () => {
         targetId: 'pipeline-uuid-1',
         details: expect.objectContaining({
           pipelineName: 'test',
-          accessModifier: 'private',
+          visibility: 'private',
         }),
       }),
     );
@@ -271,20 +271,21 @@ describe('POST /pipelines/:id/purge (purge)', () => {
   });
 
   it('returns 403 (publish gate) when a non-publisher purges a PUBLIC tombstone', async () => {
-    mockFindDeletedById.mockResolvedValue({ ...existingPipeline, accessModifier: 'public' });
-    requirePublicAccess.mockReturnValueOnce(false);
+    mockFindDeletedById.mockResolvedValue({ ...existingPipeline, visibility: 'public' });
+    requireVisibilityWriteAccess.mockReturnValueOnce(false);
 
     const req = mockReq();
     const res = mockRes();
     await handler(req, res);
 
-    expect(requirePublicAccess).toHaveBeenCalledWith(
+    expect(requireVisibilityWriteAccess).toHaveBeenCalledWith(
       req,
       res,
-      expect.objectContaining({ accessModifier: 'public' }),
+      expect.objectContaining({ visibility: 'public' }),
+      'user-1',
       'pipelines:publish',
     );
-    // requirePublicAccess itself owns the 403 response; the route purges nothing.
+    // requireVisibilityWriteAccess itself owns the 403 response; the route purges nothing.
     expect(mockPurgeById).not.toHaveBeenCalled();
     expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
   });

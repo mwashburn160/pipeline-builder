@@ -18,12 +18,14 @@ export type TenantScopeResolver = (req: Request) => TenantContext;
 
 /** Default resolver: the authenticated identity's org + super-admin flag, plus
  *  the active-org parent (org → team hierarchy) so downstream side-effects can
- *  reach it without a request. */
+ *  reach it without a request, and the caller's user id for the app-layer
+ *  predicates that carry a per-user rung. */
 const identityScope: TenantScopeResolver = (req) => ({
   // `identity.orgId` is already normalized (trimmed + lowercased) once at
   // resolution in api-core's `getIdentity`, so the GUC set here matches the
   // app-layer WHERE clauses exactly — no ad-hoc re-normalization needed.
   orgId: getContext(req).identity.orgId,
+  userId: getContext(req).identity.userId || undefined,
   isSuperAdmin: isSystemAdmin(req),
   parentOrgId: req.user?.parentOrganizationId,
 });

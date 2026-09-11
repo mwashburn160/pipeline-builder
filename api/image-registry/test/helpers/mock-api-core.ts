@@ -83,7 +83,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     createEnvRedisLock: () => null,
     requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
     SYSTEM_ORG_ID: '000000000000000000000001',
-    AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
+    
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,

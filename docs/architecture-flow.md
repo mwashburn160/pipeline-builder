@@ -304,7 +304,7 @@ flowchart LR
 ```mermaid
 flowchart TB
     ROOT[Root Organization: acme-corp<br/>orgId: abc123]
-    ROOT --> PLUG[Plugins<br/>scoped by orgId + accessModifier]
+    ROOT --> PLUG[Plugins<br/>scoped by orgId + visibility]
     ROOT --> PIPE[Pipelines<br/>scoped by project, org, orgId]
     ROOT --> SEC[Secrets<br/>AWS SM: /prefix/abc123/secretName]
     ROOT --> QUO[Quotas + seats<br/>pooled at the root org]

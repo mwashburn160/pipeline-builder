@@ -14,6 +14,7 @@
     "test": "pnpm dlx projen test",
     "test:watch": "pnpm dlx projen test:watch",
     "projen": "pnpm dlx projen",
+    "generate:help": "node scripts/generate-help.mjs",
     "start": "node --import @pipeline-builder/api-server/lib/otel-bootstrap.js lib/index.js",
     "docker:build": "PB_EXPECTED_PNPM=$(jq -r .packageManager package.json | sed \"s/^pnpm@//\"); PB_ACTUAL_PNPM=$(pnpm --version); [ \"$PB_EXPECTED_PNPM\" = \"$PB_ACTUAL_PNPM\" ] || { echo \"ERROR: pnpm $PB_ACTUAL_PNPM is active but package.json pins pnpm@$PB_EXPECTED_PNPM. Run: corepack prepare pnpm@$PB_EXPECTED_PNPM --activate\" >&2; exit 1; }; pnpm nx run-many -t build --projects=frontend --with-deps; rm -rf .docker-build; pnpm deploy --filter frontend --prod --legacy .docker-build; for d in .docker-build/node_modules/@pipeline-builder/*; do test -e \"$d/package.json\" || { echo \"ERROR: staged bundle dep $d is a dangling workspace symlink (wrong pnpm version staged the bundle). See the docker:build pnpm guard.\" >&2; exit 1; }; done; docker buildx build --pull --provenance=false --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) --load -t ${PROJECT_NAME:-frontend}:$(jq -r .version package.json) .; status=$?; rm -rf .docker-build; exit $status",
     "docker:tag": "docker image tag ${PROJECT_NAME:-frontend}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-frontend}:$(jq -r .version package.json)",
@@ -65,7 +66,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.4.216",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",

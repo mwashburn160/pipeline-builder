@@ -4,13 +4,11 @@
 // Must run before any z.* schema creation — Zod 4 requires eager extension
 import '../openapi/extend-zod.js';
 import { z } from 'zod';
+import { VISIBILITIES } from '../types/visibility.js';
 import { envInt } from '../utils/env.js';
 
-/**
- * Access modifier schema
- * Defines visibility of resources (public or private)
- */
-export const AccessModifierSchema = z.enum(['public', 'private']);
+/** The shared three-rung sharing ladder — see the `Visibility` type. */
+export const VisibilitySchema = z.enum(VISIBILITIES);
 
 /**
  * Developer-portal catalog-metadata schemas — shared by pipeline and plugin
@@ -58,6 +56,9 @@ export const SortOrderSchema = z.enum(['asc', 'desc']);
  */
 export const MAX_PAGE_LIMIT = envInt('MAX_PAGE_LIMIT', 1000, { min: 1 });
 export const DEFAULT_PAGE_LIMIT = envInt('DEFAULT_PAGE_LIMIT', 100, { min: 1 });
+/** Ceiling on offset-based paging — beyond this, deep paging must use the cursor API
+ *  (an unbounded offset is a scan-and-discard DoS amplifier on hot list routes). */
+export const MAX_PAGE_OFFSET = envInt('MAX_PAGE_OFFSET', 100000, { min: 0 });
 
 export const PaginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_PAGE_LIMIT).optional(),
@@ -95,7 +96,7 @@ export const UUIDPrefixSchema = z.string().regex(/^[0-9a-f-]+$/i, {
  */
 export const BaseFilterSchema = z.object({
   id: z.union([UUIDSchema, z.array(UUIDSchema), UUIDPrefixSchema]).optional(),
-  accessModifier: AccessModifierSchema.optional(),
+  visibility: VisibilitySchema.optional(),
   isActive: BooleanQuerySchema.optional(),
   isDefault: BooleanQuerySchema.optional(),
   // Developer-portal catalog filters (applied only by entities that carry

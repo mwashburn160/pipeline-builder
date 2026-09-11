@@ -31,7 +31,6 @@ function makeMessage(readBy: Record<string, string> = {}): Message {
     createdAt: '2026-04-27T00:00:00Z',
     updatedBy: 'u-1',
     updatedAt: '2026-04-27T00:00:00Z',
-    accessModifier: 'private',
     isDefault: false,
     isActive: true,
   };

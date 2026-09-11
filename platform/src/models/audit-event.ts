@@ -271,7 +271,12 @@ export type AuditAction =
   // `admin.user.features.update` — a sysadmin editing a user's feature overrides.
   | 'admin.org.ai-config.update'
   | 'admin.org.quota.override'
-  | 'admin.user.features.update';
+  | 'admin.user.features.update'
+  // "Ask" assistant (api/ask) — safe metadata only (tools used, proposal kinds,
+  // query length, outcome), never the raw query text. `ask.query` = read-only
+  // how-to turn; `ask.agent.turn` = tool-calling turn.
+  | 'ask.query'
+  | 'ask.agent.turn';
 
 /**
  * Runtime list of every AuditAction. Kept in lockstep with the
@@ -432,6 +437,8 @@ export const ALL_AUDIT_ACTIONS = [
   'admin.org.ai-config.update',
   'admin.org.quota.override',
   'admin.user.features.update',
+  'ask.query',
+  'ask.agent.turn',
 ] as const satisfies ReadonlyArray<AuditAction>;
 
 // `satisfies` above only proves every ARRAY element is an `AuditAction`; it does NOT
@@ -566,6 +573,16 @@ auditEventSchema.index({ affectedOrgId: 1, createdAt: -1 });
 // across replicas, letting the append path treat it as already-stored instead of
 // writing a duplicate row / extending the chain twice.
 auditEventSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
+
+// CHAIN-LINK uniqueness — UNIQUE on (affectedOrgId, prevHash). Each event links to
+// exactly one predecessor via `prevHash`, so within a chain (a given affectedOrgId)
+// no two events may share a `prevHash`. Under multi-replica appends two workers can
+// read the same tail and try to write two events with the same prevHash — a chain
+// FORK that voids tamper-evidence. This index makes the second write collide (E11000)
+// so the append path re-reads the now-advanced tail and retries, turning the append
+// into a cross-process compare-and-set. (Fresh-install invariant: a pre-existing
+// forked collection must be de-duped before this unique index can build.)
+auditEventSchema.index({ affectedOrgId: 1, prevHash: 1 }, { unique: true });
 
 // TTL index — auto-delete events after `config.audit.retentionDays` days
 // (default 90, overridable via AUDIT_RETENTION_DAYS at boot). Reading from

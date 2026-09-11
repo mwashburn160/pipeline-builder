@@ -42,7 +42,7 @@ jest.unstable_mockModule('../src/models/organization.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/config.js', () => ({
-  config: { quota: { resetDays: 30 } },
+  config: { quota: { resetDays: 30, defaults: { pipelines: 10, plugins: 10, apiCalls: 1000, aiCalls: 100 } } },
 }));
 
 const { quotaService } = await import('../src/services/quota-service.js');

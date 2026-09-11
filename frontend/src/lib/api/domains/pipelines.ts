@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, CreatePipelineData, BuilderProps, Pipeline, PipelineScorecard } from '@/types';
+import type { ApiResponse, CreatePipelineData, BuilderProps, Pipeline, PipelineScorecard, ScorecardRollup, Visibility } from '@/types';
 
 /** A single pipeline spec accepted by the bulk-create endpoint. Mirrors the
  *  single-create body (PipelineCreateSchema on the server). */
@@ -14,7 +14,7 @@ export interface BulkPipelineSpec {
   description?: string;
   keywords?: string[];
   props: BuilderProps;
-  accessModifier?: 'public' | 'private';
+  visibility?: Visibility;
 }
 
 /** Per-item result envelope returned by POST /pipelines/bulk/create. */
@@ -22,7 +22,7 @@ export interface BulkCreateResult {
   created: number;
   updated: number;
   failed: number;
-  items: Array<{ index: number; accessModifier?: string; id?: string }>;
+  items: Array<{ index: number; visibility?: string; id?: string }>;
   errors: Array<{ index: number; error: string }>;
 }
 
@@ -57,6 +57,11 @@ export function pipelinesApi(core: ApiCore) {
       return core.request<ApiResponse<{ scorecard: PipelineScorecard }>>(`/api/pipelines/${id}/scorecard`);
     },
 
+    /** Org-wide scorecard roll-up: a ranked software-health leaderboard + aggregate stats. Requires `advanced_reporting`. */
+    getOrgScorecardRollup: async () => {
+      return core.request<ApiResponse<{ rollup: ScorecardRollup }>>('/api/pipelines/scorecard');
+    },
+
     createPipeline: async (data: CreatePipelineData) => {
       return core.request<ApiResponse<{ pipeline: Pipeline; warning?: string }>>('/api/pipeline', {
         method: 'POST',
@@ -69,7 +74,7 @@ export function pipelinesApi(core: ApiCore) {
       description?: string;
       keywords?: string[];
       props?: BuilderProps;
-      accessModifier?: 'public' | 'private';
+      visibility?: Visibility;
       isDefault?: boolean;
       isActive?: boolean;
     }) => {

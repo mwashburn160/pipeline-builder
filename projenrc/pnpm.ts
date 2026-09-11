@@ -69,6 +69,19 @@ export class PnpmWorkspace extends Component {
         // explicitly in the bootstrap step, so this pre-run check is redundant + harmful.
         // (This is a pnpm-workspace.yaml setting — `.npmrc` is ignored for it in pnpm 11.)
         verifyDepsBeforeRun: false,
+        // Supply-chain quarantine: refuse to install a registry package version
+        // younger than 1440 min (24h). Most compromised-release / typosquat
+        // incidents are caught and yanked within hours, so a one-day cooling-off
+        // window keeps a poisoned just-published version out of the lockfile
+        // without a human ever having to notice. Only affects resolution of NEW
+        // versions (a frozen lockfile's pinned versions are unaffected).
+        minimumReleaseAge: 1440,
+        // EXCLUDE our own packages: `pipeline-manager` hard-deps `ai-core` and
+        // `setup-events` runs `npm install @pipeline-builder/pipeline-events` at
+        // runtime, both pinned to the version the release just published — a 24h
+        // age gate would make a fresh release un-installable for a day. Our own
+        // registry publishes are trusted, so carve them out.
+        minimumReleaseAgeExclude: ['@pipeline-builder/*'],
       },
     });
   }

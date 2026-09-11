@@ -14,6 +14,7 @@ import { observabilityApi } from './api/domains/observability';
 import { messagesApi } from './api/domains/messages';
 import { reportingApi } from './api/domains/reporting';
 import { complianceApi } from './api/domains/compliance';
+import { askApi } from './api/domains/ask';
 
 const core = new ApiCore();
 
@@ -31,6 +32,7 @@ export const api = Object.assign(
   messagesApi(core),
   reportingApi(core),
   complianceApi(core),
+  askApi(core),
 ) as ApiCore
   & ReturnType<typeof authApi>
   & ReturnType<typeof organizationsApi>
@@ -43,7 +45,8 @@ export const api = Object.assign(
   & ReturnType<typeof observabilityApi>
   & ReturnType<typeof messagesApi>
   & ReturnType<typeof reportingApi>
-  & ReturnType<typeof complianceApi>;
+  & ReturnType<typeof complianceApi>
+  & ReturnType<typeof askApi>;
 
 export default api;
 

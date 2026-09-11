@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AccessModifier } from '@pipeline-builder/api-core';
+import type { Visibility } from '@pipeline-builder/api-core';
 
 /**
  * Base filter interface containing common filter properties shared across all entity types.
@@ -11,7 +11,7 @@ import { AccessModifier } from '@pipeline-builder/api-core';
  * const filter: CommonFilter = {
  *   id: '123',
  *   orgId: 'my-org',
- *   accessModifier: AccessModifier.PUBLIC,
+ *   visibility: 'public',
  *   isDefault: true,
  *   isActive: true
  * };
@@ -24,6 +24,21 @@ export interface CommonFilter {
    */
   readonly id?: string | string[];
 
+  // --- Viewer context (server-set, NEVER client-supplied) ---------------------
+  // Only entities whose visibility predicate has a PER-USER rung read these —
+  // pipeline templates (`private` is author-only) and messages (a per-user
+  // targeted row is visible only to its target). Their services stamp them from
+  // the request's `TenantContext` via `withViewerContext`, so no route or query
+  // string can inject them. Everything else ignores them.
+  //
+  // Both fail CLOSED when absent: no viewer means the per-user rung matches
+  // NOTHING, never everything.
+
+  /** Caller's user id, matched against the entity's per-user column. */
+  readonly viewerUserId?: string;
+  /** Whether the caller is a platform super-admin (sees every rung). */
+  readonly viewerIsSuperAdmin?: boolean;
+
   /**
    * Organization identifier to filter entities by organization
    * Can be a single org ID or array for multi-org filtering
@@ -31,11 +46,11 @@ export interface CommonFilter {
   readonly orgId?: string | string[];
 
   /**
-   * Access modifier to filter by visibility/permissions
-   * Use AccessModifier enum for type safety
-   * @see AccessModifier
+   * Narrow to one rung of the shared three-rung sharing ladder. Applied WITHIN
+   * what the caller can already see — never widens it.
+   * @see Visibility
    */
-  readonly accessModifier?: AccessModifier | string;
+  readonly visibility?: Visibility | string;
 
   /**
    * Filter by default status
@@ -161,9 +176,7 @@ export interface PipelineFilter extends CommonFilter {
   readonly keyword?: string;
 }
 
-/**
- * Filter interface for pipeline-template queries (golden-path catalog).
- */
+/** Filter interface for pipeline-template queries (golden-path catalog). */
 export interface PipelineTemplateFilter extends CommonFilter {
   /** Template name (case-insensitive contains). */
   readonly name?: string;
@@ -171,6 +184,7 @@ export interface PipelineTemplateFilter extends CommonFilter {
   readonly category?: string;
   /** Keyword search within the keywords JSONB array. */
   readonly keyword?: string;
+  // Sharing rung + viewer context are inherited from CommonFilter.
 }
 
 /**
@@ -198,17 +212,13 @@ export interface MessageFilter extends CommonFilter {
    */
   readonly recipientUserId?: string | null;
 
-  /**
-   * The VIEWER's user ID, used purely to scope visibility of per-user targeted
-   * messages — NOT a column filter. When present, the recipient-side visibility
-   * branch in `buildMessageConditions` widens to include messages targeted at
-   * this user (recipient_user_id = viewerUserId) in addition to org-wide ones
-   * (recipient_user_id IS NULL). When absent, only org-wide recipient messages
-   * are visible on the recipient side (a user-targeted message stays private to
-   * its target, the sender, and the system org). This is how the message read
-   * paths thread the authenticated user through the shared CrudService filter.
-   */
-  readonly viewerUserId?: string;
+  // NOTE: the VIEWER's user id (`viewerUserId`) is inherited from CommonFilter.
+  // For messages it is NOT a column filter: when present, the recipient-side
+  // branch in `buildMessageConditions` widens to include rows targeted at this
+  // user (recipient_user_id = viewerUserId) ALONGSIDE org-wide ones
+  // (recipient_user_id IS NULL). When absent, only org-wide recipient rows are
+  // visible, so a user-targeted message stays private to its target, the sender,
+  // and the system org. MessageService stamps it from the tenant context.
 
   /**
    * Message type filter

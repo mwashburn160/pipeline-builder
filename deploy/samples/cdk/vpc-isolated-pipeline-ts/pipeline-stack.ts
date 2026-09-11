@@ -90,7 +90,7 @@ export class VpcIsolatedPipelineStack extends Stack {
         },
         plugin: {
           name: 'cdk-synth',
-          filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+          filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
           metadata: { NODE_VERSION: '20' },
         },
         // Synth-specific network config (inherits from defaults if omitted)
@@ -108,7 +108,7 @@ export class VpcIsolatedPipelineStack extends Stack {
             {
               plugin: {
                 name: 'nodejs-build',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: { NODE_VERSION: '20' },
               },
               position: 'pre',
@@ -124,7 +124,7 @@ export class VpcIsolatedPipelineStack extends Stack {
               plugin: {
                 name: 'nodejs-build',
                 alias: 'integration-tests',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true },
                 metadata: { NODE_VERSION: '20' },
               },
               position: 'pre',
@@ -145,7 +145,7 @@ export class VpcIsolatedPipelineStack extends Stack {
             {
               plugin: {
                 name: 'docker-build',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: {
                   DOCKERFILE: 'Dockerfile',
                   IMAGE_TAG: 'latest',
@@ -161,7 +161,7 @@ export class VpcIsolatedPipelineStack extends Stack {
             {
               plugin: {
                 name: 'trivy',
-                filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
+                filter: { version: '1.0.0', visibility: 'public', isActive: true, isDefault: true },
                 metadata: { TRIVY_SEVERITY: 'HIGH,CRITICAL' },
               },
               position: 'post',

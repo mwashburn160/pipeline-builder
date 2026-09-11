@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { entityEvents, createCacheService, toComplianceAttributes } from '@pipeline-builder/api-core';
-import { CoreConstants, AccessModifier } from '@pipeline-builder/pipeline-core';
+import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildPipelineConditions, getTenantContext, schema, withTenantTx, type PipelineFilter } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, sql, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
@@ -113,15 +113,15 @@ export class PipelineService extends CrudService<
    * also drop this id across all orgs. (findVisibleToOrg is uncached, so only
    * the per-id findById cache needs the cross-org sweep.)
    */
-  private async invalidateSharedReadCaches(id: string, accessModifier?: string): Promise<void> {
-    if (accessModifier === AccessModifier.PUBLIC) {
+  private async invalidateSharedReadCaches(id: string, visibility?: string): Promise<void> {
+    if (visibility === 'public') {
       await pipelineCache.invalidatePattern(`*:id:${id}`);
     }
   }
 
   private async invalidateAndEmit(eventType: 'created' | 'updated' | 'deleted', id: string, entity: Pipeline, userId: string): Promise<void> {
     await pipelineCache.invalidatePattern(`${entity.orgId}:*`);
-    await this.invalidateSharedReadCaches(id, entity.accessModifier);
+    await this.invalidateSharedReadCaches(id, entity.visibility);
     // Carry the owning org's parent (when the mutation ran under a team's tenant
     // context) so async compliance eval sees the same parent `propagateToChildren`
     // rules the live path does. Only trust the context parent when its org matches
@@ -235,7 +235,7 @@ export class PipelineService extends CrudService<
 
       const pipeline = result as unknown as Pipeline;
       await pipelineCache.invalidatePattern(`${data.orgId}:*`);
-      await this.invalidateSharedReadCaches(pipeline.id, pipeline.accessModifier);
+      await this.invalidateSharedReadCaches(pipeline.id, pipeline.visibility);
       return pipeline;
     });
   }
@@ -304,7 +304,7 @@ export class PipelineService extends CrudService<
       const inserted = insertedFlag === 1;
 
       await pipelineCache.invalidatePattern(`${data.orgId}:*`);
-      await this.invalidateSharedReadCaches(pipeline.id, pipeline.accessModifier);
+      await this.invalidateSharedReadCaches(pipeline.id, pipeline.visibility);
       return { pipeline, inserted };
     });
   }

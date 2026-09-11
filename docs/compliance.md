@@ -319,7 +319,7 @@ curl -X POST https://localhost:8443/api/compliance/rules \
     "name": "no-public-plugins",
     "target": "plugin",
     "severity": "critical",
-    "field": "accessModifier",
+    "field": "visibility",
     "operator": "neq",
     "value": "public"
   }'
@@ -332,7 +332,7 @@ curl -X POST https://localhost:8443/api/compliance/validate/plugin/dry-run \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "attributes": { "name": "my-plugin", "accessModifier": "public", "version": "latest" }
+    "attributes": { "name": "my-plugin", "visibility": "public", "version": "latest" }
   }'
 ```
 

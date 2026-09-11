@@ -75,7 +75,7 @@ describe('plugin-helpers', () => {
           version: '1.0.0',
           commands: ['echo hi'],
 
-          accessModifier: 'private',
+          visibility: 'private',
         },
       });
 
@@ -108,7 +108,7 @@ describe('plugin-helpers', () => {
           version: '2.0.0',
           commands: ['npm run build'],
 
-          accessModifier: 'public',
+          visibility: 'public',
           pluginType: 'ManualApprovalStep',
           computeType: 'LARGE',
           description: 'Custom desc',

@@ -4,7 +4,7 @@
 // Quota + tier identifiers come from the api-core source of truth (see below).
 // `import type` is fully erased at build time, so this pulls no server-only
 // runtime code into the Next bundle.
-import type { QuotaType, QuotaTier, AccessModifier, Criticality, EntityLink, Lifecycle, OwnerType, TemplateInput } from '@pipeline-builder/api-core';
+import type { QuotaType, QuotaTier, Visibility, Criticality, EntityLink, Lifecycle, OwnerType, TemplateInput } from '@pipeline-builder/api-core';
 
 /**
  * User model.
@@ -137,7 +137,7 @@ export interface QuotaSummary {
  * can't drift from the backend's. The local copy previously listed only 4 of
  * the 9 quota types, silently under-typing quota responses.
  */
-export type { QuotaType, QuotaTier, AccessModifier, Criticality, EntityLink, Lifecycle, OwnerType, TemplateInput };
+export type { QuotaType, QuotaTier, Visibility, Criticality, EntityLink, Lifecycle, OwnerType, TemplateInput };
 
 /**
  * The quota kinds the dashboard currently surfaces — a curated subset of the
@@ -310,7 +310,7 @@ export interface Plugin {
   links?: EntityLink[];
 
   // Access and visibility
-  accessModifier: AccessModifier;
+  visibility: Visibility;
   isDefault: boolean;
   isActive: boolean;
 
@@ -388,7 +388,7 @@ export function asGeneratedStages(stages: Record<string, unknown>[] | undefined)
 
 /**
  * Create pipeline request data
- * Only props (based on BuilderProps) and accessModifier are required
+ * Only props (based on BuilderProps) and visibility are required
  */
 export interface CreatePipelineData {
   project: string;
@@ -397,7 +397,7 @@ export interface CreatePipelineData {
   description?: string;
   keywords?: string[];
   props: BuilderProps;
-  accessModifier?: AccessModifier;
+  visibility?: Visibility;
 }
 
 /**
@@ -435,7 +435,7 @@ export interface Pipeline {
   links?: EntityLink[];
 
   // Access and visibility
-  accessModifier: AccessModifier;
+  visibility: Visibility;
   isDefault: boolean;
   isActive: boolean;
 
@@ -472,9 +472,40 @@ export interface PipelineScorecard {
   computedAt: string;
 }
 
+/** One pipeline's scorecard within the org-wide roll-up (adds its display name). */
+export interface ScorecardLeaderboardEntry extends PipelineScorecard {
+  name?: string;
+}
+
+/**
+ * Org-wide "software health" roll-up: every pipeline graded, ranked, plus
+ * aggregate stats. Mirrors the server `rollup` shape from GET /pipelines/scorecard.
+ */
+export interface ScorecardRollup {
+  orgId: string;
+  pipelineCount: number;
+  scored: number;
+  averageScore: number | null;
+  gradeDistribution: Record<string, number>;
+  leaderboard: ScorecardLeaderboardEntry[];
+  computedAt: string;
+  truncated: boolean;
+}
+
 /**
  * Golden-path pipeline template (parameterized starter).
  */
+/**
+ * Template visibility ladder. Unlike the pipeline/plugin catalogs' two-value
+ * `visibility`, templates have a personal rung so an author can iterate on a
+ * draft before sharing it:
+ * - `private` — only the author (`createdBy`) sees or edits it
+ * - `org`     — everyone in the owning org sees it
+ * - `public`  — shared with the org and its teams (needs `pipelines:publish`);
+ *               the system org's public templates are the catalog every org sees
+ */
+export type TemplateVisibility = 'private' | 'org' | 'public';
+
 export interface PipelineTemplate {
   id: string;
   orgId: string;
@@ -496,7 +527,8 @@ export interface PipelineTemplate {
   criticality?: Criticality | null;
   labels?: Record<string, string>;
   links?: EntityLink[];
-  accessModifier: AccessModifier;
+  /** Three-rung ladder — see {@link TemplateVisibility}. */
+  visibility: TemplateVisibility;
   isActive: boolean;
   /** Soft-delete tombstone fields (set when deleted; powers "recently deleted"). */
   deletedAt?: string | null;
@@ -784,7 +816,7 @@ export interface Message {
   updatedAt: string;
   /** Set when the author edited the content after sending (drives the "edited" hint). */
   editedAt?: string | null;
-  accessModifier: AccessModifier;
+  visibility: Visibility;
   isDefault: boolean;
   isActive: boolean;
   deletedAt?: string;

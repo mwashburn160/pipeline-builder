@@ -5,11 +5,14 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createXai } from '@ai-sdk/xai';
 import {
   AI_PROVIDER_CATALOG,
   AI_PROVIDER_ENV_VARS,
+  OPENAI_COMPATIBLE_PROVIDER_ID,
   getAIProviderModels,
+  getOpenAICompatibleProvider,
   type AIProviderInfo,
   type AIModelInfo,
 } from '@pipeline-builder/api-core';
@@ -35,6 +38,21 @@ const PROVIDER_FACTORIES: Record<string, (key?: string) => (modelId: string) => 
   'google': (key) => createGoogleGenerativeAI({ apiKey: key }),
   'xai': (key) => createXai({ apiKey: key }),
   'amazon-bedrock': () => createAmazonBedrock(),
+  // Self-hosted OpenAI-compatible endpoint (Docker model image / Ollama / vLLM).
+  // The endpoint is deployment-defined via OPENAI_COMPATIBLE_BASE_URL; local servers
+  // usually ignore the key, so a placeholder is sent when none is configured.
+  [OPENAI_COMPATIBLE_PROVIDER_ID]: (key) => {
+    const baseURL = process.env.OPENAI_COMPATIBLE_BASE_URL;
+    if (!baseURL) {
+      throw new Error('OPENAI_COMPATIBLE_BASE_URL is not set; cannot build the local (OpenAI-compatible) provider.');
+    }
+    const provider = createOpenAICompatible({
+      name: OPENAI_COMPATIBLE_PROVIDER_ID,
+      baseURL,
+      apiKey: key ?? process.env.OPENAI_COMPATIBLE_API_KEY ?? 'not-needed',
+    });
+    return (modelId: string) => provider(modelId);
+  },
 };
 
 /** Providers that authenticate WITHOUT an API key (Bedrock uses the IAM role). */
@@ -68,6 +86,17 @@ function initRegistry(): void {
     if (apiKey || (KEYLESS_PROVIDERS.has(id) && keylessProviderAvailable())) {
       registry.set(id, { info, createModel: factory(apiKey) });
     }
+  }
+
+  // The OpenAI-compatible (local / self-hosted) provider is not in the static
+  // catalog — its endpoint and models are deployment-defined. Register it when a
+  // base URL is configured; its "is configured" signal is the base URL, not a key.
+  const compat = getOpenAICompatibleProvider();
+  if (compat) {
+    registry.set(compat.id, {
+      info: compat,
+      createModel: PROVIDER_FACTORIES[OPENAI_COMPATIBLE_PROVIDER_ID](process.env.OPENAI_COMPATIBLE_API_KEY),
+    });
   }
 }
 

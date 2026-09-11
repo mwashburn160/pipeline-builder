@@ -6,11 +6,12 @@
  *
  * Background: postgres-init.sql installs RLS policies on every user-data
  * table that consult two session GUCs — `app.org_id` and `app.is_sysadmin`.
- * Today the tables are in owner-bypass mode (the connection user owns them,
- * Postgres lets owners skip RLS), so the policies don't actually enforce.
- * Once we flip a table to `FORCE ROW LEVEL SECURITY`, every query against
- * it must run inside a transaction that has SET LOCAL'd both GUCs — or it
- * returns zero rows for non-sysadmins (and may fail to write for any caller).
+ * Most user-data tables have been flipped to `FORCE ROW LEVEL SECURITY`, so
+ * the policies DO enforce even for the (owning) connection user — a query
+ * against a FORCE'd table must run inside a transaction that has SET LOCAL'd
+ * both GUCs or it returns zero rows for non-sysadmins (and may fail to write
+ * for any caller). A few tables remain `ENABLE`-only (owner-bypass) pending
+ * their soak; the same context plumbing covers both.
  *
  * This module is the seam.
  *
@@ -79,6 +80,13 @@ function getStatementTimeoutMs(): number {
 export interface TenantContext {
   /** Caller's org. Undefined for un-authenticated / system jobs. */
   orgId?: string;
+  /** Caller's user id. Not used for RLS — Postgres policies are org-grained,
+   *  with no per-user session GUC — but carried so app-layer predicates with a
+   *  PER-USER rung (pipeline templates' `private` visibility) can resolve "who
+   *  is asking" on paths that have nowhere to pass it, notably CrudService's
+   *  `writeConditions`. Absent for system jobs, which is the fail-closed case:
+   *  no viewer ⇒ no private rows. */
+  userId?: string;
   /** True when the caller is a sysadmin (system-org admin). Bypasses RLS
    *  policies via the sysadmin-bypass branch in `current_is_sysadmin()`. */
   isSuperAdmin: boolean;
@@ -187,17 +195,26 @@ export async function withTenantTx<T>(
   const statementTimeoutMs = getStatementTimeoutMs();
 
   return db.transaction(async (tx) => {
-    // SET LOCAL via set_config() so the values are transaction-scoped (auto-
-    // released on COMMIT/ROLLBACK). The driver binds the values as parameters,
-    // so a hostile org_id can't break out of the GUC syntax.
-    await tx.execute(sql`SELECT set_config('app.org_id', ${orgId}, true)`);
-    await tx.execute(sql`SELECT set_config('app.is_sysadmin', ${isSuperAdmin}, true)`);
-    // Server-side statement timeout on the REAL query path (transaction-scoped,
-    // same set_config(is_local=true) mechanism as the RLS GUCs). `SET LOCAL
-    // statement_timeout = $1` is rejected by Postgres, so set_config with a bound
-    // value is used. A bare number is milliseconds. Skipped when disabled (0).
+    // Set every transaction-scoped GUC in a SINGLE round-trip. `set_config()`
+    // returns its value, so multiple calls compose in one SELECT — previously
+    // these were 2–3 separate `tx.execute()` round-trips PER read, each a
+    // network hop that taxes the shared PgBouncer pool on the hot path. `true`
+    // = is_local (SET LOCAL semantics: auto-released on COMMIT/ROLLBACK). The
+    // driver binds the values as parameters, so a hostile org_id can't break out
+    // of the GUC syntax.
+    //
+    // The statement_timeout GUC bounds a runaway query so it can't hold a pooled
+    // connection open indefinitely (`SET LOCAL statement_timeout = $1` is rejected
+    // by Postgres, hence set_config with a bound ms value). Included in the same
+    // statement when enabled (>0), dropped entirely when disabled (0).
     if (statementTimeoutMs > 0) {
-      await tx.execute(sql`SELECT set_config('statement_timeout', ${String(statementTimeoutMs)}, true)`);
+      await tx.execute(
+        sql`SELECT set_config('app.org_id', ${orgId}, true), set_config('app.is_sysadmin', ${isSuperAdmin}, true), set_config('statement_timeout', ${String(statementTimeoutMs)}, true)`,
+      );
+    } else {
+      await tx.execute(
+        sql`SELECT set_config('app.org_id', ${orgId}, true), set_config('app.is_sysadmin', ${isSuperAdmin}, true)`,
+      );
     }
     return fn(tx);
   });

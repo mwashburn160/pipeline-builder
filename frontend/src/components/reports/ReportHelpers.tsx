@@ -25,6 +25,19 @@ function DoraLevelBadge({ level }: { level: DoraLevel }) {
 
 // ─── Formatting ─────────────────────────────────────────
 
+/**
+ * Scorecard letter-grade → badge palette (shared by ScorecardCard and the
+ * org-wide ScorecardTab so the grade colors can't drift between the two views).
+ */
+export const GRADE_STYLES: Record<string, string> = {
+  A: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+  B: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300',
+  C: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
+  D: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
+  F: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+  'N/A': 'bg-gray-100 text-gray-600 dark:bg-gray-700/40 dark:text-gray-300',
+};
+
 export function fmtMs(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;

@@ -106,13 +106,13 @@ describe('PluginUpdateSchema', () => {
 });
 
 describe('PluginUploadBodySchema', () => {
-  it('accepts valid accessModifier', () => {
-    expect(PluginUploadBodySchema.safeParse({ accessModifier: 'private' }).success).toBe(true);
-    expect(PluginUploadBodySchema.safeParse({ accessModifier: 'public' }).success).toBe(true);
+  it('accepts valid visibility', () => {
+    expect(PluginUploadBodySchema.safeParse({ visibility: 'private' }).success).toBe(true);
+    expect(PluginUploadBodySchema.safeParse({ visibility: 'public' }).success).toBe(true);
   });
 
-  it('rejects invalid accessModifier', () => {
-    expect(PluginUploadBodySchema.safeParse({ accessModifier: 'internal' }).success).toBe(false);
+  it('rejects invalid visibility', () => {
+    expect(PluginUploadBodySchema.safeParse({ visibility: 'internal' }).success).toBe(false);
   });
 
   it('accepts empty body (all optional)', () => {

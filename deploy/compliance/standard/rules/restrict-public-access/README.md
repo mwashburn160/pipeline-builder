@@ -11,7 +11,7 @@ Blocks plugins from being set to public access. Public plugins are visible to al
 
 | Field | Operator | Value |
 |-------|----------|-------|
-| `accessModifier` | `neq` | `public` |
+| `visibility` | `neq` | `public` |
 
 ## Rationale
 

@@ -58,7 +58,7 @@ jest.unstable_mockModule('../src/pipeline/plugin-lookup.js', async () => {
     commands: ['npx cdk synth'],
     dockerfile: null,
     buildType: 'metadata_only',
-    accessModifier: 'public',
+    visibility: 'public',
     isDefault: false,
     isActive: true,
   });

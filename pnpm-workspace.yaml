@@ -16,6 +16,7 @@ packages:
   - api/pipeline
   - api/message
   - api/reporting
+  - api/ask
   - api/compliance
   - api/image-registry
 allowBuilds:
@@ -29,3 +30,6 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
 verifyDepsBeforeRun: false
+minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - "@pipeline-builder/*"

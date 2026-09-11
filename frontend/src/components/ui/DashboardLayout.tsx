@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { Menu, X, Bell, Search, HelpCircle } from 'lucide-react';
+import { Menu, X, Bell, Search, Sparkles } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFeatures } from '@/hooks/useFeatures';
@@ -18,6 +18,7 @@ import { ImpersonationBanner } from './ImpersonationBanner';
 import { AuthErrorBanner } from './AuthErrorBanner';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { StepUpModal } from '@/components/admin/StepUpModal';
+import { AskPanel } from '@/components/ask/AskPanel';
 import api from '@/lib/api';
 import { POLL_INTERVAL } from '@/hooks/useMessages';
 
@@ -49,11 +50,12 @@ export function DashboardLayout({
   subtitle,
 }: DashboardLayoutProps) {
   const { user, isReady, isSuperAdmin, isAdmin, logout } = useAuthGuard();
-  const { isLoaded: featuresLoaded } = useFeatures();
+  const { isLoaded: featuresLoaded, isEnabled } = useFeatures();
   const { isDark, toggle } = useDarkMode();
   const { mobileOpen, toggleMobile, closeMobile, collapsed, toggleCollapsed } = useSidebarState();
   const router = useRouter();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [askOpen, setAskOpen] = useState(false);
   const cmdkRef = useRef<() => void>(null);
   const mobileDrawerRef = useRef<HTMLDivElement>(null);
 
@@ -256,16 +258,22 @@ export function DashboardLayout({
                     </span>
                   )}
                 </Link>
-                {/* Help — always available from the topbar (not buried in the
-                    collapsible Settings nav section). */}
-                <Link
-                  href="/dashboard/help"
-                  aria-label="Help"
-                  title="Help"
-                  className="p-1.5 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                >
-                  <HelpCircle className="w-5 h-5" />
-                </Link>
+                {/* Ask — the platform assistant. Replaces the old Help icon; the
+                    full help reference is one click away inside the panel. The one
+                    colored (brand-blue) call-to-action in the otherwise-neutral
+                    topbar. Gated on the ai_generation entitlement (the ask service
+                    enforces it too); shown once features have loaded. */}
+                {featuresLoaded && isEnabled('ai_generation') && (
+                  <button
+                    onClick={() => setAskOpen(true)}
+                    aria-label="Ask"
+                    title="Ask the platform assistant"
+                    className="p-1.5 rounded-full transition-colors"
+                    style={{ color: 'var(--pb-brand)', background: 'color-mix(in srgb, var(--pb-brand) 12%, transparent)' }}
+                  >
+                    <Sparkles className="w-5 h-5" />
+                  </button>
+                )}
                 {actions}
               </div>
             </div>
@@ -306,6 +314,9 @@ export function DashboardLayout({
             onClose={() => setStepUpFallback(null)}
           />
         )}
+
+        {/* Ask agent panel — read-only, streaming, grounded in docs. */}
+        {askOpen && <AskPanel onClose={() => setAskOpen(false)} />}
       </div>
     </>
   );

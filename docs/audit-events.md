@@ -132,12 +132,14 @@ org's own admins can see them.
 | Service | Actions |
 |---------|---------|
 | Plugin | `plugin.build.completed`, `plugin.build.failed`, `plugin.build.timeout`, `plugin.delete`, `plugin.upload`, `plugin.deploy`, `plugin.bulk.update`, `plugin.bulk.delete`, `plugin.dlq.purge` |
-| Pipeline | `pipeline.create`, `pipeline.update`, `pipeline.delete`, `pipeline.execution.start`, `pipeline.execution.cancel`, `pipeline.registry.register`, `pipeline.registry.deregister` |
+| Pipeline | `pipeline.create`, `pipeline.update`, `pipeline.delete`, `pipeline.restore`, `pipeline.purge`, `pipeline.execution.start`, `pipeline.execution.cancel`, `pipeline.registry.register`, `pipeline.registry.deregister` |
+| Pipeline templates | `pipeline_template.create`, `pipeline_template.update`, `pipeline_template.delete`, `pipeline_template.restore`, `pipeline_template.purge` (own action family, gated by `templates:*` rather than `pipelines:*`; `create`/`update` `details` carry the template's `visibility` rung) |
 | Quota | `quota.reset`, `quota.limit.update`, `quota.delete` |
 | Compliance | `compliance.exemption.approve`, `compliance.exemption.revoke`, `compliance.rule.toggle`, `compliance.rule.create/update/delete`, `compliance.policy.create/update/delete`, `compliance.scan-schedule.create/update/delete`, `compliance.template.apply`, `compliance.scan.cancel` |
 | Image registry | `registry.gc`, `registry.image.delete` |
 | Message | `message.announcement.create`, `message.delete` (admin broadcasts + deletes only — 1:1 messages are not audited, and no message body reaches `details`) |
 | Billing | `billing.subscription.cancel`, `billing.subscription.delete`, `billing.tier.override`, `billing.addon.add`, `billing.addon.remove`, `billing.addon.prune`, `billing.discount.generate`, `billing.discount.issue`, `billing.discount.apply`, `billing.discount.remove`, `billing.discount.revoke`, `billing.credit.consumed`, `billing.credit.exhausted`, `billing.combo.expired` (mirrored to the central trail alongside the service-local `billing_events`; `details` carry plan/tier/addon/discount/combo ids + cents only — never payment secrets, coupon tokens, or signing keys) |
+| Ask (assistant) | `ask.query` (read-only how-to turn), `ask.agent.turn` (tool-calling turn) — one per turn on `POST /ask`, `/ask/stream`, `/ask/agent/stream` respectively; both carry an `outcome` (success/failure, incl. client-abort) and `details` with SAFE METADATA ONLY (tools used, proposal kinds, source count, query *length*) — never the raw query text. Confirmed drafts commit through the normal create routes, so the resource itself is audited as `pipeline.create` / `pipeline_template.create` / `plugin.deploy` |
 | (all services) | `authz.denied` |
 
 > **Plugin build terminal outcome** — `plugin.build.failed` / `plugin.build.timeout`

@@ -82,7 +82,7 @@ Route 53, and EKS Pod Identity for SES.
 8. **Route 53** — upserts an A-alias `--domain → ALB` once the Ingress reports its address.
 9. **Init platform** (`AUTO_INIT`, default on — parity with the ec2 target) — runs
    [../../bin/init-platform.sh](../../bin/init-platform.sh) `eks`: registers the admin user and loads plugins +
-   compliance rules + sample pipelines (building the CodeBuild bootstrap image and the
+   compliance rules + sample pipeline templates (building the CodeBuild bootstrap image and the
    plugin images first). It port-forwards to nginx via kubectl, so it works in both
    deploy modes without waiting on ALB/DNS. Pass `--no-auto-init` to skip and run it yourself.
    Needs Docker + yq on the machine running `setup.sh` (the plugin image builds), and the

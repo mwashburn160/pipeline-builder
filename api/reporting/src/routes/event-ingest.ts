@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { sendSuccess, sendBadRequest, sendError, ErrorCode, hasScope } from '@pipeline-builder/api-core';
-import { withRoute, incCounter } from '@pipeline-builder/api-server';
+import { withRoute, incCounter, type SSEManager } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { runWithTenantContext, reportingService, type IngestMetric } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
@@ -69,7 +69,13 @@ const ingestBatchSchema = z.object({
 });
 
 
-export function createEventIngestRoutes(): Router {
+/**
+ * @param sseManager - drives the per-org live execution-status channel. After an
+ *   ingest lands new events for an org, one `execution-updated` frame is pushed to
+ *   that org's SSE subject so the executions dashboard refreshes live instead of
+ *   polling. Best-effort; a send failure never affects ingest.
+ */
+export function createEventIngestRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
   router.post('/', withRoute(async ({ req, res, ctx }) => {
@@ -98,7 +104,12 @@ export function createEventIngestRoutes(): Router {
     // so the counter is emitted via this hook rather than from the route (which
     // never sees the trusted org). `pipeline_deploy_result_total` is a subset —
     // only stage events that carry a deploy environment.
+    // Orgs whose execution state changed in this batch — one live SSE frame is
+    // pushed to each after the ingest commits (deduped so a big batch → one frame
+    // per org, not one per event).
+    const touchedOrgs = new Set<string>();
     const onMetric = (m: IngestMetric): void => {
+      touchedOrgs.add(m.orgId);
       incCounter('pipeline_stage_result_total', {
         pipeline_id: m.pipelineId,
         stage: m.stage,
@@ -126,6 +137,19 @@ export function createEventIngestRoutes(): Router {
         skipped,
         samplePipelineIds: unregisteredPipelineIds.slice(0, 5),
       });
+    }
+
+    // Live-notify each org whose execution state changed (best-effort; cross-pod
+    // via the SSEManager relay). The frontend refetches its execution counts on
+    // receipt — replacing the dashboard's manual-refresh/poll with a live update.
+    if (inserted > 0) {
+      for (const org of touchedOrgs) {
+        try {
+          sseManager.send(org, 'MESSAGE', 'execution-updated', { at: new Date().toISOString() });
+        } catch (err) {
+          ctx.log('WARN', 'Execution-status SSE notify failed (non-fatal)', { org, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
     }
 
     ctx.log('COMPLETED', `Ingested ${inserted} events, skipped ${skipped}`);

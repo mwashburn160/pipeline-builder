@@ -18,7 +18,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const clientGet = jest.fn<(path: string, opts?: unknown) => unknown>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createSafeClient: () => ({ get: clientGet }),
+  createSafeClient: () => ({ get: clientGet, destroy: () => undefined }),
   getServiceAuthHeader: () => 'Bearer test-service',
   // api-server's app-factory wires this at module load.
   setCounterEmitter: jest.fn(),

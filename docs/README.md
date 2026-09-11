@@ -57,7 +57,7 @@ Author and ship pipelines and plugins.
 | [Metadata Keys](metadata-keys.md) | Typed CodePipeline / CodeBuild / networking / IAM configuration keys |
 | [Plugin Catalog](plugins/README.md) | 119 pre-built plugins across 10 categories, and how to author your own |
 | [Developer Portal](developer-portal.md) | Catalog ownership & My Services, golden-path templates, per-pipeline maturity scorecards |
-| [Samples](samples.md) | Ready-to-load pipeline configs for 7 languages + CDK patterns |
+| [Samples](samples.md) | Ready-to-load pipeline templates for 7 languages + CDK patterns |
 
 ### Govern
 
@@ -139,7 +139,7 @@ curl -X POST https://localhost:8443/api/pipelines \
     "project": "my-app",
     "organization": "my-org",
     "pipelineName": "my-app-pipeline",
-    "accessModifier": "private",
+    "visibility": "private",
     "props": {
       "project": "my-app",
       "organization": "my-org",

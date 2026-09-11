@@ -350,10 +350,13 @@ describe('GET /messages/conversations', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
+    // Viewer is NOT passed positionally any more — per-user scoping (and the
+    // viewer segment of the inbox cache key) both read the request's tenant
+    // context, so the predicate and the cache key can't disagree about who is
+    // asking. Asserting exactly two args pins that the parameter stays gone.
     expect(mockFindConversations).toHaveBeenCalledWith(
       'org-1',
       expect.objectContaining({ limit: 25, offset: 0, sortBy: 'createdAt', sortOrder: 'desc' }),
-      'user-1', // viewer id — scopes per-user targeted conversations
     );
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({

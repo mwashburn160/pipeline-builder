@@ -27,7 +27,7 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (p: any, k: string) => p[k],
-  requirePublicAccess: () => true,
+  requireVisibilityWriteAccess: () => true,
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any) => {
     res.status(statusCode).json({ success: true, statusCode, data });

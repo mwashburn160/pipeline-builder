@@ -1,10 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, reserveQuota, decrementQuota, getServiceAuthHeader, requirePermission, sendBadRequest, sendError, sendInternalError, sendQuotaExceeded, sendSuccess, validateBody, PipelineCreateSchema, createComplianceClient } from '@pipeline-builder/api-core';
+import { extractDbError, ErrorCode, createLogger, resolveVisibility, errorMessage, reserveQuota, decrementQuota, getServiceAuthHeader, requirePermission, sendBadRequest, sendError, sendInternalError, sendQuotaExceeded, sendSuccess, validateBody, PipelineCreateSchema, createComplianceClient } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
-import { AccessModifier, replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
+import { replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator.js';
 import { emitPipelineAudit } from '../services/audit.js';
@@ -48,7 +48,10 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
         return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
       }
 
-      const accessModifier = resolveAccessModifier(req, body.accessModifier, 'pipelines:publish');
+      // Unspecified visibility defaults to `org`, NOT `private`: a pipeline is a
+      // team asset that deploys shared infrastructure, so creating one must not
+      // hide it from the team. A personal draft stays available, but opt-in.
+      const visibility = resolveVisibility(req, body.visibility, 'pipelines:publish', 'org');
 
       // Normalize project and organization names and validate them BEFORE
       // reserving quota. Reserving first and then returning on an empty/invalid
@@ -93,7 +96,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
             organization,
             pipelineName,
             props: body.props,
-            accessModifier,
+            visibility,
           }, serviceAuth, undefined, pipelineName, 'create');
 
           if (complianceResult.blocked) {
@@ -123,7 +126,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
           description: body.description ?? '',
           keywords: body.keywords ?? [],
           props: body.props as unknown as PipelineInsert['props'],
-          accessModifier: accessModifier as AccessModifier,
+          visibility: visibility,
           createdBy: userId || 'system',
           // Catalog ownership + classification. Owner is ALWAYS the creator on
           // create — a client-supplied `ownerId` is ignored so a member can't
@@ -166,11 +169,11 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
             project: result.project,
             organization: result.organization,
             pipelineName: result.pipelineName,
-            accessModifier: result.accessModifier,
+            visibility: result.visibility,
           },
         });
 
-        const message = accessModifier === AccessModifier.PUBLIC
+        const message = visibility === 'public'
           ? 'Public pipeline created successfully (accessible to all organizations)'
           : `Private pipeline created successfully (accessible to ${orgId} only)`;
 
@@ -180,7 +183,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
             project: result.project,
             organization: result.organization,
             pipelineName: result.pipelineName,
-            accessModifier: result.accessModifier,
+            visibility: result.visibility,
             isDefault: result.isDefault,
             isActive: result.isActive,
             createdAt: result.createdAt,

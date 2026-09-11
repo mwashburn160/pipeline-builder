@@ -165,6 +165,13 @@ export function reportingApi(core: ApiCore) {
       return core.request<ApiResponse<{ environments: string[] }>>(`/api/reports/execution/environments${buildQuery(params)}`);
     },
 
+    /** Exchange the JWT for a single-use, org-bound ticket to open the live execution-status SSE stream. */
+    getExecutionStreamTicket: async (): Promise<string> => {
+      const res = await core.request<ApiResponse<{ ticket: string }>>('/api/reports/execution/stream/ticket', { method: 'POST' });
+      if (!res.data?.ticket) throw new Error('Failed to obtain execution-stream ticket');
+      return res.data.ticket;
+    },
+
     /** Pipeline execution count per pipeline with status breakdown. */
     getExecutionCount: async (params?: { from?: string; to?: string; includeDescendants?: boolean }) => {
       return core.request<ApiResponse<{ pipelines: Array<{ id: string; project: string; organization: string; pipeline_name: string | null; total: number; succeeded: number; failed: number; canceled: number; first_execution: string | null; last_execution: string | null }> }>>(`/api/reports/execution/count${buildQuery(params)}`);

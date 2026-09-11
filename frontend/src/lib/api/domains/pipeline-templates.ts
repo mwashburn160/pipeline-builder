@@ -3,11 +3,13 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, BuilderProps, PipelineTemplate } from '@/types';
+import type { ApiResponse, BuilderProps, PipelineTemplate, TemplateVisibility } from '@/types';
 
 export function pipelineTemplatesApi(core: ApiCore) {
   return {
-    /** List golden-path pipeline templates (own-org + shared system-org catalog). */
+    /** List golden-path pipeline templates the caller can see: their own org's
+     *  `org`/`public` templates + their own `private` drafts, widened by the
+     *  parent org's and the system org's public catalog. */
     listPipelineTemplates: async (params?: Record<string, string>) => {
       return core.request<ApiResponse<{ templates: PipelineTemplate[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>>(
         `/api/pipeline-templates${buildQuery(params)}`,
@@ -39,7 +41,7 @@ export function pipelineTemplatesApi(core: ApiCore) {
       description?: string;
       keywords?: string[];
       category?: string;
-      accessModifier?: 'public' | 'private';
+      visibility?: TemplateVisibility;
       props: BuilderProps;
       inputs?: PipelineTemplate['inputs'];
     }) => {
@@ -50,13 +52,13 @@ export function pipelineTemplatesApi(core: ApiCore) {
     },
 
     /** Partial-update an existing template (name/description/keywords/category/
-     *  access/props/inputs/isActive). Mirrors PUT /api/pipeline-templates/:id. */
+     *  visibility/props/inputs/isActive). Mirrors PUT /api/pipeline-templates/:id. */
     updatePipelineTemplate: async (id: string, data: {
       name?: string;
       description?: string;
       keywords?: string[];
       category?: string;
-      accessModifier?: 'public' | 'private';
+      visibility?: TemplateVisibility;
       props?: BuilderProps;
       inputs?: PipelineTemplate['inputs'];
       isActive?: boolean;

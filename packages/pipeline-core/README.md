@@ -37,7 +37,7 @@ AWS CDK construct library for [Pipeline Builder](https://mwashburn160.github.io/
 | Export | Purpose |
 |---|---|
 | `Config`, `ConfigTypes` | Environment-driven application config singleton and typed interfaces |
-| `PipelineType`, `ComputeType`, `AccessModifier`, `PluginType` | Pipeline domain enums |
+| `PipelineType`, `ComputeType`, `PluginType`, `Visibility` | Pipeline domain enums |
 | `SourceTypes`, `StepTypes`, `NetworkTypes`, `RoleTypes`, `SecurityGroupTypes` | Pipeline source/step and infrastructure type definitions |
 | `IdGenerator`, `replaceNonAlphanumeric`, `extractMetadataEnv` | ID generation and string/metadata helpers |
 | `buildConfigFromMetadata`, `metadataForCodePipeline`, `metadataForShellStep`, … | Metadata builders |

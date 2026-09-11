@@ -16,9 +16,9 @@ jest.unstable_mockModule('../src/models/billing-event.js', () => ({
   },
 }));
 
-// syncEntitlements stamps/clears a durable `metadata.entitlementSyncPending`
-// marker on the Subscription so the lifecycle reconciler can re-drive a failed
-// sync. Mock updateOne so we can assert the $set/$unset the marker path issues.
+// billing-helpers imports the Subscription model; stub updateOne so no real Mongo
+// is touched. (A failed sync no longer writes an entitlementSyncPending marker — it
+// publishes a durable-bus retry instead — so this stub is now just a no-op guard.)
 const mockSubscriptionUpdateOne = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ modifiedCount: 1 });
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: {
@@ -40,6 +40,7 @@ const mockClientPut = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createSafeClient: () => ({
     put: mockClientPut,
+    destroy: () => undefined,
   }),
   // api-server's app-factory wires this at module load to inject the metrics
   // counter into api-core helpers; tests just need it to be callable.
@@ -109,6 +110,7 @@ const {
   buildSubscriptionResponse,
   syncTierToQuotaService,
   syncEntitlements,
+  setEntitlementSyncBus,
   effectiveEntitlements,
 } = await import('../src/helpers/billing-helpers.js');
 
@@ -295,49 +297,54 @@ describe('syncTierToQuotaService', () => {
   });
 });
 
-// syncEntitlements — durable "sync dirty" marker (FIX 2)
+// syncEntitlements — durable event-bus retry on failure
 
-describe('syncEntitlements entitlementSyncPending marker', () => {
-  beforeEach(() => jest.clearAllMocks());
+describe('syncEntitlements durable-bus retry', () => {
+  const mockPublish = jest.fn<(topic: string, payload: unknown) => Promise<string | null>>();
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPublish.mockResolvedValue('1-0');
+    // A failed sync publishes a retry event to the durable bus (replaces the old
+    // entitlementSyncPending marker + polling reconciler).
+    setEntitlementSyncBus({ publish: mockPublish, subscribe: jest.fn() } as never);
+  });
+  afterEach(() => setEntitlementSyncBus(null));
 
-  it('clears the marker (unset) when BOTH legs succeed', async () => {
-    // Both quota + platform legs go through the same mocked client.put.
+  it('publishes NO retry when all legs succeed', async () => {
     mockClientPut.mockResolvedValue({ statusCode: 200 });
 
     const ok = await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
 
     expect(ok).toBe(true);
-    expect(mockSubscriptionUpdateOne).toHaveBeenCalledWith(
-      { _id: 'sub-1' },
-      { $unset: { 'metadata.entitlementSyncPending': '' } },
-    );
+    expect(mockPublish).not.toHaveBeenCalled();
   });
 
-  it('sets the marker when a leg fails (fail-open, still returns false)', async () => {
+  it('publishes a retry event when a leg fails (fail-open, still returns false)', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 500 });
+
+    const ok = await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1', [{ bundleId: 'b1', quantity: 2 }]);
+
+    expect(ok).toBe(false);
+    expect(mockPublish).toHaveBeenCalledWith('entitlement.sync', {
+      orgId: 'org-1', tier: 'pro', subscriptionId: 'sub-1', addons: [{ bundleId: 'b1', quantity: 2 }],
+    });
+  });
+
+  it('never throws even if the bus publish rejects (preserves fail-open contract)', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 500 });
+    mockPublish.mockRejectedValueOnce(new Error('redis down'));
+
+    await expect(syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1')).resolves.toBe(false);
+  });
+
+  it('runs inline with NO retry publish when no bus is registered', async () => {
+    setEntitlementSyncBus(null);
     mockClientPut.mockResolvedValue({ statusCode: 500 });
 
     const ok = await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
 
     expect(ok).toBe(false);
-    expect(mockSubscriptionUpdateOne).toHaveBeenCalledWith(
-      { _id: 'sub-1' },
-      { $set: { 'metadata.entitlementSyncPending': true } },
-    );
-  });
-
-  it('does not touch the marker when no subscriptionId is supplied', async () => {
-    mockClientPut.mockResolvedValue({ statusCode: 200 });
-
-    await syncEntitlements('org-1', 'pro' as any, 'Bearer tok');
-
-    expect(mockSubscriptionUpdateOne).not.toHaveBeenCalled();
-  });
-
-  it('never throws even if the marker write fails (preserves fail-open contract)', async () => {
-    mockClientPut.mockResolvedValue({ statusCode: 200 });
-    mockSubscriptionUpdateOne.mockRejectedValueOnce(new Error('mongo down'));
-
-    await expect(syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1')).resolves.toBe(true);
+    expect(mockPublish).not.toHaveBeenCalled();
   });
 
   it('pushes the account tier in the seat-limit body so a downgrade invalidates platform tokens', async () => {
@@ -431,9 +438,9 @@ describe('syncEntitlements reporting retention leg', () => {
     expect(call![1]).toEqual({ eventRetentionDays: 730, doraRetentionDays: 180 });
   });
 
-  it('sets the entitlementSyncPending marker when ONLY the reporting leg fails', async () => {
-    // Quota + platform legs succeed; the reporting leg 5xx's. The shared pending
-    // marker must still be set so the lifecycle reconciler re-drives the sync.
+  it('returns false (fail-open) when ONLY the reporting leg fails', async () => {
+    // Quota + platform legs succeed; the reporting leg 5xx's. The sync fails open
+    // (returns false) and the durable-bus retry is covered in the bus-retry suite.
     mockClientPut.mockImplementation((...args: unknown[]) => {
       const path = args[0] as string;
       if (path.includes('/api/reports/retention-sync/')) return Promise.resolve({ statusCode: 500 });
@@ -443,13 +450,11 @@ describe('syncEntitlements reporting retention leg', () => {
     const ok = await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
 
     expect(ok).toBe(false);
-    expect(mockSubscriptionUpdateOne).toHaveBeenCalledWith(
-      { _id: 'sub-1' },
-      { $set: { 'metadata.entitlementSyncPending': true } },
-    );
+    // Fail-open: the sync returns false; the durable-bus retry (published on
+    // failure) is covered in the bus-retry suite. No pending marker is written now.
   });
 
-  it('never fails the sync when the reporting leg THROWS (fail-open, marker set)', async () => {
+  it('never fails the sync when the reporting leg THROWS (fail-open)', async () => {
     mockClientPut.mockImplementation((...args: unknown[]) => {
       const path = args[0] as string;
       if (path.includes('/api/reports/retention-sync/')) return Promise.reject(new Error('reporting down'));
@@ -459,10 +464,8 @@ describe('syncEntitlements reporting retention leg', () => {
     const ok = await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
 
     expect(ok).toBe(false);
-    expect(mockSubscriptionUpdateOne).toHaveBeenCalledWith(
-      { _id: 'sub-1' },
-      { $set: { 'metadata.entitlementSyncPending': true } },
-    );
+    // Fail-open: the sync returns false; the durable-bus retry (published on
+    // failure) is covered in the bus-retry suite. No pending marker is written now.
   });
 });
 
@@ -536,9 +539,9 @@ describe('syncEntitlements compliance content-set leg', () => {
     expect(complianceCall()![1]).toMatchObject({ sets: ['standard', 'advanced'] });
   });
 
-  it('sets the entitlementSyncPending marker when ONLY the compliance leg fails', async () => {
-    // Quota + platform + reporting succeed; the compliance leg 5xx's. The shared
-    // pending marker must still be set so the reconciler re-drives the sync.
+  it('returns false (fail-open) when ONLY the compliance leg fails', async () => {
+    // Quota + platform + reporting succeed; the compliance leg 5xx's. The sync
+    // fails open; the durable-bus retry is covered in the bus-retry suite.
     mockClientPut.mockImplementation((...args: unknown[]) => {
       const path = args[0] as string;
       if (path.includes('/api/compliance/entitlements/')) return Promise.resolve({ statusCode: 500 });
@@ -548,13 +551,11 @@ describe('syncEntitlements compliance content-set leg', () => {
     const ok = await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
 
     expect(ok).toBe(false);
-    expect(mockSubscriptionUpdateOne).toHaveBeenCalledWith(
-      { _id: 'sub-1' },
-      { $set: { 'metadata.entitlementSyncPending': true } },
-    );
+    // Fail-open: the sync returns false; the durable-bus retry (published on
+    // failure) is covered in the bus-retry suite. No pending marker is written now.
   });
 
-  it('never fails the sync when the compliance leg THROWS (fail-open, marker set)', async () => {
+  it('never fails the sync when the compliance leg THROWS (fail-open)', async () => {
     mockClientPut.mockImplementation((...args: unknown[]) => {
       const path = args[0] as string;
       if (path.includes('/api/compliance/entitlements/')) return Promise.reject(new Error('compliance down'));
@@ -564,9 +565,7 @@ describe('syncEntitlements compliance content-set leg', () => {
     const ok = await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
 
     expect(ok).toBe(false);
-    expect(mockSubscriptionUpdateOne).toHaveBeenCalledWith(
-      { _id: 'sub-1' },
-      { $set: { 'metadata.entitlementSyncPending': true } },
-    );
+    // Fail-open: the sync returns false; the durable-bus retry (published on
+    // failure) is covered in the bus-retry suite. No pending marker is written now.
   });
 });

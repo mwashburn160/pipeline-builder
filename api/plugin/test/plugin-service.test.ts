@@ -21,7 +21,6 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
     buildPluginConditions: jest.fn(() => []),
     getTenantContext: jest.fn(() => undefined),
     withTenantTx: jest.fn(),
-    AccessModifier: {},
     ComputeType: {},
     PluginType: {},
     schema: {
@@ -35,7 +34,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
         isActive: 'isActive',
         isDefault: 'isDefault',
         orgId: 'orgId',
-        accessModifier: 'accessModifier',
+        visibility: 'visibility',
       },
     },
   };
@@ -54,7 +53,6 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     buildPluginConditions: jest.fn(() => []),
     getTenantContext: jest.fn(() => undefined),
     withTenantTx: jest.fn(),
-    AccessModifier: {},
     ComputeType: {},
     PluginType: {},
     schema: {
@@ -68,7 +66,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
         isActive: 'isActive',
         isDefault: 'isDefault',
         orgId: 'orgId',
-        accessModifier: 'accessModifier',
+        visibility: 'visibility',
       },
     },
   };
@@ -125,7 +123,7 @@ describe('PluginService', () => {
     orgId: 'org-1',
     name: 'my-plugin',
     version: '1.2.3',
-    accessModifier: 'private',
+    visibility: 'private',
     computeType: 'SMALL',
     pluginType: 'CodeBuildStep',
     secrets: [{ name: 'NPM_TOKEN', required: true }],
@@ -163,7 +161,7 @@ describe('PluginService', () => {
       // But compliance-relevant metadata + the secret KEYS are present.
       expect(event.attributes.name).toBe('my-plugin');
       expect(event.attributes.version).toBe('1.2.3');
-      expect(event.attributes.accessModifier).toBe('private');
+      expect(event.attributes.visibility).toBe('private');
       expect(Object.keys(event.attributes.env)).toEqual(['AWS_ACCESS_KEY_ID', 'DEPLOY_TOKEN']);
       expect(Object.keys(event.attributes.buildArgs)).toEqual(['REGISTRY_PASSWORD']);
       // secrets[] declarations (names only) survive — compliance uses $count(secrets).

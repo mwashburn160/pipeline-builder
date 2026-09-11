@@ -45,7 +45,13 @@ export function useUnsavedChangesWarning(dirty: boolean, message: string = DEFAU
     };
 
     const handleRouteChangeStart = (url: string) => {
-      if (bypassRef.current) return;
+      // Honor a one-shot bypass, then reset it — otherwise the flag stays `true` for
+      // the component's lifetime and every subsequent navigation silently skips the
+      // guard, losing later unsaved edits with no prompt.
+      if (bypassRef.current) {
+        bypassRef.current = false;
+        return;
+      }
       if (window.confirm(message)) return; // user chose to leave
       // User cancelled — abort the route change (documented Next.js pattern).
       router.events.emit('routeChangeError');

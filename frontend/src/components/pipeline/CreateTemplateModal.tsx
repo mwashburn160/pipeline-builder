@@ -15,7 +15,15 @@ import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
-import type { Pipeline, BuilderProps, TemplateInput } from '@/types';
+import type { Pipeline, BuilderProps, TemplateInput, TemplateVisibility } from '@/types';
+import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
+
+/** How each rung reads back in the post-save confirmation. */
+const VISIBILITY_BLURB: Record<TemplateVisibility, string> = {
+  private: 'a private draft only you can see',
+  org: 'shared with your organization',
+  public: 'shared with your organization and its teams',
+};
 
 /** A row in the inputs editor. `replaces` is the literal value in the source
  *  pipeline's props to swap for `{{ vars.<name> }}` — that's what turns a fixed
@@ -74,7 +82,7 @@ interface CreateTemplateModalProps {
   /** Pre-selected pipeline (the "Save as template" flow). When omitted, the modal
    *  shows a picker to choose which pipeline to base the template on. */
   pipeline?: Pipeline;
-  /** `pipelines:publish` — required to publish a PUBLIC (shared) template. */
+  /** `templates:publish` — required to publish a PUBLIC (shared) template. */
   canPublish: boolean;
   onClose: () => void;
   /** Called after a template is created (so the caller can refresh). */
@@ -84,9 +92,10 @@ interface CreateTemplateModalProps {
 /**
  * Create a golden-path pipeline template from an existing pipeline's config.
  * A template = the pipeline's `props` (BuilderProps) + metadata; instantiating it
- * clones a governed starting point. Publishing scope is set by `accessModifier`
- * (private → your org catalog; public → shared with your org + teams, gated by
- * `pipelines:publish`). The shared SYSTEM catalog (all orgs) is a superadmin
+ * clones a governed starting point. Sharing scope is set by `visibility` — a
+ * three-rung ladder: private (a personal draft only you can see), org (everyone
+ * in your organization), or public (also your org's teams, gated by
+ * `templates:publish`). The shared SYSTEM catalog (all orgs) is a superadmin
  * action from the system org and isn't offered here.
  */
 export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }: CreateTemplateModalProps) {
@@ -104,7 +113,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   const [category, setCategory] = useState('general');
   const [description, setDescription] = useState('');
   const [keywords, setKeywords] = useState('');
-  const [access, setAccess] = useState<'public' | 'private'>('private');
+  const [visibility, setVisibility] = useState<TemplateVisibility>('private');
   const [inputs, setInputs] = useState<EditableInput[]>([]);
 
   const addInput = () => setInputs((rows) => [...rows, { name: '', label: '', type: 'string', required: false, default: '', options: '', replaces: '' }]);
@@ -226,12 +235,12 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
         description: description.trim() || undefined,
         keywords: keywords.trim() ? keywords.split(',').map((k) => k.trim()).filter(Boolean) : undefined,
         category: category.trim() || 'general',
-        accessModifier: access,
+        visibility,
         props: finalProps,
         inputs: templateInputs,
       });
       if (res.success) {
-        setSuccess(`Template "${name.trim()}" published to your ${access === 'public' ? 'shared catalog' : 'org catalog'}.`);
+        setSuccess(`Template "${name.trim()}" saved as ${VISIBILITY_BLURB[visibility]}.`);
         onCreated();
         setTimeout(() => { if (mountedRef.current) onClose(); }, 1500);
       } else {
@@ -349,16 +358,13 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
           )}
         </div>
 
-        <FormField
-          label="Visibility"
-          hint={canPublish
-            ? 'Public shares it with your org and its teams. The shared SYSTEM catalog (all orgs) is a superadmin action from the system org.'
-            : 'You need the pipelines:publish permission to publish a shared (public) template.'}
-        >
-          <Select value={access} onChange={(e) => setAccess(e.target.value as 'public' | 'private')} disabled={saving || !canPublish}>
-            <option value="private">Private — your org catalog</option>
-            {(canPublish || access === 'public') && <option value="public">Public — shared with your org &amp; teams</option>}
-          </Select>
+        <FormField label="Visibility" hint={visibilityHint(canPublish, 'templates:publish')}>
+          <VisibilitySelect
+            value={visibility}
+            onChange={setVisibility}
+            canPublish={canPublish}
+            disabled={saving}
+          />
         </FormField>
       </div>
     </Modal>

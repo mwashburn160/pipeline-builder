@@ -1,7 +1,7 @@
 import { useRouter } from 'next/router';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { GitBranch, Puzzle, AlertTriangle, Gauge } from 'lucide-react';
+import { GitBranch, Puzzle, AlertTriangle, Gauge, Trophy } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -11,6 +11,7 @@ import { DateRangePicker, AutoRefresh } from '@/components/reports/ReportHelpers
 import { PipelinesTab } from '@/components/reports/tabs/PipelinesTab';
 import { PluginsTab } from '@/components/reports/tabs/PluginsTab';
 import { DoraTab } from '@/components/reports/tabs/DoraTab';
+import { ScorecardTab } from '@/components/reports/tabs/ScorecardTab';
 import {
   useReportRetention, type SharedFilters, type TabDataStatus,
 } from '@/components/reports/useReportData';
@@ -18,12 +19,13 @@ import { useFeatures } from '@/hooks/useFeatures';
 import api from '@/lib/api';
 
 // ─── Tab Config ─────────────────────────────────────────
-type TopTab = 'pipelines' | 'plugins' | 'dora';
+type TopTab = 'pipelines' | 'plugins' | 'dora' | 'scorecard';
 
 const TOP_TABS: { id: TopTab; label: string; icon: typeof GitBranch }[] = [
   { id: 'pipelines', label: 'Pipelines', icon: GitBranch },
   { id: 'plugins', label: 'Plugins', icon: Puzzle },
   { id: 'dora', label: 'DORA', icon: Gauge },
+  { id: 'scorecard', label: 'Scorecard', icon: Trophy },
 ];
 
 // Quick date-range presets. Each maps to a rolling window ending today; the
@@ -102,7 +104,7 @@ export default function ReportsPage() {
     if (!router.isReady) return;
     const raw = router.query.tab;
     const tab = Array.isArray(raw) ? raw[0] : raw;
-    if (tab === 'plugins' || tab === 'pipelines' || tab === 'dora') {
+    if (tab === 'plugins' || tab === 'pipelines' || tab === 'dora' || tab === 'scorecard') {
       setTopTab((prev) => (prev === tab ? prev : tab));
     }
   }, [router.isReady, router.query.tab]);
@@ -201,6 +203,11 @@ export default function ReportsPage() {
               Include child teams
             </label>
           )}
+          {/* Date-range controls drive dateFrom/dateTo/interval, which the
+              Scorecard tab ignores (its roll-up is a fixed server-side 30-day
+              window) — so hide them there rather than render inert controls. */}
+          {topTab !== 'scorecard' && (
+          <>
           {/* Presets — set the same dateFrom/dateTo the manual picker drives. A
               preset wider than the tab cap still clamps (with the note below). */}
           <div className="flex items-center gap-1">
@@ -231,6 +238,8 @@ export default function ReportsPage() {
             <option value="week">Weekly</option>
             <option value="month">Monthly</option>
           </FilterSelect>
+          </>
+          )}
           <AutoRefresh onRefresh={status.refetch} loading={status.loading} />
         </div>
       }
@@ -261,7 +270,7 @@ export default function ReportsPage() {
 
         {/* Subtle clamp note — the requested window was narrowed to the tab's
             retention cap (a quiet inline note, NOT a red dead-end error). */}
-        {(clamped || isRangeError) && (
+        {topTab !== 'scorecard' && (clamped || isRangeError) && (
           <p className="text-xs text-gray-500 dark:text-gray-400" role="status">
             Showing the last {effectiveMax} days — the maximum for {tabNoun} reports.
           </p>
@@ -280,6 +289,9 @@ export default function ReportsPage() {
         {topTab === 'plugins' && <PluginsTab filters={filters} onStatus={onStatus} />}
         {topTab === 'dora' && (
           <DoraTab filters={filters} enabled={doraEnabled} canMark={can('reports:read')} onStatus={onStatus} />
+        )}
+        {topTab === 'scorecard' && (
+          <ScorecardTab enabled={doraEnabled} onStatus={onStatus} />
         )}
 
       </motion.div>

@@ -324,7 +324,7 @@ export class PluginLookup extends Construct {
       criticality: null,
       labels: {},
       links: [],
-      accessModifier: 'public',
+      visibility: 'public',
       isDefault: false,
       isActive: true,
       deletedAt: null,

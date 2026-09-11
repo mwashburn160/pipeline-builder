@@ -19,7 +19,7 @@ Provides the cross-cutting primitives every backend service depends on: JWT auth
 | `requireAdmin`, `requireSystemAdmin` | Role gates (admin/owner; system-org admin/owner) |
 | `requireFeature` | Feature-flag gate |
 | `isSystemOrgId`, `isSystemAdmin`, `isServicePrincipal` | Authorization helpers (`isServicePrincipal` is true when `req.user.sub` starts with `service:`) |
-| `resolveAccessModifier` | Coerces requested `'public'` to `'private'` unless caller is admin/owner |
+| `resolveVisibility` | Resolves the sharing rung: `'public'` needs the resource's `:publish` permission (clamped to `'org'` otherwise); an unspecified rung falls back per-entity |
 | `signServiceToken`, `getServiceAuthHeader` | Mint short-lived inter-service JWTs (default TTL 5 min) accepted unmodified by `requireAuth` |
 
 ### Responses & errors (`./utils`, `./errors`)
@@ -51,7 +51,7 @@ Provides the cross-cutting primitives every backend service depends on: JWT auth
 | Export | Purpose |
 | --- | --- |
 | `createLogger`, `logger` | Winston structured logger factory and default instance |
-| `AIGenerateBodySchema`, `AIGenerateFromUrlBodySchema`, `PluginCreateSchema`, `PipelineFilterSchema`, `MessageCreateSchema`, plus `PaginationSchema`, `UUIDSchema`, `AccessModifierSchema` | Zod request-validation schemas and shared building blocks |
+| `AIGenerateBodySchema`, `AIGenerateFromUrlBodySchema`, `PluginCreateSchema`, `PipelineFilterSchema`, `MessageCreateSchema`, plus `PaginationSchema`, `UUIDSchema`, `VisibilitySchema` | Zod request-validation schemas and shared building blocks |
 | `registry`, `generateOpenApiSpec` | Shared schema registry and OpenAPI spec generation |
 
 ### AI provider catalog (`./constants`)

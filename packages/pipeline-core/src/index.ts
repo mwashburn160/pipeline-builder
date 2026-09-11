@@ -18,7 +18,7 @@
  * - ConfigTypes — typed configuration interfaces
  *
  * **Types**
- * - PipelineType, ComputeType, AccessModifier, PluginType — pipeline domain enums
+ * - PipelineType, ComputeType, PluginType, Visibility — pipeline domain enums
  * - RoleTypes, SecurityGroupTypes — infrastructure type definitions
  * - PluginSpec — a plugin's declared contract
  * - IdGenerator — deterministic ID generation

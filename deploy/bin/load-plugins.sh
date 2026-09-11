@@ -188,6 +188,6 @@ echo ""
 echo "=== Done ==="
 
 # Propagate partial-failure to the exit code so CI / init-platform.sh catches it
-# instead of a masked green (matches load-pipelines.sh).
+# instead of a masked green (matches load-templates.sh).
 [ "$FAILED" -gt 0 ] && exit 1
 exit 0

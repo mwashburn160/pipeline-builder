@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, errorMessage, requireAuth, requireServicePrincipal, AccessModifier, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, errorMessage, requireAuth, requireServicePrincipal, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { runWithTenantContext, type MessageInsert } from '@pipeline-builder/pipeline-data';
@@ -11,7 +11,7 @@ import { messageService } from '../services/message-service.js';
 
 const logger = createLogger('internal-notify');
 
-const SUBJECT_MAX = 500;   // matches the `subject` varchar(500) column
+const SUBJECT_MAX = 500; // matches the `subject` varchar(500) column
 const CONTENT_MAX = 10000; // sane bound for a notification body (content is TEXT)
 
 /**
@@ -58,7 +58,7 @@ export function createInternalNotifyRoutes(sseManager: SSEManager): Router {
 
     try {
       const data: MessageInsert = {
-        orgId: SYSTEM_ORG_ID,          // system is the sender (kept by the system scope below)
+        orgId: SYSTEM_ORG_ID, // system is the sender (kept by the system scope below)
         recipientOrgId: recipient,
         recipientUserId: recipientUserId ?? null,
         messageType: 'conversation',
@@ -67,7 +67,6 @@ export function createInternalNotifyRoutes(sseManager: SSEManager): Router {
         content,
         createdBy: 'system',
         updatedBy: 'system',
-        accessModifier: AccessModifier.PRIVATE,
       };
       // Author as the system tenant (isSuperAdmin → enforceOrgId is a no-op), not
       // the recipient-org scope the service token carries. See the class doc.

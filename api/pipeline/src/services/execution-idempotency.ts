@@ -37,6 +37,7 @@ function resolveWindowSeconds(): number {
  */
 export interface ExecIdemRedis {
   set(key: string, value: string, ...args: (string | number)[]): Promise<string | null>;
+  del(key: string): Promise<number>;
 }
 
 export interface ExecutionIdempotencyGuard {
@@ -49,6 +50,13 @@ export interface ExecutionIdempotencyGuard {
    * transient Redis outage never blocks a legitimate trigger.
    */
   claim(orgId: string, pipelineId: string): Promise<boolean>;
+  /**
+   * Release a previously-claimed window so a legitimate retry isn't blocked for the
+   * full TTL after a FAILED trigger (the claim is taken before the AWS call; if that
+   * call errors the run never started, so the window should reopen immediately).
+   * Best-effort — a Redis error is swallowed (TTL is the backstop).
+   */
+  release(orgId: string, pipelineId: string): Promise<void>;
 }
 
 const REDIS_KEY_PREFIX = 'pipeline-exec:';
@@ -73,6 +81,17 @@ export function createExecutionIdempotencyGuard(
           error: err instanceof Error ? err.message : String(err),
         });
         return true;
+      }
+    },
+    async release(orgId, pipelineId) {
+      if (!redis) return;
+      try {
+        await redis.del(`${REDIS_KEY_PREFIX}${orgId}:${pipelineId}`);
+      } catch (err) {
+        // TTL is the backstop — a failed release just means the window closes late.
+        logger.warn('Execution idempotency release failed; window will expire via TTL', {
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     },
   };

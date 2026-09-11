@@ -16,7 +16,7 @@
  * - RequestIdentity — parsed JWT identity
  * - ServiceConfig, RequestOptions — HTTP client types
  * - QuotaType, QuotaCheckResult — quota service types
- * - PipelineType, ComputeType, AccessModifier — pipeline domain types
+ * - PipelineType, ComputeType, Visibility — pipeline domain types
  * - FeatureFlags — feature flag types
  *
  * **Utilities**

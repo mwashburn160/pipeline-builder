@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AccessModifier, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
 
@@ -14,7 +14,7 @@ export function availablePluginConditions(orgId: string): SQL[] {
   return [
     eq(schema.plugin.isActive, true),
     isNull(schema.plugin.deletedAt),
-    eq(schema.plugin.accessModifier, AccessModifier.PUBLIC),
+    eq(schema.plugin.visibility, 'public'),
     or(eq(schema.plugin.orgId, orgId), eq(schema.plugin.orgId, SYSTEM_ORG_ID))!,
   ];
 }

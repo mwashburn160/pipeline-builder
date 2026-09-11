@@ -76,6 +76,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       if (path.startsWith('/quotas/')) return mockReadQuota();
       return Promise.resolve(null);
     }),
+    destroy: () => undefined,
   }),
   getServiceAuthHeader: () => 'Bearer test-service-token',
   // Stub the scheduler but preserve run-on-start: these tests call
@@ -139,8 +140,13 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 // (for non-marketplace subs) provider.getSubscription() to verify before acting.
 // Default: a Stripe-like provider that reports the sub still active.
 const mockGetSubscription = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ status: 'active' });
-const mockProvider: { getSubscription?: (...a: unknown[]) => Promise<unknown> } = {
+const mockGetEntitlements = jest.fn<(...args: unknown[]) => Promise<unknown[]>>().mockResolvedValue([]);
+const mockProvider: {
+  getSubscription?: (...a: unknown[]) => Promise<unknown>;
+  getEntitlements?: (...a: unknown[]) => Promise<unknown[]>;
+} = {
   getSubscription: (...a: unknown[]) => mockGetSubscription(...a),
+  getEntitlements: (...a: unknown[]) => mockGetEntitlements(...a),
 };
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
   getPaymentProvider: () => mockProvider,
@@ -418,7 +424,8 @@ describe('Subscription Lifecycle Checker', () => {
       );
     });
 
-    it('skips marketplace subs (SNS-driven) — never provider-verifies or downgrades', async () => {
+    it('backstops a lapsed marketplace sub: no active entitlement → downgraded to developer', async () => {
+      mockGetEntitlements.mockResolvedValueOnce([]); // GetEntitlements: nothing active
       const staleSub = {
         _id: { toString: () => 'sub-mkt' },
         orgId: 'org-mkt',
@@ -426,7 +433,7 @@ describe('Subscription Lifecycle Checker', () => {
         externalId: 'aws_sub_cust-1',
         currentPeriodEnd: new Date(Date.now() - 24 * 60 * 60 * 1000),
         cancelAtPeriodEnd: false,
-        metadata: { provider: 'aws-marketplace' } as Record<string, unknown>,
+        metadata: { provider: 'aws-marketplace', awsCustomerIdentifier: 'cust-1' } as Record<string, unknown>,
         save: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
       };
 
@@ -439,14 +446,36 @@ describe('Subscription Lifecycle Checker', () => {
       startSubscriptionLifecycleChecker();
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      expect(mockGetSubscription).not.toHaveBeenCalled();
+      // Verified against GetEntitlements (the customer id, never an AWS account id).
+      expect(mockGetEntitlements).toHaveBeenCalledWith('cust-1');
+      // No active entitlement → downgraded to developer.
+      expect(mockSyncEntitlements).toHaveBeenCalledWith('org-mkt', 'developer', expect.anything(), 'sub-mkt', []);
+      expect(staleSub.status).toBe('canceled');
+    });
+
+    it('leaves a still-entitled marketplace sub alone (late SNS, not a real cancel)', async () => {
+      mockGetEntitlements.mockResolvedValueOnce([{ planId: 'pro', dimension: 'pro', isEntitled: true }]);
+      const staleSub = {
+        _id: { toString: () => 'sub-mkt2' },
+        orgId: 'org-mkt2',
+        status: 'active',
+        currentPeriodEnd: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        cancelAtPeriodEnd: false,
+        metadata: { provider: 'aws-marketplace', awsCustomerIdentifier: 'cust-2' } as Record<string, unknown>,
+        save: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      };
+      mockFind
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([staleSub])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockGetEntitlements).toHaveBeenCalledWith('cust-2');
       expect(mockSyncEntitlements).not.toHaveBeenCalled();
-      expect(mockCreateBillingEvent).toHaveBeenCalledWith(
-        'org-mkt',
-        'subscription_updated',
-        expect.objectContaining({ reason: 'period_end_passed_without_renewal', detail: 'marketplace_sns_driven' }),
-        'sub-mkt',
-      );
+      expect(staleSub.status).toBe('active');
     });
 
     it('does NOT downgrade when the provider lookup throws (transient) — retries next tick', async () => {
@@ -500,65 +529,6 @@ describe('Subscription Lifecycle Checker', () => {
 
       // Should have saved the subscription with lastRenewalReminder metadata
       expect(upcomingSub.save).toHaveBeenCalled();
-    });
-  });
-
-  describe('entitlement sync reconciliation', () => {
-    it('re-drives syncEntitlements for active subs carrying the pending marker', async () => {
-      const pendingSub = {
-        _id: { toString: () => 'sub-9' },
-        orgId: 'org-9',
-        planId: 'pro-plan',
-        status: 'active',
-        addons: [{ bundleId: 'seat_pack', quantity: 2 }],
-        metadata: { entitlementSyncPending: true },
-      };
-
-      // Only the reconcile query (keyed on the pending marker) returns the sub;
-      // the grace / expired / renewal queries return [].
-      mockFind.mockImplementation(async (q: any) => (
-        q?.['metadata.entitlementSyncPending'] === true ? [pendingSub] : []
-      ));
-      mockPlanFindById.mockResolvedValue({ name: 'Pro', tier: 'pro' });
-
-      startSubscriptionLifecycleChecker();
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Re-drives the sub's effective tier + current add-ons; syncEntitlements
-      // clears the marker on success.
-      expect(mockSyncEntitlements).toHaveBeenCalledWith(
-        'org-9', 'pro', 'Bearer test-service-token', 'sub-9',
-        [{ bundleId: 'seat_pack', quantity: 2 }],
-      );
-    });
-
-    it('does not re-sync when no subscription carries the pending marker', async () => {
-      mockFind.mockResolvedValue([]); // every query, incl. the reconcile query
-
-      startSubscriptionLifecycleChecker();
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      expect(mockSyncEntitlements).not.toHaveBeenCalled();
-    });
-
-    it('skips a pending sub whose plan no longer exists (no sync attempted)', async () => {
-      const pendingSub = {
-        _id: { toString: () => 'sub-10' },
-        orgId: 'org-10',
-        planId: 'ghost-plan',
-        status: 'active',
-        addons: [],
-        metadata: { entitlementSyncPending: true },
-      };
-      mockFind.mockImplementation(async (q: any) => (
-        q?.['metadata.entitlementSyncPending'] === true ? [pendingSub] : []
-      ));
-      mockPlanFindById.mockResolvedValue(null);
-
-      startSubscriptionLifecycleChecker();
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      expect(mockSyncEntitlements).not.toHaveBeenCalled();
     });
   });
 

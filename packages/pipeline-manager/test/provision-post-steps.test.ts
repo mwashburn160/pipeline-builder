@@ -21,13 +21,13 @@ describe('resolvePostSteps', () => {
     expect(steps.map((s) => s.id)).toEqual(['register']);
     const reg = steps[0]!;
     expect(reg.command).toBe('./deploy/bin/init-platform.sh docker');
-    expect(reg.env).toMatchObject({ BUILD_BOOTSTRAP: 'n', LOAD_PLUGINS: 'n', LOAD_PIPELINES: 'n', LOAD_COMPLIANCE: 'n' });
+    expect(reg.env).toMatchObject({ BUILD_BOOTSTRAP: 'n', LOAD_PLUGINS: 'n', LOAD_TEMPLATES: 'n', LOAD_COMPLIANCE: 'n' });
   });
 
   it('enabled loads flip the matching init-platform env to y', () => {
     const { steps } = resolvePostSteps({ ...base, enabledLoadIds: ['plugins', 'samples'], buildBootstrap: true });
     const reg = steps.find((s) => s.id === 'register')!;
-    expect(reg.env).toMatchObject({ LOAD_PLUGINS: 'y', LOAD_PIPELINES: 'y', LOAD_COMPLIANCE: 'n', BUILD_BOOTSTRAP: 'y' });
+    expect(reg.env).toMatchObject({ LOAD_PLUGINS: 'y', LOAD_TEMPLATES: 'y', LOAD_COMPLIANCE: 'n', BUILD_BOOTSTRAP: 'y' });
   });
 
   it('--no-init drops the register step', () => {

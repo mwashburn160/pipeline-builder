@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  AccessModifier,
   SYSTEM_ORG_ID,
   type Criticality,
   type EntityLabels,
@@ -10,6 +9,7 @@ import {
   type Lifecycle,
   type OwnerType,
   type TemplateInput,
+  type Visibility,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { boolean, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
@@ -19,7 +19,17 @@ import { boolean, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueI
  * `props` is a BuilderProps body with `{{ vars.* }}` placeholders, and `inputs`
  * declares the variables a developer fills in when instantiating it into a real
  * pipeline. System-org public templates form the shared golden-path catalog
- * (visible to every org, same pattern as sample pipelines / compliance templates).
+ * (visible to every org, same pattern as the sample template catalog / compliance templates).
+ *
+ * Visibility ladder (three rungs, like `dashboards` — NOT the catalog-wide
+ * three-value `visibility` that pipelines/plugins carry):
+ * - `private` — only the author (`created_by`) can read/write it; a personal draft
+ * - `org`     — anyone in the owning org can read it; `pipelines:write` edits it
+ * - `public`  — shared beyond the org: a team also sees its parent org's public
+ *               templates, and the system org's public templates are the shared
+ *               golden-path catalog every org sees. Needs `pipelines:publish`.
+ * The read predicate lives in `buildPipelineTemplateConditions`; the write gate
+ * in api-core's `requireTemplateWriteAccess`.
  *
  * @table pipeline_templates
  */
@@ -54,10 +64,12 @@ export const pipelineTemplate = pgTable('pipeline_templates', {
   labels: jsonb('labels').$type<EntityLabels>().default({}).notNull(),
   links: jsonb('links').$type<EntityLink[]>().default([]).notNull(),
 
-  // Access and visibility
-  accessModifier: varchar('access_modifier', { length: 10 })
-    .$type<AccessModifier>()
-    .default('private' as AccessModifier)
+  // Access and visibility — see the header for the ladder. Constrained at the
+  // SQL layer too via a CHECK in postgres-init.sql so a typo can't sneak past
+  // the application layer.
+  visibility: varchar('visibility', { length: 10 })
+    .$type<Visibility>()
+    .default('private')
     .notNull(),
   isDefault: boolean('is_default').default(false).notNull(),
   isActive: boolean('is_active').default(true).notNull(),
@@ -74,7 +86,10 @@ export const pipelineTemplate = pgTable('pipeline_templates', {
   orgIdIdx: index('pipeline_template_org_id_idx').on(table.orgId),
   activeIdx: index('pipeline_template_active_idx').on(table.isActive),
   categoryIdx: index('pipeline_template_category_idx').on(table.category),
-  orgAccessActiveIdx: index('pipeline_template_org_access_active_idx').on(table.orgId, table.accessModifier, table.isActive),
+  // Listing is org-scoped, visibility-filtered and active-only, so all three go in.
+  orgVisibilityActiveIdx: index('pipeline_template_org_visibility_active_idx').on(table.orgId, table.visibility, table.isActive),
+  // Drives the "my private drafts" leg of the visibility predicate.
+  createdByIdx: index('pipeline_template_created_by_idx').on(table.orgId, table.createdBy),
   ownerIdx: index('pipeline_template_owner_idx').on(table.orgId, table.ownerId),
   lifecycleIdx: index('pipeline_template_lifecycle_idx').on(table.orgId, table.lifecycle),
   // One template name per org.

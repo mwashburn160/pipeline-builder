@@ -27,7 +27,7 @@ const sendBadRequest = jest.fn((res: any, msg: string, code?: string) => {
 const sendEntityNotFound = jest.fn((res: any, entity: string) => {
   res.status(404).json({ success: false, statusCode: 404, message: `${entity} not found.` });
 });
-const requirePublicAccess = jest.fn((_req: any, _res: any, _resource: any, _perm?: string) => true);
+const requireVisibilityWriteAccess = jest.fn((_req: any, _res: any, _resource: any, _perm?: string) => true);
 const sendSuccess = jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
   const response: any = { success: true, statusCode };
   if (data !== undefined) response.data = data;
@@ -37,7 +37,7 @@ const sendSuccess = jest.fn((res: any, statusCode: number, data?: any, message?:
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
-  requirePublicAccess,
+  requireVisibilityWriteAccess,
   sendSuccess,
   sendBadRequest,
   sendEntityNotFound,
@@ -118,7 +118,7 @@ const existingPlugin = {
   name: 'test-plugin',
   version: '1.0.0',
   orgId: 'org-1',
-  accessModifier: 'private',
+  visibility: 'private',
   isActive: false,
   isDefault: false,
 };
@@ -160,7 +160,7 @@ describe('POST /plugins/:id/purge (purge)', () => {
         details: expect.objectContaining({
           pluginName: 'test-plugin',
           version: '1.0.0',
-          accessModifier: 'private',
+          visibility: 'private',
         }),
       }),
     );
@@ -205,17 +205,18 @@ describe('POST /plugins/:id/purge (purge)', () => {
   });
 
   it('returns 403 (publish gate) when a non-publisher purges a PUBLIC tombstone', async () => {
-    mockFindDeletedById.mockResolvedValue({ ...existingPlugin, accessModifier: 'public' });
-    requirePublicAccess.mockReturnValueOnce(false);
+    mockFindDeletedById.mockResolvedValue({ ...existingPlugin, visibility: 'public' });
+    requireVisibilityWriteAccess.mockReturnValueOnce(false);
 
     const req = mockReq();
     const res = mockRes();
     await handler(req, res);
 
-    expect(requirePublicAccess).toHaveBeenCalledWith(
+    expect(requireVisibilityWriteAccess).toHaveBeenCalledWith(
       req,
       res,
-      expect.objectContaining({ accessModifier: 'public' }),
+      expect.objectContaining({ visibility: 'public' }),
+      'user-1',
       'plugins:publish',
     );
     expect(mockPurgeById).not.toHaveBeenCalled();

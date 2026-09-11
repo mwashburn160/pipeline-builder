@@ -14,9 +14,14 @@
  * (spies it asserts on, a bespoke error class, a stateful cache, etc.).
  */
 import { jest } from '@jest/globals';
+import { z } from 'zod';
 
 /** No-op guard: the mock covers route wiring, not the auth/permission gate. */
 const passThroughMiddleware = (_req: unknown, _res: unknown, next: () => void) => next();
+
+/** Real zod enum so route modules that build `z.object({ visibility: VisibilitySchema… })`
+ *  at load time link against the mock (mirrors api-core's `VisibilitySchema`). */
+const VisibilitySchema = z.enum(['private', 'org', 'public']);
 
 /** The 4-method logger stub every suite repeats; a fresh set of spies per call. */
 export const loggerMock = () => ({
@@ -56,6 +61,7 @@ class ValidationError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    VisibilitySchema,
     MAX_PAGE_LIMIT: 1000,
     DEFAULT_PAGE_LIMIT: 100,
     closeLeaderLock: async () => undefined,
@@ -66,7 +72,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // (full route graph) resolves them without re-stubbing each one. Suites that
     // assert on responses still override these (overrides spread last).
     /* eslint-disable @typescript-eslint/no-explicit-any */
-    requirePublicAccess: () => passThroughMiddleware,
+    requireVisibilityWriteAccess: () => passThroughMiddleware,
     sendSuccess: (res: any, statusCode: number, data?: unknown) => res.status(statusCode).json({ success: true, statusCode, data }),
     sendBadRequest: (res: any, message: string) => res.status(400).json({ success: false, message }),
     sendError: (res: any, statusCode: number, message: string) => res.status(statusCode).json({ success: false, message }),
@@ -79,7 +85,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     createEnvRedisLock: () => null,
     requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
     SYSTEM_ORG_ID: '000000000000000000000001',
-    AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
+
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,

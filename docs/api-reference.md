@@ -156,7 +156,7 @@ The full permission catalog (`pipelines:write`, `pipelines:publish`, `plugins:pu
 | `offset` | int | `0` | Records to skip |
 | `sortBy` | string | `createdAt` | Sort field |
 | `sortOrder` | `asc`/`desc` | `desc` | Sort direction |
-| `accessModifier` | `public`/`private` | — | Filter by visibility |
+| `visibility` | `private`/`org`/`public` | — | Narrow to one sharing rung (within what you can already see) |
 | `isActive` | boolean | — | Filter by active status |
 | `isDefault` | boolean | — | Filter by default status |
 
@@ -173,7 +173,7 @@ curl -X POST https://localhost:8443/api/plugins \
   -H "Authorization: Bearer $TOKEN" \
   -H "x-org-id: $ORG_ID" \
   -F "plugin=@./my-plugin.zip" \
-  -F "accessModifier=private"
+  -F "visibility=private"
 ```
 
 **List / Find:**
@@ -214,7 +214,7 @@ curl -X POST https://localhost:8443/api/pipelines \
     "project": "my-app",
     "organization": "my-org",
     "pipelineName": "my-app-pipeline",
-    "accessModifier": "private",
+    "visibility": "private",
     "props": {
       "project": "my-app",
       "organization": "my-org",

@@ -102,7 +102,7 @@ export function createReadPipelineRoutes(
 
     // findById applies the READ access clause (own private + public + system-org
     // samples), so no extra public-access gate is needed here — and adding one
-    // would 403 non-sysadmins on the system-org sample pipelines that list
+    // would 403 non-sysadmins on the system-org public pipelines that list
     // returns (system-org content is visible from any org).
     // Org → team hierarchy: also fetch the parent's public pipelines by id
     // (mirrors the list path). No-op for root orgs (claim absent).

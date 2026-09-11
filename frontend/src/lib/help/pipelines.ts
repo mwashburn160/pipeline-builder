@@ -72,7 +72,7 @@ pipeline-manager pipeline create --file ./pipeline-props.json --project my-app -
     "project": "my-app",
     "organization": "my-org",
     "pipelineName": "my-app-pipeline",
-    "accessModifier": "private",
+    "visibility": "private",
     "props": { ... }
   }'`,
         },

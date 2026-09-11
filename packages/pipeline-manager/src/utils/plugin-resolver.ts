@@ -80,7 +80,7 @@ export async function resolvePluginsForProps(
     const key = cacheKey(ref);
     // The plugin NAME lives on the ref (a sibling of `filter`), NOT inside the
     // filter object — but the lookup matches on the filter. A filter without
-    // `name` (e.g. `{version, accessModifier, isActive, isDefault}`) matches ANY
+    // `name` (e.g. `{version, visibility, isActive, isDefault}`) matches ANY
     // plugin with those attributes, and the endpoint returns an arbitrary one
     // (seen: `dockerfile-multi-provider`). That made the synth and every step
     // resolve to the WRONG plugin. So when the filter omits `name`, fall back to

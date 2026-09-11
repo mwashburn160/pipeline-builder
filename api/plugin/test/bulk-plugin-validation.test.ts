@@ -32,7 +32,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn((res: any, status: number, data: any) =>
     res.status(status).json({ success: true, statusCode: status, data })),
   // Admins/owners keep 'public'; everyone else is coerced to 'private'.
-  resolveAccessModifier: (req: any, requested: string) =>
+  resolveVisibility: (req: any, requested: string) =>
     (requested === 'public' && (req?.user?.role === 'admin' || req?.user?.role === 'owner')) ? 'public' : 'private',
   isSystemAdmin: (req: any) => req?.user?.isSuperAdmin === true,
 }));

@@ -8,6 +8,8 @@ export * from './compliance-client.js';
 export * from './compliance-event-subscriber.js';
 export * from './entity-events.js';
 export * from './http-client.js';
+export * from './circuit-breaker.js';
+export * from './durable-event-bus.js';
 export {
   DEFAULT_MAX_RETRIES,
   DEFAULT_RETRY_DELAY_MS,

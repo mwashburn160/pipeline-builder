@@ -45,6 +45,70 @@ importers:
         specifier: npm:@typescript/typescript6@^6.0.2
         version: '@typescript/typescript6@6.0.2'
 
+  api/ask:
+    dependencies:
+      '@pipeline-builder/ai-core':
+        specifier: workspace:*
+        version: link:../../packages/ai-core
+      '@pipeline-builder/api-core':
+        specifier: workspace:*
+        version: link:../../packages/api-core
+      '@pipeline-builder/api-server':
+        specifier: workspace:*
+        version: link:../../packages/api-server
+      '@pipeline-builder/pipeline-core':
+        specifier: workspace:*
+        version: link:../../packages/pipeline-core
+      express:
+        specifier: 5.2.1
+        version: 5.2.1
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@jest/globals':
+        specifier: 30.4.1
+        version: 30.4.1
+      '@stylistic/eslint-plugin':
+        specifier: ^2
+        version: 2.13.0(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@2.7.0))
+      '@types/express':
+        specifier: 5.0.6
+        version: 5.0.6
+      '@types/node':
+        specifier: 26.1.2
+        version: 26.1.2
+      '@typescript-eslint/eslint-plugin':
+        specifier: ^8
+        version: 8.58.2(@typescript-eslint/parser@8.58.2(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@2.7.0)))(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@2.7.0))
+      '@typescript-eslint/parser':
+        specifier: ^8
+        version: 8.58.2(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@2.7.0))
+      '@typescript/native':
+        specifier: npm:typescript@^7.0.2
+        version: typescript@7.0.2
+      eslint:
+        specifier: ^9
+        version: 9.39.4(jiti@2.7.0)
+      eslint-import-resolver-typescript:
+        specifier: ^4.4.4
+        version: 4.4.4(eslint-plugin-import@2.32.0)(eslint@9.39.4(jiti@2.7.0))
+      eslint-plugin-import:
+        specifier: ^2.32.0
+        version: 2.32.0(@typescript-eslint/parser@8.58.2(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@2.7.0)))(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.4(jiti@2.7.0))
+      jest:
+        specifier: 30.4.2
+        version: 30.4.2(@types/node@26.1.2)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.2(@swc/core@1.15.26)(@types/node@26.1.2)(@typescript/typescript6@6.0.2))
+      jest-junit:
+        specifier: ^17
+        version: 17.0.0
+      ts-jest:
+        specifier: 29.4.12
+        version: 29.4.12(@babel/core@7.29.0)(@jest/transform@30.4.1)(@jest/types@30.4.1)(@typescript/typescript6@6.0.2)(babel-jest@30.4.1(@babel/core@7.29.0))(esbuild@0.28.0)(jest-util@30.4.1)(jest@30.4.2(@types/node@26.1.2)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.2(@swc/core@1.15.26)(@types/node@26.1.2)(@typescript/typescript6@6.0.2)))
+      typescript:
+        specifier: npm:@typescript/typescript6@^6.0.2
+        version: '@typescript/typescript6@6.0.2'
+
   api/billing:
     dependencies:
       '@aws-sdk/client-marketplace-entitlement-service':
@@ -873,29 +937,29 @@ importers:
   packages/ai-core:
     dependencies:
       '@ai-sdk/amazon-bedrock':
-        specifier: 5.0.40
-        version: 5.0.40(zod@4.4.3)
+        specifier: 5.0.62
+        version: 5.0.62(zod@4.4.3)
       '@ai-sdk/anthropic':
-        specifier: 4.0.27
-        version: 4.0.27(zod@4.4.3)
+        specifier: 4.0.42
+        version: 4.0.42(zod@4.4.3)
       '@ai-sdk/google':
-        specifier: 4.0.31
-        version: 4.0.31(zod@4.4.3)
+        specifier: 4.0.51
+        version: 4.0.51(zod@4.4.3)
       '@ai-sdk/openai':
-        specifier: 4.0.27
-        version: 4.0.27(zod@4.4.3)
+        specifier: 4.0.47
+        version: 4.0.47(zod@4.4.3)
       '@ai-sdk/openai-compatible':
-        specifier: 3.0.20
-        version: 3.0.20(zod@4.4.3)
+        specifier: 3.0.37
+        version: 3.0.37(zod@4.4.3)
       '@ai-sdk/xai':
-        specifier: 4.0.25
-        version: 4.0.25(zod@4.4.3)
+        specifier: 4.0.44
+        version: 4.0.44(zod@4.4.3)
       '@pipeline-builder/api-core':
         specifier: workspace:*
         version: link:../api-core
       ai:
-        specifier: 7.0.48
-        version: 7.0.48(zod@4.4.3)
+        specifier: 7.0.79
+        version: 7.0.79(zod@4.4.3)
     devDependencies:
       '@jest/globals':
         specifier: 30.4.1
@@ -1578,54 +1642,54 @@ packages:
   '@adobe/css-tools@4.4.4':
     resolution: {integrity: sha512-Elp+iwUx5rN5+Y8xLt5/GRoG20WGoDCQ/1Fb+1LiGtvwbDavuSk0jhD/eZdckHAuzcDzccnkv+rEjyWfRx18gg==}
 
-  '@ai-sdk/amazon-bedrock@5.0.40':
-    resolution: {integrity: sha512-FUFGefo9+CAbVV3EK4NMtI5EynhFtVceamfQaGzQKBH5XBIfgxDLkp7qSWP0SYOZp4AIwsmneFyzK/yRYPWKbQ==}
+  '@ai-sdk/amazon-bedrock@5.0.62':
+    resolution: {integrity: sha512-WziLEQHX/kSDaXnUmBe3SsLH0d6yDvMDqJ9MEm/tY9PUBkbDY3h78/pty1cBsz2FntsZt+zpE94nRy8O0laQ+A==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/anthropic@4.0.27':
-    resolution: {integrity: sha512-ecrPWkYf+sHDLHErHAU/yjJfNevUzT0i6TuoQLb58oadnquSHcLQ5NMLLWjbr6d1rxYdzI7ftulIJ03VH9yM3w==}
+  '@ai-sdk/anthropic@4.0.42':
+    resolution: {integrity: sha512-U3RJDo2/rWdH6SjSbA2Owd30ZawKwt4zFTqteTTn6Po0vEW1ec1KXf6s1nwNE3mxCqKrQWEavU21C46AfGYaeg==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/gateway@4.0.37':
-    resolution: {integrity: sha512-YBCTsSlX0ETVsjo0ihfBOeJ3p3y1wXKXDzF9Ygp9dscUY06dzOGmyWJSGsKg+khKVArzBWUW4UCSAKms20ZDmg==}
+  '@ai-sdk/gateway@4.0.64':
+    resolution: {integrity: sha512-iayK1z11I0b3sgbP3j6eKQypfpwO5Fbtaq1Mkwv7YxwGQG1YTNr5QAjyYsSfqyf/58WUOLWz2cTBpk+ExZVgpw==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/google@4.0.31':
-    resolution: {integrity: sha512-AFyO4MuHryrzr/ZEMHm/dEXwqABqoi4yIa9cfZxfI4VYM+dyPeZIXU4/qjvxiD6vzbitQhYf1jutQL/d71bymw==}
+  '@ai-sdk/google@4.0.51':
+    resolution: {integrity: sha512-VAVXFtmMwrMDWgWzONew3yBFuE+ktfPJQn554+bOgUspNSMqIAm6PJRU6Mdd4M+4xCUAJi5H5tVtFF0+Je+Eog==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/openai-compatible@3.0.20':
-    resolution: {integrity: sha512-RsPg+HilsKc/d+jy4zItG7v7RJQm+caUu+iU0a5bx3eyyX5tkayMGDRklXMMMAPa4l34luzQwT3t4cmeHfdiWw==}
+  '@ai-sdk/openai-compatible@3.0.37':
+    resolution: {integrity: sha512-X9LfyiV73cyT89GSKCDUsCZ8nV6wZAn6elJJ4CzZF1WRdofBvAjWz5CL1VHj7jeR5ahiqsWml6X/B8vUDgiXtg==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/openai@4.0.27':
-    resolution: {integrity: sha512-6MsWnbNG0ZjZgzYimNNjnTAlOFXn+jdLMFB47dDVUsRNjxdUoTSduCQPZZeTKoUl0ZNwCjsJ31of49l/t1r9MA==}
+  '@ai-sdk/openai@4.0.47':
+    resolution: {integrity: sha512-5/Lm29x7Z+GvUuzW3Hj6WXIgcdU7rBlpmnZPRVIUh7dhLus021upunjzpteYaH5v+JBQKC+Fg6BkRYrazysgTQ==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/provider-utils@5.0.18':
-    resolution: {integrity: sha512-UBNCrkxS5llgN2/RXLBRkjCFTIuL6YB1Goq5c+yRecnznhtX4XPjTwLHz2hrsTltTVZ0rqVegtnwFXdPBkjDHA==}
+  '@ai-sdk/provider-utils@5.0.30':
+    resolution: {integrity: sha512-9TyxUXolql77ntHIeygLqt7PO1O0HZPB73cJhLG2OsPecSBRIZhNXLxT1T7rlL6Zpm1eDoLMFrMV99kAJ28/Sg==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/provider@4.0.4':
-    resolution: {integrity: sha512-tbHKNLirllUNF3ZlkCsXnwab2ZV1Sl4b1H/Cp9ruCce15IBmskE8Gwkk0yo9xDWY+jho2of7lVXtwSsyrq7cwQ==}
+  '@ai-sdk/provider@4.0.8':
+    resolution: {integrity: sha512-aWO7iwhFUGf347tCwNGggggfmZigaSu7TF739IZSrWWABUp7zkb4Cr3fMqvBe5EIS7ABJJu3Cadn0g/zs1G0QQ==}
     engines: {node: '>=22'}
 
-  '@ai-sdk/xai@4.0.25':
-    resolution: {integrity: sha512-kAdim8ZwIMldYc3SD1d3MVz+rOsa5oh4YOoaUR3UqXS5rmyVwrOsZqccBfh+PMWiGiP2pvflp61SE39ieJRbsw==}
+  '@ai-sdk/xai@4.0.44':
+    resolution: {integrity: sha512-WVKPjUjpD+liN5wIA8jYnempxRLfdsRq6b4krnVYYTiGUomJ4D0t0htX9IxxZbhQfaDgf+ugaLg0xSZ5AKfEBA==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -5116,8 +5180,8 @@ packages:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
 
-  ai@7.0.48:
-    resolution: {integrity: sha512-QmqshWFEDdkFFqSgdJ4cogaoDIYaedqbv73q/NXEYNkSIocJCzXnGFVyM9lrtAGTSBfm+5hq3/292ooXJ1jDSw==}
+  ai@7.0.79:
+    resolution: {integrity: sha512-zZkSUq6MgmXjwIfML2wkPFeQ5Azk8kGEWkciAtE0NgnFy3slj4ljsw5LvigsCbYXxTSVr+6iCHBTPZafpx1P0w==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -8731,66 +8795,65 @@ snapshots:
 
   '@adobe/css-tools@4.4.4': {}
 
-  '@ai-sdk/amazon-bedrock@5.0.40(zod@4.4.3)':
+  '@ai-sdk/amazon-bedrock@5.0.62(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/anthropic': 4.0.27(zod@4.4.3)
-      '@ai-sdk/openai': 4.0.27(zod@4.4.3)
-      '@ai-sdk/provider': 4.0.4
-      '@ai-sdk/provider-utils': 5.0.18(zod@4.4.3)
+      '@ai-sdk/anthropic': 4.0.42(zod@4.4.3)
+      '@ai-sdk/openai': 4.0.47(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.8
+      '@ai-sdk/provider-utils': 5.0.30(zod@4.4.3)
       '@smithy/eventstream-codec': 4.4.10
       '@smithy/util-utf8': 4.4.10
       aws4fetch: 1.0.20
       zod: 4.4.3
 
-  '@ai-sdk/anthropic@4.0.27(zod@4.4.3)':
+  '@ai-sdk/anthropic@4.0.42(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/provider': 4.0.4
-      '@ai-sdk/provider-utils': 5.0.18(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.8
+      '@ai-sdk/provider-utils': 5.0.30(zod@4.4.3)
       zod: 4.4.3
 
-  '@ai-sdk/gateway@4.0.37(zod@4.4.3)':
+  '@ai-sdk/gateway@4.0.64(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/provider': 4.0.4
-      '@ai-sdk/provider-utils': 5.0.18(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.8
+      '@ai-sdk/provider-utils': 5.0.30(zod@4.4.3)
       '@vercel/oidc': 3.2.0
       zod: 4.4.3
 
-  '@ai-sdk/google@4.0.31(zod@4.4.3)':
+  '@ai-sdk/google@4.0.51(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/provider': 4.0.4
-      '@ai-sdk/provider-utils': 5.0.18(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.8
+      '@ai-sdk/provider-utils': 5.0.30(zod@4.4.3)
       zod: 4.4.3
 
-  '@ai-sdk/openai-compatible@3.0.20(zod@4.4.3)':
+  '@ai-sdk/openai-compatible@3.0.37(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/provider': 4.0.4
-      '@ai-sdk/provider-utils': 5.0.18(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.8
+      '@ai-sdk/provider-utils': 5.0.30(zod@4.4.3)
       zod: 4.4.3
 
-  '@ai-sdk/openai@4.0.27(zod@4.4.3)':
+  '@ai-sdk/openai@4.0.47(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/provider': 4.0.4
-      '@ai-sdk/provider-utils': 5.0.18(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.8
+      '@ai-sdk/provider-utils': 5.0.30(zod@4.4.3)
       zod: 4.4.3
 
-  '@ai-sdk/provider-utils@5.0.18(zod@4.4.3)':
+  '@ai-sdk/provider-utils@5.0.30(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/provider': 4.0.4
+      '@ai-sdk/provider': 4.0.8
       '@standard-schema/spec': 1.1.0
       '@workflow/serde': 4.1.0
       eventsource-parser: 3.1.0
       undici: 7.29.0
       zod: 4.4.3
 
-  '@ai-sdk/provider@4.0.4':
+  '@ai-sdk/provider@4.0.8':
     dependencies:
       json-schema: 0.4.0
 
-  '@ai-sdk/xai@4.0.25(zod@4.4.3)':
+  '@ai-sdk/xai@4.0.44(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/openai-compatible': 3.0.20(zod@4.4.3)
-      '@ai-sdk/provider': 4.0.4
-      '@ai-sdk/provider-utils': 5.0.18(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.8
+      '@ai-sdk/provider-utils': 5.0.30(zod@4.4.3)
       zod: 4.4.3
 
   '@alloc/quick-lru@5.2.0': {}
@@ -10436,7 +10499,7 @@ snapshots:
   '@jest/console@30.4.1':
     dependencies:
       '@jest/types': 30.4.1
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       chalk: 4.1.2
       jest-message-util: 30.4.1
       jest-util: 30.4.1
@@ -10450,7 +10513,7 @@ snapshots:
       '@jest/test-result': 30.4.1
       '@jest/transform': 30.4.1
       '@jest/types': 30.4.1
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       ansi-escapes: 4.3.2
       chalk: 4.1.2
       ci-info: 4.4.0
@@ -10458,7 +10521,7 @@ snapshots:
       fast-json-stable-stringify: 2.1.0
       graceful-fs: 4.2.11
       jest-changed-files: 30.4.1
-      jest-config: 30.4.2(@types/node@26.1.2)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.2(@swc/core@1.15.26)(@types/node@24.12.2)(@typescript/typescript6@6.0.2))
+      jest-config: 30.4.2(@types/node@24.12.2)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.2(@swc/core@1.15.26)(@types/node@24.12.2)(@typescript/typescript6@6.0.2))
       jest-haste-map: 30.4.1
       jest-message-util: 30.4.1
       jest-regex-util: 30.4.0
@@ -10486,7 +10549,7 @@ snapshots:
       '@jest/test-result': 30.4.1
       '@jest/transform': 30.4.1
       '@jest/types': 30.4.1
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       ansi-escapes: 4.3.2
       chalk: 4.1.2
       ci-info: 4.4.0
@@ -10494,7 +10557,7 @@ snapshots:
       fast-json-stable-stringify: 2.1.0
       graceful-fs: 4.2.11
       jest-changed-files: 30.4.1
-      jest-config: 30.4.2(@types/node@26.1.2)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.2(@swc/core@1.15.26)(@types/node@26.1.2)(@typescript/typescript6@6.0.2))
+      jest-config: 30.4.2(@types/node@24.12.2)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.2(@swc/core@1.15.26)(@types/node@26.1.2)(@typescript/typescript6@6.0.2))
       jest-haste-map: 30.4.1
       jest-message-util: 30.4.1
       jest-regex-util: 30.4.0
@@ -10524,7 +10587,7 @@ snapshots:
       '@jest/fake-timers': 30.4.1
       '@jest/types': 30.4.1
       '@types/jsdom': 21.1.7
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       jest-mock: 30.4.1
       jest-util: 30.4.1
       jsdom: 26.1.0
@@ -10533,7 +10596,7 @@ snapshots:
     dependencies:
       '@jest/fake-timers': 30.4.1
       '@jest/types': 30.4.1
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       jest-mock: 30.4.1
 
   '@jest/expect-utils@30.4.1':
@@ -10551,7 +10614,7 @@ snapshots:
     dependencies:
       '@jest/types': 30.4.1
       '@sinonjs/fake-timers': 15.4.0
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       jest-message-util: 30.4.1
       jest-mock: 30.4.1
       jest-util: 30.4.1
@@ -10569,7 +10632,7 @@ snapshots:
 
   '@jest/pattern@30.4.0':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       jest-regex-util: 30.4.0
 
   '@jest/reporters@30.4.1':
@@ -10580,7 +10643,7 @@ snapshots:
       '@jest/transform': 30.4.1
       '@jest/types': 30.4.1
       '@jridgewell/trace-mapping': 0.3.31
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       chalk: 4.1.2
       collect-v8-coverage: 1.0.3
       exit-x: 0.2.2
@@ -10656,7 +10719,7 @@ snapshots:
       '@jest/schemas': 30.4.1
       '@types/istanbul-lib-coverage': 2.0.6
       '@types/istanbul-reports': 3.0.4
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       '@types/yargs': 17.0.35
       chalk: 4.1.2
 
@@ -12174,7 +12237,7 @@ snapshots:
 
   '@types/adm-zip@0.5.8':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@types/aria-query@5.0.4': {}
 
@@ -12204,30 +12267,30 @@ snapshots:
   '@types/body-parser@1.19.6':
     dependencies:
       '@types/connect': 3.4.38
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@types/bunyan@1.8.11':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@types/compression@1.8.1':
     dependencies:
       '@types/express': 5.0.6
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@types/connect@3.4.38':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@types/cors@2.8.19':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@types/estree@1.0.8': {}
 
   '@types/express-serve-static-core@5.1.3':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       '@types/qs': 6.15.0
       '@types/range-parser': 1.2.7
       '@types/send': 1.2.1
@@ -12254,7 +12317,7 @@ snapshots:
 
   '@types/jsdom@21.1.7':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       '@types/tough-cookie': 4.0.5
       parse5: 7.3.0
 
@@ -12265,11 +12328,11 @@ snapshots:
   '@types/jsonwebtoken@9.0.10':
     dependencies:
       '@types/ms': 2.1.0
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@types/memcached@2.2.10':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@types/ms@2.1.0': {}
 
@@ -12279,7 +12342,7 @@ snapshots:
 
   '@types/mysql@2.15.27':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@types/node@16.9.1': {}
 
@@ -12293,11 +12356,11 @@ snapshots:
 
   '@types/nodemailer@8.0.1':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@types/oracledb@6.5.2':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@types/parse-json@4.0.2': {}
 
@@ -12307,19 +12370,19 @@ snapshots:
 
   '@types/pg@8.15.6':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       pg-protocol: 1.15.0
       pg-types: 2.2.0
 
   '@types/pg@8.20.3':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       pg-protocol: 1.15.0
       pg-types: 2.2.0
 
   '@types/progress@2.0.7':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@types/qs@6.15.0': {}
 
@@ -12335,12 +12398,12 @@ snapshots:
 
   '@types/send@1.2.1':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@types/serve-static@2.2.0':
     dependencies:
       '@types/http-errors': 2.0.5
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@types/stack-utils@2.0.3': {}
 
@@ -12351,7 +12414,7 @@ snapshots:
 
   '@types/tedious@4.0.14':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@types/tough-cookie@4.0.5': {}
 
@@ -12365,7 +12428,7 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@types/yargs-parser@21.0.3': {}
 
@@ -12375,7 +12438,7 @@ snapshots:
 
   '@types/yauzl@3.4.0':
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
 
   '@typescript-eslint/eslint-plugin@8.58.2(@typescript-eslint/parser@8.58.2(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@2.7.0)))(@typescript/typescript6@6.0.2)(eslint@9.39.4(jiti@2.7.0))':
     dependencies:
@@ -12638,11 +12701,11 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  ai@7.0.48(zod@4.4.3):
+  ai@7.0.79(zod@4.4.3):
     dependencies:
-      '@ai-sdk/gateway': 4.0.37(zod@4.4.3)
-      '@ai-sdk/provider': 4.0.4
-      '@ai-sdk/provider-utils': 5.0.18(zod@4.4.3)
+      '@ai-sdk/gateway': 4.0.64(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.8
+      '@ai-sdk/provider-utils': 5.0.30(zod@4.4.3)
       zod: 4.4.3
 
   ajv@6.14.0:
@@ -14414,7 +14477,7 @@ snapshots:
       '@jest/expect': 30.4.1
       '@jest/test-result': 30.4.1
       '@jest/types': 30.4.1
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       chalk: 4.1.2
       co: 4.6.0
       dedent: 1.7.2(babel-plugin-macros@3.1.0)
@@ -14505,7 +14568,7 @@ snapshots:
       - babel-plugin-macros
       - supports-color
 
-  jest-config@30.4.2(@types/node@26.1.2)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.2(@swc/core@1.15.26)(@types/node@24.12.2)(@typescript/typescript6@6.0.2)):
+  jest-config@30.4.2(@types/node@24.12.2)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.28.0))(ts-node@10.9.2(@swc/core@1.15.26)(@types/node@26.1.2)(@typescript/typescript6@6.0.2)):
     dependencies:
       '@babel/core': 7.29.0
       '@jest/get-type': 30.1.0
@@ -14531,9 +14594,9 @@ snapshots:
       slash: 3.0.0
       strip-json-comments: 3.1.1
     optionalDependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       esbuild-register: 3.6.0(esbuild@0.28.0)
-      ts-node: 10.9.2(@swc/core@1.15.26)(@types/node@24.12.2)(@typescript/typescript6@6.0.2)
+      ts-node: 10.9.2(@swc/core@1.15.26)(@types/node@26.1.2)(@typescript/typescript6@6.0.2)
     transitivePeerDependencies:
       - babel-plugin-macros
       - supports-color
@@ -14605,7 +14668,7 @@ snapshots:
       '@jest/environment': 30.4.1
       '@jest/fake-timers': 30.4.1
       '@jest/types': 30.4.1
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       jest-mock: 30.4.1
       jest-util: 30.4.1
       jest-validate: 30.4.1
@@ -14613,7 +14676,7 @@ snapshots:
   jest-haste-map@30.4.1:
     dependencies:
       '@jest/types': 30.4.1
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       anymatch: 3.1.3
       fb-watchman: 2.0.2
       graceful-fs: 4.2.11
@@ -14660,7 +14723,7 @@ snapshots:
   jest-mock@30.4.1:
     dependencies:
       '@jest/types': 30.4.1
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       jest-util: 30.4.1
 
   jest-pnp-resolver@1.2.3(jest-resolve@30.4.1):
@@ -14694,7 +14757,7 @@ snapshots:
       '@jest/test-result': 30.4.1
       '@jest/transform': 30.4.1
       '@jest/types': 30.4.1
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       chalk: 4.1.2
       emittery: 0.13.1
       exit-x: 0.2.2
@@ -14723,7 +14786,7 @@ snapshots:
       '@jest/test-result': 30.4.1
       '@jest/transform': 30.4.1
       '@jest/types': 30.4.1
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       chalk: 4.1.2
       cjs-module-lexer: 2.2.0
       collect-v8-coverage: 1.0.3
@@ -14770,7 +14833,7 @@ snapshots:
   jest-util@30.4.1:
     dependencies:
       '@jest/types': 30.4.1
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       chalk: 4.1.2
       ci-info: 4.4.0
       graceful-fs: 4.2.11
@@ -14789,7 +14852,7 @@ snapshots:
     dependencies:
       '@jest/test-result': 30.4.1
       '@jest/types': 30.4.1
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       ansi-escapes: 4.3.2
       chalk: 4.1.2
       emittery: 0.13.1
@@ -14798,7 +14861,7 @@ snapshots:
 
   jest-worker@30.4.1:
     dependencies:
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       '@ungap/structured-clone': 1.3.0
       jest-util: 30.4.1
       merge-stream: 2.0.0
@@ -15834,7 +15897,7 @@ snapshots:
       '@protobufjs/path': 1.1.2
       '@protobufjs/pool': 1.1.0
       '@protobufjs/utf8': 1.1.0
-      '@types/node': 26.1.2
+      '@types/node': 24.12.2
       long: 5.3.2
 
   proxy-addr@2.0.7:

@@ -12,10 +12,10 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
-import type { BuilderProps, TemplateInput } from '@/types';
+import type { BuilderProps, TemplateInput, TemplateVisibility } from '@/types';
 
 interface ImportTemplateModalProps {
-  /** `pipelines:publish` — required to import a PUBLIC template. */
+  /** `templates:publish` — required to import a PUBLIC template. */
   canPublish: boolean;
   onClose: () => void;
   onImported: () => void;
@@ -28,7 +28,7 @@ interface ImportedTemplate {
   description?: string;
   keywords?: string[];
   category?: string;
-  accessModifier?: 'public' | 'private';
+  visibility?: TemplateVisibility;
   props?: BuilderProps;
   inputs?: TemplateInput[];
 }
@@ -75,9 +75,14 @@ export function ImportTemplateModal({ canPublish, onClose, onImported }: ImportT
     if (!parsed.name?.trim()) { setError('Template JSON is missing a "name".'); return; }
     if (!parsed.props || typeof parsed.props !== 'object') { setError('Template JSON is missing a "props" (BuilderProps) object.'); return; }
 
-    // Public requires pipelines:publish — downgrade to private otherwise so the
-    // import doesn't hard-fail on a permission the operator can't grant here.
-    const access: 'public' | 'private' = parsed.accessModifier === 'public' && canPublish ? 'public' : 'private';
+    // Public requires templates:publish — clamp to `org` otherwise so the import
+    // doesn't hard-fail on a permission the operator can't grant here, while
+    // still honoring the export's intent to SHARE it. Anything else (including an
+    // absent value) imports at the rung it names, defaulting to a private draft.
+    const requested = parsed.visibility;
+    const visibility: TemplateVisibility = requested === 'public'
+      ? (canPublish ? 'public' : 'org')
+      : (requested === 'org' ? 'org' : 'private');
 
     setSaving(true);
     try {
@@ -86,12 +91,12 @@ export function ImportTemplateModal({ canPublish, onClose, onImported }: ImportT
         description: parsed.description?.trim() || undefined,
         keywords: Array.isArray(parsed.keywords) ? parsed.keywords.filter((k) => typeof k === 'string') : undefined,
         category: parsed.category?.trim() || 'general',
-        accessModifier: access,
+        visibility,
         props: parsed.props,
         inputs: Array.isArray(parsed.inputs) ? parsed.inputs : [],
       });
       if (res.success) {
-        const note = parsed.accessModifier === 'public' && !canPublish ? ' (imported as private — publishing needs pipelines:publish)' : '';
+        const note = requested === 'public' && !canPublish ? ' (imported as org-shared — publishing needs templates:publish)' : '';
         setSuccess(`Template "${parsed.name.trim()}" imported${note}.`);
         onImported();
         setTimeout(() => { if (mountedRef.current) onClose(); }, 1500);

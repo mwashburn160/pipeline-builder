@@ -66,7 +66,7 @@ jobs:
       - name: Affected projects and images
         id: affected
         env:
-          IMAGE_PROJECTS: '["frontend","platform","billing","reporting","compliance","quota","message","pipeline","plugin","image-registry"]'
+          IMAGE_PROJECTS: '["frontend","platform","billing","reporting","compliance","quota","message","pipeline","plugin","image-registry","ask"]'
         run: AFFECTED=$(pnpm nx show projects --affected --json --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }}) && echo AFFECTED_PROJECTS=$AFFECTED >> $GITHUB_OUTPUT && echo AFFECTED_IMAGES=$(jq -nc --argjson a "$AFFECTED" --argjson l "$IMAGE_PROJECTS" '[$a[] | select(IN($l[]))]') >> $GITHUB_OUTPUT
       - name: Affected details
         run: echo AFFECTED_PROJECTS=${{ steps.affected.outputs.AFFECTED_PROJECTS }} && echo AFFECTED_IMAGES=${{ steps.affected.outputs.AFFECTED_IMAGES }}
@@ -129,6 +129,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GHRC_TOKEN }}
         run: pnpm nx affected --target build --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose
+      - name: Run test target
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHRC_TOKEN }}
+        run: pnpm nx affected --target test --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose
       - name: Semantic version
         env:
           GITHUB_TOKEN: ${{ secrets.GHRC_TOKEN }}
@@ -164,9 +168,6 @@ jobs:
           include-hidden-files: true
       - name: Push new tag to the repository
         run: git push --follow-tags
-      - name: Build complete
-        if: ${{ success() }}
-        run: 'echo $(git rev-parse HEAD) > .nx_base && git add .nx_base && git commit -m "chore: updated last successfully built commit" && git push'
   publish:
     name: publish image
     needs:
@@ -176,7 +177,8 @@ jobs:
     permissions:
       actions: read
       contents: write
-      packages: read
+      packages: write
+      id-token: write
     if: ${{ needs.init.outputs.AFFECTED_IMAGES != '[]' }}
     steps:
       - name: Disable Nx telemetry and daemon
@@ -254,6 +256,15 @@ jobs:
           REGISTRY: ghcr.io/mwashburn160
           PROJECT_NAME: ${{ matrix.project_name }}
         run: pnpm nx run ${PROJECT_NAME}:docker:verify --verbose
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+      - name: Install syft (SBOM generator)
+        uses: anchore/sbom-action/download-syft@v0
+      - name: Sign image + attach SBOM (keyless)
+        env:
+          PROJECT_NAME: ${{ matrix.project_name }}
+          COSIGN_YES: "true"
+        run: set -euo pipefail && PROJ_DIR=$(pnpm nx show project ${PROJECT_NAME} --json | jq -r .root) && VERSION=$(jq -r .version "$PROJ_DIR/package.json") && REF="ghcr.io/mwashburn160/${PROJECT_NAME}:${VERSION}" && DIGEST=$(docker buildx imagetools inspect "$REF" --format '{{ .Manifest.Digest }}') && IMG="ghcr.io/mwashburn160/${PROJECT_NAME}@${DIGEST}" && echo "Signing $IMG" && cosign sign --yes "$IMG" && syft "$IMG" -o spdx-json=sbom.spdx.json && cosign attest --yes --predicate sbom.spdx.json --type spdxjson "$IMG"
     strategy:
       max-parallel: 4
       fail-fast: false
@@ -280,3 +291,24 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GHRC_TOKEN }}
           GHCR_USER: ${{ github.actor }}
         run: bash deploy/bin/verify-image-tags.sh
+  record_build:
+    name: record build
+    needs:
+      - init
+      - build
+      - publish
+      - verify_release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: ${{ always() && needs.build.result == 'success' && needs.publish.result != 'failure' && needs.publish.result != 'cancelled' && needs.verify_release.result == 'success' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Set git user
+        run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
+      - name: Advance .nx_base to the released HEAD
+        run: 'git pull --ff-only origin main && echo $(git rev-parse HEAD) > .nx_base && git add .nx_base && git commit -m "chore: updated last successfully built commit" && git push'
