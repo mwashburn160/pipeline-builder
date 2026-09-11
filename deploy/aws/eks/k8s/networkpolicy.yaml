@@ -16,6 +16,35 @@ spec:
 
 ---
 # =============================================================================
+# Istio ambient HBONE tunnel port — every ztunnel-to-ztunnel connection tunnels
+# through port 15008 on the DESTINATION pod, regardless of the app's real port
+# (e.g. a client reaching mongodb:27017 actually opens dst port 15008 at the L3/
+# NetworkPolicy layer; ztunnel unwraps HBONE and forwards to 27017 internally).
+# Every allow-*-ingress policy below only lists the app's REAL port, so on a CNI
+# that enforces NetworkPolicy (this file is a no-op otherwise — see the note
+# above), default-deny-ingress silently blocks ALL ambient mesh traffic
+# cluster-wide. ztunnel's own access log names this exact failure mode:
+# "connection timed out, maybe a NetworkPolicy is blocking HBONE port 15008".
+# WHO can talk to WHOM is already enforced by the Istio AuthorizationPolicies in
+# istio.yaml — this only needs to stop blocking the tunnel transport itself, so
+# it's scoped to same-namespace pods, not opened to the world.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ambient-hbone
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - port: 15008
+
+---
+# =============================================================================
 # Nginx Gateway — ingress from anywhere (NodePort entry point)
 # =============================================================================
 apiVersion: networking.k8s.io/v1

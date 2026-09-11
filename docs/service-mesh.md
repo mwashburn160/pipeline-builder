@@ -3,16 +3,21 @@
 Pipeline Builder runs an **Istio ambient (sidecar-less) service mesh** on every
 deploy target — `deploy/local/minikube`, `deploy/aws/ec2`, and `deploy/aws/eks`.
 It provides **STRICT mutual TLS** and **identity-based L4 authorization** between
-every service, closing the gap left by the Kubernetes `NetworkPolicy` /
-`CiliumNetworkPolicy` files (which are unenforced on all three targets — no
-Cilium controller is installed and the minikube substrates use the default
-bridge CNI).
+every service. The `CiliumNetworkPolicy` files are unenforced (no Cilium
+controller is installed), but the standard Kubernetes `NetworkPolicy` files CAN
+be enforced — minikube's `kindnet` CNI enforces them (an `inet
+kindnet-network-policies` nftables table), as does the EKS VPC CNI. Because every
+ambient connection reaches the destination pod on the HBONE port `15008` rather
+than the app's port, each target's `networkpolicy.yaml` carries an
+`allow-ambient-hbone` policy; without it `default-deny-ingress` silently drops
+all mesh traffic (ztunnel logs "maybe a NetworkPolicy is blocking HBONE port
+15008").
 
 > **TL;DR** — All east-west traffic inside the `pipeline-builder` namespace is
 > mTLS-encrypted and authorized by SPIFFE identity. The only plaintext hops are
 > the intentional ingress edge (the ALB / nginx TLS listener) and two PERMISSIVE
 > carve-outs. The mesh is the real enforcement layer; the NetworkPolicy files are
-> best-effort defense-in-depth for the day a CNI enforces them.
+> defense-in-depth where the CNI enforces them (minikube kindnet, EKS VPC CNI).
 
 ## Why ambient (not sidecars)
 
