@@ -539,15 +539,26 @@ export class Workflow extends Component {
                 {
                     name: 'Checkout repository',
                     uses: 'actions/checkout@v6',
+                    // `build` bumps versions via `nx release` and pushes that commit
+                    // mid-run, so the dispatch SHA is already stale by the time this
+                    // job starts. Pin `main` (as every other release job does) so the
+                    // gate verifies the tree the release actually produced.
+                    with: {
+                        ref: 'main',
+                        'fetch-depth': 0,
+                    },
                 },
                 {
                     name: 'Verify published npm package deps resolve',
                     run: 'bash deploy/bin/verify-npm-deps.sh',
                 },
                 {
-                    name: 'Verify deploy image tags are published on ghcr.io',
+                    name: 'Verify deploy image tags are publicly pullable from ghcr.io',
                     run: 'bash deploy/bin/verify-image-tags.sh',
-                    // Authenticate the GHCR token endpoint to dodge anonymous rate limits.
+                    // The verdict comes from an ANONYMOUS probe — deploy/ pulls these
+                    // images with no registry login, so "exists" is not the contract,
+                    // "public" is. The token below only CLASSIFIES a failure ("private"
+                    // vs "never published"); it cannot make a private image pass.
                     env: {
                         GHCR_TOKEN: '${{ secrets.GHRC_TOKEN }}',
                         GHCR_USER: '${{ github.actor }}',

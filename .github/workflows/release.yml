@@ -284,9 +284,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
       - name: Verify published npm package deps resolve
         run: bash deploy/bin/verify-npm-deps.sh
-      - name: Verify deploy image tags are published on ghcr.io
+      - name: Verify deploy image tags are publicly pullable from ghcr.io
         env:
           GHCR_TOKEN: ${{ secrets.GHRC_TOKEN }}
           GHCR_USER: ${{ github.actor }}

@@ -21,6 +21,15 @@ PROFILE="pipeline-builder"
 # the current stable at deploy time. The installed `istioctl` binary drives the
 # install — keep it on the same minor.
 ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
+# Kubernetes version for the cluster. PIN it rather than letting minikube pick
+# its built-in default: that default moves with every minikube release (upgrading
+# minikube silently jumps the local cluster a minor or two), which both breaks
+# reproducibility against the EKS target and widens the skew from the host
+# kubectl. Mirrors deploy/aws/eks's `--eks-version` pin. Applied at cluster
+# CREATE only — an existing cluster keeps the version it was created with.
+# Bounded above by what the installed minikube supports (`minikube config
+# defaults kubernetes-version`).
+K8S_VERSION="${K8S_VERSION:-v1.35.1}"
 # LEAN=1 drops the optional observability + admin services (prometheus, thanos,
 # loki, promtail, jaeger, alertmanager, mongo-express, pgadmin) from the apply so
 # the core stack + Istio mesh fits on an ~8-core laptop. Core services + DBs are
@@ -175,6 +184,18 @@ export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$VM_DATA_DIR/plugins-da
 # `docker network rm` did) orphans the running cluster's container, so the resume
 # then fails with "failed to set up container networking: network … not found".
 
+# The docker driver needs a reachable daemon for every step below — including
+# the `minikube delete` on the recreate path. Without this preflight a stopped
+# Docker Desktop still lets the "WIPES ALL DATA" prompt run and the delete
+# succeed (it only removes host-side profile metadata), then `minikube start`
+# aborts with PROVIDER_DOCKER_NOT_RUNNING — leaving no cluster and no data.
+# Fail before asking, not after wiping.
+if ! docker info >/dev/null 2>&1; then
+  echo "ERROR: the Docker daemon is not reachable — start Docker Desktop and re-run." >&2
+  echo "       (minikube's docker driver needs it to create, delete, or resume '$PROFILE'.)" >&2
+  exit 1
+fi
+
 log "Detecting resources"
 # Detect CPU and memory independently: `nproc` can be present on macOS via
 # Homebrew coreutils, so don't infer the OS from it — probe /proc/meminfo
@@ -195,8 +216,18 @@ fi
 # what `docker info` exposes so we never request more memory/CPU than the
 # VM has and trip minikube's MK_USAGE guard.
 if command -v docker >/dev/null 2>&1; then
-  DOCKER_CPU=$(docker info --format '{{.NCPU}}' 2>/dev/null || echo 0)
-  DOCKER_MEM=$(docker info --format '{{.MemTotal}}' 2>/dev/null || echo 0)
+  # `docker info --format` can emit a zero-valued field AND exit non-zero when the
+  # daemon is unhealthy, so `cmd || echo 0` yields the two-line value "0\n0" —
+  # which makes the $(( )) below a hard arithmetic syntax error. `set -e` does NOT
+  # abort on that: the assignment keeps its old value and the clamp is silently
+  # skipped, so minikube gets sized against HOST memory instead of the Docker
+  # envelope — the exact MK_USAGE trap this block exists to avoid. Take the first
+  # line and keep digits only.
+  int_or_zero() { printf '%s' "${1%%$'\n'*}" | tr -cd '0-9'; }
+  DOCKER_CPU=$(int_or_zero "$(docker info --format '{{.NCPU}}' 2>/dev/null || echo 0)")
+  DOCKER_MEM=$(int_or_zero "$(docker info --format '{{.MemTotal}}' 2>/dev/null || echo 0)")
+  DOCKER_CPU=${DOCKER_CPU:-0}
+  DOCKER_MEM=${DOCKER_MEM:-0}
   DOCKER_MEM=$((DOCKER_MEM / 1024 / 1024))  # bytes -> MiB
   if [ "$DOCKER_CPU" -gt 0 ] && [ "$DOCKER_CPU" -lt "$TOTAL_CPU" ]; then
     TOTAL_CPU=$DOCKER_CPU
@@ -232,7 +263,8 @@ fi
 # No --mount: /data is minikube's reserved persistent disk, which shadows a host
 # 9p mount there (it silently did nothing), and DB data on 9p is unreliable.
 # Data stays on the VM disk (persists across stop/start). See the DOCKER_BUILD note above.
-MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size="$DISK_SIZE" --driver=docker)
+MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size="$DISK_SIZE" \
+         --driver=docker --kubernetes-version="$K8S_VERSION")
 
 # RESUME an existing cluster vs CREATE a fresh one. The sizing flags
 # (--cpus/--memory/--disk-size) are CREATE-TIME only — passing them to
@@ -249,6 +281,22 @@ MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size="
 MK_PROFILE_DIR="${MINIKUBE_HOME:-$HOME/.minikube}/profiles/$PROFILE"
 RECREATE="${RECREATE:-}"
 
+# Fresh cluster create, with one retry. `minikube start` on a brand-new cluster
+# fails transiently more often than it should — a just-restarted Docker daemon
+# still settling, or a container/network left behind by a previous half-delete.
+# Used by BOTH the create and the recreate paths: a recreate has already wiped
+# /data, so there is nothing left to protect and a transient failure should be
+# retried rather than left as a dead, half-created cluster the next run then
+# offers to "resume".
+mk_start_fresh() {
+  if ! minikube start "${MK_ARGS[@]}"; then
+    echo "  Retrying after cleanup..."
+    minikube delete --profile="$PROFILE" 2>/dev/null || true
+    cleanup_docker
+    minikube start "${MK_ARGS[@]}"
+  fi
+}
+
 if [ -f "$MK_PROFILE_DIR/config.json" ]; then
   # An existing cluster is present. Ask before doing anything destructive.
   if [ -z "$RECREATE" ] && [ -t 0 ]; then
@@ -260,7 +308,7 @@ if [ -f "$MK_PROFILE_DIR/config.json" ]; then
       log "Recreating Minikube cluster (deleting existing + ALL data)"
       minikube delete --profile="$PROFILE" 2>/dev/null || true
       cleanup_docker
-      minikube start "${MK_ARGS[@]}"
+      mk_start_fresh
       ;;
     *)
       log "Resuming existing Minikube cluster (preserving /data)"
@@ -272,13 +320,18 @@ else
   # Clear any orphaned container/network from a prior half-deleted run before the
   # fresh create (there is no existing cluster to preserve on this path).
   cleanup_docker
-  if ! minikube start "${MK_ARGS[@]}"; then
-    echo "  Retrying after cleanup..."
-    minikube delete --profile="$PROFILE" 2>/dev/null || true
-    cleanup_docker
-    minikube start "${MK_ARGS[@]}"
-  fi
+  mk_start_fresh
 fi
+
+# Align the client BEFORE the first real kubectl work below. The host kubectl is
+# typically Docker Desktop's symlink, which lags its bundled k8s (v1.32 against a
+# v1.35 cluster here) — outside the supported +/-1 minor skew, which breaks
+# `apply --server-side` and the CRD applies further down. Read the version the
+# cluster ACTUALLY runs rather than $K8S_VERSION: the pin only applies to a fresh
+# create, while a resumed cluster keeps whatever it was created with.
+K8S_ACTUAL="$(sed -n 's/.*"KubernetesVersion"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+              "$MK_PROFILE_DIR/config.json" 2>/dev/null | head -1)"
+ensure_kubectl "${K8S_ACTUAL:-$K8S_VERSION}"
 
 # -- Wait for cluster ---------------------------------------------------------
 
@@ -467,7 +520,19 @@ echo "  registry -> ${REGISTRY_IP:-unknown}"
 log "Waiting for pods"
 kubectl wait --for=condition=Ready pod -l app=postgres -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  postgres not ready"
 kubectl wait --for=condition=Ready pod -l app=mongodb  -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  mongodb not ready"
-kubectl wait --for=condition=Ready pod -l app -n "$NAMESPACE" --timeout=300s 2>/dev/null || true
+# `-l app` is an EXISTENCE selector, so it also matches the one-shot Job pods
+# (minio-init carries `app: minio-init`). A Succeeded pod's Ready condition is
+# False/PodCompleted forever, so without the phase filter this wait could never
+# be satisfied and always burned the full 300s — silently, because `|| true`
+# swallowed the timeout. Exclude finished pods, and say which pods are actually
+# lagging instead of hiding the result.
+if ! kubectl wait --for=condition=Ready pod -l app -n "$NAMESPACE" \
+     --field-selector=status.phase!=Succeeded --timeout=300s >/dev/null 2>&1; then
+  echo "  some pods are not ready yet:"
+  kubectl get pods -n "$NAMESPACE" \
+    --field-selector=status.phase!=Succeeded \
+    -o 'jsonpath={range .items[?(@.status.conditions[?(@.type=="Ready")].status=="False")]}    {.metadata.name} ({.status.phase}){"\n"}{end}' 2>/dev/null || true
+fi
 kubectl wait --for=condition=Ready pod -l app=nginx -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  nginx not ready"
 
 echo ""

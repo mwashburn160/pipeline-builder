@@ -190,6 +190,69 @@ ensure_istioctl() {
   echo "  istioctl ${_want} installed to /usr/local/bin"
 }
 
+# ensure_kubectl <k8s-version> — guarantee the `kubectl` used by the rest of the
+# script is within Kubernetes' supported ±1 MINOR version skew of the cluster.
+#
+# Why: the kubectl on a dev Mac is usually Docker Desktop's symlink
+# (/usr/local/bin/kubectl -> /Applications/Docker.app/...), which tracks Docker
+# Desktop's own bundled k8s and lags badly — e.g. v1.32.2 against a minikube
+# v1.35.1 cluster (3 minors). minikube prints a "may have incompatibilities"
+# notice and carries on, but a skewed client is not cosmetic here: `kubectl apply
+# --server-side`, CRD applies, and `kubectl wait` all negotiate against API
+# versions the old client doesn't know, so bring-up fails in ways that look like
+# cluster problems.
+#
+# We do NOT overwrite /usr/local/bin/kubectl the way ensure_istioctl installs
+# istioctl — that path is Docker Desktop's symlink and Docker Desktop restores
+# it, so the "fix" would silently revert. Instead fetch the version-matched
+# binary into minikube's own cache (the exact path `minikube kubectl` uses, so
+# there's no duplicate download) and prepend that dir to PATH for this script.
+# The caller's `kubectl` calls then resolve to the matched binary; nothing on the
+# system changes.
+ensure_kubectl() {
+  local _want="${1:?ensure_kubectl needs a Kubernetes version}"   # e.g. v1.35.1
+  _want="v${_want#v}"                                             # tolerate 1.35.1
+  local _want_min="${_want#v}"; _want_min="${_want_min#*.}"; _want_min="${_want_min%%.*}"
+
+  # Probe the client version. Guarded with `|| true`: callers run `set -euo
+  # pipefail`, and when kubectl is absent the pipeline exits non-zero, which
+  # would abort the whole script at the ASSIGNMENT instead of installing.
+  local _have="" _have_min _skew
+  if command -v kubectl >/dev/null 2>&1; then
+    _have="$(kubectl version --client 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+' | head -1 || true)"
+  fi
+  if [ -n "$_have" ]; then
+    _have_min="${_have#v}"; _have_min="${_have_min#*.}"; _have_min="${_have_min%%.*}"
+    _skew=$(( _have_min > _want_min ? _have_min - _want_min : _want_min - _have_min ))
+    if [ "$_skew" -le 1 ]; then
+      return 0
+    fi
+    echo "  kubectl ${_have} is ${_skew} minors from the cluster (${_want}) — using a version-matched client..."
+  else
+    echo "  kubectl not found — installing ${_want}..."
+  fi
+
+  local _os _arch _dir
+  _os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  _arch="$(uname -m)"; case "$_arch" in x86_64) _arch=amd64 ;; arm64|aarch64) _arch=arm64 ;; esac
+  _dir="${MINIKUBE_HOME:-$HOME/.minikube}/cache/${_os}/${_arch}/${_want}"
+
+  if [ ! -x "$_dir/kubectl" ]; then
+    mkdir -p "$_dir"
+    if ! curl -fsSL -o "$_dir/kubectl" \
+         "https://dl.k8s.io/release/${_want}/bin/${_os}/${_arch}/kubectl"; then
+      rm -f "$_dir/kubectl"
+      echo "  WARNING: could not download kubectl ${_want} (${_os}-${_arch})." >&2
+      echo "  WARNING: continuing with ${_have:-no} client — bring-up may fail on version skew." >&2
+      echo "  WARNING: install it manually: https://kubernetes.io/docs/tasks/tools/" >&2
+      return 0
+    fi
+    chmod 0755 "$_dir/kubectl"
+  fi
+  export PATH="$_dir:$PATH"
+  echo "  kubectl ${_want} active for this run (${_dir})"
+}
+
 # yq_buildargs — emit `--build-arg KEY=VALUE` flags for plugin-spec.yaml
 # Outputs nothing if `buildArgs` is absent. Quoting is yq's responsibility.
 yq_buildargs() {
