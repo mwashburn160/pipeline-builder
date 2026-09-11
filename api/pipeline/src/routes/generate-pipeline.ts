@@ -39,6 +39,26 @@ const logger = createLogger('generate-pipeline');
  */
 const SAFE_PLUGIN_NAME_RE = /^[a-z0-9-]+$/;
 
+/**
+ * The client-facing summary of a repository analysis — what the from-URL routes
+ * return (streamed as the `analyzed` event, or inline in the JSON response).
+ */
+function summarizeAnalysis(analysis: Awaited<ReturnType<typeof analyzeRepository>>) {
+  return {
+    owner: analysis.owner,
+    repo: analysis.repo,
+    provider: analysis.provider,
+    defaultBranch: analysis.defaultBranch,
+    projectType: analysis.projectType,
+    languages: analysis.languages,
+    frameworks: analysis.frameworks,
+    packageManager: analysis.packageManager,
+    hasDockerfile: analysis.hasDockerfile,
+    hasCdkJson: analysis.hasCdkJson,
+    description: analysis.description,
+  };
+}
+
 /** Stream partial objects from an AI generation result. */
 async function streamPartials( stream: AsyncIterable<unknown>,
   res: import('express').Response,
@@ -284,6 +304,108 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
     }),
   );
 
+  // -- POST /generate/from-url — analyze Git URL + generate (JSON) ---------
+  /**
+   * Non-streaming counterpart of `/generate/from-url/stream` for server-side
+   * callers — the Ask agent's `propose_pipeline_from_repo` tool. Analyzes the
+   * repository and returns the generated config plus the analysis summary in
+   * one JSON response.
+   *
+   * Unlike the streaming route it does NOT auto-create missing plugins: its
+   * callers produce reviewable DRAFTS, so this path must have no side effects.
+   *
+   * Validated with {@link AIGenerateFromUrlBodySchema}.
+   */
+  router.post( '/generate/from-url',
+    ...createAuthenticatedWithOrgRoute(),
+    requireFeature('ai_generation'),
+    // Shares the 'pipeline-generate' burst bucket with every /generate* variant.
+    rateLimitByOrg({ name: 'pipeline-generate', max: 20, windowMs: 60_000, message: 'Too many pipeline generation requests, please slow down.' }),
+    withRoute(async ({ req, res, ctx, orgId }) => {
+      const validation = validateBody(req, AIGenerateFromUrlBodySchema);
+      if (!validation.ok) {
+        return sendBadRequest(res, validation.error);
+      }
+      const { gitUrl, provider, model, apiKey, repoToken } = validation.value;
+      const serviceAuth = getServiceAuthHeader({ serviceName: 'pipeline', orgId, role: 'member' });
+
+      const parsed = parseGitUrl(gitUrl);
+      if (!parsed) {
+        return sendBadRequest(res, 'Invalid Git URL format. Supported: HTTPS, SSH, git@ formats.');
+      }
+
+      const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', serviceAuth);
+      if (reservation.exceeded) {
+        return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
+      }
+
+      // Log only the parsed host/owner/repo — never the raw `gitUrl`, which may
+      // embed credentials (parseGitUrl accepts https://user:token@host/...).
+      ctx.log('INFO', 'AI pipeline generation from URL requested (JSON)', {
+        host: parsed.host,
+        owner: parsed.owner,
+        repo: parsed.repo,
+        provider,
+        model,
+        gitProvider: parsed.provider,
+      });
+
+      let analysis;
+      try {
+        analysis = await analyzeRepository(parsed, repoToken);
+      } catch (analyzeError) {
+        const msg = errorMessage(analyzeError);
+        logger.warn('Repository analysis failed', { requestId: ctx.requestId, error: msg });
+        // Failed before any LLM call — give the slot back.
+        decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+        return sendBadRequest(res, `Repository analysis failed: ${msg}`);
+      }
+
+      try {
+        const plugins = await getFilteredPlugins(orgId, {
+          languages: Object.keys(analysis.languages),
+          frameworks: analysis.frameworks,
+          projectType: analysis.projectType,
+        });
+
+        const result = await generatePipelineConfig({
+          prompt: buildEnhancedPrompt(analysis),
+          plugins,
+          orgId,
+          provider,
+          model,
+          ...(apiKey ? { apiKey } : {}),
+        });
+
+        ctx.log('COMPLETED', 'AI pipeline generation from URL completed (JSON)', {
+          pluginCount: plugins.length,
+          ...(result.servedBy && { servedBy: result.servedBy }),
+          ...(result.usage && { tokens: result.usage.totalTokens }),
+        });
+
+        return sendSuccess(res, 200, {
+          props: result.props,
+          description: result.description,
+          keywords: result.keywords,
+          analysis: summarizeAnalysis(analysis),
+          usage: result.usage,
+          servedBy: result.servedBy,
+          promptVersion: result.promptVersion,
+          validationWarnings: result.validationWarnings,
+        });
+      } catch (error) {
+        const message = errorMessage(error);
+        logger.error('AI pipeline generation from URL failed', { requestId: ctx.requestId, error: message });
+        // Keep-on-provider-contact policy (same as /generate): only a
+        // pre-provider failure refunds the slot.
+        if (!(error instanceof AIEmptyOutputError)) {
+          decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+        }
+        handleAIError(res, message, 'Failed to generate pipeline from URL');
+      }
+    }),
+  );
+
   // -- POST /generate/from-url/stream — analyze Git URL + stream pipeline --
   /**
    * Accepts a Git URL, analyzes the repository via the appropriate provider API
@@ -370,22 +492,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           return;
         }
 
-        res.write(`data: ${JSON.stringify({
-          type: 'analyzed',
-          data: {
-            owner: analysis.owner,
-            repo: analysis.repo,
-            provider: analysis.provider,
-            defaultBranch: analysis.defaultBranch,
-            projectType: analysis.projectType,
-            languages: analysis.languages,
-            frameworks: analysis.frameworks,
-            packageManager: analysis.packageManager,
-            hasDockerfile: analysis.hasDockerfile,
-            hasCdkJson: analysis.hasCdkJson,
-            description: analysis.description,
-          },
-        })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'analyzed', data: summarizeAnalysis(analysis) })}\n\n`);
 
         // Phase 2: Build enhanced prompt and stream AI generation
         const enhancedPrompt = buildEnhancedPrompt(analysis);

@@ -21,8 +21,12 @@ export interface AgentToolDeps {
   plugin: ServiceClient;
   /** The resolved model — used by propose_template (templates have no AI endpoint). */
   model: LanguageModel;
-  /** Default provider/model for delegated generation (from the request). */
-  defaults: { provider?: string; model?: string };
+  /**
+   * Out-of-band values for delegated generation (from the request): the
+   * provider/model, and a private-repo token for propose_pipeline_from_repo.
+   * Never exposed to the model as tool input.
+   */
+  defaults: { provider?: string; model?: string; repoToken?: string };
   /**
    * The AUTHENTICATED caller's org id. Injected into tenant-scoping tool inputs
    * (e.g. template instantiation) so the MODEL can never choose which org a call
@@ -94,9 +98,29 @@ export function buildAgentTools({ index, pipeline, plugin, model, defaults, orgI
         const body: Record<string, unknown> = { prompt };
         if (defaults.provider) body.provider = defaults.provider;
         if (defaults.model) body.model = defaults.model;
-        const res = (await pipeline.post('/pipelines/generate', body)) as { data?: { props?: unknown; description?: string } };
-        const data = res?.data ?? (res as { props?: unknown; description?: string });
-        return { kind: 'pipeline', props: data?.props, description: data?.description };
+        const res = (await pipeline.post('/pipelines/generate', body)) as { data?: { props?: unknown; description?: string; keywords?: string[] } };
+        const data = res?.data ?? (res as { props?: unknown; description?: string; keywords?: string[] });
+        return { kind: 'pipeline', props: data?.props, description: data?.description, keywords: data?.keywords };
+      },
+    }),
+
+    propose_pipeline_from_repo: tool({
+      description:
+        'Generate a PROPOSED pipeline for a Git repository by analyzing it (languages, frameworks, ' +
+        'package manager, Dockerfile/CDK) — prefer this over propose_pipeline whenever the user gives a ' +
+        'repository URL. Draft only: nothing is created until the user reviews and confirms it.',
+      inputSchema: z.object({ gitUrl: z.string().describe('The repository URL (HTTPS, SSH, or git@ form)') }),
+      execute: async ({ gitUrl }) => {
+        const body: Record<string, unknown> = { gitUrl };
+        if (defaults.provider) body.provider = defaults.provider;
+        if (defaults.model) body.model = defaults.model;
+        // Private-repo token comes from the request, never from the model.
+        if (defaults.repoToken) body.repoToken = defaults.repoToken;
+        const res = (await pipeline.post('/pipelines/generate/from-url', body)) as {
+          data?: { props?: unknown; description?: string; keywords?: string[]; analysis?: unknown };
+        };
+        const data = res?.data ?? (res as { props?: unknown; description?: string; keywords?: string[]; analysis?: unknown });
+        return { kind: 'pipeline', props: data?.props, description: data?.description, keywords: data?.keywords, analysis: data?.analysis };
       },
     }),
 

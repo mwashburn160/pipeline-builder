@@ -45,6 +45,7 @@ Access tokens expire after 2 hours by default (configurable via `JWT_EXPIRES_IN`
 | `GET` | `/pipelines/providers` | List AI providers |
 | `POST` | `/pipelines/generate` | AI-generate pipeline from prompt (consumes `aiCalls` quota) |
 | `POST` | `/pipelines/generate/stream` | Stream AI generation as SSE (consumes `aiCalls` quota) |
+| `POST` | `/pipelines/generate/from-url` | Analyze Git URL + generate pipeline as one JSON response — no plugin auto-creation; used by the Ask agent's `propose_pipeline_from_repo` (consumes `aiCalls` quota) |
 | `POST` | `/pipelines/generate/from-url/stream` | Analyze Git URL + stream pipeline (consumes `aiCalls` quota) |
 | `GET` | `/pipelines/registry` | List ARN→pipelineId mappings for the caller's org |
 | `POST` | `/pipelines/registry` | Upsert registry entry (deploy hook; tenant-guarded) |

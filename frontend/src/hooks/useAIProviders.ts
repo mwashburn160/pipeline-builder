@@ -4,8 +4,10 @@
 import { useState, useEffect } from 'react';
 import {
   type AIProviderInfo,
+  ASK_AGENT_PROVIDER_ID,
   ORG_PROVIDER_MODELS,
   AI_PROVIDER_NAMES,
+  askAgentModelId,
 } from '@/lib/ai-constants';
 import api from '@/lib/api';
 
@@ -27,7 +29,7 @@ export interface UseAIProvidersResult {
   setSelectedModel: (id: string) => void;
   /** Models available for the currently selected provider. */
   currentModels: AIProviderInfo['models'];
-  /** Source of the currently selected provider ('server', 'org', or 'none'). */
+  /** Source of the currently selected provider ('server', 'org', 'none', or 'agent'). */
   currentSource: AIProviderInfo['source'] | undefined;
   /** Custom API key override value. */
   customApiKey: string;
@@ -39,20 +41,44 @@ export interface UseAIProvidersResult {
   setShowKeyOverride: (show: boolean) => void;
 }
 
+/** Options for {@link useAIProviders}. */
+export interface UseAIProvidersOptions {
+  /**
+   * Offer "Ask agent" as the first — and therefore default — provider: drafts
+   * are routed through the Ask agent (see `streamAgentDraft`). Its models are
+   * the ask service's server-configured ones. Omitted when the ask service
+   * reports no configured provider or is unreachable, so the picker falls back
+   * to the direct providers.
+   */
+  askAgent?: boolean;
+}
+
+type ProvidersResponse = { data?: { providers?: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> } };
+
+/** Build the synthetic "Ask agent" entry from the ask service's providers. */
+function askAgentEntry(res: ProvidersResponse): AIProviderInfo | null {
+  const models = (res.data?.providers ?? []).flatMap((p) =>
+    p.models.map((m) => ({ id: askAgentModelId(p.id, m.id), name: `${m.name} (${p.name})` })));
+  return models.length > 0 ? { id: ASK_AGENT_PROVIDER_ID, name: 'Ask agent', source: 'agent', models } : null;
+}
+
 /**
  * Fetch and merge server + org AI providers, manage selection state.
  *
  * Always shows all known providers in the dropdown. Configured providers
  * (server/org) are listed first, followed by unconfigured ones that require
  * a custom API key. When an unconfigured provider is selected, the API key
- * override section auto-expands.
+ * override section auto-expands. With `askAgent`, the "Ask agent" entry leads
+ * the list and is selected by default.
  *
  * @param fetchServerProviders - Function to fetch server-configured providers
  *   (different endpoint per service: pipeline vs plugin)
+ * @param options - See {@link UseAIProvidersOptions}
  * @returns Provider state and selection handlers
  */
 export function useAIProviders(
-  fetchServerProviders: () => Promise<{ data?: { providers?: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> } }>,
+  fetchServerProviders: () => Promise<ProvidersResponse>,
+  options: UseAIProvidersOptions = {},
 ): UseAIProvidersResult {
   const [providers, setProviders] = useState<AIProviderInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,9 +92,10 @@ export function useAIProviders(
     let cancelled = false;
     (async () => {
       try {
-        const [serverResponse, orgResponse] = await Promise.allSettled([
+        const [serverResponse, orgResponse, askResponse] = await Promise.allSettled([
           fetchServerProviders(),
           api.getOrgAIConfig(),
+          options.askAgent ? api.getAskProviders() : Promise.resolve(null),
         ]);
 
         if (cancelled) return;
@@ -125,6 +152,10 @@ export function useAIProviders(
           if (aConfigured !== bConfigured) return aConfigured - bConfigured;
           return a.name.localeCompare(b.name);
         });
+
+        // "Ask agent" leads the list (and so becomes the default selection).
+        const agent = askResponse.status === 'fulfilled' && askResponse.value ? askAgentEntry(askResponse.value) : null;
+        if (agent) merged.unshift(agent);
 
         setProviders(merged);
         if (merged.length > 0) {

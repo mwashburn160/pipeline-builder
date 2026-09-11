@@ -128,6 +128,11 @@ export const apiReferenceTopic: HelpTopic = {
             ],
             [
               "POST",
+              "/pipelines/generate/from-url",
+              "Analyze Git URL + generate pipeline as one JSON response — no plugin auto-creation; used by the Ask agent's propose_pipeline_from_repo (consumes aiCalls quota)"
+            ],
+            [
+              "POST",
               "/pipelines/generate/from-url/stream",
               "Analyze Git URL + stream pipeline (consumes aiCalls quota)"
             ],

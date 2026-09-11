@@ -12,6 +12,8 @@ import { useAIProviders } from '@/hooks/useAIProviders';
 import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
 import api from '@/lib/api';
+import { isAskAgentProvider } from '@/lib/ai-constants';
+import { streamAgentDraft } from '@/lib/ask-agent-draft';
 import { AI_MAX_PROMPT_LENGTH, formatError, formatJSON } from '@/lib/constants';
 
 /** Props for the AIPluginBuilderTab component. */
@@ -57,7 +59,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
   const [requestId, setRequestId] = useState<string | null>(null);
   const { status: buildStatus, events, lastEvent } = useBuildStatus(requestId);
 
-  const ai = useAIProviders(() => api.getPluginAIProviders());
+  const ai = useAIProviders(() => api.getPluginAIProviders(), { askAgent: true });
   const { generating, error, preview: streamPreview, setError, setPreview: setStreamPreview, generate } = useAiStreamGeneration();
   // Track mount state so the 2s auto-close timer never fires onClose after
   // the parent has already unmounted the tab (e.g. user clicked Cancel).
@@ -96,7 +98,9 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
     const keyToUse = ai.customApiKey.trim() || undefined;
 
     await generate<{ config: GeneratedConfig; dockerfile: string }>({
-      stream: api.streamPluginGeneration(prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse),
+      stream: isAskAgentProvider(ai.selectedProvider)
+        ? streamAgentDraft('plugin', prompt.trim(), ai.selectedModel)
+        : api.streamPluginGeneration(prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse),
       onDone: (data) => {
         setGeneratedConfig(data.config);
         setGeneratedDockerfile(data.dockerfile);

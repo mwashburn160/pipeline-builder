@@ -37,6 +37,8 @@ const AGENT_SYSTEM = [
   '  relevant docs, say so — never invent commands, env vars, or endpoints.',
   '- list_pipelines / inspect_pipeline / list_templates: see what already exists when that helps',
   '  you reason (list_templates also shows each template\'s declared input variables).',
+  '- propose_pipeline_from_repo: when the user gives a Git repository URL, draft the pipeline from',
+  '  an analysis of that repository (prefer it over propose_pipeline for repos).',
   '- propose_pipeline / propose_plugin / propose_template: when the user asks to create/build a',
   '  pipeline, plugin, or reusable template, draft it with the matching tool. Use propose_template',
   '  (with {{ vars.NAME }} placeholders + declared inputs) when they want something REUSABLE/parameterized.',
@@ -83,7 +85,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
     if (!userAuth) {
       return sendBadRequest(res, 'Missing Authorization header');
     }
-    const { query, provider, model, apiKey, history } = parsed.data;
+    const { query, provider, model, apiKey, history, repoToken } = parsed.data;
 
     // Service-minted header for the quota reserve/refund (the quota /increment
     // endpoint rejects user principals) — distinct from the user token above.
@@ -124,7 +126,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         pipeline: pipelineClient(userAuth),
         plugin: pluginClient(userAuth),
         model: aiModel,
-        defaults: { provider, model },
+        defaults: { provider, model, repoToken },
         // Authenticated org — injected into tenant-scoping tool inputs so the
         // model can't target another tenant (prompt-injection defense).
         orgId,

@@ -1353,3 +1353,61 @@ describe('POST /generate (aiCalls refund policy)', () => {
     expect(mockSendSuccess).toHaveBeenCalled();
   });
 });
+
+// Non-streaming counterpart used by the Ask agent's propose_pipeline_from_repo
+// tool: same analysis + generation, one JSON response, and NO side effects
+// (drafts never auto-create plugins).
+describe('POST /generate/from-url (JSON)', () => {
+  const handler = getHandler('post', '/generate/from-url');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockValidateBody.mockReturnValue({
+      ok: true,
+      value: { gitUrl: 'https://github.com/test/app', provider: 'anthropic', model: 'claude-sonnet-5', repoToken: 'ghp_secret' },
+    });
+    mockParseGitUrl.mockReturnValue(VALID_PARSED_URL);
+    mockAnalyzeRepository.mockResolvedValue(MOCK_ANALYSIS);
+    mockBuildEnhancedPrompt.mockReturnValue('Generated prompt for test/app');
+    mockReserveQuota.mockResolvedValue({ exceeded: false, quota: { type: 'aiCalls', limit: 1000, used: 1, remaining: 999, resetAt: '2026-01-01T00:00:00Z' } });
+    mockGeneratePipelineConfig.mockResolvedValue({
+      props: { project: 'app', organization: 'test', stages: [{ stageName: 'Build', steps: [{ plugin: { name: 'brand-new-plugin' } }] }] },
+      description: 'desc',
+      keywords: ['node'],
+    });
+  });
+
+  it('returns the generated config, keywords, and the analysis summary', async () => {
+    const res = mockSseRes();
+    await handler(mockReq({ body: {} }), res);
+
+    expect(mockAnalyzeRepository).toHaveBeenCalledWith(VALID_PARSED_URL, 'ghp_secret');
+    expect(mockGeneratePipelineConfig).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'Generated prompt for test/app', provider: 'anthropic' }));
+    const data = mockSendSuccess.mock.calls[0][2] as { props: unknown; keywords: string[]; analysis: Record<string, unknown> };
+    expect(data.keywords).toEqual(['node']);
+    expect(data.analysis).toEqual(expect.objectContaining({ owner: MOCK_ANALYSIS.owner, repo: MOCK_ANALYSIS.repo }));
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+  });
+
+  it('never auto-creates missing plugins (drafts have no side effects)', async () => {
+    await handler(mockReq({ body: {} }), mockSseRes());
+    expect(mockPluginClientPost).not.toHaveBeenCalled();
+  });
+
+  it('refunds the slot and 400s when repository analysis fails', async () => {
+    mockAnalyzeRepository.mockRejectedValue(new Error('Repository not found'));
+    const res = mockSseRes();
+    await handler(mockReq({ body: {} }), res);
+
+    expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'Repository analysis failed: Repository not found');
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+    expect(mockGeneratePipelineConfig).not.toHaveBeenCalled();
+  });
+
+  it('400s an unparseable Git URL before reserving quota', async () => {
+    mockParseGitUrl.mockReturnValue(null);
+    await handler(mockReq({ body: {} }), mockSseRes());
+    expect(mockSendBadRequest).toHaveBeenCalled();
+    expect(mockReserveQuota).not.toHaveBeenCalled();
+  });
+});

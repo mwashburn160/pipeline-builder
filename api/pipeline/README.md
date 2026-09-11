@@ -33,6 +33,7 @@ The service listens on port `3000`. The API gateway (nginx) routes `/api/pipelin
 | GET | `/pipelines/providers` | List available AI generation providers |
 | POST | `/pipelines/generate` | Generate a pipeline from a prompt (`ai_generation` gate) |
 | POST | `/pipelines/generate/stream` | Generate a pipeline (SSE stream) |
+| POST | `/pipelines/generate/from-url` | Analyze a Git repo URL and generate (JSON; drafts only — no plugin auto-creation) |
 | POST | `/pipelines/generate/from-url/stream` | Analyze a Git repo URL and stream generation |
 
 ## Configuration

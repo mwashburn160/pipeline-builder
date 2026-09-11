@@ -24,13 +24,43 @@ export interface AIModelInfo {
 /**
  * Provider info as seen by frontend components.
  * Includes a `source` field indicating whether the provider is configured
- * via server env vars, per-organization API keys, or not configured at all.
+ * via server env vars, per-organization API keys, or not configured at all —
+ * or, for the synthetic "Ask agent" entry, that generation is routed through
+ * the Ask agent (see {@link ASK_AGENT_PROVIDER_ID}).
  */
 export interface AIProviderInfo {
   id: string;
   name: string;
-  source: 'server' | 'org' | 'none';
+  source: 'server' | 'org' | 'none' | 'agent';
   models: AIModelInfo[];
+}
+
+/**
+ * Synthetic provider id for "Ask agent": generation is drafted by the Ask
+ * agent (the `ask` service's tool-calling loop) instead of calling the
+ * pipeline/plugin generator directly. Its "models" are the ask service's
+ * server-configured models, each identified by a composite
+ * `provider|model` id — see {@link askAgentModelId}.
+ */
+export const ASK_AGENT_PROVIDER_ID = 'ask-agent';
+
+/** True when the selected provider routes generation through the Ask agent. */
+export function isAskAgentProvider(providerId: string): boolean {
+  return providerId === ASK_AGENT_PROVIDER_ID;
+}
+
+/** Separator for composite Ask-agent model ids — never occurs in a provider id. */
+const ASK_AGENT_MODEL_SEP = '|';
+
+/** Build the composite model id for an Ask-agent model entry. */
+export function askAgentModelId(provider: string, model: string): string {
+  return `${provider}${ASK_AGENT_MODEL_SEP}${model}`;
+}
+
+/** Split a composite Ask-agent model id back into the real provider + model. */
+export function splitAskAgentModel(id: string): { provider: string; model: string } {
+  const i = id.indexOf(ASK_AGENT_MODEL_SEP);
+  return i < 0 ? { provider: '', model: id } : { provider: id.slice(0, i), model: id.slice(i + 1) };
 }
 
 // ---------------------------------------------------------------------------
@@ -90,5 +120,6 @@ export const AI_PROVIDER_NAMES: Record<string, string> = {
  */
 export function getProviderSourceLabel(provider: AIProviderInfo): string {
   if (provider.source === 'none') return 'API key required';
+  if (provider.source === 'agent') return 'default';
   return provider.source;
 }

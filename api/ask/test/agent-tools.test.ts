@@ -56,6 +56,31 @@ describe('buildAgentTools', () => {
     expect(pipeline.post.mock.calls.map((c: unknown[]) => c[0])).not.toContain('/pipelines');
   });
 
+  it('propose_pipeline passes the generated keywords through to the draft', async () => {
+    pipeline.post.mockResolvedValue({ data: { props: { name: 'x' }, description: 'd', keywords: ['node', 'ci'] } });
+    const out = await call('propose_pipeline', { prompt: 'ci for a node app' });
+    expect(out.keywords).toEqual(['node', 'ci']);
+  });
+
+  it('propose_pipeline_from_repo DRAFTS via /generate/from-url with the repo token from the REQUEST', async () => {
+    pipeline.post.mockResolvedValue({ data: { props: { name: 'x' }, description: 'd', keywords: ['node'], analysis: { repo: 'app' } } });
+    const tools = buildAgentTools({
+      index,
+      pipeline: pipeline as never,
+      plugin: plugin as never,
+      model,
+      defaults: { provider: 'anthropic', model: 'claude-sonnet-5', repoToken: 'ghp_secret' },
+      orgId: 'o',
+    }) as Record<string, { execute: (i: unknown, o: unknown) => Promise<Record<string, unknown>>; inputSchema: { shape: Record<string, unknown> } }>;
+    const out = await tools.propose_pipeline_from_repo.execute({ gitUrl: 'https://github.com/o/app' }, {});
+    expect(pipeline.post).toHaveBeenCalledWith('/pipelines/generate/from-url', {
+      gitUrl: 'https://github.com/o/app', provider: 'anthropic', model: 'claude-sonnet-5', repoToken: 'ghp_secret',
+    });
+    expect(out).toEqual({ kind: 'pipeline', props: { name: 'x' }, description: 'd', keywords: ['node'], analysis: { repo: 'app' } });
+    // The model can only supply the URL — the token is never a tool input it can see or set.
+    expect(Object.keys(tools.propose_pipeline_from_repo.inputSchema.shape)).toEqual(['gitUrl']);
+  });
+
   it('propose_plugin DRAFTS via plugin /generate (config + dockerfile), never deploys', async () => {
     plugin.post.mockResolvedValue({ data: { config: { name: 'trivy' }, dockerfile: 'FROM x' } });
     const out = await call('propose_plugin', { prompt: 'trivy image scan' });

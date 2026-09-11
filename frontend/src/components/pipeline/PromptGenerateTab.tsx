@@ -12,6 +12,8 @@ import { useAIProviders } from '@/hooks/useAIProviders';
 import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
 import PluginNameCombobox from '@/components/pipeline/editors/PluginNameCombobox';
 import api from '@/lib/api';
+import { isAskAgentProvider } from '@/lib/ai-constants';
+import { streamAgentDraft } from '@/lib/ask-agent-draft';
 import { AI_MAX_PROMPT_LENGTH, formatJSON } from '@/lib/constants';
 
 /**
@@ -114,7 +116,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
     const [projectOverride, setProjectOverride] = useState('');
     const [organizationOverride, setOrganizationOverride] = useState('');
 
-    const ai = useAIProviders(() => api.getAIProviders());
+    const ai = useAIProviders(() => api.getAIProviders(), { askAgent: true });
     const { generating, error, preview: previewJson, setError, setPreview: setPreviewJson, generate } = useAiStreamGeneration();
 
     /** Update a plugin reference at the given path when the user swaps via combobox. */
@@ -194,7 +196,9 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
       const keyToUse = ai.customApiKey.trim() || undefined;
 
       await generate<{ props: BuilderProps; description?: string; keywords?: string[] }>({
-        stream: api.streamPipelineFromPrompt(prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse),
+        stream: isAskAgentProvider(ai.selectedProvider)
+          ? streamAgentDraft('pipeline', prompt.trim(), ai.selectedModel)
+          : api.streamPipelineFromPrompt(prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse),
         cancelledRef,
         onPartial: (data) => {
           const d = data as Record<string, unknown>;

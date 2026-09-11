@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ApiCore } from '../core';
+import type { ApiResponse } from '@/types';
 
 /** A documentation source the "Ask" answer was grounded in. */
 export interface AskSource {
@@ -21,6 +22,8 @@ export interface AskStreamOptions {
   model?: string;
   apiKey?: string;
   history?: AskTurn[];
+  /** Private-repo token for the agent's repo-analysis tool (never shown to the model). */
+  repoToken?: string;
 }
 
 /**
@@ -29,6 +32,11 @@ export interface AskStreamOptions {
  */
 export function askApi(core: ApiCore) {
   return {
+    /** List the AI providers (and their models) configured on the ask service. */
+    getAskProviders: async () => {
+      return core.request<ApiResponse<{ providers: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> }>>('/api/ask/providers');
+    },
+
     /**
      * Stream a grounded how-to answer (the lighter RAG endpoint, no tools). Yields a
      * `sources` event first, then `token` events, then `done`.
@@ -56,6 +64,7 @@ export function askApi(core: ApiCore) {
         ...(opts.model ? { model: opts.model } : {}),
         ...(opts.apiKey ? { apiKey: opts.apiKey } : {}),
         ...(opts.history ? { history: opts.history } : {}),
+        ...(opts.repoToken ? { repoToken: opts.repoToken } : {}),
       });
     },
   };

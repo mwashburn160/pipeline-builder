@@ -12,6 +12,8 @@ import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
 import { clearPluginCache } from '@/hooks/usePlugins';
 import PluginNameCombobox from '@/components/pipeline/editors/PluginNameCombobox';
 import api from '@/lib/api';
+import { isAskAgentProvider } from '@/lib/ai-constants';
+import { streamAgentDraft } from '@/lib/ask-agent-draft';
 import { formatJSON } from '@/lib/constants';
 
 /** Methods exposed to the parent modal via ref. */
@@ -138,7 +140,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
     const [projectOverride, setProjectOverride] = useState('');
     const [organizationOverride, setOrganizationOverride] = useState('');
 
-    const ai = useAIProviders(() => api.getAIProviders());
+    const ai = useAIProviders(() => api.getAIProviders(), { askAgent: true });
     const { generating, error, preview: previewJson, setError, setPreview: setPreviewJson, generate } = useAiStreamGeneration();
     const autoGenAttemptedRef = useRef<boolean>(false);
 
@@ -229,7 +231,12 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       const tokenToUse = repoToken.trim() || undefined;
 
       await generate<{ props: BuilderProps; description?: string; keywords?: string[] }>({
-        stream: api.streamPipelineFromUrl(gitUrl.trim(), ai.selectedProvider, ai.selectedModel, keyToUse, tokenToUse),
+        // Via the Ask agent the repo is analyzed by its propose_pipeline_from_repo
+        // tool (the adapter re-emits the analysis as `analyzed`); it drafts only, so
+        // unlike the direct path it never auto-creates missing plugins.
+        stream: isAskAgentProvider(ai.selectedProvider)
+          ? streamAgentDraft('pipeline-from-repo', gitUrl.trim(), ai.selectedModel, { repoToken: tokenToUse })
+          : api.streamPipelineFromUrl(gitUrl.trim(), ai.selectedProvider, ai.selectedModel, keyToUse, tokenToUse),
         cancelledRef,
         onPartial: (data) => {
           const d = data as Record<string, unknown>;

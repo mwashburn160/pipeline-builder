@@ -18,7 +18,8 @@ interface AiProviderModelPickerProps {
  *
  * Renders a Provider `<Select>` over `ai.providers`, a Model `<Select>` over
  * `ai.currentModels`, and the API-key override toggle whose copy adapts to the
- * selected provider's source (`none` / `org` / `server`). Used by all three AI
+ * selected provider's source (`none` / `org` / `server`; the `agent` entry shows a
+ * short note instead, as it takes no key override). Used by all three AI
  * generation tabs (prompt, git-url, plugin) to keep the picker UX identical.
  */
 export function AiProviderModelPicker({ ai, disabled }: AiProviderModelPickerProps) {
@@ -52,40 +53,47 @@ export function AiProviderModelPicker({ ai, disabled }: AiProviderModelPickerPro
         </FormField>
       </div>
 
-      {/* Custom API Key Override */}
-      <div>
-        <button
-          type="button"
-          onClick={() => ai.setShowKeyOverride(!ai.showKeyOverride)}
-          aria-expanded={ai.showKeyOverride}
-          className="flex items-center text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-        >
-          {ai.showKeyOverride ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}
-          {ai.currentSource === 'none' ? 'Enter API key' : 'Use custom API key'}
-        </button>
-        {ai.showKeyOverride && (
-          <div className="mt-2">
-            <Input
-              type="password"
-              autoComplete="off"
-              value={ai.customApiKey}
-              onChange={(e) => ai.setCustomApiKey(e.target.value)}
-              placeholder={
-                ai.currentSource === 'none'
-                  ? 'Enter API key for this provider'
-                  : ai.currentSource === 'org' ? 'Leave empty to use organization key' : 'Leave empty to use server key'
-              }
-              className="text-sm"
-              disabled={disabled}
-            />
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-              {ai.currentSource === 'none'
-                ? 'An API key is required to use this provider.'
-                : `Overrides the ${ai.currentSource === 'org' ? 'organization' : 'server'} key for this request only.`}
-            </p>
-          </div>
-        )}
-      </div>
+      {/* Ask agent drafts with the ask service's server-configured keys — no
+          per-request key override (its delegated generation can't forward one). */}
+      {ai.currentSource === 'agent' ? (
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          The Ask agent drafts this for you with the selected model. Review the result before creating.
+        </p>
+      ) : (
+        <div>
+          <button
+            type="button"
+            onClick={() => ai.setShowKeyOverride(!ai.showKeyOverride)}
+            aria-expanded={ai.showKeyOverride}
+            className="flex items-center text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+          >
+            {ai.showKeyOverride ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}
+            {ai.currentSource === 'none' ? 'Enter API key' : 'Use custom API key'}
+          </button>
+          {ai.showKeyOverride && (
+            <div className="mt-2">
+              <Input
+                type="password"
+                autoComplete="off"
+                value={ai.customApiKey}
+                onChange={(e) => ai.setCustomApiKey(e.target.value)}
+                placeholder={
+                  ai.currentSource === 'none'
+                    ? 'Enter API key for this provider'
+                    : ai.currentSource === 'org' ? 'Leave empty to use organization key' : 'Leave empty to use server key'
+                }
+                className="text-sm"
+                disabled={disabled}
+              />
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                {ai.currentSource === 'none'
+                  ? 'An API key is required to use this provider.'
+                  : `Overrides the ${ai.currentSource === 'org' ? 'organization' : 'server'} key for this request only.`}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }
