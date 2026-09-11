@@ -67,9 +67,9 @@ const root = new TypeScriptProject({
   // collides with the repo's custom PnpmWorkspace component (projenrc/pnpm.ts,
   // which controls exactly which package paths are listed). Bumping requires
   // reworking that component, so it's out of scope for a dependency refresh.
-  projenVersion: '0.99.71',
+  projenVersion: '0.103.23',
   minNodeVersion: '24.14.0',
-  minMajorVersion: 3,
+  minMajorVersion: 4,
   packageManager: NodePackageManager.PNPM,
   projenCommand: 'pnpm dlx projen',
   depsUpgradeOptions: { workflow: false },

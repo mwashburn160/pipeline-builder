@@ -26,7 +26,7 @@
     "constructs": "10.7.0",
     "npm-check-updates": "22.2.9",
     "nx": "^23",
-    "projen": "0.99.71",
+    "projen": "0.103.23",
     "ts-node": "^10.9.2",
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
