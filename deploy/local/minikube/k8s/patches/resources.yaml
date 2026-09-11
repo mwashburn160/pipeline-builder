@@ -1,7 +1,15 @@
 # =============================================================================
-# Minikube resource overrides
-# Higher CPU allocations for single-node development cluster
+# Minikube resource overrides — sized for a single ~8-CPU / ~10 GiB node
 # =============================================================================
+# REQUESTS are scheduling reservations, sized from measured idle usage plus
+# headroom (Node services idle at ~10-20m CPU, Postgres ~6m, Mongo <100m): on a
+# single node, over-reserving leaves real capacity unused while pods sit Pending
+# ("Insufficient cpu"). LIMITS stay generous so startup/build bursts aren't
+# throttled. Keep app-service requests well above idle usage: the CPU HPAs
+# (40-70% targets) measure utilization against the REQUEST, so too small a
+# request turns normal load into scale-out churn. The full stack's requests
+# (plus kube-system, Istio, KEDA) fit in 8 CPU with room for HPA/KEDA scale-ups;
+# istiod's own request is trimmed in bin/setup.sh.
 
 # --- Databases ---
 ---
@@ -18,7 +26,8 @@ spec:
             limits:
               cpu: "1.5"
             requests:
-              cpu: "800m"
+              cpu: "300m"
+              memory: "384Mi"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -33,7 +42,8 @@ spec:
             limits:
               cpu: "1.5"
             requests:
-              cpu: "800m"
+              cpu: "300m"
+              memory: "256Mi"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -65,7 +75,7 @@ spec:
             limits:
               cpu: "500m"
             requests:
-              cpu: "200m"
+              cpu: "100m"
 
 # --- Application Services ---
 ---
@@ -82,7 +92,7 @@ spec:
             limits:
               cpu: "750m"
             requests:
-              cpu: "400m"
+              cpu: "150m"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -97,7 +107,7 @@ spec:
             limits:
               cpu: "750m"
             requests:
-              cpu: "400m"
+              cpu: "150m"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -112,7 +122,8 @@ spec:
             limits:
               cpu: "1000m"
             requests:
-              cpu: "400m"
+              cpu: "150m"
+              memory: "512Mi"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -127,7 +138,7 @@ spec:
             limits:
               cpu: "750m"
             requests:
-              cpu: "400m"
+              cpu: "150m"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -142,7 +153,7 @@ spec:
             limits:
               cpu: "750m"
             requests:
-              cpu: "400m"
+              cpu: "150m"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -157,7 +168,7 @@ spec:
             limits:
               cpu: "750m"
             requests:
-              cpu: "400m"
+              cpu: "150m"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -172,7 +183,7 @@ spec:
             limits:
               cpu: "500m"
             requests:
-              cpu: "250m"
+              cpu: "100m"
 
 # --- Admin UIs ---
 ---
@@ -189,7 +200,7 @@ spec:
             limits:
               cpu: "400m"
             requests:
-              cpu: "200m"
+              cpu: "50m"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -204,7 +215,7 @@ spec:
             limits:
               cpu: "500m"
             requests:
-              cpu: "200m"
+              cpu: "50m"
 
 # --- Docker Registry ---
 ---
@@ -221,7 +232,7 @@ spec:
             limits:
               cpu: "600m"
             requests:
-              cpu: "300m"
+              cpu: "100m"
 
 # --- Observability ---
 ---
@@ -238,7 +249,7 @@ spec:
             limits:
               cpu: "500m"
             requests:
-              cpu: "250m"
+              cpu: "100m"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -253,7 +264,7 @@ spec:
             limits:
               cpu: "500m"
             requests:
-              cpu: "250m"
+              cpu: "100m"
 ---
 apiVersion: apps/v1
 kind: DaemonSet

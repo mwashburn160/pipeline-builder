@@ -380,8 +380,13 @@ log "Installing Istio ambient mesh ($ISTIO_VERSION)"
 # shared ensure_istioctl guarantees it — auto-installing $ISTIO_VERSION if the host
 # has none (or too old); identical handling on every target (see common.sh).
 ensure_istioctl "$ISTIO_VERSION"
+# istiod's production default request (500m CPU / 2Gi memory) reserves a fifth of
+# a laptop node for a control plane that idles at ~5m / ~60Mi here; trim the
+# REQUEST (no limit is set, so it can still burst) so the app stack schedules.
 istioctl install --skip-confirmation \
   --set profile=ambient \
+  --set values.pilot.resources.requests.cpu=100m \
+  --set values.pilot.resources.requests.memory=256Mi \
   --set "meshConfig.extensionProviders[0].name=jaeger" \
   --set "meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${NAMESPACE}.svc.cluster.local" \
   --set "meshConfig.extensionProviders[0].opentelemetry.port=4317"
