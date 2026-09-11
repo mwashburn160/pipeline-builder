@@ -77,16 +77,9 @@ spec:
               value: "/mongo-express/"
             - name: ME_CONFIG_MONGODB_ENABLE_ADMIN
               value: "true"
-            - name: ME_CONFIG_MONGODB_ADMINUSERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: mongodb-secret
-                  key: MONGO_INITDB_ROOT_USERNAME
-            - name: ME_CONFIG_MONGODB_ADMINPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: mongodb-secret
-                  key: MONGO_INITDB_ROOT_PASSWORD
+            # Connection creds come from the URL; ME_CONFIG_MONGODB_ADMINUSERNAME/
+            # ADMINPASSWORD are the legacy (non-URL) config path and are ignored
+            # when ME_CONFIG_MONGODB_URL is set, so they're dropped.
             - name: ME_CONFIG_MONGODB_URL
               valueFrom:
                 secretKeyRef:

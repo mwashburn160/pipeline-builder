@@ -420,8 +420,10 @@ spec:
         - podSelector:
             matchLabels:
               app: nginx
+      # Real POD ports (NetworkPolicy gates the destination pod port, not the
+      # Service port): pgadmin listens on 8080, mongo-express on 8081.
       ports:
-        - port: 80
+        - port: 8080
         - port: 8081
 
 ---

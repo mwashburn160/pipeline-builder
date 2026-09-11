@@ -161,6 +161,50 @@ apiVersion: v1
 kind: ServiceAccount
 metadata: { name: pgadmin, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
 ---
+# -- AuthorizationPolicy: admin UIs (nginx-only ingress) ---------------------
+# pgAdmin / mongo-express are network-gated to nginx (networkpolicy) and basic-auth
+# gated at the app. This adds the mesh-AuthZ layer so ONLY the gateway's SA can
+# reach them — matching the datastore ALLOW policies below. Ports are the real pod
+# ports (pgadmin 8080, mongo-express 8081). kubelet httpGet probes are node-local
+# and excluded from ambient AuthZ, so readiness isn't affected (same as the API pods).
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: pgadmin-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: pgadmin
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+      to:
+        - operation:
+            ports: ["8080"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: mongo-express-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: mongo-express
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+      to:
+        - operation:
+            ports: ["8081"]
+---
 # -- AuthorizationPolicy: datastores (AUTHORITATIVE) -------------------------
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
