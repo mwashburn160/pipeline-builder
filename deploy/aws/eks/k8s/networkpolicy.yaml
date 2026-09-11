@@ -554,6 +554,39 @@ spec:
 
 ---
 # =============================================================================
+# Platform External Egress — platform performs server-side OAuth token
+# exchanges (oauth2.googleapis.com, GitHub, …) for social sign-in / onboarding.
+# The namespace is ambient-enrolled, so this egress is subject to NetworkPolicy;
+# with no allow rule the CNI SILENTLY DROPS the SYN and the OAuth client hangs
+# until its connect timeout, then fails (looks like a ztunnel stall — it isn't).
+# Hardened like plugin egress: public 443 EXCEPT link-local (cloud metadata /
+# IMDS), private LAN, and CGNAT, since platform holds JWT-signing secrets and
+# must never reach 169.254.169.254. FQDN-scoping (google-only) needs Cilium.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-platform-external-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: platform
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16 # link-local + cloud metadata
+              - 192.168.0.0/16 # private LAN
+              - 100.64.0.0/10 # CGNAT
+      ports:
+        - port: 443
+          protocol: TCP
+
+---
+# =============================================================================
 # Promtail & Prometheus Kube API Egress — service discovery needs API access
 # =============================================================================
 apiVersion: networking.k8s.io/v1
