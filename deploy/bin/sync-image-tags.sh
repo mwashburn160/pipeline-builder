@@ -23,6 +23,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Service name → path of its package.json (relative to repo root).
 SERVICES=(
+  "ask:api/ask"
   "billing:api/billing"
   "compliance:api/compliance"
   "pipeline:api/pipeline"
