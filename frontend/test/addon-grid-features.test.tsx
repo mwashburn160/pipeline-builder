@@ -129,6 +129,127 @@ describe('AddonGrid — SeatEntry (typed per-seat entry with volume tiers)', () 
   });
 });
 
+describe('AddonGrid — unsubscribed preview', () => {
+  // The bundles endpoint can't tier-filter without a subscription, so the preview
+  // lists the whole catalog — including packs a given plan doesn't sell.
+  const teamOnly = {
+    id: 'seat', name: 'Member Seat', description: '1 additional member seat.',
+    grants: { seats: 1 }, prices: { monthly: 1999, annual: 19990 }, stackable: true,
+    availableForTiers: ['team', 'enterprise'],
+  } as unknown as Bundle;
+  const anyPlan = {
+    id: 'plugin_pack', name: 'Plugin Pack (+25)', description: '25 additional plugins.',
+    grants: { plugins: 25 }, prices: { monthly: 1000, annual: 10000 }, stackable: true,
+    availableForTiers: ['developer', 'pro', 'team', 'enterprise'],
+  } as unknown as Bundle;
+  const proOnly = {
+    id: 'sso', name: 'SSO / IdP', description: 'SSO + up to 5 IdP configs.',
+    grants: {}, prices: { monthly: 4000, annual: 40000 }, stackable: false,
+    availableForTiers: ['pro'],
+  } as unknown as Bundle;
+
+  it('offers a real subscribe CTA instead of dead text', () => {
+    const onSubscribeIntent = jest.fn();
+    render(<AddonGrid {...baseProps} subscribed={false} onSubscribeIntent={onSubscribeIntent} bundles={[anyPlan]} />);
+    fireEvent.click(screen.getByRole('button', { name: /subscribe to add/i }));
+    expect(onSubscribeIntent).toHaveBeenCalledWith(anyPlan);
+  });
+
+  it('falls back to plain text when no CTA handler is wired', () => {
+    render(<AddonGrid {...baseProps} subscribed={false} bundles={[anyPlan]} />);
+    expect(screen.queryByRole('button', { name: /subscribe to add/i })).not.toBeInTheDocument();
+    expect(screen.getByText('Subscribe to add')).toBeInTheDocument();
+  });
+
+  it('names the plans each pack is sold on, so it cannot vanish after subscribing', () => {
+    render(<AddonGrid {...baseProps} subscribed={false} bundles={[teamOnly, anyPlan, proOnly]} />);
+    expect(screen.getByText('On Team and Enterprise')).toBeInTheDocument();
+    expect(screen.getByText('On Pro')).toBeInTheDocument();
+    expect(screen.getByText('On every plan')).toBeInTheDocument();
+  });
+
+  it('leads with the packs the cheapest plan can buy', () => {
+    render(<AddonGrid {...baseProps} subscribed={false} bundles={[teamOnly, proOnly, anyPlan]} />);
+    const names = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
+    expect(names).toEqual(['Plugin Pack (+25)', 'SSO / IdP', 'Member Seat']);
+  });
+
+  it('keeps the catalog order (no tier re-sort) once subscribed', () => {
+    render(<AddonGrid {...baseProps} subscribed bundles={[teamOnly, proOnly, anyPlan]} />);
+    const names = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
+    expect(names).toEqual(['Member Seat', 'SSO / IdP', 'Plugin Pack (+25)']);
+    expect(screen.queryByText(/^On /)).not.toBeInTheDocument();
+  });
+
+  it('links a marketplace-managed account to where it can actually manage packs', () => {
+    render(<AddonGrid {...baseProps} subscribed bundleSelfService={false} bundles={[anyPlan]} addonQty={() => 0} />);
+    const link = screen.getByRole('link', { name: /manage in aws marketplace/i });
+    expect(link).toHaveAttribute('href', 'https://aws.amazon.com/marketplace/library');
+  });
+
+  it('still reports an owned quantity on a marketplace-managed account', () => {
+    render(<AddonGrid {...baseProps} subscribed bundleSelfService={false} bundles={[anyPlan]} addonQty={() => 2} />);
+    expect(screen.getByText('2 active')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /marketplace/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('AddonGrid — PackQuantityEntry (every stackable pack)', () => {
+  // A plain capacity pack: stackable, no volume tiers. It used to render a bare
+  // ±1 stepper that showed neither the resulting total nor a pack's cap.
+  const pluginPack = {
+    id: 'plugin_pack', name: 'Plugin Pack (+25)', description: '25 additional plugins.',
+    grants: { plugins: 25 }, prices: { monthly: 1000, annual: 10000 }, stackable: true,
+    availableForTiers: [],
+  } as unknown as Bundle;
+  // Retention packs are capped server-side (`maxQuantity`), which the ±1 stepper
+  // let a buyer click straight past into a 400.
+  const cappedPack = { ...pluginPack, id: 'retention_pack', name: 'Standard Retention Pack (+90d)', maxQuantity: 7 } as unknown as Bundle;
+
+  it('renders typed entry instead of the ±1 stepper', () => {
+    render(<AddonGrid {...baseProps} bundles={[pluginPack]} addonQty={() => 0} />);
+    expect(screen.getByRole('spinbutton', { name: /number of plugin packs/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /add one/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /remove one/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the resulting quantity, delta, and what it costs', () => {
+    render(<AddonGrid {...baseProps} bundles={[pluginPack]} addonQty={() => 1} />);
+    fireEvent.change(screen.getByRole('spinbutton', { name: /number of plugin packs/i }), { target: { value: '3' } });
+    expect(screen.getByText(/1 → 3 \(\+2\).*\$30\.00\/mo/)).toBeInTheDocument();
+  });
+
+  it('commits the typed ABSOLUTE count', () => {
+    const requestAddonChange = jest.fn();
+    render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[pluginPack]} addonQty={() => 0} />);
+    fireEvent.change(screen.getByRole('spinbutton', { name: /number of plugin packs/i }), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: /^add$/i }));
+    expect(requestAddonChange).toHaveBeenCalledWith('plugin_pack', 'Plugin Pack (+25)', 2);
+  });
+
+  it('refuses a quantity above the pack cap instead of letting the server 400 it', () => {
+    const requestAddonChange = jest.fn();
+    render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[cappedPack]} addonQty={() => 1} />);
+    fireEvent.change(screen.getByRole('spinbutton', { name: /number of standard retention packs/i }), { target: { value: '9' } });
+    expect(screen.getByText(/capped at 7/i)).toBeInTheDocument();
+    const btn = screen.getByRole('button', { name: /update/i });
+    expect(btn).toBeDisabled();
+    fireEvent.click(btn);
+    expect(requestAddonChange).not.toHaveBeenCalled();
+  });
+
+  it('warns before a destructive reduction, and honours a cancel', () => {
+    const requestAddonChange = jest.fn();
+    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[pluginPack]} addonQty={() => 4} />);
+    fireEvent.change(screen.getByRole('spinbutton', { name: /number of plugin packs/i }), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: /update/i }));
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/Reduce Plugin Packs from 4 to 0/i));
+    expect(requestAddonChange).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+});
+
 describe('AddonGrid — combo "pair to save" nudge', () => {
   const tuaBundle = {
     id: 'bundle-tua', name: 'Team Usage Analytics', description: 'Per-team usage.',

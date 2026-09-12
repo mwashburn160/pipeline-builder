@@ -5,18 +5,29 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { FEATURE_METADATA, type FeatureFlag } from '@/lib/feature-flags';
 import { formatCents } from '@/lib/format';
+import { sellableTiers, tierAvailabilityLabel } from '@/lib/addon-tiers';
+import { TIER_META } from '@/lib/tiers';
 import type { Bundle, BillingInterval, ComboDiscount } from '@/types';
 
+/** Where an AWS Marketplace buyer manages the subscription that owns their add-ons. */
+const AWS_MARKETPLACE_LIBRARY_URL = 'https://aws.amazon.com/marketplace/library';
+
 /** Above this many units, confirm before committing (fat-finger guard). */
-const SEAT_CONFIRM_THRESHOLD = 100;
+const QUANTITY_CONFIRM_THRESHOLD = 100;
+
+/** Pack name without its parenthetical size, pluralized — "Plugin Pack (+25)" → "Plugin Packs". */
+function packNoun(name: string): string {
+  return `${name.replace(/\s*\(.*\)\s*$/, '')}s`;
+}
 
 /**
- * Typed quantity entry for a per-unit pack with volume tiers (the `seat` bundle):
- * enter an EXACT count. Because the addon quantity is SET (not incremented), the
- * control shows current → new → delta so a typed "3" reads as "set to 3", and the
- * volume-tier hint tells the buyer where discounts kick in.
+ * Typed quantity entry for every stackable pack: enter an EXACT count. Because
+ * the addon quantity is SET (not incremented), the control shows current → new →
+ * delta so a typed "3" reads as "set to 3", alongside what that costs. A bare
+ * ±1 stepper hid both the resulting quantity and its price, and let a buyer
+ * click past a pack's `maxQuantity` into a server-side 400.
  */
-function SeatEntry({ bundle, qty, interval, disabled, requestAddonChange }: {
+function PackQuantityEntry({ bundle, qty, interval, disabled, requestAddonChange }: {
   bundle: Bundle;
   qty: number;
   interval: BillingInterval;
@@ -27,29 +38,36 @@ function SeatEntry({ bundle, qty, interval, disabled, requestAddonChange }: {
   // Re-sync the field when the committed quantity changes (e.g. after a purchase).
   useEffect(() => setValue(String(qty)), [qty]);
 
+  const max = bundle.maxQuantity;
   // An empty / non-numeric / negative field is NOT a "set to 0" — treat it as "no
-  // change" so clearing the box (or a fat-finger) can't silently remove all seats.
+  // change" so clearing the box (or a fat-finger) can't silently remove everything.
   const trimmed = value.trim();
   const parsed = trimmed === '' ? NaN : Number(trimmed);
-  const valid = Number.isFinite(parsed) && parsed >= 0;
+  const overMax = Number.isFinite(parsed) && max !== undefined && parsed > max;
+  const valid = Number.isFinite(parsed) && parsed >= 0 && !overMax;
   const target = valid ? Math.floor(parsed) : qty;
   const delta = target - qty;
   const unit = interval === 'annual' ? bundle.prices.annual : bundle.prices.monthly;
-  const hint = (bundle.volumeTiers ?? [])
+  const per = interval === 'annual' ? 'yr' : 'mo';
+  const noun = packNoun(bundle.name);
+  const tiers = (bundle.volumeTiers ?? [])
     .map((t) => `${t.minQuantity}+: ${t.discountPercent}% off`)
     .join(' · ');
+  // Volume tiers price the line below list, so the running total is an upper bound.
+  const total = `${formatCents(unit * target)}/${per}${tiers ? ' before discounts' : ''}`;
 
   const submit = () => {
     if (!valid || delta === 0) return;
     // Confirm on a large INCREASE (fat-finger charge) OR a destructive DECREASE
-    // (removing all, or a big chunk of, seats).
-    const bigIncrease = target >= SEAT_CONFIRM_THRESHOLD;
+    // (removing all, or a big chunk of, the packs).
+    const bigIncrease = target >= QUANTITY_CONFIRM_THRESHOLD;
     const bigDecrease = target === 0 || delta <= -Math.max(5, Math.ceil(qty / 2));
-    const noun = `${bundle.name.toLowerCase()}s`;
-    const priced = `${formatCents(unit * target)}/${interval === 'annual' ? 'yr' : 'mo'} before discounts`;
-    const msg = target < qty
+    // Seats are the one dimension a reduction can strand people on, so they get
+    // the sharper warning; other packs just lose the capacity they add.
+    const lowered = bundle.grants?.seats
       ? `Reduce ${noun} from ${qty} to ${target}? Members over the new limit can't be added back without buying seats again.`
-      : `Set ${noun} to ${target}? That's ${priced}.`;
+      : `Reduce ${noun} from ${qty} to ${target}? That removes the extra capacity they add.`;
+    const msg = target < qty ? lowered : `Set ${noun} to ${target}? That's ${total}.`;
     if ((bigIncrease || bigDecrease) && !window.confirm(msg)) return;
     requestAddonChange(bundle.id, bundle.name, target);
   };
@@ -60,22 +78,25 @@ function SeatEntry({ bundle, qty, interval, disabled, requestAddonChange }: {
         <input
           type="number"
           min={0}
+          max={max}
           className="input w-24"
           value={value}
           disabled={disabled}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
-          aria-label={`Number of ${bundle.name.toLowerCase()}s`}
-          aria-describedby={`${bundle.id}-seat-delta`}
+          aria-label={`Number of ${noun}`}
+          aria-describedby={`${bundle.id}-qty-delta`}
         />
         <Button size="sm" disabled={disabled || !valid || delta === 0} onClick={submit}>
           {qty === 0 ? 'Add' : 'Update'}
         </Button>
       </div>
-      <p id={`${bundle.id}-seat-delta`} aria-live="polite" className="mt-1 text-xs text-[var(--pb-text-muted)] tabular-nums">
-        {qty} → {target}{delta !== 0 ? ` (${delta > 0 ? '+' : ''}${delta})` : ''}
+      <p id={`${bundle.id}-qty-delta`} aria-live="polite" className="mt-1 text-xs text-[var(--pb-text-muted)] tabular-nums">
+        {overMax
+          ? `Capped at ${max}`
+          : `${qty} → ${target}${delta !== 0 ? ` (${delta > 0 ? '+' : ''}${delta})` : ''} · ${total}`}
       </p>
-      {hint && <p className="mt-0.5 text-xs text-[var(--pb-text-muted)]">Volume discount — {hint}</p>}
+      {tiers && <p className="mt-0.5 text-xs text-[var(--pb-text-muted)]">Volume discount — {tiers}</p>}
     </div>
   );
 }
@@ -101,6 +122,10 @@ interface AddonGridProps {
   /** Combo discounts advertised for this account (bundle pairs billed together
    *  at a reduced price). Drives the "pair to save" nudge. */
   comboDiscounts?: ComboDiscount[];
+  /** Preview-state CTA: the buyer wants this pack but has no plan to stack it on.
+   *  Takes them to plan selection (and is remembered, so they land back here after
+   *  subscribing). Without it the preview card renders as static text. */
+  onSubscribeIntent?: (bundle: Bundle) => void;
 }
 
 /** Human labels for the feature flags a bundle grants (unknown flags pass through raw). */
@@ -123,6 +148,7 @@ export function AddonGrid({
   requestAddonChange,
   highlightFeature = null,
   comboDiscounts = [],
+  onSubscribeIntent,
 }: AddonGridProps) {
   // Packs can only be purchased when self-service is allowed AND there's a plan to
   // stack them on. Otherwise the catalog renders read-only (a preview / marketplace-
@@ -164,6 +190,17 @@ export function AddonGrid({
     );
     return match?.id ?? null;
   })();
+  // In the preview, lead with the packs the cheapest plan can buy: the catalog's
+  // own order opens on a Team-only pack, the least reachable card on the page.
+  // `sort` is stable, so catalog order survives within each tier group. Once
+  // subscribed the list is already tier-filtered — leave it alone.
+  const orderedBundles = subscribed
+    ? bundles
+    : [...bundles].sort((a, b) => {
+      const rank = (x: Bundle) => sellableTiers(x).map((t) => TIER_META[t].sort)[0] ?? Number.MAX_SAFE_INTEGER;
+      return rank(a) - rank(b);
+    });
+
   const highlightRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (highlightedId && highlightRef.current) {
@@ -181,7 +218,7 @@ export function AddonGrid({
           : 'Extra capacity that stacks on your plan and pools across your teams. This account is billed through AWS Marketplace — add or remove add-ons from your AWS Marketplace subscription.'}
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {bundles.map((b) => {
+        {orderedBundles.map((b) => {
           const qty = addonQty(b.id);
           const price = billingInterval === 'annual' ? b.prices.annual: b.prices.monthly;
           const features = featureLabels(b.features);
@@ -214,42 +251,45 @@ export function AddonGrid({
                   ))}
                 </div>
               )}
+              {!subscribed && tierAvailabilityLabel(b) && (
+                <p className="mt-2 text-xs text-[var(--pb-text-muted)]">{tierAvailabilityLabel(b)}</p>
+              )}
               {nudge && (
                 <p className="mt-2 inline-flex items-center gap-1 rounded-md bg-green-50 dark:bg-green-900/30 px-2 py-1 text-xs font-medium text-green-700 dark:text-green-300">
                   {nudge}
                 </p>
               )}
               <div className="mt-4 flex items-center gap-2">
-                {!canBuy ? (                        <span className="text-sm text-[var(--pb-text-muted)]">
-                    {!subscribed
-                      ? 'Subscribe to add'
-                      : qty > 0 ? `${qty} active` : 'Managed in AWS Marketplace'}
+                {!subscribed ? (
+                  onSubscribeIntent ? (
+                    <Button size="sm" onClick={() => onSubscribeIntent(b)}>
+                      Subscribe to add →
+                    </Button>
+                  ) : (
+                    <span className="text-sm text-[var(--pb-text-muted)]">Subscribe to add</span>
+                  )
+                ): !canBuy ? (                        <span className="text-sm text-[var(--pb-text-muted)]">
+                    {qty > 0 ? (
+                      `${qty} active`
+                    ) : (
+                      <a
+                        href={AWS_MARKETPLACE_LIBRARY_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        Manage in AWS Marketplace →
+                      </a>
+                    )}
                   </span>
-                ): b.stackable && b.volumeTiers?.length ? (
-                  <SeatEntry
+                ): b.stackable ? (
+                  <PackQuantityEntry
                     bundle={b}
                     qty={qty}
                     interval={billingInterval}
                     disabled={controlsDisabled}
                     requestAddonChange={requestAddonChange}
                   />
-                ): b.stackable ? (                        <>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={controlsDisabled || qty === 0}
-                      onClick={() => requestAddonChange(b.id, b.name, qty - 1)}
-                      aria-label={`Remove one ${b.name}`}
-                    >&minus;</Button>
-                    <span className="w-10 text-center tabular-nums">{qty}</span>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={controlsDisabled}
-                      onClick={() => requestAddonChange(b.id, b.name, qty + 1)}
-                      aria-label={`Add one ${b.name}`}
-                    >+</Button>
-                  </>
                 ): (                        <Button
                     variant={qty > 0 ? 'secondary': 'primary'}
                     size="sm"

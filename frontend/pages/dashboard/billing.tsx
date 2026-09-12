@@ -5,6 +5,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useAuth } from '@/hooks/useAuth';
 import { useBillingEnabledState, useBillingProvider } from '@/hooks/useBillingEnabled';
 import { TIER_KEYS } from '@/lib/tiers';
+import { tierAvailabilityText } from '@/lib/addon-tiers';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
 import { FeatureDisabledCard } from '@/components/ui/FeatureDisabledCard';
@@ -45,6 +46,10 @@ const BILLING_TABS = [
   { id: 'history', label: 'Billing History' },
 ] as const;
 type BillingTab = (typeof BILLING_TABS)[number]['id'];
+/** sessionStorage key carrying the "I came for this add-on" intent across the
+ *  plan-selection detour (including the hosted-Checkout redirect). */
+const ADDON_INTENT_KEY = 'pb.billing.addonIntent';
+
 const BILLING_TAB_IDS = BILLING_TABS.map((t) => t.id) as readonly string[];
 
 /** True only when BOTH plans are ranked and the target ranks below the current.
@@ -131,6 +136,39 @@ export default function BillingPage() {
   // emphasizes + scrolls to the add-on bundle that grants that feature.
   const highlightRaw = router.query.highlight;
   const highlightFeature = Array.isArray(highlightRaw) ? highlightRaw[0] : highlightRaw ?? null;
+
+  // "Subscribe to add" on an add-on preview card: remember which pack the buyer
+  // came for, send them to plan selection, then bring them back to that card once
+  // a plan exists. Parked in sessionStorage so the round-trip survives the hosted
+  // Checkout redirect (which leaves the app entirely).
+  const [addonIntentId, setAddonIntentId] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      setAddonIntentId(sessionStorage.getItem(ADDON_INTENT_KEY));
+    } catch { /* storage blocked (private window) — the round-trip just won't persist */ }
+  }, []);
+  const addonIntent = addonIntentId ? bundles.find((b) => b.id === addonIntentId) ?? null : null;
+
+  const startAddonIntent = (bundle: Bundle) => {
+    setAddonIntentId(bundle.id);
+    try { sessionStorage.setItem(ADDON_INTENT_KEY, bundle.id); } catch { /* not fatal */ }
+    changeTab('plans');
+  };
+
+  const clearAddonIntent = () => {
+    setAddonIntentId(null);
+    try { sessionStorage.removeItem(ADDON_INTENT_KEY); } catch { /* not fatal */ }
+  };
+
+  /** Land back on the pack the buyer originally wanted, highlighted. */
+  const finishAddonIntent = () => {
+    let id: string | null = addonIntentId;
+    try { id = id ?? sessionStorage.getItem(ADDON_INTENT_KEY); } catch { /* not fatal */ }
+    if (!id) return;
+    clearAddonIntent();
+    setActiveTab('addons');
+    void router.replace({ query: { ...router.query, tab: 'addons', highlight: id } }, undefined, { shallow: true });
+  };
 
   // Billing service disabled in this deployment → show a "Billing not enabled"
   // card (below) rather than a silent redirect. A silent bounce made the page
@@ -226,7 +264,10 @@ export default function BillingPage() {
           if (res?.success && res.data?.subscription) break;
           await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
         }
-        if (!cancelled) await fetchData();
+        if (!cancelled) {
+          await fetchData();
+          finishAddonIntent();
+        }
       })();
     } else if (outcome === 'cancelled') {
       toast.info('Checkout cancelled — no changes were made.');
@@ -261,6 +302,7 @@ export default function BillingPage() {
           toast.success('Plan changed successfully');
           setPendingPlan(null);
           await fetchData();
+          finishAddonIntent();
         }
       } else {
         // Brand-new subscription — branch by provider (pure decision, unit-tested).
@@ -290,6 +332,7 @@ export default function BillingPage() {
         if (res.success) {
           toast.success('Subscription created successfully');
           await fetchData();
+          finishAddonIntent();
         }
       }
     } catch (err) {
@@ -542,6 +585,19 @@ export default function BillingPage() {
           <div className="space-y-8">
             {intervalToggle}
 
+            {/* Why they're here: arrived from an add-on's "Subscribe to add". Name
+                the pack and the plans that sell it, so the choice isn't a guess. */}
+            {addonIntent && (
+              <div className="flex items-start justify-between gap-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 px-4 py-3">
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  Pick a plan to add <span className="font-medium">{addonIntent.name}</span>
+                  {tierAvailabilityText(addonIntent) ? ` — sold on ${tierAvailabilityText(addonIntent)}` : ''}.
+                  {' '}You&apos;ll come back here to buy it.
+                </p>
+                <Button variant="secondary" size="sm" onClick={clearAddonIntent}>Dismiss</Button>
+              </div>
+            )}
+
             {/* Plan cards (tier pricing) */}
             <PlanGrid
               plans={plans}
@@ -584,6 +640,7 @@ export default function BillingPage() {
                 requestAddonChange={requestAddonChange}
                 highlightFeature={highlightFeature}
                 comboDiscounts={comboDiscounts}
+                onSubscribeIntent={startAddonIntent}
               />
             ) : (
               <p className="text-sm text-gray-400 dark:text-gray-500 text-center">
