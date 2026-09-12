@@ -3,12 +3,12 @@
 
 import crypto from 'crypto';
 import { createLogger, isBillingEnabled, QUOTA_TIERS, SYSTEM_ORG_ID, SYSTEM_ORG_SLUG, type QuotaTier } from '@pipeline-builder/api-core';
+import type { ClientSession } from 'mongoose';
 import { seedDefaultRoles } from './roles-service.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishUserRevocation } from '../helpers/session-revocation.js';
 import { User, Organization, UserOrganization, type UserDocument } from '../models/index.js';
-import type { ClientSession } from 'mongoose';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { hashRefreshToken } from '../utils/token.js';
 

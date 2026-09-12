@@ -18,7 +18,8 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() })
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: (_s: unknown, body: unknown) => body,
-  addDomainSchema: {}, setDomainModeSchema: {},
+  addDomainSchema: {},
+  setDomainModeSchema: {},
 }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   requireAuth: (req: any, res: any) => { if (!req.user) { res.status(401).json({ success: false }); return false; } return true; },
@@ -39,9 +40,15 @@ jest.unstable_mockModule('../src/services/org-domain-service.js', () => ({
     isEntitled: (...a: unknown[]) => mockIsEntitled(...a),
     decideJoinRequest: (...a: unknown[]) => mockDecide(...a),
   },
-  DOMAIN_TAKEN: 'DOMAIN_TAKEN', DOMAIN_NOT_FOUND: 'DOMAIN_NOT_FOUND', DOMAIN_NOT_VERIFIED: 'DOMAIN_NOT_VERIFIED',
-  DOMAIN_VERIFY_FAILED: 'DOMAIN_VERIFY_FAILED', DOMAIN_NOT_ENTITLED: 'DOMAIN_NOT_ENTITLED', DOMAIN_LIMIT: 'DOMAIN_LIMIT',
-  DOMAIN_PUBLIC: 'DOMAIN_PUBLIC', JOIN_NOT_ELIGIBLE: 'JOIN_NOT_ELIGIBLE', JOIN_REQUEST_NOT_FOUND: 'JOIN_REQUEST_NOT_FOUND',
+  DOMAIN_TAKEN: 'DOMAIN_TAKEN',
+  DOMAIN_NOT_FOUND: 'DOMAIN_NOT_FOUND',
+  DOMAIN_NOT_VERIFIED: 'DOMAIN_NOT_VERIFIED',
+  DOMAIN_VERIFY_FAILED: 'DOMAIN_VERIFY_FAILED',
+  DOMAIN_NOT_ENTITLED: 'DOMAIN_NOT_ENTITLED',
+  DOMAIN_LIMIT: 'DOMAIN_LIMIT',
+  DOMAIN_PUBLIC: 'DOMAIN_PUBLIC',
+  JOIN_NOT_ELIGIBLE: 'JOIN_NOT_ELIGIBLE',
+  JOIN_REQUEST_NOT_FOUND: 'JOIN_REQUEST_NOT_FOUND',
   JOIN_SEAT_LIMIT: 'JOIN_SEAT_LIMIT',
   VERIFY_RECORD_HOST: (domain: string) => `_pipeline-builder-verify.${domain}`,
   VERIFY_RECORD_VALUE: (token: string) => `pb-verify=${token}`,

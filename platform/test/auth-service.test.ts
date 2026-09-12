@@ -397,8 +397,12 @@ describe('AuthService.switchActiveOrg', () => {
 
 describe('AuthService.completeOnboarding', () => {
   const makeUser = (over: Record<string, unknown> = {}) => ({
-    _id: { toString: () => 'user-1' }, email: 'u@x.com', lastActiveOrgId: 'org-1',
-    needsOnboarding: true, save: mockUserSave, ...over,
+    _id: { toString: () => 'user-1' },
+    email: 'u@x.com',
+    lastActiveOrgId: 'org-1',
+    needsOnboarding: true,
+    save: mockUserSave,
+    ...over,
   });
   const ownerMembership = { select: () => ({ lean: () => Promise.resolve({ role: 'owner' }) }) };
 

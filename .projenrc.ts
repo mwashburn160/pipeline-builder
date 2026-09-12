@@ -4,7 +4,7 @@
 /* eslint-disable @stylistic/max-len */
 import { NodePackageManager, NpmAccess } from 'projen/lib/javascript';
 import { TypeScriptProject } from 'projen/lib/typescript';
-import { PnpmWorkspace } from './projenrc/pnpm';
+import { pnpmWorkspaceYamlOptions, setWorkspacePackages } from './projenrc/pnpm';
 import { VscodeSettings } from './projenrc/vscode';
 import { Nx } from './projenrc/nx';
 import { Workflow } from './projenrc/workflow';
@@ -63,14 +63,13 @@ const pkg = {
 const root = new TypeScriptProject({
   name: 'root',
   defaultReleaseBranch: branch,
-  // Held at 0.99.71: projen 0.101 emits its own pnpm-workspace.yaml, which
-  // collides with the repo's custom PnpmWorkspace component (projenrc/pnpm.ts,
-  // which controls exactly which package paths are listed). Bumping requires
-  // reworking that component, so it's out of scope for a dependency refresh.
   projenVersion: '0.103.23',
   minNodeVersion: '24.14.0',
   minMajorVersion: 4,
   packageManager: NodePackageManager.PNPM,
+  // projen emits pnpm-workspace.yaml itself; our workspace settings (package
+  // paths + the pnpm 11 install policy) go through it. See projenrc/pnpm.ts.
+  pnpmOptions: { workspaceYamlOptions: pnpmWorkspaceYamlOptions },
   projenCommand: 'pnpm dlx projen',
   depsUpgradeOptions: { workflow: false },
   depsUpgrade: true,
@@ -800,7 +799,8 @@ for (const svc of services) {
 // =============================================================================
 
 new Nx(root);
-new PnpmWorkspace(root);
+// Fills pnpmWorkspaceYamlOptions.packages — subprojects must already exist.
+setWorkspacePackages(root);
 new VscodeSettings(root);
 new Workflow(root, { pnpmVersion });
 

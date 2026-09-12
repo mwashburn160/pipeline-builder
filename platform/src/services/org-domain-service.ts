@@ -3,15 +3,15 @@
 
 import crypto from 'crypto';
 import { promises as dns } from 'dns';
-import { Types, isValidObjectId } from 'mongoose';
 import { createLogger } from '@pipeline-builder/api-core';
+import { Types, isValidObjectId } from 'mongoose';
+import { ensureBaselineRole } from './roles-service.js';
+import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
+import { toOrgId } from '../helpers/org-id.js';
+import { seatCapacityAvailable, seatCapacityStillWithinCap, userHasSeatInAccount } from '../helpers/seats.js';
+import { emailDomain } from '../helpers/sso-enforcement.js';
 import { OrgDomain, JoinRequest, Organization, UserOrganization, User, type OrgDomainDocument, type DomainJoinMode } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
-import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
-import { emailDomain } from '../helpers/sso-enforcement.js';
-import { seatCapacityAvailable, seatCapacityStillWithinCap, userHasSeatInAccount } from '../helpers/seats.js';
-import { toOrgId } from '../helpers/org-id.js';
-import { ensureBaselineRole } from './roles-service.js';
 
 const logger = createLogger('org-domain-service');
 

@@ -8,9 +8,6 @@
  * (billing-helpers never imports this file, so there's no cycle).
  */
 import { createLogger, type QuotaTier } from '@pipeline-builder/api-core';
-import type { BillingInterval } from '../models/subscription.js';
-import type { BillingEventType } from '../models/billing-event.js';
-import { getAuditClient } from '../services/audit.js';
 import {
   billingServiceAuth,
   createBillingEvent,
@@ -20,6 +17,9 @@ import {
   syncProviderAddons,
   type PrunedAddon,
 } from './billing-helpers.js';
+import type { BillingEventType } from '../models/billing-event.js';
+import type { BillingInterval } from '../models/subscription.js';
+import { getAuditClient } from '../services/audit.js';
 
 const logger = createLogger('billing-addon-prune');
 

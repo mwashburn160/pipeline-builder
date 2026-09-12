@@ -17,9 +17,12 @@ const mockSendSuccess = jest.fn((_res: any, _code: number, data: any) => data);
 const mockSendBadRequest = jest.fn((_res: any, msg: string, _code?: string) => msg);
 const mockSetSettings = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 const mockGetSettings = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({
-  incidentWindowHours: 48, defaultWindowHours: 24,
-  eventRetentionDays: null, doraRetentionDays: 545,
-  defaultEventRetentionDays: 30, defaultDoraRetentionDays: 180,
+  incidentWindowHours: 48,
+  defaultWindowHours: 24,
+  eventRetentionDays: null,
+  doraRetentionDays: 545,
+  defaultEventRetentionDays: 30,
+  defaultDoraRetentionDays: 180,
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({

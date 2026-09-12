@@ -83,7 +83,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     requirePermission: (...permissions: string[]) => permissionGate(permissions, false),
     requirePermissionOrService: (...permissions: string[]) => permissionGate(permissions, true),
     SYSTEM_ORG_ID: '000000000000000000000001',
-    
+
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,

@@ -130,8 +130,8 @@ describe('addDomain', () => {
 
   it('rejects a domain already VERIFIED by another org', async () => {
     mockDomainFindOne
-      .mockResolvedValueOnce(null)                                   // mine
-      .mockResolvedValueOnce({ orgId: 'org-2', verified: true });    // verifiedElsewhere
+      .mockResolvedValueOnce(null) // mine
+      .mockResolvedValueOnce({ orgId: 'org-2', verified: true }); // verifiedElsewhere
     await expect(orgDomainService.addDomain('org-1', 'acme.com', 'u1')).rejects.toThrow(svc.DOMAIN_TAKEN);
   });
 
@@ -238,8 +238,8 @@ describe('requestOrAutoJoin', () => {
   it('auto-joins (seat-checked member) for autoJoin=auto', async () => {
     mockDomainFind.mockReturnValue(discoverable('auto'));
     mockUserOrgFindOne
-      .mockReturnValueOnce({ lean: () => Promise.resolve(null) })      // already-member pre-check
-      .mockReturnValueOnce({ session: () => Promise.resolve(null) });  // in-tx existing
+      .mockReturnValueOnce({ lean: () => Promise.resolve(null) }) // already-member pre-check
+      .mockReturnValueOnce({ session: () => Promise.resolve(null) }); // in-tx existing
     mockJoinFindOne.mockReturnValue({ lean: () => Promise.resolve(null) }); // prior request
     const res = await orgDomainService.requestOrAutoJoin(user, 'org-1');
     expect(res).toEqual({ joined: true, status: 'joined' });
@@ -271,8 +271,8 @@ describe('requestOrAutoJoin', () => {
   it('falls back to a request when auto-join hits a revoked membership', async () => {
     mockDomainFind.mockReturnValue(discoverable('auto'));
     mockUserOrgFindOne
-      .mockReturnValueOnce({ lean: () => Promise.resolve(null) })                        // already-member pre-check
-      .mockReturnValueOnce({ session: () => Promise.resolve({ isActive: false }) });     // in-tx: deactivated membership
+      .mockReturnValueOnce({ lean: () => Promise.resolve(null) }) // already-member pre-check
+      .mockReturnValueOnce({ session: () => Promise.resolve({ isActive: false }) }); // in-tx: deactivated membership
     mockJoinFindOne.mockReturnValue({ lean: () => Promise.resolve(null) });
     const res = await orgDomainService.requestOrAutoJoin(user, 'org-1');
     expect(res.status).toBe('requested');
@@ -299,8 +299,14 @@ describe('requestOrAutoJoin', () => {
 
 describe('reverifyStaleDomains', () => {
   const staleDoc = (over: Record<string, unknown> = {}) => ({
-    _id: 'd1', orgId: 'org-1', domain: 'acme.com', verified: true, verificationToken: 'tok', autoJoin: 'auto',
-    save: jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined), ...over,
+    _id: 'd1',
+    orgId: 'org-1',
+    domain: 'acme.com',
+    verified: true,
+    verificationToken: 'tok',
+    autoJoin: 'auto',
+    save: jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined),
+    ...over,
   });
 
   it('un-verifies + disables a domain whose TXT proof is definitively gone', async () => {

@@ -4,6 +4,7 @@
 !/.projen/deps.json
 !/.projen/files.json
 !/.github/workflows/pull-request-lint.yml
+!/pnpm-workspace.yaml
 !/package.json
 !/LICENSE
 !/.npmignore
@@ -49,13 +50,13 @@ plugin.zip
 !/.github/pull_request_template.md
 !/test/
 !/tsconfig.json
-!/tsconfig.dev.json
+!/test/tsconfig.json
 !/projenrc/
 /lib
 /dist/
+!/projenrc/tsconfig.json
 !/.npmrc
 !/nx.json
-!/pnpm-workspace.yaml
 !/.vscode/settings.json
 !/.github/workflows/release.yml
 !/.github/workflows/test.yml

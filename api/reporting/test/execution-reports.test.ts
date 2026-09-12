@@ -108,9 +108,12 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
     // suites keep asserting the exact from/to they send (the floor itself is
     // unit-tested in retention-cap.test).
     getIncidentSettings: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({
-      incidentWindowHours: null, defaultWindowHours: 24,
-      eventRetentionDays: -1, doraRetentionDays: -1,
-      defaultEventRetentionDays: 30, defaultDoraRetentionDays: 180,
+      incidentWindowHours: null,
+      defaultWindowHours: 24,
+      eventRetentionDays: -1,
+      doraRetentionDays: -1,
+      defaultEventRetentionDays: 30,
+      defaultDoraRetentionDays: 180,
     }),
   },
 }));

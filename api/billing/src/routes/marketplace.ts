@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { randomUUID } from 'node:crypto';
 import {
   requireAuth,
   requirePermission,
@@ -13,6 +14,7 @@ import {
 import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import { config } from '../config.js';
+import { applyPlanTierChange, applyTierIncludedAddonPrune } from '../helpers/addon-prune.js';
 import {
   calculatePeriodEnd,
   createBillingEvent,
@@ -20,7 +22,6 @@ import {
   recordReactivatePlanMissing,
   MANAGEABLE_SUBSCRIPTION_STATUSES,
 } from '../helpers/billing-helpers.js';
-import { applyPlanTierChange, applyTierIncludedAddonPrune } from '../helpers/addon-prune.js';
 import {
   verifySNSSignature,
   confirmSNSSubscription,
@@ -28,11 +29,10 @@ import {
   type SNSMessage,
   type MarketplaceNotification,
 } from '../helpers/marketplace-helpers.js';
-import { randomUUID } from 'node:crypto';
+import { MarketplacePendingRegistration, PENDING_REGISTRATION_TTL_MS } from '../models/marketplace-pending-registration.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 import type { BillingInterval } from '../models/subscription.js';
-import { MarketplacePendingRegistration, PENDING_REGISTRATION_TTL_MS } from '../models/marketplace-pending-registration.js';
 import { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent } from '../models/webhook-dedupe.js';
 import { AWSMarketplaceProvider, type EntitlementResult } from '../providers/aws-marketplace-provider.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';

@@ -36,7 +36,7 @@ export interface AnswerHowToOptions {
 }
 
 const SYSTEM_PROMPT = [
-  "You are the Pipeline Builder \"Ask\" assistant. You help users understand and use the",
+  'You are the Pipeline Builder "Ask" assistant. You help users understand and use the',
   'platform. Answer the question using ONLY the documentation context provided below.',
   '',
   'Rules:',

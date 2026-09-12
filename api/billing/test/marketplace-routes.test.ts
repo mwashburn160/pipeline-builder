@@ -221,7 +221,7 @@ describe('POST /marketplace/resolve', () => {
   });
 
   it('rejects a body-supplied orgId (no pre-binding on the unauthenticated route)', async () => {
-    const req: any = { body: { 'x-amzn-marketplace-token': 'tok', orgId: 'attacker-org' }, query: {} };
+    const req: any = { body: { 'x-amzn-marketplace-token': 'tok', 'orgId': 'attacker-org' }, query: {} };
     const res = mockRes();
     await handler(req, res);
 
@@ -246,8 +246,12 @@ describe('POST /marketplace/resolve', () => {
 describe('POST /marketplace/claim', () => {
   const handler = getHandler('post', '/marketplace/claim');
   const PENDING = {
-    _id: 'ref-1', awsCustomerIdentifier: CUSTOMER_ID, awsProductCode: 'prod-1',
-    planId: 'team', dimension: 'team-dim', interval: 'monthly',
+    _id: 'ref-1',
+    awsCustomerIdentifier: CUSTOMER_ID,
+    awsProductCode: 'prod-1',
+    planId: 'team',
+    dimension: 'team-dim',
+    interval: 'monthly',
   };
 
   it('binds the pending registration to the CALLER\'s org and consumes it', async () => {

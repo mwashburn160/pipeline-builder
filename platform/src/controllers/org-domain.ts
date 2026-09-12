@@ -3,8 +3,8 @@
 
 import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { incCounter } from '../observability/metrics.js';
 import { withController, canAdministerOrg, requireAuth } from '../helpers/controller-helper.js';
+import { incCounter } from '../observability/metrics.js';
 import {
   orgDomainService, VERIFY_RECORD_HOST, VERIFY_RECORD_VALUE,
   DOMAIN_TAKEN, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_VERIFY_FAILED,

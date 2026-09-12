@@ -22,17 +22,17 @@ interface OAuthProviderData {
  * OAuth providers map. Internal to the user model (see above).
  */
 interface OAuthProviders {
-  google?: OAuthProviderData;
-  github?: OAuthProviderData;
-  facebook?: OAuthProviderData;
-  microsoft?: OAuthProviderData;
-  gitlab?: OAuthProviderData;
-  linkedin?: OAuthProviderData;
+  'google'?: OAuthProviderData;
+  'github'?: OAuthProviderData;
+  'facebook'?: OAuthProviderData;
+  'microsoft'?: OAuthProviderData;
+  'gitlab'?: OAuthProviderData;
+  'linkedin'?: OAuthProviderData;
   // Per-org SSO (OIDC) providers also persist linkage here — findOrCreateOAuthUser
   // is shared by the social-login and SSO callbacks and keys on the IdP provider.
   // `google`/`github` above double as SSO keys; these two are SSO-only.
   'generic-oidc'?: OAuthProviderData;
-  cognito?: OAuthProviderData;
+  'cognito'?: OAuthProviderData;
 }
 
 /**
@@ -207,17 +207,17 @@ const userSchema = new Schema<UserDocument>(
       default: () => new Map(),
     },
     oauth: {
-      google: oauthProviderSchema,
-      github: oauthProviderSchema,
-      facebook: oauthProviderSchema,
-      microsoft: oauthProviderSchema,
-      gitlab: oauthProviderSchema,
-      linkedin: oauthProviderSchema,
+      'google': oauthProviderSchema,
+      'github': oauthProviderSchema,
+      'facebook': oauthProviderSchema,
+      'microsoft': oauthProviderSchema,
+      'gitlab': oauthProviderSchema,
+      'linkedin': oauthProviderSchema,
       // SSO (OIDC) provider keys — see OAuthProviders. Without these, per-org SSO
       // linkage was silently dropped under Mongoose strict mode and every SSO
       // login re-matched by email instead of the oauth-id fast path.
       'generic-oidc': oauthProviderSchema,
-      cognito: oauthProviderSchema,
+      'cognito': oauthProviderSchema,
     },
   },
   { timestamps: true },

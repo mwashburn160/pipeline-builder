@@ -6,17 +6,17 @@ import { createLogger } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { config } from '../config.js';
 import { createBillingEvent, getBundleCatalog } from './billing-helpers.js';
-import { loadManageableSubscription } from './subscription-status.js';
 import { billingPeriodKey } from './billing-period.js';
 // Re-exported so routes/discounts.ts keeps importing it from here.
 export { loadManageableSubscription };
 import { activeComboCredits, comboLedgerId, getComboDiscounts, priceForInterval, volumeCredits, volumeLedgerId } from './combo-pricing.js';
 import { compactCreditLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
 import { decodeDiscountCode, type DiscountSpec, type DiscountKind } from './discount-code.js';
+import { loadManageableSubscription } from './subscription-status.js';
 import { Discount } from '../models/discount.js';
 import type { DiscountDocument } from '../models/discount.js';
-import { Subscription } from '../models/subscription.js';
 import { Plan } from '../models/plan.js';
+import { Subscription } from '../models/subscription.js';
 import type { SubscriptionDocument } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 
@@ -313,7 +313,7 @@ async function grantUsageCredit(subscription: SubscriptionDocument, discountId: 
       ? { creditLedger: { $not: { $elemMatch: { discountId, dedupeKey } } } }
       : { 'creditLedger.discountId': { $ne: discountId } };
     const committed = await Subscription.findOneAndUpdate(
-      { '_id': subscription._id, ...guard },
+      { _id: subscription._id, ...guard },
       { $push: { creditLedger: creditLedgerEntry({ discountId, cents, fulfillmentRef: ref, dedupeKey }) }, $inc: { creditBalanceCents: cents } },
       { new: true },
     );

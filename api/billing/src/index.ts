@@ -8,12 +8,12 @@ import express from 'express';
 import mongoose from 'mongoose';
 
 import { config } from './config.js';
+import { setEntitlementSyncBus, startEntitlementSyncConsumer } from './helpers/billing-helpers.js';
 import { startMarketplaceMetering, stopMarketplaceMetering } from './helpers/marketplace-metering.js';
 import { startPromotionBackfill } from './helpers/promotion-backfill.js';
 import { seedPlans } from './helpers/seed-plans.js';
-import { validateProviderConfig } from './helpers/validate-provider-config.js';
 import { startSubscriptionLifecycleChecker, stopSubscriptionLifecycleChecker } from './helpers/subscription-lifecycle.js';
-import { setEntitlementSyncBus, startEntitlementSyncConsumer } from './helpers/billing-helpers.js';
+import { validateProviderConfig } from './helpers/validate-provider-config.js';
 import { createAddonRoutes } from './routes/addons.js';
 import { createAdminSubscriptionRoutes } from './routes/admin-subscriptions.js';
 import { createBillingSummaryRoutes } from './routes/billing-summary.js';

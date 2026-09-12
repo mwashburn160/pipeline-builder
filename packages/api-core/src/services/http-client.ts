@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import * as http from 'http';
+import { getCircuitBreaker, CircuitOpenError } from './circuit-breaker.js';
 import {
   DEFAULT_MAX_RETRIES,
   DEFAULT_RETRY_DELAY_MS,
@@ -14,7 +15,6 @@ import { HttpStatus } from '../constants/http-status.js';
 import type { ServiceConfig } from '../types/common.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
-import { getCircuitBreaker, CircuitOpenError } from './circuit-breaker.js';
 
 const logger = createLogger('http-client');
 

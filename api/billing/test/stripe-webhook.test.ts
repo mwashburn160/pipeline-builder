@@ -441,8 +441,13 @@ describe('handleSubscriptionCreated (checkout provisioning)', () => {
     await handleSubscriptionCreated(created({ orgId: 'org-9', planId: 'team', interval: 'monthly' }));
 
     expect(mockSubscriptionCreate).toHaveBeenCalledWith(expect.objectContaining({
-      orgId: 'org-9', planId: 'team', status: 'active', interval: 'monthly',
-      externalId: 'sub_ext', externalCustomerId: 'cust_x', metadata: { provider: 'stripe' },
+      orgId: 'org-9',
+      planId: 'team',
+      status: 'active',
+      interval: 'monthly',
+      externalId: 'sub_ext',
+      externalCustomerId: 'cust_x',
+      metadata: { provider: 'stripe' },
     }));
     // Entitlements granted with a real service token + the new sub id.
     expect(mockSyncTier).toHaveBeenCalledWith('org-9', 'team', 'Bearer service-token', 'sub-new');

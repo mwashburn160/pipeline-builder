@@ -112,7 +112,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // so suites that transitively load the boot module still link.
     setTokenRevocationStore: () => {},
     createEnvRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
-    
+
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,

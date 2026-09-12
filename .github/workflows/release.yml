@@ -18,8 +18,10 @@ jobs:
       AFFECTED_PROJECTS: ${{ steps.affected.outputs.AFFECTED_PROJECTS }}
     steps:
       - name: Disable Nx telemetry and daemon
+        id: disable_nx_telemetry_and_daemon
         run: echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV
       - name: Clear cache
+        id: clear_cache
         uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GHRC_TOKEN }}
@@ -35,27 +37,34 @@ jobs:
                                     }
                                 }
       - name: Checkout repository
+        id: checkout_repository
         uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
       - name: Setup pnpm
+        id: setup_pnpm
         uses: pnpm/action-setup@v6
         with:
           version: 10.33.0
       - name: Setup node
+        id: setup_node
         uses: actions/setup-node@v6
         with:
           cache: pnpm
           node-version: 24.14.0
           package-manager-cache: pnpm
       - name: Configure npm registry
+        id: configure_npm_registry
         run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN && npm config set @pipeline-builder:registry=https://registry.npmjs.org/
       - name: Install dependencies
+        id: install_dependencies
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
+        id: set_git_user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Prune tags older than 15 days
+        id: prune_tags_older_than_15_days
         run: CUTOFF_DATE=$(date -d "15 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
       - name: Set NX_BASE
         id: nx_base
@@ -69,6 +78,7 @@ jobs:
           IMAGE_PROJECTS: '["frontend","platform","billing","reporting","compliance","quota","message","pipeline","plugin","image-registry","ask"]'
         run: AFFECTED=$(pnpm nx show projects --affected --json --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }}) && echo AFFECTED_PROJECTS=$AFFECTED >> $GITHUB_OUTPUT && echo AFFECTED_IMAGES=$(jq -nc --argjson a "$AFFECTED" --argjson l "$IMAGE_PROJECTS" '[$a[] | select(IN($l[]))]') >> $GITHUB_OUTPUT
       - name: Affected details
+        id: affected_details
         run: echo AFFECTED_PROJECTS=${{ steps.affected.outputs.AFFECTED_PROJECTS }} && echo AFFECTED_IMAGES=${{ steps.affected.outputs.AFFECTED_IMAGES }}
   build:
     name: build
@@ -82,8 +92,10 @@ jobs:
     if: ${{ needs.init.outputs.AFFECTED_PROJECTS != '[]' || needs.init.outputs.AFFECTED_IMAGES != '[]' }}
     steps:
       - name: Disable Nx telemetry and daemon
+        id: disable_nx_telemetry_and_daemon
         run: echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV
       - name: Clear cache
+        id: clear_cache
         uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GHRC_TOKEN }}
@@ -99,41 +111,53 @@ jobs:
                                     }
                                 }
       - name: Checkout repository
+        id: checkout_repository
         uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
       - name: Setup pnpm
+        id: setup_pnpm
         uses: pnpm/action-setup@v6
         with:
           version: 10.33.0
       - name: Setup node
+        id: setup_node
         uses: actions/setup-node@v6
         with:
           cache: pnpm
           node-version: 24.14.0
           package-manager-cache: pnpm
       - name: Configure npm registry
+        id: configure_npm_registry
         run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN && npm config set @pipeline-builder:registry=https://registry.npmjs.org/
       - name: Install dependencies
+        id: install_dependencies
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
+        id: set_git_user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Prune tags older than 15 days
+        id: prune_tags_older_than_15_days
         run: CUTOFF_DATE=$(date -d "15 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
       - name: Set NX:BASE, NX:HEAD
+        id: set_nx_base_nx_head
         run: echo NX_BASE=${{ needs.init.outputs.NX_BASE }} >> $GITHUB_ENV && echo NX_HEAD=${{ needs.init.outputs.NX_HEAD }}  >> $GITHUB_ENV
       - name: Details NX_BASE, NX_HEAD
+        id: details_nx_base_nx_head
         run: 'echo "NX_BASE: ${{ env.NX_BASE }}, NX_HEAD: ${{ env.NX_HEAD }}"'
       - name: Run build target
+        id: run_build_target
         env:
           GITHUB_TOKEN: ${{ secrets.GHRC_TOKEN }}
         run: pnpm nx affected --target build --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose
       - name: Run test target
+        id: run_test_target
         env:
           GITHUB_TOKEN: ${{ secrets.GHRC_TOKEN }}
         run: pnpm nx affected --target test --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose
       - name: Semantic version
+        id: semantic_version
         env:
           GITHUB_TOKEN: ${{ secrets.GHRC_TOKEN }}
         run: pnpm nx release --first-release --skip-publish --verbose
@@ -143,15 +167,18 @@ jobs:
           LIBRARY_PROJECTS: '["api-core","ai-core","api-server","pipeline-core","pipeline-data","pipeline-events","pipeline-manager"]'
         run: AFFECTED=$(pnpm nx show projects --affected --json --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }}) && echo AFFECTED_LIBS=$(jq -nc --argjson a "$AFFECTED" --argjson l "$LIBRARY_PROJECTS" '[$a[] | sub("^@pipeline-builder/"; "") | select(IN($l[]))]') >> $GITHUB_OUTPUT
       - name: Publish npm packages
+        id: publish_npm_packages
         if: ${{ steps.check.outputs.AFFECTED_LIBS != '[]' && steps.check.outputs.AFFECTED_LIBS != '' }}
         run: npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo '${{ steps.check.outputs.AFFECTED_LIBS }}' | jq -r '[.[] | "--filter @pipeline-builder/" + .] | join(" ")') && if [ -z "$FILTERS" ]; then echo "No affected @pipeline-builder libraries to publish."; else pnpm publish --access public $FILTERS --no-git-checks --verbose; fi
       - name: Check for frontend standalone bundle
         id: fe_bundle
         run: if [ -d ./frontend/.next/standalone ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
       - name: Package frontend bundle (preserves symlinks)
+        id: package_frontend_bundle_preserves_symlinks
         if: steps.fe_bundle.outputs.exists == 'true'
         run: tar -czf frontend-bundle.tar.gz -C ./frontend .next/standalone .next/static
       - name: Upload artifact
+        id: upload_artifact
         uses: actions/upload-artifact@v7
         with:
           name: artifacts
@@ -167,6 +194,7 @@ jobs:
             !./frontend/.next/
           include-hidden-files: true
       - name: Push new tag to the repository
+        id: push_new_tag_to_the_repository
         run: git push --follow-tags
   publish:
     name: publish image
@@ -182,8 +210,10 @@ jobs:
     if: ${{ needs.init.outputs.AFFECTED_IMAGES != '[]' }}
     steps:
       - name: Disable Nx telemetry and daemon
+        id: disable_nx_telemetry_and_daemon
         run: echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV
       - name: Clear cache
+        id: clear_cache
         uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GHRC_TOKEN }}
@@ -199,27 +229,34 @@ jobs:
                                     }
                                 }
       - name: Checkout repository
+        id: checkout_repository
         uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
       - name: Setup pnpm
+        id: setup_pnpm
         uses: pnpm/action-setup@v6
         with:
           version: 10.33.0
       - name: Setup node
+        id: setup_node
         uses: actions/setup-node@v6
         with:
           cache: pnpm
           node-version: 24.14.0
           package-manager-cache: pnpm
       - name: Configure npm registry
+        id: configure_npm_registry
         run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN && npm config set @pipeline-builder:registry=https://registry.npmjs.org/
       - name: Install dependencies
+        id: install_dependencies
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
+        id: set_git_user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Prune tags older than 15 days
+        id: prune_tags_older_than_15_days
         run: CUTOFF_DATE=$(date -d "15 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
       - name: Download artifact
         id: dnload_artifact
@@ -228,39 +265,49 @@ jobs:
           name: artifacts
           path: dnload
       - name: Copy artifacts to destination
+        id: copy_artifacts_to_destination
         run: cp -rv dnload/* ./
       - name: Extract frontend bundle
+        id: extract_frontend_bundle
         if: ${{ matrix.project_name == 'frontend' }}
         run: tar --overwrite -xzf frontend-bundle.tar.gz -C ./frontend && rm frontend-bundle.tar.gz
       - name: Login into container registry
+        id: login_into_container_registry
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHRC_TOKEN }}
       - name: Setup QEMU
+        id: setup_qemu
         uses: docker/setup-qemu-action@v4
       - name: Setup buildx
+        id: setup_buildx
         uses: docker/setup-buildx-action@v4
         with:
           cleanup: true
           cache-binary: false
       - name: Build + push multi-arch image
+        id: build_push_multi-arch_image
         env:
           REGISTRY: ghcr.io/mwashburn160
           PROJECT_NAME: ${{ matrix.project_name }}
           DOCKER_CACHE: "1"
         run: pnpm nx run ${PROJECT_NAME}:docker:publish --verbose
       - name: Verify multi-arch manifest
+        id: verify_multi-arch_manifest
         env:
           REGISTRY: ghcr.io/mwashburn160
           PROJECT_NAME: ${{ matrix.project_name }}
         run: pnpm nx run ${PROJECT_NAME}:docker:verify --verbose
       - name: Install cosign
+        id: install_cosign
         uses: sigstore/cosign-installer@v3
       - name: Install syft (SBOM generator)
+        id: install_syft_sbom_generator
         uses: anchore/sbom-action/download-syft@v0
       - name: Sign image + attach SBOM (keyless)
+        id: sign_image_attach_sbom_keyless
         env:
           PROJECT_NAME: ${{ matrix.project_name }}
           COSIGN_YES: "true"
@@ -283,13 +330,16 @@ jobs:
     if: ${{ always() && needs.init.result == 'success' && needs.build.result != 'failure' && needs.build.result != 'cancelled' && needs.publish.result != 'failure' && needs.publish.result != 'cancelled' }}
     steps:
       - name: Checkout repository
+        id: checkout_repository
         uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
       - name: Verify published npm package deps resolve
+        id: verify_published_npm_package_deps_resolve
         run: bash deploy/bin/verify-npm-deps.sh
       - name: Verify deploy image tags are publicly pullable from ghcr.io
+        id: verify_deploy_image_tags_are_publicly_pullable_from_ghcr_io
         env:
           GHCR_TOKEN: ${{ secrets.GHRC_TOKEN }}
           GHCR_USER: ${{ github.actor }}
@@ -307,11 +357,14 @@ jobs:
     if: ${{ always() && needs.build.result == 'success' && needs.publish.result != 'failure' && needs.publish.result != 'cancelled' && needs.verify_release.result == 'success' }}
     steps:
       - name: Checkout repository
+        id: checkout_repository
         uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
       - name: Set git user
+        id: set_git_user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Advance .nx_base to the released HEAD
+        id: advance_nx_base_to_the_released_head
         run: 'git pull --ff-only origin main && echo $(git rev-parse HEAD) > .nx_base && git add .nx_base && git commit -m "chore: updated last successfully built commit" && git push'

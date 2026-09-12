@@ -23,9 +23,9 @@
  * once-per-client. Disable entirely with `S2S_BREAKER_ENABLED=false`.
  */
 
-import { emitCounter } from '../utils/metric-emitter.js';
-import { createLogger } from '../utils/logger.js';
 import { envInt, envBool } from '../utils/env.js';
+import { createLogger } from '../utils/logger.js';
+import { emitCounter } from '../utils/metric-emitter.js';
 
 const logger = createLogger('circuit-breaker');
 

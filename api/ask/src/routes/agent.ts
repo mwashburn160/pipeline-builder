@@ -29,7 +29,7 @@ import { resolveAskModel } from '../services/model.js';
 const logger = createLogger('ask-agent');
 
 const AGENT_SYSTEM = [
-  "You are the Pipeline Builder \"Ask\" assistant. You help users understand and use the platform.",
+  'You are the Pipeline Builder "Ask" assistant. You help users understand and use the platform.',
   '',
   'Tools:',
   '- answer_how_to: look up docs to answer how-to / functionality questions. Use it before',

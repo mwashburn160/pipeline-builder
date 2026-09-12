@@ -63,9 +63,12 @@ describe('POST /reports/deployments/:executionId/outcome', () => {
     jest.clearAllMocks();
     // Default org: bounded DORA retention (180d), 'production' is a real deploy env.
     mockGetSettings.mockResolvedValue({
-      incidentWindowHours: null, defaultWindowHours: 24,
-      eventRetentionDays: null, doraRetentionDays: null,
-      defaultEventRetentionDays: 30, defaultDoraRetentionDays: 180,
+      incidentWindowHours: null,
+      defaultWindowHours: 24,
+      eventRetentionDays: null,
+      doraRetentionDays: null,
+      defaultEventRetentionDays: 30,
+      defaultDoraRetentionDays: 180,
     });
     mockGetEnvironments.mockResolvedValue(['production', 'staging']);
     router = createDeploymentOutcomeRoutes();
@@ -126,9 +129,12 @@ describe('POST /reports/deployments/:executionId/outcome', () => {
 
   it('an unlimited (-1) org accepts an ancient `at` (no retention floor)', async () => {
     mockGetSettings.mockResolvedValue({
-      incidentWindowHours: null, defaultWindowHours: 24,
-      eventRetentionDays: -1, doraRetentionDays: -1,
-      defaultEventRetentionDays: 30, defaultDoraRetentionDays: 180,
+      incidentWindowHours: null,
+      defaultWindowHours: 24,
+      eventRetentionDays: -1,
+      doraRetentionDays: -1,
+      defaultEventRetentionDays: 30,
+      defaultDoraRetentionDays: 180,
     });
     const at = iso(3000 * DAY);
     await getHandler()({ params: { executionId: 'exec-8' }, body: { outcome: 'failed', at, environment: 'production' } }, res());

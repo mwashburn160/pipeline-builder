@@ -6,12 +6,12 @@ import { incCounter } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
 import { billingServiceAuth, createBillingEvent, deriveComplianceSets, effectiveEntitlements, effectiveFeatureSet, getBundleCatalog, pushComplianceSetsToCompliance, syncEntitlements, syncProviderAddons } from './billing-helpers.js';
-import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { complianceSetsDiffer, computeEntitlementDrift, readActualEntitlements, readEnforcedComplianceSets } from './entitlement-drift.js';
+import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
-import { getPaymentProvider } from '../providers/provider-factory.js';
 import type { EntitlementResult } from '../providers/aws-marketplace-provider.js';
+import { getPaymentProvider } from '../providers/provider-factory.js';
 
 const logger = createLogger('subscription-lifecycle');
 
@@ -346,54 +346,54 @@ async function sendRenewalReminders(): Promise<void> {
   });
 
   try {
-  for (const subscription of upcoming) {
-    try {
-      const periodKey = formatDate(subscription.currentPeriodEnd);
-      if (subscription.metadata?.lastRenewalReminder === periodKey) continue;
+    for (const subscription of upcoming) {
+      try {
+        const periodKey = formatDate(subscription.currentPeriodEnd);
+        if (subscription.metadata?.lastRenewalReminder === periodKey) continue;
 
-      const plan = await Plan.findById(subscription.planId);
-      const planName = plan?.name || 'your plan';
-      const renewDate = subscription.currentPeriodEnd.toLocaleDateString('en-US', {
-        year: 'numeric', month: 'long', day: 'numeric',
-      });
+        const plan = await Plan.findById(subscription.planId);
+        const planName = plan?.name || 'your plan';
+        const renewDate = subscription.currentPeriodEnd.toLocaleDateString('en-US', {
+          year: 'numeric', month: 'long', day: 'numeric',
+        });
 
-      await messageClient.post('/messages', {
+        await messageClient.post('/messages', {
         // Caller's org identity is taken from the JWT — don't pass orgId/
         // senderOrgId, the message service rejects them. recipientOrgId
         // is the target tenant. Use 'conversation' (not 'announcement',
         // which message-service only allows for recipientOrgId='*').
-        recipientOrgId: subscription.orgId,
-        messageType: 'conversation',
-        subject: `Subscription renewal in ${reminderDays} days`,
-        content: `Your ${planName} subscription (${subscription.interval}) will renew on ${renewDate}. `
+          recipientOrgId: subscription.orgId,
+          messageType: 'conversation',
+          subject: `Subscription renewal in ${reminderDays} days`,
+          content: `Your ${planName} subscription (${subscription.interval}) will renew on ${renewDate}. `
           + 'If you need to make changes, visit your billing settings.',
-        priority: 'normal',
-      }, {
-        headers: {
-          'x-internal-service': 'true',
-          'x-org-id': SYSTEM_ORG_ID,
-          'authorization': billingServiceAuth(SYSTEM_ORG_ID, 'member'),
-        },
-      });
+          priority: 'normal',
+        }, {
+          headers: {
+            'x-internal-service': 'true',
+            'x-org-id': SYSTEM_ORG_ID,
+            'authorization': billingServiceAuth(SYSTEM_ORG_ID, 'member'),
+          },
+        });
 
-      subscription.metadata = {
-        ...subscription.metadata,
-        lastRenewalReminder: periodKey,
-      };
-      await subscription.save();
+        subscription.metadata = {
+          ...subscription.metadata,
+          lastRenewalReminder: periodKey,
+        };
+        await subscription.save();
 
-      logger.info('Renewal reminder sent', {
-        orgId: subscription.orgId,
-        renewDate,
-        planName,
-      });
-    } catch (err) {
-      logger.warn('Failed to send renewal reminder', {
-        orgId: subscription.orgId,
-        error: errorMessage(err),
-      });
+        logger.info('Renewal reminder sent', {
+          orgId: subscription.orgId,
+          renewDate,
+          planName,
+        });
+      } catch (err) {
+        logger.warn('Failed to send renewal reminder', {
+          orgId: subscription.orgId,
+          error: errorMessage(err),
+        });
+      }
     }
-  }
   } finally {
     // Release the shared client's keep-alive agent after the batch.
     messageClient.destroy();
@@ -575,8 +575,11 @@ async function reconcileEntitlementDrift(): Promise<void> {
       // never-pushed Enterprise cutover — is corrected without touching quota/seats.
       if (complianceSetsDiffer(expectedSets, actualSets)) {
         logger.warn('Compliance-set drift detected — re-syncing entitled sets', {
-          orgId: subscription.orgId, subscriptionId, tier: plan.tier,
-          expected: expectedSets, actual: actualSets,
+          orgId: subscription.orgId,
+          subscriptionId,
+          tier: plan.tier,
+          expected: expectedSets,
+          actual: actualSets,
         });
         await pushComplianceSetsToCompliance(subscription.orgId, effectiveFeatures, serviceAuth, subscriptionId);
         incCounter('billing_entitlement_drift_total', { dimension: 'compliance' });

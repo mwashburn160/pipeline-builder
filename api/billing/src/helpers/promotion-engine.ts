@@ -31,13 +31,13 @@ import { createLogger, emitCounter } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { createBillingEvent } from './billing-helpers.js';
 import { compactCreditLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
+import { MANAGEABLE_SUBSCRIPTION_STATUSES, loadManageableSubscription } from './subscription-status.js';
 import { Plan } from '../models/plan.js';
 import { Promotion } from '../models/promotion.js';
 import type { PromotionDocument, PromotionEvent, PromotionConditions } from '../models/promotion.js';
 import { Referral } from '../models/referral.js';
 import { Subscription } from '../models/subscription.js';
 import type { SubscriptionDocument } from '../models/subscription.js';
-import { MANAGEABLE_SUBSCRIPTION_STATUSES, loadManageableSubscription } from './subscription-status.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 
 const logger = createLogger('promotion-engine');
@@ -455,7 +455,7 @@ export async function grantRecurringPromotions(subscription: SubscriptionDocumen
       // write on the same ledger (M2). The dedupeKey guard keeps it idempotent per
       // period. Reservation is compensated if the guard loses (already granted).
       const committed = await Subscription.findOneAndUpdate(
-        { '_id': subscription._id, 'creditLedger': { $not: { $elemMatch: { dedupeKey } } } },
+        { _id: subscription._id, creditLedger: { $not: { $elemMatch: { dedupeKey } } } },
         { $push: { creditLedger: creditLedgerEntry({ discountId: ledgerId(promo._id), cents, fulfillmentRef: ref, dedupeKey }) }, $inc: { creditBalanceCents: cents } },
         { new: true },
       );

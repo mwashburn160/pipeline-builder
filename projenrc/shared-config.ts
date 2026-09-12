@@ -97,7 +97,10 @@ function uuidStub(project: JestConfigurable): Record<string, string> {
  */
 function tsJestTransform(): Record<string, unknown> {
     return {
-        '^.+\\.[t]sx?$': ['ts-jest', { useESM: true, tsconfig: 'tsconfig.dev.json', diagnostics: { ignoreCodes: [151002] } }],
+        // projen 0.103 generates the test-scoped tsconfig at `test/tsconfig.json`
+        // (it used to be `tsconfig.dev.json`); ts-jest resolves this from the
+        // package root, and only reads its compilerOptions.
+        '^.+\\.[t]sx?$': ['ts-jest', { useESM: true, tsconfig: 'test/tsconfig.json', diagnostics: { ignoreCodes: [151002] } }],
     };
 }
 

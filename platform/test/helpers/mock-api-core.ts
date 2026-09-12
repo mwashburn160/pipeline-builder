@@ -16,6 +16,7 @@
 import { jest } from '@jest/globals';
 // Shared tier fixture — deep path is NOT intercepted by the api-core module mock
 // (see tier-mock.ts). Sources the tier NAME LIST from the real VALID_TIERS.
+import { REMOTE_AUDIT_ACTIONS } from '@pipeline-builder/api-core/lib/services/remote-audit-client.js';
 import { MOCK_TIER_NAMES, mockIsValidTier, mockQuotaTiers } from '@pipeline-builder/api-core/lib/testing/tier-mock.js';
 // Deep-import the REAL canonical constants from side-effect-free submodules (NOT
 // the mocked barrel — same trick as tier-mock: deep paths aren't intercepted by
@@ -26,6 +27,7 @@ import { MOCK_TIER_NAMES, mockIsValidTier, mockQuotaTiers } from '@pipeline-buil
 // can never cause the "does not provide an export named X" link failures or the
 // silent value-drift that a mirrored copy invites. mock-parity.test.ts backstops
 // this.
+import { ALL_FEATURE_FLAGS, TIER_FEATURES } from '@pipeline-builder/api-core/lib/types/feature-flags.js';
 import {
   ALL_PERMISSIONS,
   ROLE_PERMISSIONS,
@@ -33,9 +35,7 @@ import {
   ORG_ASSIGNABLE_PERMISSIONS,
   resolveUserPermissions,
 } from '@pipeline-builder/api-core/lib/types/permissions.js';
-import { ALL_FEATURE_FLAGS, TIER_FEATURES } from '@pipeline-builder/api-core/lib/types/feature-flags.js';
 import { scrubAwsIdentifiers } from '@pipeline-builder/api-core/lib/utils/aws-scrub.js';
-import { REMOTE_AUDIT_ACTIONS } from '@pipeline-builder/api-core/lib/services/remote-audit-client.js';
 
 /** The 4-method logger stub every suite repeats; a fresh set of spies per call. */
 export const loggerMock = () => ({
@@ -119,7 +119,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     resolveRootOrgIdWith: async (orgId: string) => orgId,
     isAncestorOrgWith: async () => false,
     expandOrgScopeWith: async (orgId: string) => [orgId],
-    
+
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,

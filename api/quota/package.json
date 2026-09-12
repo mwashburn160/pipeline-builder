@@ -64,7 +64,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "4.0.2",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
@@ -105,7 +105,7 @@
         "ts-jest",
         {
           "useESM": true,
-          "tsconfig": "tsconfig.dev.json",
+          "tsconfig": "test/tsconfig.json",
           "diagnostics": {
             "ignoreCodes": [
               151002

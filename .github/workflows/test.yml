@@ -16,26 +16,33 @@ jobs:
       packages: read
     steps:
       - name: Disable Nx telemetry and daemon
+        id: disable_nx_telemetry_and_daemon
         run: echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV
       - name: Checkout repository
+        id: checkout_repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Setup pnpm
+        id: setup_pnpm
         uses: pnpm/action-setup@v6
         with:
           version: 10.33.0
       - name: Setup node
+        id: setup_node
         uses: actions/setup-node@v6
         with:
           cache: pnpm
           node-version: 24.14.0
           package-manager-cache: pnpm
       - name: Configure npm registry
+        id: configure_npm_registry
         run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN && npm config set @pipeline-builder:registry=https://registry.npmjs.org/
       - name: Install dependencies
+        id: install_dependencies
         run: pnpm install --frozen-lockfile
       - name: Run affected tests
+        id: run_affected_tests
         env:
           RUN_MONGO_INTEGRATION: "true"
         run: BASE="origin/${GITHUB_BASE_REF:-main}" && git rev-parse --verify "$BASE" >/dev/null 2>&1 || BASE="origin/main" && pnpm nx affected --target test --base "$BASE" --head HEAD --verbose

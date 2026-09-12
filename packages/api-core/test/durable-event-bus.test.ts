@@ -107,9 +107,12 @@ describe('durable event bus', () => {
     const got = new Promise<void>((r) => { resolveGot = r; });
 
     const sub = bus.subscribe<{ n: number }>({
-      topic: 't', group: 'g1', consumer: 'c1',
+      topic: 't',
+      group: 'g1',
+      consumer: 'c1',
       handler: async (env) => { received.push(env.payload); resolveGot(); },
-      blockMs: 1, minIdleMs: 0,
+      blockMs: 1,
+      minIdleMs: 0,
     });
     await bus.publish('t', { n: 42 });
     await got;
@@ -128,13 +131,16 @@ describe('durable event bus', () => {
     const done = new Promise<void>((r) => { resolveDone = r; });
 
     const sub = bus.subscribe<{ n: number }>({
-      topic: 't', group: 'g1', consumer: 'c1',
+      topic: 't',
+      group: 'g1',
+      consumer: 'c1',
       handler: async () => {
         calls++;
         if (calls === 1) throw new Error('transient');
         resolveDone(); // second delivery (the redelivery) succeeds
       },
-      blockMs: 1, minIdleMs: 0,
+      blockMs: 1,
+      minIdleMs: 0,
     });
     await bus.publish('t', { n: 7 });
     await done;

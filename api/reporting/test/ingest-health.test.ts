@@ -48,7 +48,8 @@ describe('POST /reports/ingest-health', () => {
 
   it('upserts health for an org-scoped ingest token', async () => {
     await getHandler()({
-      __orgId: 'acme', user: { scope: 'reporting:ingest' },
+      __orgId: 'acme',
+      user: { scope: 'reporting:ingest' },
       body: { forwarded: 100, dropped: 2, lastEventAt: '2026-07-05T00:00:00Z' },
     }, res());
 
@@ -58,7 +59,8 @@ describe('POST /reports/ingest-health', () => {
 
   it('attributes to the body orgId for a multi-tenant forwarder (not the token org)', async () => {
     await getHandler()({
-      __orgId: 'forwarder-sys', user: { scope: 'reporting:ingest' },
+      __orgId: 'forwarder-sys',
+      user: { scope: 'reporting:ingest' },
       body: { orgId: 'tenant-b', forwarded: 7, dropped: 0, lastEventAt: '2026-07-05T00:00:00Z' },
     }, res());
 

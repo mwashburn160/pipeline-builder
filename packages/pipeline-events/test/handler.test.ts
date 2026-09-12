@@ -338,10 +338,10 @@ describe('pipeline-events handler', () => {
         },
       }]));
       const body = lastEventsBody();
-      expect(body.events[0].commitSha).toBe('deadbeef');        // standard reporting still forwards
-      expect(body.events[0].commitTimestamp).toBeUndefined();   // DORA enrichment skipped
+      expect(body.events[0].commitSha).toBe('deadbeef'); // standard reporting still forwards
+      expect(body.events[0].commitTimestamp).toBeUndefined(); // DORA enrichment skipped
       expect(body.events[0].commitCount).toBeUndefined();
-      expect(mockCcSend).not.toHaveBeenCalled();                // no CodeCommit GetCommit
+      expect(mockCcSend).not.toHaveBeenCalled(); // no CodeCommit GetCommit
     });
 
     it('resolves a CodeCommit commit timestamp via GetCommit (single commit, cold start)', async () => {
@@ -503,10 +503,12 @@ describe('pipeline-events handler', () => {
     it('selects the github-token secret for the RESOLVED org, not the container org', async () => {
       mockTagsSend.mockImplementation((cmd: { resourceArn: string }) => {
         if (cmd.resourceArn.includes('org-pipeline')) {
-          return Promise.resolve({ tags: [
-            { key: 'pb.pipeline-id', value: 'pipeline-uuid-9' },
-            { key: 'OrgId', value: 'org-xyz' },
-          ] });
+          return Promise.resolve({
+            tags: [
+              { key: 'pb.pipeline-id', value: 'pipeline-uuid-9' },
+              { key: 'OrgId', value: 'org-xyz' },
+            ],
+          });
         }
         return tagResolver(cmd);
       });
@@ -521,7 +523,7 @@ describe('pipeline-events handler', () => {
         ...MOCK_CODEPIPELINE_EVENT,
         detail: {
           ...MOCK_CODEPIPELINE_EVENT.detail,
-          pipeline: 'org-pipeline',
+          'pipeline': 'org-pipeline',
           'source-revisions': [{ revisionId: 'abc123', revisionUrl: 'https://github.com/acme/webapp/commit/abc123' }],
         },
       }]));

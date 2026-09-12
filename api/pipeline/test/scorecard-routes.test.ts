@@ -129,7 +129,9 @@ describe('GET /scorecard (org-wide roll-up)', () => {
   it('scores every org pipeline and returns a ranked leaderboard + aggregate stats', async () => {
     mockFindPaginated.mockResolvedValue({
       data: [{ id: 'p1', name: 'P1' }, { id: 'p2', name: 'P2' }],
-      hasMore: false, limit: 51, offset: 0,
+      hasMore: false,
+      limit: 51,
+      offset: 0,
     });
 
     await handler()({ params: {} }, res());

@@ -12,8 +12,8 @@ import {
 } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { pooledFeatureEntitlements, pooledSeatUsage } from '../helpers/seats.js';
-import { incCounter } from '../observability/metrics.js';
 import type { QuotaTier } from '../models/organization.js';
+import { incCounter } from '../observability/metrics.js';
 import {
   organizationService,
   ORG_NOT_FOUND,

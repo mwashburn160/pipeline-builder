@@ -30,8 +30,8 @@
  * flow is fully cut over.
  */
 
-import { createEnvRedisClient } from './env-redis.js';
 import type { EntityEvent, EntityEventSubscriber } from './entity-events.js';
+import { createEnvRedisClient } from './env-redis.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 

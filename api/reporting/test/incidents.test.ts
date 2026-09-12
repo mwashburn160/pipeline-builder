@@ -217,8 +217,10 @@ describe('POST /reports/incidents/alertmanager (native adapter)', () => {
 
   it('400s (and writes nothing) when the alerts batch exceeds the cap', async () => {
     const alerts = Array.from({ length: 1001 }, (_v, i) => ({
-      status: 'firing', labels: { environment: 'production', severity: 'warning' },
-      startsAt: '2026-07-05T00:00:00Z', fingerprint: `fp-${i}`,
+      status: 'firing',
+      labels: { environment: 'production', severity: 'warning' },
+      startsAt: '2026-07-05T00:00:00Z',
+      fingerprint: `fp-${i}`,
     }));
     await getHandler('/alertmanager')({ __orgId: 'acme', user: { scope: 'reporting:ingest' }, query: {}, body: { status: 'firing', alerts } }, res());
     expect(mockSendBadRequest).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('maximum'), 'VALIDATION_ERROR');
