@@ -7,6 +7,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createXai } from '@ai-sdk/xai';
+import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import {
   AI_PROVIDER_CATALOG,
   AI_PROVIDER_ENV_VARS,
@@ -37,7 +38,15 @@ const PROVIDER_FACTORIES: Record<string, (key?: string) => (modelId: string) => 
   'openai': (key) => createOpenAI({ apiKey: key }),
   'google': (key) => createGoogleGenerativeAI({ apiKey: key }),
   'xai': (key) => createXai({ apiKey: key }),
-  'amazon-bedrock': () => createAmazonBedrock(),
+  // Bedrock authenticates with the RUNTIME's IAM role, and the ai-sdk provider
+  // does NOT walk the AWS credential chain on its own — bare `createAmazonBedrock()`
+  // reads only `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` and otherwise throws
+  // "AWS SigV4 authentication requires AWS credentials" at call time. Handing it
+  // the standard chain resolves EKS Pod Identity, IRSA, ECS task roles, the EC2
+  // instance profile, SSO and static env keys — i.e. every way this platform is
+  // actually deployed. Built once per factory call; the chain caches internally
+  // and refreshes expiring role credentials on its own.
+  'amazon-bedrock': () => createAmazonBedrock({ credentialProvider: fromNodeProviderChain() }),
   // Self-hosted OpenAI-compatible endpoint (Docker model image / Ollama / vLLM).
   // The endpoint is deployment-defined via OPENAI_COMPATIBLE_BASE_URL; local servers
   // usually ignore the key, so a placeholder is sent when none is configured.

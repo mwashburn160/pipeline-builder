@@ -94,6 +94,11 @@
       "type": "runtime"
     },
     {
+      "name": "@aws-sdk/credential-providers",
+      "version": "3.1101.0",
+      "type": "runtime"
+    },
+    {
       "name": "@pipeline-builder/api-core",
       "version": "workspace:*",
       "type": "runtime"

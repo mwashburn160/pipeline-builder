@@ -458,6 +458,11 @@ const aiCore = new PackageProject({
     'ai@7.0.79',
     '@ai-sdk/anthropic@4.0.42', '@ai-sdk/openai@4.0.47', '@ai-sdk/google@4.0.51',
     '@ai-sdk/xai@4.0.44', '@ai-sdk/amazon-bedrock@5.0.62', '@ai-sdk/openai-compatible@3.0.37',
+    // Bedrock is the one KEYLESS provider: it authenticates with the runtime's
+    // IAM role (EKS Pod Identity / IRSA / EC2 instance profile). The ai-sdk
+    // provider only reads static keys unless it is handed a credential provider,
+    // so the AWS default chain has to be passed in explicitly.
+    '@aws-sdk/credential-providers@3.1101.0',
   ],
   devDeps: ['@types/node@26.1.2', `typescript@${typescriptVersion}`],
 });

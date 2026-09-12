@@ -34,6 +34,11 @@ jest.unstable_mockModule('@ai-sdk/xai', () => ({ createXai }));
 jest.unstable_mockModule('@ai-sdk/amazon-bedrock', () => ({ createAmazonBedrock }));
 jest.unstable_mockModule('@ai-sdk/openai-compatible', () => ({ createOpenAICompatible }));
 
+// Bedrock is keyless — it authenticates through the AWS credential chain.
+const credentialChain = jest.fn();
+const fromNodeProviderChain = jest.fn(() => credentialChain);
+jest.unstable_mockModule('@aws-sdk/credential-providers', () => ({ fromNodeProviderChain }));
+
 // Helpers
 
 /**
@@ -381,8 +386,9 @@ describe('ai-core provider-registry', () => {
       const model = createModelWithKey('amazon-bedrock', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', 'key');
 
       expect(model).toBeDefined();
-      // The supplied key is dropped: the Bedrock factory is called with no key.
-      expect(createAmazonBedrock).toHaveBeenCalledWith();
+      // The supplied key is dropped — Bedrock authenticates through the AWS
+      // credential chain (IAM role), never a per-request key.
+      expect(createAmazonBedrock).toHaveBeenCalledWith({ credentialProvider: credentialChain });
     });
 
     it('throws at config time for Bedrock when no AWS region is configured (no silent key drop)', async () => {
@@ -402,7 +408,7 @@ describe('ai-core provider-registry', () => {
 
       const model = createModelWithKey('amazon-bedrock', 'us.amazon.nova-pro-v1:0', 'key');
       expect(model).toBeDefined();
-      expect(createAmazonBedrock).toHaveBeenCalledWith();
+      expect(createAmazonBedrock).toHaveBeenCalledWith({ credentialProvider: credentialChain });
     });
 
     it('should not affect the registry (uses ephemeral provider instances)', async () => {
@@ -487,5 +493,29 @@ describe('ai-core provider-registry', () => {
       expect(typeof mod.resolveModel).toBe('function');
       expect(typeof mod.createModelWithKey).toBe('function');
     });
+  });
+});
+
+describe('Bedrock credentials', () => {
+  const ENV = process.env;
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env = { ...ENV, AWS_REGION: 'us-east-1' };
+    delete process.env.AWS_ACCESS_KEY_ID;
+    delete process.env.AWS_SECRET_ACCESS_KEY;
+  });
+  afterAll(() => { process.env = ENV; });
+
+  it('hands Bedrock the AWS credential chain, so an IAM role works without static keys', async () => {
+    // Regression: bare `createAmazonBedrock()` reads only AWS_ACCESS_KEY_ID /
+    // AWS_SECRET_ACCESS_KEY, so on EKS Pod Identity (no env keys) every call
+    // failed with "AWS SigV4 authentication requires AWS credentials".
+    const { resolveModel } = await freshImport();
+    resolveModel('amazon-bedrock', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0');
+
+    expect(fromNodeProviderChain).toHaveBeenCalled();
+    expect(createAmazonBedrock).toHaveBeenCalledWith(
+      expect.objectContaining({ credentialProvider: credentialChain }),
+    );
   });
 });
