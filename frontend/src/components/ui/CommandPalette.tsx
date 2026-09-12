@@ -26,6 +26,10 @@ interface CommandPaletteProps {
   onOpenRef?: React.RefObject<(() => void) | null>;
 }
 
+/** Stable ids for the combobox → listbox → active-option relationship. */
+const LISTBOX_ID = 'command-palette-listbox';
+const optionId = (index: number) => `command-palette-option-${index}`;
+
 export function CommandPalette({
   isSuperAdmin,
   isAdmin,
@@ -279,6 +283,17 @@ export function CommandPalette({
     setSelectedIndex(0);
   }, [query]);
 
+  // Hand focus back to whatever was focused when the palette opened. Without
+  // this, dismissing it dropped focus to <body> and a keyboard user restarted
+  // from the top of the page.
+  useEffect(() => {
+    if (!open) return;
+    const previouslyFocused = document.activeElement;
+    return () => {
+      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) previouslyFocused.focus();
+    };
+  }, [open]);
+
   if (!open) return null;
 
   return (
@@ -315,6 +330,11 @@ export function CommandPalette({
               role="combobox"
               aria-expanded="true"
               aria-autocomplete="list"
+              // Focus stays in the input while arrows move the selection, so the
+              // active option has to be named explicitly — otherwise arrowing
+              // changes only a visual highlight and a screen reader hears nothing.
+              aria-controls={LISTBOX_ID}
+              aria-activedescendant={filtered.length > 0 ? optionId(selectedIndex) : undefined}
             />
             <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
               ESC
@@ -322,7 +342,7 @@ export function CommandPalette({
           </div>
 
           {/* Results */}
-          <div ref={listRef} className="max-h-80 overflow-y-auto py-2" role="listbox">
+          <div ref={listRef} id={LISTBOX_ID} className="max-h-80 overflow-y-auto py-2" role="listbox" aria-label="Commands">
             {filtered.length === 0 ? (
               <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">No results found</p>
             ) : (
@@ -338,6 +358,7 @@ export function CommandPalette({
                     return (
                       <button
                         key={item.id}
+                        id={optionId(idx)}
                         data-index={idx}
                         onClick={item.action}
                         onMouseEnter={() => setSelectedIndex(idx)}

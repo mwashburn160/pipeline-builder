@@ -185,7 +185,7 @@ export function DataTable<T>({
             <thead>
               <tr>
                 {visibleColumns.map((col) => (
-                  <th key={col.id} className={col.headerClassName}>{col.header}</th>
+                  <th scope="col" key={col.id} className={col.headerClassName}>{col.header}</th>
                 ))}
               </tr>
             </thead>
@@ -282,7 +282,7 @@ export function DataTable<T>({
                 const sorted = sort.columnId === col.id;
 
                 return (
-                  <th
+                  <th scope="col"
                     key={col.id}
                     className={col.headerClassName}
                     // For sortable columns that aren't currently sorted,

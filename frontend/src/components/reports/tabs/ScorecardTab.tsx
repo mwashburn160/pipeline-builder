@@ -106,16 +106,16 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-200 dark:border-gray-700">
-              <th className="py-2 pr-3 font-medium">#</th>
-              <th className="py-2 pr-3 font-medium">Pipeline</th>
-              <th className="py-2 pr-3 font-medium">Grade</th>
-              <th className="py-2 pr-3 font-medium text-right">Score</th>
-              <th className="py-2 pr-3 font-medium text-right">Compliance</th>
-              <th className="py-2 pr-3 font-medium text-right">Delivery</th>
-              <th className="py-2 pr-3 font-medium">Deploy freq</th>
-              <th className="py-2 pr-3 font-medium">Change fail</th>
-              <th className="py-2 pr-3 font-medium">Restore</th>
-              <th className="py-2 font-medium">Lead time</th>
+              <th scope="col" className="py-2 pr-3 font-medium">#</th>
+              <th scope="col" className="py-2 pr-3 font-medium">Pipeline</th>
+              <th scope="col" className="py-2 pr-3 font-medium">Grade</th>
+              <th scope="col" className="py-2 pr-3 font-medium text-right">Score</th>
+              <th scope="col" className="py-2 pr-3 font-medium text-right">Compliance</th>
+              <th scope="col" className="py-2 pr-3 font-medium text-right">Delivery</th>
+              <th scope="col" className="py-2 pr-3 font-medium">Deploy freq</th>
+              <th scope="col" className="py-2 pr-3 font-medium">Change fail</th>
+              <th scope="col" className="py-2 pr-3 font-medium">Restore</th>
+              <th scope="col" className="py-2 font-medium">Lead time</th>
             </tr>
           </thead>
           <tbody>

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useRouter } from 'next/router';
 import { ChevronsUpDown, Building2, Check, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -46,6 +46,47 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  /**
+   * Keyboard behaviour a `role="menu"` owes the user. The menu previously closed
+   * only on an outside MOUSEDOWN: no Escape, no arrow keys, and focus was left on
+   * a button inside a menu that had vanished. `organizations.length > 1` is
+   * re-derived here (rather than reusing `canSwitch`) because that constant is
+   * declared after the `!user` early return, below these hooks.
+   */
+  const menuItems = () => Array.from(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
+
+  const onMenuKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!open || organizations.length <= 1) return;
+    const items = menuItems();
+    const index = items.indexOf(document.activeElement as HTMLElement);
+
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      setOpen(false);
+      ref.current?.querySelector<HTMLElement>('button')?.focus();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (items.length === 0) return;
+      const next = e.key === 'ArrowDown'
+        ? (index < 0 ? 0 : (index + 1) % items.length)
+        : (index <= 0 ? items.length - 1 : index - 1);
+      items[next]?.focus();
+    } else if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault();
+      (e.key === 'Home' ? items[0] : items[items.length - 1])?.focus();
+    } else if (e.key === 'Tab') {
+      // Tabbing out of a menu is a dismissal, not navigation within it.
+      setOpen(false);
+    }
+  };
+
+  // Move focus into the menu on open, so the arrow keys have a starting point.
+  useEffect(() => {
+    if (!open || organizations.length <= 1) return;
+    menuItems()[0]?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- menuItems() reads a ref
+  }, [open, organizations.length]);
 
   // Close on outside click
   useEffect(() => {
@@ -139,7 +180,7 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
   // up/down affordance. Dropdown opens below, left-aligned.
   if (variant === 'header') {
     return (
-      <div ref={ref} className={`relative ${className}`}>
+      <div ref={ref} onKeyDown={onMenuKeyDown} className={`relative ${className}`}>
         <button
           type="button"
           onClick={() => canSwitch && setOpen(!open)}
@@ -163,7 +204,7 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
   // the right (the full card doesn't fit in a 64px rail).
   if (collapsed) {
     return (
-      <div ref={ref} className={`relative flex justify-center ${className}`}>
+      <div ref={ref} onKeyDown={onMenuKeyDown} className={`relative flex justify-center ${className}`}>
         <Tooltip content={canSwitch ? `Organization: ${activeName} — click to switch` : `Organization: ${activeName}`}>
           <button
             type="button"
@@ -188,7 +229,7 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
   // uppercase Organization/Team caption over the active name, with the
   // up/down switcher affordance on the right.
   return (
-    <div ref={ref} className={`relative ${className}`}>
+    <div ref={ref} onKeyDown={onMenuKeyDown} className={`relative ${className}`}>
       <button
         type="button"
         onClick={() => canSwitch && setOpen(!open)}

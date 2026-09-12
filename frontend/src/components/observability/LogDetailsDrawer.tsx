@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { type ReactNode, useCallback, useEffect, useRef } from 'react';
+import { type ReactNode, useRef } from 'react';
 import { X, Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
@@ -10,6 +10,7 @@ import { LOG_LEVEL_COLORS } from '@/lib/constants';
 import { redactString, redactDetails } from '@/lib/redact';
 import type { LogEntry } from '@/types';
 import { formatDateTime } from '@/lib/format';
+import { useDialogBehavior } from '@/hooks/useDialogBehavior';
 
 interface LogDetailsDrawerProps {
   /** When non-null, the drawer is open and shows this entry. */
@@ -30,38 +31,13 @@ interface LogDetailsDrawerProps {
  * on close (the row that opened it).
  */
 export function LogDetailsDrawer({ entry, onClose }: LogDetailsDrawerProps) {
-  const previousActiveElement = useRef<Element | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
 
-  // Stable handlers — `onClose` is stable across re-renders in callers and
-  // we don't want to re-bind the keydown listener on every entry change.
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      // Listener is only mounted while the drawer is open, so calling
-      // onClose() is sufficient — no need to stop propagation.
-      onClose();
-    }
-  }, [onClose]);
-
-  useEffect(() => {
-    if (!entry) return;
-    previousActiveElement.current = document.activeElement;
-    document.addEventListener('keydown', handleKeyDown);
-    // Focus the close button on open so the drawer is keyboard-controllable
-    // without first tabbing through the table.
-    closeButtonRef.current?.focus();
-    // Prevent background scroll while the drawer is open.
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = prevOverflow;
-      // Restore focus to the trigger row if it is still in the DOM.
-      const prev = previousActiveElement.current;
-      if (prev instanceof HTMLElement && prev.isConnected) prev.focus();
-    };
-  }, [entry, handleKeyDown]);
+  // Escape / Tab trap / focus-in / focus-restore / scroll-lock, shared with
+  // SideDrawer. Previously everything but the TAB TRAP was wired by hand here,
+  // so focus walked out of the drawer into the log table behind it.
+  useDialogBehavior({ panelRef, onClose, initialFocusRef: closeButtonRef, active: !!entry });
 
   if (!entry) return null;
 
@@ -76,6 +52,7 @@ export function LogDetailsDrawer({ entry, onClose }: LogDetailsDrawerProps) {
         <div className="absolute inset-0 bg-black/30" />
         {/* Drawer panel */}
         <aside
+          ref={panelRef}
           className="absolute top-0 right-0 h-full w-full max-w-2xl bg-white dark:bg-gray-900 shadow-2xl flex flex-col"
           role="dialog"
           aria-modal="true"

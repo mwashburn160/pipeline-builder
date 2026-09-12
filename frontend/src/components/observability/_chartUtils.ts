@@ -10,6 +10,21 @@ import type { DataSeries } from '@/types/observability';
  * group-label fallback or the color cycle.
  */
 
+/**
+ * Stroke dash patterns, paired with SERIES_COLORS by index. Colour alone can't
+ * carry series identity: ~8% of men have a colour-vision deficiency, and the
+ * blue/green/cyan run in this palette is exactly the hard case. The dash is a
+ * second, redundant channel — mirrored in the legend swatch.
+ */
+export const SERIES_DASHES = [
+  '',        // solid
+  '6 3',
+  '2 3',
+  '8 3 2 3',
+  '4 2',
+  '1 3',
+];
+
 export const SERIES_COLORS = [
   '#2563eb', // blue
   '#16a34a', // green
@@ -30,6 +45,8 @@ export function defaultFormat(v: number): string {
 export interface PreparedSeries {
   label: string;
   color: string;
+  /** SVG `stroke-dasharray` — the redundant, colour-independent series channel. */
+  dash: string;
   points: Array<{ x: number; y: number }>;
 }
 
@@ -44,6 +61,7 @@ export function prepareSeries(series: DataSeries[], groupBy: string | undefined)
   return series.map((s, i) => ({
     label: (groupKey && s.labels[groupKey]) || `series ${i + 1}`,
     color: SERIES_COLORS[i % SERIES_COLORS.length],
+    dash: SERIES_DASHES[i % SERIES_DASHES.length],
     points: s.values
       .map((p) => ({ x: p.time, y: parseFloat(p.value) }))
       .filter((p) => Number.isFinite(p.y)),

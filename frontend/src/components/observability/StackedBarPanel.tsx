@@ -62,9 +62,22 @@ export function StackedBarPanel({ queryKey, title, range, span = 12, groupBy = '
   const plotH = CHART_HEIGHT - PAD.top - PAD.bottom;
   const barW = times.length > 0 ? Math.max(2, plotW / times.length - 1) : 0;
 
+  // Per-series totals over the window — the summary a sighted reader takes from
+  // the stack heights, and the only form a screen reader can get it in.
+  const totals = series.map((s, i) => ({
+    label: s.labels[groupBy] ?? `series ${i + 1}`,
+    total: s.values.reduce((acc, p) => acc + (parseFloat(p.value) || 0), 0),
+  }));
+
   return (
     <Panel title={title} span={span} loading={false} error={null} empty={false}>
-      <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} width="100%" className="block">
+      <svg
+        viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+        width="100%"
+        className="block"
+        role="img"
+        aria-label={`${title}: ${times.length} time buckets, ${series.length} series — ${totals.map((t) => `${t.label} ${t.total}`).join(', ')}. The table below carries the same data.`}
+      >
         {[0, 0.5, 1].map((t) => {
           const y = PAD.top + plotH * (1 - t);
           const v = maxStacked * t;
@@ -108,6 +121,19 @@ export function StackedBarPanel({ queryKey, title, range, span = 12, groupBy = '
           </span>
         ))}
       </div>
+
+      {/* Screen-reader equivalent of the stacks (an SVG <rect> run is opaque). */}
+      <table className="sr-only">
+        <caption>{title} — total per series over the selected range</caption>
+        <thead>
+          <tr><th scope="col">Series</th><th scope="col">Total</th></tr>
+        </thead>
+        <tbody>
+          {totals.map((t) => (
+            <tr key={t.label}><td>{t.label}</td><td>{t.total}</td></tr>
+          ))}
+        </tbody>
+      </table>
     </Panel>
   );
 }

@@ -142,7 +142,7 @@ export default function DashboardEditPage() {
     return () => { cancelled = true; };
   }, [isReady, isAuthenticated, id]);
 
-  // List-mode reordering swaps panels AND swaps their layoutJson entries
+  // Reordering (both modes) swaps panels AND swaps their layoutJson entries
   // so the grid view stays consistent if the user toggles back. Grid-mode
   // drags update layoutJson directly via `onChange` from DashboardLayoutGrid.
   const movePanel = useCallback((index: number, delta: -1 | 1) => {
@@ -366,7 +366,10 @@ export default function DashboardEditPage() {
                     <div className="flex items-center gap-2 mb-1">
                       {/* `.grid-drag-handle` is the only zone where dragging the
                           panel is allowed — keeps inputs clickable inside. */}
-                      <span className="grid-drag-handle cursor-move text-gray-400" aria-label="Drag panel">
+                      {/* Mouse: drag this handle. It is not focusable, so it's
+                          hidden from assistive tech — the Move up/down buttons
+                          below are the keyboard-reachable equivalent. */}
+                      <span className="grid-drag-handle cursor-move text-gray-400" aria-hidden="true">
                         <GripVertical className="w-3.5 h-3.5" />
                       </span>
                       <input
@@ -376,6 +379,20 @@ export default function DashboardEditPage() {
                         aria-label={`Panel ${i + 1} title`}
                         className="flex-1 px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800"
                       />
+                      <IconButton
+                        onClick={() => movePanel(i, -1)}
+                        disabled={i === 0}
+                        aria-label={`Move ${panels[i].title || `panel ${i + 1}`} earlier`}
+                      >
+                        <ArrowUp className="w-4 h-4" />
+                      </IconButton>
+                      <IconButton
+                        onClick={() => movePanel(i, 1)}
+                        disabled={i === panels.length - 1}
+                        aria-label={`Move ${panels[i].title || `panel ${i + 1}`} later`}
+                      >
+                        <ArrowDown className="w-4 h-4" />
+                      </IconButton>
                       <IconButton
                         onClick={() => removePanel(i)}
                         tone="danger"

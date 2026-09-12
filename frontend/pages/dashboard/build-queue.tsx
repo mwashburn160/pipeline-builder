@@ -115,7 +115,7 @@ interface SortHeaderProps {
 function SortHeader({ label, field, sortBy, sortDir, onSort }: SortHeaderProps) {
   const active = sortBy === field;
   return (
-    <th
+    <th scope="col"
       className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none hover:text-gray-900 dark:hover:text-gray-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
       onClick={() => onSort(field)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSort(field); } }}
@@ -269,16 +269,16 @@ function FailedJobsTable({ jobs, title, showCategory, onAction, actionPendingIds
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 dark:bg-gray-800/50">
-                <th className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Job ID</th>
+                <th scope="col" className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Job ID</th>
                 <SortHeader label="Plugin" field="pluginName" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
                 {showCategory && (
-                  <th className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Category</th>
+                  <th scope="col" className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Category</th>
                 )}
                 <SortHeader label="Attempts" field="attemptsMade" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
                 <SortHeader label="Failed At" field="failedAt" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
                 <SortHeader label="Error" field="error" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
                 {onAction && (
-                  <th className="px-4 py-2.5 text-right font-medium text-gray-700 dark:text-gray-300">Actions</th>
+                  <th scope="col" className="px-4 py-2.5 text-right font-medium text-gray-700 dark:text-gray-300">Actions</th>
                 )}
               </tr>
             </thead>

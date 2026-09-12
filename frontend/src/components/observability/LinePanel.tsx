@@ -52,7 +52,13 @@ export function LinePanel({ queryKey, title, range, span = 6, groupBy, format = 
 
   return (
     <Panel title={title} span={span} loading={false} error={null} empty={false}>
-      <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} width="100%" className="block">
+      <svg
+        viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+        width="100%"
+        className="block"
+        role="img"
+        aria-label={`${title}: ${prepared.length} series — ${prepared.map((s) => s.label).join(', ')}. Values ${format(yMin)} to ${format(yMax)}. The table below carries the same data.`}
+      >
         {/* Y axis ticks (3 horizontal grid lines) */}
         {[0, 0.5, 1].map((t) => {
           const y = PAD.top + plotH * (1 - t);
@@ -64,13 +70,15 @@ export function LinePanel({ queryKey, title, range, span = 6, groupBy, format = 
             </g>
           );
         })}
-        {/* Series polylines */}
+        {/* Series polylines — colour AND dash, so series stay distinguishable
+            without colour vision. */}
         {prepared.map((s) => (
           <polyline
             key={s.label}
             points={s.points.map((p) => `${xFor(p.x)},${yFor(p.y)}`).join(' ')}
             fill="none"
             stroke={s.color}
+            strokeDasharray={s.dash || undefined}
             strokeWidth="1.5"
           />
         ))}
@@ -79,11 +87,31 @@ export function LinePanel({ queryKey, title, range, span = 6, groupBy, format = 
       <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-600 dark:text-gray-400">
         {prepared.map((s) => (
           <span key={s.label} className="inline-flex items-center gap-1.5">
-            <span className="w-3 h-0.5" style={{ backgroundColor: s.color }} />
+            {/* Legend swatch mirrors the line's dash, not just its colour. */}
+            <svg width="12" height="2" aria-hidden="true" className="block">
+              <line x1="0" y1="1" x2="12" y2="1" stroke={s.color} strokeWidth="2" strokeDasharray={s.dash || undefined} />
+            </svg>
             {s.label}
           </span>
         ))}
       </div>
+
+      {/* Same data as a table for screen readers — an SVG polyline is opaque to
+          them. Latest value per series (the number people read off a trend). */}
+      <table className="sr-only">
+        <caption>{title} — latest value per series</caption>
+        <thead>
+          <tr><th scope="col">Series</th><th scope="col">Latest value</th></tr>
+        </thead>
+        <tbody>
+          {prepared.map((s) => (
+            <tr key={s.label}>
+              <td>{s.label}</td>
+              <td>{s.points.length > 0 ? format(s.points[s.points.length - 1].y) : 'no data'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </Panel>
   );
 }

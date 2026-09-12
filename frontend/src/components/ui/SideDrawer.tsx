@@ -1,6 +1,7 @@
-import { type ReactNode, useCallback, useEffect, useRef } from 'react';
+import { type ReactNode, useRef } from 'react';
 import { X } from 'lucide-react';
 import { ModalPortal } from './ModalPortal';
+import { useDialogBehavior } from '@/hooks/useDialogBehavior';
 
 interface SideDrawerProps {
   /** Heading shown in the drawer header. */
@@ -23,57 +24,11 @@ interface SideDrawerProps {
  * when there's something to show (`{selected && <SideDrawer …>}`).
  */
 export function SideDrawer({ title, subtitle, onClose, children, ariaLabel }: SideDrawerProps) {
-  const previousActiveElement = useRef<Element | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLElement>(null);
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      // Only close if focus is inside this drawer, and stop other document
-      // Escape listeners (a dialog stacked over/under it) from also firing —
-      // stopPropagation() doesn't stop same-target listeners.
-      if (panelRef.current?.contains(document.activeElement)) {
-        e.stopImmediatePropagation();
-        onClose();
-      }
-      return;
-    }
-    // Focus trap — keep Tab inside the drawer so it doesn't walk into the
-    // background page behind the overlay (mirrors Modal).
-    if (e.key === 'Tab' && panelRef.current) {
-      const focusable = Array.from(
-        panelRef.current.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ),
-      );
-      if (focusable.length === 0) { e.preventDefault(); return; }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = document.activeElement;
-      const inside = active instanceof Node && panelRef.current.contains(active);
-      if (!inside) { e.preventDefault(); first.focus(); return; }
-      if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
-    }
-  }, [onClose]);
-
-  useEffect(() => {
-    previousActiveElement.current = document.activeElement;
-    closeRef.current?.focus();
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      const prev = previousActiveElement.current;
-      if (prev instanceof HTMLElement && prev.isConnected) prev.focus();
-    };
-    // Focus + scroll-lock run once on mount (render the drawer only while open).
-  }, []);
-
-  useEffect(() => {
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+  // Escape / Tab trap / focus-in / focus-restore / scroll-lock (shared hook).
+  useDialogBehavior({ panelRef, onClose, initialFocusRef: closeRef });
 
   return (
     <ModalPortal>

@@ -170,7 +170,7 @@ export function TagTable({
             <tr>
               {/* Wider checkbox column — gives the input a comfortable hit
                   target separate from the tag name beside it. */}
-              <th className="pl-4 pr-2 py-2 w-12">
+              <th scope="col" className="pl-4 pr-2 py-2 w-12">
                 <Tooltip content="Select all visible tags">
                   <Checkbox
                     checked={allInViewSelected}
@@ -181,18 +181,18 @@ export function TagTable({
                   />
                 </Tooltip>
               </th>
-              <th className="text-left px-3 py-2 font-medium text-gray-700 dark:text-gray-300">Tag</th>
-              <th className="text-left px-3 py-2 font-medium text-gray-700 dark:text-gray-300">
+              <th scope="col" className="text-left px-3 py-2 font-medium text-gray-700 dark:text-gray-300">Tag</th>
+              <th scope="col" className="text-left px-3 py-2 font-medium text-gray-700 dark:text-gray-300">
                 <Tooltip content="Manifest digest — uniquely identifies this image. Multiple tags may share one digest.">
                   <span className="cursor-help underline decoration-dotted">Digest</span>
                 </Tooltip>
               </th>
-              <th className="text-left px-3 py-2 font-medium text-gray-700 dark:text-gray-300">
+              <th scope="col" className="text-left px-3 py-2 font-medium text-gray-700 dark:text-gray-300">
                 <Tooltip content="Total image size. For multi-arch indexes, this is the sum of per-platform manifest sizes (best-effort).">
                   <span className="cursor-help underline decoration-dotted">Size</span>
                 </Tooltip>
               </th>
-              <th className="text-right px-3 py-2 font-medium text-gray-700 dark:text-gray-300">Actions</th>
+              <th scope="col" className="text-right px-3 py-2 font-medium text-gray-700 dark:text-gray-300">Actions</th>
             </tr>
           </thead>
           <tbody>

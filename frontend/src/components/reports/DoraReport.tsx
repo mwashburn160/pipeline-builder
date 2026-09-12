@@ -291,10 +291,10 @@ function DeploymentList({ deployments, pipelineSelected, markEnvironment, canMar
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-100 dark:border-gray-800">
-                <th className="py-2 pr-3 font-medium">Execution</th>
-                <th className="py-2 pr-3 font-medium">Status</th>
-                <th className="py-2 pr-3 font-medium">When</th>
-                {canMark && <th className="py-2 pr-3 font-medium text-right">Outcome</th>}
+                <th scope="col" className="py-2 pr-3 font-medium">Execution</th>
+                <th scope="col" className="py-2 pr-3 font-medium">Status</th>
+                <th scope="col" className="py-2 pr-3 font-medium">When</th>
+                {canMark && <th scope="col" className="py-2 pr-3 font-medium text-right">Outcome</th>}
               </tr>
             </thead>
             <tbody>

@@ -48,12 +48,12 @@ export function BuildHealthPanel({ loading, buildHealth, pipelineSelected }: Bui
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-100 dark:border-gray-800">
-                <th className="py-2 pr-3 font-medium">Stage</th>
-                <th className="py-2 pr-3 font-medium text-right">Runs</th>
-                <th className="py-2 pr-3 font-medium text-right">Success</th>
-                <th className="py-2 pr-3 font-medium text-right">p50</th>
-                <th className="py-2 pr-3 font-medium text-right">p90</th>
-                <th className="py-2 pr-3 font-medium text-right">p99</th>
+                <th scope="col" className="py-2 pr-3 font-medium">Stage</th>
+                <th scope="col" className="py-2 pr-3 font-medium text-right">Runs</th>
+                <th scope="col" className="py-2 pr-3 font-medium text-right">Success</th>
+                <th scope="col" className="py-2 pr-3 font-medium text-right">p50</th>
+                <th scope="col" className="py-2 pr-3 font-medium text-right">p90</th>
+                <th scope="col" className="py-2 pr-3 font-medium text-right">p99</th>
               </tr>
             </thead>
             <tbody>
