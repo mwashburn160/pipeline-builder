@@ -64,6 +64,13 @@ describe('ai-core provider-registry', () => {
     // "no key" cases are deterministic; the Bedrock-specific tests set it.
     delete process.env.AWS_REGION;
     delete process.env.AWS_DEFAULT_REGION;
+    // ...and the credential-source markers, so a developer's own AWS_PROFILE
+    // (or a CI role) can't make Bedrock appear in the "nothing configured" cases.
+    delete process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI;
+    delete process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI;
+    delete process.env.AWS_WEB_IDENTITY_TOKEN_FILE;
+    delete process.env.AWS_PROFILE;
+    delete process.env.BEDROCK_ENABLED;
     // The OpenAI-compatible (local) provider registers when a base URL is present —
     // clear it so the fixed-provider counts are deterministic; its own tests set it.
     delete process.env.OPENAI_COMPATIBLE_BASE_URL;
@@ -132,6 +139,9 @@ describe('ai-core provider-registry', () => {
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'key-3';
       process.env.XAI_API_KEY = 'key-4';
       process.env.AWS_ACCESS_KEY_ID = 'key-5';
+      // Bedrock is keyless: static keys are a credential SOURCE, but it still
+      // needs a region to call, so both are required for it to register.
+      process.env.AWS_REGION = 'us-east-1';
 
       const { getAvailableProviders } = await freshImport();
       const providers = getAvailableProviders();
@@ -139,18 +149,58 @@ describe('ai-core provider-registry', () => {
       expect(providers).toHaveLength(5);
     });
 
-    it('registers Bedrock (keyless / IAM role) when an AWS region is set, with no access key', async () => {
-      delete process.env.ANTHROPIC_API_KEY;
-      delete process.env.OPENAI_API_KEY;
-      delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-      delete process.env.XAI_API_KEY;
-      delete process.env.AWS_ACCESS_KEY_ID;
+    /** Clear every provider key + AWS credential-source marker. */
+    const clearProviderEnv = () => {
+      for (const k of [
+        'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY', 'XAI_API_KEY',
+        'AWS_ACCESS_KEY_ID', 'AWS_CONTAINER_CREDENTIALS_FULL_URI',
+        'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI', 'AWS_WEB_IDENTITY_TOKEN_FILE',
+        'AWS_PROFILE', 'BEDROCK_ENABLED',
+      ]) delete process.env[k];
+    };
+
+    it('REGRESSION: does NOT register Bedrock when only a REGION is set', async () => {
+      // Every deploy target sets AWS_REGION (pipeline synthesis needs it),
+      // including minikube and docker-compose where nothing grants the pod AWS
+      // credentials. Advertising Bedrock off the region alone made it the ONLY
+      // provider on a local install, so `resolveAskModel` defaulted to it and
+      // every Ask turn failed with "Could not load credentials from any
+      // providers" — an AWS error in response to a docs question.
+      clearProviderEnv();
       process.env.AWS_REGION = 'us-east-1';
 
       const { getAvailableProviders } = await freshImport();
-      const providers = getAvailableProviders();
 
-      expect(providers.map((p) => p.id)).toEqual(['amazon-bedrock']);
+      expect(getAvailableProviders().map((p) => p.id)).not.toContain('amazon-bedrock');
+    });
+
+    it.each([
+      ['static keys', 'AWS_ACCESS_KEY_ID', 'AKIAEXAMPLE'],
+      ['EKS Pod Identity', 'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'http://169.254.170.23/v1/credentials'],
+      ['ECS task role', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI', '/v2/credentials/abc'],
+      ['IRSA', 'AWS_WEB_IDENTITY_TOKEN_FILE', '/var/run/secrets/token'],
+      ['a shared-config profile', 'AWS_PROFILE', 'dev'],
+      ['the EC2 instance-profile opt-in', 'BEDROCK_ENABLED', 'true'],
+    ])('registers Bedrock (keyless / IAM role) with %s, and no API key', async (_label, envVar, value) => {
+      clearProviderEnv();
+      process.env.AWS_REGION = 'us-east-1';
+      process.env[envVar] = value;
+
+      const { getAvailableProviders } = await freshImport();
+
+      expect(getAvailableProviders().map((p) => p.id)).toEqual(['amazon-bedrock']);
+    });
+
+    it('does NOT register Bedrock when credentials exist but no region does', async () => {
+      // The chain could resolve, but there is no region to call.
+      clearProviderEnv();
+      delete process.env.AWS_REGION;
+      delete process.env.AWS_DEFAULT_REGION;
+      process.env.AWS_WEB_IDENTITY_TOKEN_FILE = '/var/run/secrets/token';
+
+      const { getAvailableProviders } = await freshImport();
+
+      expect(getAvailableProviders().map((p) => p.id)).not.toContain('amazon-bedrock');
     });
 
     it('should include models in each provider entry', async () => {
@@ -306,6 +356,9 @@ describe('ai-core provider-registry', () => {
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'key-3';
       process.env.XAI_API_KEY = 'key-4';
       process.env.AWS_ACCESS_KEY_ID = 'key-5';
+      // Bedrock is keyless: static keys are a credential SOURCE, but it still
+      // needs a region to call, so both are required for it to register.
+      process.env.AWS_REGION = 'us-east-1';
 
       const { resolveModel } = await freshImport();
 
@@ -378,8 +431,10 @@ describe('ai-core provider-registry', () => {
     });
 
     it('should create a model for Amazon Bedrock when an AWS region is configured (custom key ignored)', async () => {
-      // Bedrock authenticates via the IAM role — an AWS region is the "usable" signal.
+      // Bedrock authenticates via the IAM role: it needs a region AND a
+      // resolvable credential source (here, an IRSA token file).
       process.env.AWS_REGION = 'us-east-1';
+      process.env.AWS_WEB_IDENTITY_TOKEN_FILE = '/var/run/secrets/token';
 
       const { createModelWithKey } = await freshImport();
 
@@ -403,6 +458,7 @@ describe('ai-core provider-registry', () => {
 
     it('accepts AWS_DEFAULT_REGION as the Bedrock availability signal', async () => {
       process.env.AWS_DEFAULT_REGION = 'eu-west-1';
+      process.env.AWS_WEB_IDENTITY_TOKEN_FILE = '/var/run/secrets/token';
 
       const { createModelWithKey } = await freshImport();
 
@@ -500,7 +556,8 @@ describe('Bedrock credentials', () => {
   const ENV = process.env;
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env = { ...ENV, AWS_REGION: 'us-east-1' };
+    // A region AND a credential source — Bedrock needs both to be advertised.
+    process.env = { ...ENV, AWS_REGION: 'us-east-1', AWS_WEB_IDENTITY_TOKEN_FILE: '/var/run/secrets/token' };
     delete process.env.AWS_ACCESS_KEY_ID;
     delete process.env.AWS_SECRET_ACCESS_KEY;
   });

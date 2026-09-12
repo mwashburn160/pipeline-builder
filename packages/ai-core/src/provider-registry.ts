@@ -68,14 +68,46 @@ const PROVIDER_FACTORIES: Record<string, (key?: string) => (modelId: string) => 
 const KEYLESS_PROVIDERS = new Set(['amazon-bedrock']);
 
 /**
- * Whether a keyless provider (Bedrock) should be advertised. It auths via the
- * runtime IAM role (no API key), so an AWS region — set by every AWS runtime — is
- * the "running in / configured for AWS" signal. Gating it on AWS_ACCESS_KEY_ID
- * (which it never uses) left it permanently unavailable despite valid IAM creds;
- * advertising it with no AWS context at all would just fail at model-call time.
+ * Whether the runtime has an AWS credential SOURCE the provider chain can
+ * actually resolve.
+ *
+ * A configured region is NOT such a signal: every deploy target sets
+ * `AWS_REGION` (it is needed for pipeline synthesis), including minikube and
+ * docker-compose, where nothing grants the pod AWS credentials. Gating Bedrock
+ * on the region alone therefore advertised it on local installs as the ONLY
+ * provider, `resolveAskModel` picked it as the default, and every Ask turn died
+ * with "Could not load credentials from any providers" — an error about AWS
+ * that has nothing to do with what the user asked.
+ *
+ * Each check below corresponds to a way `fromNodeProviderChain()` can succeed:
+ *   - static keys in the environment;
+ *   - EKS Pod Identity / ECS task role (the agent injects a credentials URI);
+ *   - IRSA (a projected web-identity token file);
+ *   - a shared-config profile, for a developer running against real AWS.
+ *
+ * The EC2 instance profile is the one case with NO environment marker — its
+ * credentials come from IMDS at call time — so it takes the explicit
+ * `BEDROCK_ENABLED=true` opt-in rather than being guessed at.
+ */
+function awsCredentialSourceConfigured(): boolean {
+  return !!(
+    process.env.AWS_ACCESS_KEY_ID
+    || process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI
+    || process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI
+    || process.env.AWS_WEB_IDENTITY_TOKEN_FILE
+    || process.env.AWS_PROFILE
+    || process.env.BEDROCK_ENABLED === 'true'
+  );
+}
+
+/**
+ * Whether a keyless provider (Bedrock) should be advertised. It authenticates
+ * with the runtime's IAM role rather than an API key, so it needs BOTH a region
+ * to call and a resolvable credential source — see
+ * {@link awsCredentialSourceConfigured} for why the region alone is not enough.
  */
 function keylessProviderAvailable(): boolean {
-  return !!(process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION);
+  return !!(process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION) && awsCredentialSourceConfigured();
 }
 
 /**
@@ -92,7 +124,13 @@ function initRegistry(): void {
     if (!factory) continue;
     const envVar = AI_PROVIDER_ENV_VARS[id];
     const apiKey = envVar ? process.env[envVar] : undefined;
-    if (apiKey || (KEYLESS_PROVIDERS.has(id) && keylessProviderAvailable())) {
+    // A keyless provider is gated SOLELY by its own availability check — never
+    // by the presence of `envVar`. Bedrock's mapped env var is
+    // `AWS_ACCESS_KEY_ID`, so the key path would otherwise register it whenever
+    // static keys exist, skipping the region requirement and producing a
+    // provider that fails at call time for want of a region.
+    const usable = KEYLESS_PROVIDERS.has(id) ? keylessProviderAvailable() : !!apiKey;
+    if (usable) {
       registry.set(id, { info, createModel: factory(apiKey) });
     }
   }
