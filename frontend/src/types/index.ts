@@ -490,6 +490,10 @@ export interface ScorecardRollup {
   leaderboard: ScorecardLeaderboardEntry[];
   computedAt: string;
   truncated: boolean;
+  /** Pipelines whose score could not be COMPUTED (an error), as opposed to
+   *  computed with no data. The roll-up degrades per row rather than failing
+   *  the page, so this is how a partial result announces itself. */
+  failed?: number;
 }
 
 /**

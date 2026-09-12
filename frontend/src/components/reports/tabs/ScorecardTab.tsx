@@ -88,6 +88,13 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
               <div className="text-xs text-gray-400">
                 {data.scored} of {data.pipelineCount} pipeline{data.pipelineCount === 1 ? '' : 's'} scored
                 {data.truncated && ' · showing the first page (more exist)'}
+                {/* "not scored" otherwise reads as "no data"; an error is a
+                    different thing and the average is computed without them. */}
+                {!!data.failed && (
+                  <span className="text-amber-600 dark:text-amber-500">
+                    {' · '}{data.failed} could not be scored
+                  </span>
+                )}
               </div>
             </div>
           </div>

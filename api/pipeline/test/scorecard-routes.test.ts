@@ -149,6 +149,90 @@ describe('GET /scorecard (org-wide roll-up)', () => {
     expect(payload.rollup.truncated).toBe(false);
   });
 
+  it('REGRESSION: one pipeline whose DORA compute fails does NOT fail the whole roll-up', async () => {
+    // Only the COMPLIANCE half of computeScorecard was fail-soft; the DORA await
+    // was unguarded, so a single bad pipeline rejected the entire roll-up and the
+    // Scorecard tab rendered "Internal server error" with nothing at all.
+    mockFindPaginated.mockResolvedValue({
+      data: [{ id: 'p1', name: 'P1' }, { id: 'bad', name: 'Bad' }, { id: 'p3', name: 'P3' }],
+      hasMore: false,
+      limit: 51,
+      offset: 0,
+    });
+    mockGetDoraMetrics.mockImplementation(async (_org: string, _f: string, _t: string, _ids: string[], opts: any) => {
+      if (opts?.pipelineId === 'bad') throw new Error('relation "dora_events" does not exist');
+      return sampleDora;
+    });
+
+    const r = res();
+    await handler()({ params: {} }, r);
+
+    // The page still renders, with every pipeline present.
+    expect(mockSendSuccess).toHaveBeenCalled();
+    const [, , payload] = mockSendSuccess.mock.calls[0];
+    expect(payload.rollup.pipelineCount).toBe(3);
+    expect(payload.rollup.leaderboard).toHaveLength(3);
+  });
+
+  it('marks the failed pipeline unavailable and counts it, rather than scoring it F', async () => {
+    mockFindPaginated.mockResolvedValue({
+      data: [{ id: 'p1', name: 'P1' }, { id: 'bad', name: 'Bad' }],
+      hasMore: false,
+      limit: 51,
+      offset: 0,
+    });
+    mockGetDoraMetrics.mockImplementation(async (_o: string, _f: string, _t: string, _i: string[], opts: any) => {
+      if (opts?.pipelineId === 'bad') throw new Error('boom');
+      return sampleDora;
+    });
+
+    await handler()({ params: {} }, res());
+    const [, , payload] = mockSendSuccess.mock.calls[0];
+
+    expect(payload.rollup.failed).toBe(1);
+    const bad = payload.rollup.leaderboard.find((c: any) => c.pipelineId === 'bad');
+    // Not measured — never confused with a genuinely poor score.
+    expect(bad.unavailable).toBe(true);
+    expect(bad.score).toBeNull();
+    expect(bad.grade).toBe('N/A');
+    // ...and it sinks to the bottom, below the scored pipeline.
+    expect(payload.rollup.leaderboard[payload.rollup.leaderboard.length - 1].pipelineId).toBe('bad');
+  });
+
+  it('excludes an unscorable pipeline from the average', async () => {
+    mockFindPaginated.mockResolvedValue({
+      data: [{ id: 'p1', name: 'P1' }, { id: 'bad', name: 'Bad' }],
+      hasMore: false,
+      limit: 51,
+      offset: 0,
+    });
+    mockGetDoraMetrics.mockImplementation(async (_o: string, _f: string, _t: string, _i: string[], opts: any) => {
+      if (opts?.pipelineId === 'bad') throw new Error('boom');
+      return sampleDora;
+    });
+
+    await handler()({ params: {} }, res());
+    const [, , payload] = mockSendSuccess.mock.calls[0];
+
+    // `scored` counts only real scores, so the average isn't dragged by a gap.
+    expect(payload.rollup.scored).toBe(1);
+    expect(payload.rollup.averageScore).not.toBeNull();
+  });
+
+  it('still returns a page when EVERY pipeline fails to score', async () => {
+    mockFindPaginated.mockResolvedValue({
+      data: [{ id: 'a' }, { id: 'b' }], hasMore: false, limit: 51, offset: 0,
+    });
+    mockGetDoraMetrics.mockRejectedValue(new Error('reporting down'));
+
+    await handler()({ params: {} }, res());
+    const [, , payload] = mockSendSuccess.mock.calls[0];
+
+    expect(payload.rollup.failed).toBe(2);
+    expect(payload.rollup.scored).toBe(0);
+    expect(payload.rollup.averageScore).toBeNull();
+  });
+
   it('flags truncation when the org has more pipelines than the cap', async () => {
     // hasMore true ⇒ the org exceeds the per-roll-up cap.
     mockFindPaginated.mockResolvedValue({ data: [{ id: 'p1', name: 'P1' }], hasMore: true, limit: 51, offset: 0 });

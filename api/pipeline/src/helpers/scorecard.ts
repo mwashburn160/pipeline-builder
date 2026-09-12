@@ -24,6 +24,9 @@ export interface Scorecard {
   /** Weighted overall 0–100, or null when neither dimension has data. */
   score: number | null;
   grade: ScorecardGrade;
+  /** True when this card could not be COMPUTED (an error), as opposed to
+   *  computed with no data. Only set by {@link unavailableScorecard}. */
+  unavailable?: boolean;
   compliance: {
     score: number | null;
     rulesEvaluated: number;
@@ -104,6 +107,33 @@ export function combineScore(compliance: number | null, dora: number | null): nu
 }
 
 /** Assemble the scorecard from a DORA result + compliance dry-run counts. */
+/**
+ * A scorecard for a pipeline whose compute FAILED, so an org-wide roll-up can
+ * keep going instead of failing whole-page on one bad pipeline.
+ *
+ * Distinct from "no data": `score: null` already sinks it to the bottom of the
+ * leaderboard, and `unavailable` marks it as *not measured* rather than measured
+ * badly — so a reader never mistakes an outage for an F.
+ */
+export function unavailableScorecard(pipelineId: string, computedAt: string): Scorecard {
+  return {
+    pipelineId,
+    score: null,
+    grade: 'N/A',
+    unavailable: true,
+    compliance: { score: null, rulesEvaluated: 0, violations: 0, warnings: 0 },
+    dora: {
+      score: null,
+      basis: 'deploy',
+      deploymentFrequency: null,
+      changeFailureRate: null,
+      meanTimeToRestore: null,
+      leadTime: null,
+    },
+    computedAt,
+  };
+}
+
 export function buildScorecard(
   pipelineId: string,
   dora: DoraMetrics,

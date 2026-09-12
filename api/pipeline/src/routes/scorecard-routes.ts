@@ -11,12 +11,13 @@ import {
   createComplianceClient,
   requireFeature,
   runConcurrent,
+  errorMessage,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
-import { buildScorecard, type Scorecard } from '../helpers/scorecard.js';
+import { buildScorecard, unavailableScorecard, type Scorecard } from '../helpers/scorecard.js';
 import { pipelineService, toComplianceAttributes } from '../services/pipeline-service.js';
 
 const complianceClient = createComplianceClient();
@@ -123,10 +124,27 @@ export function createScorecardRoutes(quotaService: QuotaService): Router {
     const truncated = listed.data.length > ORG_SCORECARD_MAX || listed.hasMore === true;
 
     // Compute each pipeline's scorecard with bounded concurrency (each does a
-    // compliance dry-run + DORA scan). computeScorecard is fail-soft per pipeline.
+    // compliance dry-run + DORA scan).
+    //
+    // PER-PIPELINE ISOLATION: only the COMPLIANCE half of computeScorecard was
+    // fail-soft — the DORA await was unguarded, so a single pipeline's failure
+    // rejected the whole roll-up and the Scorecard tab 500'd with nothing
+    // rendered. An org-wide leaderboard must degrade per row: one unmeasurable
+    // pipeline is a gap in the table, not an outage of the page.
+    let failed = 0;
     const scored = await runConcurrent(pipelines, ORG_SCORECARD_CONCURRENCY, async (p) => {
-      const card = await computeScorecard(p, orgId, from, to, incidentWindowHours, (msg, meta) => ctx.log('WARN', msg, meta));
-      return { ...card, name: p.name };
+      try {
+        const card = await computeScorecard(p, orgId, from, to, incidentWindowHours, (msg, meta) => ctx.log('WARN', msg, meta));
+        return { ...card, name: p.name };
+      } catch (err) {
+        // Logged per pipeline WITH its id: the roll-up stays up, and the id is
+        // what an operator needs to find the underlying failure.
+        failed += 1;
+        ctx.log('WARN', 'Scorecard compute failed for pipeline; excluding it from the roll-up', {
+          pipelineId: p.id, error: errorMessage(err),
+        });
+        return { ...unavailableScorecard(p.id, to.toISOString()), name: p.name };
+      }
     });
 
     // Leaderboard: highest score first; unscored (null) sink to the bottom.
@@ -139,7 +157,7 @@ export function createScorecardRoutes(quotaService: QuotaService): Router {
     for (const s of scored) gradeDistribution[s.grade] = (gradeDistribution[s.grade] ?? 0) + 1;
 
     ctx.log('COMPLETED', 'Computed org-wide scorecard roll-up', {
-      pipelineCount: scored.length, averageScore, truncated,
+      pipelineCount: scored.length, averageScore, truncated, failed,
     });
     incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
     return sendSuccess(res, 200, {
@@ -152,6 +170,9 @@ export function createScorecardRoutes(quotaService: QuotaService): Router {
         leaderboard,
         computedAt: to.toISOString(),
         truncated,
+        // Surfaced so the page can say "3 pipelines couldn't be scored" rather
+        // than quietly averaging over a partial set.
+        failed,
       },
     });
   }));
