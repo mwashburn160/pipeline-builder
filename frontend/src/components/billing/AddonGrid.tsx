@@ -3,8 +3,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { FEATURE_METADATA, type FeatureFlag } from '@/lib/feature-flags';
 import { formatCents } from '@/lib/format';
+import { scrollBehavior } from '@/lib/motion';
 import { sellableTiers, tierAvailabilityLabel } from '@/lib/addon-tiers';
 import { TIER_META } from '@/lib/tiers';
 import type { Bundle, BillingInterval, ComboDiscount } from '@/types';
@@ -35,6 +37,7 @@ function PackQuantityEntry({ bundle, qty, interval, disabled, requestAddonChange
   requestAddonChange: (bundleId: string, name: string, quantity: number) => void;
 }) {
   const [value, setValue] = useState(String(qty));
+  const [confirming, setConfirming] = useState(false);
   // Re-sync the field when the committed quantity changes (e.g. after a purchase).
   useEffect(() => setValue(String(qty)), [qty]);
 
@@ -56,20 +59,19 @@ function PackQuantityEntry({ bundle, qty, interval, disabled, requestAddonChange
   // Volume tiers price the line below list, so the running total is an upper bound.
   const total = `${formatCents(unit * target)}/${per}${tiers ? ' before discounts' : ''}`;
 
+  // Confirm a large INCREASE (fat-finger charge) or a destructive DECREASE
+  // (removing all, or a big chunk of, the packs). Anything smaller commits
+  // straight through — the preview modal still itemises the change.
+  const needsConfirm = target >= QUANTITY_CONFIRM_THRESHOLD
+    || target === 0
+    || delta <= -Math.max(5, Math.ceil(qty / 2));
+
+  const commit = () => requestAddonChange(bundle.id, bundle.name, target);
+
   const submit = () => {
     if (!valid || delta === 0) return;
-    // Confirm on a large INCREASE (fat-finger charge) OR a destructive DECREASE
-    // (removing all, or a big chunk of, the packs).
-    const bigIncrease = target >= QUANTITY_CONFIRM_THRESHOLD;
-    const bigDecrease = target === 0 || delta <= -Math.max(5, Math.ceil(qty / 2));
-    // Seats are the one dimension a reduction can strand people on, so they get
-    // the sharper warning; other packs just lose the capacity they add.
-    const lowered = bundle.grants?.seats
-      ? `Reduce ${noun} from ${qty} to ${target}? Members over the new limit can't be added back without buying seats again.`
-      : `Reduce ${noun} from ${qty} to ${target}? That removes the extra capacity they add.`;
-    const msg = target < qty ? lowered : `Set ${noun} to ${target}? That's ${total}.`;
-    if ((bigIncrease || bigDecrease) && !window.confirm(msg)) return;
-    requestAddonChange(bundle.id, bundle.name, target);
+    if (needsConfirm) setConfirming(true);
+    else commit();
   };
 
   return (
@@ -97,6 +99,31 @@ function PackQuantityEntry({ bundle, qty, interval, disabled, requestAddonChange
           : `${qty} → ${target}${delta !== 0 ? ` (${delta > 0 ? '+' : ''}${delta})` : ''} · ${total}`}
       </p>
       {tiers && <p className="mt-0.5 text-xs text-[var(--pb-text-muted)]">Volume discount — {tiers}</p>}
+
+      {/* A charge (or a capacity cut) deserves the app's own dialog: `window.confirm`
+          is unstyled, ignores dark mode, and renders the price as plain text. */}
+      {confirming && (
+        <ConfirmDialog
+          title={target < qty ? `Reduce ${noun}?` : `Set ${noun} to ${target}?`}
+          confirmLabel={target < qty ? `Reduce to ${target}` : `Set to ${target}`}
+          tone={target < qty ? 'danger' : 'primary'}
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => { setConfirming(false); commit(); }}
+        >
+          <p>
+            {noun}: <span className="tabular-nums">{qty} → {target}</span>
+          </p>
+          {target < qty ? (
+            <p className="text-red-600 dark:text-red-400">
+              {bundle.grants?.seats
+                ? "Members over the new limit can't be added back without buying seats again."
+                : 'That removes the extra capacity they add.'}
+            </p>
+          ) : (
+            <p>New total: <strong>{total}</strong>.</p>
+          )}
+        </ConfirmDialog>
+      )}
     </div>
   );
 }
@@ -204,7 +231,7 @@ export function AddonGrid({
   const highlightRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (highlightedId && highlightRef.current) {
-      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      highlightRef.current.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
     }
   }, [highlightedId]);
 

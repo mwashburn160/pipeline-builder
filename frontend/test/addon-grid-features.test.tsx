@@ -238,15 +238,38 @@ describe('AddonGrid — PackQuantityEntry (every stackable pack)', () => {
     expect(requestAddonChange).not.toHaveBeenCalled();
   });
 
-  it('warns before a destructive reduction, and honours a cancel', () => {
+  it('asks in-app before a destructive reduction, and honours a cancel', () => {
     const requestAddonChange = jest.fn();
-    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false);
     render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[pluginPack]} addonQty={() => 4} />);
     fireEvent.change(screen.getByRole('spinbutton', { name: /number of plugin packs/i }), { target: { value: '0' } });
     fireEvent.click(screen.getByRole('button', { name: /update/i }));
-    expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/Reduce Plugin Packs from 4 to 0/i));
+
+    // A styled dialog, not window.confirm — it states the change and the risk.
+    expect(screen.getByRole('dialog')).toHaveTextContent(/reduce plugin packs\?/i);
+    expect(screen.getByText(/removes the extra capacity/i)).toBeInTheDocument();
     expect(requestAddonChange).not.toHaveBeenCalled();
-    confirmSpy.mockRestore();
+
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(requestAddonChange).not.toHaveBeenCalled();
+  });
+
+  it('commits the reduction once confirmed', () => {
+    const requestAddonChange = jest.fn();
+    render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[pluginPack]} addonQty={() => 4} />);
+    fireEvent.change(screen.getByRole('spinbutton', { name: /number of plugin packs/i }), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: /update/i }));
+    fireEvent.click(screen.getByRole('button', { name: /reduce to 0/i }));
+    expect(requestAddonChange).toHaveBeenCalledWith('plugin_pack', 'Plugin Pack (+25)', 0);
+  });
+
+  it('commits a small change with no dialog at all', () => {
+    const requestAddonChange = jest.fn();
+    render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[pluginPack]} addonQty={() => 1} />);
+    fireEvent.change(screen.getByRole('spinbutton', { name: /number of plugin packs/i }), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: /update/i }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(requestAddonChange).toHaveBeenCalledWith('plugin_pack', 'Plugin Pack (+25)', 2);
   });
 });
 

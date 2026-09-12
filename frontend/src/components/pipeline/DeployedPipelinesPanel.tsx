@@ -5,6 +5,7 @@ import { Modal } from '@/components/ui/Modal';
 import { ResourceList } from '@/components/ui/ResourceList';
 import api from '@/lib/api';
 import { formatRelativeTime } from '@/lib/relative-time';
+import { formatDateTime } from '@/lib/format';
 
 interface RegistryRow {
   id: string;
@@ -143,7 +144,7 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
                       {row.stackName && <span> · stack {row.stackName}</span>}
                     </div>
                   </div>
-                  <div className="text-xs text-gray-400 shrink-0" title={new Date(row.lastDeployed).toLocaleString()}>
+                  <div className="text-xs text-gray-400 shrink-0" title={formatDateTime(row.lastDeployed)}>
                     Deployed {formatRelativeTime(row.lastDeployed)}
                   </div>
                   {canWrite && (

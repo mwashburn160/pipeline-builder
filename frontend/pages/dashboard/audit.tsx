@@ -39,6 +39,7 @@ import { downloadCsv, downloadJsonl, datedFilename } from '@/lib/csv-export';
 import { redactDetails } from '@/lib/redact';
 import type { AuditLogEvent, AuditChainVerification } from '@/types/audit';
 import api from '@/lib/api';
+import { formatDateTime } from '@/lib/format';
 
 const DEFAULT_LIMIT = 50;
 
@@ -218,7 +219,7 @@ export default function AuditPage() {
 
   return (
     <DashboardLayout
-      title="Audit log"
+      title="Audit Log"
       subtitle="System-wide action history"
       titleExtra={isSuperAdmin ? <Badge color="red">System Admin</Badge> : <Badge color="purple">Org Admin</Badge>}
     >
@@ -578,7 +579,7 @@ export default function AuditPage() {
           ariaLabel="Audit event details"
           onClose={() => setSelected(null)}
           title={selected.action}
-          subtitle={<span className="tabular-nums">{new Date(selected.createdAt).toLocaleString()}</span>}
+          subtitle={<span className="tabular-nums">{formatDateTime(selected.createdAt)}</span>}
         >
           <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-2 text-sm">
             <dt className="text-gray-500 dark:text-gray-400">Outcome</dt>

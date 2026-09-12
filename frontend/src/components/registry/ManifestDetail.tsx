@@ -11,6 +11,7 @@ import { WarningAlert } from '@/components/ui/WarningAlert';
 import { api } from '@/lib/api';
 import { redactString, redactDetails } from '@/lib/redact';
 import type { RegistryManifestKind, RegistryPlatformRef } from '@/types';
+import { formatDate, formatDateTime } from '@/lib/format';
 
 interface BreadcrumbSegment {
   /** Label shown in the breadcrumb (e.g. `org-acme/foo:rc1` or `linux/amd64`). */
@@ -155,7 +156,7 @@ function ImageSummary({ kind }: { kind: Extract<RegistryManifestKind, { kind: 'i
   return (
     <dl className="p-4 grid grid-cols-[8rem_1fr] gap-y-2 gap-x-3 text-sm">
       <Field label="Media type" value={kind.manifest.mediaType} mono />
-      <Field label="Created" value={cfg.created ? new Date(cfg.created).toLocaleString() : '—'} />
+      <Field label="Created" value={formatDateTime(cfg.created)} />
       <Field label="OS / Arch" value={cfg.os && cfg.architecture ? `${cfg.os}/${cfg.architecture}` : '—'} />
       <Field label="Working dir" value={cfg.config?.WorkingDir ?? '—'} mono />
       <Field
@@ -179,7 +180,7 @@ function ImageSummary({ kind }: { kind: Extract<RegistryManifestKind, { kind: 'i
           <ul className="text-xs space-y-1">
             {cfg.history.map((h, i) => (
               <li key={i} className="font-mono break-all">
-                <span className="text-gray-500 mr-2">{new Date(h.created).toLocaleDateString()}</span>
+                <span className="text-gray-500 mr-2">{formatDate(h.created)}</span>
                 {/* A history `created_by` build command can embed an account id. */}
                 {redactString(h.created_by ?? '')}
               </li>

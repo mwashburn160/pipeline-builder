@@ -3,6 +3,7 @@ import { Plus, MessageCircle, Search, X } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useMessages } from '@/hooks/useMessages';
 import { useDebounce } from '@/hooks/useDebounce';
+import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
@@ -178,6 +179,12 @@ export default function MessagesPage() {
     fetchMessages();
   }, [fetchMessages]);
 
+  // Deleting used to fire straight from the row/thread trash icon with no
+  // prompt and no undo. Both call sites now stage the id and confirm here.
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const pendingSubject = messages.find((m) => m.id === pendingDelete)?.subject;
+
   const handleDelete = useCallback(async (id: string) => {
     await deleteMessage(id);
     if (selectedMessage?.id === id) {
@@ -342,7 +349,7 @@ export default function MessagesPage() {
                 selectedId={selectedMessage?.id}
                 currentOrgId={currentOrgId}
                 resolveOrgName={resolveOrgName}
-                onDelete={canWrite ? handleDelete : undefined}
+                onDelete={canWrite ? ((id: string) => setPendingDelete(id)) : undefined}
                 hasMore={hasMore}
                 loadingMore={loadingMore}
                 onLoadMore={loadMore}
@@ -369,7 +376,7 @@ export default function MessagesPage() {
                 fetchMembers={fetchMembers}
                 onBack={handleBack}
                 onThreadRead={markThreadAsRead}
-                onDelete={canWrite ? handleDelete : undefined}
+                onDelete={canWrite ? ((id: string) => setPendingDelete(id)) : undefined}
               />
             ) : (
               <EmptyChat />
@@ -404,6 +411,19 @@ export default function MessagesPage() {
           .filter((o) => o.id.toLowerCase() !== currentOrgId)
           .map((o) => ({ value: o.id, label: o.name }))}
       />
+
+      {pendingDelete && (
+        <DeleteConfirmModal
+          title="Delete message"
+          itemName={pendingSubject || 'this message'}
+          loading={deleting}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={async () => {
+            setDeleting(true);
+            try { await handleDelete(pendingDelete); } finally { setDeleting(false); setPendingDelete(null); }
+          }}
+        />
+      )}
     </DashboardLayout>
   );
 }

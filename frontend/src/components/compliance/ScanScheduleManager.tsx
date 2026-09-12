@@ -12,6 +12,7 @@ import { useToast } from '@/components/ui/Toast';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import type { ScanSchedule } from '@/types/compliance';
+import { formatDateTime } from '@/lib/format';
 
 interface ScanScheduleFormData {
   target: string;
@@ -148,8 +149,8 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
         </button>
       ),
     },
-    { id: 'lastRun', header: 'Last Run', cellClassName: 'text-xs text-gray-500', render: (s) => (s.lastRunAt ? new Date(s.lastRunAt).toLocaleString() : '--') },
-    { id: 'nextRun', header: 'Next Run', cellClassName: 'text-xs text-gray-500', render: (s) => (s.nextRunAt ? new Date(s.nextRunAt).toLocaleString() : '--') },
+    { id: 'lastRun', header: 'Last Run', cellClassName: 'text-xs text-gray-500', render: (s) => formatDateTime(s.lastRunAt) },
+    { id: 'nextRun', header: 'Next Run', cellClassName: 'text-xs text-gray-500', render: (s) => formatDateTime(s.nextRunAt) },
     {
       id: 'actions',
       header: 'Actions',

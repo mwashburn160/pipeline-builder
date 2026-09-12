@@ -373,8 +373,10 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
 
         {/* Streaming progress */}
         {generating && !previewJson && (
-          <div className="rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4 flex items-center gap-3">
-            <LoadingSpinner size="sm" />
+          // role="status" — repo analysis + generation can run for a minute, and
+          // was entirely silent to a screen reader.
+          <div role="status" className="rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4 flex items-center gap-3">
+            <LoadingSpinner size="sm" label={null} />
             <div>
               <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
                 {analyzing ? 'Analyzing repository structure...' : 'Generating pipeline configuration...'}
@@ -547,7 +549,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
                   <LoadingSpinner size="sm" /> Streaming...
                 </span>
               ) : (
-                <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+                <span role="status" className="text-xs text-green-600 dark:text-green-400 font-medium">
                   Ready to submit
                 </span>
               )}

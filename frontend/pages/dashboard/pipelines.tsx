@@ -513,6 +513,9 @@ export default function PipelinesPage() {
                 <FilterSelect aria-label="Filter by access" value={list.filters.access} onChange={(e) => list.updateFilter('access', e.target.value)}>
                   <option value="all">All Access</option>
                   <option value="public">Public</option>
+                  {/* The ladder has THREE rungs — omitting `org` made every
+                      org-shared row invisible under both other filter values. */}
+                  <option value="org">Org</option>
                   <option value="private">Private</option>
                 </FilterSelect>
               )}

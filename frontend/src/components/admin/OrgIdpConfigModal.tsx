@@ -13,6 +13,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import type { Organization, OrgIdpConfigDto } from '@/types';
+import { formatDateTime } from '@/lib/format';
 
 interface Props {
   org: Organization;
@@ -185,7 +186,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
                 Provider: <code className="text-xs">{existing.provider}</code> ·
                 {' '}Secret: {existing.hasClientSecret ? 'on file' : <em>not set</em>} ·
                 {' '}Enabled: {existing.enabled ? 'yes' : 'no'} ·
-                {' '}Updated: {new Date(existing.updatedAt).toLocaleString()}
+                {' '}Updated: {formatDateTime(existing.updatedAt)}
               </div>
             </div>
           )}

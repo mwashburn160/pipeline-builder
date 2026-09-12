@@ -58,6 +58,18 @@ export function formatDateTime(iso: string | number | Date | null | undefined, p
   return Number.isNaN(d.getTime()) ? placeholder : d.toLocaleString();
 }
 
+/**
+ * Null-safe time-of-day (no date) — for timelines scoped to a single day or run
+ * (a scan's step log, a "last refreshed" stamp), where repeating the date on
+ * every row is noise. Still centralized so the app has ONE set of date
+ * formatters rather than scattered `toLocaleTimeString()` calls.
+ */
+export function formatTime(iso: string | number | Date | null | undefined, placeholder = '—'): string {
+  if (iso == null || iso === '') return placeholder;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? placeholder : d.toLocaleTimeString();
+}
+
 /** Null-safe absolute date (no time) for display. See {@link formatDateTime}. */
 export function formatDate(iso: string | number | Date | null | undefined, placeholder = '—'): string {
   if (iso == null || iso === '') return placeholder;

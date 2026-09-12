@@ -4,18 +4,29 @@ interface LoadingSpinnerProps {
   size?: 'sm' | 'md' | 'lg';
   /** Additional CSS classes applied to the SVG element */
   className?: string;
+  /**
+   * What is loading, announced to screen readers ("Loading builds"). Pass `null`
+   * when the spinner sits INSIDE an element that already announces its own state
+   * (a `role="status"` block, or a button whose label already says "Saving…") —
+   * otherwise the same thing is announced twice.
+   */
+  label?: string | null;
 }
 
 /** Animated SVG spinner used as an inline loading indicator. */
-export function LoadingSpinner({ size = 'md', className = '' }: LoadingSpinnerProps) {
+export function LoadingSpinner({ size = 'md', className = '', label = 'Loading' }: LoadingSpinnerProps) {
   const sizeClasses = {
     sm: 'h-4 w-4',
     md: 'h-8 w-8',
     lg: 'h-12 w-12',
   };
 
+  // `role="status"` + a name on the SVG itself (no wrapper element, so no
+  // layout surprises). Pass `label={null}` when an ancestor already announces
+  // the same state, or the user hears it twice.
   return (
     <svg
+      {...(label === null ? { 'aria-hidden': true } : { role: 'status', 'aria-label': label })}
       className={`animate-spin text-blue-600 dark:text-blue-400 ${sizeClasses[size]} ${className}`}
       xmlns="http://www.w3.org/2000/svg"
       fill="none"

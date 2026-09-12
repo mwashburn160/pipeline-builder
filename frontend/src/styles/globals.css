@@ -482,3 +482,21 @@
     transform: translateX(100%);
   }
 }
+
+/* ---- Reduced motion -------------------------------------------------------
+   Honour the OS "reduce motion" preference for the hand-written CSS animation
+   layer (`pb-fade-up` page reveals, the `pb-shimmer` skeleton sweep, and every
+   `transition-*` utility). framer-motion is covered separately by the
+   <MotionConfig reducedMotion="user"> wrapper in pages/_app.tsx.
+   Motion is reduced to a near-zero duration rather than removed, so
+   animation/transition END events still fire and nothing waits on them. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

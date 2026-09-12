@@ -14,6 +14,7 @@ import { IconButton } from '@/components/ui/IconButton';
 import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 
 interface RuleListProps {
@@ -35,6 +36,9 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
   const [nameSearch, setNameSearch] = useState('');
   const [sortBy, setSortBy] = useState<'priority' | 'name' | 'severity'>('priority');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  // Deleting a rule was a single unguarded click on a trash icon.
+  const [pendingDelete, setPendingDelete] = useState<ComplianceRule | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const crudApi = useMemo(() => ({
     list: async (params?: RuleParams) => {
@@ -190,7 +194,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
             </IconButton>
           )}
           {onEdit && (
-            <IconButton tone="danger" onClick={() => deleteRule(rule.id)} title="Delete" aria-label="Delete rule">
+            <IconButton tone="danger" onClick={() => setPendingDelete(rule)} title="Delete" aria-label="Delete rule">
               <Trash2 className="h-4 w-4" />
             </IconButton>
           )}
@@ -274,6 +278,19 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
           window. Gated on write (restore is compliance:write + step-up gated);
           `onEdit` is passed only for managers, so it mirrors that gate. */}
       {onEdit && <RecentlyDeletedPanel resource="compliance-rule" onRestored={fetchRules} />}
+
+      {pendingDelete && (
+        <DeleteConfirmModal
+          title="Delete rule"
+          itemName={pendingDelete.name}
+          loading={deleting}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={async () => {
+            setDeleting(true);
+            try { await deleteRule(pendingDelete.id); } finally { setDeleting(false); setPendingDelete(null); }
+          }}
+        />
+      )}
     </div>
   );
 }

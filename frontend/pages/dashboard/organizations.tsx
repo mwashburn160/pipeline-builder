@@ -477,7 +477,7 @@ export default function OrganizationsPage() {
         </Button>
       }
     >
-      <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
+      <ErrorAlert message={list.error} onRetry={list.refresh} onDismiss={() => list.setError(null)} />
 
       <TabBar
         items={[
@@ -579,6 +579,8 @@ export default function OrganizationsPage() {
         data={filteredOrgs}
         columns={orgColumns}
         isLoading={list.isLoading}
+        loadFailed={!!list.error}
+        onRetry={list.refresh}
         emptyState={{ icon: Building2, title: 'No organizations', description: 'No organizations found.' }}
         getRowKey={(org) => org.id}
       />

@@ -44,7 +44,7 @@ export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCanc
           </button>
           <button onClick={onConfirm} disabled={loading} className="btn btn-danger">
             {loading ? (
-              <><LoadingSpinner size="sm" className="mr-2" />Deleting...</>
+              <><LoadingSpinner size="sm" className="mr-2" label={null} />Deleting...</>
             ) : 'Delete'}
           </button>
         </div>

@@ -15,6 +15,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { useFormState } from '@/hooks/useFormState';
 import type { OrgIdpConfigDto, OrgIdpConfigCreate, IdpProvider } from '@/types';
+import { formatDateTime } from '@/lib/format';
 
 /**
  * Org owner/admin self-service SSO / IdP editor (the org-facing counterpart to
@@ -146,7 +147,7 @@ export function OrgSsoSettings({ orgId }: { orgId: string }) {
                 Provider: <code className="text-xs">{existing.provider}</code> ·
                 {' '}Secret: {existing.hasClientSecret ? 'on file' : <em>not set</em>} ·
                 {' '}Enabled: {existing.enabled ? 'yes' : 'no'} ·
-                {' '}Updated: {new Date(existing.updatedAt).toLocaleString()}
+                {' '}Updated: {formatDateTime(existing.updatedAt)}
               </div>
             </div>
           )}

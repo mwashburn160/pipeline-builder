@@ -14,6 +14,8 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import api from '@/lib/api';
+import { useIsDirty } from '@/hooks/useIsDirty';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { formatJSON, safeJSONParse } from '@/lib/constants';
 import { Plugin, Visibility } from '@/types';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
@@ -42,6 +44,10 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
   const [pluginType, setPluginType] = useState(plugin.pluginType);
   const [computeType, setComputeType] = useState(plugin.computeType);
   const [env, setEnv] = useState(formatJSON(plugin.env || {}));
+  // ~20 editable fields including hand-written JSON — a misplaced backdrop click
+  // used to discard the lot silently.
+  const dirty = useIsDirty({ name, description, keywords, version, metadata, pluginType, computeType, env });
+  const [confirmingMetadataWipe, setConfirmingMetadataWipe] = useState(false);
   const [buildArgs, setBuildArgs] = useState(formatJSON(plugin.buildArgs || {}));
   const [installCommands, setInstallCommands] = useState(plugin.installCommands?.join('\n') || '');
   const [commands, setCommands] = useState(plugin.commands?.join('\n') || '');
@@ -102,7 +108,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
   // Resolved plugin data (fetched by ID, or fallback to list data)
   const p = fullPlugin ?? plugin;
 
-  const handleSave = async () => {
+  const handleSave = async ({ metadataWipeConfirmed = false }: { metadataWipeConfirmed?: boolean } = {}) => {
     clearError();
     setValidationError(null);
     setSuccess(null);
@@ -123,11 +129,11 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
     // record had metadata, confirm before wiping prior fields.
     const originalHadMetadata = !!fullPlugin?.metadata && Object.keys(fullPlugin.metadata).length > 0;
     const submittingEmpty = !metadata.trim() || Object.keys(parsedMetadata as Record<string, unknown>).length === 0;
-    if (originalHadMetadata && submittingEmpty) {
-      const ok = typeof window !== 'undefined'
-        ? window.confirm('Clear all metadata fields? This will wipe prior metadata.')
-        : true;
-      if (!ok) return;
+    if (originalHadMetadata && submittingEmpty && !metadataWipeConfirmed) {
+      // Pause the save and ask in-app (was `window.confirm`, which is unstyled
+      // and fires mid-save with no context about what's being wiped).
+      setConfirmingMetadataWipe(true);
+      return;
     }
 
     const response = await saveAsync({
@@ -163,14 +169,26 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
       <Button variant="secondary" onClick={onClose} disabled={loading}>
         Cancel
       </Button>
-      <Button onClick={handleSave} disabled={loading || fetching}>
+      <Button onClick={() => void handleSave()} disabled={loading || fetching}>
         {loading ? (<><LoadingSpinner size="sm" className="mr-2" />Saving...</>) : 'Save Changes'}
       </Button>
     </div>
   );
 
   return (
-    <Modal title="Edit Plugin" onClose={onClose} maxWidth="max-w-2xl" tall footer={footer}>
+    <>
+    {confirmingMetadataWipe && (
+      <ConfirmDialog
+        title="Clear all metadata?"
+        confirmLabel="Clear metadata"
+        tone="danger"
+        onCancel={() => setConfirmingMetadataWipe(false)}
+        onConfirm={() => { setConfirmingMetadataWipe(false); void handleSave({ metadataWipeConfirmed: true }); }}
+      >
+        <p>Saving with an empty metadata field wipes every metadata entry this plugin already has.</p>
+      </ConfirmDialog>
+    )}
+    <Modal title="Edit Plugin" onClose={onClose} maxWidth="max-w-2xl" tall footer={footer} dirty={dirty}>
       <ErrorAlert message={error} />
       <SuccessAlert message={success} />
 
@@ -297,5 +315,6 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
         </div>
       )}
     </Modal>
+    </>
   );
 }

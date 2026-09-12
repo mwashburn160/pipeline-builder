@@ -1,5 +1,6 @@
 import { type ReactNode, type RefObject, useEffect, useId, useRef, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { ConfirmDialog } from './ConfirmDialog';
 
 /** Props for the Modal component. */
 interface ModalProps {
@@ -25,6 +26,16 @@ interface ModalProps {
   preFooter?: ReactNode;
   /** Optional ref attached to the scrollable content container */
   scrollRef?: RefObject<HTMLDivElement | null>;
+  /**
+   * The form inside has unsaved edits. Escape / backdrop / the X then ask before
+   * discarding instead of closing outright — a misplaced click used to wipe a
+   * 20-field plugin edit or a half-written message with no warning and no undo.
+   * Explicit in-form actions (Cancel/Save) call `onClose` directly and bypass
+   * this, as they should.
+   */
+  dirty?: boolean;
+  /** Body text for the discard prompt. Defaults to a generic warning. */
+  discardMessage?: string;
 }
 
 /**
@@ -44,6 +55,8 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
 export function Modal({
   title, titleIcon, onClose, initialFocusRef, maxWidth = 'max-w-md', tall = false,
   children, footer, subHeader, preFooter, scrollRef,
+  dirty = false,
+  discardMessage,
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousActiveElement = useRef<Element | null>(null);
@@ -61,6 +74,17 @@ export function Modal({
   // (no `document` on the server).
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  // Dismissal guard: with unsaved edits, Escape/backdrop/X open a discard prompt
+  // instead of closing. Held in a ref for the keydown handler, whose identity is
+  // deliberately stable (see the focus-effect note below).
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  const requestClose = useCallback(() => {
+    if (dirty) setConfirmingDiscard(true);
+    else onClose();
+  }, [dirty, onClose]);
+  const requestCloseRef = useRef(requestClose);
+  requestCloseRef.current = requestClose;
 
   const panelClasses = [
     'modal-panel', maxWidth,
@@ -84,7 +108,7 @@ export function Modal({
       const focusInside = panelRef.current?.contains(document.activeElement);
       if (focusInside) {
         e.stopImmediatePropagation();
-        onClose();
+        requestCloseRef.current();
       }
       return;
     }
@@ -169,7 +193,8 @@ export function Modal({
   if (!mounted) return null;
 
   return createPortal(
-    <div className="modal-backdrop" onClick={onClose} role="presentation">
+    <>
+    <div className="modal-backdrop" onClick={requestClose} role="presentation">
       <div
         ref={panelRef}
         className={panelClasses}
@@ -184,7 +209,7 @@ export function Modal({
             {titleIcon}
             <h2 id={titleId} className="text-lg font-medium text-gray-900 dark:text-gray-100 truncate">{title}</h2>
           </div>
-          <button onClick={onClose} aria-label="Close dialog" className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 transition-colors ml-3 shrink-0">
+          <button onClick={requestClose} aria-label="Close dialog" className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 transition-colors ml-3 shrink-0">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -209,7 +234,20 @@ export function Modal({
           </div>
         )}
       </div>
-    </div>,
+    </div>
+    {confirmingDiscard && (
+      <ConfirmDialog
+        title="Discard changes?"
+        confirmLabel="Discard"
+        cancelLabel="Keep editing"
+        tone="danger"
+        onCancel={() => setConfirmingDiscard(false)}
+        onConfirm={() => { setConfirmingDiscard(false); onClose(); }}
+      >
+        <p>{discardMessage ?? 'Your edits here have not been saved. Closing now loses them.'}</p>
+      </ConfirmDialog>
+    )}
+    </>,
     document.body,
   );
 }

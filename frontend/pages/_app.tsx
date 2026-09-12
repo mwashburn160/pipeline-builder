@@ -2,7 +2,7 @@ import type { AppProps } from 'next/app';
 import type { NextPage } from 'next';
 import { useEffect, type ReactElement, type ReactNode } from 'react';
 import { useRouter } from 'next/router';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import { FeaturesProvider } from '@/hooks/useFeatures';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -66,6 +66,12 @@ export default function App({ Component, pageProps }: AppPropsWithLayout) {
   useEffect(() => { initClientErrorReporting(); }, []);
 
   return (
+    // `reducedMotion="user"` makes EVERY framer-motion component in the app
+    // (toasts, drawers, the command palette, table rows, tooltips) honour the
+    // OS "reduce motion" setting — transform/scale animations resolve instantly
+    // while opacity still cross-fades. CSS keyframes/transitions are handled by
+    // the matching media block in globals.css.
+    <MotionConfig reducedMotion="user">
     <ErrorBoundary>
       <AuthProvider>
         <FeaturesProvider>
@@ -77,5 +83,6 @@ export default function App({ Component, pageProps }: AppPropsWithLayout) {
         </FeaturesProvider>
       </AuthProvider>
     </ErrorBoundary>
+    </MotionConfig>
   );
 }

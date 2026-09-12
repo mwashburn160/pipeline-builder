@@ -9,6 +9,7 @@ import { ModalPortal } from '@/components/ui/ModalPortal';
 import { LOG_LEVEL_COLORS } from '@/lib/constants';
 import { redactString, redactDetails } from '@/lib/redact';
 import type { LogEntry } from '@/types';
+import { formatDateTime } from '@/lib/format';
 
 interface LogDetailsDrawerProps {
   /** When non-null, the drawer is open and shows this entry. */
@@ -105,7 +106,7 @@ function DrawerHeader(props: {
           {service && <Badge color="blue">{service}</Badge>}
           {level && <Badge color={LOG_LEVEL_COLORS[level] || 'gray'}>{level}</Badge>}
           <span className="text-xs font-mono text-gray-500 dark:text-gray-400 tabular-nums">
-            {new Date(entry.timestamp).toLocaleString()}
+            {formatDateTime(entry.timestamp)}
           </span>
         </div>
         <h2 className="text-sm font-mono text-gray-900 dark:text-gray-100 break-all">

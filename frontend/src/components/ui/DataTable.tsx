@@ -1,10 +1,12 @@
 import { useState, useMemo, type KeyboardEvent, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowUp, ArrowDown, ArrowUpDown, Columns3 } from 'lucide-react';
+import { AlertCircle, ArrowUp, ArrowDown, ArrowUpDown, Columns3 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { LoadingSpinner } from './Loading';
 import { SkeletonTableRow } from './Skeleton';
 import { EmptyState } from './EmptyState';
+import { Callout } from './Callout';
+import { RetryError } from './RetryError';
 
 /** Definition for a single table column. */
 export interface Column<T> {
@@ -55,6 +57,15 @@ export interface DataTableProps<T> {
   serverSort?: boolean;
   /** Called on header click when `serverSort` is set, with the resolved column + direction. */
   onSortChange?: (columnId: string, direction: 'asc' | 'desc') => void;
+  /**
+   * The fetch that fills this table FAILED. Without it an empty `data` renders
+   * `emptyState` — so a 500 reads as "No users yet", and the user believes the
+   * list is genuinely empty. Set it and the table shows a retry box instead.
+   * The error TEXT belongs to the page's banner; this is just the affordance.
+   */
+  loadFailed?: boolean;
+  /** Retry handler for the {@link loadFailed} state (typically the list's `refresh`). */
+  onRetry?: () => void;
 }
 
 interface SortState {
@@ -107,6 +118,8 @@ export function DataTable<T>({
   onRowClick,
   serverSort = false,
   onSortChange,
+  loadFailed = false,
+  onRetry,
 }: DataTableProps<T>) {
   const [sort, setSort] = useState<SortState>({
     columnId: defaultSortColumn ?? null,
@@ -190,6 +203,15 @@ export function DataTable<T>({
         <LoadingSpinner size="lg" />
       </div>
     );
+  }
+
+  // A failed load is NOT an empty list — never claim "nothing here" when we
+  // simply don't know. Rows we already have survive a refresh failure: the page
+  // banner reports it and the table keeps showing the last good data.
+  if (sortedData.length === 0 && loadFailed) {
+    return onRetry
+      ? <RetryError message="Couldn't load this list." onRetry={onRetry} />
+      : <Callout variant="danger" icon={AlertCircle}>Couldn&apos;t load this list.</Callout>;
   }
 
   if (sortedData.length === 0) {

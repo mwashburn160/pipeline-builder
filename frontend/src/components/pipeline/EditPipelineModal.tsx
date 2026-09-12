@@ -18,6 +18,7 @@ import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import CollapsibleSection from './editors/CollapsibleSection';
 import { WIZARD_STEPS } from '@/lib/wizard-validation';
 import { formatJSON } from '@/lib/constants';
+import { useIsDirty } from '@/hooks/useIsDirty';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 
 /** Props for {@link EditPipelineModal}. */
@@ -55,6 +56,10 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
   const [currentStep, setCurrentStep] = useState(0);
 
   const formRef = useRef<FormBuilderTabRef>(null);
+  // The builder owns the bulk of the form, so it reports its own edits; the
+  // fields this modal owns are compared here. Together they gate the discard prompt.
+  const [formDirty, setFormDirty] = useState(false);
+  const ownFieldsDirty = useIsDirty({ isActive, isDefault, visibility });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Track mount state so the success-close timer never calls onClose() after the
@@ -298,6 +303,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
       scrollRef={scrollRef}
       preFooter={jsonPreview}
       footer={footer}
+      dirty={formDirty || ownFieldsDirty}
     >
       <ErrorAlert message={error} className="mb-4" />
       <SuccessAlert message={success} className="mb-4" />
@@ -325,6 +331,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
 
           <FormBuilderTab
             ref={formRef}
+            onDirtyChange={setFormDirty}
             disabled={loading}
             initialProps={p.props}
             initialDescription={p.description || ''}

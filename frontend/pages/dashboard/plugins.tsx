@@ -37,6 +37,7 @@ import { buildListSummary } from '@/lib/list-summary';
 import { visitedPluginsKey } from '@/lib/onboarding';
 import { loadFavorites, toggleFavorite, hydrateFavoritesFromServer } from '@/lib/favorites';
 import type { Plugin } from '@/types';
+import { formatDateTime } from '@/lib/format';
 
 // Maps a DataTable column id to the server-side sort field the plugins list
 // endpoint honors (via parsePaginationParams → sortBy). Columns absent here
@@ -649,6 +650,9 @@ export default function PluginsPage() {
                 <FilterSelect aria-label="Filter by access" value={list.filters.access} onChange={(e) => list.updateFilter('access', e.target.value)}>
                   <option value="all">All Access</option>
                   <option value="public">Public</option>
+                  {/* The ladder has THREE rungs — omitting `org` made every
+                      org-shared row invisible under both other filter values. */}
+                  <option value="org">Org</option>
                   <option value="private">Private</option>
                 </FilterSelect>
               )}
@@ -802,8 +806,8 @@ export default function PluginsPage() {
               </div>
             )}
             <div className="grid grid-cols-2 gap-3 text-xs text-gray-500 dark:text-gray-400">
-              <div>Created: {new Date(viewPlugin.createdAt).toLocaleString()}</div>
-              <div>Updated: {new Date(viewPlugin.updatedAt).toLocaleString()}</div>
+              <div>Created: {formatDateTime(viewPlugin.createdAt)}</div>
+              <div>Updated: {formatDateTime(viewPlugin.updatedAt)}</div>
             </div>
           </div>
         </Modal>

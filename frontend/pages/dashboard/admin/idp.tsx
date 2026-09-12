@@ -126,7 +126,7 @@ export default function IdpRosterPage() {
 
   return (
     <DashboardLayout
-      title="IdP / SSO roster"
+      title="IdP / SSO"
       subtitle="Every organization with an SSO / IdP configuration"
       titleExtra={<Badge color="red">System Admin</Badge>}
     >

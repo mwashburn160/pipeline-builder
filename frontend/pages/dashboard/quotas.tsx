@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { formatError } from '@/lib/constants';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useAuth } from '@/hooks/useAuth';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { LoadingPage } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
 import { overallHealthColor } from '@/lib/quota-helpers';
@@ -48,6 +49,8 @@ export default function QuotasPage() {
   // latest invocation is allowed to apply data / clear `loading`.
   const orgReqIdRef = useRef(0);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
+  // Org the admin is switching to while the current one has unsaved edits.
+  const [pendingOrgSwitch, setPendingOrgSwitch] = useState<string | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
   const [orgHealthColors, setOrgHealthColors] = useState<Record<string, string>>({});
 
@@ -216,7 +219,9 @@ export default function QuotasPage() {
   }
 
   function handleSelectOrg(orgId: string) {
-    if (dirty && !confirm('You have unsaved changes. Discard?')) return;
+    // Switching orgs throws away unsaved quota edits — ask in-app rather than
+    // through the browser's unstyled confirm.
+    if (dirty) { setPendingOrgSwitch(orgId); return; }
     setSelectedOrgId(orgId);
   }
 
@@ -291,6 +296,19 @@ export default function QuotasPage() {
   }
 
   return (
+    <>
+    {pendingOrgSwitch && (
+      <ConfirmDialog
+        title="Discard unsaved quota changes?"
+        confirmLabel="Discard and switch"
+        cancelLabel="Keep editing"
+        tone="danger"
+        onCancel={() => setPendingOrgSwitch(null)}
+        onConfirm={() => { setSelectedOrgId(pendingOrgSwitch); setPendingOrgSwitch(null); }}
+      >
+        <p>The quota edits for the current organization haven&apos;t been saved. Switching now loses them.</p>
+      </ConfirmDialog>
+    )}
     <QuotasAdmin
       isSuperAdmin={isSuperAdmin}
       loading={loading}
@@ -319,5 +337,6 @@ export default function QuotasPage() {
       fetchAtRisk={fetchAtRisk}
       onResetUsage={handleResetUsage}
     />
+    </>
   );
 }

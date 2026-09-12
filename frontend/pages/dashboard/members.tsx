@@ -471,7 +471,7 @@ export default function MembersPage() {
         </Callout>
       )}
 
-      <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
+      <ErrorAlert message={list.error} onRetry={list.refresh} onDismiss={() => list.setError(null)} />
 
       <div className="filter-bar">
         <ActionBar
@@ -500,6 +500,8 @@ export default function MembersPage() {
         columns={columns}
         getRowKey={(m) => m.id}
         isLoading={list.isLoading}
+        loadFailed={!!list.error}
+        onRetry={list.refresh}
         emptyState={{
           icon: Users,
           title: 'No team members found',

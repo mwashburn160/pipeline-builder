@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LayoutTemplate, Plus, Trash2, Wand2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import { useIsDirty } from '@/hooks/useIsDirty';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
@@ -114,6 +115,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   const [description, setDescription] = useState('');
   const [keywords, setKeywords] = useState('');
   const [visibility, setVisibility] = useState<TemplateVisibility>('private');
+  const dirty = useIsDirty({ selectedId, name, category, description, keywords, visibility });
   const [inputs, setInputs] = useState<EditableInput[]>([]);
 
   const addInput = () => setInputs((rows) => [...rows, { name: '', label: '', type: 'string', required: false, default: '', options: '', replaces: '' }]);
@@ -264,7 +266,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   );
 
   return (
-    <Modal title="Create template" onClose={onClose} maxWidth="max-w-lg" tall footer={footer}>
+    <Modal title="Create template" onClose={onClose} maxWidth="max-w-lg" tall footer={footer} dirty={dirty}>
       <div className="space-y-4">
         <p className="text-sm text-gray-500 dark:text-gray-400">
           Save a pipeline&apos;s configuration as a reusable golden-path starter. Teams instantiate it to spin up a governed pipeline in a few fields.

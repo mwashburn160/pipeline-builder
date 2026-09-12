@@ -223,8 +223,8 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
             </div>
           ))}
           {isBuilding && (
-            <div className="flex items-center gap-2 mt-1 text-xs text-blue-600 dark:text-blue-400">
-              <LoadingSpinner size="sm" /> Building Docker image...
+            <div role="status" className="flex items-center gap-2 mt-1 text-xs text-blue-600 dark:text-blue-400">
+              <LoadingSpinner size="sm" label={null} /> Building Docker image...
             </div>
           )}
         </div>
@@ -244,6 +244,12 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
           </pre>
         </div>
       )}
+
+      {/* Announce the outcome of a long build/generation (the config + Dockerfile
+          previews stay silent — they'd be read out in full). */}
+      <p className="sr-only" role="status" aria-live="polite">
+        {generating ? 'Generating plugin…' : isBuilding ? 'Building plugin image…' : generatedConfig ? 'Plugin generated — ready to deploy.' : ''}
+      </p>
 
       {/* Generated Output */}
       {generatedConfig && generatedDockerfile && (

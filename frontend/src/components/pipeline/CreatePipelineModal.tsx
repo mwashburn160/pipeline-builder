@@ -18,6 +18,7 @@ import UploadConfigTab, { UploadConfigTabRef } from './UploadConfigTab';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import { WIZARD_STEPS } from '@/lib/wizard-validation';
 import { formatJSON } from '@/lib/constants';
+import { useIsDirty } from '@/hooks/useIsDirty';
 
 /** Props for {@link CreatePipelineModal}. */
 interface CreatePipelineModalProps {
@@ -65,6 +66,10 @@ export default function CreatePipelineModal({
 
   const uploadRef = useRef<UploadConfigTabRef>(null);
   const formRef = useRef<FormBuilderTabRef>(null);
+  // The builder owns the bulk of the form, so it reports its own edits; the
+  // fields this modal owns are compared here. Together they gate the discard prompt.
+  const [formDirty, setFormDirty] = useState(false);
+  const ownFieldsDirty = useIsDirty({ createAccess });
   const aiRef = useRef<GitUrlTabRef>(null);
   const promptRef = useRef<PromptGenerateTabRef>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -336,6 +341,7 @@ export default function CreatePipelineModal({
       subHeader={tabs}
       preFooter={jsonPreview}
       footer={footer}
+      dirty={formDirty || ownFieldsDirty}
     >
       <ErrorAlert message={createError} className="mb-4" />
       <SuccessAlert message={createSuccess} className="mb-4" />
@@ -352,6 +358,7 @@ export default function CreatePipelineModal({
       ) : (
         <FormBuilderTab
           ref={formRef}
+          onDirtyChange={setFormDirty}
           disabled={createLoading}
           currentStep={currentStep}
           onStepChange={setCurrentStep}

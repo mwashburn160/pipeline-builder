@@ -9,6 +9,7 @@ import {
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -83,6 +84,10 @@ export default function DashboardPage() {
   // renders a distinct load-error + retry state instead of masquerading as a
   // brand-new org ("0 Pipelines / -- Success Rate").
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Stats start UNKNOWN, not zero: until the first fetch resolves, a real "0
+  // Pipelines / -- Success Rate" render is indistinguishable from a brand-new
+  // org, so a slow (or hung) request reads as an empty account.
+  const [statsLoading, setStatsLoading] = useState(true);
 
   // Request-generation guard: a rapid org-switch re-creates fetchData (it keys on
   // organizationId) and re-runs the effect, so an earlier org's in-flight response
@@ -129,6 +134,7 @@ export default function DashboardPage() {
     } else {
       setLoadError(null);
     }
+    setStatsLoading(false);
   }, [isOrgAdmin, user?.organizationId]);
 
   useEffect(() => {
@@ -255,7 +261,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <DashboardLayout title="Home" subtitle={`Welcome back, ${user.username}`}>
+    <DashboardLayout title="Dashboard" subtitle={`Welcome back, ${user.username}`}>
       <motion.div variants={stagger.container} initial="hidden" animate="show" className="page-section">
 
         {/* Load-failure banner — distinguishes a 500 from a genuinely empty org so
@@ -357,7 +363,11 @@ export default function DashboardPage() {
                   <Icon className="w-5 h-5" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xl font-bold text-gray-900 dark:text-gray-100 tabular-nums leading-tight">{s.value}</p>
+                  {statsLoading ? (
+                    <Skeleton className="h-6 w-12 mb-1" />
+                  ) : (
+                    <p className="text-xl font-bold text-gray-900 dark:text-gray-100 tabular-nums leading-tight">{s.value}</p>
+                  )}
                   <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{s.label}</p>
                 </div>
               </Card>

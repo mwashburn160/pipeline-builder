@@ -1,4 +1,4 @@
-import { useImperativeHandle, forwardRef, useRef, useState, ReactNode } from 'react';
+import { useEffect, useImperativeHandle, forwardRef, useRef, useState, ReactNode } from 'react';
 import { BuilderProps } from '@/types';
 import { FormBuilderState } from '@/types/form-types';
 import { propsToFormState } from '@/types/props-converter';
@@ -51,6 +51,12 @@ interface FormBuilderTabProps {
   onStepChange?: (step: number) => void;
   /** Slot for rendering access/status controls injected by the parent modal. */
   accessStatusSlot?: ReactNode;
+  /**
+   * Fires when the form goes from pristine to edited (and back). The form state
+   * lives in here, but the parent modal is what needs it — it feeds
+   * `<Modal dirty>` so closing mid-edit asks before discarding.
+   */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 /**
@@ -61,7 +67,7 @@ interface FormBuilderTabProps {
  * through a ref for the parent modal to retrieve assembled BuilderProps.
  */
 const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
-  ({ disabled, initialProps, initialDescription, initialKeywords, currentStep = 0, onStepChange, accessStatusSlot }, ref) => {
+  ({ disabled, initialProps, initialDescription, initialKeywords, currentStep = 0, onStepChange, accessStatusSlot, onDirtyChange }, ref) => {
     const initialStateRef = useRef<FormBuilderState | undefined>(
       initialProps
         ? {
@@ -74,6 +80,14 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
     const initialState = initialStateRef.current;
 
     const { state, dispatch, validationErrors, setValidationErrors, assembleBuilderProps, assembleBuilderPropsForPreview } = useFormBuilderState(initialState);
+
+    // Report edits upward. The baseline is the state the form opened with, so
+    // an edit-and-undo correctly reads as pristine again.
+    const pristineRef = useRef<string | null>(null);
+    const serializedState = JSON.stringify(state);
+    if (pristineRef.current === null) pristineRef.current = serializedState;
+    const isDirty = pristineRef.current !== serializedState;
+    useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
     const { plugins } = usePlugins();
     const [visitedSteps, setVisitedSteps] = useState<Set<number>>(new Set([0]));
 

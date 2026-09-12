@@ -263,10 +263,12 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
           </div>
         </div>
 
-        {/* Streaming progress */}
+        {/* Streaming progress. `role="status"` so a generation that runs for a
+            minute isn't silent to a screen reader; the JSON preview itself stays
+            un-announced (it would read out the whole config as it streams). */}
         {generating && !previewJson && (
-          <div className="rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4 flex items-center gap-3">
-            <LoadingSpinner size="sm" />
+          <div role="status" className="rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4 flex items-center gap-3">
+            <LoadingSpinner size="sm" label={null} />
             <div>
               <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
                 Generating pipeline configuration...
@@ -328,7 +330,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
                   <LoadingSpinner size="sm" /> Streaming...
                 </span>
               ) : (
-                <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+                <span role="status" className="text-xs text-green-600 dark:text-green-400 font-medium">
                   Ready to submit
                 </span>
               )}

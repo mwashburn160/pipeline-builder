@@ -30,6 +30,7 @@ import { DiscountRedeem } from '@/components/billing/DiscountRedeem';
 import { AddonPreviewModal } from '@/components/billing/AddonPreviewModal';
 import { PlanChangeModal } from '@/components/billing/PlanChangeModal';
 import { BillingHistory } from '@/components/billing/BillingHistory';
+import { formatDate } from '@/lib/format';
 
 // Plan hierarchy (low → high). Used to detect a downgrade so the confirm dialog
 // can warn that caps/features may drop.
@@ -734,7 +735,7 @@ const ENTITLEMENT_COLUMNS: Column<MarketplaceEntitlement>[] = [
       ? <span className="text-green-600 dark:text-green-400 font-medium">Entitled</span>
       : <span className="text-gray-400 dark:text-gray-500">Not entitled</span>),
   },
-  { id: 'expires', header: 'Expires', cellClassName: 'text-gray-600 dark:text-gray-400', render: (e) => (e.expirationDate ? new Date(e.expirationDate).toLocaleDateString() : '—') },
+  { id: 'expires', header: 'Expires', cellClassName: 'text-gray-600 dark:text-gray-400', render: (e) => formatDate(e.expirationDate) },
 ];
 
 function MarketplaceEntitlementsPanel() {

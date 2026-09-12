@@ -19,18 +19,20 @@ import { formatError } from '@/lib/constants';
 import { redactString } from '@/lib/redact';
 import { downloadJsonl, datedFilename } from '@/lib/csv-export';
 import type { LogEntry } from '@/types';
+import { formatDateTime } from '@/lib/format';
 
 /**
  * Formats a timestamp string as a locale-aware date/time string.
  * @param ts - Timestamp string (ISO 8601 or epoch).
  * @returns Localized date/time string.
  */
+/** Above this many rows the per-row entry animation is dropped (see DataTable). */
+const ANIMATE_ROW_LIMIT = 250;
+
 function formatTimestamp(ts: string): string {
-  try {
-    return new Date(ts).toLocaleString();
-  } catch {
-    return ts;
-  }
+  // Shared formatter (null-safe, em-dash placeholder) so log timestamps read the
+  // same as every other date in the app; the raw value is the fallback.
+  return formatDateTime(ts, ts);
 }
 
 /**
@@ -192,8 +194,8 @@ export default function LogsPage() {
 
   return (
     <DashboardLayout
-      title="Service Logs"
-      subtitle="System and pipeline logs"
+      title="Logs"
+      subtitle="Service and pipeline logs"
       actions={
         <div className="flex items-center gap-2">
           <Button
@@ -281,10 +283,22 @@ export default function LogsPage() {
         </div>
       </div>
 
+      {/* The server caps at `limit`; say so, otherwise a truncated window reads
+          as "that's all there is". */}
+      {!isLoading && entries.length > 0 && (
+        <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+          Showing {entries.length.toLocaleString()} {entries.length === 1 ? 'line' : 'lines'}
+          {entries.length >= limit ? ` (capped at ${limit.toLocaleString()} — narrow the range or filters to see more)` : ''}
+        </p>
+      )}
+
       <DataTable
         data={entries}
         columns={logColumns}
         isLoading={isLoading}
+        // Row-entry animation is per-row: at 250+ lines the staggered transforms
+        // cost more than they convey (and visibly janked on a phone at 1000).
+        animated={entries.length <= ANIMATE_ROW_LIMIT}
         emptyState={{
           icon: ScrollText,
           title: 'No logs found',

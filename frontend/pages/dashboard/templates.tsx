@@ -93,7 +93,9 @@ export default function TemplatesPage() {
   );
 
   const [templates, setTemplates] = useState<PipelineTemplate[]>([]);
-  const [loading, setLoading] = useState(false);
+  // Starts true: the fetch is kicked off from an effect, so a `false` first
+  // paint flashed the "No templates yet" empty state before every load.
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Instantiate modal state

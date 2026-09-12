@@ -16,6 +16,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { useServerPagination } from '@/hooks/useServerPagination';
 import type { ComplianceScan, ComplianceAuditEntry, RuleTarget } from '@/types/compliance';
 import { SCAN_STATUS_CONFIG as STATUS_CONFIG, RESULT_STYLES } from '@/lib/compliance-styles';
+import { formatDateTime, formatTime } from '@/lib/format';
 
 /** The subset of an audit row needed to pre-fill an exemption request. */
 interface ExemptTarget {
@@ -200,7 +201,7 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
     { id: 'target', header: 'Target', cellClassName: 'text-xs text-gray-500', render: (entry) => entry.target },
     { id: 'rules', header: 'Rules', cellClassName: 'text-sm text-gray-600 dark:text-gray-400', render: (entry) => entry.ruleCount },
     { id: 'violations', header: 'Violations', cellClassName: 'text-sm text-gray-600 dark:text-gray-400', render: (entry) => entry.violations?.length || 0 },
-    { id: 'time', header: 'Time', cellClassName: 'text-xs text-gray-500', render: (entry) => new Date(entry.createdAt).toLocaleTimeString() },
+    { id: 'time', header: 'Time', cellClassName: 'text-xs text-gray-500', render: (entry) => formatTime(entry.createdAt) },
     {
       id: 'actions',
       header: 'Actions',
@@ -268,7 +269,7 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
           </div>
           <div>
             <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Triggered</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">{new Date(scan.createdAt).toLocaleString()}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">{formatDateTime(scan.createdAt)}</div>
           </div>
         </div>
         <div className="flex gap-6 mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">

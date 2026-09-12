@@ -11,6 +11,11 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import ComplianceDashboard from '../src/components/compliance/ComplianceDashboard';
 
+jest.mock('next/router', () => ({
+  __esModule: true,
+  useRouter: () => ({ isReady: true, query: {}, pathname: '/', replace: jest.fn() }),
+}));
+
 // The overview issues two kinds of audit-log queries: the list fetch (no
 // `result`) and the pass/warn/block COUNT fetches (with `result`). Only the list
 // fetch drives the error banner, so route counts to a stable resolve and let the

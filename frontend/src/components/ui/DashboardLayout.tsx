@@ -93,11 +93,16 @@ export function DashboardLayout({
   }, [fetchUnreadCount]);
 
   // Mobile drawer focus management: when the drawer opens, move focus into it,
-  // keep Tab cycling within it, and close on Escape. The drawer is a fixed
-  // overlay with no native dialog semantics, so this has to be wired by hand.
+  // keep Tab cycling within it, close on Escape, lock background scroll, and
+  // hand focus back to whatever opened it. The drawer is a fixed overlay with no
+  // native dialog semantics, so this has to be wired by hand (Modal/SideDrawer
+  // do the same thing for their panels).
   useEffect(() => {
     if (!mobileOpen) return;
     const drawer = mobileDrawerRef.current;
+    // Remember the trigger (the hamburger) so focus returns there on close —
+    // otherwise focus falls back to <body> and keyboard users restart the page.
+    const previouslyFocused = document.activeElement;
     const getFocusable = () =>
       drawer
         ? Array.from(
@@ -128,7 +133,16 @@ export function DashboardLayout({
       }
     };
     document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
+    // The page behind a full-screen overlay must not scroll under the user's
+    // finger. Capture the prior value rather than resetting to '' so a parent's
+    // intentional `hidden` survives (mirrors Modal).
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) previouslyFocused.focus();
+    };
   }, [mobileOpen, closeMobile]);
 
   if (!isReady || !user || !featuresLoaded) return <LoadingPage />;

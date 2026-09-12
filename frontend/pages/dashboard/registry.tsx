@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
-import { Trash2, HardDrive } from 'lucide-react';
+import { Trash2, HardDrive, ChevronLeft } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -29,7 +29,7 @@ import { useImageDetail } from '@/hooks/useImageDetail';
 import { useTagsWithMetadata } from '@/hooks/useTagsWithMetadata';
 import { api, ApiError } from '@/lib/api';
 import type { RegistryStorageUsage } from '@/lib/api/domains/registry';
-import { formatBytes, fmtNum } from '@/lib/format';
+import { fmtNum, formatBytes, formatDateTime } from '@/lib/format';
 
 type HealthState = 'checking' | 'ok' | 'error';
 
@@ -103,7 +103,8 @@ export default function RegistryPage() {
   const [health, setHealth] = useState<HealthState>('checking');
   const [recentActions, setRecentActions] = useState<RecentAction[]>([]);
   const [narrowViewport, setNarrowViewport] = useState(false);
-  const [narrowDismissed, setNarrowDismissed] = useState(false);
+  // Which single pane a narrow viewport shows (drill-down): the deepest selection wins.
+  const mobilePane: 'repo' | 'tag' | 'manifest' = tag ? 'manifest' : repo ? 'tag' : 'repo';
   const repoListRef = useRef<RepositoryListHandle>(null);
 
   // Manual registry GC (sysadmin ops). Defaults to dry-run so an operator
@@ -432,18 +433,24 @@ export default function RegistryPage() {
       }
       mainClassName="!px-0"
     >
-      <div className="flex flex-col h-[calc(100vh-80px)] border-t border-gray-200 dark:border-gray-700">
-        {narrowViewport && !narrowDismissed && (
-          <div className="px-4 py-2 text-xs flex items-center gap-3 border-b border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-900 dark:text-yellow-200">
-            <span className="flex-1">
-              This 3-pane layout is designed for ≥{MIN_USABLE_WIDTH}px. Some columns may be cramped at the current width — widen the window for the best experience.
-            </span>
+      <div className="flex flex-col h-[calc(100dvh-80px)] border-t border-gray-200 dark:border-gray-700">
+        {/* Narrow viewports drill DOWN one pane at a time (repos → tags →
+            manifest) instead of squeezing three fixed columns into ~390px. This
+            bar is the way back up; the panes themselves hide below. */}
+        {narrowViewport && mobilePane !== 'repo' && (
+          <div className="px-4 py-2 text-xs flex items-center gap-2 border-b border-gray-200 dark:border-gray-700">
             <button
-              onClick={() => setNarrowDismissed(true)}
-              className="underline hover:no-underline"
+              // `setQuery` deletes a key on null — an empty string would leave
+              // `?repo=` behind and keep the pane "selected".
+              onClick={() => setQuery(mobilePane === 'manifest'
+                ? { tag: null, platform: null }
+                : { repo: null, tag: null, platform: null })}
+              className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline"
             >
-              Dismiss
+              <ChevronLeft className="h-3.5 w-3.5" />
+              {mobilePane === 'manifest' ? 'Tags' : 'Repositories'}
             </button>
+            <span className="text-gray-400 truncate">{mobilePane === 'manifest' ? `${repo}:${tag}` : repo}</span>
           </div>
         )}
         {health === 'error' && (
@@ -452,7 +459,7 @@ export default function RegistryPage() {
           </div>
         )}
         <div className="flex flex-1 min-h-0">
-          <div className={`w-72 flex-shrink-0 ${dim('repo')}`}>
+          <div className={`${narrowViewport ? (mobilePane === 'repo' ? 'w-full' : 'hidden') : 'w-72'} flex-shrink-0 ${dim('repo')}`}>
             <RepositoryList
               ref={repoListRef}
               groups={groups}
@@ -468,7 +475,7 @@ export default function RegistryPage() {
               onDelete={(name) => setDeleteRepo(name)}
             />
           </div>
-          <div className={`flex-shrink-0 ${tag ? 'w-[28rem]' : 'flex-1'} ${dim('tag')}`}>
+          <div className={`flex-shrink-0 ${narrowViewport ? (mobilePane === 'tag' ? 'w-full' : 'hidden') : tag ? 'w-[28rem]' : 'flex-1'} ${dim('tag')}`}>
             {repo ? (
               <TagTable
                 repo={repo}
@@ -491,7 +498,7 @@ export default function RegistryPage() {
             )}
           </div>
           {tag && (
-            <div className={`flex-1 ${dim('manifest')}`}>
+            <div className={`flex-1 ${narrowViewport && mobilePane !== 'manifest' ? 'hidden' : ''} ${dim('manifest')}`}>
               <ManifestDetail
                 kind={kind}
                 loading={manifestLoading}
@@ -681,7 +688,7 @@ export default function RegistryPage() {
                   </div>
                 )}
                 <div className="mt-3 text-xs text-gray-400 dark:text-gray-500">
-                  Computed {new Date(storageResult.computedAt).toLocaleString()}
+                  Computed {formatDateTime(storageResult.computedAt)}
                 </div>
               </div>
             )}

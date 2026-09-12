@@ -9,6 +9,7 @@ import { PluginVersions } from '../PluginVersions';
 import {
   usePluginsData, type PluginSubTab, type SharedFilters, type TabDataStatus,
 } from '../useReportData';
+import { useUrlTab } from '@/hooks/useUrlTab';
 
 const PLUGIN_TABS: { id: PluginSubTab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -28,7 +29,9 @@ interface PluginsTabProps {
  * carries its own consolidated empty state with a next-step hint.
  */
 export function PluginsTab({ filters, onStatus }: PluginsTabProps) {
-  const [subTab, setSubTab] = useState<PluginSubTab>('overview');
+  // Sub-tab in the URL too, so `?tab=pipelines&sub=performance` reopens the
+  // exact view (the top-level tab was already linkable; this half wasn't).
+  const [subTab, setSubTab] = useUrlTab<PluginSubTab>('sub', PLUGIN_TABS.map((t) => t.id), 'overview');
   const data = usePluginsData(subTab, filters);
   const { loading, error, refetch } = data;
 

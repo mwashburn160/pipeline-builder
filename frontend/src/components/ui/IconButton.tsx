@@ -58,8 +58,15 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
   ref,
 ) {
   const colour = restTone ? REST_CLASS[restTone] : `text-gray-400 ${TONE_CLASS[tone]}`;
-  const classes = ['p-1.5 rounded-lg transition-colors', colour, className]
-    .filter(Boolean).join(' ');
+  // Keyboard focus MUST be visible: this is the app's most common row action and
+  // its only styling was a hover tone, so tabbing through a table moved an
+  // invisible cursor. Ring token matches `.btn` (globals.css).
+  const classes = [
+    'p-1.5 rounded-lg transition-colors',
+    'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--pb-bg)]',
+    colour,
+    className,
+  ].filter(Boolean).join(' ');
   return (
     <button ref={ref} type={type} className={classes} {...props}>
       {children}

@@ -3,6 +3,7 @@
 
 import { useCallback, useState } from 'react';
 import { KeyRound, Trash2 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { SecretReveal } from '@/components/ui/SecretReveal';
 import { RetryError } from '@/components/ui/RetryError';
@@ -47,6 +48,9 @@ export function PatSection() {
   const [creating, setCreating] = useState(false);
   const [newToken, setNewToken] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
+  // Revoking is immediate and irreversible — a live token in CI stops working the
+  // moment it lands, and there's no restore panel for tokens. Confirm first.
+  const [pendingRevoke, setPendingRevoke] = useState<PatMeta | null>(null);
   // Creating a PAT is step-up gated (mints a long-lived credential). Hold the
   // validated request until the user re-confirms their password in StepUpModal.
   const [pendingCreate, setPendingCreate] = useState<{ name: string; expiresIn: number } | null>(null);
@@ -120,7 +124,7 @@ export function PatSection() {
         <Button
           variant="ghost"
           size="xs"
-          onClick={() => handleRevoke(p.jti)}
+          onClick={() => setPendingRevoke(p)}
           disabled={revoking === p.jti}
           className="gap-1 text-red-600 hover:text-red-700"
         >
@@ -173,6 +177,27 @@ export function PatSection() {
             emptyState={{ icon: KeyRound, title: 'No personal access tokens yet', description: 'Create a token above for CLI and automation.' }}
           />
         </div>
+      )}
+
+      {pendingRevoke && (
+        <ConfirmDialog
+          title="Revoke token?"
+          confirmLabel="Revoke token"
+          tone="danger"
+          loading={revoking === pendingRevoke.jti}
+          onCancel={() => setPendingRevoke(null)}
+          onConfirm={async () => {
+            const jti = pendingRevoke.jti;
+            await handleRevoke(jti);
+            setPendingRevoke(null);
+          }}
+        >
+          <p>
+            <strong className="text-gray-800 dark:text-gray-100">{pendingRevoke.name}</strong> stops working
+            immediately. Anything using it — CI jobs, scripts, the CLI — starts failing until it&apos;s replaced.
+          </p>
+          <p className="text-red-600 dark:text-red-400">This cannot be undone; issue a new token instead.</p>
+        </ConfirmDialog>
       )}
     </SectionCard>
   );

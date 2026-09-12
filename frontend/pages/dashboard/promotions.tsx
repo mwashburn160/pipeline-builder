@@ -307,7 +307,7 @@ export default function PromotionsPage() {
       )}
     >
       <BillingAdminTabs active="promotions" />
-      <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
+      <ErrorAlert message={list.error} onRetry={list.refresh} onDismiss={() => list.setError(null)} />
 
       {notEnabled ? (
         <FeatureDisabledCard icon={ShieldAlert} title="Promotions are not enabled">
@@ -328,6 +328,8 @@ export default function PromotionsPage() {
             data={list.data}
             columns={columns}
             isLoading={list.isLoading}
+            loadFailed={!!list.error}
+            onRetry={list.refresh}
             emptyState={{ icon: Megaphone, title: 'No promotions', description: 'No promotion campaigns have been created yet.' }}
             getRowKey={(p) => p.id}
           />

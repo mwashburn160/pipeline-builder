@@ -2,12 +2,13 @@ import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Send, Megaphone, MessageCircle, AlertTriangle, AlertOctagon, Trash2, Paperclip, X, RefreshCw, Pencil, Check, User, CheckCheck } from 'lucide-react';
 import { Textarea } from '@/components/ui/Textarea';
 import { IconButton } from '@/components/ui/IconButton';
-import { formatBytes } from '@/lib/format';
+import { formatBytes, formatDateTime } from '@/lib/format';
 import { MessageAttachments } from '@/components/message/MessageAttachments';
 import { useAuth } from '@/hooks/useAuth';
 import type { MemberOption } from '@/components/message/RecipientPicker';
 import api from '@/lib/api';
 import type { Message, MessageAttachment } from '@/types';
+import { scrollBehavior } from '@/lib/motion';
 
 /**
  * A thread bubble that may be an OPTIMISTIC local reply not yet confirmed by the
@@ -40,12 +41,6 @@ interface ThreadViewProps {
   onThreadRead: (id: string) => void;
   /** Callback to delete the conversation (root message + replies). */
   onDelete?: (id: string) => void;
-}
-
-/** Formats a date string as a locale-specific date/time string. */
-function formatDateTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  return date.toLocaleString();
 }
 
 /** Colored badge indicating message priority; renders nothing for "normal" priority. */
@@ -142,7 +137,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
   }, [rootMessage.id]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: scrollBehavior() });
   }, [thread]);
 
   /** Flip an optimistic bubble to the failed state so its retry/dismiss shows. */

@@ -7,6 +7,7 @@ import { Pagination } from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toast';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
+import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -18,6 +19,7 @@ import { useServerPagination } from '@/hooks/useServerPagination';
 import type { ComplianceExemption } from '@/types/compliance';
 import { EXEMPTION_STATUS_STYLES as STATUS_STYLES } from '@/lib/compliance-styles';
 import { parseCsv } from '@/lib/csv';
+import { formatDate } from '@/lib/format';
 
 interface ExemptionManagerProps {
   readOnly?: boolean;
@@ -34,6 +36,11 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<{ ruleId: string; entityType: 'plugin' | 'pipeline'; entityId: string; entityName: string; reason: string }>({ ruleId: '', entityType: 'plugin', entityId: '', entityName: '', reason: '' });
   const [rejectingId, setRejectingId] = useState<string | null>(null);
+  // Submit had no in-flight state: repeated clicks fired N create calls, and an
+  // incomplete form did nothing at all (a bare `return`) with no explanation.
+  const [submitting, setSubmitting] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; label: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [bulkResult, setBulkResult] = useState<{ created: number; skipped: number; total: number } | null>(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
@@ -77,7 +84,8 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
   const handlePageSizeChange = (_limit: number) => { setOffset(0); };
 
   const handleCreate = async () => {
-    if (!form.ruleId || !form.entityId || !form.reason) return;
+    if (!form.ruleId || !form.entityId || !form.reason || submitting) return;
+    setSubmitting(true);
     try {
       const res = await api.createExemption({
         ruleId: form.ruleId,
@@ -94,6 +102,8 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       }
     } catch (err) {
       toastRef.current.error(err instanceof Error ? err.message : 'Failed to create exemption');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -260,7 +270,15 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
           </div>
           <Textarea aria-label="Reason for exemption" placeholder="Reason for exemption..." value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} rows={2} />
           <div className="flex gap-2">
-            <Button variant="primary" size="sm" onClick={handleCreate}>Submit Request</Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleCreate}
+              loading={submitting}
+              disabled={!form.ruleId || !form.entityId || !form.reason}
+            >
+              Submit Request
+            </Button>
             <Button variant="secondary" size="sm" onClick={() => setShowForm(false)}>Cancel</Button>
           </div>
         </div>
@@ -285,7 +303,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
                     {ex.expiresAt && (
                       <div className="flex items-center gap-1 text-xs text-gray-400">
                         <Clock className="h-3 w-3" />
-                        {new Date(ex.expiresAt).toLocaleDateString()}
+                        {formatDate(ex.expiresAt)}
                       </div>
                     )}
                   </div>
@@ -301,7 +319,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
                           </IconButton>
                         </>
                       )}
-                      <IconButton tone="danger" onClick={() => handleDelete(ex.id)} title="Delete" aria-label="Delete">
+                      <IconButton tone="danger" onClick={() => setPendingDelete({ id: ex.id, label: ex.entityName || ex.entityId })} title="Delete" aria-label="Delete">
                         <Trash2 className="h-4 w-4" />
                       </IconButton>
                     </div>
@@ -340,6 +358,19 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
           />
         )}
         </>
+      )}
+
+      {pendingDelete && (
+        <DeleteConfirmModal
+          title="Delete exemption"
+          itemName={pendingDelete.label}
+          loading={deleting}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={async () => {
+            setDeleting(true);
+            try { await handleDelete(pendingDelete.id); } finally { setDeleting(false); setPendingDelete(null); }
+          }}
+        />
       )}
     </div>
   );

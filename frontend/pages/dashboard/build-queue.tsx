@@ -21,6 +21,7 @@ import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useToast } from '@/components/ui/Toast';
 import type { QueueStatus } from '@/types';
 import api from '@/lib/api';
+import { formatTime } from '@/lib/format';
 
 const POLL_INTERVAL = 10_000;
 const DEFAULT_PAGE_SIZE = 10;
@@ -534,7 +535,7 @@ export default function BuildQueuePage() {
         {lastUpdated && (
           <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-            Auto-refresh {POLL_INTERVAL / 1000}s &middot; {lastUpdated.toLocaleTimeString()}
+            Auto-refresh {POLL_INTERVAL / 1000}s &middot; {formatTime(lastUpdated)}
           </span>
         )}
       </motion.div>

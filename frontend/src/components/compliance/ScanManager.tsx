@@ -15,6 +15,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useServerPagination } from '@/hooks/useServerPagination';
 import type { ComplianceScan } from '@/types/compliance';
 import { SCAN_STATUS_CONFIG as STATUS_CONFIG } from '@/lib/compliance-styles';
+import { formatDateTime } from '@/lib/format';
 
 interface ScanManagerProps {
   onViewScan?: (scanId: string) => void;
@@ -118,7 +119,7 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
         </div>
       ),
     },
-    { id: 'triggered', header: 'Triggered', cellClassName: 'text-xs text-gray-500', render: (scan) => new Date(scan.createdAt).toLocaleString() },
+    { id: 'triggered', header: 'Triggered', cellClassName: 'text-xs text-gray-500', render: (scan) => formatDateTime(scan.createdAt) },
     {
       id: 'actions',
       header: 'Actions',

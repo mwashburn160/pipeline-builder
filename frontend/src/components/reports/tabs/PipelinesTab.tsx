@@ -9,6 +9,7 @@ import { PipelineFailures } from '../PipelineFailures';
 import {
   usePipelinesData, type PipelineSubTab, type SharedFilters, type TabDataStatus,
 } from '../useReportData';
+import { useUrlTab } from '@/hooks/useUrlTab';
 
 const PIPELINE_TABS: { id: PipelineSubTab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -29,7 +30,9 @@ interface PipelinesTabProps {
  * hint (the per-panel empties only appear when the tab has some data).
  */
 export function PipelinesTab({ filters, onStatus }: PipelinesTabProps) {
-  const [subTab, setSubTab] = useState<PipelineSubTab>('overview');
+  // Sub-tab in the URL too, so `?tab=pipelines&sub=performance` reopens the
+  // exact view (the top-level tab was already linkable; this half wasn't).
+  const [subTab, setSubTab] = useUrlTab<PipelineSubTab>('sub', PIPELINE_TABS.map((t) => t.id), 'overview');
   const data = usePipelinesData(subTab, filters);
   const { loading, error, refetch } = data;
 

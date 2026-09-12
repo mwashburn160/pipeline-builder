@@ -5,6 +5,7 @@ import { History, ArrowLeft, Loader2 } from 'lucide-react';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import api from '@/lib/api';
 import type { ComplianceRuleHistoryEntry } from '@/types/compliance';
+import { formatDateTime } from '@/lib/format';
 
 const CHANGE_STYLES: Record<string, { bg: string; text: string }> = {
   created: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400' },
@@ -96,7 +97,7 @@ export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryPro
                     </span>
                   </div>
                   <span className="text-xs text-gray-400">
-                    {new Date(entry.changedAt).toLocaleString()}
+                    {formatDateTime(entry.changedAt)}
                   </span>
                 </div>
                 {entry.previousState && Object.keys(entry.previousState).length > 0 && (

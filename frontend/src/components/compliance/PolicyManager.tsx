@@ -10,10 +10,12 @@ import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import api from '@/lib/api';
 import { useCrudResource } from '@/hooks/useCrudResource';
 import type { CompliancePolicy } from '@/types/compliance';
+import { formatDate } from '@/lib/format';
 
 interface PolicyManagerProps {
   readOnly?: boolean;
@@ -49,18 +51,28 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', description: '', version: '1.0.0' });
+  // Deleting a policy was a single unguarded click on a trash icon.
+  const [pendingDelete, setPendingDelete] = useState<CompliancePolicy | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  // Create/update had no in-flight state — repeated clicks fired repeated writes.
+  const [saving, setSaving] = useState(false);
 
   const handleSubmit = async () => {
-    if (!form.name) return;
+    if (!form.name || saving) return;
+    setSaving(true);
+    try {
     // create/update return null on failure (the hook surfaces the error). Keep
     // the form open in that case so the user's input isn't silently discarded.
-    const result = editingId
-      ? await updatePolicy(editingId, form)
-      : await createPolicy(form);
-    if (!result) return;
-    setShowForm(false);
-    setEditingId(null);
-    setForm({ name: '', description: '', version: '1.0.0' });
+      const result = editingId
+        ? await updatePolicy(editingId, form)
+        : await createPolicy(form);
+      if (!result) return;
+      setShowForm(false);
+      setEditingId(null);
+      setForm({ name: '', description: '', version: '1.0.0' });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleEdit = (policy: CompliancePolicy) => {
@@ -108,7 +120,7 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
         </StatusPill>
       ),
     },
-    { id: 'created', header: 'Created', cellClassName: 'text-xs text-gray-500', render: (policy) => new Date(policy.createdAt).toLocaleDateString() },
+    { id: 'created', header: 'Created', cellClassName: 'text-xs text-gray-500', render: (policy) => formatDate(policy.createdAt) },
     {
       id: 'actions',
       header: 'Actions',
@@ -127,7 +139,7 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
           <IconButton tone="primary" onClick={() => handleEdit(policy)} aria-label="Edit policy">
             <Pencil className="h-4 w-4" />
           </IconButton>
-          <IconButton tone="danger" onClick={() => deletePolicy(policy.id)} aria-label="Delete policy">
+          <IconButton tone="danger" onClick={() => setPendingDelete(policy)} aria-label="Delete policy">
             <Trash2 className="h-4 w-4" />
           </IconButton>
         </div>
@@ -177,7 +189,7 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
             rows={2}
           />
           <div className="flex gap-2">
-            <Button variant="purple" size="sm" onClick={handleSubmit}>
+            <Button variant="purple" size="sm" onClick={handleSubmit} loading={saving} disabled={!form.name.trim()}>
               {editingId ? 'Update' : 'Create'} Policy
             </Button>
             <Button variant="secondary" size="sm" onClick={handleCancel}>
@@ -206,6 +218,19 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
       {/* Recently deleted — restore soft-deleted policies within the retention
           window. Gated on write (restore is compliance:write + step-up gated). */}
       {!readOnly && <RecentlyDeletedPanel resource="compliance-policy" onRestored={fetchPolicies} />}
+
+      {pendingDelete && (
+        <DeleteConfirmModal
+          title="Delete policy"
+          itemName={pendingDelete.name}
+          loading={deleting}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={async () => {
+            setDeleting(true);
+            try { await deletePolicy(pendingDelete.id); } finally { setDeleting(false); setPendingDelete(null); }
+          }}
+        />
+      )}
     </div>
   );
 }

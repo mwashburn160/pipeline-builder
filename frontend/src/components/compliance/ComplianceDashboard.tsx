@@ -13,6 +13,8 @@ import { PostureHeadline } from '@/components/ui/PostureHeadline';
 import { formatRelativeTime } from '@/lib/relative-time';
 import type { ComplianceAuditEntry, ComplianceRule } from '@/types/compliance';
 import { RESULT_STYLES } from '@/lib/compliance-styles';
+import { formatDateTime } from '@/lib/format';
+import { useUrlTab } from '@/hooks/useUrlTab';
 
 const RuleList = lazy(() => import('./RuleList'));
 const RuleEditor = lazy(() => import('./RuleEditor'));
@@ -28,7 +30,8 @@ const ScanDetail = lazy(() => import('./ScanDetail'));
 const ScanScheduleManager = lazy(() => import('./ScanScheduleManager'));
 const NotificationPreferencesManager = lazy(() => import('./NotificationPreferencesManager'));
 
-type Tab = 'overview' | 'rules' | 'policies' | 'subscriptions' | 'enforced' | 'exemptions' | 'scans' | 'schedules' | 'templates' | 'notifications';
+const COMPLIANCE_TABS = ['overview', 'rules', 'policies', 'subscriptions', 'enforced', 'exemptions', 'scans', 'schedules', 'templates', 'notifications'] as const;
+type Tab = (typeof COMPLIANCE_TABS)[number];
 
 const TAB_META: Record<Tab, { label: string; icon: typeof Shield }> = {
   overview: { label: 'Overview', icon: Activity },
@@ -93,7 +96,9 @@ interface ComplianceDashboardProps {
 }
 
 export default function ComplianceDashboard({ canManage = false }: ComplianceDashboardProps) {
-  const [tab, setTab] = useState<Tab>('overview');
+  // Tab lives in the URL: compliance has 10 views across 2 levels, and none of
+  // them could be linked, bookmarked or returned to with browser Back.
+  const [tab, setTab] = useUrlTab<Tab>('view', COMPLIANCE_TABS, 'overview');
   const [audit, setAudit] = useState<ComplianceAuditEntry[]>([]);
   // A failed audit fetch was previously swallowed (`catch {}`), leaving stale/empty
   // entries that read as "no audit entries". Track the error so the Overview can
@@ -612,7 +617,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
                       </div>
                       <span
                         className="flex items-center gap-1 text-xs text-gray-400 shrink-0"
-                        title={new Date(entry.createdAt).toLocaleString()}
+                        title={formatDateTime(entry.createdAt)}
                       >
                         <Clock className="h-3 w-3" /> {formatRelativeTime(entry.createdAt)}
                       </span>
@@ -622,7 +627,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-gray-500 dark:text-gray-400">
                           <span><span className="font-medium text-gray-700 dark:text-gray-300">Action:</span> <code>{entry.action}</code></span>
                           <span><span className="font-medium text-gray-700 dark:text-gray-300">Rules evaluated:</span> {entry.ruleCount}</span>
-                          <span title={new Date(entry.createdAt).toLocaleString()}><span className="font-medium text-gray-700 dark:text-gray-300">When:</span> {new Date(entry.createdAt).toLocaleString()}</span>
+                          <span title={formatDateTime(entry.createdAt)}><span className="font-medium text-gray-700 dark:text-gray-300">When:</span> {formatDateTime(entry.createdAt)}</span>
                           {entry.entityId && <span><span className="font-medium text-gray-700 dark:text-gray-300">Entity ID:</span> <code className="break-all">{entry.entityId}</code></span>}
                           {entry.scanId && <span><span className="font-medium text-gray-700 dark:text-gray-300">Scan:</span> <code className="break-all">{entry.scanId}</code></span>}
                         </div>

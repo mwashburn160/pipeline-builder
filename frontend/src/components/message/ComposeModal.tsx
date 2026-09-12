@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useIsDirty } from '@/hooks/useIsDirty';
 import { Send, Paperclip, X } from 'lucide-react';
 import type { MessageType, MessagePriority, MessageAttachment } from '@/types';
 import { useAsyncCallback } from '@/hooks/useAsync';
@@ -129,6 +130,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
   };
   // Attachments uploaded (pending) for this compose — their ids are linked on send.
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
+  const dirty = useIsDirty({ content, recipientUserId, recipientOrgId, channel, attachmentCount: attachments.length });
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -306,6 +308,10 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
       onClose={onClose}
       maxWidth="max-w-md"
       footer={footer}
+      // Drafts are deliberately not persisted (see the unmount note above), so a
+      // stray backdrop click was an unrecoverable way to lose a written message.
+      dirty={dirty}
+      discardMessage="This message hasn't been sent. Closing now discards it."
     >
         {/* Body */}
         <div className="space-y-3">

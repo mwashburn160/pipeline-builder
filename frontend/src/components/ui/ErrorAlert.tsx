@@ -8,6 +8,10 @@ interface ErrorAlertProps {
   message?: string | null;
   /** When provided, renders a "Dismiss" link that invokes this. */
   onDismiss?: () => void;
+  /** When provided, renders a "Retry" action beside Dismiss. Pass the list's
+   *  `refresh` so a failed load isn't a dead end (the old banner offered only
+   *  Dismiss, leaving a page reload as the sole way forward). */
+  onRetry?: () => void;
   className?: string;
 }
 
@@ -16,6 +20,6 @@ interface ErrorAlertProps {
  * `null` when there's no message, so `<ErrorAlert message={error} onDismiss={…}/>`
  * is a drop-in for the old `{error && (<div className="alert-error">…)}` block.
  */
-export function ErrorAlert({ message, onDismiss, className }: ErrorAlertProps) {
-  return <BaseAlert variant="error" message={message ?? undefined} onDismiss={onDismiss} className={className} />;
+export function ErrorAlert({ message, onDismiss, onRetry, className }: ErrorAlertProps) {
+  return <BaseAlert variant="error" message={message ?? undefined} onDismiss={onDismiss} onRetry={onRetry} className={className} />;
 }

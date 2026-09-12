@@ -333,7 +333,7 @@ export default function InvitationsPage() {
     >
       <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="invitations" orgName={user.organizationName} />
 
-      <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
+      <ErrorAlert message={list.error} onRetry={list.refresh} onDismiss={() => list.setError(null)} />
 
       {selectedIds.size > 0 && (
         <div className="mb-3 flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm dark:border-blue-900/40 dark:bg-blue-900/20">
@@ -413,6 +413,8 @@ export default function InvitationsPage() {
         data={list.data}
         columns={columns}
         isLoading={list.isLoading}
+        loadFailed={!!list.error}
+        onRetry={list.refresh}
         emptyState={{
           icon: Mail,
           title: 'No invitations found',

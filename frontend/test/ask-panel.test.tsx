@@ -59,6 +59,21 @@ describe('AskPanel', () => {
     expect(askAgentStream).toHaveBeenCalledWith('how do I wire alertmanager', expect.objectContaining({ history: [] }));
   });
 
+  it('announces the finished answer to screen readers', async () => {
+    // The transcript itself is not a live region — announcing every streamed
+    // token would talk over the user — so a status line carries the outcome.
+    askAgentStream.mockReturnValue(gen([
+      { type: 'token', data: 'Use the alerts page.' },
+      { type: 'done' },
+    ]));
+
+    render(<AskPanel onClose={jest.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(/Ask a question/i), { target: { value: 'where are alerts' } });
+    fireEvent.click(screen.getByLabelText('Send'));
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/assistant replied: use the alerts page\./i));
+  });
+
   it('surfaces an error event and drops the empty pending bubble', async () => {
     askAgentStream.mockReturnValue(gen([{ type: 'error', message: 'model unavailable' }]));
 

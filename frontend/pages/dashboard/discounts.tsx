@@ -418,7 +418,7 @@ export default function DiscountsPage() {
       }
     >
       <BillingAdminTabs active="discounts" />
-      <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
+      <ErrorAlert message={list.error} onRetry={list.refresh} onDismiss={() => list.setError(null)} />
 
       {notEnabled ? (
         <FeatureDisabledCard icon={ShieldAlert} title="Discounts are not enabled">
@@ -440,6 +440,8 @@ export default function DiscountsPage() {
             data={list.data}
             columns={columns}
             isLoading={list.isLoading}
+            loadFailed={!!list.error}
+            onRetry={list.refresh}
             emptyState={{ icon: Ticket, title: 'No discounts', description: 'No discounts have been minted yet.' }}
             getRowKey={(d) => d.id}
           />

@@ -247,6 +247,18 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
       onClose={onClose}
     >
       <div className="flex flex-col h-full min-h-0">
+        {/* Screen-reader status. The transcript itself is NOT a live region: it
+            streams token by token, and announcing every fragment would talk over
+            the user continuously. This announces the state changes that matter —
+            when the assistant starts, and the finished answer once it settles. */}
+        <p className="sr-only" role="status" aria-live="polite">
+          {busy
+            ? 'Assistant is responding…'
+            : messages.length > 0 && messages[messages.length - 1].role === 'assistant'
+              ? `Assistant replied: ${messages[messages.length - 1].content}`
+              : ''}
+        </p>
+
         {/* Transcript */}
         <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
           {messages.length === 0 && (

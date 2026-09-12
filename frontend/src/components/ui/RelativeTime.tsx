@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { formatRelativeTime } from '@/lib/relative-time';
+import { formatDateTime } from '@/lib/format';
 
 interface Props {
   /** Date, ISO string, or epoch ms. */
@@ -46,7 +47,7 @@ export function RelativeTime({ value, live = false, fallback = '—', className 
   }
 
   return (
-    <time dateTime={ts.toISOString()} title={ts.toLocaleString()} className={className}>
+    <time dateTime={ts.toISOString()} title={formatDateTime(ts)} className={className}>
       {formatRelativeTime(ts)}
     </time>
   );
