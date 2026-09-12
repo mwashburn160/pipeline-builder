@@ -107,12 +107,16 @@ export const updateOrganizationRole = withController('Update role', async (req, 
 
   const id = req.params.id as string;
   const roleId = req.params.roleId as string;
+  const admin = getAdminContext(req);
   if (!(await requireOrgScope(req, res, id))) return;
 
   const body = validateBody(updateRoleSchema, req.body, res);
   if (!body) return;
 
-  const role = await updateRole(id, roleId, body, actorCeiling(req));
+  // The assignment actor (not the narrower authoring ceiling): update also has
+  // to check what the role ALREADY grants, so it needs `isOrgAdmin` to let an
+  // admin/owner through the same way delete does.
+  const role = await updateRole(id, roleId, body, assignmentActor(req, admin));
   audit(req, 'org.role.update', { targetType: 'role', targetId: roleId, affectedOrgId: id });
   sendSuccess(res, 200, { role }, 'Role updated');
 }, {
@@ -122,6 +126,7 @@ export const updateOrganizationRole = withController('Update role', async (req, 
   [RL_INVALID_PERMISSION]: { status: 400, message: 'One or more permissions are not recognized' },
   [RL_PERMISSION_NOT_ASSIGNABLE]: { status: 400, message: 'One or more permissions cannot be granted through a custom role' },
   [RL_PERMISSION_EXCEEDS_CEILING]: { status: 403, message: 'You cannot grant a permission you do not hold yourself' },
+  [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot modify a role granting permissions you do not hold yourself' },
 });
 
 /** DELETE /organization/:id/roles/:roleId — delete a custom Role. */

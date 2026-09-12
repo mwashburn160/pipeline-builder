@@ -49,11 +49,11 @@ export function changedAiProviderFields(body: Record<string, unknown>): string[]
  * (config/index.ts), so this path is encrypted-only — there is no clear-text
  * fallback.
  */
-export function applyAIProviderKeyUpdates(
+export async function applyAIProviderKeyUpdates(
   keys: Record<string, string | undefined>,
   body: Record<string, unknown>,
   orgIdStr: string,
-): void {
+): Promise<void> {
   for (const p of AI_PROVIDERS) {
     const value = body[p];
     if (value === undefined) continue;
@@ -66,7 +66,7 @@ export function applyAIProviderKeyUpdates(
       if (!isReasonableString(value, AI_PROVIDER_KEY_MAX_LEN)) {
         throw new Error(ORG_AI_KEY_TOO_LONG);
       }
-      keys[p] = wrapEncrypted(value, orgIdStr);
+      keys[p] = await wrapEncrypted(value, orgIdStr);
     }
   }
 }

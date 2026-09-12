@@ -23,6 +23,7 @@ import { ModalFooter } from '@/components/ui/ModalFooter';
 import { ORG_ASSIGNABLE_CATEGORIES, PERMISSION_CATALOG, permissionLabel, roleDisplayName } from '@/lib/permissions';
 import api from '@/lib/api';
 import type { OrganizationRole, RoleGrant } from '@/types';
+import { formatError } from '@/lib/constants';
 
 /** Badge colour per coarse role a Role grants — superadmin is the loudest. */
 const ROLE_BADGE: Record<RoleGrant, 'red' | 'purple' | 'gray'> = {
@@ -158,7 +159,7 @@ export default function RolesPage() {
       setRemoveTarget(null);
       fetchRoles();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to remove from role');
+      toast.error(formatError(err, 'Failed to remove from role'));
     } finally {
       setRemoveLoading(false);
     }

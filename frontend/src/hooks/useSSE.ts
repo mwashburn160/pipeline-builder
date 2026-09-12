@@ -2,21 +2,25 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Generic SSE (Server-Sent Events) connection hook with exponential backoff retry.
- * Extracts the common retry/reconnect pattern used by useBuildStatus and useMessageNotifications.
+ * Generic SSE (Server-Sent Events) connection hook.
+ *
+ * On a connection error it closes the stream and hands control to
+ * `onRetriesExhausted` — it does NOT reconnect in-band. Both streams in this
+ * app are TICKETED (a single-use ticket is exchanged for the stream), so
+ * replaying the same URL would just 401; reconnecting means minting a fresh
+ * ticket, which only the consumer can do. The old `maxRetries` /
+ * `baseRetryDelayMs` backoff branch was therefore dead code — both consumers
+ * passed `maxRetries: 0` — and actively wrong for anything that enabled it.
  */
 import { useState, useEffect, useRef } from 'react';
 
 export interface UseSSEOptions {
   /** URL to connect to, or null to stay disconnected. */
   url: string | null;
-  /** Maximum reconnection attempts before giving up. */
-  maxRetries?: number;
-  /** Base delay in ms for exponential backoff (delay = base * 2^(attempt-1)). */
-  baseRetryDelayMs?: number;
   /** Called for each parsed SSE message. Return true to close the connection. */
   onMessage: (data: unknown) => boolean | void;
-  /** Called when all retry attempts are exhausted. */
+  /** Called when the connection errors out. The consumer owns reconnection
+   *  (mint a fresh ticket, then change `url`). */
   onRetriesExhausted?: () => void;
 }
 
@@ -35,32 +39,23 @@ export interface UseSSEResult {
 
 /**
  * Opens an EventSource to `url` and dispatches parsed JSON messages to `onMessage`.
- * Automatically retries with exponential backoff on connection errors.
- * Reconnects from scratch when `url` changes.
+ * On error it closes and calls `onRetriesExhausted`; reconnects from scratch
+ * when `url` changes.
  */
 export function useSSE(options: UseSSEOptions): UseSSEResult {
-  const { url, maxRetries = 3, baseRetryDelayMs = 1000, onMessage, onRetriesExhausted } = options;
+  const { url, onMessage, onRetriesExhausted } = options;
 
   const [connected, setConnected] = useState(false);
   // Set once on the first successful onopen and never reset for the hook's
   // lifetime — this is a "have we ever been live" signal, so it must survive
   // reconnects (which change `url` as fresh tickets are minted).
   const [everConnected, setEverConnected] = useState(false);
-  const [reconnectKey, setReconnectKey] = useState(0);
-  const retryCountRef = useRef(0);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const onMessageRef = useRef(onMessage);
   const onRetriesExhaustedRef = useRef(onRetriesExhausted);
 
   // Keep callback refs current without triggering reconnects
   onMessageRef.current = onMessage;
   onRetriesExhaustedRef.current = onRetriesExhausted;
-
-  // Reset retry state when url changes
-  useEffect(() => {
-    retryCountRef.current = 0;
-    setReconnectKey(0);
-  }, [url]);
 
   useEffect(() => {
     if (!url) return;
@@ -70,7 +65,6 @@ export function useSSE(options: UseSSEOptions): UseSSEResult {
     eventSource.onopen = () => {
       setConnected(true);
       setEverConnected(true);
-      retryCountRef.current = 0;
     };
 
     eventSource.onmessage = (event) => {
@@ -87,23 +81,14 @@ export function useSSE(options: UseSSEOptions): UseSSEResult {
       eventSource.close();
       setConnected(false);
 
-      if (retryCountRef.current < maxRetries) {
-        retryCountRef.current++;
-        const delay = baseRetryDelayMs * Math.pow(2, retryCountRef.current - 1);
-        retryTimerRef.current = setTimeout(() => {
-          setReconnectKey((k) => k + 1);
-        }, delay);
-      } else {
-        onRetriesExhaustedRef.current?.();
-      }
+      onRetriesExhaustedRef.current?.();
     };
 
     return () => {
       eventSource.close();
-      clearTimeout(retryTimerRef.current);
       setConnected(false);
     };
-  }, [url, reconnectKey, maxRetries, baseRetryDelayMs]);
+  }, [url]);
 
   return { connected, everConnected };
 }

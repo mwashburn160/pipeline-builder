@@ -22,7 +22,7 @@ import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySele
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import CollapsibleSection from './editors/CollapsibleSection';
 import { WIZARD_STEPS } from '@/lib/wizard-validation';
-import { formatJSON } from '@/lib/constants';
+import { formatError, formatJSON } from '@/lib/constants';
 import { useIsDirty } from '@/hooks/useIsDirty';
 
 /** A row in the inputs editor — the editable counterpart of a {@link TemplateInput}. */
@@ -181,7 +181,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
     try {
       parsed = JSON.parse(previewJson ?? '');
     } catch (err) {
-      setJsonError(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
+      setJsonError(`Invalid JSON: ${formatError(err)}`);
       return;
     }
     if (!formRef.current) {

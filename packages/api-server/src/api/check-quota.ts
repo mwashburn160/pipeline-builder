@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, createLogger, sendError, sendQuotaExceeded } from '@pipeline-builder/api-core';
+import { ErrorCode, createLogger, emitCounter, sendError, sendQuotaExceeded } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaService } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 import { getContext } from './get-context.js';
@@ -86,6 +86,10 @@ export function checkQuota(
         quotaType,
         error: error instanceof Error ? error.message : String(error),
       });
+      // Same counter the api-core quota client emits, so a quota-service outage
+      // is ALERTABLE from one series regardless of which layer fell open. Only
+      // a log line here meant every org was silently un-billed for the duration.
+      emitCounter('quota_fail_open_total', { operation: 'check', reason: 'exception', quotaType });
       next();
     }
   };

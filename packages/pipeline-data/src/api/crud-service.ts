@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { NotFoundError, createLogger, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '@pipeline-builder/api-core';
-import { SQL, eq, and, asc, desc, sql, inArray, getTableColumns } from 'drizzle-orm';
+import { SQL, eq, and, or, asc, desc, sql, inArray, getTableColumns } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { withTenantTx, runWithTenantContext, getTenantContext } from '../database/tenancy.js';
@@ -114,6 +114,8 @@ interface CrudColumns {
   isActive: AnyColumn;
   isDefault: AnyColumn;
   visibility?: AnyColumn;
+  /** Author column — the `private` rung of the visibility ladder is author-only. */
+  createdBy?: AnyColumn;
   // Soft-delete lifecycle columns (present on tombstone-bearing entities only;
   // `restore`/`purgeExpired` are no-ops when absent).
   deletedAt?: AnyColumn;
@@ -857,17 +859,57 @@ export abstract class CrudService<
   }
 
   /**
+   * The `visibility` predicate for a bulk soft-delete, mirroring
+   * `requireVisibilityWriteAccess` rung for rung so bulk and single-row delete
+   * can never disagree about what a caller may remove.
+   *
+   * Returns no condition at all for a system admin, or for an entity with no
+   * `visibility` column (nothing to gate on).
+   */
+  private visibilityDeleteConditions(
+    access: { isSystemAdmin: boolean; canPublish: boolean } | undefined,
+    userId: string,
+    accessCol?: AnyColumn,
+    createdByCol?: AnyColumn,
+  ): SQL[] {
+    if (!accessCol) return [];
+    if (!access || access.isSystemAdmin) return [];
+
+    const rungs: SQL[] = [eq(accessCol, 'org')];
+    // `private` is author-only. With no author column or no caller identity we
+    // cannot prove authorship, so the rung is simply not offered (fail closed)
+    // rather than matching every private row.
+    if (createdByCol && userId) {
+      rungs.push(and(eq(accessCol, 'private'), eq(createdByCol, userId)) as SQL);
+    }
+    if (access.canPublish) rungs.push(eq(accessCol, 'public'));
+
+    return [or(...rungs) as SQL];
+  }
+
+  /**
    * Soft-delete multiple entities by IDs in a single batch operation.
    */
   async bulkDelete(
     ids: string[],
     orgId: string,
     userId: string,
-    /** When true, only PRIVATE records are deleted — mirrors the single-delete
-     *  `requirePublicAccess` gate so a non-sysadmin can't bulk-delete public
-     *  (shared/sysadmin-managed) records. No-op for entities without an
-     *  `visibility` column. Callers pass `!isSystemAdmin(req)`. */
-    restrictToPrivate = false,
+    /**
+     * The caller's authority on the three-rung `visibility` ladder. Omit (or
+     * pass `isSystemAdmin: true`) for an unrestricted delete.
+     *
+     * This used to be a `restrictToPrivate` boolean that narrowed to
+     * `visibility = 'private'`. That encoded the OLD two-state model: since
+     * `resolveVisibility` defaults pipelines and plugins to `org`, and
+     * single-row delete allows an `org` row with plain `:write`, bulk delete
+     * 403'd the normal case — an org admin could delete a pipeline one at a
+     * time but not in bulk. The rungs enforced here mirror
+     * `requireVisibilityWriteAccess` exactly:
+     *   - `private` → author only (`createdBy === userId`)
+     *   - `org`     → any member of the org (plain `:write`)
+     *   - `public`  → requires the entity's publish permission
+     */
+    access?: { isSystemAdmin: boolean; canPublish: boolean },
   ): Promise<TEntity[]> {
     if (ids.length === 0) return [];
 
@@ -877,13 +919,14 @@ export abstract class CrudService<
     // -org PUBLIC rows, so without the strict orgId pin a tenant could delete
     // shared records by id. (See writeConditions.)
     const accessCol = this.cols.visibility;
+    const createdByCol = this.cols.createdBy;
     const conditions = [
       inArray(this.cols.id, ids),
       ...this.buildConditions({} as Partial<TFilter>, orgId),
       // Tenant column (getOrgColumn, asserted non-null) — consistent with
       // writeConditions; no silent fail-open when the property is absent.
       ...(orgId ? [eq(this.getOrgColumn(), orgId)] : []),
-      ...(restrictToPrivate && accessCol ? [eq(accessCol, 'private')] : []),
+      ...this.visibilityDeleteConditions(access, userId, accessCol, createdByCol),
     ];
 
     const deleted = await withTenantTx(async (tx) => tx

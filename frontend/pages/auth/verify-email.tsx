@@ -10,6 +10,7 @@ import { CheckCircle, XCircle, ArrowLeft } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Card } from '@/components/ui/Card';
 import api from '@/lib/api';
+import { formatError } from '@/lib/constants';
 
 /**
  * Email-verification landing page.
@@ -48,7 +49,7 @@ export default function VerifyEmailPage() {
       })
       .catch((err) => {
         setStatus('error');
-        setMessage(err instanceof Error ? err.message : 'This verification link is invalid or has expired.');
+        setMessage(formatError(err, 'This verification link is invalid or has expired.'));
       });
   }, [router.isReady, router.query.token]);
 

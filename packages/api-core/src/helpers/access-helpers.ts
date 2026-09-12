@@ -49,31 +49,54 @@ export function requireVisibilityWriteAccess(
   userId: string,
   publishPermission: Permission,
 ): boolean {
-  if (isSystemAdmin(req)) return true;
+  const verdict = checkVisibilityWriteAccess(req, resource, userId, publishPermission);
+  if (verdict === 'ok') return true;
+  sendError(
+    res,
+    403,
+    verdict === 'needs-publish'
+      ? 'You lack permission to modify this public resource.'
+      : 'Only the author can modify a private resource.',
+    ErrorCode.INSUFFICIENT_PERMISSIONS,
+  );
+  return false;
+}
+
+/** Why a write was refused, or `'ok'`. See {@link checkVisibilityWriteAccess}. */
+export type VisibilityWriteVerdict = 'ok' | 'needs-publish' | 'not-author';
+
+/**
+ * The visibility write rule as a PREDICATE, with no response side-effect.
+ *
+ * Extracted so BULK routes can apply the identical rule per row instead of
+ * re-deriving it. They used to reject anything not `private`, which contradicted
+ * this gate: `resolveVisibility` defaults pipelines and plugins to `org`, and
+ * this function happily allows an `org` write with plain `:write` — so a bulk
+ * delete/update 403'd the default case that single-row delete/update allowed.
+ *
+ *   - `private` → author only
+ *   - `org`     → any member of the org
+ *   - `public`  → requires `publishPermission`
+ */
+export function checkVisibilityWriteAccess(
+  req: Request,
+  resource: VisibilityWriteTarget,
+  userId: string,
+  publishPermission: Permission,
+): VisibilityWriteVerdict {
+  if (isSystemAdmin(req)) return 'ok';
 
   if (resource.visibility === 'public' && !userHasPermission(req, publishPermission)) {
-    sendError(
-      res,
-      403,
-      'You lack permission to modify this public resource.',
-      ErrorCode.INSUFFICIENT_PERMISSIONS,
-    );
-    return false;
+    return 'needs-publish';
   }
 
   // Fail closed on an anonymous/absent caller — an empty userId must never match
   // an empty `createdBy` and hand over someone else's draft.
   if (resource.visibility === 'private' && (!userId || resource.createdBy !== userId)) {
-    sendError(
-      res,
-      403,
-      'Only the author can modify a private resource.',
-      ErrorCode.INSUFFICIENT_PERMISSIONS,
-    );
-    return false;
+    return 'not-author';
   }
 
-  return true;
+  return 'ok';
 }
 
 /**

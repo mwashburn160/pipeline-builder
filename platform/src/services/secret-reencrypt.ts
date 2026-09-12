@@ -59,7 +59,7 @@ export async function captureOrgSecrets(orgId: string): Promise<CapturedSecrets>
       const raw = (org.aiProviderKeys as Record<string, string | undefined>)[provider];
       if (!raw) continue;
       try {
-        captured.aiKeys[provider] = unwrapEncrypted(raw, orgId, `aiProviderKeys.${provider}`);
+        captured.aiKeys[provider] = await unwrapEncrypted(raw, orgId, `aiProviderKeys.${provider}`);
       } catch (err) {
         throw new Error(`Failed to decrypt aiProviderKeys.${provider} for org ${orgId} (cannot proceed with rotation without first repairing this row): ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -69,7 +69,7 @@ export async function captureOrgSecrets(orgId: string): Promise<CapturedSecrets>
   const idp = await OrgIdpConfig.findOne({ orgId }).select('clientSecretEncrypted').lean();
   if (idp?.clientSecretEncrypted) {
     try {
-      captured.idpClientSecret = unwrapEncrypted(idp.clientSecretEncrypted, orgId, 'idpClientSecret');
+      captured.idpClientSecret = await unwrapEncrypted(idp.clientSecretEncrypted, orgId, 'idpClientSecret');
     } catch (err) {
       throw new Error(`Failed to decrypt IdP clientSecret for org ${orgId}: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -94,7 +94,7 @@ export async function reencryptOrgSecrets(orgId: string, captured: CapturedSecre
     if (!orgDoc.aiProviderKeys) orgDoc.aiProviderKeys = {};
     for (const [provider, plaintext] of Object.entries(captured.aiKeys)) {
       if (!plaintext) continue;
-      (orgDoc.aiProviderKeys as Record<string, string | undefined>)[provider] = wrapEncrypted(plaintext, orgId);
+      (orgDoc.aiProviderKeys as Record<string, string | undefined>)[provider] = await wrapEncrypted(plaintext, orgId);
       aiKeysReencrypted++;
     }
     orgDoc.markModified('aiProviderKeys');
@@ -102,7 +102,7 @@ export async function reencryptOrgSecrets(orgId: string, captured: CapturedSecre
   }
 
   if (captured.idpClientSecret) {
-    const wrapped = wrapEncrypted(captured.idpClientSecret, orgId);
+    const wrapped = await wrapEncrypted(captured.idpClientSecret, orgId);
     await OrgIdpConfig.updateOne({ orgId }, { $set: { clientSecretEncrypted: wrapped } });
     idpSecretReencrypted = true;
   }

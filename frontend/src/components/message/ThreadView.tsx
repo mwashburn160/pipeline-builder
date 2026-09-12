@@ -9,6 +9,7 @@ import type { MemberOption } from '@/components/message/RecipientPicker';
 import api from '@/lib/api';
 import type { Message, MessageAttachment } from '@/types';
 import { scrollBehavior } from '@/lib/motion';
+import { formatError } from '@/lib/constants';
 
 /**
  * A thread bubble that may be an OPTIMISTIC local reply not yet confirmed by the
@@ -233,7 +234,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
       setThread((prev) => prev.map((m) => (m.id === id ? { ...m, content: updated.content, editedAt: updated.editedAt } : m)));
       cancelEdit();
     } catch (err) {
-      setEditError(err instanceof Error ? err.message : 'Failed to save edit');
+      setEditError(formatError(err, 'Failed to save edit'));
     } finally {
       setSavingEdit(false);
     }
@@ -251,7 +252,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
         if (res.data?.attachment) setReplyAttachments((cur) => [...cur, res.data!.attachment]);
       }
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Attachment upload failed');
+      setUploadError(formatError(err, 'Attachment upload failed'));
     } finally {
       setUploading(false);
     }

@@ -52,6 +52,17 @@ function makeDupKeyError(key: string): Error & { code: number; keyPattern: Recor
   return err;
 }
 
+/** Mimic the E11000 raised by the UNIQUE `(affectedOrgId, prevHash)` chain-link
+ *  index when two events in one chain claim the same predecessor. */
+function makeChainLinkDupError(affectedOrgId: string | undefined, prevHash: string | null | undefined): Error & { code: number; keyPattern: Record<string, number> } {
+  const err = new Error(
+    `E11000 duplicate key error collection: audit_events index: affectedOrgId_1_prevHash_1 dup key: { affectedOrgId: "${affectedOrgId}", prevHash: "${prevHash}" }`,
+  ) as Error & { code: number; keyPattern: Record<string, number> };
+  err.code = 11000;
+  err.keyPattern = { affectedOrgId: 1, prevHash: 1 };
+  return err;
+}
+
 const mockModel = {
   create: async (doc: Record<string, unknown>): Promise<Row> => {
     // Enforce the UNIQUE SPARSE idempotencyKey index: a second insert with the
@@ -59,6 +70,14 @@ const mockModel = {
     const key = (doc as Row).idempotencyKey as string | undefined;
     if (key && store.some((r) => r.idempotencyKey === key)) {
       throw makeDupKeyError(key);
+    }
+    // Enforce the UNIQUE (affectedOrgId, prevHash) chain-link index. Modelling
+    // this is what makes the HASH_ERROR-sentinel regression reproducible: a
+    // CONSTANT sentinel makes two rows share a hash, so the next append reads an
+    // ambiguous tail and collides here on every retry until the event is dropped.
+    const row0 = doc as Row;
+    if (store.some((r) => r.affectedOrgId === row0.affectedOrgId && (r.prevHash ?? null) === (row0.prevHash ?? null))) {
+      throw makeChainLinkDupError(row0.affectedOrgId, row0.prevHash);
     }
     idSeq += 1;
     const row: Row = { ...(doc as Row), _id: String(idSeq) };
@@ -76,9 +95,31 @@ const mockModel = {
   },
   find: (filter: Record<string, unknown>) => {
     let arr = store.filter((d) => matches(d, filter));
+    // In mongoose, `.lean()` returns the Query itself — a thenable that ALSO
+    // still exposes `.cursor()`. The chain walk streams via `.cursor()` (a
+    // whole-chain `find().lean()` was a heap-exhaustion risk on a large
+    // tenant), so the mock has to model both terminations.
+    const leanQ = {
+      then: <T>(onFulfilled: (v: Row[]) => T, onRejected?: (e: unknown) => T) =>
+        Promise.resolve(arr).then(onFulfilled, onRejected),
+      cursor: () => {
+        let closed = false;
+        return {
+          [Symbol.asyncIterator]: async function* asyncIterator() {
+            for (const d of arr) {
+              if (closed) return;
+              yield d;
+            }
+          },
+          // `verifyAuditChain` closes in a `finally`, so every verify exercises
+          // this — including the early returns on a detected break.
+          close: async () => { closed = true; },
+        };
+      },
+    };
     const q = {
       sort: (spec: Record<string, 1 | -1>) => { arr = sortDocs(arr, spec); return q; },
-      lean: async () => arr,
+      lean: () => leanQ,
     };
     return q;
   },
@@ -135,7 +176,7 @@ describe('appendAuditEvent — chaining', () => {
       appendAuditEvent({ action: 'dashboard.update', actorId: 'u1', orgId: 'org-3', affectedOrgId: 'org-3' }),
     ]);
     const result = await verifyAuditChain('org-3');
-    expect(result).toEqual({ ok: true, count: 3 });
+    expect(result).toEqual({ ok: true, count: 3, unverifiable: 0 });
   });
 });
 
@@ -146,11 +187,11 @@ describe('verifyAuditChain', () => {
     await appendAuditEvent({ action: 'user.logout', actorId: 'u1', orgId: 'org-1', affectedOrgId: 'org-1' });
 
     const result = await verifyAuditChain('org-1');
-    expect(result).toEqual({ ok: true, count: 3 });
+    expect(result).toEqual({ ok: true, count: 3, unverifiable: 0 });
   });
 
   it('returns ok with count 0 for an empty chain', async () => {
-    expect(await verifyAuditChain('org-empty')).toEqual({ ok: true, count: 0 });
+    expect(await verifyAuditChain('org-empty')).toEqual({ ok: true, count: 0, unverifiable: 0 });
   });
 
   it('flags the row whose immutable field was mutated after the fact', async () => {
@@ -165,7 +206,10 @@ describe('verifyAuditChain', () => {
     const result = await verifyAuditChain('org-1');
     expect(result.ok).toBe(false);
     expect(result.brokenAt).toBe(tampered._id);
-    expect(result.count).toBe(3);
+    // `count` is how far the walk got, inclusive of the offending row — the
+    // tampered event is the 2nd of 3, and the streamed walk stops there rather
+    // than reading the rest of the chain.
+    expect(result.count).toBe(2);
   });
 
   it('detects a rewritten impersonatorId (forensic unmask field is hashed)', async () => {
@@ -234,7 +278,7 @@ describe('verifyAuditChain', () => {
     expect(store.find((r) => r._id === mid._id)!.prevHash).not.toBeNull();
 
     const result = await verifyAuditChain('org-ttl');
-    expect(result).toEqual({ ok: true, count: 2 });
+    expect(result).toEqual({ ok: true, count: 2, unverifiable: 0 });
   });
 
   it('still flags a middle-event field tamper even when the head has aged out', async () => {
@@ -286,13 +330,13 @@ describe('appendAuditEvent — occurredAt is display-only (outside the hash / ch
     });
     await appendAuditEvent({ action: 'pipeline.delete', actorId: 'svc', orgId: 'org-oa2', affectedOrgId: 'org-oa2' });
 
-    expect(await verifyAuditChain('org-oa2')).toEqual({ ok: true, count: 3 });
+    expect(await verifyAuditChain('org-oa2')).toEqual({ ok: true, count: 3, unverifiable: 0 });
   });
 
   it('leaves occurredAt undefined on the stored row when omitted', async () => {
     const e1 = await appendAuditEvent({ action: 'pipeline.create', actorId: 'svc', orgId: 'org-oa3', affectedOrgId: 'org-oa3' });
     expect(store.find((r) => r._id === e1._id)!.occurredAt).toBeUndefined();
-    expect(await verifyAuditChain('org-oa3')).toEqual({ ok: true, count: 1 });
+    expect(await verifyAuditChain('org-oa3')).toEqual({ ok: true, count: 1, unverifiable: 0 });
   });
 });
 
@@ -309,7 +353,7 @@ describe('appendAuditEvent — Idempotency-Key dedup', () => {
     expect(store.length).toBe(1);
     expect(second._id).toBe(first._id);
     // Exactly one chain link survives (a single-event chain verifies clean).
-    expect(await verifyAuditChain('org-1')).toEqual({ ok: true, count: 1 });
+    expect(await verifyAuditChain('org-1')).toEqual({ ok: true, count: 1, unverifiable: 0 });
   });
 
   it('writes two rows / two chain links for different keys', async () => {
@@ -323,7 +367,7 @@ describe('appendAuditEvent — Idempotency-Key dedup', () => {
     expect(store.length).toBe(2);
     // The second links to the first: a genuine second chain link.
     expect(e2.prevHash).toBe(store[0].hash);
-    expect(await verifyAuditChain('org-2')).toEqual({ ok: true, count: 2 });
+    expect(await verifyAuditChain('org-2')).toEqual({ ok: true, count: 2, unverifiable: 0 });
   });
 
   it('does not constrain events that carry no key (sparse)', async () => {
@@ -348,7 +392,7 @@ describe('appendAuditEvent — AWS identifier scrub (defense-in-depth)', () => {
     expect(persisted).toContain('[REDACTED]');
     expect((stored.details as { reason: string }).reason).toBe('manual deletion required');
     // Hash was computed over the SCRUBBED details, so the chain still verifies.
-    expect(await verifyAuditChain('org-9')).toEqual({ ok: true, count: 1 });
+    expect(await verifyAuditChain('org-9')).toEqual({ ok: true, count: 1, unverifiable: 0 });
   });
 });
 
@@ -387,6 +431,63 @@ describe('genesis (org-less) chain', () => {
     const g2 = await appendAuditEvent({ action: 'admin.superadmin.grant', actorId: 'bootstrap-env', targetId: 'u1' });
     expect(g1.prevHash).toBeNull();
     expect(g2.prevHash).toBe(g1.hash);
-    expect(await verifyAuditChain(GENESIS_CHAIN_KEY)).toEqual({ ok: true, count: 2 });
+    expect(await verifyAuditChain(GENESIS_CHAIN_KEY)).toEqual({ ok: true, count: 2, unverifiable: 0 });
+  });
+});
+
+describe('un-verifiable-hash sentinel (write-time digest failure)', () => {
+  /**
+   * `details` containing a BigInt makes `JSON.stringify` throw inside
+   * `stableStringify`, which is the real-world shape of a digest failure: the
+   * event must still be STORED (tamper-evidence is detection, never a write
+   * gate) with a sentinel hash flagging it as un-verifiable.
+   */
+  const unhashable = (action: string) => ({
+    action,
+    actorId: 'u1',
+    orgId: 'org-sent',
+    affectedOrgId: 'org-sent',
+    details: { bad: BigInt(1) } as unknown as Record<string, unknown>,
+  });
+
+  it('stores the event instead of dropping it, flagged with a sentinel hash', async () => {
+    const e = await appendAuditEvent(unhashable('user.login'));
+    expect(e.hash).toMatch(/^HASH_ERROR:/);
+    expect(store).toHaveLength(1);
+  });
+
+  it('REGRESSION: two digest failures in one chain do not drop the next event', async () => {
+    // A CONSTANT sentinel gave both rows the same `hash`, so the third append
+    // read an ambiguous tail, set prevHash to the shared sentinel, and collided
+    // on the unique (affectedOrgId, prevHash) index — on every retry, until it
+    // exhausted MAX_CHAIN_RETRIES and threw, LOSING the audit event.
+    const e1 = await appendAuditEvent(unhashable('user.login'));
+    const e2 = await appendAuditEvent(unhashable('user.logout'));
+    expect(e1.hash).not.toBe(e2.hash); // unique per row — the actual fix
+
+    // The next (perfectly hashable) event still lands, linked to the tail.
+    const e3 = await appendAuditEvent({ action: 'dashboard.update', actorId: 'u1', orgId: 'org-sent', affectedOrgId: 'org-sent' });
+    expect(e3.hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(e3.prevHash).toBe(e2.hash);
+    expect(store).toHaveLength(3);
+  });
+
+  it('counts sentinel rows as un-verifiable rather than reporting tampering', async () => {
+    await appendAuditEvent(unhashable('user.login'));
+    await appendAuditEvent({ action: 'dashboard.update', actorId: 'u1', orgId: 'org-sent', affectedOrgId: 'org-sent' });
+
+    // A sentinel row has no digest to recompute, so it must not be mistaken for
+    // a mutated field — linkage across it is still enforced.
+    expect(await verifyAuditChain('org-sent')).toEqual({ ok: true, count: 2, unverifiable: 1 });
+  });
+
+  it('still detects tampering of a real row that follows a sentinel row', async () => {
+    await appendAuditEvent(unhashable('user.login'));
+    const real = await appendAuditEvent({ action: 'user.logout', actorId: 'u1', orgId: 'org-sent', affectedOrgId: 'org-sent' });
+    store.find((r) => r._id === real._id)!.actorId = 'attacker';
+
+    const result = await verifyAuditChain('org-sent');
+    expect(result.ok).toBe(false);
+    expect(result.brokenAt).toBe(real._id);
   });
 });

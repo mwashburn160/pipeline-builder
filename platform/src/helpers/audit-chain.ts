@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { createLogger, scrubAwsIdentifiers } from '@pipeline-builder/api-core';
 import AuditEvent, { type AuditEventDocument } from '../models/audit-event.js';
 import type { AuditCreateInput } from '../services/audit-service.js';
@@ -55,9 +55,30 @@ export const GENESIS_CHAIN_KEY = '__no-org__';
 /** `prevHash` value for the first event in any chain. */
 export const GENESIS_PREV_HASH: null = null;
 
-/** Stored `hash` sentinel when digest computation itself failed — the row is
- *  still written (best-effort) but is visibly flagged as un-verifiable. */
+/**
+ * Stored `hash` prefix when digest computation itself failed — the row is still
+ * written (best-effort) but is visibly flagged as un-verifiable.
+ *
+ * Only a PREFIX: each sentinel row gets a unique suffix from
+ * {@link hashErrorSentinel}. A constant sentinel collided with itself — two
+ * hashing failures in one chain leave two rows whose `hash` is identical, so
+ * the next append reads that tail, sets `prevHash` to the sentinel, and trips
+ * the unique `(affectedOrgId, prevHash)` chain-link index against the other
+ * sentinel row. The retry re-read the same ambiguous tail every time and, after
+ * MAX_CHAIN_RETRIES, threw — DROPPING the audit event, which is exactly what
+ * the best-effort sentinel exists to prevent.
+ */
 export const HASH_ERROR_SENTINEL = 'HASH_ERROR';
+
+/** A unique, recognizable un-verifiable-hash marker. See {@link HASH_ERROR_SENTINEL}. */
+export function hashErrorSentinel(): string {
+  return `${HASH_ERROR_SENTINEL}:${randomUUID()}`;
+}
+
+/** Whether a stored `hash` is an un-verifiable-hash marker rather than a digest. */
+export function isHashErrorSentinel(hash: unknown): boolean {
+  return typeof hash === 'string' && (hash === HASH_ERROR_SENTINEL || hash.startsWith(`${HASH_ERROR_SENTINEL}:`));
+}
 
 /**
  * Deterministic JSON serialization with recursively sorted object keys.
@@ -263,7 +284,10 @@ export async function appendAuditEvent(input: AuditCreateInput): Promise<AuditEv
         logger.warn('Audit hash computation failed; writing sentinel hash', {
           chainKey, error: errMessage(err),
         });
-        hash = HASH_ERROR_SENTINEL;
+        // Unique per row — a constant sentinel self-collides on the
+        // chain-link index and ends up dropping the event. See
+        // HASH_ERROR_SENTINEL.
+        hash = hashErrorSentinel();
       }
 
       try {
@@ -296,6 +320,9 @@ export async function appendAuditEvent(input: AuditCreateInput): Promise<AuditEv
   });
 }
 
+/** Cursor batch size for {@link verifyAuditChain}'s streamed walk. */
+const VERIFY_BATCH_SIZE = 500;
+
 /** Result of a chain verification walk. */
 export interface AuditChainVerifyResult {
   /** True when every surviving event's hash recomputes and every non-head event
@@ -306,8 +333,15 @@ export interface AuditChainVerifyResult {
   ok: boolean;
   /** `_id` of the first event that failed (broken hash or broken forward linkage). */
   brokenAt?: string;
-  /** How many events were walked. */
+  /** How many events were walked — for an intact chain, its full length. On a
+   *  break this is the position of the offending row (inclusive), NOT the chain
+   *  total: the walk streams, so it never reads past the break. That position is
+   *  the more useful number anyway — it says how far the chain verified. */
   count: number;
+  /** Rows whose stored `hash` is a {@link HASH_ERROR_SENTINEL} marker — the digest
+   *  could not be computed when they were written, so they are un-verifiable but
+   *  NOT evidence of tampering. Skipped by the hash check and reported here. */
+  unverifiable: number;
 }
 
 /**
@@ -332,52 +366,76 @@ export interface AuditChainVerifyResult {
  * @param chainKey the tenant chain to verify (an org id, or {@link GENESIS_CHAIN_KEY}).
  */
 export async function verifyAuditChain(chainKey: string): Promise<AuditChainVerifyResult> {
-  const events = await AuditEvent.find(chainFilter(chainKey))
+  // STREAMED, not materialized: a tenant at the retention ceiling has millions
+  // of events, and `find().lean()` on the whole chain was a single-request heap
+  // exhaustion. The walk only ever needs the running predecessor hash, so it
+  // costs O(1) memory regardless of chain length.
+  const cursor = AuditEvent.find(chainFilter(chainKey))
     .sort({ createdAt: 1, _id: 1 })
-    .lean();
+    .lean()
+    .cursor({ batchSize: VERIFY_BATCH_SIZE });
 
   // `expectedPrev` is seeded from the first surviving event's own stored prevHash
   // (the anchor) rather than forced to null — so a retention-truncated head is
   // accepted. After the first event it tracks the running predecessor hash.
   let expectedPrev: string | null = null;
   let isFirst = true;
-  for (const raw of events as unknown as Array<Record<string, unknown>>) {
-    const storedPrev = (raw.prevHash ?? null) as string | null;
-    if (isFirst) {
-      // Anchor: accept whatever the surviving head's prevHash is (null=genesis or
-      // non-null=TTL-truncated). No linkage check for the very first event.
-      expectedPrev = storedPrev;
-      isFirst = false;
-    } else if (storedPrev !== expectedPrev) {
-      // Broken forward linkage: a deleted predecessor (that had a successor) or a
-      // re-pointed prevHash.
-      return { ok: false, brokenAt: String(raw._id), count: events.length };
+  let count = 0;
+  let unverifiable = 0;
+  try {
+    for await (const leanDoc of cursor) {
+      const raw = leanDoc as unknown as Record<string, unknown>;
+      count += 1;
+      const storedPrev = (raw.prevHash ?? null) as string | null;
+      if (isFirst) {
+        // Anchor: accept whatever the surviving head's prevHash is (null=genesis or
+        // non-null=TTL-truncated). No linkage check for the very first event.
+        expectedPrev = storedPrev;
+        isFirst = false;
+      } else if (storedPrev !== expectedPrev) {
+        // Broken forward linkage: a deleted predecessor (that had a successor) or a
+        // re-pointed prevHash.
+        return { ok: false, brokenAt: String(raw._id), count, unverifiable };
+      }
+      // A sentinel row never had a digest to begin with, so recomputing it would
+      // always "fail" — that is a write-time hashing error, not tampering. Its
+      // stored hash still carries the chain forward (the successor's prevHash
+      // links to it), so linkage above is still enforced.
+      if (isHashErrorSentinel(raw.hash)) {
+        unverifiable += 1;
+        expectedPrev = raw.hash as string;
+        continue;
+      }
+      const recomputed = computeAuditHash({
+        action: raw.action as string,
+        actorId: raw.actorId as string,
+        actorEmail: raw.actorEmail as string | undefined,
+        actorRole: raw.actorRole as string | undefined,
+        orgId: raw.orgId as string | undefined,
+        affectedOrgId: raw.affectedOrgId as string | undefined,
+        targetType: raw.targetType as string | undefined,
+        targetId: raw.targetId as string | undefined,
+        groupId: raw.groupId as string | undefined,
+        impersonatorId: raw.impersonatorId as string | undefined,
+        outcome: raw.outcome as string | undefined,
+        details: raw.details as Record<string, unknown> | undefined,
+        ip: raw.ip as string | undefined,
+        userAgent: raw.userAgent as string | undefined,
+        requestId: raw.requestId as string | undefined,
+        traceId: raw.traceId as string | undefined,
+        createdAt: raw.createdAt as Date,
+        prevHash: storedPrev,
+      });
+      // Broken content: a field was mutated after the hash was written.
+      if (recomputed !== raw.hash) {
+        return { ok: false, brokenAt: String(raw._id), count, unverifiable };
+      }
+      expectedPrev = raw.hash as string;
     }
-    const recomputed = computeAuditHash({
-      action: raw.action as string,
-      actorId: raw.actorId as string,
-      actorEmail: raw.actorEmail as string | undefined,
-      actorRole: raw.actorRole as string | undefined,
-      orgId: raw.orgId as string | undefined,
-      affectedOrgId: raw.affectedOrgId as string | undefined,
-      targetType: raw.targetType as string | undefined,
-      targetId: raw.targetId as string | undefined,
-      groupId: raw.groupId as string | undefined,
-      impersonatorId: raw.impersonatorId as string | undefined,
-      outcome: raw.outcome as string | undefined,
-      details: raw.details as Record<string, unknown> | undefined,
-      ip: raw.ip as string | undefined,
-      userAgent: raw.userAgent as string | undefined,
-      requestId: raw.requestId as string | undefined,
-      traceId: raw.traceId as string | undefined,
-      createdAt: raw.createdAt as Date,
-      prevHash: storedPrev,
-    });
-    // Broken content: a field was mutated after the hash was written.
-    if (recomputed !== raw.hash) {
-      return { ok: false, brokenAt: String(raw._id), count: events.length };
-    }
-    expectedPrev = raw.hash as string;
+  } finally {
+    // An early return abandons the iterator; close the server-side cursor
+    // explicitly rather than waiting for it to time out.
+    await cursor.close();
   }
-  return { ok: true, count: events.length };
+  return { ok: true, count, unverifiable };
 }

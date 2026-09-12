@@ -35,6 +35,7 @@ import { buildMemberColumns } from '@/components/members/memberColumns';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import api from '@/lib/api';
 import type { OrganizationMember } from '@/types';
+import { formatError } from '@/lib/constants';
 
 export default function MembersPage() {
   const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'members:manage' });
@@ -171,7 +172,7 @@ export default function MembersPage() {
       toast.success(`Switched to ${team.orgName}`);
       router.replace(router.asPath);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to switch team');
+      toast.error(formatError(err, 'Failed to switch team'));
     }
   };
 
@@ -231,7 +232,7 @@ export default function MembersPage() {
       await refreshUser();
       list.refresh();
     } catch (err) {
-      list.setError(err instanceof Error ? err.message : 'Failed to transfer ownership');
+      list.setError(formatError(err, 'Failed to transfer ownership'));
     } finally {
       setPendingTransfer(null);
     }

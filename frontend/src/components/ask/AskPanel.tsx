@@ -11,6 +11,7 @@ import { DescriptionList, type DescriptionItem } from '@/components/ui/Descripti
 import api from '@/lib/api';
 import type { AskSource, AskTurn } from '@/lib/api/domains/ask';
 import type { BuilderProps } from '@/types';
+import { formatError } from '@/lib/constants';
 
 /** A reviewable draft the agent produced (nothing is created until the user commits). */
 interface Proposal {
@@ -181,7 +182,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
       }
     } catch (e) {
       if (cancelledRef.current) return;
-      setError(e instanceof Error ? e.message : 'The assistant failed to respond.');
+      setError(formatError(e, 'The assistant failed to respond.'));
       // Drop the pending assistant bubble only if nothing streamed into it yet;
       // a partially-streamed answer is kept (its content stays, the error shows below).
       setMessages((prev) => {
@@ -230,7 +231,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
       }
       patch({ proposalStatus: 'created' });
     } catch (e) {
-      patch({ proposalStatus: 'error', proposalError: e instanceof Error ? e.message : 'Failed to create.' });
+      patch({ proposalStatus: 'error', proposalError: formatError(e, 'Failed to create.') });
     }
   }, [messages]);
 

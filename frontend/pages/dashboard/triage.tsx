@@ -13,6 +13,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { api } from '@/lib/api';
 import { downloadCsv, datedFilename } from '@/lib/csv-export';
 import { Download } from 'lucide-react';
+import { formatError } from '@/lib/constants';
 
 interface TriageSample {
   id: string | number;
@@ -72,7 +73,7 @@ export default function TriagePage() {
       setGroups(payload.groups);
       setTotalFailed(payload.totalFailed);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatError(err));
     } finally {
       setLoading(false);
     }
@@ -105,7 +106,7 @@ export default function TriagePage() {
       // Refresh so the replayed sample disappears.
       void load();
     } catch (err) {
-      setReplayMsg(jobId, { text: err instanceof Error ? err.message : String(err), isError: true });
+      setReplayMsg(jobId, { text: formatError(err), isError: true });
     } finally {
       setReplaying(prev => {
         const next = new Set(prev);

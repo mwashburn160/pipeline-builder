@@ -126,3 +126,62 @@ describe('real Mongoose 9 guard — why updatePipeline is required', () => {
     ).not.toThrow();
   });
 });
+
+describe('un-backfilled org docs never yield undefined/NaN quota numbers', () => {
+  /**
+   * The exceeded path and the read path both defaulted a missing stored limit to
+   * the tier default; the SUCCESS path did not. So for a newly-added quota type
+   * on an un-backfilled org doc, a successful reservation returned
+   * `limit: undefined` and `remaining: Math.max(0, undefined - used)` = NaN —
+   * which flowed to every `reserveQuota` caller and the `/quotas` read surface.
+   */
+  it('incrementUsage defaults a MISSING stored limit on the success path', async () => {
+    // `quotas.plugins` absent — exactly the un-backfilled shape.
+    findOneAndUpdate.mockResolvedValue({
+      quotas: {},
+      usage: { plugins: { used: 3, resetAt: new Date('2026-07-01T00:00:00.000Z') } },
+    });
+
+    const { quota } = await quotaService.incrementUsage('org-1', 'plugins', 1);
+
+    expect(quota.limit).toBe(10); // config default for plugins
+    expect(quota.remaining).not.toBeNaN();
+    expect(quota.remaining).toBe(7);
+  });
+
+  it('treats a missing `used` as 0 rather than propagating NaN', async () => {
+    // `resetAt` present but `used` absent — the subdoc shape the $ifNull guards.
+    findOneAndUpdate.mockResolvedValue({
+      quotas: { plugins: 10 },
+      usage: { plugins: { resetAt: new Date('2026-07-01T00:00:00.000Z') } },
+    });
+
+    const { quota } = await quotaService.incrementUsage('org-1', 'plugins', 1);
+
+    expect(quota.used).toBe(0);
+    expect(quota.remaining).toBe(10);
+    expect(quota.remaining).not.toBeNaN();
+  });
+
+  it('guards `used` with $ifNull in BOTH the filter and the update', async () => {
+    await quotaService.incrementUsage('org-1', 'plugins', 1);
+    const [filter, update] = findOneAndUpdate.mock.calls[0] as [unknown, unknown];
+
+    // A subdoc with resetAt set but `used` absent made `$add` yield null, so
+    // `used` was WRITTEN as null and stopped incrementing (and enforcing).
+    expect(JSON.stringify(filter)).toContain('$ifNull');
+    expect(JSON.stringify(update)).toContain('$ifNull');
+  });
+
+  it('decrementUsage also defaults a missing stored limit', async () => {
+    findOneAndUpdate.mockResolvedValue({
+      quotas: {},
+      usage: { plugins: { used: 2, resetAt: new Date('2026-07-01T00:00:00.000Z') } },
+    });
+
+    const result = await quotaService.decrementUsage('org-1', 'plugins', 1);
+
+    expect(result?.quota.limit).toBe(10);
+    expect(result?.quota.remaining).not.toBeNaN();
+  });
+});

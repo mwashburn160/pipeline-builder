@@ -70,114 +70,59 @@ afterEach(() => {
   (globalThis as any).EventSource = originalEventSource;
 });
 
-describe('useSSE reconnect/backoff', () => {
-  it('does NOT reset the retry counter on received messages (exhaustion stays reachable, backoff grows)', () => {
-    const onMessage = jest.fn();
+describe('useSSE error handling', () => {
+  /**
+   * `useSSE` deliberately does NOT reconnect in-band. Both streams in this app
+   * are TICKETED — a single-use ticket is exchanged for the stream — so
+   * replaying the same URL just 401s. Reconnection means minting a FRESH
+   * ticket, which only the consumer can do, so an error hands control straight
+   * to `onRetriesExhausted`. (The old `maxRetries`/`baseRetryDelayMs` backoff
+   * was dead code: both consumers passed `maxRetries: 0`.)
+   */
+  it('hands control to onRetriesExhausted on the FIRST error — no in-band retry', () => {
     const onRetriesExhausted = jest.fn();
-
     renderHook(() =>
-      useSSE({
-        url: 'https://sse.test/stream',
-        maxRetries: 3,
-        baseRetryDelayMs: 1000,
-        onMessage,
-        onRetriesExhausted,
-      }),
+      useSSE({ url: 'https://sse.test/stream', onMessage: jest.fn(), onRetriesExhausted }),
     );
 
-    // Initial connection.
     expect(MockEventSource.instances.length).toBe(1);
+    act(() => latest().emitError());
 
-    // Cycle 1: deliver a message, then drop — no onopen. Reconnect at base delay (1000ms).
-    act(() => {
-      latest().emitMessage({ n: 1 });
-      latest().emitError();
-    });
-    act(() => jest.advanceTimersByTime(999));
-    expect(MockEventSource.instances.length).toBe(1); // backoff not elapsed yet
-    act(() => jest.advanceTimersByTime(1));
-    expect(MockEventSource.instances.length).toBe(2); // reconnected
-
-    // Cycle 2: message + drop. If the message had reset the counter, this would
-    // reconnect at 1000ms again. It must take 2000ms (2^1) — proving the counter climbed.
-    act(() => {
-      latest().emitMessage({ n: 2 });
-      latest().emitError();
-    });
-    act(() => jest.advanceTimersByTime(1999));
-    expect(MockEventSource.instances.length).toBe(2);
-    act(() => jest.advanceTimersByTime(1));
-    expect(MockEventSource.instances.length).toBe(3);
-
-    // Cycle 3: message + drop. Delay must be 4000ms (2^2) — counter still climbing.
-    act(() => {
-      latest().emitMessage({ n: 3 });
-      latest().emitError();
-    });
-    act(() => jest.advanceTimersByTime(3999));
-    expect(MockEventSource.instances.length).toBe(3);
-    act(() => jest.advanceTimersByTime(1));
-    expect(MockEventSource.instances.length).toBe(4);
-
-    // Cycle 4: counter is now at maxRetries (3). One more drop exhausts retries —
-    // reachable only because messages never reset the counter.
-    expect(onRetriesExhausted).not.toHaveBeenCalled();
-    act(() => {
-      latest().emitMessage({ n: 4 });
-      latest().emitError();
-    });
     expect(onRetriesExhausted).toHaveBeenCalledTimes(1);
-    expect(onMessage).toHaveBeenCalledTimes(4);
-    // No further reconnect after exhaustion.
-    expect(MockEventSource.instances.length).toBe(4);
+    // No replacement EventSource was opened against the (now-consumed) ticket.
+    expect(MockEventSource.instances.length).toBe(1);
   });
 
-  it('resets the retry counter on onopen (a healthy established connection)', () => {
-    const onRetriesExhausted = jest.fn();
-
-    renderHook(() =>
-      useSSE({
-        url: 'https://sse.test/stream',
-        maxRetries: 3,
-        baseRetryDelayMs: 1000,
-        onMessage: jest.fn(),
-        onRetriesExhausted,
-      }),
+  it('closes the stream on error and reports disconnected', () => {
+    const { result } = renderHook(() =>
+      useSSE({ url: 'https://sse.test/stream', onMessage: jest.fn() }),
     );
 
-    // Two drops without onopen push the counter to 2.
-    act(() => latest().emitError()); // counter -> 1, delay 1000
-    act(() => jest.advanceTimersByTime(1000));
-    expect(MockEventSource.instances.length).toBe(2);
-
-    act(() => latest().emitError()); // counter -> 2, delay 2000
-    act(() => jest.advanceTimersByTime(2000));
-    expect(MockEventSource.instances.length).toBe(3);
-
-    // A genuinely established connection fires onopen — this resets the counter.
     act(() => latest().emitOpen());
+    expect(result.current.connected).toBe(true);
 
-    // Next drop: if the counter were still 2, backoff would be 4000ms. Because
-    // onopen reset it to 0, the drop makes it 1 and reconnect happens at the
-    // BASE delay (1000ms). Advancing 999ms must not reconnect; 1000ms must.
     act(() => latest().emitError());
-    act(() => jest.advanceTimersByTime(999));
-    expect(MockEventSource.instances.length).toBe(3); // still base-delay window
-    act(() => jest.advanceTimersByTime(1));
-    expect(MockEventSource.instances.length).toBe(4); // reconnected at base delay => reset confirmed
+    expect(result.current.connected).toBe(false);
+    expect(latest().closed).toBe(true);
+  });
 
-    // And exhaustion now takes a fresh full run of maxRetries (delays 2000, 4000).
-    act(() => latest().emitError()); // counter -> 2
-    act(() => jest.advanceTimersByTime(2000));
-    expect(MockEventSource.instances.length).toBe(5);
+  it('tolerates a consumer that provides no onRetriesExhausted', () => {
+    renderHook(() => useSSE({ url: 'https://sse.test/stream', onMessage: jest.fn() }));
+    expect(() => act(() => latest().emitError())).not.toThrow();
+  });
 
-    act(() => latest().emitError()); // counter -> 3
-    act(() => jest.advanceTimersByTime(4000));
-    expect(MockEventSource.instances.length).toBe(6);
+  it('reconnects only when the url changes (a fresh ticket)', () => {
+    const { rerender } = renderHook(
+      ({ url }: { url: string }) => useSSE({ url, onMessage: jest.fn() }),
+      { initialProps: { url: 'https://sse.test/stream?ticket=one' } },
+    );
+    expect(MockEventSource.instances.length).toBe(1);
 
-    expect(onRetriesExhausted).not.toHaveBeenCalled();
-    act(() => latest().emitError()); // counter already at max => exhausted
-    expect(onRetriesExhausted).toHaveBeenCalledTimes(1);
+    act(() => latest().emitError());
+    expect(MockEventSource.instances.length).toBe(1); // still no self-retry
+
+    rerender({ url: 'https://sse.test/stream?ticket=two' });
+    expect(MockEventSource.instances.length).toBe(2);
   });
 });
 

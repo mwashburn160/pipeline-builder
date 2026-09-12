@@ -157,6 +157,20 @@ export function useAIProviders(
         const agent = askResponse.status === 'fulfilled' && askResponse.value ? askAgentEntry(askResponse.value) : null;
         if (agent) merged.unshift(agent);
 
+        // Surface a genuine fetch failure. `Promise.allSettled` never rejects,
+        // so the `catch` below could only fire on a synchronous throw in the
+        // merge code — which meant a 500 from the providers endpoint rendered
+        // as the plausible-looking "no providers configured, enter your own API
+        // key" empty state, and `error` was permanently unreachable.
+        //
+        // Deliberately NOT fatal: the catalog below still lists every provider,
+        // so a user with their own key can proceed. The banner just stops the
+        // outage from masquerading as a configuration state.
+        const rejected = [serverResponse, orgResponse, askResponse].filter((r) => r.status === 'rejected');
+        if (rejected.length > 0) {
+          setError('Could not load configured AI providers — showing the full catalog. Your saved keys may be unavailable.');
+        }
+
         setProviders(merged);
         if (merged.length > 0) {
           setSelectedProviderState(merged[0].id);

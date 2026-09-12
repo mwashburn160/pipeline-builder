@@ -21,6 +21,7 @@ import api from '@/lib/api';
 import { PatSection } from '@/components/settings/PatSection';
 import { decodeJwt, formatTimestamp, isExpired, expiresIn } from '@/lib/jwt';
 import { redactString, redactDetails } from '@/lib/redact';
+import { formatError } from '@/lib/constants';
 
 interface TokenHistoryEntry {
   id: string;
@@ -210,7 +211,7 @@ export default function TokensPage() {
       setHistory(res.data?.tokens ?? []);
       setHistoryError(null);
     } catch (err) {
-      setHistoryError(err instanceof Error ? err.message : 'Failed to load token history');
+      setHistoryError(formatError(err, 'Failed to load token history'));
     }
   }, []);
 
@@ -237,7 +238,7 @@ export default function TokensPage() {
       void loadHistory();
       setGenSuccess('New token pair generated successfully. Your session tokens have been updated.');
     } catch (error) {
-      setGenError(error instanceof Error ? error.message : 'Failed to generate token');
+      setGenError(formatError(error, 'Failed to generate token'));
     } finally {
       setGenerating(false);
     }
@@ -253,7 +254,7 @@ export default function TokensPage() {
       void loadHistory();
       setRevokeSuccess('All previously-issued tokens have been revoked. Your session has been refreshed with a new token.');
     } catch (error) {
-      setRevokeError(error instanceof Error ? error.message : 'Failed to revoke tokens');
+      setRevokeError(formatError(error, 'Failed to revoke tokens'));
     } finally {
       setRevoking(false);
     }

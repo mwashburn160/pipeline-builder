@@ -95,6 +95,13 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
       return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
     }
     let reserved = true;
+    // True once the FIRST stream part arrives — proof the provider responded and
+    // its $ cost was incurred. Mirrors the pipeline streaming routes. Without
+    // it, the refund below fired unconditionally, INCLUDING for the
+    // `case 'error'` raised from inside `fullStream` (i.e. strictly after the
+    // model round-trip), so a client that provoked mid-stream provider errors
+    // burned tokens without ever consuming quota.
+    let providerContacted = false;
 
     // Audit trail (safe metadata only — never the raw query text): what tools the
     // agent used, which drafts it proposed, and the outcome. Declared out here so the
@@ -150,6 +157,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         });
 
         for await (const part of stream.fullStream) {
+          providerContacted = true;
           if (sse.aborted()) break;
           switch (part.type) {
             case 'text-delta':
@@ -200,8 +208,12 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
           .catch(() => { /* usage unavailable for this provider — skip */ });
         auditTurn('success');
       } else {
-        decrementQuota(quotaService, orgId, 'aiCalls', quotaAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-        reserved = false;
+        // Refund ONLY if the provider was never reached; an abort after the
+        // first token still cost us the call.
+        if (!providerContacted) {
+          decrementQuota(quotaService, orgId, 'aiCalls', quotaAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+          reserved = false;
+        }
         incCounter('ai_requests_total', { route: 'agent', provider: providerLabel, outcome: 'aborted' });
         auditTurn('failure'); // client aborted mid-turn
       }
@@ -211,7 +223,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
       logger.error('Ask agent turn failed', { requestId: ctx.requestId, error: message });
       incCounter('ai_requests_total', { route: 'agent', provider: providerLabel, outcome: 'error' });
       auditTurn('failure');
-      if (reserved) {
+      if (reserved && !providerContacted) {
         decrementQuota(quotaService, orgId, 'aiCalls', quotaAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
       }
       handleAIError(res, message, 'The assistant failed to respond');

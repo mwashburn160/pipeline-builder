@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/Input';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
+import { formatError } from '@/lib/constants';
 
 interface Props {
   /** Short description of the action being gated, shown to the user. */
@@ -53,7 +54,7 @@ export function StepUpModal({ action, onConfirmed, onClose }: Props) {
         setError(res.message || 'Verification failed');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatError(err));
     } finally {
       setSubmitting(false);
     }

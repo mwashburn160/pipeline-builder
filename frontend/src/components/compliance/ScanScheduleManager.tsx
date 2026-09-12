@@ -13,6 +13,7 @@ import { TextEmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import type { ScanSchedule } from '@/types/compliance';
 import { formatDateTime } from '@/lib/format';
+import { formatError } from '@/lib/constants';
 
 interface ScanScheduleFormData {
   target: string;
@@ -52,7 +53,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
       }
     } catch (err) {
       if (gen !== genRef.current) return;
-      toast.error(err instanceof Error ? err.message : 'Failed to load scan schedules');
+      toast.error(formatError(err, 'Failed to load scan schedules'));
     }
     if (gen === genRef.current) setLoading(false);
   }, [toast]);
@@ -94,7 +95,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
       closeForm();
       fetchSchedules();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : `Failed to ${editingId ? 'update' : 'create'} schedule`);
+      toast.error(formatError(err, `Failed to ${editingId ? 'update' : 'create'} schedule`));
     }
     setSubmitting(false);
   };
@@ -105,7 +106,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
       await api.toggleScanScheduleActive(schedule.id, !schedule.isActive);
       fetchSchedules();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to toggle schedule');
+      toast.error(formatError(err, 'Failed to toggle schedule'));
     }
     setTogglingId(null);
   };
@@ -118,7 +119,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
       toast.success('Schedule deleted');
       fetchSchedules();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete schedule');
+      toast.error(formatError(err, 'Failed to delete schedule'));
     }
     setDeletingId(null);
   };

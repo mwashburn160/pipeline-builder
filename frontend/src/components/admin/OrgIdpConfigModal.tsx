@@ -14,6 +14,7 @@ import { Modal } from '@/components/ui/Modal';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import type { Organization, OrgIdpConfigDto } from '@/types';
 import { formatDateTime } from '@/lib/format';
+import { formatError } from '@/lib/constants';
 
 interface Props {
   org: Organization;
@@ -78,7 +79,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
       // Legacy safety net: older backends 404'd when no config existed; the
       // endpoint now returns 200 + `config: null`, but tolerate a 404 too.
       if (err instanceof ApiError && err.statusCode === 404) return;
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatError(err));
     })
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
@@ -130,7 +131,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
       onSaved?.();
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(formatError(e));
     } finally {
       setSubmitting(false);
     }
@@ -144,7 +145,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
       onSaved?.();
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(formatError(e));
       setSubmitting(false);
       setConfirmRemove(false);
     }

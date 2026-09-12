@@ -6,6 +6,7 @@ import { useToast } from '@/components/ui/Toast';
 import { roleDisplayName } from '@/lib/permissions';
 import api from '@/lib/api';
 import type { OrganizationMember, OrganizationRole } from '@/types';
+import { formatError } from '@/lib/constants';
 
 interface UseMemberRolesOptions {
   orgId: string | undefined;
@@ -50,7 +51,7 @@ export function useMemberRoles({ orgId, canManageRoles, isAuthenticated, onRoles
       const res = await api.getOrganizationRoles(orgId);
       setRoles(res.data?.roles ?? []);
     } catch (err) {
-      setRolesListError(err instanceof Error ? err.message : 'Failed to load roles');
+      setRolesListError(formatError(err, 'Failed to load roles'));
     }
   }, [orgId, canManageRoles]);
 

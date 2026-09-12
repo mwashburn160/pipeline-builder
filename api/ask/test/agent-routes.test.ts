@@ -157,3 +157,50 @@ describe('POST /ask/agent/stream', () => {
     );
   });
 });
+
+describe('POST /ask/agent/stream — aiCalls refund boundary', () => {
+  /**
+   * The refund must hinge on whether the PROVIDER was actually reached, not
+   * merely on whether we reserved. The old code refunded unconditionally,
+   * including for the `case 'error'` raised from INSIDE `fullStream` — i.e.
+   * strictly after the model round-trip — so a client that provoked mid-stream
+   * provider errors burned tokens without ever consuming quota.
+   *
+   * The pipeline streaming routes already got this right via `providerContacted`.
+   */
+  it('REFUNDS when the failure happens BEFORE the provider responds', async () => {
+    // streamText itself throws → nothing ever streamed → we owe nothing.
+    streamText.mockImplementationOnce(() => { throw new Error('model config invalid'); });
+    await handler(mockReq({ query: 'help me' }), mockRes());
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT refund when the stream errors AFTER the provider responded', async () => {
+    // A token flowed (provider billed us), then the model emitted an error part.
+    streamParts = [
+      { type: 'text-delta', text: 'partial' },
+      { type: 'error', error: new Error('provider blew up mid-stream') },
+    ];
+    await handler(mockReq({ query: 'help me' }), mockRes());
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+  });
+
+  it('does NOT refund when the error part is the FIRST thing the provider sends', async () => {
+    // Reaching the stream at all means the request was dispatched and billed.
+    streamParts = [{ type: 'error', error: new Error('content filter') }];
+    await handler(mockReq({ query: 'help me' }), mockRes());
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+  });
+
+  it('keeps the slot on a completed turn', async () => {
+    streamParts = [{ type: 'text-delta', text: 'done' }];
+    await handler(mockReq({ query: 'help me' }), mockRes());
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+  });
+
+  it('bounds the tool-calling loop so a looping agent cannot burn the budget', async () => {
+    streamParts = [{ type: 'text-delta', text: 'hi' }];
+    await handler(mockReq({ query: 'help me' }), mockRes());
+    expect(stepCountIs).toHaveBeenCalledWith(6);
+  });
+});

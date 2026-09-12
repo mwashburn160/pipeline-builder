@@ -40,18 +40,18 @@ const { looksEncrypted, unwrapEncrypted, wrapEncrypted } = await import('../src/
 
 describe('secret-blob', () => {
   describe('looksEncrypted', () => {
-    it('returns true for JSON-looking strings', () => {
+    it('returns true for JSON-looking strings', async () => {
       expect(looksEncrypted('{"ciphertext":"x"}')).toBe(true);
       expect(looksEncrypted('{')).toBe(true);
     });
 
-    it('returns false for plain strings', () => {
+    it('returns false for plain strings', async () => {
       expect(looksEncrypted('plain')).toBe(false);
       expect(looksEncrypted('hello world')).toBe(false);
       expect(looksEncrypted('')).toBe(false);
     });
 
-    it('returns false for non-string inputs', () => {
+    it('returns false for non-string inputs', async () => {
       // Type-cast to bypass TS — real callers may receive any
       expect(looksEncrypted(null as unknown as string)).toBe(false);
       expect(looksEncrypted(undefined as unknown as string)).toBe(false);
@@ -60,11 +60,11 @@ describe('secret-blob', () => {
   });
 
   describe('wrap + unwrap roundtrip', () => {
-    it('preserves plaintext through wrap → unwrap', () => {
+    it('preserves plaintext through wrap → unwrap', async () => {
       const plaintext = 'super-secret-api-key';
       const orgId = 'org-1';
 
-      const wrapped = wrapEncrypted(plaintext, orgId);
+      const wrapped = await wrapEncrypted(plaintext, orgId);
 
       // Result should be a JSON-encoded EncryptedBlob
       expect(typeof wrapped).toBe('string');
@@ -72,40 +72,40 @@ describe('secret-blob', () => {
       const parsed = JSON.parse(wrapped);
       expect(parsed.ciphertext).toBeDefined();
 
-      const unwrapped = unwrapEncrypted(wrapped, orgId, 'apiKey');
+      const unwrapped = await unwrapEncrypted(wrapped, orgId, 'apiKey');
       expect(unwrapped).toBe(plaintext);
     });
 
-    it('handles empty plaintext', () => {
-      const wrapped = wrapEncrypted('', 'org-1');
-      expect(unwrapEncrypted(wrapped, 'org-1', 'field')).toBe('');
+    it('handles empty plaintext', async () => {
+      const wrapped = await wrapEncrypted('', 'org-1');
+      expect(await unwrapEncrypted(wrapped, 'org-1', 'field')).toBe('');
     });
   });
 
   describe('unwrapEncrypted error cases', () => {
-    it('throws when the raw string is not JSON-shaped', () => {
-      expect(() => unwrapEncrypted('plain-text', 'org-1', 'apiKey')).toThrow(
+    it('throws when the raw string is not JSON-shaped', async () => {
+      await expect(unwrapEncrypted('plain-text', 'org-1', 'apiKey')).rejects.toThrow(
         /not a JSON-encoded EncryptedBlob/,
       );
     });
 
-    it('throws on JSON-shaped input that does not parse', () => {
+    it('throws on JSON-shaped input that does not parse', async () => {
       // Starts with '{' so looksEncrypted is true, but JSON.parse fails
-      expect(() => unwrapEncrypted('{not-json', 'org-1', 'apiKey')).toThrow(
+      await expect(unwrapEncrypted('{not-json', 'org-1', 'apiKey')).rejects.toThrow(
         /not valid JSON/,
       );
     });
 
-    it('throws on valid JSON that is not an EncryptedBlob shape', () => {
-      expect(() =>
+    it('throws on valid JSON that is not an EncryptedBlob shape', async () => {
+      await expect(
         unwrapEncrypted('{"foo":"bar"}', 'org-1', 'apiKey'),
-      ).toThrow(/does not match the EncryptedBlob shape/);
+      ).rejects.toThrow(/does not match the EncryptedBlob shape/);
     });
 
-    it('includes the fieldLabel in error messages', () => {
-      expect(() =>
+    it('includes the fieldLabel in error messages', async () => {
+      await expect(
         unwrapEncrypted('cleartext', 'org-1', 'ssoClientSecret'),
-      ).toThrow(/"ssoClientSecret"/);
+      ).rejects.toThrow(/"ssoClientSecret"/);
     });
   });
 });

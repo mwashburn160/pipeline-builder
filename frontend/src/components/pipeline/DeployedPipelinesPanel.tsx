@@ -6,6 +6,7 @@ import { ResourceList } from '@/components/ui/ResourceList';
 import api from '@/lib/api';
 import { formatRelativeTime } from '@/lib/relative-time';
 import { formatDateTime } from '@/lib/format';
+import { formatError } from '@/lib/constants';
 
 interface RegistryRow {
   id: string;
@@ -54,7 +55,7 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
         setError('Failed to load registry');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load registry');
+      setError(formatError(err, 'Failed to load registry'));
     } finally {
       setLoading(false);
     }
@@ -78,7 +79,7 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
         setError('Failed to remove registry entry');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove registry entry');
+      setError(formatError(err, 'Failed to remove registry entry'));
     } finally {
       setRemoving(null);
     }

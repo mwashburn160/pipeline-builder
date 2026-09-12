@@ -410,8 +410,21 @@ export class ApiCore {
     if (statusCode === 401 && this.refreshToken && !endpoint.includes('/auth/refresh') && !_refreshed) {
       const refreshed = await this.refreshAccessToken();
       if (refreshed) {
-        return this.request<T>(endpoint, options, _retryCount + 1, true);
+        // Reuse `_retryCount`: this is a re-auth, not an overload retry, and
+        // charging it against the 503 budget cost a refreshed GET one of its
+        // two documented 503 retries. The `_refreshed` flag already prevents a
+        // refresh loop.
+        return this.request<T>(endpoint, options, _retryCount, true);
       }
+    }
+
+    // An impersonation session deliberately carries NO refresh token, so the
+    // branch above is skipped once its short-lived token expires: every request
+    // 401s, `notifySessionExpired` never fires, and the dashboard dead-ends with
+    // generic auth errors on every panel. Treat it as what it is — an expired
+    // session — so the app routes back to the operator's own session.
+    if (statusCode === 401 && !this.refreshToken && this.isImpersonating()) {
+      this.notifySessionExpired();
     }
 
     // Retry on 503 (server overloaded / request timeout) — up to 2 retries with

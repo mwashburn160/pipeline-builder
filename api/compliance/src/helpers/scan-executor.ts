@@ -136,6 +136,10 @@ async function executeScanInternal(scanId: string): Promise<void> {
           .where(eq(schema.complianceScan.id, scanId)));
         if (current?.status === 'cancelled') {
           logger.info('Scan cancelled', { scanId });
+          // Terminal outcome — without it `started` never balances against the
+          // sum of terminal outcomes, so a cancellation looks like a scan that
+          // silently vanished.
+          incCounter('compliance_scans_total', { outcome: 'cancelled' });
           return;
         }
 
@@ -200,6 +204,7 @@ async function executeScanInternal(scanId: string): Promise<void> {
             .returning({ id: schema.complianceScan.id }));
           if (progressRows.length === 0) {
             logger.info('Scan no longer running, aborting executor', { scanId });
+            incCounter('compliance_scans_total', { outcome: 'cancelled' });
             return;
           }
         }
@@ -225,11 +230,15 @@ async function executeScanInternal(scanId: string): Promise<void> {
 
     if (completedRows.length === 0) {
       logger.info('Scan no longer running at completion (likely cancelled)', { scanId });
+      incCounter('compliance_scans_total', { outcome: 'cancelled' });
       return;
     }
 
-    // Domain metric — scan reached a terminal completed state.
-    incCounter('compliance_scans_total', { outcome: 'passed' });
+    // Domain metric — scan reached a terminal completed state. `passed` means
+    // the scan found NO blocking violations; a completed scan with blocks is a
+    // materially different outcome and used to be counted as `passed` too,
+    // which made the metric useless for "are we blocking anything?".
+    incCounter('compliance_scans_total', { outcome: blockCount > 0 ? 'blocked' : 'passed' });
 
     logger.info('Scan completed', {
       scanId,

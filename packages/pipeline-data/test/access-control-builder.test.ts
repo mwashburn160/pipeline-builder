@@ -21,7 +21,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-const { AccessControlQueryBuilder } = await import('../src/api/access-control-builder.js');
+const { AccessControlQueryBuilder, buildIdCondition } = await import('../src/api/access-control-builder.js');
 const { schema } = await import('../src/database/drizzle-schema.js');
 
 // Use the real pipeline schema as the table for the builder
@@ -231,5 +231,56 @@ describe('AccessControlQueryBuilder - combined common conditions', () => {
     // withoutOrg (anonymous): 2 access conditions (system + public) + isActive + isDefault = 4.
     expect(withOrg.length).toBe(4);
     expect(withoutOrg.length).toBe(4);
+  });
+});
+
+describe('buildIdCondition - array ids', () => {
+  const dialect = new PgDialect();
+  const render = (sql: ReturnType<typeof buildIdCondition>) =>
+    (sql ? dialect.sqlToQuery(sql) : null);
+
+  const UUID_A = '11111111-2222-3333-4444-555555555555';
+  const UUID_B = '66666666-7777-8888-9999-aaaaaaaaaaaa';
+
+  it('matches a single full uuid by equality', () => {
+    const q = render(buildIdCondition(schema.pipeline.id, UUID_A))!;
+    expect(q.sql).toContain('=');
+    expect(q.params).toContain(UUID_A);
+  });
+
+  it('prefix-matches a partial id with LIKE', () => {
+    const q = render(buildIdCondition(schema.pipeline.id, '1111'))!;
+    expect(q.sql).toContain('LIKE');
+    expect(q.params).toContain('1111%');
+  });
+
+  it('REGRESSION: matches ANY of an array of ids instead of stringifying it', () => {
+    // `BaseAccessFilter.id` is declared `string | string[]`, but the array used
+    // to fall through to `String(id)` → `LIKE 'a,b%'` → zero rows, silently.
+    const q = render(buildIdCondition(schema.pipeline.id, [UUID_A, UUID_B]))!;
+    expect(q.sql.toLowerCase()).toContain(' or ');
+    expect(q.params).toContain(UUID_A);
+    expect(q.params).toContain(UUID_B);
+    // Must NOT have collapsed the array into one comma-joined LIKE.
+    expect(q.params).not.toContain(`${UUID_A},${UUID_B}%`);
+  });
+
+  it('keeps per-element exact-vs-prefix semantics inside an array', () => {
+    const q = render(buildIdCondition(schema.pipeline.id, [UUID_A, 'abcd']))!;
+    expect(q.sql).toContain('LIKE');
+    expect(q.params).toContain(UUID_A);
+    expect(q.params).toContain('abcd%');
+  });
+
+  it('unwraps a single-element array (no needless OR)', () => {
+    const q = render(buildIdCondition(schema.pipeline.id, [UUID_A]))!;
+    expect(q.sql.toLowerCase()).not.toContain(' or ');
+    expect(q.params).toContain(UUID_A);
+  });
+
+  it('returns null for an empty array and for absent ids', () => {
+    expect(buildIdCondition(schema.pipeline.id, [])).toBeNull();
+    expect(buildIdCondition(schema.pipeline.id, undefined)).toBeNull();
+    expect(buildIdCondition(schema.pipeline.id, null)).toBeNull();
   });
 });

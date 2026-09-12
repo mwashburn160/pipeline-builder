@@ -11,6 +11,7 @@
 import { jest, describe, it, expect, beforeAll } from '@jest/globals';
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
+import { _resetJwtSecretCacheForTests } from '../src/middleware/auth.js';
 import { requireStepUp, verifyStepUpToken, consumeStepUpJti } from '../src/middleware/step-up.js';
 
 const SECRET = 'test-step-up-secret';
@@ -67,10 +68,14 @@ describe('verifyStepUpToken', () => {
     const previous = 'old-secret';
     const token = signStepUp({ sub: 'rot' }, previous);
     process.env.JWT_SECRET_PREVIOUS = previous;
+    // verifyStepUpToken now shares requireAuth's secret accessors, which cache
+    // for 5 minutes — drop the cache so this mid-test env change is seen.
+    _resetJwtSecretCacheForTests();
     try {
       expect(verifyStepUpToken(token).sub).toBe('rot');
     } finally {
       delete process.env.JWT_SECRET_PREVIOUS;
+      _resetJwtSecretCacheForTests();
     }
   });
 });

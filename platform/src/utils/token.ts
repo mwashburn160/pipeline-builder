@@ -391,11 +391,14 @@ export function verifyRefreshToken(token: string): RefreshTokenPayload {
  * once the caller re-verifies their password; required (as
  * `X-Step-Up-Token`) on destructive endpoints behind `requireStepUp`.
  *
- * Single-use IS enforced: `requireStepUp` consumes the `jti` via the
- * process-local set in `middleware/consumed-jti.ts`, so a replay against the
- * same process is rejected within the token's (60s default) TTL. Multi-instance
- * deployments get best-effort single-use per process; swap the consumed-jti
- * module for a Redis-backed store when strict cross-instance single-use matters.
+ * Single-use IS enforced ACROSS replicas: `requireStepUp` consumes the `jti`
+ * via `middleware/consumed-jti.ts`, which claims it on the shared Redis with an
+ * atomic `SET NX PX` — only the first setter wins, and the key expires with the
+ * token, so a replay is rejected fleet-wide within the (60s default) TTL. This
+ * matters: the platform HPA runs up to 5 replicas.
+ *
+ * Only when Redis is unreachable does it fall back to the process-local set,
+ * which is best-effort per instance.
  */
 export interface StepUpTokenPayload {
   type: 'step-up';

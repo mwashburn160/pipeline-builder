@@ -58,13 +58,25 @@ const httpRequestsByOrgTotal = new Counter({
   registers: [register],
 });
 
-/** Sample rate for the per-org counter. 1.0 = every request, 0.0 = disabled.
- *  Parsed once at module load — operators tune by restarting the service. */
+/**
+ * Sample rate for the per-org counter. 1.0 = every request, 0.0 = disabled.
+ * Parsed once at module load — operators tune by restarting the service.
+ *
+ * Defaults to 0 (OFF). `org_id` is an UNBOUNDED, tenant-identifying label and
+ * prom-client counters never expire, so at the old default of 1.0 every service
+ * accumulated a series per (org × route × status) for the process lifetime, and
+ * `/metrics` — which is not auth-gated — enumerated every tenant id along with
+ * its request volume and error rate to anyone who could reach the port.
+ *
+ * Turn it on deliberately (and ideally with a sample rate well under 1.0, plus
+ * `METRICS_SCRAPE_TOKEN` set) when you actually want per-org noisy-neighbour
+ * detection from metrics rather than from the access-log stream.
+ */
 const ORG_SAMPLE_RATE = (() => {
   const raw = process.env.HTTP_METRICS_ORG_SAMPLE_RATE;
-  if (raw === undefined || raw === '') return 1.0;
+  if (raw === undefined || raw === '') return 0;
   const parsed = parseFloat(raw);
-  if (Number.isNaN(parsed) || parsed < 0 || parsed > 1) return 1.0;
+  if (Number.isNaN(parsed) || parsed < 0 || parsed > 1) return 0;
   return parsed;
 })();
 

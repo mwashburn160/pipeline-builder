@@ -107,7 +107,6 @@ export function useBuildStatus(requestId: string | null) {
 
   const { connected } = useSSE({
     url,
-    maxRetries: 0, // fresh ticket per reconnect (see onRetriesExhausted), not stale in-band retries
     onMessage,
     onRetriesExhausted,
   });

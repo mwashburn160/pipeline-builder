@@ -540,23 +540,34 @@ export async function createRole(
  * Roles are immutable here. Bumps `tokenVersion` for every current member when
  * permissions change so the new grants take effect on their next token refresh.
  *
- * `actor` is the caller's permission ceiling: a non-superadmin may only set a
- * permission set within the permissions they themselves hold. Superadmins
- * bypass the ceiling.
+ * `actor` is the caller's permission ceiling, applied in BOTH directions:
+ * - the INCOMING set must be within the permissions the actor holds, so a
+ *   delegate can't grant themselves something they lack (`sanitizePermissions`);
+ * - the role's EXISTING set must also be within it, so a delegate can't STRIP a
+ *   capability they don't hold from every member (`assertActorMayAssignRole`).
+ *
+ * The second direction is the one `deleteRole` documents: without it, the same
+ * griefing vector is simply reachable through update instead of delete — a
+ * `roles:manage` holder could rewrite a `billing:manage` role down to
+ * `roles:manage` and revoke that capability org-wide.
+ *
  * Throws `RL_ROLE_NOT_FOUND`, `RL_SYSTEM_IMMUTABLE`, `RL_NAME_TAKEN`,
  * `RL_INVALID_PERMISSION`, `RL_PERMISSION_NOT_ASSIGNABLE`,
- * `RL_PERMISSION_EXCEEDS_CEILING`.
+ * `RL_PERMISSION_EXCEEDS_CEILING`, `RL_ASSIGN_EXCEEDS_CEILING`.
  */
 export async function updateRole(
   orgId: string,
   roleId: string,
   input: { name?: string; description?: string; permissions?: string[] },
-  actor: ActorPermissionCeiling,
+  actor: RoleAssignmentActor,
 ): Promise<RoleWithMembers> {
   const oid = toOrgId(orgId);
   const role = await Role.findOne({ _id: roleId, organizationId: oid });
   if (!role) throw new Error(RL_ROLE_NOT_FOUND);
   if (role.system) throw new Error(RL_SYSTEM_IMMUTABLE);
+  // Ceiling against what the role ALREADY grants — checked before any mutation
+  // so a refused edit leaves the role untouched.
+  assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
 
   if (input.name !== undefined) {
     const name = input.name.trim();

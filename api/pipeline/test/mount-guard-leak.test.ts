@@ -82,6 +82,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createSafeClient: () => ({ post: jest.fn() }),
   initSSEStream: () => ({ aborted: () => false }),
   isSystemAdmin: () => false,
+  checkVisibilityWriteAccess: () => 'ok',
+  userHasPermission: () => false,
   pickDefined: (o: any) => o,
   requireVisibilityWriteAccess: () => true,
   resolveVisibility: (_req: any, am?: string) => am ?? 'private',

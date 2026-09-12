@@ -15,10 +15,11 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import api from '@/lib/api';
+import { startOAuthLogin } from '@/lib/oauth-intent';
+import { formatError } from '@/lib/constants';
 
 // sessionStorage key carrying the OAuth "intent" across the provider redirect.
 // Must match the callback page (pages/auth/callback/[provider].tsx).
-const OAUTH_INTENT_KEY = 'pb_oauth_intent';
 
 const PROVIDER_LABELS: Record<string, string> = {
   google: 'Google',
@@ -121,7 +122,7 @@ function Hero() {
     setError(null);
     if (!identifier || !password) { setError('Enter your email and password'); return; }
     try { await login(identifier, password); }
-    catch (err) { setError(err instanceof Error ? err.message : 'Sign in failed'); }
+    catch (err) { setError(formatError(err, 'Sign in failed')); }
   };
 
   // Start the OAuth dance: fetch the provider authorize URL (backend mints the
@@ -131,16 +132,9 @@ function Hero() {
     setError(null);
     setOauthBusy(provider);
     try {
-      const res = await api.getOAuthUrl(provider);
-      const url = res.data?.url;
-      const state = res.data?.state;
-      if (!url || !state) throw new Error('Could not start sign-in with this provider');
-      try {
-        sessionStorage.setItem(OAUTH_INTENT_KEY, JSON.stringify({ state, kind: 'login', returnUrl: '/dashboard' }));
-      } catch { /* storage unavailable — backend still validates state */ }
-      window.location.href = url;
+      await startOAuthLogin(provider);
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Could not sign in with ${providerLabel(provider)}`);
+      setError(formatError(err, `Could not sign in with ${providerLabel(provider)}`));
       setOauthBusy(null);
     }
   };

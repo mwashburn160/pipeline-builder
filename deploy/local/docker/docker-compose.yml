@@ -43,6 +43,11 @@ x-common-env: &common-env
   LOG_FORMAT: ${LOG_FORMAT:-json}
   JWT_SECRET: ${JWT_SECRET}
   REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
+  # AES-256-GCM master key for encrypted secret columns (AI provider keys, IdP
+  # client secrets). Required under NODE_ENV=production — platform refuses to
+  # boot without it. Alongside JWT_SECRET rather than in a service-specific
+  # block so any service that grows a decrypt path already has it.
+  SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY}
   PLATFORM_BASE_URL: ${PLATFORM_BASE_URL:-https://localhost:8443}
   # OpenTelemetry. On by default — exports to the bundled `jaeger` all-in-one
   # collector (OTLP/HTTP on 4318; UI on http://localhost:16686). Set
@@ -66,9 +71,17 @@ x-postgres-env: &postgres-env
   # Postgres-backed service inherits this via x-postgres-env so the
   # setting is uniform across the fleet.
   RLS_CONTEXT_MODE: ${RLS_CONTEXT_MODE:-warn}
+  # Postgres serves no TLS in compose, so SSL must stay off explicitly:
+  # getSslConfig turns it ON by default under NODE_ENV=production.
+  DB_SSL: ${DB_SSL:-false}
 
 # -- Env shared by Express server services --
 x-server-env: &server-env
+  # MUST be `production`. A long list of security guards keys off it and
+  # silently degrades when unset (dev-only JWT secret, all-zeros secret
+  # encryption key, non-secure cookies, relaxed CSP). The images set no
+  # NODE_ENV of their own, so it has to come from here.
+  NODE_ENV: ${NODE_ENV:-production}
   CORS_CREDENTIALS: ${CORS_CREDENTIALS:-true}
   CORS_ORIGIN: ${CORS_ORIGIN}
   LIMITER_MAX: ${LIMITER_MAX:-2000}

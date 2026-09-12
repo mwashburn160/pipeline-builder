@@ -53,6 +53,11 @@ if count > tonumber(ARGV[1]) then
   redis.call('DECR', KEYS[1])
   return 0
 end
+-- Record the owner IN THE SAME script as the INCR. These used to be two round
+-- trips: if the HSET threw, the counter was already raised with NO owner entry,
+-- and since the scrubber reclaims by iterating the owner hash it could never
+-- reclaim that slot — only the 900s TTL would, after wedging the org's cap.
+redis.call('HSET', KEYS[2], ARGV[3], ARGV[4])
 return 1
 `;
 
@@ -61,13 +66,13 @@ return 1
  *  `jobId -> orgId` so the scrubber can reclaim a slot whose job vanished. */
 export async function tryAcquireOrgSlot(orgId: string, jobId: string): Promise<boolean> {
   const redis = getConnectionForDb(0);
+  // TWO keys now: the org counter and the owner hash — the owner record is
+  // written atomically with the INCR (see ACQUIRE_SLOT_LUA).
   const result = await redis.eval(
-    ACQUIRE_SLOT_LUA, 1, orgSlotKey(orgId),
-    String(MAX_BUILDS_PER_ORG), String(ORG_SLOT_TTL_SEC),
+    ACQUIRE_SLOT_LUA, 2, orgSlotKey(orgId), orgSlotOwnersKey,
+    String(MAX_BUILDS_PER_ORG), String(ORG_SLOT_TTL_SEC), jobId, orgId,
   );
-  if (result !== 1) return false;
-  await redis.hset(orgSlotOwnersKey, jobId, orgId);
-  return true;
+  return result === 1;
 }
 
 /** Release the org's slot. Defensive: never let the counter go negative. */

@@ -703,7 +703,14 @@ export class SSEManager {
 
       // Pre-flight per-request cap so we can return 429 before flushing
       // SSE headers (after headers are flushed the client can't read a 429).
-      const existing = this.clients.get(requestId) || [];
+      //
+      // NORMALIZE first: `addClient` keys the map on the normalized form
+      // (dashes stripped), so reading the raw `requestId` here always found 0
+      // for a client using the dashed form. The cap was then only caught inside
+      // `addClient` — AFTER `flushHeaders()` — which is exactly the case this
+      // pre-flight exists to avoid: the client got a silently-closed stream
+      // instead of a 429.
+      const existing = this.clients.get(SSEManager.normalizeRequestId(requestId)) || [];
       if (existing.length >= this.maxClientsPerRequest) {
         logger.warn(`Client limit reached for request ${requestId} (max: ${this.maxClientsPerRequest})`);
         res.status(429).end('Too many connections for this request');

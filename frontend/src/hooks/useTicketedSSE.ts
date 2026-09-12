@@ -62,7 +62,7 @@ export function useTicketedSSE(opts: TicketedSSEOptions): { connected: boolean; 
   }, [subscriptionKey, ticketKey, scheduleReconnect]);
 
   const onMessage = useCallback((data: unknown) => { onMessageRef.current(data); }, []);
-  const { connected, everConnected } = useSSE({ url, maxRetries: 0, onMessage, onRetriesExhausted: scheduleReconnect });
+  const { connected, everConnected } = useSSE({ url, onMessage, onRetriesExhausted: scheduleReconnect });
   useEffect(() => { if (connected) reconnectAttemptRef.current = 0; }, [connected]);
 
   return { connected, everConnected };

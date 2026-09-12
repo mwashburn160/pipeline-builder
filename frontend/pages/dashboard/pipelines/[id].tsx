@@ -36,11 +36,11 @@ import { CreateTemplateModal } from '@/components/pipeline/CreateTemplateModal';
 import { ScorecardCard } from '@/components/pipeline/ScorecardCard';
 import { PipelineContextCard } from '@/components/pipeline/PipelineContextCard';
 import { LifecycleBadge } from '@/components/ui/LifecycleBadge';
-import { formatError } from '@/lib/constants';
 import { canWritePipeline } from '@/lib/resource-helpers';
 import api from '@/lib/api';
 import type { PipelineDeployment } from '@/lib/api/domains/pipelines';
 import type { Pipeline } from '@/types';
+import { formatError } from '@/lib/constants';
 
 interface ExecutionRow {
   id: string;
@@ -157,6 +157,13 @@ export default function PipelineDetailPage() {
   // card + the "View stack in AWS" link. Non-blocking; absent → card hidden.
   const [deployment, setDeployment] = useState<PipelineDeployment | null>(null);
   useEffect(() => {
+    // Clear FIRST: this page is reached by same-pathname navigation (⌘K jumps
+    // between pipelines push `/dashboard/pipelines/[id]`), so the component is
+    // NOT remounted and stale state survives the id change. Every path below
+    // returns without setting anything when there's no match, so without this
+    // the previous pipeline's Deployment card — and its "View stack in AWS"
+    // link — stayed on screen as if it belonged to the new one.
+    setDeployment(null);
     if (!id) return;
     let cancelled = false;
     // The registry endpoint is page-limited and has no per-pipeline filter, so

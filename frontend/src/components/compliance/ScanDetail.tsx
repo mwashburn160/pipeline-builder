@@ -17,6 +17,7 @@ import { useServerPagination } from '@/hooks/useServerPagination';
 import type { ComplianceScan, ComplianceAuditEntry, RuleTarget } from '@/types/compliance';
 import { SCAN_STATUS_CONFIG as STATUS_CONFIG, RESULT_STYLES } from '@/lib/compliance-styles';
 import { formatDateTime, formatTime } from '@/lib/format';
+import { formatError } from '@/lib/constants';
 
 /** The subset of an audit row needed to pre-fill an exemption request. */
 interface ExemptTarget {
@@ -118,7 +119,7 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
         toast.error(res.message || 'Failed to cancel scan');
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to cancel scan');
+      toast.error(formatError(err, 'Failed to cancel scan'));
     } finally {
       setCancelling(false);
     }
@@ -156,7 +157,7 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
         toast.error(res.message || 'Failed to request exemption');
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to request exemption');
+      toast.error(formatError(err, 'Failed to request exemption'));
     } finally {
       setExemptSubmitting(false);
     }

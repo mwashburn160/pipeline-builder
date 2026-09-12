@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleCondition, RuleTarget, RuleSeverity, RuleOperator, RuleConditionMode, RuleScope, ComplianceCheckResult } from '@/types/compliance';
+import { formatError } from '@/lib/constants';
 
 const OPERATORS: { value: RuleOperator; label: string }[] = [
   { value: 'eq', label: 'Equals' },
@@ -212,7 +213,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
         else setError('Failed to create rule');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(formatError(err, 'An error occurred'));
     }
     setSaving(false);
   };
@@ -235,7 +236,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
       if (res.success && res.data) setDryRunResult(res.data);
       else setError(res.message || 'Dry-run failed');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Dry-run failed');
+      setError(formatError(err, 'Dry-run failed'));
     }
   };
 
@@ -260,7 +261,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
         setError(res.message || 'Failed to preview impact');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to preview impact');
+      setError(formatError(err, 'Failed to preview impact'));
     } finally {
       setImpactLoading(false);
     }

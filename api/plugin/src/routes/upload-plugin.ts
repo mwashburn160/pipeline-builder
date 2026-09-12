@@ -53,6 +53,25 @@ const upload = multer({
  * Applies its own auth + quota middleware (multer first, then auth,
  * then `plugins` quota check).
  */
+/**
+ * Reclaim a temp upload that no handler will clean up.
+ *
+ * The happy path unlinks in the handler's `finally`, but a multipart parse
+ * error short-circuits before the handler runs — and the stale-temp sweeper
+ * (`cleanupStaleTempDirs`) scans BUILD_TEMP_ROOT, not the multer upload
+ * destination, so anything left here would never be reclaimed.
+ */
+function cleanupUploadFile(req: Request): void {
+  const uploaded = (req as Request & { file?: { path?: string } }).file;
+  if (!uploaded?.path) return;
+  try {
+    fs.unlinkSync(uploaded.path);
+  } catch (err) {
+    // Best-effort: the file may not have been created yet.
+    logger.debug('Upload temp cleanup failed', { path: uploaded.path, error: String(err) });
+  }
+}
+
 export function createUploadPluginRoutes( quotaService: QuotaService,
   sseManager: SSEManager,
 ): Router {
@@ -68,26 +87,39 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
       req.setTimeout(UPLOAD_TIMEOUT_MS);
       next();
     }) as RequestHandler,
+    // AUTHORIZE BEFORE ACCEPTING THE BODY.
+    //
+    // `upload.single` used to run FIRST, so multer streamed the whole request to
+    // UPLOAD_DEST (cap PLUGIN_MAX_UPLOAD_MB, default 4096) before anything
+    // checked who was calling — an unauthenticated caller could fill the
+    // build-scratch volume, bounded only by the global per-IP limiter. Worse,
+    // the only unlink is the handler's `finally`, which never runs when
+    // requireAuth 401s, and `cleanupStaleTempDirs` scans BUILD_TEMP_ROOT rather
+    // than UPLOAD_DEST — so the leaked files were permanent.
+    //
+    // Everything here reads only headers, so none of it needs the parsed body.
+    requireAuth as RequestHandler,
+    requireOrgId() as RequestHandler,
+    // Gate the mutation on `plugins:write` (mirrors the factory write routes and
+    // pipeline's create route). members keep access via the role bundle; this
+    // enforces the permission for custom groups.
+    requirePermission('plugins:write') as RequestHandler,
+    // Per-org burst cap on the build-triggering upload path (each upload runs an
+    // async Docker build). Keys on the verified org.
+    rateLimitByOrg({ name: 'plugin-upload', max: 30, windowMs: 60_000, message: 'Too many plugin uploads, please slow down.' }) as RequestHandler,
     upload.single('plugin') as RequestHandler,
     // Handle multer/busboy errors (e.g. "Unexpected end of form") before proceeding
-    ((err, _req, res, next) => {
+    ((err, req, res, next) => {
       if (err) {
         logger.error('Multipart parse error', { error: err.message });
+        // Reclaim a partially-written upload: multer may have created the temp
+        // file before failing, and the handler's `finally` never runs.
+        void cleanupUploadFile(req as Request);
         sendError(res, 400, `File upload failed: ${err.message}`, ErrorCode.VALIDATION_ERROR);
         return;
       }
       next();
     }) as ErrorRequestHandler,
-    requireAuth as RequestHandler,
-    requireOrgId() as RequestHandler,
-    // Gate the mutation on `plugins:write` (mirrors the factory write routes and
-    // pipeline's create route). members keep access via the role bundle; this
-    // enforces the permission for custom groups. Runs after auth/orgId so it
-    // sees the resolved principal, before any tenant-scoped work.
-    requirePermission('plugins:write') as RequestHandler,
-    // Per-org burst cap on the build-triggering upload path (each upload runs an
-    // async Docker build). Runs after auth/orgId so it keys on the verified org.
-    rateLimitByOrg({ name: 'plugin-upload', max: 30, windowMs: 60_000, message: 'Too many plugin uploads, please slow down.' }) as RequestHandler,
     // Open the RLS tenant scope (orgId + isSuperAdmin) so deployVersion's reads/writes
     // against the FORCE-RLS plugins table see the caller's org — the factory routes get
     // this via createProtectedRoute, but this route hand-wires its chain.

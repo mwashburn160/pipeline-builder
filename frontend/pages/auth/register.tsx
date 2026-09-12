@@ -17,12 +17,13 @@ import { SelectablePlanCard } from '@/components/billing/SelectablePlanCard';
 import { usePlans } from '@/hooks/usePlans';
 import { readMarketplaceRef } from '@/hooks/usePendingMarketplaceClaim';
 import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/lib/site-url';
+import { startOAuthLogin } from '@/lib/oauth-intent';
+import { formatError } from '@/lib/constants';
 
 // sessionStorage key carrying the OAuth "intent" across the provider redirect.
 // Must match the login card (LandingPage) + the callback page
 // (pages/auth/callback/[provider].tsx). Social sign-up reuses the 'login' intent:
 // the OAuth callback auto-provisions the account on first authorization.
-const OAUTH_INTENT_KEY = 'pb_oauth_intent';
 
 const PROVIDER_LABELS: Record<string, string> = {
   google: 'Google',
@@ -128,16 +129,9 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
     setError(null);
     setOauthBusy(provider);
     try {
-      const res = await api.getOAuthUrl(provider);
-      const url = res.data?.url;
-      const state = res.data?.state;
-      if (!url || !state) throw new Error('Could not start sign-up with this provider');
-      try {
-        sessionStorage.setItem(OAUTH_INTENT_KEY, JSON.stringify({ state, kind: 'login', returnUrl: '/dashboard' }));
-      } catch { /* storage unavailable — backend still validates state */ }
-      window.location.href = url;
+      await startOAuthLogin(provider);
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Could not sign up with ${providerLabel(provider)}`);
+      setError(formatError(err, `Could not sign up with ${providerLabel(provider)}`));
       setOauthBusy(null);
     }
   };
@@ -159,7 +153,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
       setSuccess(true);
       router.push('/dashboard');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
+      setError(formatError(err, 'Registration failed'));
     }
   };
 

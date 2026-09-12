@@ -12,6 +12,11 @@
  * `SECRET_ENCRYPTION_KEY` is a hard requirement at platform boot (see
  * `config/index.ts`); reaching `wrapEncrypted` without it set is a
  * programmer error and the underlying `encryptSecret` throws.
+ *
+ * Both helpers are ASYNC because the underlying api-core primitives are: a
+ * per-org KMS provider needs one KMS Decrypt the first time it sees an org, and
+ * deriving a key before that resolves would silently encrypt under the shared
+ * master and make the secret unreadable afterwards.
  */
 
 import { type EncryptedBlob, decryptSecret, encryptSecret, isEncryptedBlob } from '@pipeline-builder/api-core';
@@ -30,8 +35,8 @@ export function looksEncrypted(raw: string): boolean {
  * Encrypt a plaintext secret and stringify the resulting `EncryptedBlob`
  * for at-rest storage.
  */
-export function wrapEncrypted(plaintext: string, orgId: string): string {
-  return JSON.stringify(encryptSecret(plaintext, orgId));
+export async function wrapEncrypted(plaintext: string, orgId: string): Promise<string> {
+  return JSON.stringify(await encryptSecret(plaintext, orgId));
 }
 
 /**
@@ -42,7 +47,7 @@ export function wrapEncrypted(plaintext: string, orgId: string): string {
  * `fieldLabel` is included in the error so on-call can identify which
  * record needs repair without leaking the (encrypted) value itself.
  */
-export function unwrapEncrypted(raw: string, orgId: string, fieldLabel: string): string {
+export async function unwrapEncrypted(raw: string, orgId: string, fieldLabel: string): Promise<string> {
   if (!looksEncrypted(raw)) {
     throw new Error(`Stored secret "${fieldLabel}" is not a JSON-encoded EncryptedBlob`);
   }

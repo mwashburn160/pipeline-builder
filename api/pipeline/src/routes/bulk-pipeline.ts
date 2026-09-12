@@ -18,6 +18,8 @@ import {
   PipelineUpdateSchema,
   pickDefined,
   isSystemAdmin,
+  checkVisibilityWriteAccess,
+  userHasPermission,
   createComplianceClient,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
@@ -203,24 +205,30 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
 
     ctx.log('INFO', 'Bulk delete pipelines', { count: ids.length });
 
-    // Non-sysadmins can only delete private rows. Fetch the matched set first
-    // so we can reject the whole request if it would touch a public row the
-    // caller isn't allowed to mutate.
+    // Apply the SAME visibility rule as single-row delete, per row: author-only
+    // for `private`, any member for `org`, `pipelines:publish` for `public`.
+    // This previously rejected anything not `private`, which made bulk delete
+    // unusable for the DEFAULT rung (`org`) that single delete allows.
     if (!isSystemAdmin(req)) {
       const matched = await pipelineService.findByIds(ids, orgId);
-      const nonPrivate = matched.filter((p) => p.visibility !== 'private');
-      if (nonPrivate.length > 0) {
+      const forbidden = matched.filter(
+        (p) => checkVisibilityWriteAccess(req, p, userId, 'pipelines:publish') !== 'ok',
+      );
+      if (forbidden.length > 0) {
         return sendError(
           res,
           403,
-          'Bulk delete rejected: non-private pipelines require system admin',
+          'Bulk delete rejected: you cannot delete one or more of these pipelines',
           ErrorCode.INSUFFICIENT_PERMISSIONS,
-          { ids: nonPrivate.map(p => p.id) },
+          { ids: forbidden.map((p) => p.id) },
         );
       }
     }
 
-    const deleted = await pipelineService.bulkDelete(ids, orgId, userId);
+    const deleted = await pipelineService.bulkDelete(ids, orgId, userId, {
+      isSystemAdmin: isSystemAdmin(req),
+      canPublish: userHasPermission(req, 'pipelines:publish'),
+    });
 
     ctx.log('COMPLETED', 'Bulk delete complete', { requested: ids.length, deleted: deleted.length });
 
@@ -263,17 +271,19 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       return sendBadRequest(res, errorMessage(err), ErrorCode.TEMPLATE_VALIDATION_FAILED);
     }
 
-    // Sysadmin guard: if any matched row is non-private, only sysadmins can update.
+    // Same per-row visibility rule as single-row update (see bulk delete above).
     if (!isSystemAdmin(req)) {
       const matched = await pipelineService.findByIds(ids, orgId);
-      const nonPrivate = matched.filter((p) => p.visibility !== 'private');
-      if (nonPrivate.length > 0) {
+      const forbidden = matched.filter(
+        (p) => checkVisibilityWriteAccess(req, p, userId, 'pipelines:publish') !== 'ok',
+      );
+      if (forbidden.length > 0) {
         return sendError(
           res,
           403,
-          'Bulk update rejected: non-private pipelines require system admin',
+          'Bulk update rejected: you cannot modify one or more of these pipelines',
           ErrorCode.INSUFFICIENT_PERMISSIONS,
-          { ids: nonPrivate.map(p => p.id) },
+          { ids: forbidden.map((p) => p.id) },
         );
       }
     }

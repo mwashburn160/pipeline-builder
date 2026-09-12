@@ -66,6 +66,9 @@ class NotFoundError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    // Fail-open paths emit `quota_fail_open_total` so an outage is alertable;
+    // a no-op here keeps the counter out of the assertions that don't care.
+    emitCounter: jest.fn(),
     writeSseHeaders: () => undefined,
     MAX_PAGE_LIMIT: 1000,
     DEFAULT_PAGE_LIMIT: 100,

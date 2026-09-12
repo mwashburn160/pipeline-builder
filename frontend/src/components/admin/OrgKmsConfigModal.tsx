@@ -12,6 +12,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import type { Organization } from '@/types';
+import { formatError } from '@/lib/constants';
 
 interface Props {
   org: Organization;
@@ -59,7 +60,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
       } else {
         setError(res.message || 'Failed to load KMS config');
       }
-    }).catch((e) => !cancelled && setError(e instanceof Error ? e.message : String(e)))
+    }).catch((e) => !cancelled && setError(formatError(e)))
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
   }, [org.id]);
@@ -80,7 +81,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
       setSubmitting(false);
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(formatError(e));
       setSubmitting(false);
     }
   }, [org.id, keyId, ciphertextBase64, onSaved, onClose]);
@@ -101,7 +102,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
         setError(res.message || 'Test failed');
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(formatError(e));
     } finally {
       setTesting(false);
     }
@@ -119,7 +120,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
       setSubmitting(false);
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(formatError(e));
       setSubmitting(false);
     }
   }, [org.id, onSaved, onClose]);

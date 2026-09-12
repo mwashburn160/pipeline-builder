@@ -277,6 +277,25 @@ export async function reserveReplaySlot(quotaService: QuotaService, orgId: strin
  * so we probe each queue and return the first job that both exists and is in
  * the `failed` state. Returns null if no failed job with that id is found.
  */
+/**
+ * The DLQ job id for a build job.
+ *
+ * QUEUE-QUALIFIED, for the same reason `slotJobId` is: BullMQ ids are
+ * monotonic PER QUEUE, so the five per-tier queues mint colliding ids. A bare
+ * `dlq-${job.id}` meant a retryable failure of job `7` in the `pro` queue hit
+ * the `dlq-7` already retained from the `developer` queue — and BullMQ treats
+ * an add with a duplicate custom id as a NO-OP, so:
+ *   - the DLQ entry was never created and the `.catch` cleanup never fired;
+ *   - the retryable branch deliberately skips `releasePluginQuota`, so the
+ *     org's `plugins` slot leaked until period reset;
+ *   - the build simply vanished.
+ * The same collision made `findFailedJob` / the `dlqTwin` guard resolve another
+ * tier's job, 403-ing or 404-ing legitimate retries.
+ */
+function dlqJobId(queueName: string, jobId: string): string {
+  return `dlq-${queueName}:${jobId}`;
+}
+
 export async function findFailedJob(jobId: string): Promise<Job<PluginBuildJobData> | null> {
   for (const { queue } of getAllTierQueues()) {
     const job = await queue.getJob(jobId);
@@ -300,14 +319,15 @@ export async function retryFailedJob(jobId: string, quotaService: QuotaService):
   if (!failedJob) return null;
 
   // Refuse a manual retry when this job has already been handed to the DLQ for
-  // retry (a retryable final attempt creates `dlq-${jobId}` while its original
+  // retry (a retryable final attempt creates a queue-qualified DLQ entry — see
+  // `dlqJobId` — while its original
   // entry lingers in the tier `failed` set). Without this guard, retrying the
   // lingering entry reserves a SECOND slot and enqueues a SECOND build while the
   // DLQ independently re-queues the same plugin — two concurrent buildkit builds
   // for one plugin, both holding a slot, both calling deployVersion. The DLQ is
   // the single retry vehicle for these; return null (→ 404) so the caller
   // doesn't double-run it.
-  const dlqTwin = await getDeadLetterQueue().getJob(`dlq-${jobId}`);
+  const dlqTwin = await getDeadLetterQueue().getJob(dlqJobId(failedJob.queueName, String(failedJob.id ?? jobId)));
   if (dlqTwin) {
     logger.info('Refusing manual retry — job is already being retried via the DLQ', { jobId });
     return null;
@@ -755,9 +775,16 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     // read/write here is attributable).
     return runWithTenantContext({ orgId: job.data.orgId, isSuperAdmin: false }, async () => {
       const { requestId, orgId, pluginRecord, buildRequest } = job.data;
-      const totalAttempts = (job.data.totalAttempts ?? 0) + 1;
       const maxAttempts = job.opts.attempts ?? 1;
       const isFinalAttempt = job.attemptsMade >= maxAttempts;
+      // ATTEMPTS, not cycles. `totalAttemptBudget()` is denominated in attempts
+      // (`maxAttempts + dlqMaxAttempts * maxAttempts`), but this used to add 1
+      // per main-queue EXHAUSTION cycle — and since it is only reached on a
+      // final attempt, each `+1` actually represented `maxAttempts` real builds.
+      // The effective budget was therefore maxAttempts× the documented one
+      // (8 cycles × 2 attempts = 16 buildkit builds per failing plugin), each
+      // holding an org build slot.
+      const totalAttempts = (job.data.totalAttempts ?? 0) + job.attemptsMade;
 
       // Prometheus counter. `plugin_name` is intentionally omitted to keep the
       // label set bounded -- per-plugin drill-down is served via Loki.
@@ -873,8 +900,8 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
       };
 
       enforceDlqMaxSize(quotaService)
-        .then(() => getDeadLetterQueue().add(`dlq-${job.id}`, dlqData, {
-          jobId: `dlq-${job.id}`,
+        .then(() => getDeadLetterQueue().add(dlqJobId(job.queueName, String(job.id)), dlqData, {
+          jobId: dlqJobId(job.queueName, String(job.id)),
           attempts: cfg.dlqMaxAttempts,
           backoff: { type: 'exponential', delay: cfg.dlqBackoffBaseMs },
         }))

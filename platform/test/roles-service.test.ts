@@ -614,7 +614,7 @@ describe('updateRole (atomic permission edit + member tokenVersion bump)', () =>
     // RoleAssignment.find({ roleId }).session().select('userId').lean() → members.
     findReturns(mockGmFind, [{ userId: 'm1' }, { userId: 'm2' }]);
 
-    await updateRole('org-1', 'gCustom', { permissions: ['pipelines:write'] }, { permissions: [], isSuperAdmin: true });
+    await updateRole('org-1', 'gCustom', { permissions: ['pipelines:write'] }, { permissions: [], isSuperAdmin: true, isOrgAdmin: false });
 
     // The Role edit is persisted WITH the transaction session ...
     expect(doc.save).toHaveBeenCalledTimes(1);
@@ -632,10 +632,69 @@ describe('updateRole (atomic permission edit + member tokenVersion bump)', () =>
     const doc = roleDoc();
     mockGroupFindOne.mockResolvedValue(doc);
 
-    await updateRole('org-1', 'gCustom', { description: 'renamed' }, { permissions: [], isSuperAdmin: true });
+    await updateRole('org-1', 'gCustom', { description: 'renamed' }, { permissions: [], isSuperAdmin: true, isOrgAdmin: false });
 
     expect(doc.save).toHaveBeenCalledWith({ session: expect.anything() });
     expect(mockUserUpdateMany).not.toHaveBeenCalled();
+  });
+
+  describe('permission ceiling on the EXISTING permission set (strip guard)', () => {
+    /** A custom Role granting a capability a `roles:manage` delegate lacks. */
+    const billingRole = () => ({
+      _id: 'gBilling',
+      name: 'Billing Managers',
+      system: false,
+      permissions: ['billing:manage'],
+      save: jest.fn().mockResolvedValue(undefined),
+    });
+    const delegate = (permissions: string[]) => ({ permissions, isSuperAdmin: false, isOrgAdmin: false });
+
+    it('SECURITY: a roles:manage delegate CANNOT rewrite a role granting a permission they lack', async () => {
+      // The delete path already blocked this; without the same check here the
+      // griefing vector is simply reachable through update — rewriting the role
+      // down to `roles:manage` revokes billing:manage from every member.
+      const doc = billingRole();
+      mockGroupFindOne.mockResolvedValue(doc);
+
+      await expect(updateRole('org-1', 'gBilling', { permissions: ['roles:manage'] }, delegate(['roles:manage'])))
+        .rejects.toThrow(RL_ASSIGN_EXCEEDS_CEILING);
+
+      // Refused BEFORE any write — and crucially before the member tokenVersion
+      // bump, so no one's grants are disturbed by the refused edit.
+      expect(doc.save).not.toHaveBeenCalled();
+      expect(mockUserUpdateMany).not.toHaveBeenCalled();
+    });
+
+    it('SECURITY: the guard also covers a name-only edit of an out-of-ceiling role', async () => {
+      const doc = billingRole();
+      mockGroupFindOne.mockResolvedValue(doc);
+
+      await expect(updateRole('org-1', 'gBilling', { name: 'Renamed' }, delegate(['roles:manage'])))
+        .rejects.toThrow(RL_ASSIGN_EXCEEDS_CEILING);
+      expect(doc.save).not.toHaveBeenCalled();
+    });
+
+    it('allows a delegate to edit a role whose existing permissions are within their own set', async () => {
+      const doc = roleDoc(); // grants pipelines:read
+      mockGroupFindOne.mockResolvedValue(doc);
+      findReturns(mockGmFind, []);
+
+      await updateRole('org-1', 'gCustom', { permissions: ['pipelines:read'] }, delegate(['pipelines:read', 'roles:manage']));
+
+      expect(doc.save).toHaveBeenCalledWith({ session: expect.anything() });
+    });
+
+    it('an org admin/owner bypasses the ceiling, as on the delete path', async () => {
+      const doc = billingRole();
+      mockGroupFindOne.mockResolvedValue(doc);
+      findReturns(mockGmFind, []);
+
+      // Description-only edit: a rename would additionally hit the name-clash
+      // lookup, which isn't what this test is about.
+      await updateRole('org-1', 'gBilling', { description: 'still billing' }, { permissions: [], isSuperAdmin: false, isOrgAdmin: true });
+
+      expect(doc.save).toHaveBeenCalledWith({ session: expect.anything() });
+    });
   });
 });
 

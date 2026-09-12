@@ -9,7 +9,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plugin } from '@/types';
 import api from '@/lib/api';
-import { CACHE_TTL_MS } from '@/lib/constants';
+import { CACHE_TTL_MS, formatError } from '@/lib/constants';
 import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
 
 /**
@@ -22,15 +22,29 @@ let cacheTimestamp = 0;
 /** In-flight cold-start fetch, shared so concurrent mounts don't each fire
  *  their own request against the platform service. */
 let pendingFetch: Promise<Plugin[]> | null = null;
+/**
+ * Bumped by every {@link clearPluginCache}. An in-flight fetch captures the
+ * generation it started under and only writes the cache if it still matches.
+ *
+ * Without this, clearing the cache did NOT cancel a request already in flight:
+ * its closure still ran `cachedPlugins = fetched` after the await, REFILLING
+ * the cache with the previous identity's plugins. Since `clearPluginCache` is
+ * what runs on org switch, logout and session expiry — and this module state
+ * survives client-side navigation — the next tenant was served the previous
+ * tenant's plugin list for the full TTL.
+ */
+let cacheGeneration = 0;
 
 /**
  * Invalidates the module-level plugin cache.
- * Call after creating, updating, or deleting a plugin to force a re-fetch.
+ * Call after creating, updating, or deleting a plugin to force a re-fetch,
+ * and on any identity change (org switch, logout, session expiry).
  */
 export function clearPluginCache() {
   cachedPlugins = null;
   cacheTimestamp = 0;
   pendingFetch = null;
+  cacheGeneration += 1;
 }
 
 /** A group of plugins under a shared category label. */
@@ -64,22 +78,27 @@ export function usePlugins(enabled = true) {
     try {
       // Coalesce concurrent cold-start callers onto a single network request.
       if (!pendingFetch) {
+        const startedAt = cacheGeneration;
         pendingFetch = (async () => {
           try {
             const response = await api.listPlugins({ limit: '500', isActive: 'true' });
             const fetched = (response.data?.plugins || []) as Plugin[];
-            cachedPlugins = fetched;
-            cacheTimestamp = Date.now();
+            // Only publish if the identity hasn't changed under us.
+            if (startedAt === cacheGeneration) {
+              cachedPlugins = fetched;
+              cacheTimestamp = Date.now();
+            }
             return fetched;
           } finally {
-            pendingFetch = null;
+            // Don't clobber a NEWER in-flight fetch started after a clear.
+            if (startedAt === cacheGeneration) pendingFetch = null;
           }
         })();
       }
       const fetched = await pendingFetch;
       setPlugins(fetched);
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to load plugins');
+      setError(formatError(error, 'Failed to load plugins'));
     } finally {
       setIsLoading(false);
     }

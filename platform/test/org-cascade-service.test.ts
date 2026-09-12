@@ -135,7 +135,7 @@ beforeEach(() => {
   mockInvitationDeleteMany.mockResolvedValue({ deletedCount: 0 });
   mockInvitationFind.mockReturnValue({ lean: () => [] });
   mockAuditDeleteMany.mockResolvedValue({ deletedCount: 0 });
-  mockAuditFind.mockReturnValue({ lean: () => [] });
+  mockAuditFind.mockReturnValue(auditCursor([]));
   mockAuditCreate.mockResolvedValue({});
   mockArchivedBulkWrite.mockResolvedValue({});
   mockIdpDeleteMany.mockResolvedValue({ deletedCount: 0 });
@@ -144,6 +144,41 @@ beforeEach(() => {
   // Default: org has no per-org KMS config.
   mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => null }) });
 });
+
+/**
+ * Stub for the audit-archive read: `AuditEvent.find(...).lean().cursor()`.
+ *
+ * The purge STREAMS the trail in fixed batches rather than materializing it —
+ * a tenant at the retention ceiling OOM-killed the pod, and since the archive
+ * is fail-closed the next sweep retried the same org forever. So the stub has
+ * to expose a cursor, not a resolved array.
+ */
+function auditCursor(rows: unknown[]) {
+  return {
+    lean: () => ({
+      cursor: () => ({
+        [Symbol.asyncIterator]: async function* asyncIterator() { yield* rows; },
+        close: async () => {},
+      }),
+    }),
+  };
+}
+
+/**
+ * Stub for the export read: `AuditEvent.find(...).sort().limit().lean()`.
+ *
+ * The export materializes into one JSON object, so it takes a hard CAP and
+ * reports truncation rather than streaming (unlike the archive above).
+ * `capture` records the applied limit so a test can assert the cap.
+ */
+function auditCapped(rows: unknown[], capture?: (limit: number) => void) {
+  const q = {
+    sort: () => q,
+    limit: (n: number) => { capture?.(n); return q; },
+    lean: async () => rows,
+  };
+  return q;
+}
 
 /** Build the `Organization.findById(...).select(...).lean()` chain stub for a
  *  given lean() return value. */
@@ -211,7 +246,7 @@ describe('cascadeDeleteOrg', () => {
       { _id: 'evt-1', action: 'user.login', orgId: 'org-acme' },
       { _id: 'evt-2', action: 'admin.user.update', affectedOrgId: 'org-acme' },
     ];
-    mockAuditFind.mockReturnValue({ lean: () => events });
+    mockAuditFind.mockReturnValue(auditCursor(events));
     mockAuditDeleteMany.mockResolvedValue({ deletedCount: 2 });
 
     const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
@@ -231,7 +266,7 @@ describe('cascadeDeleteOrg', () => {
   });
 
   it('FAIL-CLOSED: does NOT delete audit rows when the archive write fails', async () => {
-    mockAuditFind.mockReturnValue({ lean: () => [{ _id: 'evt-1', action: 'user.login', orgId: 'org-acme' }] });
+    mockAuditFind.mockReturnValue(auditCursor([{ _id: 'evt-1', action: 'user.login', orgId: 'org-acme' }]));
     mockArchivedBulkWrite.mockRejectedValue(new Error('archive store down'));
 
     const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
@@ -355,7 +390,7 @@ describe('exportOrg', () => {
   it('reads from every cascade-targeted table + mongo collection', async () => {
     mockSelectChain.where.mockResolvedValue([{ id: 'a' }]);
     mockInvitationFind.mockReturnValue({ lean: () => [{ email: 'foo@example.com' }] });
-    mockAuditFind.mockReturnValue({ lean: () => [{ action: 'user.login' }] });
+    mockAuditFind.mockReturnValue(auditCapped([{ action: 'user.login' }]));
 
     const dump = await exportOrg('org-acme', '000000000000000000000001');
 
@@ -364,6 +399,59 @@ describe('exportOrg', () => {
     expect(dump.mongo.auditEvents).toHaveLength(1);
     expect(dump.orgId).toBe('org-acme');
     expect(dump.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('caps the audit read so one tenant cannot exhaust the heap', async () => {
+    mockSelectChain.where.mockResolvedValue([]);
+    mockInvitationFind.mockReturnValue({ lean: () => [] });
+    let applied = 0;
+    mockAuditFind.mockReturnValue(auditCapped([{ action: 'user.login' }], (n) => { applied = n; }));
+
+    const dump = await exportOrg('org-acme', '000000000000000000000001');
+
+    expect(applied).toBeGreaterThan(0);
+    // Under the cap → a complete artifact, no truncation marker.
+    expect(dump.truncated).toBeUndefined();
+  });
+
+  it('REPORTS truncation when the audit read fills the cap (never silently partial)', async () => {
+    mockSelectChain.where.mockResolvedValue([]);
+    mockInvitationFind.mockReturnValue({ lean: () => [] });
+    let cap = 0;
+    // Return exactly `cap` rows, which is how the service detects truncation.
+    mockAuditFind.mockImplementation(() => {
+      const q = {
+        sort: () => q,
+        limit: (n: number) => { cap = n; return q; },
+        lean: async () => Array.from({ length: cap }, (_, i) => ({ action: 'user.login', _id: String(i) })),
+      };
+      return q;
+    });
+
+    const dump = await exportOrg('org-acme', '000000000000000000000001');
+
+    expect(dump.truncated).toEqual({ auditEvents: { cap } });
+    expect(dump.mongo.auditEvents).toHaveLength(cap);
+  });
+});
+
+describe('cascadeDeleteOrg — audit archive is batched', () => {
+  it('archives in fixed batches instead of one bulkWrite over the whole trail', async () => {
+    // A retention-ceiling tenant OOM-killed the pod here, and because the
+    // archive is fail-closed the next sweep retried the same org and died the
+    // same way — a permanent purge (and GDPR-erasure) stall.
+    const events = Array.from({ length: 2500 }, (_, i) => ({ _id: `e${i}`, action: 'user.login', orgId: 'org-acme' }));
+    mockAuditFind.mockReturnValue(auditCursor(events));
+    mockAuditDeleteMany.mockResolvedValue({ deletedCount: events.length });
+
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+
+    expect(report.auditArchive).toEqual({ ok: true, archived: 2500 });
+    // 2500 events → 3 batches (1000 + 1000 + 500), not a single 2500-op write.
+    expect(mockArchivedBulkWrite).toHaveBeenCalledTimes(3);
+    for (const call of mockArchivedBulkWrite.mock.calls) {
+      expect((call[0] as unknown[]).length).toBeLessThanOrEqual(1000);
+    }
   });
 });
 

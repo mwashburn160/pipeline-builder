@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, setCounterEmitter, safeCreateRequire, requireAuth } from '@pipeline-builder/api-core';
+import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, setCounterEmitter, safeCreateRequire, requireAuth, safeEqual } from '@pipeline-builder/api-core';
 import type { OpenApiSpecOptions } from '@pipeline-builder/api-core';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { getConnection } from '@pipeline-builder/pipeline-data';
@@ -58,6 +58,15 @@ export interface CreateAppOptions {
   /** Health check dependency checker — if provided, /health reports dependency status */
   checkDependencies?: () => Promise<Record<string, 'connected' | 'disconnected' | 'unknown'>>;
   /** Enable OpenAPI spec at /docs/openapi.json and Swagger UI at /docs (default: true) */
+  /**
+   * Serve the OpenAPI spec at `/docs/openapi.json` and Swagger UI at `/docs`.
+   *
+   * Defaults to OFF under `NODE_ENV=production`: the routes are registered above
+   * the rate limiter and were never auth-gated, so in production they published
+   * the full route + schema inventory of every service to anyone who could reach
+   * the port. Only the CSP was tightened for production before, not the route.
+   * Pass `true` explicitly to serve them in production anyway.
+   */
   enableOpenApi?: boolean;
   /** OpenAPI spec customization options */
   openApiOptions?: OpenApiSpecOptions;
@@ -136,7 +145,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
       relay: createEnvRedisSSERelay() ?? undefined,
     }),
     checkDependencies,
-    enableOpenApi = true,
+    enableOpenApi = process.env.NODE_ENV !== 'production',
     openApiOptions,
     enableCompression = true,
     warmupHooks = [],
@@ -265,7 +274,18 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   // Warm-up endpoint — pre-opens connection pools so the first real request
   // doesn't pay cold-start latency. Always pings Postgres; services using
   // Mongo / Redis / SQS pass `warmupHooks` so those are warmed in parallel.
-  app.get('/warmup', async (_req: Request, res: Response) => {
+  //
+  // GATED to verified service principals. Every hit runs a Postgres round-trip
+  // plus all `warmupHooks` (Mongo/Redis/SQS), so while it was open an anonymous
+  // loop amplified into datastore load on every service in the fleet — and
+  // because it is registered above the rate limiter, nothing throttled it.
+  // `verifyServicePrincipal` checks the bearer token cryptographically, so it is
+  // safe here, above `requireAuth`.
+  app.get('/warmup', async (req: Request, res: Response) => {
+    if (!verifyServicePrincipal(req)) {
+      sendError(res, 404, 'Not found');
+      return;
+    }
     try {
       await Promise.all([
         getConnection().testConnection(),
@@ -277,8 +297,30 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     }
   });
 
-  // Prometheus metrics endpoint — always registered (never throttled)
-  app.get('/metrics', metricsHandler());
+  // Prometheus metrics endpoint — always registered (never throttled).
+  //
+  // Optionally gated: when `METRICS_SCRAPE_TOKEN` is set, the scraper must send
+  // it as a bearer token (Prometheus `bearer_token` / `bearer_token_file` in the
+  // scrape config). Left ungated when unset so enabling it is a deliberate,
+  // coordinated change rather than a silent monitoring outage — the tenant
+  // disclosure that made gating urgent is closed independently by defaulting the
+  // per-org label OFF (see HTTP_METRICS_ORG_SAMPLE_RATE in metrics.ts).
+  const metricsToken = process.env.METRICS_SCRAPE_TOKEN;
+  app.get('/metrics', (req: Request, res: Response, next: NextFunction) => {
+    if (!metricsToken) {
+      next();
+      return;
+    }
+    const header = req.headers.authorization;
+    const presented = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
+    // Constant-time compare — a length-independent equality check here would
+    // leak the token a byte at a time.
+    if (!presented || !safeEqual(presented, metricsToken)) {
+      sendError(res, 404, 'Not found');
+      return;
+    }
+    next();
+  }, metricsHandler());
 
   // OpenAPI spec and Swagger UI (registered before rate limiter)
   if (enableOpenApi) {

@@ -6,6 +6,7 @@ import { useToast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { clearPluginCache } from '@/hooks/usePlugins';
 import type { UserOrgMembership } from '@/types';
+import { formatError } from '@/lib/constants';
 
 /**
  * Order memberships so teams (orgs with a `parentOrgId` present in the list)
@@ -121,7 +122,7 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
       toast.success(`Switched to ${orgName}`);
       router.replace(router.asPath);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to switch organization');
+      toast.error(formatError(err, 'Failed to switch organization'));
     } finally {
       setSwitching(false);
     }

@@ -20,6 +20,7 @@ import type { ComplianceExemption } from '@/types/compliance';
 import { EXEMPTION_STATUS_STYLES as STATUS_STYLES } from '@/lib/compliance-styles';
 import { parseCsv } from '@/lib/csv';
 import { formatDate } from '@/lib/format';
+import { formatError } from '@/lib/constants';
 
 interface ExemptionManagerProps {
   readOnly?: boolean;
@@ -101,7 +102,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
         fetchExemptions();
       }
     } catch (err) {
-      toastRef.current.error(err instanceof Error ? err.message : 'Failed to create exemption');
+      toastRef.current.error(formatError(err, 'Failed to create exemption'));
     } finally {
       setSubmitting(false);
     }
@@ -113,7 +114,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       toastRef.current.success('Exemption approved');
       fetchExemptions();
     } catch (err) {
-      toastRef.current.error(err instanceof Error ? err.message : 'Failed to approve exemption');
+      toastRef.current.error(formatError(err, 'Failed to approve exemption'));
     }
   };
 
@@ -125,7 +126,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       toastRef.current.success('Exemption rejected');
       fetchExemptions();
     } catch (err) {
-      toastRef.current.error(err instanceof Error ? err.message : 'Failed to reject exemption');
+      toastRef.current.error(formatError(err, 'Failed to reject exemption'));
     }
   };
 
@@ -135,7 +136,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       toastRef.current.success('Exemption deleted');
       fetchExemptions();
     } catch (err) {
-      toastRef.current.error(err instanceof Error ? err.message : 'Failed to delete exemption');
+      toastRef.current.error(formatError(err, 'Failed to delete exemption'));
     }
   };
 
@@ -186,7 +187,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
         fetchExemptions();
       }
     } catch (err) {
-      setBulkError(err instanceof Error ? err.message : 'Failed to import CSV.');
+      setBulkError(formatError(err, 'Failed to import CSV.'));
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
     }

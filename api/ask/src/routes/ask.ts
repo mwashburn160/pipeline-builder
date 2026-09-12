@@ -138,6 +138,9 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
     }
     let reserved = true;
+    // See agent.ts: true once the provider has actually streamed something, so
+    // a post-response failure doesn't refund a call we already paid for.
+    let providerContacted = false;
 
     const startedAt = Date.now();
     try {
@@ -152,6 +155,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       if (!sse.aborted()) res.write(`data: ${JSON.stringify({ type: 'sources', data: sources })}\n\n`);
 
       for await (const token of textStream) {
+        providerContacted = true;
         if (sse.aborted()) break;
         res.write(`data: ${JSON.stringify({ type: 'token', data: token })}\n\n`);
       }
@@ -163,8 +167,10 @@ export function createAskRoutes(quotaService: QuotaService): Router {
         recordAi('howto-stream', provider, 'success', startedAt);
         auditAskQuery(req, orgId, { queryLength: query.length, sources: sources.length, streamed: true, outcome: 'success' });
       } else {
-        decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-        reserved = false;
+        if (!providerContacted) {
+          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+          reserved = false;
+        }
         recordAi('howto-stream', provider, 'aborted', startedAt);
         auditAskQuery(req, orgId, { queryLength: query.length, streamed: true, outcome: 'failure' });
       }
@@ -174,7 +180,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       logger.error('Ask how-to stream failed', { requestId: ctx.requestId, error: message });
       recordAi('howto-stream', provider, 'error', startedAt);
       auditAskQuery(req, orgId, { queryLength: query.length, streamed: true, outcome: 'failure' });
-      if (reserved) {
+      if (reserved && !providerContacted) {
         decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
       }
       handleAIError(res, message, 'Failed to answer the question');

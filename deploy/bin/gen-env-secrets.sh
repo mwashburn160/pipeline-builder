@@ -24,9 +24,14 @@
 
 pb_gen_env_secrets() {
   local env_file="$1" ghcr_user="${2:-mwashburn160}"
-  local jwt refresh pg mongo me pgadmin registry
+  local jwt refresh pg mongo me pgadmin registry seckey
   jwt=$(openssl rand -base64 32 | tr -d '=+/')
   refresh=$(openssl rand -base64 32 | tr -d '=+/')
+  # Secret-column master key (AES-256-GCM envelope encryption of aiProviderKeys
+  # and IdP client secrets). Required now that every target sets
+  # NODE_ENV=production — platform refuses to boot without it. Hex, because the
+  # =+/-stripping below would corrupt a base64 key's length.
+  seckey=$(openssl rand -hex 32)
   pg=$(openssl rand -base64 24 | tr -d '=+/')
   mongo=$(openssl rand -base64 24 | tr -d '=+/')
   me=$(openssl rand -base64 16 | tr -d '=+/')
@@ -35,6 +40,7 @@ pb_gen_env_secrets() {
   sed -i.bak \
     -e "s|JWT_SECRET=CHANGE_ME_generate_with_openssl_rand_base64_32|JWT_SECRET=${jwt}|" \
     -e "s|REFRESH_TOKEN_SECRET=CHANGE_ME_generate_with_openssl_rand_base64_32|REFRESH_TOKEN_SECRET=${refresh}|" \
+    -e "s|SECRET_ENCRYPTION_KEY=CHANGE_ME_generate_with_openssl_rand_base64_32|SECRET_ENCRYPTION_KEY=${seckey}|" \
     -e "s|POSTGRES_PASSWORD=CHANGE_ME|POSTGRES_PASSWORD=${pg}|" \
     -e "s|DB_PASSWORD=CHANGE_ME|DB_PASSWORD=${pg}|" \
     -e "s|MONGO_INITDB_ROOT_PASSWORD=CHANGE_ME|MONGO_INITDB_ROOT_PASSWORD=${mongo}|" \
@@ -52,7 +58,7 @@ pb_gen_env_secrets() {
   # and the sed above silently matched nothing — shipping a literal `CHANGE_ME`
   # credential (a real security hole that would otherwise pass green). Scoped to
   # these keys so optional user-supplied CHANGE_ME placeholders aren't flagged.
-  if grep -qE '^(JWT_SECRET|REFRESH_TOKEN_SECRET|POSTGRES_PASSWORD|DB_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_MONGODB_ADMINPASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN)=CHANGE_ME' "$env_file" \
+  if grep -qE '^(JWT_SECRET|REFRESH_TOKEN_SECRET|SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_MONGODB_ADMINPASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN)=CHANGE_ME' "$env_file" \
      || grep -q 'mongodb://mongo:CHANGE_ME@' "$env_file"; then
     echo "ERROR: gen-env-secrets left an unsubstituted CHANGE_ME in a required secret in $env_file" >&2
     echo "  — a placeholder in .env.example drifted from this script's sed patterns." >&2

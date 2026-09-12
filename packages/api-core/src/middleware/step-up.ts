@@ -19,8 +19,7 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { isServicePrincipal } from './auth.js';
+import { buildJwtVerifyOptions, verifyJwtWithRotation, isServicePrincipal } from './auth.js';
 import { createEnvRedisClient } from '../services/env-redis.js';
 import { getHeaderString } from '../utils/headers.js';
 import { createLogger } from '../utils/logger.js';
@@ -38,31 +37,24 @@ export interface StepUpTokenPayload {
   exp: number;
 }
 
-function jwtAlgorithm(): jwt.Algorithm {
-  return (process.env.JWT_ALGORITHM || 'HS256') as jwt.Algorithm;
-}
-
 /**
  * Verify a step-up token: valid signature (primary `JWT_SECRET`, or
- * `JWT_SECRET_PREVIOUS` during a rotation), allow-listed algorithm, AND the
- * `type: 'step-up'` + `jti` claims — a plain access token shares the secret and
- * `sub`, so without asserting the step-up shape it would bypass the gate.
- * Throws on any failure. Does NOT bind to a caller — `requireStepUp` does the
- * `sub` match and single-use consume.
+ * `JWT_SECRET_PREVIOUS` during a rotation), allow-listed algorithm, issuer and
+ * audience when configured, AND the `type: 'step-up'` + `jti` claims — a plain
+ * access token shares the secret and `sub`, so without asserting the step-up
+ * shape it would bypass the gate. Throws on any failure. Does NOT bind to a
+ * caller — `requireStepUp` does the `sub` match and single-use consume.
+ *
+ * Delegates to `requireAuth`'s own primitives rather than re-implementing them.
+ * The hand-rolled copy this replaced dropped TWO of their guards: it never
+ * pinned issuer/audience (so a step-up token from any other system sharing
+ * `JWT_SECRET` was accepted wherever `JWT_ISSUER`/`JWT_AUDIENCE` are set), and
+ * its previous-secret retry had no expiry/not-before carve-out, so an EXPIRED
+ * token was retried and surfaced as a signature error instead of an expiry one.
  */
 export function verifyStepUpToken(token: string): StepUpTokenPayload {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) throw new Error('JWT_SECRET environment variable is required');
-  const opts: jwt.VerifyOptions = { algorithms: [jwtAlgorithm()] };
-
-  let payload: StepUpTokenPayload;
-  try {
-    payload = jwt.verify(token, secret, opts) as StepUpTokenPayload;
-  } catch (primaryErr) {
-    const previous = process.env.JWT_SECRET_PREVIOUS;
-    if (!previous) throw primaryErr;
-    payload = jwt.verify(token, previous, opts) as StepUpTokenPayload;
-  }
+  if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET environment variable is required');
+  const payload = verifyJwtWithRotation(token, buildJwtVerifyOptions()) as unknown as StepUpTokenPayload;
 
   if (payload.type !== 'step-up' || !payload.jti || !payload.sub) {
     throw new Error('INVALID_STEP_UP_TOKEN');
@@ -94,6 +86,26 @@ const memSweep = setInterval(() => {
 memSweep.unref?.();
 
 /**
+ * Hard ceiling on the process-local jti set.
+ *
+ * The 30s sweep alone does NOT bound it: entries only leave once their token's
+ * TTL has passed, so a burst of step-up traffic (or a flood of distinct forged
+ * jtis on a Redis-less deployment) grows the map faster than the sweep drains
+ * it. This is a replay guard, so shedding the OLDEST entries is the safe
+ * direction: the worst case is that a long-expired jti could be replayed, and
+ * expiry is enforced independently by the token's own `exp`.
+ */
+const MEM_JTI_MAX = 10_000;
+
+/** Drop the soonest-to-expire entries until the map is under the ceiling. */
+function evictOldestJti(): void {
+  if (memJti.size < MEM_JTI_MAX) return;
+  const byExpiry = [...memJti.entries()].sort((a, b) => a[1] - b[1]);
+  const excess = memJti.size - MEM_JTI_MAX + 1;
+  for (let i = 0; i < excess; i += 1) memJti.delete(byExpiry[i][0]);
+}
+
+/**
  * Consume a step-up `jti` exactly once. Returns true if this call claimed it
  * (first use), false if it was already consumed (replay). `expEpochSeconds` is
  * the token's `exp`, so the marker auto-expires with the token.
@@ -111,6 +123,7 @@ export async function consumeStepUpJti(jti: string, expEpochSeconds: number): Pr
   }
   // No Redis ⇒ single-instance deployment; the process-local map IS the store.
   if (memJti.has(jti)) return false;
+  evictOldestJti();
   memJti.set(jti, Date.now() + ttlSeconds * 1000);
   return true;
 }

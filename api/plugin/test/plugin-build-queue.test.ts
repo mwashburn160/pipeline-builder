@@ -295,6 +295,10 @@ function makeJobData(overrides: Partial<PluginBuildJobData> = {}): PluginBuildJo
 function makeJob(data: PluginBuildJobData, overrides: Record<string, any> = {}) {
   return {
     id: 'job-1',
+    // BullMQ ids are monotonic PER QUEUE, so the slot id and the DLQ id are
+    // both qualified with the queue name; a job without it would collide
+    // across tiers.
+    queueName: 'plugin-build-developer',
     data,
     attemptsMade: 1,
     opts: { attempts: 2 },
@@ -883,7 +887,14 @@ describe('plugin-build-queue', () => {
       // No terminal signal yet — the DLQ retry may still succeed.
       expect(terminalFailedEmits()).toHaveLength(0);
       // Handed off to the DLQ for more retries.
-      expect(mockQueueAdd).toHaveBeenCalledWith('dlq-job-1', expect.any(Object), expect.any(Object));
+      // Queue-qualified: a bare `dlq-job-1` collided with another tier's job-1,
+      // and BullMQ silently no-ops a duplicate custom id — losing the build and
+      // leaking its quota slot.
+      expect(mockQueueAdd).toHaveBeenCalledWith(
+        'dlq-plugin-build-developer:job-1',
+        expect.any(Object),
+        expect.objectContaining({ jobId: 'dlq-plugin-build-developer:job-1' }),
+      );
     });
 
     it('emits exactly one terminal failed at tier budget exhaustion (no DLQ hand-off)', async () => {
@@ -892,13 +903,17 @@ describe('plugin-build-queue', () => {
       queueModule.startWorker(sse, quota);
 
       const failed = getTierFailedHandler();
-      // totalAttempts becomes 7+1=8 === budget → terminal at the tier, no DLQ.
-      await failed(makeJob(makeJobData({ totalAttempts: 7 }), { attemptsMade: 2 }), new Error('Docker build failed'));
+      // totalAttempts accumulates real ATTEMPTS: 6 + attemptsMade(2) = 8 === budget
+      // → terminal at the tier, no DLQ. (It used to add 1 per exhaustion CYCLE,
+      // which made the effective budget maxAttempts× the documented one.)
+      await failed(makeJob(makeJobData({ totalAttempts: 6 }), { attemptsMade: 2 }), new Error('Docker build failed'));
       await flush();
 
       expect(auditActions()).toEqual(['plugin.build.failed']);
       // NOT handed to the DLQ.
-      expect(mockQueueAdd).not.toHaveBeenCalledWith('dlq-job-1', expect.anything(), expect.anything());
+      expect(mockQueueAdd).not.toHaveBeenCalledWith(
+        'dlq-plugin-build-developer:job-1', expect.anything(), expect.anything(),
+      );
     });
 
     it('emits exactly one terminal failed for a PERMANENT tier failure (never reaches the DLQ)', async () => {

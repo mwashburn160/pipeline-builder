@@ -35,6 +35,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   resolveVisibility: (req: any, requested: string) =>
     (requested === 'public' && (req?.user?.role === 'admin' || req?.user?.role === 'owner')) ? 'public' : 'private',
   isSystemAdmin: (req: any) => req?.user?.isSuperAdmin === true,
+  // Bulk delete now applies the full visibility ladder, so it needs the
+  // caller's publish permission (not just sysadmin-or-not).
+  userHasPermission: (req: any, perm: string) => req?.user?.permissions?.includes(perm) === true,
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
@@ -134,19 +137,38 @@ function getDeleteHandler() {
   return layer.route.stack[0].handle;
 }
 
-describe('POST /plugins/bulk/delete — public-plugin access parity', () => {
+describe('POST /plugins/bulk/delete — visibility ladder parity', () => {
   beforeEach(() => { mockBulkDelete.mockReset(); (mockBulkDelete as any).mockResolvedValue([]); });
 
-  it('restricts a non-sysadmin to PRIVATE plugins (restrictToPrivate=true)', async () => {
+  // The route used to pass a `restrictToPrivate` boolean, which narrowed the
+  // delete to `visibility='private'` — the OLD two-state model. Since plugins
+  // default to `org`, that silently skipped the normal case. It now passes the
+  // caller's authority and the service applies the three rungs.
+  it('passes the caller authority for a plain member (no publish permission)', async () => {
     const { res } = makeRes();
-    await getDeleteHandler()({ body: { ids: ['p1'] }, user: { isSuperAdmin: false } }, res);
-    expect(mockBulkDelete).toHaveBeenCalledWith(['p1'], 'org-1', 'u-1', true);
+    await getDeleteHandler()({ body: { ids: ['p1'] }, user: { isSuperAdmin: false, permissions: [] } }, res);
+    expect(mockBulkDelete).toHaveBeenCalledWith(['p1'], 'org-1', 'u-1', {
+      isSystemAdmin: false,
+      canPublish: false,
+    });
   });
 
-  it('lets a sysadmin delete public plugins too (restrictToPrivate=false)', async () => {
+  it('reports canPublish for a caller holding plugins:publish', async () => {
+    const { res } = makeRes();
+    await getDeleteHandler()({ body: { ids: ['p1'] }, user: { isSuperAdmin: false, permissions: ['plugins:publish'] } }, res);
+    expect(mockBulkDelete).toHaveBeenCalledWith(['p1'], 'org-1', 'u-1', {
+      isSystemAdmin: false,
+      canPublish: true,
+    });
+  });
+
+  it('lets a sysadmin delete anything', async () => {
     const { res } = makeRes();
     await getDeleteHandler()({ body: { ids: ['p1'] }, user: { isSuperAdmin: true } }, res);
-    expect(mockBulkDelete).toHaveBeenCalledWith(['p1'], 'org-1', 'u-1', false);
+    expect(mockBulkDelete).toHaveBeenCalledWith(['p1'], 'org-1', 'u-1', {
+      isSystemAdmin: true,
+      canPublish: false,
+    });
   });
 });
 

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendBadRequest, sendSuccess, ErrorCode, resolveVisibility, isSystemAdmin, VisibilitySchema } from '@pipeline-builder/api-core';
+import { sendBadRequest, sendSuccess, ErrorCode, resolveVisibility, isSystemAdmin, userHasPermission, VisibilitySchema } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
@@ -46,10 +46,16 @@ export function createBulkPluginRoutes(): Router {
 
     ctx.log('INFO', 'Bulk delete plugins', { count: ids.length });
 
-    // Non-sysadmins may only bulk-delete their PRIVATE plugins — public plugins
-    // are shared/sysadmin-managed (mirrors the single-delete requireVisibilityWriteAccess
-    // gate). Public plugins in the id set are simply skipped, not deleted.
-    const deleted = await pluginService.bulkDelete(ids, orgId, userId, !isSystemAdmin(req));
+    // Same visibility rule as single-row delete, applied per row inside the
+    // query: author-only for `private`, any member for `org`, and
+    // `plugins:publish` for `public`. Rows the caller may not delete are
+    // skipped rather than failing the batch. This previously narrowed to
+    // `private` ONLY, which skipped the DEFAULT rung (`org`) that single-row
+    // delete allows — so bulk delete silently did nothing for normal plugins.
+    const deleted = await pluginService.bulkDelete(ids, orgId, userId, {
+      isSystemAdmin: isSystemAdmin(req),
+      canPublish: userHasPermission(req, 'plugins:publish'),
+    });
 
     ctx.log('COMPLETED', 'Bulk delete complete', { requested: ids.length, deleted: deleted.length });
 

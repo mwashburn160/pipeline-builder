@@ -24,68 +24,68 @@ afterAll(() => {
 });
 
 describe('encryptSecret / decryptSecret', () => {
-  it('round-trips a plaintext through encrypt -> decrypt', () => {
-    const blob = encryptSecret('sk-anthropic-secret-key-12345', 'org-acme');
+  it('round-trips a plaintext through encrypt -> decrypt', async () => {
+    const blob = await encryptSecret('sk-anthropic-secret-key-12345', 'org-acme');
     expect(blob.alg).toBe('aes-256-gcm-v1');
     expect(typeof blob.iv).toBe('string');
     expect(typeof blob.ciphertext).toBe('string');
-    expect(decryptSecret(blob, 'org-acme')).toBe('sk-anthropic-secret-key-12345');
+    expect(await decryptSecret(blob, 'org-acme')).toBe('sk-anthropic-secret-key-12345');
   });
 
-  it('produces a different ciphertext on every encrypt (random IV)', () => {
-    const a = encryptSecret('same-secret', 'org-acme');
-    const b = encryptSecret('same-secret', 'org-acme');
+  it('produces a different ciphertext on every encrypt (random IV)', async () => {
+    const a = await encryptSecret('same-secret', 'org-acme');
+    const b = await encryptSecret('same-secret', 'org-acme');
     expect(a.iv).not.toBe(b.iv);
     expect(a.ciphertext).not.toBe(b.ciphertext);
     // Both still decrypt to the same plaintext.
-    expect(decryptSecret(a, 'org-acme')).toBe('same-secret');
-    expect(decryptSecret(b, 'org-acme')).toBe('same-secret');
+    expect(await decryptSecret(a, 'org-acme')).toBe('same-secret');
+    expect(await decryptSecret(b, 'org-acme')).toBe('same-secret');
   });
 
-  it('binds the key to orgId  a different org cannot decrypt', () => {
-    const blob = encryptSecret('sk-secret', 'org-acme');
-    expect(() => decryptSecret(blob, 'org-other')).toThrow();
+  it('binds the key to orgId  a different org cannot decrypt', async () => {
+    const blob = await encryptSecret('sk-secret', 'org-acme');
+    await expect(decryptSecret(blob, 'org-other')).rejects.toThrow();
   });
 
-  it('refuses to encrypt an empty string', () => {
-    expect(() => encryptSecret('', 'org-acme')).toThrow(/empty string/i);
+  it('refuses to encrypt an empty string', async () => {
+    await expect(encryptSecret('', 'org-acme')).rejects.toThrow(/empty string/i);
   });
 
-  it('refuses to decrypt an unknown alg (forces explicit migration on format change)', () => {
-    const blob = encryptSecret('hello', 'org-acme');
-    expect(() => decryptSecret({ ...blob, alg: 'aes-128-gcm-v0' as never }, 'org-acme')).toThrow(/Unsupported encryption alg/);
+  it('refuses to decrypt an unknown alg (forces explicit migration on format change)', async () => {
+    const blob = await encryptSecret('hello', 'org-acme');
+    await expect(decryptSecret({ ...blob, alg: 'aes-128-gcm-v0' as never }, 'org-acme')).rejects.toThrow(/Unsupported encryption alg/);
   });
 
-  it('detects ciphertext tampering via the GCM auth tag', () => {
-    const blob = encryptSecret('hello', 'org-acme');
+  it('detects ciphertext tampering via the GCM auth tag', async () => {
+    const blob = await encryptSecret('hello', 'org-acme');
     // Change one byte in the ciphertext; auth tag check must reject. We
     // use modular arithmetic instead of XOR so the eslint no-bitwise rule
     // doesn't complain  same effect (predictable byte mutation).
     const buf = Buffer.from(blob.ciphertext, 'base64');
     buf[0] = (buf[0] + 1) % 256;
     const tampered = { ...blob, ciphertext: buf.toString('base64') };
-    expect(() => decryptSecret(tampered, 'org-acme')).toThrow();
+    await expect(decryptSecret(tampered, 'org-acme')).rejects.toThrow();
   });
 });
 
 describe('EnvKeyProvider', () => {
-  it('throws when SECRET_ENCRYPTION_KEY is unset', () => {
+  it('throws when SECRET_ENCRYPTION_KEY is unset', async () => {
     delete process.env.SECRET_ENCRYPTION_KEY;
     expect(() => new EnvKeyProvider()).toThrow(/SECRET_ENCRYPTION_KEY env is required/);
   });
 
-  it('throws when the key is the wrong length', () => {
+  it('throws when the key is the wrong length', async () => {
     process.env.SECRET_ENCRYPTION_KEY = 'too-short';
     expect(() => new EnvKeyProvider()).toThrow(/must decode to 32 bytes/);
   });
 
-  it('accepts hex- or base64-encoded 32-byte keys', () => {
+  it('accepts hex- or base64-encoded 32-byte keys', async () => {
     const raw = randomBytes(32);
     expect(() => new EnvKeyProvider(raw.toString('hex'))).not.toThrow();
     expect(() => new EnvKeyProvider(raw.toString('base64'))).not.toThrow();
   });
 
-  it('derives different keys for different orgIds (HKDF binding)', () => {
+  it('derives different keys for different orgIds (HKDF binding)', async () => {
     const provider = new EnvKeyProvider(randomBytes(32).toString('hex'));
     const a = provider.deriveKey('org-a');
     const b = provider.deriveKey('org-b');
@@ -143,8 +143,8 @@ describe('KmsKeyProvider', () => {
     // The provider behaves identically to EnvKeyProvider on the
     // encrypt/decrypt round-trip  proves the KMS-recovered master is
     // wired correctly into HKDF.
-    const blob = enc('hello-kms', 'acme', p);
-    expect(dec(blob, 'acme', p)).toBe('hello-kms');
+    const blob = await enc('hello-kms', 'acme', p);
+    expect(await dec(blob, 'acme', p)).toBe('hello-kms');
   });
 
   it('rejects KMS responses with the wrong key length', async () => {
@@ -219,9 +219,9 @@ describe('PerOrgKmsKeyProvider', () => {
     // The same plaintext encrypted under `provider` and `fallback` must produce
     // the same derived key (different IV → different ciphertext, but both
     // decrypt successfully under either provider).
-    const blob = enc('hello', 'org-x', provider);
+    const blob = await enc('hello', 'org-x', provider);
     expect(blob.kid).toBeUndefined();
-    expect(dec(blob, 'org-x', fallback)).toBe('hello');
+    expect(await dec(blob, 'org-x', fallback)).toBe('hello');
     expect(mockSend).not.toHaveBeenCalled();
   });
 
@@ -237,9 +237,9 @@ describe('PerOrgKmsKeyProvider', () => {
     });
     await provider.deriveKeyAsync('org-acme');
 
-    const blob = enc('per-org-secret', 'org-acme', provider);
+    const blob = await enc('per-org-secret', 'org-acme', provider);
     expect(blob.kid).toBe('alias/org-acme');
-    expect(dec(blob, 'org-acme', provider)).toBe('per-org-secret');
+    expect(await dec(blob, 'org-acme', provider)).toBe('per-org-secret');
     expect(mockSend).toHaveBeenCalledTimes(1);
   });
 
@@ -254,7 +254,7 @@ describe('PerOrgKmsKeyProvider', () => {
       fallback,
     });
     await provider.deriveKeyAsync('org-acme');
-    const blob = enc('hello', 'org-acme', provider);
+    const blob = await enc('hello', 'org-acme', provider);
     expect(blob.kid).toBe('alias/v1');
 
     // Simulate operator rotating to a new CMK — fresh provider with same
@@ -265,7 +265,7 @@ describe('PerOrgKmsKeyProvider', () => {
       fallback,
     });
     await rotated.deriveKeyAsync('org-acme');
-    expect(() => dec(blob, 'org-acme', rotated)).toThrow(/KMS key id mismatch/);
+    await expect(dec(blob, 'org-acme', rotated)).rejects.toThrow(/KMS key id mismatch/);
   });
 
   it('coalesces concurrent warmup calls for the same org into one KMS Decrypt', async () => {
@@ -304,10 +304,10 @@ describe('PerOrgKmsKeyProvider', () => {
     await provider.deriveKeyAsync('org-a');
     await provider.deriveKeyAsync('org-b');
 
-    const blobA = enc('secret-a', 'org-a', provider);
+    const blobA = await enc('secret-a', 'org-a', provider);
     // Decrypting org-a's blob as org-b fails both the kid check (different
     // kids) and the underlying HKDF binding — kid mismatch fires first.
-    expect(() => dec(blobA, 'org-b', provider)).toThrow();
+    await expect(dec(blobA, 'org-b', provider)).rejects.toThrow();
   });
 
   it('evict() drops the cached master so the next touch re-fetches from KMS', async () => {
@@ -333,14 +333,64 @@ describe('PerOrgKmsKeyProvider', () => {
     await provider.deriveKeyAsync('org-acme');
     expect(mockSend).toHaveBeenCalledTimes(2);
   });
+
+  describe('cold (unresolved) orgs — data-loss guard', () => {
+    /** A provider whose org HAS per-org config, but which nothing has warmed. */
+    const coldProvider = async () => {
+      const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E } = await import('../src/utils/secret-encryption.js');
+      const master = randomBytes(32);
+      mockSend.mockResolvedValue({ Plaintext: master });
+      return new P({
+        resolver: async () => ({ keyId: 'alias/org-acme', ciphertextBase64: Buffer.from('opaque').toString('base64') }),
+        fallback: new E(randomBytes(32).toString('hex')),
+      });
+    };
+
+    it('REGRESSION: sync deriveKey REFUSES an unresolved org instead of using the shared master', async () => {
+      // It used to silently return the FALLBACK key here. Because `kidFor` also
+      // returned undefined, no kid was stamped, the both-kids-present mismatch
+      // guard could never fire, and once the org warmed the secret was
+      // permanently undecryptable (opaque auth-tag error, no diagnostic).
+      const provider = await coldProvider();
+      expect(() => provider.deriveKey('org-acme')).toThrow(/has not resolved org org-acme/);
+    });
+
+    it('reports no kid for an unresolved org rather than borrowing the fallback\'s', async () => {
+      const provider = await coldProvider();
+      expect(provider.kidFor('org-acme')).toBeUndefined();
+    });
+
+    it('REGRESSION: a cold write is encrypted under the PER-ORG key and reads back after warm-up', async () => {
+      // The async API resolves the org before deriving, so the first-ever write
+      // for an org already uses that org's own key — the cold-write/warm-read
+      // sequence that used to lose the secret.
+      const { encryptSecret: enc, decryptSecret: dec } = await import('../src/utils/secret-encryption.js');
+      const provider = await coldProvider();
+
+      const blob = await enc('first-ever-write', 'org-acme', provider);
+      expect(blob.kid).toBe('alias/org-acme'); // stamped, so a later rotation is detectable
+      expect(await dec(blob, 'org-acme', provider)).toBe('first-ever-write');
+    });
+
+    it('serves an org PROVEN to have no per-org config from the fallback, synchronously', async () => {
+      const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E } = await import('../src/utils/secret-encryption.js');
+      const fallback = new E(randomBytes(32).toString('hex'));
+      const provider = new P({ resolver: async () => null, fallback });
+
+      // Unresolved → refuses. Resolved-as-no-config → fallback is the right answer.
+      expect(() => provider.deriveKey('org-x')).toThrow(/has not resolved/);
+      await provider.ensureWarmed('org-x');
+      expect(provider.deriveKey('org-x').equals(fallback.deriveKey('org-x'))).toBe(true);
+    });
+  });
 });
 
 describe('isEncryptedBlob', () => {
-  it('returns true for an actual blob', () => {
-    expect(isEncryptedBlob(encryptSecret('x', 'org'))).toBe(true);
+  it('returns true for an actual blob', async () => {
+    expect(isEncryptedBlob(await encryptSecret('x', 'org'))).toBe(true);
   });
 
-  it('returns false for plaintext / non-blob shapes', () => {
+  it('returns false for plaintext / non-blob shapes', async () => {
     expect(isEncryptedBlob('clear-text')).toBe(false);
     expect(isEncryptedBlob({ alg: 'wrong', iv: 'a', ciphertext: 'b' })).toBe(false);
     expect(isEncryptedBlob({ alg: 'aes-256-gcm-v1' })).toBe(false);

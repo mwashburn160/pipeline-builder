@@ -2,18 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { createHealthRouter, createLogger, installCrashHandlers, isValidTier, mongoSanitize, sendError } from '@pipeline-builder/api-core';
+import { createHealthRouter, createLogger, installCrashHandlers, mongoSanitize, sendError } from '@pipeline-builder/api-core';
 import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
-import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client';
 
 import { config } from './config/index.js';
 import { notFoundHandler, errorHandler } from './middleware/index.js';
+import { extractClientIp, rateLimitKey, peekJwtClaims, verifiedIsSuperAdmin, tierLimitedMax } from './middleware/rate-limit-keys.js';
 import {
   isWriteBlockedByImpersonation,
   IMPERSONATION_READ_ONLY_MESSAGE,
@@ -65,127 +65,28 @@ const httpRequestsTotal = new Counter({
   registers: [metricsRegistry],
 });
 
-/** Extract client IP from request, handling proxies.
- *
- * Always route the final value through `ipKeyGenerator` — express-rate-limit
- * 8.x's validator refuses to start if a custom keyGenerator touches `req.ip`
- * without calling this helper (the helper normalizes IPv6 addresses to a /64
- * prefix so a single user can't burn through the bucket by rotating
- * low-bits). Skipping the helper on IPv4 raises ERR_ERL_KEY_GEN_IPV6 at
- * boot time even though IPv4 doesn't need the prefixing — the validator
- * doesn't introspect; it just checks the helper was invoked. */
-function extractClientIp(req: express.Request): string {
-  let ip = req.ip;
-  if (req.headers['x-forwarded-for']) {
-    ip = (req.headers['x-forwarded-for'] as string).split(',')[0].trim();
-  }
-  return ipKeyGenerator(ip || 'unknown', 64);
+/**
+ * The Alertmanager relay webhook. Machine-to-machine, and unauthenticated at
+ * middleware time (it checks a per-instance bearer inside the handler), so
+ * without this exemption it lands in the ANONYMOUS bucket of the user-sized
+ * limiters and an alert storm gets 429'd — which Alertmanager treats as a
+ * failed notification, silently delaying alerts. It gets `alertWebhookLimiter`
+ * instead, sized for burst fan-out.
+ */
+const ALERT_WEBHOOK_PATH = '/observability/alert-webhook';
+function isAlertWebhook(req: Request): boolean {
+  return req.method === 'POST' && req.path === ALERT_WEBHOOK_PATH;
 }
 
-/**
- * Best-effort organizationId extraction for rate-limit bucketing.
- *
- * Runs BEFORE auth middleware, so this peeks at the Bearer token without
- * verifying the signature. Used only as a rate-limit key; real authorization
- * still happens in requireAuth. Falls back to IP-based keying when * - no Bearer token,
- * - the token is malformed,
- * - the payload doesn't include organizationId.
- *
- * Net effect: a single noisy authenticated org consumes its own quota window
- * instead of degrading every other tenant sharing an IP (NAT / corp gateway).
- */
-function rateLimitKey(req: express.Request): string {
-  const auth = req.headers.authorization;
-  if (auth?.startsWith('Bearer ')) {
-    const token = auth.slice(7);
-    const parts = token.split('.');
-    if (parts.length === 3 && parts[1]) {
-      try {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8')) as { organizationId?: string };
-        if (typeof payload.organizationId === 'string' && payload.organizationId.length > 0) {
-          return `org:${payload.organizationId.toLowerCase()}`;
-        }
-      } catch {
-        // Malformed JWT  fall through to IP keying.
-      }
-    }
-  }
-  return `ip:${extractClientIp(req)}`;
-}
-
-/**
- * Peek at the JWT payload (unverified  signature checked later in `requireAuth`)
- * to extract the issuer-stamped tier + role for rate-limit dispatching.
- * Same caveat as `rateLimitKey`: this runs BEFORE auth middleware, so it must
- * tolerate missing / malformed tokens; the limit decision falls back to the
- * developer tier when no signal is available.
- */
-function peekJwtClaims(req: express.Request): {
-  tier?: string;
-  role?: string;
-  organizationId?: string;
-  organizationName?: string;
-  isSuperAdmin?: boolean;
-  impersonationReadOnly?: boolean;
-} {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) return {};
-  const token = auth.slice(7);
-  const parts = token.split('.');
-  if (parts.length !== 3 || !parts[1]) return {};
-  try {
-    return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8')) as {
-      tier?: string;
-      role?: string;
-      organizationId?: string;
-      organizationName?: string;
-      isSuperAdmin?: boolean;
-      impersonationReadOnly?: boolean;
-    };
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Whether the request carries a VALID (signature-verified) access token with the
- * `isSuperAdmin` flag. Used only for the rate-limit bypass, which must not honor a
- * forged token. Unlike `peekJwtClaims` (unverified — fine for tier/key selection),
- * this verifies against the same secret + pinned algorithm as `requireAuth`.
- */
-function verifiedIsSuperAdmin(req: express.Request): boolean {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) return false;
-  try {
-    const payload = jwt.verify(auth.slice(7), config.auth.jwt.secret, {
-      algorithms: [config.auth.jwt.algorithm],
-    }) as { isSuperAdmin?: boolean };
-    return payload.isSuperAdmin === true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Per-tier max calculator. JWT carries `tier` (set at issuance from the
- * org's planId); we multiply the baseline by the tier's multiplier so a
- * premium org gets proportionally more burst. Sysadmins bypass entirely
- * (see `skip` below).
- *
- * Falls back to the developer (1×) multiplier when the tier isn't on the
- * configured map  keeps newly-named tiers from accidentally getting an
- * unlimited budget.
- */
-function tierLimitedMax(req: Request): number {
-  const { tier } = peekJwtClaims(req);
-  // `tier` is a JWT claim and arrives untyped — narrow via api-core's
-  // `isValidTier` guard before indexing the strongly-typed
-  // `Record<QuotaTier, number>`. Unknown tiers fall back to 1× (developer
-  // baseline), keeping a renamed-but-not-deployed tier from accidentally
-  // getting an unlimited budget.
-  const mult: number = (tier && isValidTier(tier) ? config.rateLimit.tierMultipliers[tier] : 1) || 1;
-  return Math.max(1, Math.floor(config.rateLimit.max * mult));
-}
+/** Generous, dedicated bucket for the alert relay — see `isAlertWebhook`. */
+const alertWebhookLimiter = rateLimit({
+  windowMs: config.rateLimit.alertWebhook.windowMs,
+  max: config.rateLimit.alertWebhook.max,
+  keyGenerator: extractClientIp,
+  message: { success: false, statusCode: 429, message: 'Alert webhook rate limit exceeded.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 /** General rate limiter  per-tier max, keyed by org (or IP for anon callers). */
 const limiter = rateLimit({
@@ -197,6 +98,9 @@ const limiter = rateLimit({
   // size it for the worst case. Same JWT-peek pattern as the key generator
   // so this works pre-`requireAuth`.
   skip: (req: Request) => {
+    // The alert relay has its own generous bucket; it must not share the
+    // anonymous user budget.
+    if (isAlertWebhook(req)) return true;
     // Sysadmin bypass — VERIFY the signature (not just peek): the bypass removes
     // throttling entirely, so an unsigned/forged `isSuperAdmin:true` token must not
     // grant it (that would let an unauthenticated caller strip rate limiting from
@@ -229,6 +133,9 @@ const observabilityLimiter = rateLimit({
   windowMs: config.rateLimit.observability.windowMs,
   max: config.rateLimit.observability.max,
   keyGenerator: rateLimitKey,
+  // The alert relay is mounted under /observability but is not a tenant
+  // dashboard query — it has its own bucket (see `isAlertWebhook`).
+  skip: isAlertWebhook,
   message: { success: false, statusCode: 429, message: 'Observability rate limit exceeded for your organization. Please slow down or batch your queries.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -306,9 +213,13 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   }
   const end = httpRequestDuration.startTimer();
   res.on('finish', () => {
-    const route = req.route?.path ? req.baseUrl + req.route.path: req.path
-      .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, ':id')
-      .replace(/\/\d+(?=\/|$)/g, '/:id');
+    // A matched route gives a bounded pattern (`/organization/:id`). An
+    // UNMATCHED path (404s, and anything rejected before routing) is
+    // caller-controlled, so it collapses to a single label: prom-client
+    // counters never expire, so labelling it verbatim let an
+    // unauthenticated loop grow `http_requests_total` without bound. The
+    // individual paths are still in the request log, where cardinality is free.
+    const route = req.route?.path ? req.baseUrl + req.route.path : 'unmatched';
     const labels = { method: req.method, route, status_code: String(res.statusCode) };
     end(labels);
     httpRequestsTotal.inc(labels);
@@ -365,6 +276,9 @@ app.use('/logs', logRoutes);
 app.use('/audit', auditRoutes);
 app.use('/internal/notify-email', notifyEmailRoutes);
 app.use('/config', configRoutes);
+// The relay's own bucket, mounted ahead of the tenant-facing limiter so the
+// two never share a budget.
+app.use(ALERT_WEBHOOK_PATH, alertWebhookLimiter);
 app.use('/observability', observabilityLimiter, observabilityRoutes);
 app.use('/dashboards', dashboardRoutes);
 app.use('/admin/org-idp', orgIdpRoutes);

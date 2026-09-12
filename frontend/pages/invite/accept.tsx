@@ -15,6 +15,8 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Button } from '@/components/ui/Button';
 import api from '@/lib/api';
 import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/lib/site-url';
+import { storeOAuthIntent } from '@/lib/oauth-intent';
+import { formatError } from '@/lib/constants';
 
 interface InvitePreview {
   email: string;
@@ -77,7 +79,7 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
           setLoadError(res.message || 'This invitation could not be found.');
         }
       })
-      .catch((err) => setLoadError(err instanceof Error ? err.message : 'This invitation could not be found.'))
+      .catch((err) => setLoadError(formatError(err, 'This invitation could not be found.')))
       .finally(() => setLoading(false));
   }, [router.isReady, router.query.token]);
 
@@ -100,7 +102,7 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
       if (!res.success) throw new Error(res.message || 'Failed to accept invitation');
       await finish();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to accept invitation');
+      setActionError(formatError(err, 'Failed to accept invitation'));
     } finally {
       setSubmitting(false);
     }
@@ -119,12 +121,23 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
       const url = res.data?.url;
       const state = res.data?.state;
       if (!url || !state) throw new Error('Could not start sign-in with this provider');
+      // FATAL, not best-effort: sessionStorage is the ONLY carrier of the
+      // invite token across the provider redirect. Swallowing the failure and
+      // redirecting anyway meant the callback found no intent, fell through to
+      // the plain-login branch, and auto-provisioned a BRAND-NEW ORG for the
+      // invitee — the invitation was never accepted and nothing surfaced the
+      // problem. Better to stop here with an actionable message.
       try {
-        sessionStorage.setItem('pb_oauth_intent', JSON.stringify({ state, kind: 'invite', inviteToken: token, provider }));
-      } catch { /* storage unavailable — backend still validates state */ }
+        storeOAuthIntent({ state, kind: 'invite', inviteToken: token, provider }, true);
+      } catch {
+        throw new Error(
+          'Your browser is blocking site storage, which is required to accept an invitation with '
+          + `${provider}. Enable site data for this page, or accept the invitation with a password instead.`,
+        );
+      }
       window.location.href = url;
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Could not start sign-in');
+      setActionError(formatError(err, 'Could not start sign-in'));
       setSubmitting(false);
     }
   };
@@ -149,7 +162,7 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
       if (!res.success) throw new Error(res.message || 'Failed to accept invitation');
       await finish();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to create account and accept');
+      setActionError(formatError(err, 'Failed to create account and accept'));
     } finally {
       setSubmitting(false);
     }

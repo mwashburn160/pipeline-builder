@@ -474,6 +474,32 @@ describe('SSEManager', () => {
       expect(manager.getClientCount(REQ_ID)).toBe(1);
     });
 
+    it('REGRESSION: enforces the per-REQUEST cap BEFORE flushing headers, for a dashed id', async () => {
+      // `addClient` keys the map on the normalized (undashed) id, but the
+      // pre-flight read the RAW id — so for a dashed id it always saw 0 and the
+      // cap was only caught inside addClient, after flushHeaders(). The client
+      // then got a silently-closed stream instead of a readable 429.
+      const capped = new SSEManager({ maxClientsPerRequest: 1, maxClientsPerOrg: 100, cleanupIntervalMs: 0 });
+      try {
+        const t1 = ((await capped.createTicket('org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
+        const t2 = ((await capped.createTicket('org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
+
+        const res1 = mockMwRes();
+        await capped.middleware()({ params: { requestId: REQ_ID }, query: { ticket: t1 } }, res1);
+        expect(res1.statusCode).toBe(200);
+
+        // Second connection for the SAME request id is over the per-request cap.
+        const res2 = mockMwRes();
+        await capped.middleware()({ params: { requestId: REQ_ID }, query: { ticket: t2 } }, res2);
+        expect(res2.statusCode).toBe(429);
+        // The whole point of the pre-flight: the 429 is readable because no SSE
+        // headers were flushed first.
+        expect(res2.flushed).toBe(false);
+      } finally {
+        capped.shutdown();
+      }
+    });
+
     it('enforces the per-org connection cap on the stream (429)', async () => {
       const capped = new SSEManager({ maxClientsPerOrg: 1, maxClientsPerRequest: 100, cleanupIntervalMs: 0 });
       try {

@@ -5,8 +5,8 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useDebounce } from './useDebounce';
 import { runCancellableFetch } from './internal/fetchCore';
-import { formatError } from '@/lib/constants';
 import type { PaginationState } from '@/components/ui/Pagination';
+import { formatError } from '@/lib/constants';
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -159,6 +159,15 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
   // Fetch data when debounced filters, pagination, or fetchKey change. Shares
   // the cancellable-fetch core with useFetch/useServerPagination so the
   // "drop stale state writes on deps-change/unmount" semantics live in one place.
+  // Fold the dynamic select-filter values into ONE string dep.
+  //
+  // The dep array previously SPREAD them (`...selectFieldKeys.map(...)`), so its
+  // LENGTH tracked the number of configured filters. Every current caller passes
+  // a fixed `fields` config, but a conditionally-rendered filter would change
+  // the array size between renders and React throws outright ("The final
+  // argument passed to useEffect changed size between renders").
+  const selectFilterKey = selectFieldKeys.map((k) => String(filters[k] ?? '')).join('\u0000');
+
   useEffect(() => {
     // Clear the initial loading state when disabled so a consumer gating on a
     // non-auth condition (e.g. "wait for an id") doesn't render a spinner
@@ -204,8 +213,8 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
       onError: (err) => setError(formatError(err, 'Failed to load data')),
       onSettled: () => setIsLoading(false),
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys is static config; dynamic filter values are spread individually
-  }, [enabled, debouncedTextValues, ...selectFieldKeys.map(k => filters[k]), pageState.limit, pageState.offset, sortState.sortBy, sortState.sortOrder, fetchKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys is static config; the dynamic filter values are folded into selectFilterKey
+  }, [enabled, debouncedTextValues, selectFilterKey, pageState.limit, pageState.offset, sortState.sortBy, sortState.sortOrder, fetchKey]);
 
   // URL → state (once, when the router is ready). Reads any managed filter keys,
   // sortBy/sortOrder, and offset from the query so a refresh/shared link restores

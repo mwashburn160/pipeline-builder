@@ -46,6 +46,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   },
   resolveVisibility: (_req: any, am?: string) => am || 'private',
   isSystemAdmin: () => true,
+  // Bulk routes now apply the full visibility ladder per row rather than a
+  // `private`-only check, so they need the write predicate + publish perm.
+  checkVisibilityWriteAccess: () => 'ok',
+  userHasPermission: () => true,
   reserveQuota: jest.fn(),
   decrementQuota: jest.fn(),
   sendSuccess: mockSendSuccess,

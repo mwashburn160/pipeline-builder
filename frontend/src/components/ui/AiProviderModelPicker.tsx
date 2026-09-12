@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -25,6 +26,10 @@ interface AiProviderModelPickerProps {
 export function AiProviderModelPicker({ ai, disabled }: AiProviderModelPickerProps) {
   return (
     <>
+      {/* A provider-fetch failure used to render as the plausible-looking "no
+          providers configured" empty state. Shown here (not in each of the
+          three tabs) so every consumer of the hook reports it identically. */}
+      {ai.error && <ErrorAlert message={ai.error} className="mb-4" />}
       {/* Provider and Model Selection */}
       <div className="grid grid-cols-2 gap-4">
         <FormField label="Provider">

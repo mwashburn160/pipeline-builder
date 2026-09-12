@@ -45,6 +45,7 @@ import { DataTable, type Column } from './DataTable';
 import { Pagination, type PaginationState } from './Pagination';
 import { Skeleton } from './Skeleton';
 import { EmptyState } from './EmptyState';
+import { formatError } from '@/lib/constants';
 
 export interface ResourceListProps<T> {
   // ── Required state ──
@@ -191,7 +192,7 @@ export function ResourceList<T>({
   className = '',
   variant = 'card',
 }: ResourceListProps<T>) {
-  const errorMessage = error instanceof Error ? error.message : error;
+  const errorMessage = error === null ? null : formatError(error);
   const hasCustomBody = children !== undefined;
   const showBuiltInFilter = filterSlot === undefined && filter !== undefined && onFilterChange !== undefined;
   const hasFilterText = !!(filter && filter.length > 0);

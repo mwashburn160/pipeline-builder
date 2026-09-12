@@ -14,6 +14,7 @@ import MetadataEditor from './editors/MetadataEditor';
 import VarsEditor from './editors/VarsEditor';
 import WizardStepper from './WizardStepper';
 import { WIZARD_STEPS, validateStep, getStepStatuses } from '@/lib/wizard-validation';
+import { formatError } from '@/lib/constants';
 
 /** Methods exposed to parent modals via React ref. */
 export interface FormBuilderTabRef {
@@ -125,7 +126,7 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
           setValidationErrors({});
           return null;
         } catch (err) {
-          return err instanceof Error ? err.message : 'Failed to apply JSON to the form.';
+          return formatError(err, 'Failed to apply JSON to the form.');
         }
       },
     }));

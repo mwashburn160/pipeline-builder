@@ -101,7 +101,7 @@ export class OrgIdpService {
     if (existing) {
       existing.provider = input.provider;
       existing.clientId = input.clientId;
-      existing.clientSecretEncrypted = wrapEncrypted(input.clientSecret, input.orgId);
+      existing.clientSecretEncrypted = await wrapEncrypted(input.clientSecret, input.orgId);
       existing.discoveryUrl = input.discoveryUrl;
       existing.region = input.region;
       existing.userPoolId = input.userPoolId;
@@ -116,7 +116,7 @@ export class OrgIdpService {
       orgId: input.orgId,
       provider: input.provider,
       clientId: input.clientId,
-      clientSecretEncrypted: wrapEncrypted(input.clientSecret, input.orgId),
+      clientSecretEncrypted: await wrapEncrypted(input.clientSecret, input.orgId),
       discoveryUrl: input.discoveryUrl,
       region: input.region,
       userPoolId: input.userPoolId,
@@ -138,7 +138,7 @@ export class OrgIdpService {
     if (input.provider !== undefined) existing.provider = input.provider;
     if (input.clientId !== undefined) existing.clientId = input.clientId;
     if (input.clientSecret !== undefined && input.clientSecret.length > 0) {
-      existing.clientSecretEncrypted = wrapEncrypted(input.clientSecret, orgId);
+      existing.clientSecretEncrypted = await wrapEncrypted(input.clientSecret, orgId);
     }
     if (input.discoveryUrl !== undefined) existing.discoveryUrl = input.discoveryUrl;
     if (input.region !== undefined) existing.region = input.region;
@@ -169,7 +169,7 @@ export class OrgIdpService {
   async getLoginConfig(orgId: string): Promise<(OidcLoginConfig & { enabled: boolean }) | null> {
     const doc = await OrgIdpConfig.findOne({ orgId });
     if (!doc) return null;
-    const clientSecret = unwrapEncrypted(doc.clientSecretEncrypted, doc.orgId, 'org-idp.clientSecret');
+    const clientSecret = await unwrapEncrypted(doc.clientSecretEncrypted, doc.orgId, 'org-idp.clientSecret');
     return {
       orgId: doc.orgId,
       provider: doc.provider,

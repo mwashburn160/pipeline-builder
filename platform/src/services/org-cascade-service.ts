@@ -43,6 +43,22 @@ import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('org-cascade');
 
+/**
+ * How many audit events the purge archives per `bulkWrite`. Bounds peak memory
+ * so a tenant at the retention ceiling can't OOM the pod mid-purge — which,
+ * because the archive is fail-closed, would make the next sweep retry the same
+ * org and fail identically, stalling the purge forever.
+ */
+const AUDIT_ARCHIVE_BATCH_SIZE = 1000;
+
+/**
+ * Max audit events an {@link exportOrg} artifact carries. Unlike the archive,
+ * the export materializes into a single JSON object, so it takes a hard cap and
+ * reports truncation instead of streaming. Newest-first, so a truncated export
+ * keeps the most recent (most forensically useful) window.
+ */
+const AUDIT_EXPORT_CAP = 50_000;
+
 /** Cannot delete the system org. Matches the existing org-delete guard.
  *  Same string value as `services/organization-service`'s export — the
  *  controller errorMap uses that one. Kept exported because the cascade
@@ -282,21 +298,41 @@ export async function cascadeDeleteOrg( orgId: string,
     // Archive EVERY matching event (including `admin.org.delete`) — the archive
     // is a complete copy. The subsequent live-delete still preserves the
     // in-place `admin.org.delete` trail (see the `$ne` filter below).
-    const events = await AuditEvent.find(auditScope).lean();
-    if (events.length > 0) {
-      // Preserve each event's original `_id` so re-archiving on a purge retry is
-      // an idempotent upsert (no duplicates), and keep the full document
-      // verbatim plus an `archivedAt` stamp.
+    // STREAMED in fixed batches, never materialized. A tenant at the retention
+    // ceiling has millions of events; `find().lean()` + one bulkWrite built from
+    // the whole array OOM-killed the pod mid-purge — and because the archive is
+    // fail-closed, the next sweep retried the same org and hit the same OOM,
+    // stalling the purge (and any GDPR erasure behind it) permanently.
+    let archived = 0;
+    let batch: Array<Record<string, unknown>> = [];
+    // Preserve each event's original `_id` so re-archiving on a purge retry is
+    // an idempotent upsert (no duplicates), and keep the full document verbatim
+    // plus an `archivedAt` stamp.
+    const flush = async (): Promise<void> => {
+      if (batch.length === 0) return;
       await ArchivedAuditEvent.bulkWrite(
-        events.map((e) => ({
+        batch.map((e) => ({
           replaceOne: {
-            filter: { _id: (e as { _id: unknown })._id },
-            replacement: { ...(e as unknown as Record<string, unknown>), archivedAt: new Date() },
+            filter: { _id: e._id },
+            replacement: { ...e, archivedAt: new Date() },
             upsert: true,
           },
         })),
         { ordered: false },
       );
+      archived += batch.length;
+      batch = [];
+    };
+
+    const cursor = AuditEvent.find(auditScope).lean().cursor({ batchSize: AUDIT_ARCHIVE_BATCH_SIZE });
+    try {
+      for await (const leanDoc of cursor) {
+        batch.push(leanDoc as unknown as Record<string, unknown>);
+        if (batch.length >= AUDIT_ARCHIVE_BATCH_SIZE) await flush();
+      }
+      await flush();
+    } finally {
+      await cursor.close();
     }
 
     // Archive succeeded (or there was nothing to archive) — safe to delete the
@@ -308,7 +344,7 @@ export async function cascadeDeleteOrg( orgId: string,
       action: { $ne: 'admin.org.delete' },
     });
     report.mongo.auditEvents = auditRes.deletedCount ?? 0;
-    report.auditArchive = { ok: true, archived: events.length };
+    report.auditArchive = { ok: true, archived };
   } catch (err) {
     // Do NOT delete un-archived audit rows. Flag the failure so the sweep defers.
     logger.error(
@@ -570,6 +606,9 @@ export interface OrgExport {
   orgId: string;
   postgres: Record<string, unknown[]>;
   mongo: { invitations: unknown[]; auditEvents: unknown[] };
+  /** Set when a collection hit its export cap, so the caller can tell a
+   *  complete artifact from a partial one. Absent means nothing was capped. */
+  truncated?: { auditEvents: { cap: number } };
 }
 
 /**
@@ -610,9 +649,21 @@ export async function exportOrg( orgId: string,
     logger.warn('Invitation export failed', { orgId, error: errorMessage(err) });
   }
   try {
+    // CAPPED: the export materializes into one JSON object, so an uncapped
+    // read of a retention-ceiling tenant's whole trail is a heap-exhaustion
+    // risk on a single request. Truncation is reported rather than silent —
+    // a portability artifact that quietly dropped records would be worse than
+    // one that says it is partial.
     result.mongo.auditEvents = await AuditEvent.find({
       $or: [{ orgId }, { affectedOrgId: orgId }],
-    }).lean();
+    })
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(AUDIT_EXPORT_CAP)
+      .lean();
+    if (result.mongo.auditEvents.length === AUDIT_EXPORT_CAP) {
+      result.truncated = { auditEvents: { cap: AUDIT_EXPORT_CAP } };
+      logger.warn('AuditEvent export hit its cap — artifact is partial', { orgId, cap: AUDIT_EXPORT_CAP });
+    }
   } catch (err) {
     logger.warn('AuditEvent export failed', { orgId, error: errorMessage(err) });
   }

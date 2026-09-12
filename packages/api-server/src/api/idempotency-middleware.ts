@@ -253,8 +253,14 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
     // first endpoint's 2xx for the second — the store is a module-level singleton
     // shared by every route. Folding in method + route path + a body fingerprint
     // only makes keys MORE specific, so there is no cross-contamination risk.
+    // Also namespace by the VERIFIED user. `Idempotency-Key` is chosen by the
+    // client, so two users in the same org sending the same body with the same
+    // key collided: the second user's mutation was SKIPPED and they were served
+    // the first user's cached response. Falls back to the org alone only when
+    // there is no verified subject (service principals carry one).
+    const sub = req.user?.sub;
     const routePath = (req.baseUrl ?? '') + (req.route?.path ?? req.path ?? '');
-    const fullKey = `${req.method}:${routePath}:${orgId}:${bodyFingerprint(req.body)}:${key}`;
+    const fullKey = `${req.method}:${routePath}:${orgId}:${sub ?? '-'}:${bodyFingerprint(req.body)}:${key}`;
 
     /** Reject a duplicate whose original is still in-flight. */
     const sendInProgress = (): void => {
@@ -374,6 +380,16 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
       // EventEmitters; res.json's fast path already settled the common case.
       if (typeof patched.on === 'function') {
         patched.on('finish', settleFromStatus);
+        // A client that disconnects (or a process killed mid-handler) emits
+        // 'close' WITHOUT 'finish', which used to leave the reservation
+        // `pending` for the full IDEMPOTENCY_TTL_MS — so every retry got a 409
+        // and a retry storm became a multi-minute outage for that key.
+        // RELEASE rather than cache: the response never completed, so there is
+        // no result to replay, and the retry should genuinely re-run.
+        patched.on('close', () => {
+          if (settled) return;
+          if (!res.writableFinished) release();
+        });
       }
 
       next();

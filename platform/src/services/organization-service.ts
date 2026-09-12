@@ -555,7 +555,7 @@ class OrganizationService {
 
     if (!org.aiProviderKeys) org.aiProviderKeys = {};
 
-    applyAIProviderKeyUpdates(org.aiProviderKeys, body, String(org._id));
+    await applyAIProviderKeyUpdates(org.aiProviderKeys, body, String(org._id));
 
     org.markModified('aiProviderKeys');
     await org.save();

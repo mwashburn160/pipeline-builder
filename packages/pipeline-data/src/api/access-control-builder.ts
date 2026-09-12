@@ -54,6 +54,18 @@ export function normalizeStringFilter(value: unknown): string {
 export function buildIdCondition(idColumn: AnyColumn, id: unknown): SQL | null {
   if (id === undefined || id === null) return null;
 
+  // `BaseAccessFilter.id` is declared `string | string[]`, so honour the array
+  // form: match ANY of the ids, each with the same exact-vs-prefix semantics as
+  // a single value. `String(['a','b'])` would otherwise produce `LIKE 'a,b%'`
+  // and silently return zero rows — a trap for the first caller to pass one.
+  if (Array.isArray(id)) {
+    const parts = id
+      .map((one) => buildIdCondition(idColumn, one))
+      .filter((c): c is SQL => c !== null);
+    if (parts.length === 0) return null;
+    return parts.length === 1 ? parts[0] : (or(...parts) as SQL);
+  }
+
   const idString = String(id).toLowerCase();
   if (FULL_UUID.test(idString)) {
     return eq(idColumn, idString);

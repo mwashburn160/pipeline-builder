@@ -12,6 +12,27 @@
  * or any HTTP collector).
  */
 
+import { redactString } from './redact';
+
+/**
+ * Drop everything after the path: the query string and hash are where the
+ * app's single-use secrets live — `/invite/accept?token=…`,
+ * `/auth/verify-email?token=…`, `/auth/callback/[provider]?code=…&state=…`.
+ * Reporting `window.location.href` verbatim handed a live invite token or OAuth
+ * authorization code to whatever collector `NEXT_PUBLIC_ERROR_REPORT_URL`
+ * points at. The path alone is what makes a report actionable anyway.
+ */
+function sanitizeUrl(raw: string): string {
+  try {
+    const parsed = new URL(raw, window.location.origin);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    // Not parseable — drop it rather than risk forwarding an opaque string
+    // that might still carry a token.
+    return '';
+  }
+}
+
 export interface ClientErrorContext {
   source: 'react' | 'window.onerror' | 'unhandledrejection';
   componentStack?: string;
@@ -30,13 +51,17 @@ export function reportClientError(error: Error, context: ClientErrorContext): vo
   if (!ENDPOINT || typeof window === 'undefined') return;
 
   try {
+    // Everything free-form goes through `redactString` on the way out — the
+    // same scrub the render surfaces apply. A server error message quoted into
+    // `error.message` can carry an AWS account id, and this is the one place in
+    // the app that sends text OFF-BOX.
     const payload = JSON.stringify({
       name: error.name,
-      message: error.message,
-      stack: error.stack,
+      message: redactString(error.message ?? ''),
+      stack: error.stack ? redactString(error.stack) : undefined,
       source: context.source,
-      componentStack: context.componentStack,
-      url: context.url ?? window.location.href,
+      componentStack: context.componentStack ? redactString(context.componentStack) : undefined,
+      url: sanitizeUrl(context.url ?? window.location.href),
       userAgent: navigator.userAgent,
       ts: new Date().toISOString(),
     });

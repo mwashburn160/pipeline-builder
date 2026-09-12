@@ -442,7 +442,11 @@ export class QuotaService {
             {
               $and: [
                 { $gt: [`$${usagePath}.resetAt`, '$$NOW'] },
-                { $lte: [{ $add: [`$${usagePath}.used`, amount] }, limitExpr] },
+                // `$ifNull` like the bypass path: a subdoc with `resetAt` set but
+                // `used` ABSENT made `$add` yield null, so `used` was written as
+                // null and every later `$add: [null, amount]` stayed null — the
+                // counter silently stopped incrementing AND stopped enforcing.
+                { $lte: [{ $add: [{ $ifNull: [`$${usagePath}.used`, 0] }, amount] }, limitExpr] },
               ],
             },
           ],
@@ -455,7 +459,7 @@ export class QuotaService {
               $cond: {
                 if: { $lte: [`$${usagePath}.resetAt`, '$$NOW'] },
                 then: amount,
-                else: { $add: [`$${usagePath}.used`, amount] },
+                else: { $add: [{ $ifNull: [`$${usagePath}.used`, 0] }, amount] },
               },
             },
             [`${usagePath}.resetAt`]: {
@@ -489,9 +493,13 @@ export class QuotaService {
       return buildReserveResult(quotaType, limit, currentUsage.used, currentUsage.resetAt, true);
     }
 
-    const limit = org.quotas[quotaType];
+    // Default a MISSING stored limit exactly as the exceeded/read paths do.
+    // Without it the success path returned `limit: undefined` and
+    // `remaining: Math.max(0, undefined - used)` = NaN, which flowed out to
+    // every reserveQuota caller and the `/quotas` read surface.
+    const limit = org.quotas[quotaType] ?? config.quota.defaults[quotaType];
     const usage = org.usage[quotaType];
-    return buildReserveResult(quotaType, limit, usage.used, usage.resetAt, false);
+    return buildReserveResult(quotaType, limit, usage.used ?? 0, usage.resetAt, false);
   }
 
   /**
@@ -550,7 +558,7 @@ export class QuotaService {
         const existing = await Organization.findById(toOrgId(orgId));
         if (!existing) return null;
 
-        const limit = existing.quotas[quotaType];
+        const limit = existing.quotas[quotaType] ?? config.quota.defaults[quotaType];
         const usage = existing.usage[quotaType] ?? {
           used: 0,
           resetAt: getNextResetDate(config.quota.resetDays),
@@ -566,9 +574,13 @@ export class QuotaService {
       return null;
     }
 
-    const limit = org.quotas[quotaType];
+    // Default a MISSING stored limit exactly as the exceeded/read paths do.
+    // Without it the success path returned `limit: undefined` and
+    // `remaining: Math.max(0, undefined - used)` = NaN, which flowed out to
+    // every reserveQuota caller and the `/quotas` read surface.
+    const limit = org.quotas[quotaType] ?? config.quota.defaults[quotaType];
     const usage = org.usage[quotaType];
-    return buildReserveResult(quotaType, limit, usage.used, usage.resetAt, false);
+    return buildReserveResult(quotaType, limit, usage.used ?? 0, usage.resetAt, false);
   }
 }
 

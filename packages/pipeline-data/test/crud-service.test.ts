@@ -12,6 +12,7 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Must declare mocks before unstable_mockModule registration
@@ -64,6 +65,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 // Import after mocks are set up
 import type { CrudService as CrudServiceType, BaseEntity } from '../src/api/crud-service.js';
+const { schema } = await import('../src/database/drizzle-schema.js');
 const { CrudService } = await import('../src/api/crud-service.js') as {
   CrudService: typeof CrudServiceType;
 };
@@ -1107,5 +1109,76 @@ describe('CrudService', () => {
       const targetWhereArg = targetWhere.mock.calls[0][0];
       expect(sqlContains(targetWhereArg, (mockSchema as unknown as { isActive: unknown }).isActive)).toBe(true);
     });
+  });
+});
+
+describe('bulkDelete visibility ladder', () => {
+  /**
+   * The rungs must match `requireVisibilityWriteAccess` exactly. `bulkDelete`
+   * previously narrowed to `visibility = 'private'`, which encoded the OLD
+   * two-state model: since `resolveVisibility` defaults pipelines and plugins
+   * to `org`, and single-row delete allows an `org` row with plain `:write`,
+   * bulk delete 403'd / silently skipped the DEFAULT case.
+   */
+  const dialect = new PgDialect();
+  // Own instance: `service` above is scoped to its own describe block.
+  const svc = new TestService();
+
+  /** Render the predicate the ladder contributes, as SQL text + params. */
+  function ladder(access: { isSystemAdmin: boolean; canPublish: boolean } | undefined, userId = 'user-1') {
+    const conds: SQL[] = (svc as any).visibilityDeleteConditions(
+      access,
+      userId,
+      schema.pipeline.visibility,
+      schema.pipeline.createdBy,
+    );
+    return conds.map((c) => dialect.sqlToQuery(c));
+  }
+
+  it('adds no restriction for a system admin', () => {
+    expect(ladder({ isSystemAdmin: true, canPublish: true })).toHaveLength(0);
+  });
+
+  it('adds no restriction when no access context is supplied', () => {
+    expect(ladder(undefined)).toHaveLength(0);
+  });
+
+  it('REGRESSION: allows the default `org` rung', () => {
+    const [q] = ladder({ isSystemAdmin: false, canPublish: false });
+    expect(q.params).toContain('org');
+  });
+
+  it('allows `private` only for the author', () => {
+    const [q] = ladder({ isSystemAdmin: false, canPublish: false }, 'user-1');
+    expect(q.params).toContain('private');
+    expect(q.params).toContain('user-1'); // createdBy pinned to the caller
+  });
+
+  it('excludes `public` without the publish permission', () => {
+    const [q] = ladder({ isSystemAdmin: false, canPublish: false });
+    expect(q.params).not.toContain('public');
+  });
+
+  it('includes `public` with the publish permission', () => {
+    const [q] = ladder({ isSystemAdmin: false, canPublish: true });
+    expect(q.params).toContain('public');
+  });
+
+  it('fails closed on the private rung when the caller has no identity', () => {
+    // An empty userId must never match an empty `createdBy` and hand over
+    // someone else's draft — the rung is simply not offered.
+    const [q] = ladder({ isSystemAdmin: false, canPublish: false }, '');
+    expect(q.params).not.toContain('private');
+    expect(q.params).toContain('org');
+  });
+
+  it('contributes nothing for an entity with no visibility column', () => {
+    const conds: SQL[] = (svc as any).visibilityDeleteConditions(
+      { isSystemAdmin: false, canPublish: false },
+      'user-1',
+      undefined,
+      schema.pipeline.createdBy,
+    );
+    expect(conds).toHaveLength(0);
   });
 });

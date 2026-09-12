@@ -12,8 +12,8 @@ import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { type AIProviderStatus } from '@/types';
 import { AI_PROVIDER_NAMES } from '@/lib/ai-constants';
-import { formatError } from '@/lib/constants';
 import api, { ApiError } from '@/lib/api';
+import { formatError } from '@/lib/constants';
 
 interface AIProviderConfigProps {
   /** Whether the current user can edit org AI config (`org:settings` capability).
@@ -59,7 +59,7 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
         if (cancelled) return;
         // 404 = user doesn't have an org yet; not a real error.
         if (err instanceof ApiError && err.statusCode === 404) return;
-        setError(err instanceof Error ? err.message : String(err));
+        setError(formatError(err));
       }
     })();
     return () => { cancelled = true; };

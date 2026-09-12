@@ -82,14 +82,25 @@ describe('tryAcquireOrgSlot', () => {
     expect(lua).not.toMatch(/count\s*==\s*1/);
   });
 
-  it('records the owner keyed by the caller-supplied (queue-qualified) id', async () => {
+  it('records the owner ATOMICALLY with the INCR, keyed by the queue-qualified id', async () => {
+    // The HSET used to be a SECOND round trip after the eval. If it threw, the
+    // counter was already raised with no owner entry — and the scrubber
+    // reclaims by iterating the owner hash, so that slot could only be
+    // reclaimed by the 900s TTL, wedging the org's cap until then.
     await tryAcquireOrgSlot('org-a', 'plugin-build-developer:job-1');
 
-    expect(mockHset).toHaveBeenCalledWith(OWNERS_KEY, 'plugin-build-developer:job-1', 'org-a');
+    const call = mockEval.mock.calls.at(-1)!;
+    // (LUA, numKeys=2, counterKey, ownersKey, cap, ttl, jobId, orgId)
+    expect(call[1]).toBe(2);
+    expect(call[3]).toBe(OWNERS_KEY);
+    expect(call[6]).toBe('plugin-build-developer:job-1');
+    expect(call[7]).toBe('org-a');
+    // No separate write — the owner record rides the same script.
+    expect(mockHset).not.toHaveBeenCalled();
   });
 
-  it('does not record an owner when the cap is already reached', async () => {
-    mockEval.mockResolvedValueOnce(0); // Lua returns 0 → over cap
+  it('records no owner when the cap is already reached', async () => {
+    mockEval.mockResolvedValueOnce(0); // Lua returns 0 → over cap, before the HSET
     const ok = await tryAcquireOrgSlot('org-a', 'plugin-build-developer:job-9');
 
     expect(ok).toBe(false);
@@ -165,9 +176,10 @@ describe('MAX_BUILDS_PER_ORG — NaN-fallback (bricked-builds regression)', () =
     const ok = await mod.tryAcquireOrgSlot('org-x', 'plugin-build-developer:job-1');
 
     expect(ok).toBe(true);
-    // eval args: (LUA, numKeys, key, String(cap), String(ttl)). The cap must be
+    // eval args: (LUA, numKeys, counterKey, ownersKey, String(cap), String(ttl),
+    // jobId, orgId). The cap must be
     // the numeric default, never the string 'NaN'.
-    const capArg = mockEval.mock.calls.at(-1)![3];
+    const capArg = mockEval.mock.calls.at(-1)![4];
     expect(capArg).toBe('3');
     expect(capArg).not.toBe('NaN');
   });
@@ -181,6 +193,6 @@ describe('MAX_BUILDS_PER_ORG — NaN-fallback (bricked-builds regression)', () =
     mockEval.mockResolvedValueOnce(1);
     await mod.tryAcquireOrgSlot('org-x', 'plugin-build-developer:job-2');
 
-    expect(mockEval.mock.calls.at(-1)![3]).toBe('7');
+    expect(mockEval.mock.calls.at(-1)![4]).toBe('7');
   });
 });

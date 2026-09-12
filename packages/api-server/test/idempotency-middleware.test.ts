@@ -428,3 +428,118 @@ describe('createRedisIdempotencyStore', () => {
     expect(await store.get('k4')).toBeNull();
   });
 });
+
+describe('idempotency key scoping and abort handling', () => {
+  beforeEach(() => {
+    setIdempotencyStore(createMemoryStore());
+  });
+
+  /** Drive one request through the middleware to completion at `statusCode`. */
+  async function run(req: any, statusCode = 200, body: unknown = { ok: true }) {
+    const middleware = idempotencyMiddleware();
+    const res = mockRes();
+    const next = jest.fn();
+    middleware(req, res, next);
+    await new Promise((r) => setImmediate(r));
+    if (next.mock.calls.length > 0) {
+      res.statusCode = statusCode;
+      res.json(body);
+      await new Promise((r) => setImmediate(r));
+    }
+    return { res, next };
+  }
+
+  it('REGRESSION: two users in one org sharing a key do NOT collide', async () => {
+    // The key used to be namespaced by org only, so the second user's mutation
+    // was skipped and they received the FIRST user's cached response body.
+    const first = await run(mockReq({
+      headers: { 'idempotency-key': 'shared-key' },
+      user: { organizationId: 'org-1', sub: 'user-a' },
+      body: { name: 'x' },
+    }), 201, { id: 'created-by-a' });
+    expect(first.next).toHaveBeenCalledTimes(1);
+
+    const second = await run(mockReq({
+      headers: { 'idempotency-key': 'shared-key' },
+      user: { organizationId: 'org-1', sub: 'user-b' },
+      body: { name: 'x' },
+    }), 201, { id: 'created-by-b' });
+
+    // user-b's request actually RAN rather than replaying user-a's response.
+    expect(second.next).toHaveBeenCalledTimes(1);
+    expect(second.res.headers['X-Idempotent-Replayed']).toBe('false');
+  });
+
+  it('still replays for the SAME user reusing the key', async () => {
+    const req = () => mockReq({
+      headers: { 'idempotency-key': 'same-user-key' },
+      user: { organizationId: 'org-1', sub: 'user-a' },
+      body: { name: 'x' },
+    });
+    const first = await run(req(), 201, { id: 'once' });
+    expect(first.next).toHaveBeenCalledTimes(1);
+
+    const replay = await run(req(), 201, { id: 'twice' });
+    // Replayed from cache — the handler never ran again.
+    expect(replay.next).not.toHaveBeenCalled();
+    expect(replay.res.headers['X-Idempotent-Replayed']).toBe('true');
+  });
+
+  it('REGRESSION: an aborted request RELEASES its reservation instead of stranding it', async () => {
+    // 'close' without 'finish' (client disconnect / process killed mid-handler)
+    // used to leave the key `pending` for the whole TTL, so every retry got a
+    // 409 — a retry storm became a multi-minute outage for that key.
+    const middleware = idempotencyMiddleware();
+    const aborted = mockRes();
+    const next1 = jest.fn();
+    middleware(mockReq({
+      headers: { 'idempotency-key': 'abort-key' },
+      user: { organizationId: 'org-1', sub: 'user-a' },
+      body: { n: 1 },
+    }), aborted, next1);
+    await new Promise((r) => setImmediate(r));
+    expect(next1).toHaveBeenCalledTimes(1);
+
+    // Client goes away before the response completes.
+    aborted.writableFinished = false;
+    aborted.emit('close');
+    await new Promise((r) => setImmediate(r));
+
+    // The retry must be allowed to run, not 409'd.
+    const retry = await run(mockReq({
+      headers: { 'idempotency-key': 'abort-key' },
+      user: { organizationId: 'org-1', sub: 'user-a' },
+      body: { n: 1 },
+    }), 201, { id: 'retried' });
+    expect(retry.next).toHaveBeenCalledTimes(1);
+    expect(retry.res.statusCode).not.toBe(409);
+  });
+
+  it('does not release on close when the response actually finished', async () => {
+    const middleware = idempotencyMiddleware();
+    const res = mockRes();
+    const next = jest.fn();
+    middleware(mockReq({
+      headers: { 'idempotency-key': 'finished-key' },
+      user: { organizationId: 'org-1', sub: 'user-a' },
+      body: { n: 2 },
+    }), res, next);
+    await new Promise((r) => setImmediate(r));
+    res.statusCode = 201;
+    res.json({ id: 'done' });
+    await new Promise((r) => setImmediate(r));
+
+    // A normal request emits 'close' AFTER 'finish'; the cached success must survive.
+    res.writableFinished = true;
+    res.emit('close');
+    await new Promise((r) => setImmediate(r));
+
+    const replay = await run(mockReq({
+      headers: { 'idempotency-key': 'finished-key' },
+      user: { organizationId: 'org-1', sub: 'user-a' },
+      body: { n: 2 },
+    }));
+    expect(replay.next).not.toHaveBeenCalled();
+    expect(replay.res.headers['X-Idempotent-Replayed']).toBe('true');
+  });
+});

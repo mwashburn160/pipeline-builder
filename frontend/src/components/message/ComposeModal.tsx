@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { RecipientPicker, type MemberOption } from '@/components/message/RecipientPicker';
 import { aliasLocalPart } from '@/lib/support-label';
-import { SYSTEM_ORG_ID, DEFAULT_SUPPORT_ALIAS } from '@/lib/constants';
+import { DEFAULT_SUPPORT_ALIAS, SYSTEM_ORG_ID, formatError } from '@/lib/constants';
 import { formatBytes } from '@/lib/format';
 // The compose "To" field prefills the configured support alias (passed in via
 // the `supportAlias` prop, sourced from the server's SUPPORT_ALIASES). This
@@ -270,7 +270,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
         setAttachments((cur) => [...cur, uploaded]);
       }
     } catch (err) {
-      setValidationError(err instanceof Error ? err.message : 'Attachment upload failed');
+      setValidationError(formatError(err, 'Attachment upload failed'));
     } finally {
       setUploading(false);
     }

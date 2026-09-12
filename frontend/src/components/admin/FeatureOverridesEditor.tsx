@@ -7,6 +7,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Button } from '@/components/ui/Button';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ALL_FEATURE_FLAGS, FEATURE_METADATA, type FeatureFlag } from '@/lib/feature-flags';
+import { formatError } from '@/lib/constants';
 
 /**
  * Per-user feature-flag override editor. Each flag has three states:
@@ -67,7 +68,7 @@ export function FeatureOverridesEditor({
         setError(res.message || 'Save failed');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatError(err));
     } finally {
       setSaving(false);
     }

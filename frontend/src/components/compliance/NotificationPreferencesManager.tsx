@@ -14,6 +14,7 @@ import type {
   ComplianceNotificationPreference,
   ComplianceNotificationPreferenceWrite,
 } from '@/types/compliance-notifications';
+import { formatError } from '@/lib/constants';
 
 interface NotificationPreferencesManagerProps {
   readOnly?: boolean;
@@ -65,7 +66,7 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
       if (prefRes.data?.preference) apply(prefRes.data.preference);
     } catch (err) {
       if (isCancelled?.()) return;
-      toast.error(err instanceof Error ? err.message : 'Failed to load notification preferences');
+      toast.error(formatError(err, 'Failed to load notification preferences'));
     }
     if (!isCancelled?.()) setLoading(false);
   }, [apply, toast]);
@@ -112,7 +113,7 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
       if (res.data?.preference) apply(res.data.preference);
       toast.success('Notification preferences saved');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save notification preferences');
+      toast.error(formatError(err, 'Failed to save notification preferences'));
     }
     setSaving(false);
   };

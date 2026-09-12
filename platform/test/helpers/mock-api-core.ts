@@ -130,8 +130,10 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // controllers/auth, which now wires SSO enforcement). Reversible base64
     // round-trip so a suite that DOES exercise IdP secrets still behaves; one
     // testing real crypto overrides them.
-    encryptSecret: (plaintext: string, orgId: string) => ({ v: 1, orgId, data: Buffer.from(String(plaintext)).toString('base64') }),
-    decryptSecret: (blob: { data?: string }) => Buffer.from(String(blob?.data ?? ''), 'base64').toString('utf8'),
+    // Async, mirroring the real api-core primitives: a per-org KMS provider has
+    // to resolve the org (one KMS Decrypt) before it can derive a key.
+    encryptSecret: async (plaintext: string, orgId: string) => ({ v: 1, orgId, data: Buffer.from(String(plaintext)).toString('base64') }),
+    decryptSecret: async (blob: { data?: string }) => Buffer.from(String(blob?.data ?? ''), 'base64').toString('utf8'),
     isEncryptedBlob: (v: unknown) => !!v && typeof v === 'object' && 'data' in (v as object),
     // SSRF guard (utils/ssrf). Default is PERMISSIVE (resolves) so suites that
     // don't exercise the guard aren't forced to mock DNS; a suite testing the

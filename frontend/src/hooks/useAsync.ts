@@ -52,6 +52,14 @@ export function useAsync<T>(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Fold the caller's deps into ONE stable dep.
+  //
+  // The effect previously SPREAD them (`[...deps, refreshKey]`), so its length
+  // tracked `deps.length`. Every current caller passes a fixed-length list, but
+  // a conditional dep (`[a, b, cond && c].filter(Boolean)`) would change the
+  // array size between renders and React throws outright. Serializing keeps the
+  // dep array a constant size regardless of what the caller passes.
+  const depsKey = JSON.stringify(deps, (_k, v) => (typeof v === 'function' ? undefined : v));
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
@@ -77,8 +85,8 @@ export function useAsync<T>(
     return () => {
       controller.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are spread dynamically; static analysis cannot track them
-  }, [...deps, refreshKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- caller deps are folded into depsKey; static analysis cannot track them
+  }, [depsKey, refreshKey]);
 
   return { data, loading, error, refresh };
 }

@@ -61,6 +61,40 @@ function getJwtSecretPrevious(): string | undefined {
 }
 
 /**
+ * Test-only: drop the cached JWT secrets so the next verify re-reads the env.
+ *
+ * Both secrets are cached for {@link JWT_SECRET_REFRESH_INTERVAL_MS}, so a test
+ * that sets `JWT_SECRET`/`JWT_SECRET_PREVIOUS` mid-run would otherwise keep
+ * verifying against the values read on first use. Don't call from production
+ * code — rotation is picked up by the refresh interval.
+ */
+export function _resetJwtSecretCacheForTests(): void {
+  _jwtSecret = undefined;
+  _jwtSecretRefreshedAt = 0;
+  _jwtSecretPrevious = undefined;
+  _jwtSecretPreviousRefreshedAt = 0;
+}
+
+/**
+ * The JWT verify options every token check in the fleet must share: pinned
+ * algorithm (blocks alg-confusion / `alg:none`) plus issuer/audience when the
+ * deployment configures them.
+ *
+ * Centralized because it was built inline at each call site and `step-up.ts`
+ * re-implemented it WITHOUT the issuer/audience pinning — so in a deployment
+ * that sets `JWT_ISSUER`/`JWT_AUDIENCE`, a step-up token minted by any other
+ * system sharing `JWT_SECRET` was accepted.
+ */
+export function buildJwtVerifyOptions(): jwt.VerifyOptions {
+  const verifyOptions: jwt.VerifyOptions = {
+    algorithms: [(process.env.JWT_ALGORITHM || 'HS256') as jwt.Algorithm],
+  };
+  if (process.env.JWT_ISSUER) verifyOptions.issuer = process.env.JWT_ISSUER;
+  if (process.env.JWT_AUDIENCE) verifyOptions.audience = process.env.JWT_AUDIENCE;
+  return verifyOptions;
+}
+
+/**
  * Verify a JWT against the primary secret, falling back to the previous secret
  * (when `JWT_SECRET_PREVIOUS` is configured) ONLY on a signature/verification
  * failure. This makes token verification survive a secret rotation with zero
@@ -76,7 +110,7 @@ function getJwtSecretPrevious(): string | undefined {
  *   - When no previous secret is set, behaviour is byte-for-byte the original:
  *     the primary error propagates unchanged.
  */
-function verifyJwtWithRotation(token: string, verifyOptions: jwt.VerifyOptions): JwtPayload {
+export function verifyJwtWithRotation(token: string, verifyOptions: jwt.VerifyOptions): JwtPayload {
   try {
     return jwt.verify(token, getJwtSecret(), verifyOptions) as JwtPayload;
   } catch (err) {
@@ -235,11 +269,7 @@ function _requireAuth(
     // verify — the classic alg-confusion vector (and a hard guard against
     // `alg:none`). Env-driven so it stays in lockstep with how tokens are
     // signed (see signServiceToken + platform's config.auth.jwt.algorithm).
-    const verifyOptions: jwt.VerifyOptions = { algorithms: [(process.env.JWT_ALGORITHM || 'HS256') as jwt.Algorithm] };
-    const expectedIssuer = process.env.JWT_ISSUER;
-    const expectedAudience = process.env.JWT_AUDIENCE;
-    if (expectedIssuer) verifyOptions.issuer = expectedIssuer;
-    if (expectedAudience) verifyOptions.audience = expectedAudience;
+    const verifyOptions = buildJwtVerifyOptions();
     const decoded = verifyJwtWithRotation(parts[1], verifyOptions);
 
     if (decoded.type !== 'access') {
@@ -723,9 +753,7 @@ export function verifyServicePrincipal(req: Request): boolean {
   const parts = req.headers.authorization?.split(' ');
   if (!parts || parts.length !== 2 || parts[0] !== 'Bearer') return false;
   try {
-    const verifyOptions: jwt.VerifyOptions = { algorithms: [(process.env.JWT_ALGORITHM || 'HS256') as jwt.Algorithm] };
-    if (process.env.JWT_ISSUER) verifyOptions.issuer = process.env.JWT_ISSUER;
-    if (process.env.JWT_AUDIENCE) verifyOptions.audience = process.env.JWT_AUDIENCE;
+    const verifyOptions = buildJwtVerifyOptions();
     const decoded = verifyJwtWithRotation(parts[1], verifyOptions);
     if (decoded.type !== 'access' || typeof decoded.sub !== 'string' || !decoded.sub.startsWith('service:')) return false;
     // A denylisted (killed) service must NOT be treated as a trusted principal —

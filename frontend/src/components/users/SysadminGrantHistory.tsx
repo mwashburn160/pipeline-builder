@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/Badge';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import type { AuditLogEvent } from '@/types/audit';
 import api from '@/lib/api';
+import { formatError } from '@/lib/constants';
 
 /**
  * Inline timeline of platform-admin grant/revoke events for a user. Queries
@@ -37,7 +38,7 @@ export function SysadminGrantHistory({ userId, isSuperAdmin }: { userId: string;
       if (cancelled) return;
       if (res.success && res.data) setEvents(res.data.events);
       else setError(res.message || 'Failed to load grant history');
-    }).catch((e) => !cancelled && setError(e instanceof Error ? e.message : String(e)))
+    }).catch((e) => !cancelled && setError(formatError(e)))
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
   }, [userId, expanded]);

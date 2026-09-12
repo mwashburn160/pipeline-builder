@@ -275,6 +275,10 @@ export class PerOrgKmsKeyProvider implements KeyProvider {
    *  Resolves to `null` for orgs with no per-org config — caller treats null as
    *  "fall through to the fallback provider", same as a cold cache miss. */
   private readonly inFlight = new Map<string, Promise<{ key: Buffer; kid: string } | null>>();
+  /** Orgs the resolver has PROVEN have no per-org config — the fallback provider
+   *  is the correct answer for these, and `deriveKey` may serve them
+   *  synchronously. Distinct from "not yet resolved", which must not guess. */
+  private readonly resolvedNoPerOrgConfig = new Set<string>();
   /** Provider used for orgs that have no per-org config. */
   private readonly fallback: KeyProvider;
   private readonly resolver: PerOrgKmsResolver;
@@ -293,14 +297,32 @@ export class PerOrgKmsKeyProvider implements KeyProvider {
     this.endpoint = opts.endpoint ?? process.env.AWS_KMS_ENDPOINT;
   }
 
-  /** Sync `deriveKey` only works for already-warmed orgs. Cold orgs fall
-   *  through to the fallback provider. Callers that want per-org isolation
-   *  MUST `await deriveKeyAsync(orgId)` once first (e.g. during request setup
-   *  or as part of a warmup pass) — otherwise the org silently uses the
-   *  shared master. */
+  /**
+   * Sync derive. Only correct for an org whose config has already been
+   * RESOLVED — either it has a per-org master (use it) or it provably has no
+   * per-org config (the fallback is then the right answer).
+   *
+   * For an UNRESOLVED org this THROWS rather than guessing. It used to fall
+   * through to the fallback, which silently encrypted that org's secrets under
+   * the SHARED master and — because `kidFor` also returned undefined, so the
+   * both-kids-present mismatch guard could never fire — left them permanently
+   * undecryptable once the org warmed: `decipher.final()` then threw an opaque
+   * auth-tag error with no diagnostic. Failing loud here matches
+   * `KmsKeyProvider.deriveKey`, which has always refused to work cold.
+   *
+   * `encryptSecret`/`decryptSecret` are async and await `deriveKeyAsync`, so
+   * they resolve the org first and never hit this path; it is the backstop for
+   * a caller that reaches for the sync API directly.
+   */
   deriveKey(orgId: string): Buffer {
     const cached = this.masters.get(orgId);
-    if (!cached) return this.fallback.deriveKey(orgId);
+    if (!cached) {
+      if (this.resolvedNoPerOrgConfig.has(orgId)) return this.fallback.deriveKey(orgId);
+      throw new Error( `PerOrgKmsKeyProvider has not resolved org ${orgId}. `
+        + 'Call `await provider.ensureWarmed(orgId)` (or use the async encryptSecret/decryptSecret) '
+        + 'before deriving a key — guessing the shared master would write secrets that cannot be decrypted later.',
+      );
+    }
     const derived = hkdfSync('sha256', cached.key, Buffer.from(orgId, 'utf8'), 'secrets-v1', 32);
     return Buffer.from(derived);
   }
@@ -311,7 +333,12 @@ export class PerOrgKmsKeyProvider implements KeyProvider {
   }
 
   kidFor(orgId: string): string | undefined {
-    return this.masters.get(orgId)?.kid ?? this.fallback.kidFor?.(orgId);
+    const cached = this.masters.get(orgId);
+    if (cached) return cached.kid;
+    // Only speak for an org whose config is resolved; an unresolved org has no
+    // meaningful kid, and claiming one would defeat the mismatch guard.
+    if (this.resolvedNoPerOrgConfig.has(orgId)) return this.fallback.kidFor?.(orgId);
+    return undefined;
   }
 
   /**
@@ -336,6 +363,9 @@ export class PerOrgKmsKeyProvider implements KeyProvider {
     }
     const result = await promise;
     if (result) this.masters.set(orgId, result);
+    // Remember the NEGATIVE outcome too, so the sync `deriveKey` can tell
+    // "no per-org config, fallback is correct" from "not resolved yet".
+    else this.resolvedNoPerOrgConfig.add(orgId);
   }
 
   private async resolveAndDecrypt(orgId: string): Promise<{ key: Buffer; kid: string } | null> {
@@ -359,7 +389,22 @@ export class PerOrgKmsKeyProvider implements KeyProvider {
   evict(orgId: string): void {
     this.masters.delete(orgId);
     this.configs.delete(orgId);
+    // Also forget a NEGATIVE resolution, or an org that gains a per-org config
+    // after being resolved as "no config" would keep using the shared master.
+    this.resolvedNoPerOrgConfig.delete(orgId);
   }
+}
+
+/**
+ * Derive the key for `orgId`, giving the provider a chance to do I/O first.
+ *
+ * This is why `encryptSecret`/`decryptSecret` are async: `PerOrgKmsKeyProvider`
+ * needs one KMS Decrypt the first time it sees an org, and deriving
+ * synchronously before that resolves would silently fall back to the shared
+ * master and produce secrets that cannot be decrypted afterwards.
+ */
+async function deriveKeyFor(provider: KeyProvider, orgId: string): Promise<Buffer> {
+  return provider.deriveKeyAsync ? provider.deriveKeyAsync(orgId) : provider.deriveKey(orgId);
 }
 
 /**
@@ -369,14 +414,16 @@ export class PerOrgKmsKeyProvider implements KeyProvider {
  * Empty strings round-trip as `null` so the calling model layer can treat
  * "no secret set" identically to "field absent".
  */
-export function encryptSecret( plaintext: string,
+export async function encryptSecret( plaintext: string,
   orgId: string,
   provider: KeyProvider = getDefaultProvider(),
-): EncryptedBlob {
+): Promise<EncryptedBlob> {
   if (!plaintext) {
     throw new Error('Refusing to encrypt empty string; caller should store null instead');
   }
-  const key = provider.deriveKey(orgId);
+  // Resolve (and warm) the org BEFORE reading `kidFor` below, so a per-org KMS
+  // blob is always stamped with the key it was actually encrypted under.
+  const key = await deriveKeyFor(provider, orgId);
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
   const enc = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
@@ -404,13 +451,16 @@ export function encryptSecret( plaintext: string,
  * Callers handle the throw  masking the failure as `null` would hide
  * silent corruption / wrong-org reads.
  */
-export function decryptSecret( blob: EncryptedBlob,
+export async function decryptSecret( blob: EncryptedBlob,
   orgId: string,
   provider: KeyProvider = getDefaultProvider(),
-): string {
+): Promise<string> {
   if (blob.alg !== 'aes-256-gcm-v1') {
     throw new Error(`Unsupported encryption alg: ${blob.alg}`);
   }
+  // Warm first: `kidFor` and `deriveKey` below must both speak for the org's
+  // real config, or the mismatch guard silently no-ops.
+  const key = await deriveKeyFor(provider, orgId);
   // If both the provider AND the blob report a kid, they must match.
   // Mismatch usually means an operator rotated/replaced an org's KMS
   // config and is now reading a blob encrypted under the OLD key —
@@ -419,7 +469,6 @@ export function decryptSecret( blob: EncryptedBlob,
   if (providerKid !== undefined && blob.kid !== undefined && providerKid !== blob.kid) {
     throw new Error(`KMS key id mismatch: blob was encrypted under ${blob.kid}, current provider uses ${providerKid} for org ${orgId}`);
   }
-  const key = provider.deriveKey(orgId);
   const iv = Buffer.from(blob.iv, 'base64');
   const all = Buffer.from(blob.ciphertext, 'base64');
   // Split off the 16-byte auth tag appended in encryptSecret. Any tampering

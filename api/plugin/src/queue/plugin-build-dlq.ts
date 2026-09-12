@@ -90,10 +90,12 @@ export function getDeadLetterQueue(): Queue<PluginBuildJobData> {
     dlq = new Queue<PluginBuildJobData>(DLQ_NAME, {
       connection: getConnectionForDb(0) as ConnectionOptions,
       defaultJobOptions: {
-        // BOUNDED (was `false`): a DLQ job that re-queues on its first attempt has
-        // attemptsMade < maxAttempts, so enforceDlqMaxSize never classifies it
-        // terminal and never purges it — with `false` these completed jobs pile up
-        // in Redis forever. Cap the retained-completed set so growth is bounded.
+        // BOUNDED (was `false`): a DLQ job that re-queues on its first attempt
+        // COMPLETES with attemptsMade < maxAttempts. `enforceDlqMaxSize` now
+        // evicts these explicitly (as `already-requeued`, without releasing the
+        // slot or artifacts the new main-queue job owns), but this cap is still
+        // the backstop that keeps the retained-completed set from growing
+        // unboundedly in Redis between enforcement passes.
         removeOnComplete: { count: 1000 },
         removeOnFail: false,
       },
@@ -122,25 +124,60 @@ export async function enforceDlqMaxSize(quotaService: QuotaService): Promise<voi
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   if (total < cfg.dlqMaxSize) return;
 
-  const allJobs = await q.getJobs(['waiting', 'delayed', 'active', 'completed', 'failed']);
-  const terminalJobs = allJobs.filter((job) => {
-    if (job.finishedOn == null) return false;
-    const maxAttempts = job.opts.attempts ?? 1;
-    return job.attemptsMade >= maxAttempts;
-  });
+  // Fetch the two evictable states SEPARATELY, because they must be purged
+  // differently and the old single-list filter could evict neither.
+  //
+  // A DLQ job's processor SUCCEEDS by re-queueing the build onto the main
+  // queue, so a re-queued job sits in `completed` with
+  // `attemptsMade (1) < maxAttempts (3)`. The previous filter required
+  // `attemptsMade >= maxAttempts`, so it excluded exactly the jobs that
+  // actually accumulate — and once `dlqMaxSize` of them were retained,
+  // `total < dlqMaxSize` was false forever while every retryable failure ran a
+  // full 5-state `getJobs` scan and purged NOTHING.
+  const [completed, failed, pending] = await Promise.all([
+    q.getJobs(['completed']),
+    q.getJobs(['failed']),
+    q.getJobs(['waiting', 'delayed', 'active']),
+  ]);
 
-  terminalJobs.sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
-  const purgeCount = allJobs.length - cfg.dlqMaxSize + 1;
-  const toPurge = terminalJobs.slice(0, purgeCount);
+  // Terminal failures: nothing more will happen to them, and they still hold
+  // the org's build slot + artifacts, so purging must hand both back.
+  const terminalFailures = failed.filter((job) => job.attemptsMade >= (job.opts.attempts ?? 1));
 
-  for (const job of toPurge) {
-    // Give the slot back unless the job already released it on exhaustion
-    // (its terminal handler decremented + marked it) — purging is otherwise a
-    // silent quota leak for any not-yet-terminal job we evict for capacity.
-    releasePluginQuota(job, quotaService);
-    cleanupBuildArtifacts(job.data.buildRequest);
+  // Re-queued (completed) jobs: the NEW main-queue job now owns the slot AND
+  // the build artifacts, so evicting the DLQ record must NOT release either —
+  // doing so would free a slot that is still in use and delete the inputs the
+  // live build is about to read.
+  const requeued = completed;
+
+  const oldestFirst = (a: { timestamp?: number }, b: { timestamp?: number }) => (a.timestamp ?? 0) - (b.timestamp ?? 0);
+  requeued.sort(oldestFirst);
+  terminalFailures.sort(oldestFirst);
+
+  const purgeCount = completed.length + failed.length + pending.length - cfg.dlqMaxSize + 1;
+  if (purgeCount <= 0) return;
+
+  // Drop the already-handed-off records first — they are pure bookkeeping —
+  // before touching terminal failures, which still carry recoverable context.
+  const toPurge = [
+    ...requeued.map((job) => ({ job, releaseResources: false })),
+    ...terminalFailures.map((job) => ({ job, releaseResources: true })),
+  ].slice(0, purgeCount);
+
+  for (const { job, releaseResources } of toPurge) {
+    if (releaseResources) {
+      // Give the slot back unless the job already released it on exhaustion
+      // (its terminal handler decremented + marked it) — purging is otherwise a
+      // silent quota leak for any not-yet-terminal job we evict for capacity.
+      releasePluginQuota(job, quotaService);
+      cleanupBuildArtifacts(job.data.buildRequest);
+    }
     try { await job.remove(); } catch { /* best-effort */ }
-    logger.info('Purged oldest DLQ job', { jobId: job.id, pluginName: job.data.pluginRecord.name });
+    logger.info('Purged DLQ job', {
+      jobId: job.id,
+      pluginName: job.data.pluginRecord.name,
+      reason: releaseResources ? 'terminal-failure' : 'already-requeued',
+    });
   }
 }
 

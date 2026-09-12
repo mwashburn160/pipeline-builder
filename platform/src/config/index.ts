@@ -160,6 +160,25 @@ export const config = {
       max: parseInt(process.env.OBSERVABILITY_LIMITER_MAX || '120', 10),
       windowMs: parseInt(process.env.OBSERVABILITY_LIMITER_WINDOWMS || '60000', 10), // 1 min
     },
+    /**
+     * Dedicated bucket for the Alertmanager relay webhook.
+     *
+     * This endpoint is machine-to-machine and unauthenticated at middleware
+     * time (it authenticates itself inside the handler with a per-instance
+     * bearer + `X-Alertmanager-Instance` allowlist), so it used to fall into
+     * the ANONYMOUS bucket of the general limiter — 100 requests per 15
+     * minutes, fleet-wide, shared with every other unauthenticated caller. A
+     * multi-group alert storm exhausted that and got 429s, which Alertmanager
+     * treats as a failed notification: alerts were silently delayed to the
+     * next `group_interval`.
+     *
+     * Sized for a fleet of Alertmanagers fanning out many groups at once,
+     * which is exactly when throttling is most harmful.
+     */
+    alertWebhook: {
+      max: parseInt(process.env.ALERT_WEBHOOK_LIMITER_MAX || '3000', 10),
+      windowMs: parseInt(process.env.ALERT_WEBHOOK_LIMITER_WINDOWMS || '60000', 10), // 1 min
+    },
   },
   /**
    * Multi-tenant alerting: Alertmanager POSTs to /api/observability/alert-webhook

@@ -12,6 +12,8 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { Card } from '@/components/ui/Card';
 import { LinkButton } from '@/components/ui/LinkButton';
 import api from '@/lib/api';
+import { OAUTH_INTENT_KEY } from '@/lib/oauth-intent';
+import { formatError } from '@/lib/constants';
 
 /**
  * OAuth / SSO callback landing page.
@@ -38,7 +40,6 @@ import api from '@/lib/api';
  * the intent across the redirect. No PKCE is involved.
  */
 
-const OAUTH_INTENT_KEY = 'pb_oauth_intent';
 
 interface OAuthIntent {
   state: string;
@@ -94,9 +95,22 @@ export default function OAuthCallbackPage() {
         return;
       }
       // If an intent was stored, its state must match the one the provider echoed
-      // back (continuity across the redirect). A mismatch means a stale/foreign
-      // intent — ignore it and treat this as a plain login.
-      const effective = intent && intent.state === state ? intent : null;
+      // back (continuity across the redirect).
+      //
+      // A MISMATCH is a genuine anomaly (stale or foreign intent), and silently
+      // downgrading it to a plain login is how an invite-accept turned into a
+      // brand-new self-serve org: the invitation was never accepted and nothing
+      // said so. Fail closed and let the user retry from the invitation link.
+      //
+      // A MISSING intent still falls through to plain login — a browser with
+      // storage blocked must remain able to sign in, and the invite path now
+      // refuses to start at all in that case (see `storeOAuthIntent(..., true)`),
+      // so "was an invite, lost the intent" is no longer reachable from the app.
+      if (intent && intent.state !== state) {
+        setError('This sign-in link no longer matches your pending request. Please start again from the original link.');
+        return;
+      }
+      const effective = intent;
 
       try {
         if (effective?.kind === 'invite' && effective.inviteToken) {
@@ -131,7 +145,7 @@ export default function OAuthCallbackPage() {
         await refreshUser();
         router.replace(safeReturnUrl(effective?.returnUrl));
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Sign-in failed. Please try again.');
+        setError(formatError(err, 'Sign-in failed. Please try again.'));
       }
     };
 
