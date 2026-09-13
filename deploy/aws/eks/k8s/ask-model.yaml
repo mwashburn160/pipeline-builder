@@ -231,9 +231,14 @@ spec:
 #   openssl: CONNECTED ... no peer certificate available, Cipher is (NONE)
 #   ollama:  net/http: TLS handshake timeout
 # which looks like a firewall on the far end rather than a local policy.
-# `app: plugin` survives that spelling only because plugin-build-isolation
-# separately grants it an unrestricted 443/80 rule; allow-billing-external-egress
-# uses this ports-only form for the same reason.
+# Verified empirically on a live cluster by swapping one form for the other:
+# with the ipBlock/except spelling the handshake never completes; with this
+# ports-only rule the same pod negotiates TLSv1.3 immediately. Note the carve-out
+# wins even though allow-kube-api-egress separately grants every pod an
+# unrestricted :443 rule — so treat an `except:` here as a DENY that overrides
+# other policies' allows, not merely as a narrowing of this one.
+# allow-billing-external-egress and plugin-build-isolation use this same
+# ports-only form.
 #
 # FQDN-scoping this to registry.ollama.ai needs Cilium (see
 # cilium-network-policies.yaml); plain NetworkPolicy cannot express it.
