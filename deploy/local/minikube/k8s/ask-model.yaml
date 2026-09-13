@@ -124,6 +124,16 @@ spec:
               value: "qwen2.5-coder:1.5b"
             - name: OLLAMA_HOST
               value: "0.0.0.0:11434"
+            # Keep the model resident. The default is 5m, after which ollama
+            # evicts it and the NEXT question pays a full reload from disk before
+            # a single token — which reads to the user as "Ask just hangs".
+            - name: OLLAMA_KEEP_ALIVE
+              value: "24h"
+            # One request at a time. The default (4) splits the context budget
+            # into parallel slots, costing memory and slowing the single
+            # interactive request this deployment actually serves.
+            - name: OLLAMA_NUM_PARALLEL
+              value: "1"
           # Run the server AND the pull as the container's main process.
           #
           # This was a lifecycle.postStart hook, which was a mistake: a blocking
@@ -179,7 +189,16 @@ spec:
               # This file is applied directly (not through the kustomize sed that
               # substitutes BUILDKIT_MEMORY_LIMIT), so the value must be literal:
               # keep it <= the smallest BUILDKIT_MEMORY_LIMIT you provision with.
-              cpu: "2"
+              #
+              # cpu 4 (was 2) to cut CFS throttling. ollama sizes its inference
+              # thread pool from the HOST core count (`nproc` = 8 here), NOT the
+              # cgroup quota, and 0.6.5 has no env var to override it — so a
+              # 2-core quota meant 8 threads hard-stopped for the rest of every
+              # 100ms period once the budget ran out. Measured on this cluster:
+              # 1909 of 3903 periods throttled (49%), 923s of stall, and one
+              # completion taking 59s. The REQUEST stays at 500m, so this is a
+              # ceiling on idle capacity, not a reservation.
+              cpu: "4"
               memory: 3Gi
               # GPU: nvidia.com/gpu: "1"
           # GATE READINESS ON THE MODEL, NOT THE SERVER.
