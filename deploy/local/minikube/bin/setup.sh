@@ -442,6 +442,22 @@ secret postgres-secret   --from-literal=POSTGRES_USER="$POSTGRES_USER" --from-li
 secret mongodb-secret    --from-literal=MONGO_INITDB_ROOT_USERNAME="$MONGO_INITDB_ROOT_USERNAME" --from-literal=MONGO_INITDB_ROOT_PASSWORD="$MONGO_INITDB_ROOT_PASSWORD" --from-literal=MONGODB_URI="$MONGODB_URI"
 secret mongo-express-secret --from-literal=ME_CONFIG_BASICAUTH_USERNAME="$ME_CONFIG_BASICAUTH_USERNAME" --from-literal=ME_CONFIG_BASICAUTH_PASSWORD="$ME_CONFIG_BASICAUTH_PASSWORD"
 secret pgadmin-secret    --from-literal=PGADMIN_DEFAULT_EMAIL="$PGADMIN_DEFAULT_EMAIL" --from-literal=PGADMIN_DEFAULT_PASSWORD="$PGADMIN_DEFAULT_PASSWORD"
+# MinIO: root creds (server + minio-init bootstrap) plus the per-service,
+# bucket-scoped keys. Built from .env here rather than shipped as a literal
+# Secret inside k8s/minio.yaml — which is what it used to be, and which made the
+# MINIO_*/`*_S3_*` values in .env silently inert: every workload reads THIS
+# Secret, so changing .env had no effect and pb_gen_env_secrets had nothing to
+# randomise (postgres/mongo/pgadmin above were already generated — MinIO was the
+# lone exception). Key names must match the secretKeyRef entries in
+# k8s/minio.yaml, k8s/plugin.yaml, k8s/loki.yaml, k8s/registry.yaml and
+# k8s/message.yaml.
+secret minio-secret \
+  --from-literal=root-user="$MINIO_ROOT_USER"                  --from-literal=root-password="$MINIO_ROOT_PASSWORD" \
+  --from-literal=message-access-key="$MESSAGE_S3_ACCESS_KEY"   --from-literal=message-secret-key="$MESSAGE_S3_SECRET_KEY" \
+  --from-literal=registry-access-key="$REGISTRY_S3_ACCESS_KEY" --from-literal=registry-secret-key="$REGISTRY_S3_SECRET_KEY" \
+  --from-literal=loki-access-key="$LOKI_S3_ACCESS_KEY"         --from-literal=loki-secret-key="$LOKI_S3_SECRET_KEY" \
+  --from-literal=thanos-access-key="$THANOS_S3_ACCESS_KEY"     --from-literal=thanos-secret-key="$THANOS_S3_SECRET_KEY" \
+  --from-literal=plugin-access-key="$PLUGIN_S3_ACCESS_KEY"     --from-literal=plugin-secret-key="$PLUGIN_S3_SECRET_KEY"
 
 # Optional alert-delivery secrets — alertmanager.yaml references these with
 # optional:true. Create them (empty by default) so the refs resolve to a real

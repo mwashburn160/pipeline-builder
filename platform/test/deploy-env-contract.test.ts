@@ -55,6 +55,28 @@ describe.each(TARGETS)('deploy env contract — %s', (target) => {
     expect(env.SECRET_ENCRYPTION_KEY).not.toBe('');
   });
 
+  it('declares every MinIO credential the manifests consume, with no shipped default', () => {
+    // minio-secret used to be a literal Secret inside each target's
+    // k8s/minio.yaml carrying `minioadmin`/`minioadmin` and predictable
+    // `<svc>-svc-secret` keys. That made these .env values INERT — the
+    // workloads read the Secret, so changing .env did nothing. The Secret is
+    // now built from .env, which means two things must hold per target: the
+    // keys exist, and the secret half is a CHANGE_ME placeholder that
+    // gen-env-secrets randomises rather than a working default.
+    const names = ['MINIO_ROOT_USER', 'MESSAGE_S3_ACCESS_KEY', 'REGISTRY_S3_ACCESS_KEY',
+      'LOKI_S3_ACCESS_KEY', 'THANOS_S3_ACCESS_KEY', 'PLUGIN_S3_ACCESS_KEY'];
+    const secrets = ['MINIO_ROOT_PASSWORD', 'MESSAGE_S3_SECRET_KEY', 'REGISTRY_S3_SECRET_KEY',
+      'LOKI_S3_SECRET_KEY', 'THANOS_S3_SECRET_KEY', 'PLUGIN_S3_SECRET_KEY'];
+    for (const k of [...names, ...secrets]) {
+      expect(env[k]).toBeDefined();
+      expect(env[k]).not.toBe('');
+    }
+    for (const k of secrets) {
+      expect(env[k]).toBe('CHANGE_ME');
+      expect(env[k]).not.toBe('minioadmin');
+    }
+  });
+
   it('requires JWT_SECRET and REFRESH_TOKEN_SECRET', () => {
     expect(env.JWT_SECRET).toBeDefined();
     expect(env.REFRESH_TOKEN_SECRET).toBeDefined();
@@ -88,11 +110,33 @@ describe('gen-env-secrets.sh', () => {
   it('fails closed when a required placeholder drifts', () => {
     // The guard grep must cover the same keys it substitutes, or a renamed
     // placeholder ships a literal CHANGE_ME and still exits 0.
-    const guard = /grep -qE '\^\(([A-Z_|]+)\)=CHANGE_ME'/.exec(script);
+    // The key-name class allows DIGITS: the MinIO/S3 keys (MESSAGE_S3_SECRET_KEY
+    // and friends) contain a `3`, and a [A-Z_|]-only pattern silently stopped
+    // matching the guard altogether when they were added — failing this test
+    // open would have been worse than failing it closed.
+    const guard = /grep -qE '\^\(([A-Z0-9_|]+)\)=CHANGE_ME'/.exec(script);
     expect(guard).not.toBeNull();
     const guarded = guard![1].split('|');
     expect(guarded).toContain('JWT_SECRET');
     expect(guarded).toContain('REFRESH_TOKEN_SECRET');
     expect(guarded).toContain('SECRET_ENCRYPTION_KEY');
+  });
+
+  it('generates and guards every MinIO credential the manifests consume', () => {
+    // minio-secret used to be a literal Secret inside k8s/minio.yaml on ALL
+    // three kubernetes targets, carrying working `minioadmin` defaults — which
+    // meant the MINIO_*/S3 values in .env were inert. It is now built from .env
+    // (pb_create_app_secrets on aws/*, the inline `secret` helper on minikube),
+    // so these must be both substituted AND guarded — otherwise a fresh
+    // provision ships predictable object-store credentials.
+    const secrets = [
+      'MINIO_ROOT_PASSWORD', 'MESSAGE_S3_SECRET_KEY', 'REGISTRY_S3_SECRET_KEY',
+      'LOKI_S3_SECRET_KEY', 'THANOS_S3_SECRET_KEY', 'PLUGIN_S3_SECRET_KEY',
+    ];
+    const guarded = /grep -qE '\^\(([A-Z0-9_|]+)\)=CHANGE_ME'/.exec(script)![1].split('|');
+    for (const key of secrets) {
+      expect(script).toContain(`s|${key}=CHANGE_ME|${key}=`);
+      expect(guarded).toContain(key);
+    }
   });
 });

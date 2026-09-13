@@ -9,15 +9,22 @@ import { PluginCatalog } from './PluginCatalog';
 interface HelpAccordionTopicProps {
   topic: HelpTopic;
   defaultOpen?: boolean;
+  /**
+   * Render without the surrounding Card. Used by the search-results view, which
+   * wraps the accordion and its match evidence in a single Card — nesting one
+   * Card inside another double-draws the border and shadow.
+   */
+  bare?: boolean;
 }
 
 /** A single help topic rendered as a collapsible accordion. */
-export function HelpAccordionTopic({ topic, defaultOpen = false }: HelpAccordionTopicProps) {
+export function HelpAccordionTopic({ topic, defaultOpen = false, bare = false }: HelpAccordionTopicProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const Icon = topic.icon;
+  const Shell = bare ? 'div' : Card;
 
   return (
-    <Card className="overflow-hidden">
+    <Shell className="overflow-hidden">
       {/* Clickable header */}
       <button
         onClick={() => setIsOpen((prev) => !prev)}
@@ -68,6 +75,6 @@ export function HelpAccordionTopic({ topic, defaultOpen = false }: HelpAccordion
           </motion.div>
         )}
       </AnimatePresence>
-    </Card>
+    </Shell>
   );
 }

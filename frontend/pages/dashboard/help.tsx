@@ -1,120 +1,119 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Search, Sparkles } from 'lucide-react';
+import { Search, Sparkles, X, CornerDownLeft } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
 import { HelpAccordionTopic } from '@/components/help/HelpAccordionTopic';
+import { HelpSearchResultCard } from '@/components/help/HelpSearchResult';
 import { HELP_TOPICS, HELP_GROUPS } from '@/lib/help';
-import type { HelpTopic, ContentBlock } from '@/lib/help/types';
+import { WHATS_NEW } from '@/lib/help/whats-new';
+import { searchHelp } from '@/lib/help/search';
 
-/**
- * Lightweight "what's new" feed. Hard-coded here for now — the entries
- * mirror the recent shipped capabilities the dashboard surfaces. When a
- * proper changelog endpoint exists, swap this for an api fetch.
- *
- * Each entry should reference a destination page so users can try the
- * feature directly. Keep the list short (top 5) and recent.
- */
-// Each entry carries an ISO `date` for at-a-glance staleness. `when` is a
-// human-readable bucket; both are surfaced so reviewers can see what's
-// genuinely fresh vs. carried over from previous sprints.
-const WHATS_NEW: ReadonlyArray<{ when: string; date: string; title: string; href?: string; hint?: string }> = [
-  { when: 'This week', date: '2026-05-28', title: 'Read-only "view as user" impersonation for sysadmins', href: '/dashboard/users', hint: 'Reproduce a tenant\'s view safely; writes blocked under impersonation.' },
-  { when: 'This week', date: '2026-05-27', title: 'Notifications & alert-channel preferences', href: '/dashboard/notifications' },
-  { when: 'This week', date: '2026-05-26', title: 'Executions drill-down with CSV export', href: '/dashboard/executions' },
-  { when: 'Recent', date: '2026-05-15', title: 'Step-up password reverify on destructive sysadmin actions' },
-  { when: 'Recent', date: '2026-05-10', title: 'Per-org KMS, IdP config, and org-tier change endpoint' },
-];
-
-/**
- * Tokenize a help topic into a single lowercase search string. Walks
- * every block type so search hits content text, code samples, table
- * cells, and list items.
- */
-function topicSearchText(topic: HelpTopic): string {
-  const parts: string[] = [topic.title, topic.description];
-  for (const section of topic.sections) {
-    parts.push(section.title);
-    for (const block of section.blocks) {
-      parts.push(blockText(block));
-    }
-  }
-  return parts.join(' ').toLowerCase();
-}
-
-function blockText(block: ContentBlock): string {
-  switch (block.type) {
-    case 'text':
-    case 'code':
-    case 'note':
-    case 'warning':
-      return block.content;
-    case 'list':
-      return block.items.join(' ');
-    case 'table':
-      return [block.headers.join(' '), ...block.rows.map((r) => r.join(' '))].join(' ');
-  }
-}
+/** Suggested queries for the idle state — cheap orientation into a 18-topic corpus. */
+const SUGGESTIONS = ['aws ses', 'env variables', 'register a plugin', 'compliance', 'cli'];
 
 export default function HelpPage() {
   const { user, isReady } = useAuthGuard();
   const [query, setQuery] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const visibleTopics = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return HELP_TOPICS;
-    return HELP_TOPICS.filter((t) => topicSearchText(t).includes(q));
-  }, [query]);
+  const results = useMemo(() => searchHelp(HELP_TOPICS, query), [query]);
+  const searching = query.trim().length > 0;
+  const totalSections = useMemo(
+    () => results.reduce((n, r) => n + r.sectionCount, 0),
+    [results],
+  );
 
-  // Same filter, but keep the category grouping (drop empty groups).
-  const visibleGroups = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return HELP_GROUPS
-      .map((g) => ({
-        category: g.category,
-        topics: q ? g.topics.filter((t) => topicSearchText(t).includes(q)) : g.topics,
-      }))
-      .filter((g) => g.topics.length > 0);
-  }, [query]);
+  // `/` focuses search from anywhere on the page, Escape clears it. Both are
+  // skipped while the user is typing in another field.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const el = e.target as HTMLElement | null;
+      const typing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+      if (e.key === '/' && !typing) {
+        e.preventDefault();
+        inputRef.current?.focus();
+      } else if (e.key === 'Escape' && el === inputRef.current) {
+        setQuery('');
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   if (!isReady || !user) return <LoadingPage />;
 
   return (
     <DashboardLayout title="Help" subtitle="Guides, references, and what's new">
-      <div className="max-w-4xl grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-        {/* Search */}
+      {/* `items-start` is load-bearing: these two cards share a grid row, and a
+          stretched search card (three lines of content next to a five-entry
+          feed) rendered as a tall empty box with the results pushed below the
+          fold — the single worst thing about the previous layout. */}
+      <div className="max-w-5xl grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5 items-start">
         <Card className="lg:col-span-2">
           <label htmlFor="help-search" className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2">
             <Search className="w-4 h-4 text-gray-400" />
             Search the docs
           </label>
           <div className="relative mt-2">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             <input
               id="help-search"
+              ref={inputRef}
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder='Try "ai_generation" or "register a plugin"...'
-              className="filter-input pl-10 w-full"
+              placeholder='Try "aws ses" or "register a plugin"…'
+              className="filter-input pl-10 pr-9 w-full"
               autoFocus
+              aria-describedby="help-search-status"
             />
+            {searching ? (
+              <button
+                type="button"
+                onClick={() => { setQuery(''); inputRef.current?.focus(); }}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            ) : (
+              <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 hidden sm:inline-block text-[10px] font-mono text-gray-400 dark:text-gray-500 border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5">
+                /
+              </kbd>
+            )}
           </div>
-          {query && (
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-              {visibleTopics.length === 0
-                ? <>No topics match <code>&quot;{query}&quot;</code>. Try a broader term.</>
-                : <>Showing {visibleTopics.length} of {HELP_TOPICS.length} topics.</>}
-            </p>
+
+          <p id="help-search-status" aria-live="polite" className="mt-2 text-xs text-gray-500 dark:text-gray-400 min-h-[1rem]">
+            {searching
+              ? results.length === 0
+                ? <>No matches for <span className="font-medium text-gray-700 dark:text-gray-300">&quot;{query}&quot;</span> — try a broader term.</>
+                : <>{results.length} of {HELP_TOPICS.length} topics · {totalSections} matching {totalSections === 1 ? 'section' : 'sections'}</>
+              : <>{HELP_TOPICS.length} topics. Press <kbd className="font-mono">/</kbd> to search, <kbd className="font-mono">Esc</kbd> to clear.</>}
+          </p>
+
+          {!searching && (
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-gray-400 dark:text-gray-500">Popular:</span>
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => { setQuery(s); inputRef.current?.focus(); }}
+                  className="text-[11px] px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
           )}
         </Card>
 
-        {/* What's new */}
         <Card>
           <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
             <Sparkles className="w-4 h-4 text-amber-500" />
@@ -132,32 +131,64 @@ export default function HelpPage() {
                     ? <Link href={entry.href} className="action-link">{entry.title}</Link>
                     : entry.title}
                 </div>
-                {entry.hint && (
-                  <div className="text-gray-500 dark:text-gray-400">{entry.hint}</div>
-                )}
+                {entry.hint && <div className="text-gray-500 dark:text-gray-400">{entry.hint}</div>}
               </li>
             ))}
           </ul>
         </Card>
       </div>
 
-      <div className="space-y-6 max-w-4xl">
-        {visibleGroups.map((group, gi) => (
-          <section key={group.category} className="space-y-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              {group.category}
-            </h2>
-            {group.topics.map((topic, ti) => (
-              <HelpAccordionTopic key={topic.id} topic={topic} defaultOpen={gi === 0 && ti === 0 && !query} />
-            ))}
-          </section>
-        ))}
-        {visibleGroups.length === 0 && (
-          <Card className="text-center py-10 text-sm text-gray-500 dark:text-gray-400">
-            No topics match <code>&quot;{query}&quot;</code>. Clear the search or try a different term.
-          </Card>
-        )}
-      </div>
+      {/* RESULTS view — replaces the category browse entirely while searching,
+          so the answer is the first thing below the input rather than something
+          to scroll for. */}
+      {searching ? (
+        <div className="space-y-3 max-w-5xl">
+          {results.length === 0 ? (
+            <Card className="text-center py-12">
+              <Search className="w-8 h-8 mx-auto text-gray-300 dark:text-gray-600" />
+              <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
+                Nothing matches <span className="font-medium">&quot;{query}&quot;</span>.
+              </p>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Search covers titles, section headings, body text, code samples and table cells.
+              </p>
+              <button
+                type="button"
+                onClick={() => { setQuery(''); inputRef.current?.focus(); }}
+                className="mt-4 text-xs action-link inline-flex items-center gap-1"
+              >
+                <CornerDownLeft className="w-3 h-3" /> Back to all topics
+              </button>
+            </Card>
+          ) : (
+            results.map((result, i) => (
+              <HelpSearchResultCard
+                key={result.topic.id}
+                result={result}
+                query={query}
+                defaultOpen={i === 0}
+              />
+            ))
+          )}
+        </div>
+      ) : (
+        /* BROWSE view — the category index. */
+        <div className="space-y-6 max-w-5xl">
+          {HELP_GROUPS.map((group, gi) => (
+            <section key={group.category} className="space-y-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                {group.category}
+                <span className="ml-2 font-normal normal-case tracking-normal text-gray-400 dark:text-gray-500">
+                  {group.topics.length} {group.topics.length === 1 ? 'topic' : 'topics'}
+                </span>
+              </h2>
+              {group.topics.map((topic, ti) => (
+                <HelpAccordionTopic key={topic.id} topic={topic} defaultOpen={gi === 0 && ti === 0} />
+              ))}
+            </section>
+          ))}
+        </div>
+      )}
     </DashboardLayout>
   );
 }

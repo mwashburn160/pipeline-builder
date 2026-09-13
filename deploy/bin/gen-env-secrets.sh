@@ -25,7 +25,7 @@
 
 pb_gen_env_secrets() {
   local env_file="$1" ghcr_user="${2:-mwashburn160}"
-  local jwt refresh pg mongo me pgadmin registry seckey
+  local jwt refresh pg mongo me pgadmin registry seckey minioroot s3msg s3reg s3loki s3thanos s3plugin
   jwt=$(openssl rand -base64 32 | tr -d '=+/')
   refresh=$(openssl rand -base64 32 | tr -d '=+/')
   # Secret-column master key (AES-256-GCM envelope encryption of aiProviderKeys
@@ -38,6 +38,16 @@ pb_gen_env_secrets() {
   me=$(openssl rand -base64 16 | tr -d '=+/')
   pgadmin=$(openssl rand -base64 16 | tr -d '=+/')
   registry=$(openssl rand -base64 24 | tr -d '=+/')
+  # MinIO: the server root password plus one distinct secret per bucket-scoped
+  # service key. These back the `minio-secret` Secret that bin/k8s-resources.sh
+  # builds — previously a literal in k8s/minio.yaml with shipped defaults, which
+  # is why they were not generated here before.
+  minioroot=$(openssl rand -base64 24 | tr -d '=+/')
+  s3msg=$(openssl rand -base64 24 | tr -d '=+/')
+  s3reg=$(openssl rand -base64 24 | tr -d '=+/')
+  s3loki=$(openssl rand -base64 24 | tr -d '=+/')
+  s3thanos=$(openssl rand -base64 24 | tr -d '=+/')
+  s3plugin=$(openssl rand -base64 24 | tr -d '=+/')
   sed -i.bak \
     -e "s|JWT_SECRET=CHANGE_ME_generate_with_openssl_rand_base64_32|JWT_SECRET=${jwt}|" \
     -e "s|REFRESH_TOKEN_SECRET=CHANGE_ME_generate_with_openssl_rand_base64_32|REFRESH_TOKEN_SECRET=${refresh}|" \
@@ -50,6 +60,12 @@ pb_gen_env_secrets() {
     -e "s|ME_CONFIG_BASICAUTH_PASSWORD=CHANGE_ME|ME_CONFIG_BASICAUTH_PASSWORD=${me}|" \
     -e "s|PGADMIN_DEFAULT_PASSWORD=CHANGE_ME|PGADMIN_DEFAULT_PASSWORD=${pgadmin}|" \
     -e "s|IMAGE_REGISTRY_TOKEN=CHANGE_ME|IMAGE_REGISTRY_TOKEN=${registry}|" \
+    -e "s|MINIO_ROOT_PASSWORD=CHANGE_ME|MINIO_ROOT_PASSWORD=${minioroot}|" \
+    -e "s|MESSAGE_S3_SECRET_KEY=CHANGE_ME|MESSAGE_S3_SECRET_KEY=${s3msg}|" \
+    -e "s|REGISTRY_S3_SECRET_KEY=CHANGE_ME|REGISTRY_S3_SECRET_KEY=${s3reg}|" \
+    -e "s|LOKI_S3_SECRET_KEY=CHANGE_ME|LOKI_S3_SECRET_KEY=${s3loki}|" \
+    -e "s|THANOS_S3_SECRET_KEY=CHANGE_ME|THANOS_S3_SECRET_KEY=${s3thanos}|" \
+    -e "s|PLUGIN_S3_SECRET_KEY=CHANGE_ME|PLUGIN_S3_SECRET_KEY=${s3plugin}|" \
     -e "s|GHCR_USER=mwashburn160|GHCR_USER=${ghcr_user}|" \
     "$env_file"
   rm -f "$env_file.bak"
@@ -59,7 +75,7 @@ pb_gen_env_secrets() {
   # and the sed above silently matched nothing — shipping a literal `CHANGE_ME`
   # credential (a real security hole that would otherwise pass green). Scoped to
   # these keys so optional user-supplied CHANGE_ME placeholders aren't flagged.
-  if grep -qE '^(JWT_SECRET|REFRESH_TOKEN_SECRET|SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_MONGODB_ADMINPASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN)=CHANGE_ME' "$env_file" \
+  if grep -qE '^(JWT_SECRET|REFRESH_TOKEN_SECRET|SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_MONGODB_ADMINPASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|MINIO_ROOT_PASSWORD|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_KEY)=CHANGE_ME' "$env_file" \
      || grep -q 'mongodb://mongo:CHANGE_ME@' "$env_file"; then
     echo "ERROR: gen-env-secrets left an unsubstituted CHANGE_ME in a required secret in $env_file" >&2
     echo "  — a placeholder in .env.example drifted from this script's sed patterns." >&2

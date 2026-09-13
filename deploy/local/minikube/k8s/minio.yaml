@@ -7,29 +7,12 @@
 # the in-cluster ClusterIP using the S3 SDK (path-style). Credentials live in
 # `minio-secret`; the message deployment reads the SAME secret for its S3 keys.
 # =============================================================================
-apiVersion: v1
-kind: Secret
-metadata:
-  name: minio-secret
-  labels:
-    app: minio
-type: Opaque
-stringData:
-  # CHANGE THESE for any real deployment (kubectl create secret / sealed-secrets).
-  # root-* are MinIO's admin credentials (server + bootstrap only). Each service
-  # uses its OWN bucket-scoped key below — never the root creds.
-  root-user: "minioadmin"
-  root-password: "minioadmin"
-  message-access-key: "message-svc"
-  message-secret-key: "message-svc-secret"
-  registry-access-key: "registry-svc"
-  registry-secret-key: "registry-svc-secret"
-  loki-access-key: "loki-svc"
-  loki-secret-key: "loki-svc-secret"
-  thanos-access-key: "thanos-svc"
-  thanos-secret-key: "thanos-svc-secret"
-  plugin-access-key: "plugin-svc"
-  plugin-secret-key: "plugin-svc-secret"
+# NOTE: the `minio-secret` Secret is NOT defined here. bin/setup.sh creates it
+# from .env (alongside postgres-secret/mongodb-secret/...) before this manifest
+# is applied, so the MINIO_*/`*_S3_*` values in .env are the single source of
+# truth and pb_gen_env_secrets randomises them per provision. It previously lived
+# here as a literal with `minioadmin`/`minioadmin` and predictable `*-svc-secret`
+# values, which silently overrode whatever the operator set in .env.
 ---
 # One-shot bootstrap: create per-service buckets + per-service, bucket-scoped
 # users (so no workload uses the root credentials). Idempotent; safe to re-apply.
@@ -87,18 +70,37 @@ spec:
           args:
             - |
               set -e
+              die() { echo "minio-init: $1" >&2; exit 1; }
+              run_ok() {  # $1=what, rest=command; tolerate an "exists" outcome only
+                # POSIX sh: `shift` rather than a "${@:2}" slice — this container
+                # runs /bin/sh from the minio/mc image, not bash.
+                what="$1"; shift
+                out=$("$@" 2>&1) && return 0
+                case "$out" in
+                  *already*exists*|*already*attached*|*already*enabled*|*XMinioAdminUserAlreadyExists*) return 0 ;;
+                  *) echo "$out" >&2; die "$what failed" ;;
+                esac
+              }
               until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do echo 'waiting for minio...'; sleep 2; done
               for b in message-attachments registry loki thanos plugins; do mc mb --ignore-existing "local/$b"; done
-              mc version enable local/message-attachments || true
-              mc ilm rule add --noncurrent-expire-days 30 local/message-attachments || true
+              # These were `|| true`. A silently-absent lifecycle rule is not
+              # cosmetic: the plugins bucket then grows without bound, because
+              # the expiry below is the backstop for a build whose cleanup
+              # never ran.
+              run_ok "version enable message-attachments" mc version enable local/message-attachments
+              run_ok "ilm noncurrent-expire message-attachments" mc ilm rule add --noncurrent-expire-days 30 local/message-attachments
               # plugins holds transient build-context ZIPs (deleted post-build);
               # expire after 7 days as a backstop against a missed delete.
-              mc ilm rule add --expire-days 7 local/plugins || true
+              run_ok "ilm expire plugins" mc ilm rule add --expire-days 7 local/plugins
               make_user() {  # $1=bucket $2=policy $3=access $4=secret
                 echo "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:*\"],\"Resource\":[\"arn:aws:s3:::$1\",\"arn:aws:s3:::$1/*\"]}]}" > /tmp/p.json
-                mc admin policy create local "$2" /tmp/p.json || true
-                mc admin user add local "$3" "$4" || true
-                mc admin policy attach local "$2" --user "$3" || true
+                run_ok "policy create $2" mc admin policy create local "$2" /tmp/p.json
+                # `user add` is an upsert in MinIO — this is what rotates the
+                # secret of an existing user, so it must NOT be masked now that
+                # these credentials are random per provision.
+                mc admin user add local "$3" "$4" || die "user add $3 failed"
+                run_ok "policy attach $2 -> $3" mc admin policy attach local "$2" --user "$3"
+                mc admin user info local "$3" >/dev/null || die "user $3 missing after add"
               }
               make_user message-attachments message-attachments-rw "$MESSAGE_S3_ACCESS_KEY" "$MESSAGE_S3_SECRET_KEY"
               make_user registry            registry-rw            "$REGISTRY_S3_ACCESS_KEY" "$REGISTRY_S3_SECRET_KEY"
