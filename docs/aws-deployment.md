@@ -51,7 +51,7 @@ This guide is for operators standing up Pipeline Builder on AWS. It covers the t
 | Public surface | ALB only (instance private) | ALB Ingress only (nodes private) |
 | Storage | hostPath PVCs on EBS | EBS (RWO) + EFS (RWX) via CSI |
 | Scaling | Vertical (instance resize) | Horizontal (Karpenter nodes + pod autoscaling) |
-| Cost | ~$140-265/mo (t3.xlarge–t3.2xlarge, 24/7) | ~$150-400/mo |
+| Cost | ~$140-560/mo (t3.xlarge–m5.4xlarge, 24/7) | ~$150-400/mo |
 | Best for | Dev/staging | Production |
 
 ---
@@ -123,8 +123,11 @@ install it right after KEDA; policies live in `k8s/istio.yaml`. See
   different CNI conf/bin dirs, pass them via `--set values.cni.cniConfDir/cniBinDir`
   in `setup.sh`. Validate capture across all nodes and under a Karpenter scale-up.
 - **EC2** is single-node Minikube; ambient installs trivially. The mesh adds
-  ~0.3–0.7 GiB (istiod + ztunnel); the **full stack + mesh wants t3.2xlarge** (the
-  default). To run a **t3.xlarge** instead, deploy with **`LEAN=1`** — it drops the
+  ~0.3–0.7 GiB (istiod + ztunnel). The default is **m5.4xlarge** — the smallest
+  allowed instance on which every HPA can reach maxReplicas at once alongside the
+  self-hosted 7B ask-model; **t3.2xlarge** still runs the stack at steady state (lower
+  the ResourceQuota to match — see `k8s/resource-limits.yaml`). To run a **t3.xlarge**
+  instead, deploy with **`LEAN=1`** — it drops the
   optional observability/admin services and single-replicas every workload so the core
   stack + mesh fits. Set it at launch (CFN `Lean` param): `LEAN=1 deploy/aws/ec2/bin/setup.sh`
   (or `pipeline-manager infra provision --target ec2 --lean --instance-type t3.xlarge`),

@@ -36,28 +36,26 @@ Parameters:
 
   InstanceType:
     Type: String
-    Default: t3.2xlarge
+    Default: m5.4xlarge
     AllowedValues:
       - t3.xlarge
       - t3.2xlarge
       - m5.2xlarge
       - m5.4xlarge
     Description: >
-      EC2 instance type. t3.2xlarge (8 vCPU / 32 GiB) is the recommended
-      default — the full stack (registry + 3 buildkitd tiers +
-      image-registry HPA + plugin HPA + observability + the self-hosted
-      ask-model) fits the namespace ResourceQuota declared in
-      k8s/resource-limits.yaml: ~15Gi / ~5.6 cores of requests at steady
-      state, leaving room for HPA growth and transient bootstrap pods.
-      It does NOT fit every HPA at maxReplicas simultaneously (~22.5Gi /
-      ~14.3 cores) — the quota is the backstop that prevents that on an
-      8-vCPU node. If you need all HPAs able to max out at once, use
-      m5.4xlarge (16 vCPU / 64 GiB) and raise the ResourceQuota to
-      ~26Gi / ~15 to match; the quota, not the instance, is what binds first.
-      t3.xlarge (4 vCPU / 16 GiB) works only with optional services
-      (prometheus, loki, mongo-express, pgadmin) disabled. m5.2xlarge /
-      m5.4xlarge are non-burstable alternatives for steady high-CPU
-      workloads.
+      EC2 instance type. m5.4xlarge (16 vCPU / 64 GiB) is the default: it is
+      the smallest allowed instance on which the full stack (registry + 3
+      buildkitd tiers + image-registry HPA + plugin HPA + observability + the
+      self-hosted 7B ask-model) can reach EVERY HPA maxReplicas at once —
+      33 cores / 40.5Gi of declared limits, against the 45 / 52Gi quota in
+      k8s/resource-limits.yaml. Steady state is far smaller (4.5 cores /
+      13.6Gi of requests), so this is headroom, not baseline consumption.
+      t3.2xlarge (8 vCPU / 32 GiB) still runs the stack at steady state and
+      is the cheaper choice if you do not need full scale-out, but its
+      28Gi minikube VM leaves only ~1Gi above ask-model's ceiling — lower
+      the ResourceQuota to 7 / 22Gi / 24 / 28Gi if you select it. t3.xlarge
+      (4 vCPU / 16 GiB) requires Lean=true, which also drops ask-model.
+      m5.2xlarge (8 vCPU / 32 GiB) is a non-burstable t3.2xlarge equivalent.
 
   Lean:
     Type: String

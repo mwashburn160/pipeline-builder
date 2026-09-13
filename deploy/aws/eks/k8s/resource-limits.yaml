@@ -30,14 +30,24 @@ spec:
       defaultRequest:
         cpu: "100m"
         memory: 128Mi
+      # These are the LARGEST per-container limits in the namespace, and the cap
+      # is a HARD admission gate, not a scheduling hint: a container whose limit
+      # (or request) exceeds it cannot be created at all — the ReplicaSet just
+      # emits `pods "..." is forbidden: maximum memory usage per Container is X,
+      # but limit is Y` and the Deployment sits at 0/1 with no pod to inspect.
+      #
+      # ask-model (the Ollama 7B, limits cpu 4 / memory 10Gi) is now that largest
+      # container, so both values are literals sized to it. They previously read
+      # cpu "2" / ${BUILDKIT_MEMORY_LIMIT} (6144Mi here), which silently forbade
+      # every ask-model pod the moment it was added to kustomization.yaml.
+      #
+      # The memory value therefore no longer tracks BUILDKIT_MEMORY_LIMIT: keep
+      # that <= 10Gi (it is the buildkitd sidecar's cgroup limit; default 6144Mi)
+      # or the plugin pod hits this same cap. The Pod-level max below must stay
+      # >= these, since ask-model is a single-container pod.
       max:
-        cpu: "2"
-        # Tracks the buildkitd sidecar limit (the largest container in the
-        # plugin pod) so raising BUILDKIT_MEMORY_LIMIT can't get the plugin pod
-        # forbidden by this per-container cap. Substituted by the same envsubst
-        # that sets the sidecar limit. Keep BUILDKIT_MEMORY_LIMIT >= 2Gi (the
-        # plugin app container's limit).
-        memory: ${BUILDKIT_MEMORY_LIMIT}
+        cpu: "4"
+        memory: 10Gi
     - type: Pod
       max:
         cpu: "6"

@@ -126,6 +126,14 @@ spec:
               cpu: "250m"
               memory: 6Gi
             limits:
+              # Same ceiling as the eks copy — a 7B model should not be given a
+              # smaller burst budget just because this target has a fixed node.
+              # Both values are admitted by the namespace LimitRange's
+              # per-CONTAINER max (cpu "4" / memory 10Gi in resource-limits.yaml,
+              # raised to cover this container), and the ResourceQuota's
+              # limits.cpu / limits.memory were raised by this pod's share rather
+              # than trimming it. Exceeding the LimitRange is not a scheduling
+              # delay — the pod cannot be created AT ALL.
               cpu: "4"
               memory: 10Gi
               # GPU: nvidia.com/gpu: "1"
