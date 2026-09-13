@@ -9,6 +9,8 @@ import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Queue, Worker } from 'bullmq';
 import type { Job, ConnectionOptions } from 'bullmq';
 
+import { recordTerminalFailedBuildEvent } from './build-failures.js';
+import { cleanupBuildArtifacts } from './build-workspace.js';
 import { intFromEnv } from './env-int.js';
 import {
   getConnectionForDb,
@@ -16,10 +18,8 @@ import {
   totalAttemptBudget,
   getTierQueue,
   getOrgTier,
-  cleanupBuildArtifacts,
   releasePluginQuota,
   reserveReplaySlot,
-  recordTerminalFailedBuildEvent,
 } from './plugin-build-queue.js';
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { emitPluginAudit } from '../services/audit.js';

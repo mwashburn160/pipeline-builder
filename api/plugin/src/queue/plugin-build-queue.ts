@@ -10,12 +10,13 @@ import { incCounter, observe, withSpan } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import type { PluginBuildConfig } from '@pipeline-builder/pipeline-core';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
-import { db, schema, reportingService, runWithTenantContext, withTenantTx } from '@pipeline-builder/pipeline-data';
+import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { Queue, Worker } from 'bullmq';
 import type { Job, ConnectionOptions } from 'bullmq';
 import { Redis } from 'ioredis';
 
-import { v7 as uuid } from 'uuid';
+import { summarizeBuildFailure, classifyFailure, recordBuildEvent } from './build-failures.js';
+import { cleanupBuildArtifacts, ensureLocalBuildContext } from './build-workspace.js';
 import { intFromEnv } from './env-int.js';
 import {
   DLQ_NAME,
@@ -28,12 +29,9 @@ import {
 import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metrics-scraper.js';
 import { ORG_SLOT_DELAY_MS, tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots } from './slot-manager.js';
 import { getBuildStrategy } from '../helpers/build-strategy.js';
-import type { BuildRequest } from '../helpers/docker-build.js';
-import { getBuildkitAddrForTier, BUILD_TEMP_ROOT, BuildProcessError, maskSecrets } from '../helpers/docker-build.js';
-import type { FailureCategory, PluginBuildJobData } from '../helpers/plugin-helpers.js';
-import { extractZipToDir } from '../helpers/zip-extract.js';
+import { getBuildkitAddrForTier, BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
+import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { getAuditClient } from '../services/audit.js';
-import { deletePluginArtifact, getPluginArtifactToFile } from '../services/plugin-artifact-storage.js';
 import { pluginService } from '../services/plugin-service.js';
 
 // Re-exported so existing `import { ... } from './plugin-build-queue.js'` sites
@@ -394,42 +392,6 @@ export async function retryFailedJob(jobId: string, quotaService: QuotaService):
 // Failure classification
 // ---------------------------------------------------------------------------
 
-/**
- * Build a bounded, secret-masked failure summary for the user's SSE stream.
- * A {@link BuildProcessError} carries the exit reason + a tail of the last N
- * masked build lines; any other failure (deploy, compliance, validation) degrades
- * to the masked error message. Never includes unbounded output.
- */
-function summarizeBuildFailure(error: Error, isTimeout: boolean): { message: string; reason: string; tail: string[] } {
-  if (error instanceof BuildProcessError) {
-    const reason = error.timedOut || isTimeout
-      ? 'timed out'
-      : (error.exitCode != null ? `exit code ${error.exitCode}` : 'error');
-    const tail = error.tail ?? [];
-    const tailBlock = tail.length > 0 ? `\nLast ${tail.length} log line(s):\n${tail.join('\n')}` : '';
-    return { message: `Build failed (${reason})${tailBlock}`, reason, tail };
-  }
-  const reason = isTimeout ? 'timed out' : 'error';
-  // Mask the fallback message defensively — a deploy/compliance error string
-  // could conceivably echo a token; the build tail is already masked at source.
-  return { message: `Build failed (${reason}): ${maskSecrets(error.message)}`, reason, tail: [] };
-}
-
-function classifyFailure(error: Error): FailureCategory {
-  const msg = error.message;
-  const dbCode = extractDbError(error)?.dbCode;
-
-  if (dbCode === '42703' || dbCode === '42P01' || dbCode === '23505') return 'permanent';
-  if (msg.includes('COMPLIANCE_VIOLATION') || msg.includes('VALIDATION_ERROR')) return 'permanent';
-  if (msg.includes('missing image.tar') || msg.includes('Tarball not found')) return 'permanent';
-
-  return 'retryable';
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function isWorkerReady(): boolean {
   for (const tier of VALID_TIERS) {
     if (!tierWorkers.get(tier)) return false;
@@ -469,145 +431,6 @@ export function waitForWorkerReady(timeoutMs = getBuildCfg().workerTimeoutMs): P
   });
 }
 
-export function cleanupContextDir(dir: string): void {
-  if (dir && fs.existsSync(dir)) {
-    try {
-      fs.rmSync(dir, { recursive: true, force: true });
-    } catch (err) {
-      logger.debug('Temp dir cleanup failed', { path: dir, error: errorMessage(err) });
-    }
-  }
-}
-
-/**
- * Terminal cleanup for a finished build: remove the local scratch context AND
- * the staged S3 build-context object. Call ONLY at points where the job is truly
- * done (success or give-up) — NOT when handing a job to the DLQ for retry, where
- * a retry on another replica still needs the S3 object to re-materialize. Both
- * deletes are best-effort (the bucket's expiry lifecycle is the backstop).
- */
-export function cleanupBuildArtifacts(buildRequest: Pick<BuildRequest, 'contextDir' | 's3Key'>): void {
-  cleanupContextDir(buildRequest.contextDir);
-  void deletePluginArtifact(buildRequest.s3Key);
-}
-
-/**
- * Ensure the build context exists on THIS replica's local disk, returning the
- * usable path. Fast path: the extractDir the uploader wrote is present (same
- * replica) — use it as-is. Cross-replica: the local dir is absent, so download
- * the staged ZIP from object storage and re-extract into a fresh local dir,
- * mutating `buildRequest.contextDir` so the rest of the pipeline (build +
- * cleanup) is oblivious to where it came from. Throws if the context is neither
- * local nor recoverable from S3 — the worker treats that as a build failure.
- */
-export async function ensureLocalBuildContext(buildRequest: BuildRequest): Promise<void> {
-  if (buildRequest.contextDir && fs.existsSync(buildRequest.contextDir)) return;
-  if (!buildRequest.s3Key) {
-    throw new Error(`Build context missing: ${buildRequest.contextDir} (no S3 key to restore from)`);
-  }
-
-  const zipPath = path.join(BUILD_TEMP_ROOT, `${uuid()}.zip`);
-  const extractDir = path.join(BUILD_TEMP_ROOT, uuid());
-  try {
-    await getPluginArtifactToFile(buildRequest.s3Key, zipPath);
-    await extractZipToDir(zipPath, extractDir);
-  } finally {
-    // The downloaded ZIP is only needed for extraction — drop it either way.
-    try { fs.rmSync(zipPath, { force: true }); } catch { /* ignore */ }
-  }
-  buildRequest.contextDir = extractDir;
-  logger.info('Rehydrated build context from object storage', { s3Key: buildRequest.s3Key, extractDir });
-}
-
-/**
- * Persist a plugin build event then invalidate the org's reporting cache.
- *
- * Order matters: invalidate ONLY after the insert resolves so a failed
- * insert never wipes a still-fresh cache.
- */
-function recordBuildEvent(orgId: string, status: 'completed' | 'failed', job: Job, detail: Record<string, unknown>): void {
-  const startedMs = job.processedOn ?? job.timestamp;
-  const completedMs = job.finishedOn ?? Date.now();
-  const durationMs = startedMs ? completedMs - startedMs : undefined;
-
-  if (!db?.insert) return;
-
-  withTenantTx((tx) => tx.insert(schema.pipelineEvent)
-    .values({
-      orgId,
-      eventSource: 'plugin-build',
-      eventType: 'BUILD',
-      status,
-      executionId: job.id ?? undefined,
-      errorMessage: status === 'failed' ? (detail.errorMessage as string) : undefined,
-      startedAt: startedMs ? new Date(startedMs) : undefined,
-      completedAt: new Date(completedMs),
-      durationMs,
-      detail: {
-        ...detail,
-        jobId: job.id,
-        attemptsMade: job.attemptsMade,
-        maxAttempts: job.opts.attempts,
-      },
-    })
-    // BullMQ may re-run a job (retry/stalled-recovery) and re-record the same
-    // (execution_id=jobId) BUILD event; dedup on the event_dedup_idx instead of
-    // inserting duplicate rows that inflate build metrics.
-    .onConflictDoNothing())
-    .then(
-      () => reportingService.invalidateOrg(orgId).catch((invalidateErr: unknown) => {
-        logger.warn('Reporting cache invalidation failed after build event', { orgId, error: errorMessage(invalidateErr) });
-      }),
-      (insertErr: unknown) => {
-        logger.warn('Failed to record build event', { error: errorMessage(insertErr) });
-      },
-    );
-}
-
-/**
- * Record a terminal `failed` build event under a tenant context (the RLS insert
- * in `recordBuildEvent` needs one). Exposed for the DLQ terminal paths, which
- * run detached from the tier worker's `runWithTenantContext`. Keeping the
- * context-wrapping here means the DLQ module depends only on plugin-build-queue
- * (not directly on pipeline-data). Fire-and-forget, mirroring recordBuildEvent.
- */
-export function recordTerminalFailedBuildEvent(orgId: string, job: Job, detail: Record<string, unknown>): void {
-  void runWithTenantContext({ orgId, isSuperAdmin: false }, async () => {
-    recordBuildEvent(orgId, 'failed', job, detail);
-  });
-}
-
-/**
- * Collect context dirs referenced by jobs across main queue and DLQ.
- * Includes failed state to protect dirs during DLQ backoff.
- */
-async function getProtectedContextDirs(): Promise<Set<string>> {
-  const dirs = new Set<string>();
-  const states = ['waiting', 'delayed', 'active', 'failed'] as const;
-  try {
-    const tierJobLists = await Promise.all([
-      ...getAllTierQueues().map(({ queue }) => queue.getJobs([...states])),
-      getDeadLetterQueue().getJobs([...states]),
-    ]);
-    for (const jobs of tierJobLists) {
-      for (const job of jobs) {
-        const dir = job.data?.buildRequest?.contextDir;
-        if (dir) dirs.add(dir);
-      }
-    }
-  } catch { /* best-effort */ }
-  return dirs;
-}
-
-/**
- * Release the org's reserved `plugins` quota slot for a build job exactly once.
- * Every terminal failure path (main worker + DLQ worker) and every DLQ purge
- * funnels through here. The `quotaReleased` flag — mutated in-memory for same-tick
- * idempotency and persisted via `updateData` so a freshly-fetched job in a later
- * purge sees it — guarantees a job that already gave its slot back on exhaustion
- * isn't decremented again when a purge removes it (double-count), while a job
- * purged before it ever reached a terminal handler still gets its slot back.
- */
 export function releasePluginQuota(job: Job<PluginBuildJobData>, quotaService: QuotaService): void {
   if (job.data.quotaReleased) return;
   const { orgId, reservedResetAt } = job.data;
@@ -972,6 +795,38 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 // ---------------------------------------------------------------------------
 
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Collect context dirs referenced by jobs across main queue and DLQ.
+ * Includes failed state to protect dirs during DLQ backoff.
+ */
+async function getProtectedContextDirs(): Promise<Set<string>> {
+  const dirs = new Set<string>();
+  const states = ['waiting', 'delayed', 'active', 'failed'] as const;
+  try {
+    const tierJobLists = await Promise.all([
+      ...getAllTierQueues().map(({ queue }) => queue.getJobs([...states])),
+      getDeadLetterQueue().getJobs([...states]),
+    ]);
+    for (const jobs of tierJobLists) {
+      for (const job of jobs) {
+        const dir = job.data?.buildRequest?.contextDir;
+        if (dir) dirs.add(dir);
+      }
+    }
+  } catch { /* best-effort */ }
+  return dirs;
+}
+
+/**
+ * Release the org's reserved `plugins` quota slot for a build job exactly once.
+ * Every terminal failure path (main worker + DLQ worker) and every DLQ purge
+ * funnels through here. The `quotaReleased` flag — mutated in-memory for same-tick
+ * idempotency and persisted via `updateData` so a freshly-fetched job in a later
+ * purge sees it — guarantees a job that already gave its slot back on exhaustion
+ * isn't decremented again when a purge removes it (double-count), while a job
+ * purged before it ever reached a terminal handler still gets its slot back.
+ */
 
 function cleanupStaleTempDirs(): void {
   const tmpRoot = BUILD_TEMP_ROOT;
