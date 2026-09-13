@@ -101,7 +101,23 @@ spec:
           lifecycle:
             postStart:
               exec:
-                command: ["/bin/sh", "-c", "sleep 4; ollama pull \"$OLLAMA_MODEL\" || true"]
+                command:
+                  - /bin/sh
+                  - -c
+                  # Retry a few times: a transient registry blip would otherwise
+                  # leave the startupProbe to time out, stalling the pod for its
+                  # full ~20-minute budget before the container restarts and
+                  # tries again. Still `|| true` overall — a postStart that exits
+                  # non-zero KILLS the container, and the startupProbe is the
+                  # honest gate for "is the model actually here".
+                  - |
+                    sleep 4
+                    for i in 1 2 3 4 5; do
+                      ollama pull "$OLLAMA_MODEL" && break
+                      echo "ollama pull failed (attempt $i); retrying in 30s" >&2
+                      sleep 30
+                    done
+                    true
           volumeMounts:
             - name: models
               mountPath: /root/.ollama
@@ -125,6 +141,26 @@ spec:
               cpu: "2"
               memory: 4Gi
               # GPU: nvidia.com/gpu: "1"
+          # GATE READINESS ON THE MODEL, NOT THE SERVER.
+          #
+          # `/api/version` answers as soon as ollama's HTTP server binds — which
+          # is almost immediately, while the postStart `ollama pull` above is
+          # still downloading (~1GB here, ~4.7GB for the 7B on the AWS targets).
+          # With only that probe the pod went Ready, the Service routed chat
+          # completions to a model that did not exist yet, and ollama closed the
+          # connection: the caller saw
+          #   "AI_APICallError: Cannot connect to API: other side closed".
+          #
+          # A startupProbe suspends the readiness/liveness probes until it
+          # passes, so the pod stays out of the Service until `ollama list`
+          # actually shows the model. failureThreshold x periodSeconds is the
+          # first-pull budget (~20 min); a pull that never lands restarts the
+          # container, which retries it — better than serving nothing forever.
+          startupProbe:
+            exec:
+              command: ["/bin/sh", "-c", "ollama list | grep -qF \"$OLLAMA_MODEL\""]
+            periodSeconds: 10
+            failureThreshold: 120
           readinessProbe:
             httpGet: { path: /api/version, port: 11434 }
             initialDelaySeconds: 20
