@@ -80,23 +80,6 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# -- Optional: self-hosted Ask model ------------------------------------------
-if [ "$ASK_MODEL" = "1" ]; then
-  log "Enabling the self-hosted Ask model (ASK_MODEL=1)"
-  kubectl apply -n "$NAMESPACE" -f "$DEPLOY_DIR/k8s/ask-model.yaml"
-  # `ask` reads app-env via envFrom, so patching the ConfigMap is all the
-  # service needs — no manifest edit. Merge-patch keeps every other key.
-  kubectl patch configmap app-env -n "$NAMESPACE" --type merge -p \
-    '{"data":{"OPENAI_COMPATIBLE_BASE_URL":"http://ask-model:11434/v1","OPENAI_COMPATIBLE_MODELS":"qwen2.5-coder:1.5b|Qwen 2.5 Coder"}}' >/dev/null
-  # envFrom values are injected at pod START — an existing ask pod keeps the old
-  # (absent) env until it is replaced.
-  kubectl rollout restart deployment/ask -n "$NAMESPACE" >/dev/null
-  echo "  ask-model applied; ask restarted. First start pulls the model (~1GB)."
-fi
-if [ "${LEAN:-}" = "1" ]; then
-  echo "  NOTE: LEAN only applies at provision time (setup.sh) — ignoring it here."
-fi
-
 # -- Wait for pods ------------------------------------------------------------
 log "Waiting for pods"
 kubectl wait --for=condition=Ready pod -l app=postgres -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  postgres not ready"
@@ -130,6 +113,37 @@ for i in $(seq 1 5); do
 done
 
 # -- Summary ------------------------------------------------------------------
+# -- Optional: self-hosted Ask model ------------------------------------------
+# Placed AFTER the port-forwards, and gated on istiod, for two reasons learned
+# the hard way: `ask-model.yaml` contains an Istio AuthorizationPolicy, whose
+# CREATE calls istiod's validating webhook — on a fresh resume istiod is not
+# listening yet, so an earlier apply died with
+#   failed calling webhook "validation.istio.io" ... connection refused
+# and, under `set -e`, took the rest of startup (including the port-forwards)
+# with it. Running last means a failure here costs only this feature.
+if [ "$ASK_MODEL" = "1" ]; then
+  log "Enabling the self-hosted Ask model (ASK_MODEL=1)"
+  echo "  waiting for istiod (its webhook validates the AuthorizationPolicy)..."
+  if ! kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=180s >/dev/null 2>&1; then
+    echo "  ERROR: istiod did not become Available; ask-model NOT enabled." >&2
+    echo "         Re-run once the mesh is up: ASK_MODEL=1 $0" >&2
+    exit 1
+  fi
+  kubectl apply -n "$NAMESPACE" -f "$DEPLOY_DIR/k8s/ask-model.yaml"
+  # `ask` reads app-env via envFrom, so patching the ConfigMap is all the
+  # service needs — no manifest edit. Merge-patch keeps every other key.
+  kubectl patch configmap app-env -n "$NAMESPACE" --type merge -p \
+    '{"data":{"OPENAI_COMPATIBLE_BASE_URL":"http://ask-model:11434/v1","OPENAI_COMPATIBLE_MODELS":"qwen2.5-coder:1.5b|Qwen 2.5 Coder"}}' >/dev/null
+  # envFrom values are injected at pod START — an existing ask pod keeps the old
+  # (absent) env until it is replaced.
+  kubectl rollout restart deployment/ask -n "$NAMESPACE" >/dev/null
+  echo "  ask-model applied; ask restarted. First start pulls the model (~1GB);"
+  echo "  the pod stays NotReady until the model is actually present (startupProbe)."
+fi
+if [ "${LEAN:-}" = "1" ]; then
+  echo "  NOTE: LEAN only applies at provision time (setup.sh) — ignoring it here."
+fi
+
 MK_IP=$(minikube ip --profile="$PROFILE" 2>/dev/null || echo "unknown")
 
 log "Startup Complete — Minikube"
