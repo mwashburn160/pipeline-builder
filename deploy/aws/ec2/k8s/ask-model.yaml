@@ -89,27 +89,30 @@ spec:
               value: "qwen2.5-coder:7b"
             - name: OLLAMA_HOST
               value: "0.0.0.0:11434"
-          # Pull the configured model once serving is up (idempotent; cached on the PVC).
-          lifecycle:
-            postStart:
-              exec:
-                command:
-                  - /bin/sh
-                  - -c
-                  # Retry a few times: a transient registry blip would otherwise
-                  # leave the startupProbe to time out, stalling the pod for its
-                  # full ~20-minute budget before the container restarts and
-                  # tries again. Still `|| true` overall — a postStart that exits
-                  # non-zero KILLS the container, and the startupProbe is the
-                  # honest gate for "is the model actually here".
-                  - |
-                    sleep 4
-                    for i in 1 2 3 4 5; do
-                      ollama pull "$OLLAMA_MODEL" && break
-                      echo "ollama pull failed (attempt $i); retrying in 30s" >&2
-                      sleep 30
-                    done
-                    true
+          # Run the server AND the pull as the container's main process.
+          #
+          # This was a lifecycle.postStart hook, which was a mistake: a blocking
+          # postStart keeps the container out of Running for its whole duration,
+          # so during the (minutes-long) first pull the pod sat in
+          # ContainerCreating with NO readable logs and no `kubectl exec` — the
+          # download looked indistinguishable from a hang. Running it as PID 1's
+          # script instead means the pod is Running immediately, `kubectl logs`
+          # streams the pull's progress, and the startupProbe below is what
+          # actually gates traffic. Mirrors the docker target's compose command.
+          command: ["/bin/sh", "-c"]
+          args:
+            # Retry rather than `|| true` once: a transient registry blip would
+            # otherwise leave the server up with no model until the startupProbe
+            # finally restarts the container.
+            - |
+              ollama serve &
+              sleep 4
+              for i in 1 2 3 4 5; do
+                ollama pull "$OLLAMA_MODEL" && break
+                echo "ollama pull failed (attempt $i); retrying in 30s" >&2
+                sleep 30
+              done
+              wait
           volumeMounts:
             - name: models
               mountPath: /root/.ollama
@@ -140,7 +143,7 @@ spec:
           # GATE READINESS ON THE MODEL, NOT THE SERVER.
           #
           # `/api/version` answers as soon as ollama's HTTP server binds — which
-          # is almost immediately, while the postStart `ollama pull` above is
+          # is almost immediately, while the `ollama pull` in the command above is
           # still downloading (~1GB here, ~4.7GB for the 7B on the AWS targets).
           # With only that probe the pod went Ready, the Service routed chat
           # completions to a model that did not exist yet, and ollama closed the
@@ -225,11 +228,23 @@ spec:
 # Nothing in the pod's own logs explains it, because a container stuck in
 # postStart has no readable logs.
 #
-# Mirrors allow-plugin-external-egress: 443/80 to the internet, minus
-# link-local and RFC1918/CGNAT ranges so this cannot be used to reach the
-# node, the metadata service, or other in-VPC hosts. FQDN-scoping this to
-# registry.ollama.ai needs Cilium (see cilium-network-policies.yaml); plain
-# NetworkPolicy cannot express it.
+# PORTS-ONLY, deliberately: no `to:` ipBlock. The obvious spelling —
+# ipBlock 0.0.0.0/0 with `except: 169.254.0.0/16, 192.168.0.0/16,
+# 100.64.0.0/10`, copied from allow-plugin-external-egress — BREAKS this pod
+# under Istio ambient. Ambient redirects a pod's outbound traffic to the
+# node-local ztunnel over a LINK-LOCAL address (169.254.x), so excepting
+# 169.254.0.0/16 severs the data path: the TCP connect still succeeds (the
+# kernel completes the handshake) but no application bytes ever flow, and a
+# TLS ClientHello just times out —
+#   openssl: CONNECTED ... no peer certificate available, Cipher is (NONE)
+#   ollama:  net/http: TLS handshake timeout
+# which looks like a firewall on the far end rather than a local policy.
+# `app: plugin` survives that spelling only because plugin-build-isolation
+# separately grants it an unrestricted 443/80 rule; allow-billing-external-egress
+# uses this ports-only form for the same reason.
+#
+# FQDN-scoping this to registry.ollama.ai needs Cilium (see
+# cilium-network-policies.yaml); plain NetworkPolicy cannot express it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -241,14 +256,7 @@ spec:
   policyTypes:
     - Egress
   egress:
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 169.254.0.0/16
-              - 192.168.0.0/16
-              - 100.64.0.0/10
-      ports:
+    - ports:
         - port: 443
           protocol: TCP
         - port: 80
