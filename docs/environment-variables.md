@@ -609,14 +609,15 @@ Point the provider registry at any OpenAI-compatible endpoint — a **Docker mod
 
 | Variable | Description |
 |----------|-------------|
-| `OPENAI_COMPATIBLE_BASE_URL` | Endpoint that speaks the OpenAI chat API, e.g. `http://ask-model:12434/v1`. **Setting this enables the `openai-compatible` provider.** |
+| `OPENAI_COMPATIBLE_BASE_URL` | Endpoint that speaks the OpenAI chat API, e.g. `http://ask-model:11434/v1`. **Setting this enables the `openai-compatible` provider.** |
 | `OPENAI_COMPATIBLE_MODELS` | Comma-separated model list the endpoint serves, each `id[|Display Name]` (e.g. `qwen2.5-coder:7b|Qwen 2.5 Coder, llama3.1:8b`). |
 | `OPENAI_COMPATIBLE_MODEL` | Single-model fallback used when `OPENAI_COMPATIBLE_MODELS` is unset. Defaults to `local|Local model`. |
 | `OPENAI_COMPATIBLE_NAME` | Display name for the provider (defaults to `Local model (OpenAI-compatible)`). |
 | `OPENAI_COMPATIBLE_API_KEY` | Optional. Most local servers ignore it; a placeholder is sent when unset. |
 
-The deploy targets ship an **opt-in Ollama model container** you can enable instead of running your own endpoint:
-- **k8s** (`deploy/{aws/ec2,aws/eks,local/minikube}/k8s/ask-model.yaml`) — commented out in `kustomization.yaml`; uncomment it (or `kubectl apply -f` the file), then set `OPENAI_COMPATIBLE_BASE_URL=http://ask-model:11434/v1` + `OPENAI_COMPATIBLE_MODELS=qwen2.5-coder:7b|Qwen 2.5 Coder` on the `ask` Deployment (both are pre-added as commented env there). A 7B tool-capable model needs ~6–8Gi RAM (CPU) or a GPU (uncomment the nodeSelector/tolerations + `nvidia.com/gpu` limit).
-- **docker** (`deploy/local/docker/docker-compose.yml`) — the `ask-model` service is behind the `ask-model` profile: `docker compose --profile ask-model up -d`, then set `OPENAI_COMPATIBLE_BASE_URL`/`OPENAI_COMPATIBLE_MODELS` in `.env` (the `ask` service already reads them, empty by default).
+The deploy targets ship an **Ollama model container** you can use instead of running your own endpoint. How it is enabled differs per target:
+- **aws/ec2, aws/eks** (`deploy/aws/{ec2,eks}/k8s/ask-model.yaml`) — deployed **by default** (listed in `kustomization.yaml`), with `OPENAI_COMPATIBLE_BASE_URL=http://ask-model:11434/v1` + `OPENAI_COMPATIBLE_MODELS=qwen2.5-coder:7b|Qwen 2.5 Coder` already set on the `ask` Deployment. A 7B tool-capable model needs ~6–8Gi RAM (CPU) or a GPU (uncomment the nodeSelector/tolerations + `nvidia.com/gpu` limit). On ec2, `LEAN=1` drops it — at 6Gi it does not fit the t3.xlarge that LEAN targets — along with the `ask` env that points at it.
+- **local/minikube** — opt-in, because a 6Gi request will not schedule on a laptop-sized VM: `ASK_MODEL=1 deploy/local/minikube/bin/setup.sh` (or the same flag on `startup.sh` for an already-provisioned cluster) applies the manifest *and* wires the two env vars into the `app-env` ConfigMap. The minikube copy runs the 1.5B at a 1536Mi request.
+- **local/docker** (`deploy/local/docker/docker-compose.yml`) — behind the `ask-model` compose profile: `docker compose --profile ask-model up -d`, then uncomment `OPENAI_COMPATIBLE_BASE_URL`/`OPENAI_COMPATIBLE_MODELS` in `.env` and `docker compose up -d ask` so the change reaches the service.
 
-Override the served model with `OLLAMA_MODEL` (default `qwen2.5-coder:7b`). Model weights persist on the `ask-model-models` volume/PVC.
+Override the served model with `OLLAMA_MODEL` (default `qwen2.5-coder:7b`). It must name the same model `OPENAI_COMPATIBLE_MODELS` advertises — advertising one the container has not pulled sends the request to a server that has never heard of it, which closes the connection mid-stream (`AI_APICallError: Cannot connect to API: other side closed`). Guarding that is why the workload is held **NotReady/unhealthy** until `ollama list` actually shows the model (a `startupProbe` in k8s, a healthcheck on docker) rather than merely until the server is listening. Model weights persist on the `ask-model-models` volume/PVC.

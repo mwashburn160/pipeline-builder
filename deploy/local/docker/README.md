@@ -26,6 +26,45 @@ GOOGLE_GENERATIVE_AI_API_KEY=your-key
 XAI_API_KEY=your-key
 ```
 
+### Self-hosted model (no cloud key)
+
+The Ask assistant needs *some* provider — with no key above and no base URL, every
+turn fails with *"AI is not configured"*. An opt-in Ollama container can be that
+provider:
+
+```bash
+docker compose --profile ask-model up -d
+```
+
+Then uncomment both lines in `.env` and restart `ask` so it picks them up:
+
+```bash
+OPENAI_COMPATIBLE_BASE_URL=http://ask-model:11434/v1
+OPENAI_COMPATIBLE_MODELS=qwen2.5-coder:7b|Qwen 2.5 Coder
+
+docker compose up -d ask
+```
+
+The first start downloads ~4.7GB, and the container stays **unhealthy** until the
+model is actually present — that is deliberate, so `ask` is never pointed at a
+server whose catalogue is still empty. The 7B needs ~6-8Gi of RAM to serve; on a
+smaller machine set `OLLAMA_MODEL=qwen2.5-coder:1.5b` and change
+`OPENAI_COMPATIBLE_MODELS` to match. The two must always name the same model.
+
+Watch the pull with `docker compose logs -f ask-model`.
+
+If you drive the stack through `bin/setup.sh`, enable the profile with the
+environment variable instead — `--profile` is a top-level flag and `setup.sh`
+appends its arguments after `up`, so it cannot be passed through:
+
+```bash
+COMPOSE_PROFILES=ask-model ./bin/setup.sh
+```
+
+Set it on **every** subsequent run: `setup.sh` calls `up -d --remove-orphans`, and
+without the profile active `ask-model` counts as an orphan and is removed. (The
+`ask-model-models` volume survives, so re-enabling it does not re-download.)
+
 ## Services
 
 | Service | Port | Description |

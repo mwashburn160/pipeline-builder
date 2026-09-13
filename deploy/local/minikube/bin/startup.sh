@@ -84,7 +84,14 @@ done
 log "Waiting for pods"
 kubectl wait --for=condition=Ready pod -l app=postgres -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  postgres not ready"
 kubectl wait --for=condition=Ready pod -l app=mongodb  -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  mongodb not ready"
-kubectl wait --for=condition=Ready pod -l app -n "$NAMESPACE" --timeout=300s 2>/dev/null || true
+# Mirrors the hardened wait in setup.sh: `-l app` is an EXISTENCE selector, so it
+# also matches one-shot Job pods (minio-init), whose Ready condition stays
+# False/PodCompleted forever — without the phase filter this could never be
+# satisfied and always burned the full 300s, silently, because `|| true` swallowed
+# it. ask-model is excluded too: its startupProbe holds the pod NotReady until the
+# model is pulled (~1GB on first run), which nothing else here depends on.
+kubectl wait --for=condition=Ready pod -l 'app,app!=ask-model' -n "$NAMESPACE" \
+  --field-selector=status.phase!=Succeeded --timeout=300s 2>/dev/null || true
 kubectl wait --for=condition=Ready pod -l app=nginx -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  nginx not ready"
 
 echo ""

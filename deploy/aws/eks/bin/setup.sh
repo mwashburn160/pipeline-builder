@@ -434,6 +434,21 @@ log "Phase 7: apply workloads"
 bash "$(dirname "${BASH_SOURCE[0]}")/../../../bin/verify-image-signatures.sh"
 # Restricted envsubst: ONLY our deploy tokens are expanded, so $host / $1$... in
 # the inline nginx/pgbouncer configmaps are left intact.
+# HARD GATE on istiod before the apply. The stream carries AuthorizationPolicy
+# docs (istio.yaml, ask-model.yaml); CREATING one calls istiod's validating
+# webhook, so with istiod still starting the apply dies on
+#   failed calling webhook "validation.istio.io" ... connection refused
+# — and under `set -e` takes the rest of the provision with it, after having
+# applied an arbitrary PREFIX of the manifests. The Phase-6 wait is advisory
+# (`|| echo`) by design, so this is the second, longer chance: a slow-but-healthy
+# istiod still succeeds, and a genuinely broken mesh fails HERE with a message
+# that names the cause instead of surfacing as a webhook error much later.
+if ! kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=300s >/dev/null 2>&1; then
+  echo "ERROR: istiod is not Available — the manifests include Istio AuthorizationPolicy" >&2
+  echo "       resources whose admission webhook it serves, so this apply cannot succeed." >&2
+  echo "       Check: kubectl -n istio-system get pods,deploy" >&2
+  exit 1
+fi
 kubectl kustomize "$K8S_DIR" \
   | sed "s|[\$]{EFS_FILESYSTEM_ID}|${EFS_FILESYSTEM_ID}|g; s|[\$]{ACM_CERT_ARN}|${ACM_CERT_ARN}|g; s|[\$]{DOMAIN}|${DOMAIN}|g; s|[\$]{ALB_SCHEME}|${ALB_SCHEME}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" \
   | kubectl apply -f -

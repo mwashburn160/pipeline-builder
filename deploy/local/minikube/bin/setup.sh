@@ -564,7 +564,11 @@ kubectl wait --for=condition=Ready pod -l app=mongodb  -n "$NAMESPACE" --timeout
 # be satisfied and always burned the full 300s — silently, because `|| true`
 # swallowed the timeout. Exclude finished pods, and say which pods are actually
 # lagging instead of hiding the result.
-if ! kubectl wait --for=condition=Ready pod -l app -n "$NAMESPACE" \
+#
+# ask-model is excluded for a second reason: its startupProbe deliberately holds
+# the pod NotReady until `ollama list` shows the model, and the first run pulls
+# ~1GB — longer than this wait, and not something the rest of the stack depends on.
+if ! kubectl wait --for=condition=Ready pod -l 'app,app!=ask-model' -n "$NAMESPACE" \
      --field-selector=status.phase!=Succeeded --timeout=300s >/dev/null 2>&1; then
   echo "  some pods are not ready yet:"
   kubectl get pods -n "$NAMESPACE" \

@@ -132,6 +132,9 @@ services:
   #   docker compose --profile ask-model up -d
   # then set OPENAI_COMPATIBLE_BASE_URL=http://ask-model:11434/v1 and
   #   OPENAI_COMPATIBLE_MODELS=qwen2.5-coder:7b|Qwen 2.5 Coder in your .env.
+  # (See the "Self-hosted Ask model" block in .env.example.) The 7B needs ~6-8Gi
+  # of RAM to serve — on a smaller machine use OLLAMA_MODEL=qwen2.5-coder:1.5b
+  # and match OPENAI_COMPATIBLE_MODELS to it, as the minikube target does.
   ask-model:
     image: 'ollama/ollama:0.6.5'
     container_name: ask-model
@@ -141,20 +144,49 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5-coder:7b}
       OLLAMA_HOST: 0.0.0.0:11434
     entrypoint: ["/bin/sh", "-c"]
-    command: ["ollama serve & sleep 4; ollama pull \"$$OLLAMA_MODEL\" || true; wait"]
+    # Retry the pull rather than `|| true`-ing it once. There is no supervisor
+    # here that re-runs it: `restart: always` reacts to the container EXITING,
+    # not to an unhealthy healthcheck, so a single transient registry blip used
+    # to leave a permanently model-less container serving an empty catalogue.
+    command:
+      - |
+        ollama serve &
+        sleep 4
+        for i in 1 2 3 4 5; do
+          ollama pull "$$OLLAMA_MODEL" && break
+          echo "ollama pull failed (attempt $$i); retrying in 30s" >&2
+          sleep 30
+        done
+        wait
     volumes:
       - ask-model-models:/root/.ollama
     networks:
       - backend-network
+    # GATE HEALTH ON THE MODEL, NOT THE SERVER.
+    #
+    # This used to be `ollama list >/dev/null || exit 1`, which passes the moment
+    # the HTTP server binds — while the pull above is still downloading. The
+    # container therefore reported healthy with an EMPTY model catalogue, `ask`
+    # sent it a chat completion for a model that did not exist, and ollama closed
+    # the connection: the user saw
+    #   "AI_APICallError: Cannot connect to API: other side closed".
+    # Grepping for the configured model is the honest check. Mirrors the
+    # startupProbe on all three k8s targets.
     healthcheck:
-      test: ["CMD", "sh", "-c", "ollama list >/dev/null 2>&1 || exit 1"]
+      test: ["CMD", "sh", "-c", "ollama list | grep -qF \"$$OLLAMA_MODEL\""]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 90s
+      # The first pull is ~4.7GB for the 7B. Failures during start_period do not
+      # count toward `retries`, so this is the first-pull budget — matching the
+      # k8s startupProbe's ~20 minutes. Too short a value (it was 90s) would mark
+      # the container unhealthy while a perfectly normal download is in flight.
+      start_period: 1200s
     deploy:
       resources:
         limits:
+          # Mirrors the k8s copies (limits: cpu 4 / memory 10Gi).
+          cpus: '4.0'
           memory: 10G
 
   nginx:

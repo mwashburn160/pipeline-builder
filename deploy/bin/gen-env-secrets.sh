@@ -2,7 +2,8 @@
 # Copyright 2026 Pipeline Builder Contributors
 # SPDX-License-Identifier: Apache-2.0
 #
-# Shared .env secret generation for the AWS deploy targets (ec2 bootstrap + eks setup).
+# Shared .env secret generation for EVERY deploy target: ec2 (bootstrap.sh), eks,
+# minikube and docker (each target's setup.sh) all source this.
 # SOURCE this file (it only defines a function — no side effects).
 #
 #   pb_gen_env_secrets <env_file> [ghcr_user]

@@ -64,11 +64,26 @@ log() { echo ""; echo "=== $1 ==="; }
 # else, incl. AuthZ/NetworkPolicy docs that merely reference them (harmless, no pod).
 # With LEAN=0 it's a pass-through (cat). Pure awk/sed — runs on the host side of the
 # apply pipe (the apply itself still goes through `mk kubectl`).
+#
+# ask-model is in this list because it is BY FAR the heaviest optional workload:
+# measured against the rendered kustomize stream, LEAN steady state is 3.60 cpu /
+# 11.56Gi WITH it and 3.35 cpu / 5.56Gi without — it alone is 52% of the LEAN
+# memory footprint (a 7B model asks for 6Gi). LEAN targets a t3.xlarge (4 vCPU /
+# 16Gi), where 11.56Gi of requests plus istiod/ztunnel/KEDA in their own
+# namespaces does not fit, so keeping it would leave pods Pending and defeat the
+# flag. Dropping it degrades cleanly: `ask` falls back to whatever cloud provider
+# key is in .env, and with none the assistant reports "AI is not configured".
+# Run LEAN=0 (t3.2xlarge+) to get the self-hosted model.
+#
+# This filters the APPLY, and the apply does not prune — so flipping an
+# already-provisioned cluster from LEAN=0 to LEAN=1 leaves a running ask-model
+# behind. Remove it by hand when downsizing in place:
+#   kubectl delete -n pipeline-builder deploy/ask-model pvc/ask-model-models
 lean_filter() {
   if [ "$LEAN" != "1" ]; then cat; return; fi
   awk '
     function emit(  o,d) {
-      o = (nm ~ /^(prometheus|loki|thanos-query|thanos-store-gateway|alertmanager|promtail|jaeger|mongo-express|pgadmin)(-.*)?$/)
+      o = (nm ~ /^(prometheus|loki|thanos-query|thanos-store-gateway|alertmanager|promtail|jaeger|mongo-express|pgadmin|ask-model)(-.*)?$/)
       d = (kd ~ /^(Deployment|StatefulSet|DaemonSet|Service|PersistentVolume|PersistentVolumeClaim|HorizontalPodAutoscaler|PodDisruptionBudget|ServiceAccount|ConfigMap|ClusterRole|ClusterRoleBinding|Role|RoleBinding)$/)
       if (buf != "" && !(o && d)) printf "---\n%s", buf
       buf=""; kd=""; nm=""
@@ -76,11 +91,24 @@ lean_filter() {
     /^---$/ { emit(); next }
     { buf = buf $0 "\n"; if ($1=="kind:") kd=$2; if ($0 ~ /^  name: / && nm=="") nm=$2 }
     END { emit() }
-  ' | sed -E 's/^(  replicas:) [0-9]+/\1 1/; s/^(  (min|max)Replicas:) [0-9]+/\1 1/; s/^(  (min|max)ReplicaCount:) [0-9]+/\1 1/'
-  # ^ also collapse every workload/HPA/ScaledObject to a single replica: on a lean
-  #   (smaller) instance the core stack + mesh already fills the node, so 2nd replicas
-  #   just sit Pending. (spec-level fields are 2-space; the ScaledObject `fallback`
-  #   replicas is deeper-indented and intentionally left alone.)
+  ' | sed -E 's/^(  replicas:) [0-9]+/\1 1/; s/^(  (min|max)Replicas:) [0-9]+/\1 1/; s/^(  (min|max)ReplicaCount:) [0-9]+/\1 1/' \
+    | awk '
+    # Having dropped ask-model above, also drop the two env vars in ask.yaml that
+    # POINT at it. Leaving them would be worse than useless: the provider registry
+    # treats a set OPENAI_COMPATIBLE_BASE_URL as an available provider, so every
+    # Ask turn would dial a Service that no longer exists and fail with
+    # "AI_APICallError: Cannot connect to API: other side closed" instead of
+    # cleanly falling back to a cloud key (or saying "AI is not configured").
+    # Unambiguous at this point in the pipe — ask-model.yaml, the only other file
+    # mentioning these names, has already been filtered out.
+    /- name: OPENAI_COMPATIBLE_(BASE_URL|MODELS)/ { skip=1; next }
+    skip && /^[[:space:]]*value:/               { skip=0; next }
+    { skip=0; print }
+  '
+  # ^ the sed also collapses every workload/HPA/ScaledObject to a single replica: on
+  #   a lean (smaller) instance the core stack + mesh already fills the node, so 2nd
+  #   replicas just sit Pending. (spec-level fields are 2-space; the ScaledObject
+  #   `fallback` replicas is deeper-indented and intentionally left alone.)
 }
 
 # Shared helpers (preflight, ensure_istioctl). Sourcing common.sh cd's to /tmp —
@@ -377,6 +405,21 @@ bash "$(dirname "${BASH_SOURCE[0]}")/../../../bin/verify-image-signatures.sh"
 # Restricted envsubst: ONLY ${BUILDKIT_MEMORY_LIMIT} is expanded, so runtime
 # shell tokens in inline configmaps (nginx ${NS}/$s, etc.) are left intact.
 # lean_filter drops optional workloads when LEAN=1 (pass-through otherwise).
+# HARD GATE on istiod before the apply. The stream carries AuthorizationPolicy
+# docs (istio.yaml, and ask-model.yaml when not LEAN); CREATING one calls
+# istiod's validating webhook, so with istiod still starting the apply dies on
+#   failed calling webhook "validation.istio.io" ... connection refused
+# — and under `set -e` takes the rest of the provision with it, after having
+# applied an arbitrary PREFIX of the manifests. The waits above are advisory
+# (`|| echo`) by design, so this is the second, longer chance: a slow-but-healthy
+# istiod still succeeds, and a genuinely broken mesh fails HERE with a message
+# that names the cause instead of surfacing as a webhook error 200 lines later.
+if ! mk kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=300s >/dev/null 2>&1; then
+  echo "ERROR: istiod is not Available — the manifests include Istio AuthorizationPolicy" >&2
+  echo "       resources whose admission webhook it serves, so this apply cannot succeed." >&2
+  echo "       Check: kubectl -n istio-system get pods,deploy" >&2
+  exit 1
+fi
 mk kubectl kustomize "$K8S_DIR" | sed "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" | lean_filter | mk kubectl apply -f -
 
 # istio-cni enrolls a pod's netns into the ambient mesh only at pod CREATE time.
@@ -408,7 +451,21 @@ echo "  registry -> ${REGISTRY_IP:-unknown}"
 log "Waiting for pods"
 mk kubectl wait --for=condition=Ready pod -l app=postgres -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  postgres not ready"
 mk kubectl wait --for=condition=Ready pod -l app=mongodb  -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  mongodb not ready"
-mk kubectl wait --for=condition=Ready pod -l app -n "$NAMESPACE" --timeout=300s 2>/dev/null || true
+# Two exclusions, both of which otherwise made this wait burn its full 300s and
+# return failure every run — silently, since `|| true` swallowed it:
+#   - ask-model: its startupProbe deliberately holds the pod NotReady until
+#     `ollama list` shows the model, and the first provision pulls ~4.7GB (the
+#     7B) — far longer than any timeout worth blocking a deploy on.
+#   - Succeeded pods: `-l app` is an EXISTENCE selector, so it also matches
+#     one-shot Job pods (minio-init carries `app: minio-init`), whose Ready
+#     condition stays False/PodCompleted forever.
+# Mirrors the same wait in local/minikube/bin/setup.sh.
+mk kubectl wait --for=condition=Ready pod -l 'app,app!=ask-model' -n "$NAMESPACE" \
+  --field-selector=status.phase!=Succeeded --timeout=300s 2>/dev/null || true
+if mk kubectl get deploy ask-model -n "$NAMESPACE" >/dev/null 2>&1; then
+  echo "  ask-model: pulling the model in the background (~4.7GB on first run);"
+  echo "             it stays NotReady until the model is present, then Ask works."
+fi
 
 echo ""
 mk kubectl get pods -n "$NAMESPACE" -o wide
