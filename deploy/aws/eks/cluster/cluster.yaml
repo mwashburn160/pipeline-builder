@@ -25,18 +25,37 @@ metadata:
 iam:
   withOIDC: true
 
-# AWS-managed data plane (nodes + core addons). general-purpose + system pools.
+# AWS-managed data plane (nodes + core addons).
+#
+# `general-purpose` is DELIBERATELY DISABLED — only `system` stays built-in.
+# Neither built-in pool can carry a `limits` block (they are not editable, only
+# on/off), so an Auto Mode cluster with general-purpose enabled has no ceiling on
+# the EC2 capacity Karpenter will buy. Ordinary workloads instead land on the
+# custom NodePool in cluster/nodepool.yaml, which does have limits.
+#
+# Keeping `system` on is load-bearing, not incidental: enabling at least one
+# built-in pool is what makes EKS provision the `default` NodeClass, which
+# nodepool.yaml references — so this setup needs no custom NodeClass, no node IAM
+# role and no EKS access entry. `system` also carries the CriticalAddonsOnly
+# taint, so it hosts CoreDNS et al. without becoming an unbounded escape hatch
+# for platform workloads.
+#
+# Consequence to know: with general-purpose off, NOTHING schedules until
+# nodepool.yaml is applied — bin/setup.sh does that in Phase 1b, before any
+# workload. Removing a built-in pool name here also DELETES that NodePool from
+# the cluster and drains its nodes, so flipping this on an existing cluster is a
+# rolling replacement, not a no-op.
 autoModeConfig:
   enabled: true
+  nodePools: ["system"]
 
-# EFS CSI is NOT included in Auto Mode — added for the RWX volumes shared across
-# nodes (in-cluster registry, loki). EBS comes with Auto Mode. eksctl creates the
-# addon's recommended Pod Identity association (the EFS CSI controller role) from
-# `useDefaultPodIdentityAssociations` — `wellKnownPolicies` is NOT valid under an
-# addon's podIdentityAssociations (eksctl errors on it).
-addons:
-  - name: aws-efs-csi-driver
-    useDefaultPodIdentityAssociations: true
+# Addons are deliberately NOT declared here — see cluster/addons.yaml, which
+# bin/setup.sh applies AFTER the custom NodePool exists. `eksctl create cluster`
+# installs any addon in this file during cluster creation, which is before there
+# is any pool an ordinary pod can land on (general-purpose is disabled above), so
+# the EFS CSI controller would be created into a cluster with nowhere to schedule
+# it. Splitting the two makes that ordering explicit instead of depending on
+# whether a given addon happens to tolerate CriticalAddonsOnly.
 
 # VPC: omit to let eksctl create a dedicated VPC, or pin an existing one here to
 # match the platform's networking (private subnets + NAT for image pulls).

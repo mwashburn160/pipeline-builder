@@ -1,0 +1,30 @@
+# =============================================================================
+# EKS addons — applied AFTER the custom NodePool
+# =============================================================================
+#   eksctl create addon -f addons.yaml     (done by bin/setup.sh, Phase 1c)
+#
+# Deliberately separate from cluster.yaml: `eksctl create cluster` installs any
+# addon declared in the cluster config during creation, and at that moment the
+# only NodePool is the built-in `system` pool (cluster.yaml disables
+# `general-purpose` so that the bounded pool in nodepool.yaml is the only place
+# workloads can land). An addon whose controller does not tolerate
+# CriticalAddonsOnly would have nowhere to schedule. Applying addons after
+# Phase 1b removes that dependency entirely.
+#
+# `${...}` tokens are substituted by bin/setup.sh (envsubst) before apply.
+# =============================================================================
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: ${CLUSTER_NAME}
+  region: ${REGION}
+
+# EFS CSI is NOT included in Auto Mode — added for the RWX volumes shared across
+# nodes (in-cluster registry, loki). EBS comes with Auto Mode. eksctl creates the
+# addon's recommended Pod Identity association (the EFS CSI controller role) from
+# `useDefaultPodIdentityAssociations` — `wellKnownPolicies` is NOT valid under an
+# addon's podIdentityAssociations (eksctl errors on it).
+addons:
+  - name: aws-efs-csi-driver
+    useDefaultPodIdentityAssociations: true

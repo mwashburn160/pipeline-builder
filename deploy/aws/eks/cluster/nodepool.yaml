@@ -1,0 +1,117 @@
+# =============================================================================
+# Custom Karpenter NodePool — the cluster's compute ceiling
+# =============================================================================
+#   kubectl apply -f nodepool.yaml     (done by bin/setup.sh, Phase 1b)
+#
+# WHY THIS EXISTS
+# ---------------
+# EKS Auto Mode ships two built-in NodePools, `general-purpose` and `system`.
+# They cannot be edited — only enabled or disabled — and neither carries a
+# `limits` block, so an Auto Mode cluster has NO ceiling on how much EC2 capacity
+# Karpenter will buy. A runaway (a hot scaling loop, a wedged queue driving the
+# plugin KEDA ScaledObject to its max, a mistaken replica bump) scales until the
+# AWS account's EC2 quota stops it, and the first signal is the bill.
+#
+# `cluster/cluster.yaml` therefore sets `autoModeConfig.nodePools: ["system"]`,
+# which DISABLES `general-purpose` and leaves this pool as the only place
+# ordinary workloads can land. That pairing is the whole mechanism: a `limits`
+# block only bounds its own pool, so leaving `general-purpose` enabled would let
+# Karpenter fall back to an unbounded pool the moment this one fills up, and the
+# ceiling would be decorative.
+#
+# Keeping `system` enabled is deliberate and does two things:
+#   1. It carries the `CriticalAddonsOnly` taint, so cluster-critical add-ons
+#      (CoreDNS and friends) keep a home that platform workloads cannot crowd
+#      out — and because of the taint, nothing of ours schedules there, so it
+#      cannot be used to evade the ceiling below.
+#   2. Enabling at least one built-in pool is what makes EKS provision the
+#      `default` NodeClass. That is why this file needs no NodeClass of its own,
+#      and therefore no node IAM role and no EKS access entry — all of which a
+#      fully-custom (`nodePools: []`) setup would have to create and keep in
+#      sync. Do not rename the referenced NodeClass; `default` is EKS-managed.
+# =============================================================================
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: pipeline-builder
+spec:
+  template:
+    spec:
+      # The EKS-managed NodeClass that the built-in pools also use. It exists
+      # only because `system` is still enabled (see above).
+      nodeClassRef:
+        group: eks.amazonaws.com
+        kind: NodeClass
+        name: default
+
+      requirements:
+        # amd64 ONLY — NOT a preference. Every image this platform runs is built
+        # linux/amd64 (see PUBLISH_PLATFORM and bin/build-plugin-images.sh), and
+        # the plugin builders shell out to buildkit for amd64 output. Karpenter
+        # is free to pick the cheapest instance that satisfies these terms, so
+        # omitting this would let it land an arm64 node whose pods all fail to
+        # start with `exec format error`. The built-in `general-purpose` pool was
+        # amd64-only for the same reason; this preserves that.
+        - key: "kubernetes.io/arch"
+          operator: In
+          values: ["amd64"]
+        # Same families the built-in pool used: general (m), compute (c) and
+        # memory (r) optimised. Nothing here needs local NVMe or accelerators.
+        - key: "eks.amazonaws.com/instance-category"
+          operator: In
+          values: ["c", "m", "r"]
+        # Generation 5+ (Auto Mode's own floor) — Nitro, and the price/perf that
+        # the sizing in k8s/resource-limits.yaml assumes.
+        - key: "eks.amazonaws.com/instance-generation"
+          operator: Gt
+          values: ["4"]
+        # Skip the 1- and 2-vCPU sizes. A t-shirt too small wastes a whole node
+        # on DaemonSets (ztunnel, istio-cni, promtail) before any workload fits,
+        # and the largest pod here (ask-model, 4 cpu / 10Gi) would never pack.
+        - key: "eks.amazonaws.com/instance-cpu"
+          operator: Gt
+          values: ["2"]
+        # On-demand only. Spot reclamation on a single-writer RWO volume
+        # (postgres, mongodb, ask-model — all `strategy: Recreate`) means a hard
+        # restart, and the Redis Sentinel quorum would rather not chase spot.
+        - key: "karpenter.sh/capacity-type"
+          operator: In
+          values: ["on-demand"]
+
+  # THE CEILING. These bound the SUM of provisioned node capacity in this pool
+  # (not pod requests) — Karpenter simply stops launching once adding a node
+  # would exceed either value, leaving pods Pending, which is a loud, free,
+  # recoverable failure rather than a silent bill.
+  #
+  # Sized from the rendered manifests (see k8s/resource-limits.yaml for the same
+  # accounting on the ec2 target). Every HPA at maxReplicas AND the plugin KEDA
+  # ScaledObject at its max is 74 pods requesting 15.13 cpu / 28.56Gi. Allowing
+  # for bin-packing slack, per-node DaemonSets and the kubelet/system reserve,
+  # that lands around 20-24 vCPU / 40-48Gi of actual EC2 capacity.
+  #
+  # 48 / 96Gi is therefore ~2x the genuine full-scale requirement: routine
+  # scale-out never approaches it, while a runaway is capped at roughly six
+  # m5.2xlarge-equivalents (~$2.30/hr on-demand in us-east-1, ~$1,700/mo) rather
+  # than "whatever the account quota allows". Verify current pricing before
+  # treating that figure as a budget.
+  #
+  # RAISE THIS, don't delete it, if real load needs more — and raise it
+  # deliberately: hitting the ceiling shows up as Pending pods with a
+  # `karpenter.sh/nodepool` event, not as a crash.
+  limits:
+    cpu: "48"
+    memory: 96Gi
+
+  disruption:
+    # Balanced scores each consolidation against the disruption it causes and
+    # skips the ones that are not worth it. Preferred here over the more
+    # aggressive WhenEmptyOrUnderutilized because this cluster runs quorum
+    # services (redis + redis-sentinel, minio) and single-writer databases whose
+    # PodDisruptionBudgets (k8s/redis-sentinel.yaml, k8s/minio.yaml) would
+    # otherwise spend their whole budget on repacking.
+    consolidationPolicy: Balanced
+    consolidateAfter: 1m
+    # Matches the Auto Mode default: never voluntarily disrupt more than a tenth
+    # of the fleet at once.
+    budgets:
+      - nodes: "10%"

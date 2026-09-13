@@ -120,6 +120,40 @@ else
   envsubst < "$DEPLOY_DIR/cluster/cluster.yaml" | eksctl create cluster -f -
 fi
 aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$REGION"
+
+# ---- Phase 1b: custom NodePool (the cluster's compute ceiling) --------------
+# MUST run before any workload. cluster.yaml disables the built-in
+# `general-purpose` NodePool so that a bounded pool is the only place ordinary
+# pods can land (see the comments in both files) — until this is applied the only
+# pool is `system`, which is tainted CriticalAddonsOnly, so nothing of ours would
+# schedule and every later phase would sit Pending.
+#
+# Idempotent: re-applying an unchanged NodePool is a no-op, and a changed one is
+# picked up by Karpenter without recreating nodes (unless the change drifts them).
+log "Phase 1b: NodePool (compute ceiling)"
+kubectl apply -f "$DEPLOY_DIR/cluster/nodepool.yaml"
+# Fail loudly here rather than 200 lines later as unschedulable pods: without a
+# usable NodePool the whole deploy is dead, and the reason is much harder to see
+# from a Pending pod than from this message.
+if ! kubectl wait --for=condition=Ready nodepool/pipeline-builder --timeout=120s >/dev/null 2>&1; then
+  echo "ERROR: the pipeline-builder NodePool did not become Ready." >&2
+  echo "       Nothing can schedule without it (general-purpose is disabled)." >&2
+  echo "       Check: kubectl describe nodepool pipeline-builder" >&2
+  echo "       A NotReady pool usually means the 'default' NodeClass is absent —" >&2
+  echo "       which happens if autoModeConfig.nodePools in cluster/cluster.yaml" >&2
+  echo "       was emptied (EKS only provisions it while a built-in pool is on)." >&2
+  exit 1
+fi
+echo "  NodePool pipeline-builder ready (ceiling: 48 cpu / 96Gi)"
+
+# ---- Phase 1c: addons (after the NodePool, so they have somewhere to run) ----
+# Split out of cluster.yaml on purpose — see the comments in cluster/addons.yaml.
+# Idempotent: an addon that already exists is reported, not re-created.
+log "Phase 1c: cluster addons"
+envsubst < "$DEPLOY_DIR/cluster/addons.yaml" | eksctl create addon -f - 2>&1 \
+  | grep -viE "already exists|created addon" || true
+echo "  addons applied (aws-efs-csi-driver)"
+
 VPC_ID=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$REGION" --query 'cluster.resourcesVpcConfig.vpcId' --output text)
 CLUSTER_SG=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$REGION" --query 'cluster.resourcesVpcConfig.clusterSecurityGroupId' --output text)
 echo "  vpc=$VPC_ID cluster-sg=$CLUSTER_SG"
