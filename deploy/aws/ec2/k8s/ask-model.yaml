@@ -20,6 +20,29 @@ apiVersion: v1
 kind: ServiceAccount
 metadata: { name: ask-model, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
 ---
+# Model weights. This target binds a MANUAL hostPath PV — `storageClassName: ""`
+# opts out of dynamic provisioning, so a claim with no matching PV never binds
+# ("no persistent volumes available for this claim and no storage class is set")
+# and the Deployment sits at 0/1 forever. Every other PVC on this target pairs
+# with its own PV the same way (see alertmanager.yaml / mongodb.yaml); ask-model
+# was missing one. (The eks copy needs no PV — it uses the dynamic pb-ebs class.)
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ask-model-pv
+  labels:
+    app: ask-model
+spec:
+  storageClassName: ""
+  capacity:
+    storage: 20Gi
+  accessModes: ["ReadWriteOnce"]
+  # Retain, so tearing the file down does not discard a ~4.7GB download.
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /opt/pipeline/pipeline-data/db-data/ask-model
+    type: DirectoryOrCreate
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -32,6 +55,10 @@ spec:
   resources:
     requests:
       storage: 20Gi
+  # Bind to THIS file's PV, not whichever unbound 20Gi volume sorts first.
+  selector:
+    matchLabels:
+      app: ask-model
 ---
 apiVersion: v1
 kind: Service
