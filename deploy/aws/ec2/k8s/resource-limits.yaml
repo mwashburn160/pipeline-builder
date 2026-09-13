@@ -16,6 +16,15 @@ spec:
     #   - quota, platform, pipeline, message, compliance, billing,
     #     reporting, frontend, nginx, postgres, mongo, redis, pgbouncer,
     #     pgadmin, mongo-express, prometheus, loki, alertmanager, promtail
+    #   - ask-model (self-hosted Ollama) — 6Gi, the single largest request here
+    #
+    # MEASURED against this manifest set (kubectl kustomize | sum of requests):
+    #   steady state (declared replicas): ~15.1Gi / ~5.6 cores  → fits
+    #   every HPA at maxReplicas:         ~22.5Gi / ~14.3 cores → does NOT fit
+    # The second line is intentional: this quota is the backstop that stops the
+    # HPAs from exhausting an 8-vCPU node, so "all HPAs maxed" is not reachable
+    # here by design. A deployment that genuinely needs it wants m5.4xlarge
+    # (16 vCPU / 64 GiB) AND these numbers raised to ~26Gi / ~15.
     #
     # requests = what's *actually* scheduled — capped well below physical
     # capacity so kubelet + OS keep headroom.

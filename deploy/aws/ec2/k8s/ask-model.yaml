@@ -98,8 +98,16 @@ spec:
             - name: models
               mountPath: /root/.ollama
           resources:
+            # CPU REQUEST is deliberately small: ollama idles near zero and
+            # bursts only while generating, which the limit below covers. The
+            # request is what the scheduler and the namespace ResourceQuota
+            # count, and `k8s/resource-limits.yaml` reserves its 7-core budget
+            # so `init-platform.sh`'s transient crane-push pods stay admissible
+            # — a full core parked here re-creates the "exceeded quota" failure
+            # that bump was added to fix. Memory is the real constraint for a 7B
+            # model and is requested honestly.
             requests:
-              cpu: "1"
+              cpu: "250m"
               memory: 6Gi
             limits:
               cpu: "4"
