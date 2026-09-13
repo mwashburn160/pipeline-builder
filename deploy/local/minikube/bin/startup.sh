@@ -112,7 +112,6 @@ for i in $(seq 1 5); do
   sleep 2
 done
 
-# -- Summary ------------------------------------------------------------------
 # -- Optional: self-hosted Ask model ------------------------------------------
 # Placed AFTER the port-forwards, and gated on istiod, for two reasons learned
 # the hard way: `ask-model.yaml` contains an Istio AuthorizationPolicy, whose
@@ -144,6 +143,7 @@ if [ "${LEAN:-}" = "1" ]; then
   echo "  NOTE: LEAN only applies at provision time (setup.sh) — ignoring it here."
 fi
 
+# -- Summary ------------------------------------------------------------------
 MK_IP=$(minikube ip --profile="$PROFILE" 2>/dev/null || echo "unknown")
 
 log "Startup Complete — Minikube"
