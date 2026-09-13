@@ -23,6 +23,50 @@
 # gitignored and not tracked. This function only rewrites .env placeholders — it does not
 # manage the keyfile.
 
+# pb_sync_env_keys <env_file> <example_file>
+#
+# Append keys that exist in .env.example but not yet in an EXISTING .env, then
+# fill any CHANGE_ME placeholders that were just added.
+#
+# Why this exists: each target seeds .env from .env.example only when .env is
+# ABSENT, so a key added to the example later never reaches an existing install.
+# The setup scripts then dereference it under `set -u` and die with a bare
+#   setup.sh: line N: PLUGIN_S3_ACCESS_KEY: unbound variable
+# which says nothing about the actual cause. (That is exactly how the MinIO
+# credential rework broke provisioning on clusters whose .env predated it.)
+#
+# ADDITIVE ONLY — an existing key keeps its current value, always. Re-seeding the
+# whole file instead would rotate POSTGRES_PASSWORD et al. against data volumes
+# that survive a re-provision, which breaks the databases it was meant to protect.
+pb_sync_env_keys() {
+  local env_file="$1" example="$2" added=0 key line
+  [ -f "$env_file" ] && [ -f "$example" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    # Uncommented KEY=value assignments only.
+    case "$line" in
+      [A-Z]*=*) key="${line%%=*}" ;;
+      *) continue ;;
+    esac
+    grep -qE "^${key}=" "$env_file" && continue
+    printf '%s\n' "$line" >> "$env_file"
+    added=$((added + 1))
+    echo "  + ${key} (new in .env.example)"
+  done < "$example"
+  [ "$added" -gt 0 ] && echo "  synced ${added} new key(s) into ${env_file}"
+
+  # ALWAYS fill placeholders, not just when a key was appended. A .env created by
+  # a plain `cp .env.example .env` (rather than through the seeding path, which
+  # generates immediately) keeps literal CHANGE_ME values for JWT_SECRET,
+  # POSTGRES_PASSWORD, SECRET_ENCRYPTION_KEY and the rest — an install that comes
+  # up with `CHANGE_ME` as a real credential. Substitution only rewrites
+  # placeholder lines, so this is a no-op on an already-generated file, and the
+  # guard inside pb_gen_env_secrets fails loudly if any required one survives.
+  if grep -qE '^[A-Z0-9_]+=CHANGE_ME' "$env_file"; then
+    echo "  filling CHANGE_ME placeholders in ${env_file}"
+    pb_gen_env_secrets "$env_file"
+  fi
+}
+
 pb_gen_env_secrets() {
   local env_file="$1" ghcr_user="${2:-mwashburn160}"
   local jwt refresh pg mongo me pgadmin registry seckey minioroot s3msg s3reg s3loki s3thanos s3plugin

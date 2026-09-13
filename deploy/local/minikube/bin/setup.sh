@@ -165,6 +165,11 @@ if [ -z "$ENV_FILE" ]; then
   fi
 fi
 
+# Bring an existing .env up to date with keys added to .env.example since it was
+# seeded (additive only — existing values are never touched). Without this a new
+# required key reaches the scripts as an `unbound variable` abort under `set -u`.
+pb_sync_env_keys "$ENV_FILE" "$DEPLOY_DIR/.env.example"
+
 log "Loading environment from $ENV_FILE"
 set -a
 # shellcheck source=/dev/null  # ENV_FILE is a runtime path, not statically analyzable
