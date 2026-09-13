@@ -98,16 +98,16 @@ spec:
             - name: models
               mountPath: /root/.ollama
           resources:
-            # CPU REQUEST is deliberately small: ollama idles near zero and
-            # bursts only while generating, which the limit below covers. The
-            # request is what the scheduler and the namespace ResourceQuota
-            # count, and `k8s/resource-limits.yaml` reserves its 7-core budget
-            # so `init-platform.sh`'s transient crane-push pods stay admissible
-            # — a full core parked here re-creates the "exceeded quota" failure
-            # that bump was added to fix. Memory is the real constraint for a 7B
-            # model and is requested honestly.
+            # DELIBERATELY DIFFERENT from the ec2 copy, which requests 250m.
+            # There, a fixed node plus the namespace ResourceQuota makes the
+            # request a claim against a fixed budget, so parking a full core
+            # starves the transient bootstrap pods. Here there is no quota
+            # (see resource-limits.yaml) and Karpenter sizes NODES from pod
+            # requests — so the request is what BUYS capacity. Asking for 250m
+            # would let Auto Mode bin-pack this onto a node too small to serve
+            # its own 4-core limit, and generation would throttle.
             requests:
-              cpu: "250m"
+              cpu: "1"
               memory: 6Gi
             limits:
               cpu: "4"
