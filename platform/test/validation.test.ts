@@ -40,6 +40,15 @@ describe('emailSchema', () => {
     expect(emailSchema.safeParse('').success).toBe(false);
     expect(emailSchema.safeParse('user @domain.com').success).toBe(false);
   });
+
+  it('is the ONE email rule — every surface that takes an address uses it', () => {
+    // `controllers/alert-destinations.ts` used to keep its own stricter regex
+    // that additionally required a TLD, so the platform's OWN shipped default
+    // (`BOOTSTRAP_SUPERADMIN_EMAILS=admin@internal`) could register and be
+    // invited but was rejected as an email alert destination. Anything this
+    // schema accepts must be accepted everywhere an address is taken.
+    expect(emailSchema.safeParse('admin@internal').success).toBe(true);
+  });
 });
 
 describe('registerSchema', () => {

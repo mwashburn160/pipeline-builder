@@ -12,282 +12,27 @@ import { config } from '../config/index.js';
  * call in the controller  declaring the value alone produces a dead surface
  * that misleads dashboard filters.
  */
-export type AuditAction =
-  // User lifecycle (controllers/auth.ts, controllers/user-profile.ts)
-  | 'user.register'
-  | 'user.login'
-  | 'user.login.failed'
-  | 'user.logout'
-  | 'user.delete'
-  | 'user.profile.update'
-  | 'user.password.change'
-  // Admin/superadmin self-verified their email directly (bypassing the emailed
-  // verification link). Recorded because it skips proof-of-ownership.
-  | 'user.email.verified'
-  | 'user.onboarding.complete'
-  | 'user.token.create'
-  | 'user.tokens.revoke-all'
-  | 'user.pat.create'
-  | 'user.pat.revoke'
-  // Organization (controllers/organization.ts)
-  | 'org.create'
-  // Owner/admin self-serve org identity edit (name/slug). `affectedOrgId` is
-  // the org changed; `details` carries the fields that were updated.
-  | 'org.update'
-  // Domain-based org join (P2b): domain register/verify/mode/delete + join
-  // request lifecycle. `affectedOrgId` is the org; `details` carries the domain
-  // or the requesting/decided user.
-  | 'org.domain.add'
-  | 'org.domain.verify'
-  | 'org.domain.mode'
-  | 'org.domain.delete'
-  | 'org.join.request'
-  | 'org.join.auto'
-  | 'org.join.approve'
-  | 'org.join.deny'
-  // Org SOFT-DELETE / restore lifecycle (controllers/organization.ts).
-  // `org.soft_delete` is emitted when a sysadmin runs DELETE — the org enters
-  // its retention window (snapshot taken, sessions cut) instead of being
-  // hard-deleted; `details` carries the `purgeAfter` deadline. `org.restore`
-  // reverses it within the window. The eventual hard delete is still the
-  // `admin.org.delete` event emitted by the purge sweep.
-  | 'org.soft_delete'
-  | 'org.restore'
-  // Organization membership mutations (controllers/organization-members.ts).
-  // `affectedOrgId` carries the org being mutated; `targetId` is the user
-  // being added/removed/modified. Privilege changes are surfaced separately
-  // from the per-org operations so reviewers can filter on "who became owner
-  // of what, when".
-  | 'org.member.add'
-  | 'org.member.remove'
-  | 'org.member.deactivate'
-  | 'org.member.activate'
-  | 'org.ownership.transfer'
-  // Invitation lifecycle (controllers/invitation.ts). `accept` creates a
-  // membership — a self-serve privilege grant / the primary org-join path — so
-  // the whole lifecycle is audited alongside the other membership mutations.
-  // `affectedOrgId` is the invitation's org; `details` carries the invited email/role.
-  | 'invitation.send'
-  | 'invitation.accept'
-  | 'invitation.revoke'
-  | 'invitation.resend'
-  // Active-org context switch (controllers/auth.ts switchOrg) — records which org
-  // the actor pivoted their session into.
-  | 'org.switch'
-  // Permission-role assignment mutations (controllers/organization-roles.ts).
-  // `affectedOrgId` is the org; `targetId` is the user added/removed; `details`
-  // carries the role name + the coarse role it grants. Adding to Admin or
-  // Super Admin is a privilege escalation, so these are surfaced distinctly.
-  | 'org.role.member.add'
-  | 'org.role.member.remove'
-  | 'org.role.create'
-  | 'org.role.update'
-  | 'org.role.delete'
-  // Admin actions (controllers/user-admin.ts)
-  | 'admin.user.create'
-  // Admin edit of ANOTHER user via PUT /users/:id — role/email/password/org
-  // changes. `details.changes` carries the field NAMES that changed (never the
-  // password value or any secret); `affectedOrgId` is the target's org. A
-  // privileged account-takeover (admin resets a victim's password / elevates
-  // their role) must leave this trail.
-  | 'admin.user.update'
-  | 'admin.user.delete'
-  | 'admin.org.delete'
-  // GDPR portability export. Emitted from controllers/organization.ts
-  // when a sysadmin downloads an org's full data dump (before deletion or
-  // on customer request).
-  | 'admin.org.export'
-  // Dashboards (controllers/dashboards.ts)
-  | 'dashboard.create'
-  | 'dashboard.update'
-  | 'dashboard.delete'
-  | 'dashboard.restore'
-  | 'dashboard.clone'
-  // Alert destinations (controllers/alert-destinations.ts)
-  | 'alert.destination.create'
-  | 'alert.destination.update'
-  | 'alert.destination.delete'
-  | 'alert.destination.restore'
-  | 'alert.destination.test'
-  // per-org operator-authored alert rules (controllers/alert-rules.ts).
-  | 'alert.rule.create'
-  | 'alert.rule.update'
-  | 'alert.rule.delete'
-  | 'alert.rule.restore'
-  // per-org IdP config (controllers/org-idp.ts). Sysadmin-only setup.
-  | 'admin.org-idp.upsert'
-  | 'admin.org-idp.delete'
-  // Sysadmin authority grants/revokes. The bootstrap path
-  // (BOOTSTRAP_SUPERADMIN_EMAILS) emits `grant`; the admin endpoint emits
-  // both. `actorId='bootstrap-env'` for env-driven promotions — operators
-  // reading the audit log can tell at a glance whether sysadmin authority
-  // was granted by an interactive flow (actorId is a user) or by deploy-
-  // time configuration.
-  | 'admin.superadmin.grant'
-  | 'admin.superadmin.revoke'
-  // Per-org KMS config admin endpoint. `upsert` covers both first set and
-  // rotation; `delete` clears the config and reverts the org to the shared
-  // master fallback. Both emit `affectedOrgId` for cross-org filtering.
-  | 'admin.org.kms-config.upsert'
-  | 'admin.org.kms-config.delete'
-  // Emitted by the org-delete cascade when the deleted org had a per-org KMS
-  // CMK (`kmsConfig`). Auto-deleting a CMK is IRREVERSIBLE, so the cascade
-  // does NOT schedule the key for deletion — it records this operator-
-  // actionable event (with the org id + key identifier in `details`) so an
-  // operator can manually schedule the external AWS key's deletion. Without
-  // it the key (and anything wrapped under it) silently orphans.
-  | 'org.kms.orphaned'
-  // Org tier change. Emitted when a sysadmin moves an org between
-  // pricing tiers (developer/pro/team/enterprise); reseeds quota limits as a
-  // side-effect. `details` carries the previousTier so the transition
-  // is reconstructable from the audit log alone.
-  | 'admin.org.tier.update'
-  // Account seat-limit / entitlement sync on the org root (from billing or a
-  // sysadmin). `details` carries the new seat cap (+ any feature bundles).
-  | 'admin.org.seatLimit.update'
-  // Sysadmin impersonation. `admin.impersonate.start` is emitted when
-  // a read-only impersonation token is issued; the `impersonatorId` in
-  // details + `targetId` (the impersonated user) tell reviewers who
-  // viewed-as-whom. Read-only — no destructive actions can land under
-  // the impersonation token, so a single "start" event covers the
-  // session (no stop event needed; the token TTL bounds the window).
-  | 'admin.impersonate.start'
-  // Per-org k8s namespace manifest render. Operator-driven provisioning
-  // for enterprise-tier customers — emitted whenever a sysadmin downloads
-  // the namespace YAML to apply with kubectl. Tracks "this org got its
-  // own namespace at <time> by <sysadmin>".
-  | 'admin.org.namespace.render'
-  // Plugin builds — emitted by the plugin build worker
-  // (api/plugin/src/queue/plugin-build-queue.ts) and posted to the
-  // `POST /audit/events` ingest endpoint on platform, which authenticates
-  // the worker via service-to-service JWT and persists them here.
-  | 'plugin.build.completed'
-  | 'plugin.build.failed'
-  | 'plugin.build.timeout'
-  // Pipeline mutations — emitted by api/pipeline's route handlers and posted
-  // to the `POST /audit/events` ingest (authenticated via service-to-service
-  // JWT). `targetId` is the pipeline id; `orgId` is the caller's org.
-  // create/update/delete cover the CRUD surface; execution.start /
-  // execution.cancel are the AWS CodePipeline run/cancel path (highest value —
-  // they drive real infra actions).
-  | 'pipeline.create'
-  | 'pipeline.update'
-  | 'pipeline.delete'
-  | 'pipeline.restore'
-  | 'pipeline.purge'
-  | 'pipeline_template.create'
-  | 'pipeline_template.update'
-  | 'pipeline_template.delete'
-  | 'pipeline_template.restore'
-  | 'pipeline_template.purge'
-  | 'pipeline.execution.start'
-  | 'pipeline.execution.cancel'
-  | 'pipeline.registry.register'
-  | 'pipeline.registry.deregister'
-  // Plugin lifecycle mutations (api/plugin) — the delete/upload/deploy surface
-  // that complements the already-audited builds. Posted to the ingest.
-  | 'plugin.delete'
-  | 'plugin.restore'
-  | 'plugin.purge'
-  | 'plugin.update'
-  | 'plugin.upload'
-  | 'plugin.deploy'
-  | 'plugin.bulk.update'
-  | 'plugin.bulk.delete'
-  | 'plugin.dlq.purge'
-  // Quota administration (api/quota) — superadmin usage-counter reset and tier
-  // limit edits. `affectedOrgId` is the org changed.
-  | 'quota.reset'
-  | 'quota.limit.update'
-  | 'quota.delete'
-  // Compliance rule administration (api/compliance) — exemption approval, rule
-  // active toggle, and scan cancellation.
-  | 'compliance.exemption.approve'
-  | 'compliance.exemption.revoke'
-  | 'compliance.rule.toggle'
-  | 'compliance.rule.create'
-  | 'compliance.rule.update'
-  | 'compliance.rule.delete'
-  | 'compliance.rule.restore'
-  | 'compliance.rule.purge'
-  | 'compliance.policy.create'
-  | 'compliance.policy.update'
-  | 'compliance.policy.delete'
-  | 'compliance.policy.restore'
-  | 'compliance.policy.purge'
-  | 'compliance.scan-schedule.create'
-  | 'compliance.scan-schedule.update'
-  | 'compliance.scan-schedule.delete'
-  | 'compliance.template.apply'
-  | 'compliance.scan.cancel'
-  // Image-registry destructive ops (api/image-registry) — GC sweeps + explicit
-  // image/tag deletes.
-  | 'registry.gc'
-  | 'registry.image.delete'
-  | 'registry.image.copy'
-  // Messaging (api/message) — admin broadcast announcements + destructive
-  // deletes (metadata only, never message body content).
-  | 'message.announcement.create'
-  | 'message.delete'
-  | 'message.restore'
-  | 'message.purge'
-  // Billing (api/billing) — subscription + entitlement mutations, mirrored to
-  // the central trail (also in the service-local billing_events collection).
-  | 'billing.subscription.cancel'
-  | 'billing.subscription.delete'
-  | 'billing.tier.override'
-  | 'billing.addon.add'
-  | 'billing.addon.remove'
-  | 'billing.addon.prune'
-  // Discounts (docs/billing-discounts.md) — coupon/usage-credit mint, issue,
-  // apply, remove, revoke. `details` carry the discount id + kind/value only,
-  // never the opaque token or signing key.
-  | 'billing.discount.generate'
-  | 'billing.discount.issue'
-  | 'billing.discount.apply'
-  | 'billing.discount.remove'
-  | 'billing.discount.revoke'
-  // Promotions — rule-driven auto-grant campaigns (docs/billing-discounts.md#promotions).
-  | 'billing.promotion.create'
-  | 'billing.promotion.update'
-  | 'billing.promotion.revoke'
-  | 'billing.promotion.grant'
-  | 'billing.promotion.activate'
-  // Usage-credit realization — credit consumed (Marketplace metered drawdown),
-  // exhausted (balance hit zero), and a combo ending. `details` carry cents/ids only.
-  | 'billing.credit.consumed'
-  | 'billing.credit.exhausted'
-  | 'billing.combo.expired'
-  // Denied authorization attempt — best-effort emission from the shared
-  // requirePermission / requireSystemAdmin gate on a rejected state-changing
-  // request (probing/escalation signal). `outcome` is 'failure'.
-  | 'authz.denied'
-  | 'observability.silence.create'
-  | 'observability.silence.delete'
-  // Platform admin mutations that were previously unaudited (controllers).
-  // `admin.org.ai-config.update` — org AI-provider config (holds provider API
-  //   keys; details carry field NAMES only, never a key value).
-  // `admin.org.quota.override` — a sysadmin manual quota limit/usage override.
-  // `admin.user.features.update` — a sysadmin editing a user's feature overrides.
-  | 'admin.org.ai-config.update'
-  | 'admin.org.quota.override'
-  | 'admin.user.features.update'
-  // "Ask" assistant (api/ask) — safe metadata only (tools used, proposal kinds,
-  // query length, outcome), never the raw query text. `ask.query` = read-only
-  // how-to turn; `ask.agent.turn` = tool-calling turn.
-  | 'ask.query'
-  | 'ask.agent.turn';
-
 /**
- * Runtime list of every AuditAction. Kept in lockstep with the
- * compile-time union above — the `satisfies` clause makes the compiler
- * verify that every union member appears here, so adding a new action
- * to the union without updating this array is a build error.
+ * Every audit action the platform emits, as a runtime list.
  *
- * Used by `routes/audit.ts` to validate `POST /audit/events` ingest
- * payloads at runtime (the union itself is erased at runtime).
+ * This is the SINGLE source: {@link AuditAction} is derived from it below. It
+ * used to be a hand-maintained mirror of a separately-declared union — ~150
+ * lines duplicated, kept honest by a `satisfies` clause plus a `_MissingAction`
+ * assertion, i.e. machinery whose only job was policing a seam that didn't need
+ * to exist. The array has to be the source because a TypeScript union is erased
+ * at runtime and cannot be enumerated.
+ *
+ * Only includes actions actually emitted by `helpers/audit.ts` callers today.
+ * Add a value here AND wire the corresponding `audit(req, '<name>', ...)` call
+ * in the controller — declaring the value alone produces a dead surface that
+ * misleads dashboard filters.
+ *
+ * NOTE: the `POST /audit/events` ingest validator does NOT use this list; it
+ * gates on api-core's `isRemoteAuditAction` (the remote-emittable SUBSET).
+ * `test/audit-remote-subset.test.ts` asserts that subset is contained here.
  */
 export const ALL_AUDIT_ACTIONS = [
+  // User lifecycle (controllers/auth.ts, controllers/user-profile.ts)
   'user.register',
   'user.login',
   'user.login.failed',
@@ -295,14 +40,22 @@ export const ALL_AUDIT_ACTIONS = [
   'user.delete',
   'user.profile.update',
   'user.password.change',
+  // Admin/superadmin self-verified their email directly (bypassing the emailed
+  // verification link). Recorded because it skips proof-of-ownership.
   'user.email.verified',
   'user.onboarding.complete',
   'user.token.create',
   'user.tokens.revoke-all',
   'user.pat.create',
   'user.pat.revoke',
+  // Organization (controllers/organization.ts)
   'org.create',
+  // Owner/admin self-serve org identity edit (name/slug). `affectedOrgId` is
+  // the org changed; `details` carries the fields that were updated.
   'org.update',
+  // Domain-based org join (P2b): domain register/verify/mode/delete + join
+  // request lifecycle. `affectedOrgId` is the org; `details` carries the domain
+  // or the requesting/decided user.
   'org.domain.add',
   'org.domain.verify',
   'org.domain.mode',
@@ -311,56 +64,131 @@ export const ALL_AUDIT_ACTIONS = [
   'org.join.auto',
   'org.join.approve',
   'org.join.deny',
+  // Org SOFT-DELETE / restore lifecycle (controllers/organization.ts).
+  // `org.soft_delete` is emitted when a sysadmin runs DELETE — the org enters
+  // its retention window (snapshot taken, sessions cut) instead of being
+  // hard-deleted; `details` carries the `purgeAfter` deadline. `org.restore`
+  // reverses it within the window. The eventual hard delete is still the
+  // `admin.org.delete` event emitted by the purge sweep.
   'org.soft_delete',
   'org.restore',
+  // Organization membership mutations (controllers/organization-members.ts).
+  // `affectedOrgId` carries the org being mutated; `targetId` is the user
+  // being added/removed/modified. Privilege changes are surfaced separately
+  // from the per-org operations so reviewers can filter on "who became owner
+  // of what, when".
   'org.member.add',
   'org.member.remove',
   'org.member.deactivate',
   'org.member.activate',
   'org.ownership.transfer',
+  // Invitation lifecycle (controllers/invitation.ts). `accept` creates a
+  // membership — a self-serve privilege grant / the primary org-join path — so
+  // the whole lifecycle is audited alongside the other membership mutations.
+  // `affectedOrgId` is the invitation's org; `details` carries the invited email/role.
   'invitation.send',
   'invitation.accept',
   'invitation.revoke',
   'invitation.resend',
+  // Active-org context switch (controllers/auth.ts switchOrg) — records which org
+  // the actor pivoted their session into.
   'org.switch',
+  // Permission-role assignment mutations (controllers/organization-roles.ts).
+  // `affectedOrgId` is the org; `targetId` is the user added/removed; `details`
+  // carries the role name + the coarse role it grants. Adding to Admin or
+  // Super Admin is a privilege escalation, so these are surfaced distinctly.
   'org.role.member.add',
   'org.role.member.remove',
   'org.role.create',
   'org.role.update',
   'org.role.delete',
+  // Admin actions (controllers/user-admin.ts)
   'admin.user.create',
+  // Admin edit of ANOTHER user via PUT /users/:id — role/email/password/org
+  // changes. `details.changes` carries the field NAMES that changed (never the
+  // password value or any secret); `affectedOrgId` is the target's org. A
+  // privileged account-takeover (admin resets a victim's password / elevates
+  // their role) must leave this trail.
   'admin.user.update',
   'admin.user.delete',
   'admin.org.delete',
+  // GDPR portability export. Emitted from controllers/organization.ts
+  // when a sysadmin downloads an org's full data dump (before deletion or
+  // on customer request).
   'admin.org.export',
+  // Dashboards (controllers/dashboards.ts)
   'dashboard.create',
   'dashboard.update',
   'dashboard.delete',
   'dashboard.restore',
   'dashboard.clone',
+  // Alert destinations (controllers/alert-destinations.ts)
   'alert.destination.create',
   'alert.destination.update',
   'alert.destination.delete',
   'alert.destination.restore',
   'alert.destination.test',
+  // per-org operator-authored alert rules (controllers/alert-rules.ts).
   'alert.rule.create',
   'alert.rule.update',
   'alert.rule.delete',
   'alert.rule.restore',
+  // per-org IdP config (controllers/org-idp.ts). Sysadmin-only setup.
   'admin.org-idp.upsert',
   'admin.org-idp.delete',
+  // Sysadmin authority grants/revokes. The bootstrap path
+  // (BOOTSTRAP_SUPERADMIN_EMAILS) emits `grant`; the admin endpoint emits
+  // both. `actorId='bootstrap-env'` for env-driven promotions — operators
+  // reading the audit log can tell at a glance whether sysadmin authority
+  // was granted by an interactive flow (actorId is a user) or by deploy-
+  // time configuration.
   'admin.superadmin.grant',
   'admin.superadmin.revoke',
+  // Per-org KMS config admin endpoint. `upsert` covers both first set and
+  // rotation; `delete` clears the config and reverts the org to the shared
+  // master fallback. Both emit `affectedOrgId` for cross-org filtering.
   'admin.org.kms-config.upsert',
   'admin.org.kms-config.delete',
+  // Emitted by the org-delete cascade when the deleted org had a per-org KMS
+  // CMK (`kmsConfig`). Auto-deleting a CMK is IRREVERSIBLE, so the cascade
+  // does NOT schedule the key for deletion — it records this operator-
+  // actionable event (with the org id + key identifier in `details`) so an
+  // operator can manually schedule the external AWS key's deletion. Without
+  // it the key (and anything wrapped under it) silently orphans.
   'org.kms.orphaned',
+  // Org tier change. Emitted when a sysadmin moves an org between
+  // pricing tiers (developer/pro/team/enterprise); reseeds quota limits as a
+  // side-effect. `details` carries the previousTier so the transition
+  // is reconstructable from the audit log alone.
   'admin.org.tier.update',
+  // Account seat-limit / entitlement sync on the org root (from billing or a
+  // sysadmin). `details` carries the new seat cap (+ any feature bundles).
   'admin.org.seatLimit.update',
+  // Sysadmin impersonation. `admin.impersonate.start` is emitted when
+  // a read-only impersonation token is issued; the `impersonatorId` in
+  // details + `targetId` (the impersonated user) tell reviewers who
+  // viewed-as-whom. Read-only — no destructive actions can land under
+  // the impersonation token, so a single "start" event covers the
+  // session (no stop event needed; the token TTL bounds the window).
   'admin.impersonate.start',
+  // Per-org k8s namespace manifest render. Operator-driven provisioning
+  // for enterprise-tier customers — emitted whenever a sysadmin downloads
+  // the namespace YAML to apply with kubectl. Tracks "this org got its
+  // own namespace at <time> by <sysadmin>".
   'admin.org.namespace.render',
+  // Plugin builds — emitted by the plugin build worker
+  // (api/plugin/src/queue/plugin-build-queue.ts) and posted to the
+  // `POST /audit/events` ingest endpoint on platform, which authenticates
+  // the worker via service-to-service JWT and persists them here.
   'plugin.build.completed',
   'plugin.build.failed',
   'plugin.build.timeout',
+  // Pipeline mutations — emitted by api/pipeline's route handlers and posted
+  // to the `POST /audit/events` ingest (authenticated via service-to-service
+  // JWT). `targetId` is the pipeline id; `orgId` is the caller's org.
+  // create/update/delete cover the CRUD surface; execution.start /
+  // execution.cancel are the AWS CodePipeline run/cancel path (highest value —
+  // they drive real infra actions).
   'pipeline.create',
   'pipeline.update',
   'pipeline.delete',
@@ -375,6 +203,8 @@ export const ALL_AUDIT_ACTIONS = [
   'pipeline.execution.cancel',
   'pipeline.registry.register',
   'pipeline.registry.deregister',
+  // Plugin lifecycle mutations (api/plugin) — the delete/upload/deploy surface
+  // that complements the already-audited builds. Posted to the ingest.
   'plugin.delete',
   'plugin.restore',
   'plugin.purge',
@@ -384,9 +214,13 @@ export const ALL_AUDIT_ACTIONS = [
   'plugin.bulk.update',
   'plugin.bulk.delete',
   'plugin.dlq.purge',
+  // Quota administration (api/quota) — superadmin usage-counter reset and tier
+  // limit edits. `affectedOrgId` is the org changed.
   'quota.reset',
   'quota.limit.update',
   'quota.delete',
+  // Compliance rule administration (api/compliance) — exemption approval, rule
+  // active toggle, and scan cancellation.
   'compliance.exemption.approve',
   'compliance.exemption.revoke',
   'compliance.rule.toggle',
@@ -405,50 +239,71 @@ export const ALL_AUDIT_ACTIONS = [
   'compliance.scan-schedule.delete',
   'compliance.template.apply',
   'compliance.scan.cancel',
+  // Image-registry destructive ops (api/image-registry) — GC sweeps + explicit
+  // image/tag deletes.
   'registry.gc',
   'registry.image.delete',
   'registry.image.copy',
+  // Messaging (api/message) — admin broadcast announcements + destructive
+  // deletes (metadata only, never message body content).
   'message.announcement.create',
   'message.delete',
   'message.restore',
   'message.purge',
+  // Billing (api/billing) — subscription + entitlement mutations, mirrored to
+  // the central trail (also in the service-local billing_events collection).
   'billing.subscription.cancel',
   'billing.subscription.delete',
   'billing.tier.override',
   'billing.addon.add',
   'billing.addon.remove',
   'billing.addon.prune',
+  // Discounts (docs/billing-discounts.md) — coupon/usage-credit mint, issue,
+  // apply, remove, revoke. `details` carry the discount id + kind/value only,
+  // never the opaque token or signing key.
   'billing.discount.generate',
   'billing.discount.issue',
   'billing.discount.apply',
   'billing.discount.remove',
   'billing.discount.revoke',
+  // Promotions — rule-driven auto-grant campaigns (docs/billing-discounts.md#promotions).
   'billing.promotion.create',
   'billing.promotion.update',
   'billing.promotion.revoke',
   'billing.promotion.grant',
   'billing.promotion.activate',
+  // Usage-credit realization — credit consumed (Marketplace metered drawdown),
+  // exhausted (balance hit zero), and a combo ending. `details` carry cents/ids only.
   'billing.credit.consumed',
   'billing.credit.exhausted',
   'billing.combo.expired',
+  // Denied authorization attempt — best-effort emission from the shared
+  // requirePermission / requireSystemAdmin gate on a rejected state-changing
+  // request (probing/escalation signal). `outcome` is 'failure'.
   'authz.denied',
   'observability.silence.create',
   'observability.silence.delete',
+  // Platform admin mutations that were previously unaudited (controllers).
+  // `admin.org.ai-config.update` — org AI-provider config (holds provider API
+  //   keys; details carry field NAMES only, never a key value).
+  // `admin.org.quota.override` — a sysadmin manual quota limit/usage override.
+  // `admin.user.features.update` — a sysadmin editing a user's feature overrides.
   'admin.org.ai-config.update',
   'admin.org.quota.override',
   'admin.user.features.update',
+  // "Ask" assistant (api/ask) — safe metadata only (tools used, proposal kinds,
+  // query length, outcome), never the raw query text. `ask.query` = read-only
+  // how-to turn; `ask.agent.turn` = tool-calling turn.
   'ask.query',
   'ask.agent.turn',
-] as const satisfies ReadonlyArray<AuditAction>;
+] as const;
 
-// `satisfies` above only proves every ARRAY element is an `AuditAction`; it does NOT
-// prove every union member is present. This assert closes that gap — if a new
-// `AuditAction` is added to the union but omitted from the array above (which the
-// `POST /audit/events` ingest validator uses as its allow-list), `_MissingAction`
-// becomes a non-`never` union and this line fails to compile.
-type _MissingAction = Exclude<AuditAction, (typeof ALL_AUDIT_ACTIONS)[number]>;
-const _assertNoMissingAuditActions: _MissingAction extends never ? true : never = true;
-void _assertNoMissingAuditActions;
+/**
+ * Union of every audit action, derived from {@link ALL_AUDIT_ACTIONS} so the two
+ * can never disagree.
+ */
+export type AuditAction = (typeof ALL_AUDIT_ACTIONS)[number];
+
 
 /**
  * Audit event document stored in MongoDB.

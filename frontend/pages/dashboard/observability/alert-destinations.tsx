@@ -24,8 +24,9 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
-import { api, getErrorMessage } from '@/lib/api';
+import { api } from '@/lib/api';
 import type { AlertDestination, AlertDestinationWrite } from '@/types/observability';
+import { formatError } from '@/lib/constants';
 
 /** Badge color per delivery channel. */
 function channelColor(channel: AlertDestination['channel']): 'purple' | 'blue' | 'green' | 'gray' {
@@ -95,7 +96,7 @@ export default function AlertDestinationsPage() {
       await refresh();
       setPendingDelete(null);
     } catch (err) {
-      toast.error(getErrorMessage(err));
+      toast.error(formatError(err));
     } finally {
       setDeleting(false);
     }
@@ -110,7 +111,7 @@ export default function AlertDestinationsPage() {
       await api.testAlertDestination(d.id);
       toast.success('Test sent');
     } catch (err) {
-      toast.error(getErrorMessage(err));
+      toast.error(formatError(err));
     } finally {
       setTestingId(null);
     }
@@ -340,7 +341,7 @@ function DestinationModal(props: {
       }
       await onSaved();
     } catch (err) {
-      toast.error(getErrorMessage(err));
+      toast.error(formatError(err));
     } finally {
       setSaving(false);
     }

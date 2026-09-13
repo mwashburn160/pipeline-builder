@@ -24,8 +24,9 @@ import { TablePanel } from '@/components/observability/TablePanel';
 import { RangePicker } from '@/components/observability/RangePicker';
 import type { RangeKey } from '@/types/observability';
 import type { DashboardWithPanels, DashboardPanel } from '@/types/observability';
-import { api, getErrorMessage } from '@/lib/api';
+import { api } from '@/lib/api';
 import { isSystemAdmin } from '@/lib/auth-helpers';
+import { formatError } from '@/lib/constants';
 
 // Read-side: lazy-load the grid driver so the ~120 KB bundle only ships
 // when a dashboard is actually viewed. Dashboards without saved coords
@@ -176,7 +177,7 @@ export default function DashboardPage() {
         void router.push(`/dashboard/observability/${newId}`);
       }
     } catch (err) {
-      toast.error(getErrorMessage(err));
+      toast.error(formatError(err));
     }
   };
 
@@ -188,7 +189,7 @@ export default function DashboardPage() {
       toast.success('Dashboard deleted');
       void router.push('/dashboard/observability');
     } catch (err) {
-      toast.error(getErrorMessage(err));
+      toast.error(formatError(err));
       setDeleting(false);
       setPendingDelete(false);
     }

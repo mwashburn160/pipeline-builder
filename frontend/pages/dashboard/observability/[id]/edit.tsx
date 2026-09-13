@@ -19,9 +19,10 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
-import { api, getErrorMessage } from '@/lib/api';
+import { api } from '@/lib/api';
 import type { DashboardWithPanels, DashboardPanel, CatalogEntry, DashboardWrite } from '@/types/observability';
 import type { LayoutPanelInput, PanelCoords } from '@/components/observability/DashboardLayoutGrid';
+import { formatError } from '@/lib/constants';
 
 // Load the grid-layout driver only on this page. `ssr: false` is
 // load-bearing: react-grid-layout reads `window` during measurement.
@@ -134,7 +135,7 @@ export default function DashboardEditPage() {
         setLayoutJson(d.layoutJson ?? {});
         setCatalog(cRes.data?.entries ?? []);
       } catch (err) {
-        if (!cancelled) setError(getErrorMessage(err));
+        if (!cancelled) setError(formatError(err));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -238,7 +239,7 @@ export default function DashboardEditPage() {
       allowNavigation();
       void router.push(`/dashboard/observability/${original.id}`);
     } catch (err) {
-      toast.error(getErrorMessage(err));
+      toast.error(formatError(err));
     } finally {
       setSaving(false);
     }

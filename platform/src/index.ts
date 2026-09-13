@@ -141,6 +141,17 @@ const observabilityLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+/**
+ * Interval sweeps started INLINE below (rather than in a service module with its
+ * own `stopX()`), collected so the unified `shutdown()` can stop them alongside
+ * the others.
+ *
+ * They are `.unref()`'d, so they never keep the process alive — but `.unref()`
+ * does not stop them FIRING during a graceful teardown, and a pass that begins
+ * after `mongoose.connection.close()` just throws against a closed connection.
+ */
+const backgroundSweeps: NodeJS.Timeout[] = [];
+
 /** Request ID middleware  attaches a unique ID to each request for log correlation */
 function requestIdMiddleware(req: Request, _res: Response, next: NextFunction): void {
   const requestId = (req.headers['x-request-id'] as string) || crypto.randomUUID();
@@ -407,7 +418,7 @@ async function initDependencies(): Promise<void> {
       // window (otherwise every replica scans + provisions the same pending
       // orgs in parallel). TTL floored to comfortably exceed one pass.
       const lockTtlMs = Math.max(intervalMs, 60_000);
-      setInterval(() => {
+      backgroundSweeps.push(setInterval(() => {
         void runWithLeaderLock('platform:leader:billing-reconcile', lockTtlMs, async () => {
           await reconcilePendingBillingSubscriptions();
         }).catch((err) => {
@@ -415,7 +426,7 @@ async function initDependencies(): Promise<void> {
             error: err instanceof Error ? err.message : String(err),
           });
         });
-      }, intervalMs).unref(); // unref'd so the timer never keeps the process alive
+      }, intervalMs).unref());
     }
   }
 
@@ -430,7 +441,7 @@ async function initDependencies(): Promise<void> {
     if (reverifyIntervalMs > 0) {
       const { runWithLeaderLock } = await import('./utils/leader-lock.js');
       const lockTtlMs = Math.max(reverifyIntervalMs, 60_000);
-      setInterval(() => {
+      backgroundSweeps.push(setInterval(() => {
         void runWithLeaderLock('platform:leader:domain-reverify', lockTtlMs, async () => {
           const { orgDomainService } = await import('./services/org-domain-service.js');
           const res = await orgDomainService.reverifyStaleDomains(reverifyStaleMs);
@@ -440,7 +451,7 @@ async function initDependencies(): Promise<void> {
             error: err instanceof Error ? err.message : String(err),
           });
         });
-      }, reverifyIntervalMs).unref();
+      }, reverifyIntervalMs).unref());
     }
   }
 
@@ -546,6 +557,9 @@ async function startServer(): Promise<void> {
       const { stopSoftDeletePurge } = await import('./services/soft-delete-purge.js');
       stopSoftDeletePurge();
       stopPlatformMetricsScraper();
+      // The sweeps started inline in this file (billing reconcile, domain
+      // re-verify) — see `backgroundSweeps`. Stopped BEFORE Mongo closes.
+      for (const timer of backgroundSweeps) clearInterval(timer);
 
       try {
         await mongoose.connection.close(false);

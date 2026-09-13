@@ -4,12 +4,12 @@
 /**
  * Contract tests for the DORA reporting client method + the seconds humanizer
  * used by the DORA cards. Locks the path/query shape of
- * `GET /api/reports/execution/dora` and the fmtSeconds formatting (incl. null → "—").
+ * `GET /api/reports/execution/dora` and the shared duration formatting (incl. null → "—").
  */
 
 import type { ApiCore } from '../src/lib/api/core';
 import { reportingApi, type DoraMetrics, type DoraTrendPoint } from '../src/lib/api/domains/reporting';
-import { fmtSeconds } from '../src/components/reports/ReportHelpers';
+import { formatDurationSeconds } from '../src/lib/format';
 
 function makeApi(payload?: { dora?: DoraMetrics | null; trend?: DoraTrendPoint[] }) {
   const calls: string[] = [];
@@ -113,19 +113,19 @@ describe('getDoraTrend', () => {
 
 describe('fmtSeconds (MTTR / lead-time humanization)', () => {
   it('humanizes seconds', () => {
-    expect(fmtSeconds(45)).toBe('45s');
-    expect(fmtSeconds(300)).toBe('5m');
-    expect(fmtSeconds(3720)).toBe('1h 2m');
+    expect(formatDurationSeconds(45)).toBe('45s');
+    expect(formatDurationSeconds(300)).toBe('5m');
+    expect(formatDurationSeconds(3720)).toBe('1h 2m');
   });
 
   it('humanizes the days branch (>= 86400s)', () => {
-    expect(fmtSeconds(86400)).toBe('1d');           // exactly one day, no trailing hours
-    expect(fmtSeconds(90000)).toBe('1d 1h');        // 1d + 3600s → 1h
-    expect(fmtSeconds(180000)).toBe('2d 2h');       // 2d + 7200s → 2h
+    expect(formatDurationSeconds(86400)).toBe('1d');           // exactly one day, no trailing hours
+    expect(formatDurationSeconds(90000)).toBe('1d 1h');        // 1d + 3600s → 1h
+    expect(formatDurationSeconds(180000)).toBe('2d 2h');       // 2d + 7200s → 2h
   });
 
   it('renders "—" for null (no failures / none restored)', () => {
-    expect(fmtSeconds(null)).toBe('—');
-    expect(fmtSeconds(undefined)).toBe('—');
+    expect(formatDurationSeconds(null)).toBe('—');
+    expect(formatDurationSeconds(undefined)).toBe('—');
   });
 });

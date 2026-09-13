@@ -90,6 +90,12 @@ const mockFindReversalSub = jest.fn<(...args: unknown[]) => Promise<unknown>>().
 jest.unstable_mockModule('../src/helpers/stripe-helpers.js', () => ({
   findSubscriptionByStripeId: (...args: unknown[]) => mockFindByStripeId(...args),
   findReversalSubscription: (...args: unknown[]) => mockFindReversalSub(...args),
+  // Shared by the webhook route and stripe-reversals (moved here so both can
+  // read an invoice's subscription id); the real implementation is trivial.
+  invoiceSubscriptionId: (invoice: { parent?: { subscription_details?: { subscription?: unknown } } }) => {
+    const sub = invoice?.parent?.subscription_details?.subscription;
+    return typeof sub === 'string' ? sub : (sub as { id?: string } | undefined)?.id;
+  },
   mapStripeStatus: realMapStripeStatus,
 }));
 

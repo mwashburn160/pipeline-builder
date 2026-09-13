@@ -25,6 +25,12 @@ import { db, runWithTenantContext, schema } from '@pipeline-builder/pipeline-dat
 import { eq, sql } from 'drizzle-orm';
 import type { Types } from 'mongoose';
 import { auditService } from './audit-service.js';
+import {
+  SYSTEM_ORG_DELETE_FORBIDDEN,
+  ORG_NOT_FOUND,
+  ORG_ALREADY_DELETED,
+  ORG_SNAPSHOT_FAILED,
+} from './org-errors.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishUsersRevocation } from '../helpers/session-revocation.js';
@@ -59,21 +65,11 @@ const AUDIT_ARCHIVE_BATCH_SIZE = 1000;
  */
 const AUDIT_EXPORT_CAP = 50_000;
 
-/** Cannot delete the system org. Matches the existing org-delete guard.
- *  Same string value as `services/organization-service`'s export — the
- *  controller errorMap uses that one. Kept exported because the cascade
- *  test imports this constant. */
-export const SYSTEM_ORG_DELETE_FORBIDDEN = 'SYSTEM_ORG_DELETE_FORBIDDEN';
-/** Thrown by {@link softDeleteOrg} when the org doesn't exist. Mapped to 404. */
-export const ORG_NOT_FOUND = 'ORG_NOT_FOUND';
-/** Thrown by {@link softDeleteOrg} when the org is already soft-deleted (in its
- *  retention window). Mapped to 409 — a repeat delete is a no-op the caller
- *  should see, not a silent overwrite of the original `deletedAt`/snapshot. */
-export const ORG_ALREADY_DELETED = 'ORG_ALREADY_DELETED';
-/** Thrown by {@link softDeleteOrg} when the recovery snapshot could not be
- *  produced or persisted. The soft-delete is ABORTED — we never tombstone an
- *  org we couldn't snapshot. Mapped to 502. */
-export const ORG_SNAPSHOT_FAILED = 'ORG_SNAPSHOT_FAILED';
+// Error sentinels live in `org-errors.ts` — one declaration shared with
+// `organization-service`, since the controller `errorMap` matches on the string
+// VALUE and two independent declarations had to stay byte-identical by hand.
+// Re-exported because the cascade test imports them from here.
+export { SYSTEM_ORG_DELETE_FORBIDDEN, ORG_NOT_FOUND, ORG_ALREADY_DELETED, ORG_SNAPSHOT_FAILED };
 
 // ---------------------------------------------------------------------------
 // Table classification

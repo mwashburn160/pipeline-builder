@@ -4,6 +4,7 @@
 import { DEFAULT_TIER, STANDARD_TIERS, sendError, type QuotaTier } from '@pipeline-builder/api-core';
 import type { Response } from 'express';
 import { z } from 'zod';
+import { EMAIL_PATTERN } from './email-address.js';
 import { config } from '../config/index.js';
 import { PASSWORD_RULES } from '../models/user.js';
 
@@ -42,10 +43,12 @@ export function validateBody<T>(
 }
 
 /**
- * Relaxed email regex: requires local@domain but does NOT require a TLD.
- * Accepts both "user@internal" and "user@internal.com".
+ * Relaxed email rule: requires local@domain but does NOT require a TLD, so both
+ * "user@internal" and "user@internal.com" are accepted. The pattern itself lives
+ * in `utils/email.ts` — a dependency-free module — so a caller that only needs
+ * to check an address doesn't pull this file's model graph in behind it.
  */
-export const emailSchema = z.string().regex(/^[^\s@]+@[^\s@]+$/, 'Invalid email address');
+export const emailSchema = z.string().regex(EMAIL_PATTERN, 'Invalid email address');
 
 /**
  * Password schema: enforces minimum length and every rule in `PASSWORD_RULES`

@@ -20,19 +20,17 @@
  *              team they manage (path `:id` ∈ {active org, descendant}); AND the
  *              org must be `sso`-ENTITLED. An unentitled/out-of-scope org is 403'd.
  *
- * Everything else — the `orgIdpService`, the `idpConfigs` quota reservation, the
- * audit actions — is REUSED from the sysadmin path so both surfaces stay in lockstep.
+ * Everything else — validation, the write-only client-secret handling, the
+ * `idpConfigs` quota reservation, the audit actions — lives in
+ * `controllers/org-idp-ops.ts` and is shared verbatim with the sysadmin surface,
+ * so the two cannot drift apart (they already had: only this surface used to
+ * preserve the stored client secret on an update).
  */
 
-import { createLogger, getParam, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
-import { audit } from '../helpers/audit.js';
+import { getParam, sendError } from '@pipeline-builder/api-core';
+import { deleteOrgIdp, patchOrgIdp, readOrgIdp, upsertOrgIdp } from './org-idp-ops.js';
 import { requireAuth, requireOrgScope, withController } from '../helpers/controller-helper.js';
 import { isSsoEntitled } from '../helpers/sso-enforcement.js';
-import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
-import { orgIdpService } from '../services/org-idp-service.js';
-import { orgIdpCreateSchema, orgIdpPatchSchema, validateBody } from '../utils/validation.js';
-
-const logger = createLogger('org-idp-self-controller');
 
 /**
  * Shared tenancy + entitlement gate for the self-service surface. Confirms the
@@ -55,8 +53,7 @@ export const getOwnOrgIdpConfig = withController('Get own-org IdP config', async
   const orgId = getParam(req.params, 'id')!;
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
 
-  const config = await orgIdpService.findByOrg(orgId);
-  sendSuccess(res, 200, { config: config ?? null });
+  await readOrgIdp(res, orgId);
 });
 
 /** PUT /organization/:id/idp — upsert own-org IdP config (full body). */
@@ -64,51 +61,7 @@ export const putOwnOrgIdpConfig = withController('Put own-org IdP config', async
   if (!requireAuth(req, res)) return;
   const orgId = getParam(req.params, 'id')!;
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
-
-  // Body's orgId may be unset — the URL parameter is canonical (a caller can't
-  // point the write at another org via the body).
-  const body: Record<string, unknown> = { ...(req.body as Record<string, unknown> ?? {}), orgId };
-
-  // Look up the existing config up front. The IdP form is WRITE-ONLY for the
-  // client secret (it's never sent back on read), so an update that omits the
-  // secret means "keep the stored one" — otherwise editing any other field (or
-  // switching provider) would fail the required-secret validation, or wipe the
-  // secret. Re-inject the stored plaintext before validation; upsert re-encrypts
-  // it and it is never returned to the caller. A fresh create has no stored
-  // secret, so the schema's required-secret rule still applies there.
-  const existing = await orgIdpService.findByOrg(orgId);
-  if (existing && !body.clientSecret) {
-    const login = await orgIdpService.getLoginConfig(orgId);
-    if (login) body.clientSecret = login.clientSecret;
-  }
-
-  const parsed = validateBody(orgIdpCreateSchema, body, res);
-  if (!parsed) return;
-
-  // Reserve the `idpConfigs` slot only on a fresh insert (mirrors the sysadmin
-  // path; the per-org unique index caps at one today but the quota is future-proof).
-  let reserved = false;
-  if (!existing) {
-    const reservation = await reserveFeatureQuota(orgId, 'idpConfigs');
-    if (reservation.exceeded) {
-      return sendQuotaExceeded(res, 'idpConfigs', reservation.quota, reservation.quota.resetAt);
-    }
-    reserved = true;
-  }
-
-  try {
-    const config = await orgIdpService.upsert(req.user!.sub as string, parsed);
-    audit(req, 'admin.org-idp.upsert', {
-      targetType: 'org-idp-config',
-      targetId: orgId,
-      affectedOrgId: orgId,
-      details: { provider: config.provider, surface: 'self-service' },
-    });
-    sendSuccess(res, 200, { config });
-  } catch (err) {
-    if (reserved) releaseFeatureQuota(orgId, 'idpConfigs', logger.warn.bind(logger));
-    throw err;
-  }
+  await upsertOrgIdp(req, res, orgId, 'self-service');
 });
 
 /** PATCH /organization/:id/idp — partial update of own-org IdP config. */
@@ -116,19 +69,7 @@ export const patchOwnOrgIdpConfig = withController('Patch own-org IdP config', a
   if (!requireAuth(req, res)) return;
   const orgId = getParam(req.params, 'id')!;
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
-
-  const parsed = validateBody(orgIdpPatchSchema, req.body, res);
-  if (!parsed) return;
-
-  const config = await orgIdpService.patch(orgId, req.user!.sub as string, parsed);
-  if (!config) return sendError(res, 404, 'IdP config not found for org');
-  audit(req, 'admin.org-idp.upsert', {
-    targetType: 'org-idp-config',
-    targetId: orgId,
-    affectedOrgId: orgId,
-    details: { surface: 'self-service' },
-  });
-  sendSuccess(res, 200, { config });
+  await patchOrgIdp(req, res, orgId, 'self-service');
 });
 
 /** DELETE /organization/:id/idp — remove own-org IdP config. */
@@ -136,17 +77,5 @@ export const deleteOwnOrgIdpConfig = withController('Delete own-org IdP config',
   if (!requireAuth(req, res)) return;
   const orgId = getParam(req.params, 'id')!;
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
-
-  const ok = await orgIdpService.delete(orgId);
-  if (!ok) return sendError(res, 404, 'IdP config not found for org');
-
-  releaseFeatureQuota(orgId, 'idpConfigs', logger.warn.bind(logger));
-
-  audit(req, 'admin.org-idp.delete', {
-    targetType: 'org-idp-config',
-    targetId: orgId,
-    affectedOrgId: orgId,
-    details: { surface: 'self-service' },
-  });
-  sendSuccess(res, 200, {});
+  await deleteOrgIdp(req, res, orgId, 'self-service');
 });

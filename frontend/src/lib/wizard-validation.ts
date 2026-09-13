@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { FormBuilderState } from '@/types/form-types';
-import { validateFormState } from '@/types/props-converter';
+import { validateFormState } from '@/types/props-validation';
 
 export const WIZARD_STEPS = [
   { label: 'Pipeline Configuration', shortLabel: 'Pipeline' },

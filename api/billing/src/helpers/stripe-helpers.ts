@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
+import type Stripe from 'stripe';
 import { Subscription } from '../models/subscription.js';
 import type { SubscriptionStatus, SubscriptionDocument } from '../models/subscription.js';
 
@@ -67,4 +68,14 @@ export async function findReversalSubscription(
   if (subs.length === 0) return { subscription: null, ambiguous: false };
   if (subs.length > 1) return { subscription: null, ambiguous: true };
   return { subscription: subs[0], ambiguous: false };
+}
+
+/**
+ * The subscription id carried on an invoice, whether Stripe expanded it or sent
+ * a bare id. Lives here (rather than in the webhook route) because both the
+ * route and `stripe-reversals.ts` read it.
+ */
+export function invoiceSubscriptionId(invoice: Stripe.Invoice): string | undefined {
+  const sub = invoice.parent?.subscription_details?.subscription;
+  return typeof sub === 'string' ? sub : sub?.id;
 }

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, setCounterEmitter, safeCreateRequire, requireAuth, safeEqual } from '@pipeline-builder/api-core';
+import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, setCounterEmitter, safeCreateRequire, requireAuth, safeEqual, createEnvRedisClient } from '@pipeline-builder/api-core';
 import type { OpenApiSpecOptions } from '@pipeline-builder/api-core';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { getConnection } from '@pipeline-builder/pipeline-data';
@@ -360,8 +360,20 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
       },
     };
 
-    // Use Redis store when available for shared state across instances
-    if (options.redisUrl) {
+    // Shared state across instances.
+    //
+    // Falls back to the ENV Redis when no explicit `redisUrl` is passed — and
+    // nothing passes one, so until now every service rate-limited PER POD. With
+    // an HPA (pipeline scales to 4, billing to 3) the effective ceiling became
+    // `max × replicas` for any client the load balancer spreads across pods,
+    // i.e. the DoS control was weakest exactly when load was highest. Every
+    // other Redis consumer here (idempotency, SSE tickets, token revocation)
+    // already derives its client from the environment; this now matches them.
+    //
+    // `createEnvRedisClient` returns null when no Redis is configured, which
+    // leaves the per-process memory store — correct for single-replica/local.
+    const rateLimitRedis = options.redisUrl ?? createEnvRedisClient<{ call: (...a: string[]) => Promise<unknown> }>('rate-limit');
+    if (rateLimitRedis) {
       try {
         // ESM has no global `require`; safeCreateRequire loads the optional
         // redis deps synchronously here (only when a redisUrl is configured).
@@ -371,7 +383,8 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
         const { RedisStore } = require('rate-limit-redis');
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const Redis = require('ioredis');
-        const redisClient = new Redis(options.redisUrl);
+        // An explicit `redisUrl` still wins; otherwise reuse the env client.
+        const redisClient = typeof rateLimitRedis === 'string' ? new Redis(rateLimitRedis) : rateLimitRedis;
         // ioredis emits 'error' on connection loss; without a listener Node
         // treats it as an unhandled 'error' event and CRASHES the process. Log
         // and let ioredis auto-reconnect (rate limiting falls back per-store).

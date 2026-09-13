@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { Gauge } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { useFeatures } from '@/hooks/useFeatures';
-import { doraLevelBadge, GRADE_STYLES } from '@/components/reports/ReportHelpers';
+import { doraLevelBadge, GRADE_STYLES } from '@/components/reports/DoraParts';
 import api from '@/lib/api';
 import type { PipelineScorecard, ScorecardDoraLevel } from '@/types';
 

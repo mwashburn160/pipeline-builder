@@ -19,8 +19,9 @@ import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
-import { api, getErrorMessage } from '@/lib/api';
+import { api } from '@/lib/api';
 import type { AlertRule, AlertRuleWrite } from '@/types/observability';
+import { formatError } from '@/lib/constants';
 
 /**
  * Per-org alert *rules* authoring page.
@@ -72,7 +73,7 @@ export default function AlertRulesPage() {
       setDeleting(null);
       await refresh();
     } catch (err) {
-      toast.error(getErrorMessage(err));
+      toast.error(formatError(err));
     } finally {
       setDeleteBusy(false);
     }
@@ -233,7 +234,7 @@ function RuleModal(props: {
     } catch (err) {
       // The backend returns a descriptive 400 for PromQL / tenancy / duration
       // validation failures; surface it verbatim so operators can fix the expr.
-      toast.error(getErrorMessage(err));
+      toast.error(formatError(err));
     } finally {
       setSaving(false);
     }

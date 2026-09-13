@@ -1,7 +1,6 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { formatError } from '@/lib/constants';
 
 export class ApiError extends Error {
   statusCode: number;
@@ -71,19 +70,4 @@ export function toRegistryError(message: string, statusCode: number, code: strin
     return new ConflictError(message, statusCode, code, details ?? {});
   }
   return new ApiError(message, statusCode, code, details);
-}
-
-/**
- * Extract a display message from an unknown thrown value.
- *
- * Since `ApiError extends Error`, reading `.message` off a normalized `Error`
- * yields the same string as the old inline
- * `err instanceof ApiError ? err.message : (err as Error).message` idiom, while
- * also handling non-`Error` throwables safely via `String(err)`.
- */
-export function getErrorMessage(err: unknown): string {
-  // Delegates to the app-wide `formatError` so error text is consistent with the
-  // rest of the app (previously this diverged for non-Error throwables). Kept as a
-  // named alias so the observability pages don't need to change their imports.
-  return formatError(err);
 }

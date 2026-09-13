@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import mongoose from 'mongoose';
 import type { Types } from 'mongoose';
 import { permissionsForGrantsRole } from './roles-service.js';
 import { Role, RoleAssignment, UserOrganization } from '../models/index.js';
@@ -25,80 +24,6 @@ function permissionSetsEqual(a: string[], b: string[]): boolean {
   return a.every((p) => setB.has(p));
 }
 
-/**
- * One-time collection + permission-string rename for the Group→Role cleanup.
- * Runs FIRST (before any Role/RoleAssignment query) so the models — now pointing
- * at `roles`/`role_assignments` — see the pre-existing data. Each step is guarded
- * and idempotent, so re-running on an already-migrated DB is a cheap no-op.
- */
-async function renameGroupsToRoles(): Promise<void> {
-  const db = mongoose.connection?.db;
-  if (!db) {
-    logger.warn('renameGroupsToRoles: no active mongoose connection; skipping');
-    return;
-  }
-
-  // 1. Rename the legacy collections to their Role names (only when the source
-  //    exists and the target doesn't, so a partially-migrated/fresh DB is safe).
-  const renames: Array<[from: string, to: string]> = [
-    ['groups', 'roles'],
-    ['group_memberships', 'role_assignments'],
-  ];
-  const existing = new Set((await db.listCollections().toArray()).map((c) => c.name));
-  for (const [from, to] of renames) {
-    if (existing.has(from) && !existing.has(to)) {
-      try {
-        await db.renameCollection(from, to);
-        logger.info('Renamed RBAC collection', { from, to });
-      } catch (err) {
-        logger.warn('renameGroupsToRoles: collection rename failed', { from, to, error: err });
-      }
-    }
-  }
-
-  // 2. Rewrite the permission catalog id on existing Roles: `groups:manage` →
-  //    `roles:manage`. Two idempotent steps (add-new-where-old, then drop-old).
-  try {
-    const added = await Role.updateMany(
-      { permissions: 'groups:manage' },
-      { $addToSet: { permissions: 'roles:manage' } },
-    );
-    const removed = await Role.updateMany(
-      { permissions: 'groups:manage' },
-      { $pull: { permissions: 'groups:manage' } },
-    );
-    if ((added.modifiedCount ?? 0) > 0 || (removed.modifiedCount ?? 0) > 0) {
-      logger.info('Rewrote groups:manage → roles:manage on Roles', {
-        added: added.modifiedCount ?? 0,
-        removed: removed.modifiedCount ?? 0,
-      });
-    }
-  } catch (err) {
-    logger.warn('renameGroupsToRoles: permission rewrite failed', { error: err });
-  }
-
-  // 3. Normalize built-in Role DISPLAY names to the canonical vocabulary
-  //    (admin → "Admin", member → "Member", superadmin → "Super Admin"), keyed
-  //    off the stable `grantsRole` so legacy "Administrators"/"Developers"/
-  //    "Superadmins" docs are renamed in place. Names are cosmetic (all lookups
-  //    key on `grantsRole`); idempotent — only a mismatched name is updated.
-  try {
-    const canonical: Array<[grant: RoleGrant, name: string]> = [
-      ['admin', 'Admin'], ['member', 'Member'], ['superadmin', 'Super Admin'],
-    ];
-    let renamed = 0;
-    for (const [grant, name] of canonical) {
-      const res = await Role.updateMany(
-        { system: true, grantsRole: grant, name: { $ne: name } },
-        { $set: { name } },
-      );
-      renamed += res.modifiedCount ?? 0;
-    }
-    if (renamed > 0) logger.info('Normalized built-in Role names to Admin/Member/Super Admin', { renamed });
-  } catch (err) {
-    logger.warn('renameGroupsToRoles: name normalization failed', { error: err });
-  }
-}
 
 /**
  * Startup backfill for the single-source "Roles" RBAC model. Runs once at boot
@@ -119,11 +44,6 @@ async function renameGroupsToRoles(): Promise<void> {
  * partial failure logs and boot continues) — nothing here is fatal.
  */
 export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
-  // ── Collection + permission-string rename (Group→Role) ─────────────────────
-  // MUST precede every Role/RoleAssignment query below so the models see the
-  // migrated data.
-  await renameGroupsToRoles();
-
   // ── Pass A: RE-SYNC built-in Role permission bundles to the current source ──
   // Overwrite every built-in (`system:true`) Role's `permissions[]` to the CURRENT
   // bundle for its `grantsRole` (admin/superadmin → admin bundle, member → member

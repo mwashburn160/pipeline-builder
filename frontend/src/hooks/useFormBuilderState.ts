@@ -19,7 +19,7 @@ import {
   createEmptyStage,
 } from '@/types/form-types';
 import type { BuilderProps } from '@/types';
-import { assembleBuilderProps as assembleProps } from '@/types/props-converter';
+import { assembleBuilderProps as assembleProps } from '@/types/props-assembly';
 
 // ─── Action Types ──────────────────────────────────────────────
 

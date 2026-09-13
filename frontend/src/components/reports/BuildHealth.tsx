@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { BuildHealth } from '@/lib/api/domains/reporting';
-import { fmtMs, ReportEmpty, SectionHeading, SectionCardSkeleton } from './ReportHelpers';
+import { ReportEmpty, SectionHeading, SectionCardSkeleton } from './ReportHelpers';
 import { Card } from '@/components/ui/Card';
+import { formatDuration } from '@/lib/format';
 
 interface BuildHealthPanelProps {
   loading: boolean;
@@ -71,9 +72,9 @@ export function BuildHealthPanel({ loading, buildHealth, pipelineSelected }: Bui
                       {s.successRate}%
                     </span>
                   </td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-gray-500 dark:text-gray-400">{s.p50Ms == null ? '—' : fmtMs(s.p50Ms)}</td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-gray-500 dark:text-gray-400">{s.p90Ms == null ? '—' : fmtMs(s.p90Ms)}</td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-gray-500 dark:text-gray-400">{s.p99Ms == null ? '—' : fmtMs(s.p99Ms)}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-gray-500 dark:text-gray-400">{s.p50Ms == null ? '—' : formatDuration(s.p50Ms)}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-gray-500 dark:text-gray-400">{s.p90Ms == null ? '—' : formatDuration(s.p90Ms)}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-gray-500 dark:text-gray-400">{s.p99Ms == null ? '—' : formatDuration(s.p99Ms)}</td>
                 </tr>
               ))}
             </tbody>

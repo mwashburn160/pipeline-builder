@@ -1,7 +1,7 @@
 import { useEffect, useImperativeHandle, forwardRef, useRef, useState, ReactNode } from 'react';
 import { BuilderProps } from '@/types';
 import { FormBuilderState } from '@/types/form-types';
-import { propsToFormState } from '@/types/props-converter';
+import { propsToFormState } from '@/types/props-parsing';
 import { useFormBuilderState } from '@/hooks/useFormBuilderState';
 import { usePlugins } from '@/hooks/usePlugins';
 import PipelineConfigSection from './sections/PipelineConfigSection';

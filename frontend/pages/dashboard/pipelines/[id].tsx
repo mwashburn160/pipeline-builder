@@ -41,6 +41,7 @@ import api from '@/lib/api';
 import type { PipelineDeployment } from '@/lib/api/domains/pipelines';
 import type { Pipeline } from '@/types';
 import { formatError } from '@/lib/constants';
+import { formatDuration } from '@/lib/format';
 
 interface ExecutionRow {
   id: string;
@@ -70,15 +71,6 @@ function statusColor(status: string): 'green' | 'red' | 'gray' | 'yellow' {
   return 'gray'; // canceled / unknown
 }
 
-/** Human-friendly duration from milliseconds. */
-function formatDuration(ms: number | null): string {
-  if (ms == null || ms < 0) return '—';
-  if (ms < 1000) return `${ms}ms`;
-  const totalSec = Math.round(ms / 1000);
-  const mins = Math.floor(totalSec / 60);
-  const secs = totalSec % 60;
-  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-}
 
 const DETAIL_TABS = [
   { id: 'overview', label: 'Overview' },

@@ -26,6 +26,7 @@ import { isSystemAdmin, requireAuthContext, requireOrgMembership, withController
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
 import { alertDestinationService, DestinationNotFoundError, toApiDestination } from '../services/alert-destination-service.js';
 import { relayWebhook, type AlertmanagerWebhook } from '../services/alert-relay.js';
+import { isValidEmail } from '../utils/email-address.js';
 import { isReasonableString } from '../utils/string-guards.js';
 
 const logger = createLogger('alert-destinations-controller');
@@ -37,10 +38,6 @@ const MAX_LABEL = parseInt(process.env.ALERT_DESTINATION_MAX_LABEL || '100', 10)
  *  HTTP-spec-safe. Override via `ALERT_DESTINATION_MAX_TARGET`. */
 const MAX_TARGET = parseInt(process.env.ALERT_DESTINATION_MAX_TARGET || '2048', 10);
 
-
-/** Single-address email check — intentionally loose (no RFC 5322 parsing);
- *  catches typos, not every invalid address. */
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Validate channel/target combos. Slack URLs must start with the canonical
  *  hooks.slack.com host so a misconfigured destination doesn't silently POST
@@ -60,7 +57,11 @@ function validateChannelTarget(channel: string, target: string): string | null {
     return null;
   }
   if (channel === 'email') {
-    if (!EMAIL_RE.test(target)) return 'Email target must be a valid email address';
+    // Use the SAME rule as registration/invites. The local copy additionally
+    // required a TLD, so an address the platform happily registers — including
+    // its own shipped default, `admin@internal` — was rejected as an alert
+    // destination, with no stated reason for the stricter rule here.
+    if (!isValidEmail(target)) return 'Email target must be a valid email address';
     if (target.length > MAX_TARGET) return `Email address exceeds ${MAX_TARGET} chars`;
     return null;
   }

@@ -10,7 +10,7 @@
 
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { DoraMetrics } from '../src/lib/api/domains/reporting';
-import { fmtWindow, doraLevelBadge } from '../src/components/reports/ReportHelpers';
+import { fmtWindow, doraLevelBadge } from '../src/components/reports/DoraParts';
 import ReportsPage from '../pages/dashboard/reports';
 
 jest.mock('@/hooks/useAuthGuard', () => ({

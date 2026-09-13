@@ -13,9 +13,10 @@ import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { WarningAlert } from '@/components/ui/WarningAlert';
-import { api, getErrorMessage } from '@/lib/api';
+import { api } from '@/lib/api';
 import type { Alert, Silence } from '@/types/observability';
 import { formatRelativeTime } from '@/lib/relative-time';
+import { formatError } from '@/lib/constants';
 
 const SEVERITY_STYLES: Record<string, { bg: string; text: string; chip: string }> = {
   critical: {
@@ -79,7 +80,7 @@ export default function AlertsPage() {
       setSilences(silencesRes.data?.silences ?? []);
       setDegraded(Boolean(alertsRes.data?.degraded || silencesRes.data?.degraded));
     } catch (err) {
-      setError(getErrorMessage(err));
+      setError(formatError(err));
     } finally {
       setLoading(false);
     }
@@ -116,7 +117,7 @@ export default function AlertsPage() {
       setSilenceTarget(null);
       await refresh();
     } catch (err) {
-      toast.error(getErrorMessage(err));
+      toast.error(formatError(err));
     }
   };
 
@@ -126,7 +127,7 @@ export default function AlertsPage() {
       toast.success('Silence expired.');
       await refresh();
     } catch (err) {
-      toast.error(getErrorMessage(err));
+      toast.error(formatError(err));
     }
   };
 

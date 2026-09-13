@@ -3,9 +3,10 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Card } from '@/components/ui/Card';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import type { ExecutionCountRow } from '@/types';
-import { fmtMs, ReportEmpty, SectionHeading, TwoColumnSkeleton, ExportCSVButton } from './ReportHelpers';
+import { ReportEmpty, SectionHeading, TwoColumnSkeleton, ExportCSVButton } from './ReportHelpers';
 import { MAX_TABLE_ROWS, MAX_LIST_ROWS } from './constants';
 import type { DurationStat, StageBottleneck } from './types';
+import { formatDuration } from '@/lib/format';
 
 const EXECUTION_COLUMNS: Column<ExecutionCountRow>[] = [
   { id: 'pipeline', header: 'Pipeline', cellClassName: 'text-gray-900 dark:text-gray-100 truncate max-w-[200px]', render: (p) => p.pipeline_name || p.project },
@@ -16,8 +17,8 @@ const EXECUTION_COLUMNS: Column<ExecutionCountRow>[] = [
 
 const DURATION_COLUMNS: Column<DurationStat>[] = [
   { id: 'pipeline', header: 'Pipeline', cellClassName: 'text-gray-900 dark:text-gray-100 truncate max-w-[200px]', render: (d) => d.pipeline_name || d.project },
-  { id: 'avg', header: 'Avg', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (d) => fmtMs(d.avg_ms) },
-  { id: 'p95', header: 'P95', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (d) => fmtMs(d.p95_ms) },
+  { id: 'avg', header: 'Avg', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (d) => formatDuration(d.avg_ms) },
+  { id: 'p95', header: 'P95', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (d) => formatDuration(d.p95_ms) },
   { id: 'runs', header: 'Runs', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (d) => d.executions },
 ];
 
@@ -32,8 +33,8 @@ const BOTTLENECK_COLUMNS: Column<StageBottleneck>[] = [
       </>
     ),
   },
-  { id: 'avg', header: 'Avg', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-amber-600 dark:text-amber-400', render: (b) => fmtMs(b.avg_ms) },
-  { id: 'max', header: 'Max', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (b) => fmtMs(b.max_ms) },
+  { id: 'avg', header: 'Avg', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-amber-600 dark:text-amber-400', render: (b) => formatDuration(b.avg_ms) },
+  { id: 'max', header: 'Max', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (b) => formatDuration(b.max_ms) },
 ];
 
 interface PipelinePerformanceProps {

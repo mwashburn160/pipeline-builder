@@ -3,6 +3,7 @@
 
 import { DEFAULT_TIER, QUOTA_TIERS, SYSTEM_ORG_ID, tierAllowsTeams } from '@pipeline-builder/api-core';
 import type { Types } from 'mongoose';
+import { ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN } from './org-errors.js';
 import { applyAIProviderKeyUpdates, buildProvidersMap, changedAiProviderFields, ORG_AI_KEY_TOO_LONG } from './organization-ai-secrets.js';
 import {
   checkTierOvercap,
@@ -23,12 +24,10 @@ import type { QuotaTier } from '../models/organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
 
-/** Typed error codes thrown by service methods  map to HTTP status in withController. */
-export const ORG_NOT_FOUND = 'ORG_NOT_FOUND';
-export const SYSTEM_ORG_DELETE_FORBIDDEN = 'SYSTEM_ORG_DELETE_FORBIDDEN';
-/** Thrown by {@link OrganizationService.update} when an explicit slug collides
- *  with another org. Mapped to 409 in the controller. */
-export const ORG_SLUG_TAKEN = 'ORG_SLUG_TAKEN';
+// Typed error codes thrown by service methods → mapped to HTTP status in
+// withController. Declared once in `org-errors.ts` and re-exported here so the
+// existing import sites (and the services barrel) keep working.
+export { ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN };
 // Re-exported from organization-ai-secrets.js to preserve the module's public API.
 export { ORG_AI_KEY_TOO_LONG, changedAiProviderFields };
 

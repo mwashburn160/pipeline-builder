@@ -5,7 +5,7 @@ import { useEffect } from 'react';
 import { Gauge, Trophy } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { useFetch } from '@/hooks/useFetch';
-import { doraLevelBadge, GRADE_STYLES } from '@/components/reports/ReportHelpers';
+import { doraLevelBadge, GRADE_STYLES } from '@/components/reports/DoraParts';
 import type { TabDataStatus } from '../useReportData';
 import api from '@/lib/api';
 import type { ScorecardRollup, ScorecardLeaderboardEntry } from '@/types';

@@ -12,7 +12,7 @@
 
 import { renderHook, act } from '@testing-library/react';
 import { useUrlTab } from '../src/hooks/useUrlTab';
-import { formatDate, formatDateTime, formatTime } from '../src/lib/format';
+import { formatDate, formatDateTime, formatTime, formatDuration, formatDurationSeconds } from '../src/lib/format';
 
 const replace = jest.fn();
 let query: Record<string, string> = {};
@@ -80,5 +80,38 @@ describe('shared date formatters', () => {
 
   it('accepts a caller-supplied placeholder (logs keep the raw value)', () => {
     expect(formatDateTime('nonsense', 'nonsense')).toBe('nonsense');
+  });
+});
+
+describe('formatDuration — one duration vocabulary', () => {
+  /**
+   * There were three: `fmtMs` rendered milliseconds as "2.1m", `formatDuration`
+   * on the pipeline detail page rendered the SAME input as "2m 5s", and
+   * `fmtSeconds` covered hours/days but only from seconds. One build's elapsed
+   * time therefore read differently depending on which page showed it.
+   */
+  it('covers the full range from milliseconds to days', () => {
+    expect(formatDuration(850)).toBe('850ms');
+    expect(formatDuration(45_000)).toBe('45s');
+    expect(formatDuration(125_000)).toBe('2m 5s');
+    expect(formatDuration(300_000)).toBe('5m');      // exact minutes, no trailing 0s
+    expect(formatDuration(3_720_000)).toBe('1h 2m');
+    expect(formatDuration(86_400_000)).toBe('1d');   // exact day, no trailing hours
+    expect(formatDuration(90_000_000)).toBe('1d 1h');
+  });
+
+  it('renders the placeholder for null/negative rather than "NaN" or "-1ms"', () => {
+    expect(formatDuration(null)).toBe('—');
+    expect(formatDuration(undefined)).toBe('—');
+    expect(formatDuration(-5)).toBe('—');
+    expect(formatDuration(null, 'n/a')).toBe('n/a');
+  });
+
+  it('formatDurationSeconds is the same vocabulary, keyed on seconds', () => {
+    // The DORA MTTR / lead-time surfaces report seconds; they must not drift
+    // into a second rendering of the same elapsed time.
+    expect(formatDurationSeconds(45)).toBe(formatDuration(45_000));
+    expect(formatDurationSeconds(3_720)).toBe(formatDuration(3_720_000));
+    expect(formatDurationSeconds(null)).toBe('—');
   });
 });

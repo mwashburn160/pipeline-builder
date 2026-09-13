@@ -69,6 +69,12 @@ const mockFindReversalSub = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/helpers/stripe-helpers.js', () => ({
   findSubscriptionByStripeId: (...a: unknown[]) => mockFindByStripeId(...a),
   findReversalSubscription: (...a: unknown[]) => mockFindReversalSub(...a),
+  // Shared by the webhook route and stripe-reversals (moved here so both can
+  // read an invoice's subscription id); the real implementation is trivial.
+  invoiceSubscriptionId: (invoice: { parent?: { subscription_details?: { subscription?: unknown } } }) => {
+    const sub = invoice?.parent?.subscription_details?.subscription;
+    return typeof sub === 'string' ? sub : (sub as { id?: string } | undefined)?.id;
+  },
   mapStripeStatus: (s: string) => s,
 }));
 
@@ -83,7 +89,7 @@ jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({ claimWebhoo
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({ getPaymentProvider: () => new MockStripeProvider() }));
 jest.unstable_mockModule('../src/providers/stripe-provider.js', () => ({ StripeProvider: MockStripeProvider }));
 
-const { handleChargeRefunded, handleChargeDisputeCreated, handleInvoiceReversal } = await import('../src/routes/stripe-webhook.js');
+const { handleChargeRefunded, handleChargeDisputeCreated, handleInvoiceReversal } = await import('../src/helpers/stripe-reversals.js');
 
 /** A subscription doc with a spied `.save()` (which must NOT be called by reversals). */
 function subDoc(over: Record<string, unknown> = {}) {

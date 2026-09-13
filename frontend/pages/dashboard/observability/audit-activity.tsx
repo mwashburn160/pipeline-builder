@@ -23,7 +23,8 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { api, getErrorMessage } from '@/lib/api';
+import { api } from '@/lib/api';
+import { formatError } from '@/lib/constants';
 
 /** Name of the seeded dashboard we redirect to. Matches the seeder in
  * platform/src/services/dashboard-seeder.ts. */
@@ -63,7 +64,7 @@ export default function AuditActivityRedirect() {
         );
       } catch (err) {
         if (!cancelled) {
-          setError(getErrorMessage(err));
+          setError(formatError(err));
         }
       }
     })();

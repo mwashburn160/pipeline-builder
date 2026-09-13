@@ -19,9 +19,9 @@ import { DomainJoinSettings } from '@/components/settings/DomainJoinSettings';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import Link from 'next/link';
-import { useRouter } from 'next/router';
 import api from '@/lib/api';
 import { decodeJwt } from '@/lib/jwt';
+import { useUrlTab } from '@/hooks/useUrlTab';
 
 // Settings is split into major tabs so account, org, and security controls don't
 // stack into one long scroll. Each is deep-linkable via `?tab=`.
@@ -36,19 +36,12 @@ const SETTINGS_TAB_IDS = SETTINGS_TABS.map((t) => t.id) as readonly string[];
 /** User and organization settings page. Manages profile info, AI provider API keys, password changes, and account deletion. */
 export default function SettingsPage() {
   const { user, isReady, refreshUser, can, isSuperAdmin, isReadOnly } = useAuthGuard();
-  const router = useRouter();
 
   // Active tab, hydrated from `?tab=` and kept in sync (shallow) so it's
   // shareable / back-forward-friendly — same pattern as the Billing page.
-  const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
-  useEffect(() => {
-    const raw = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
-    if (raw && SETTINGS_TAB_IDS.includes(raw) && raw !== activeTab) setActiveTab(raw as SettingsTab);
-  }, [router.query.tab]); // eslint-disable-line react-hooks/exhaustive-deps
-  const changeTab = (id: string) => {
-    setActiveTab(id as SettingsTab);
-    void router.replace({ query: { ...router.query, tab: id } }, undefined, { shallow: true });
-  };
+  // Tab state lives in `?tab=` so the view is shareable, refresh-safe and
+  // back/forward-friendly. `useUrlTab` owns the hydrate + shallow write-back.
+  const [activeTab, changeTab] = useUrlTab<SettingsTab>('tab', SETTINGS_TAB_IDS as readonly SettingsTab[], 'profile');
 
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -162,7 +155,7 @@ export default function SettingsPage() {
   return (
     <DashboardLayout title="Settings" subtitle="Account preferences and defaults">
       <div className="space-y-6">
-        <TabBar items={[...SETTINGS_TABS]} activeId={activeTab} onSelect={changeTab} />
+        <TabBar items={[...SETTINGS_TABS]} activeId={activeTab} onSelect={(id) => changeTab(id as SettingsTab)} />
 
         {activeTab === 'profile' && (
         /* Profile */

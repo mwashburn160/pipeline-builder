@@ -8,7 +8,7 @@ import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { DoraReport } from '../DoraReport';
 import { BuildHealthPanel } from '../BuildHealth';
-import { DoraUpsell } from '../ReportHelpers';
+import { DoraUpsell } from '../DoraParts';
 import { useDoraData, type SharedFilters, type TabDataStatus } from '../useReportData';
 
 interface DoraTabProps {

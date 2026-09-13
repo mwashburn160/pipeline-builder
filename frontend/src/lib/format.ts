@@ -76,3 +76,40 @@ export function formatDate(iso: string | number | Date | null | undefined, place
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? placeholder : d.toLocaleDateString();
 }
+
+/**
+ * Humanize an elapsed duration in MILLISECONDS → "850ms", "45s", "5m 3s",
+ * "1h 2m", "2d 3h". Null/negative → the placeholder.
+ *
+ * The app had three of these: `fmtMs` in the reports helpers rendered
+ * milliseconds as "2.1m", `formatDuration` on the pipeline detail page rendered
+ * the SAME input as "2m 5s", and `fmtSeconds` covered hours/days but only from
+ * seconds. So one build's elapsed time read differently depending on the page.
+ * This is the union of all three: the precise m/s style, the full ms→days
+ * range, and null-safety.
+ */
+export function formatDuration(ms: number | null | undefined, placeholder = '—'): string {
+  if (ms == null || ms < 0) return placeholder;
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) {
+    const m = Math.floor(seconds / 60);
+    const s = Math.round(seconds % 60);
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  }
+  if (seconds < 86400) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.round((seconds % 3600) / 60);
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+  const d = Math.floor(seconds / 86400);
+  const h = Math.round((seconds % 86400) / 3600);
+  return h > 0 ? `${d}d ${h}h` : `${d}d`;
+}
+
+/** {@link formatDuration} for a value already in SECONDS. */
+export function formatDurationSeconds(seconds: number | null | undefined, placeholder = '—'): string {
+  return seconds == null ? placeholder : formatDuration(seconds * 1000, placeholder);
+}

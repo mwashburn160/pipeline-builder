@@ -1,6 +1,25 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * SINGLE-FILE BY DEPLOYMENT CONSTRAINT — do not split this module.
+ *
+ * `pipeline-manager`'s `setup-events` command deploys this Lambda by copying
+ * the compiled `lib/index.js` **as one file** into the zip
+ * (`commands/setup-events.ts`: `copyFileSync(handlerSrc, index.mjs)` → `zip -j`).
+ * Nothing bundles it. So the moment this file gains a relative import of a
+ * sibling module, the emitted `lib/index.js` references a file that is not in
+ * the zip and the Lambda dies at init with "Cannot find module './…'".
+ *
+ * That makes the usual hygiene instinct — "973 lines and nine module-level
+ * caches, split it into scm-resolvers / parse-record / dlq-health" — a
+ * production outage rather than a cleanup. It is also why `_resetForTests()`
+ * exists: with every cache in one module, tests have no other seam.
+ *
+ * If this genuinely needs splitting, add a bundling step (esbuild → one
+ * `lib/index.js`) to the build FIRST, and only then break the file up.
+ */
+
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
 

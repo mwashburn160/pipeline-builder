@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/router';
 import { RefreshCw, ChevronRight, ShieldOff, KeyRound } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -22,6 +21,7 @@ import { PatSection } from '@/components/settings/PatSection';
 import { decodeJwt, formatTimestamp, isExpired, expiresIn } from '@/lib/jwt';
 import { redactString, redactDetails } from '@/lib/redact';
 import { formatError } from '@/lib/constants';
+import { useUrlTab } from '@/hooks/useUrlTab';
 
 interface TokenHistoryEntry {
   id: string;
@@ -160,19 +160,12 @@ const TOKEN_TAB_IDS = TOKEN_TABS.map((t) => t.id) as readonly string[];
 
 export default function TokensPage() {
   const { user, isReady, isAuthenticated } = useAuthGuard();
-  const router = useRouter();
 
   // Active tab, hydrated from `?tab=` and kept in sync (shallow) so it's
   // shareable / back-forward-friendly — same pattern as the Billing page.
-  const [activeTab, setActiveTab] = useState<TokenTab>('tokens');
-  useEffect(() => {
-    const raw = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
-    if (raw && TOKEN_TAB_IDS.includes(raw) && raw !== activeTab) setActiveTab(raw as TokenTab);
-  }, [router.query.tab]); // eslint-disable-line react-hooks/exhaustive-deps
-  const changeTab = (id: string) => {
-    setActiveTab(id as TokenTab);
-    void router.replace({ query: { ...router.query, tab: id } }, undefined, { shallow: true });
-  };
+  // Tab state lives in `?tab=` so the view is shareable, refresh-safe and
+  // back/forward-friendly. `useUrlTab` owns the hydrate + shallow write-back.
+  const [activeTab, changeTab] = useUrlTab<TokenTab>('tab', TOKEN_TAB_IDS as readonly TokenTab[], 'tokens');
 
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
@@ -278,7 +271,7 @@ export default function TokensPage() {
   return (
     <DashboardLayout title="API Tokens" subtitle="Create and revoke API tokens" maxWidth="4xl">
       <div className="space-y-6">
-        <TabBar items={[...TOKEN_TABS]} activeId={activeTab} onSelect={changeTab} />
+        <TabBar items={[...TOKEN_TABS]} activeId={activeTab} onSelect={(id) => changeTab(id as TokenTab)} />
 
         {activeTab === 'tokens' && (
           <div className="space-y-6">

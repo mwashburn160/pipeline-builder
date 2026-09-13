@@ -5,13 +5,11 @@ import { useState } from 'react';
 import Link from 'next/link';
 import type { ExecutionCountRow } from '@/types';
 import type { DoraMetrics, DoraTrendPoint, DeploymentRow } from '@/lib/api/domains/reporting';
-import {
-  fmtSeconds, fmtWindow, fmtDate, ReportEmpty, SectionHeading,
-  StatCardSkeleton, SectionCardSkeleton,
-  DoraCard, DoraTrendSparkline, DoraScopeControls, type DoraScope,
-} from './ReportHelpers';
+import { fmtDate, ReportEmpty, SectionHeading, StatCardSkeleton, SectionCardSkeleton } from './ReportHelpers';
+import { fmtWindow, DoraCard, DoraTrendSparkline, DoraScopeControls, type DoraScope } from './DoraParts';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { formatDurationSeconds } from '@/lib/format';
 
 /** Billing deep-link that rings the DORA-History pack on the add-ons grid. */
 const RETENTION_PACK_HIGHLIGHT = '/dashboard/billing?highlight=dora_history_pack';
@@ -148,7 +146,7 @@ export function DoraReport({
               />
               <DoraCard
                 label="Lead time"
-                value={headlineEnv.leadTime.medianSeconds == null ? 'unknown' : fmtSeconds(headlineEnv.leadTime.medianSeconds)}
+                value={headlineEnv.leadTime.medianSeconds == null ? 'unknown' : formatDurationSeconds(headlineEnv.leadTime.medianSeconds)}
                 sub={
                   headlineEnv.leadTime.medianSeconds == null
                     ? <>No resolved commit times</>
@@ -183,7 +181,7 @@ export function DoraReport({
               />
               <DoraCard
                 label={<>Time to Restore (MTTR) <span className="text-gray-400 dark:text-gray-500">({headlineEnv.environment})</span></>}
-                value={fmtSeconds(dora.meanTimeToRestore.medianSeconds)}
+                value={formatDurationSeconds(dora.meanTimeToRestore.medianSeconds)}
                 sub={`${dora.meanTimeToRestore.restored}/${dora.meanTimeToRestore.incidents} incidents restored`}
                 tooltip={`Median time from a marked-failed ${headlineEnv.environment} deploy to its restoration. "—" means no post-deploy incidents in this window.`}
               />

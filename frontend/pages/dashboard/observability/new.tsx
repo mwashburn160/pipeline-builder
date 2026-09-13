@@ -12,7 +12,8 @@ import { LinkButton } from '@/components/ui/LinkButton';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
-import { api, getErrorMessage } from '@/lib/api';
+import { api } from '@/lib/api';
+import { formatError } from '@/lib/constants';
 
 /**
  * Create-dashboard page. Captures the metadata (name / description /
@@ -49,7 +50,7 @@ export default function NewDashboardPage() {
       toast.success('Dashboard created');
       void router.push(`/dashboard/observability/${id}/edit`);
     } catch (err) {
-      toast.error(getErrorMessage(err));
+      toast.error(formatError(err));
     } finally {
       setSubmitting(false);
     }
