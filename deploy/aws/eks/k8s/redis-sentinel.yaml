@@ -260,3 +260,38 @@ spec:
                 values: [platform, pipeline, plugin, message, quota, billing, compliance, reporting, image-registry, ask, redis, redis-sentinel]
       ports:
         - { port: 26379 }
+---
+# Quorum protection for VOLUNTARY disruption (node drains, and on eks Karpenter's
+# consolidation, which is aggressive about repacking nodes). Without these, a
+# single drain can evict two of the three Sentinels at once: quorum is 2, so the
+# survivors cannot agree to promote a replica and the "no longer a data-tier
+# SPOF" property this manifest exists to provide silently stops holding — exactly
+# when it is needed. Involuntary loss (node crash) is unaffected by a PDB; this
+# only stops the cluster from doing it to itself.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  # 1 primary + 2 replicas: keep 2 up so a failover always has a promotable
+  # replica with recent state.
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: redis
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-sentinel
+  labels:
+    app: redis-sentinel
+spec:
+  # Sentinel quorum is 2 (see the header of this file) — never let a drain take
+  # the fleet below it.
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: redis-sentinel

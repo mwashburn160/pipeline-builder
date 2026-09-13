@@ -263,3 +263,19 @@ spec:
         resources:
           requests:
             storage: 20Gi
+---
+# minio runs 4 replicas in distributed (erasure-coded) mode here, so writes need
+# a quorum of drives. Karpenter consolidation would otherwise be free to evict
+# two at once. Involuntary loss is unaffected; this bounds what the cluster does
+# to itself.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: minio
+  labels:
+    app: minio
+spec:
+  minAvailable: 3
+  selector:
+    matchLabels:
+      app: minio

@@ -8,64 +8,57 @@ metadata:
   name: pipeline-builder-quota
 spec:
   hard:
-    # Sized for an AWS m5.4xlarge instance (16 vCPU / 64 GiB RAM) running
-    # single-node minikube, hosting the full stack:
-    #   - registry + 3 per-tier buildkitd Deployments
-    #   - image-registry (HPA → 5 replicas)
-    #   - plugin (HPA → 4 replicas, each with a buildkitd sidecar)
-    #   - quota, platform, pipeline, message, compliance, billing,
-    #     reporting, frontend, nginx, postgres, mongo, redis, pgbouncer,
-    #     pgadmin, mongo-express, prometheus, loki, alertmanager, promtail
-    #   - ask-model (self-hosted Ollama) — 6Gi, the single largest request here
+    # Sized for the default InstanceType: m5.4xlarge (16 vCPU / 64 GiB), which
+    # gives the single-node minikube VM 15 vCPU / 60Gi (see the sizing table in
+    # bin/startup.sh). The namespace holds the whole stack: registry + 3 per-tier
+    # buildkitd Deployments, plugin (+ buildkitd sidecar), image-registry, the
+    # ~12 API services, postgres/mongo/redis/pgbouncer, the observability and
+    # admin add-ons, and ask-model (the self-hosted 7B — the single largest pod).
     #
-    # MEASURED against this manifest set (kubectl kustomize | sum of requests):
-    #   steady state (declared replicas): ~15.1Gi / ~5.6 cores  → fits
-    #   every HPA at maxReplicas:         ~22.5Gi / ~14.3 cores → does NOT fit
-    # The second line is intentional: this quota is the backstop that stops the
-    # HPAs from exhausting an 8-vCPU node, so "all HPAs maxed" is not reachable
-    # here by design. A deployment that genuinely needs it wants m5.4xlarge
-    # (16 vCPU / 64 GiB) AND these numbers raised to ~26Gi / ~15.
+    # MEASURED from the rendered manifests, not estimated
+    # (`kubectl kustomize` with BUILDKIT_MEMORY_LIMIT=3072Mi, summing every
+    # container and counting every autoscaler maximum):
     #
-    # requests = what's *actually* scheduled — capped well below physical
-    # capacity so kubelet + OS keep headroom.
-    # limits = sum of declared maxima — intentionally overcommitted on
-    # CPU (3x) because low steady-state usage across most services makes
-    # this safe in practice (on the t3 options, burstable credits too).
-    # memory limits stay BELOW the minikube VM's memory; further
-    # overcommit risks OOM-kill cascades.
+    #                    pods   requests                limits
+    #   steady            34    4.52 cpu / 13.62Gi      18.55 cpu / 27.00Gi
+    #   fully scaled      63   11.78 cpu / 21.31Gi      34.50 cpu / 42.50Gi
     #
-    # SIZED FOR m5.4xlarge (16 vCPU / 64Gi → minikube VM gets 15 vCPU / 60Gi;
-    # see the sizing table in bin/startup.sh). That is template.yaml's default
-    # InstanceType. On a smaller allowed instance these caps still ADMIT the
-    # steady stack, but full HPA scale-out will be quota-bound — see below.
+    # "fully scaled" = every HPA at maxReplicas AND the plugin KEDA ScaledObject
+    # at its max. Unlike earlier revisions of this file, full scale-out now FITS:
+    # the quota is headroom for the autoscalers, not a backstop against them.
+    # (limits totals include the LimitRange defaults below for the handful of
+    # containers that declare none.)
     #
-    # Measured against the rendered kustomize stream (BUILDKIT_MEMORY_LIMIT=3072Mi):
-    #                         requests              limits
-    #   steady                 4.52 cpu / 13.62Gi   18.55 cpu / 27.00Gi
-    #   fully scaled (HPA max) 11.48 cpu / 20.31Gi  33.00 cpu / 40.50Gi
+    # requests.* are real reservations — they must stay under the VM's 15 vCPU /
+    # 60Gi with room for kubelet, the istio-system/kube-system/keda pods that do
+    # NOT count against this namespace quota, and the transient crane-push +
+    # minio-init Jobs init-platform.sh spawns. requests.cpu 14 of 15 is
+    # deliberately snug: CPU, not memory, is what binds first at full scale.
+    # limits.* are ceilings, not reservations, and stay under the 60Gi VM so a
+    # simultaneous spike cannot cascade into OOM kills.
     #
-    # The jump from the previous 7 / 22Gi / 24 / 28Gi came from giving ask-model
-    # (the self-hosted 7B, limits cpu 4 / memory 10Gi) its full share rather than
-    # shrinking it: on the old t3.2xlarge default the 28Gi limits cap left ~1Gi of
-    # headroom at STEADY state, and raising it there would have pushed declared
-    # ceilings past the 28Gi minikube VM — exactly the OOM-cascade overcommit the
-    # note above warns about. The instance grew instead.
-    #
-    # requests.* are real reservations (keep them below VM capacity, with room for
-    # kubelet/system and the transient crane-push + init pods init-platform.sh
-    # spawns). limits.* are ceilings, not reservations, and stay under the 60Gi VM.
+    # On a smaller allowed InstanceType these caps still admit the steady stack,
+    # but lower them to 7 / 22Gi / 24 / 28Gi on t3.2xlarge — its VM is only 28Gi,
+    # and a 52Gi limits ceiling there would overcommit physical memory.
     requests.cpu: "14"
     requests.memory: 44Gi
     limits.cpu: "45"
     limits.memory: 52Gi
-    # Headroom for TRANSIENT bootstrap pods, mirroring the requests.cpu 6→7 bump
-    # above. The steady stack fully scaled (image-registry HPA→5, plugin HPA→4 +
-    # ~24 base services + 3 buildkitd) sits near 40; at exactly 40 the crane-push /
-    # init pods that init-platform.sh spawns during the base-image push were
-    # rejected with "exceeded quota: pods=40". The extra 8 are small, short-lived
-    # pods (crane push/check, minio-init) — memory/cpu quota still bound real load.
-    # Was: 40 — left zero room for the push step once the HPAs had scaled up.
-    pods: "48"
+    # Counted from the rendered manifests rather than estimated. At every
+    # autoscaler maximum the namespace holds 63 workload pods:
+    #   quota 2→6, image-registry 1→5, platform 1→5, frontend 1→4, pipeline 1→4,
+    #   ask/compliance/message/nginx/reporting 1→3 each (HPAs), plugin 1→2
+    #   (a KEDA ScaledObject, NOT an HPA — easy to miss when tallying), plus the
+    #   ~22 single-replica services, DBs and buildkitd tiers.
+    # On top of that init-platform.sh spawns short-lived crane push/check and
+    # minio-init Jobs, and a rolling update briefly runs surge pods.
+    #   63 fully scaled + ~8 transient + surge/slack = 80
+    # Was: 48 — which looked generous against the old hand-estimate of "near 40"
+    # but is 15 SHORT of the real fully-scaled count, so the first scale-out under
+    # load would have hit "exceeded quota: pods=48" exactly as the 40→48 bump was
+    # meant to prevent. (110 is the kubelet's default per-node ceiling, so 80 is
+    # still schedulable on the single node.)
+    pods: "80"
     persistentvolumeclaims: "10"
 
 ---
