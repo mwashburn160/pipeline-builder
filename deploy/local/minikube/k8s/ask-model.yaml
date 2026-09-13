@@ -2,15 +2,25 @@
 # =============================================================================
 # Ask model — OPT-IN self-hosted, OpenAI-compatible model (Ollama).
 #
-# NOT applied by default (commented out in kustomization.yaml). To enable:
-#   1) uncomment `- ask-model.yaml` in kustomization.yaml (or `kubectl apply -f`
-#      this file into the pipeline-builder namespace);
-#   2) point the ask service at it by setting on the `ask` Deployment (or app-env):
-#        OPENAI_COMPATIBLE_BASE_URL = http://ask-model:11434/v1
-#        OPENAI_COMPATIBLE_MODELS   = qwen2.5-coder:7b|Qwen 2.5 Coder
+# Enable with ONE knob:
 #
-# Sizing: a 7B tool-capable model needs ~6-8Gi RAM (CPU) or a GPU. For GPU,
-# uncomment the nodeSelector/tolerations + resources.limits `nvidia.com/gpu` below.
+#     ASK_MODEL=1 ./bin/setup.sh
+#
+# which applies this file AND adds OPENAI_COMPATIBLE_BASE_URL / _MODELS to the
+# app-env ConfigMap the `ask` Deployment already reads. Without it (and with no
+# cloud provider key in .env) the Ask assistant has NO provider and every turn
+# fails with "AI is not configured".
+#
+# Deliberately NOT in kustomization.yaml, and NOT folded into LEAN: LEAN
+# SUBTRACTS optional workloads to fit a small laptop, so adding a workload under
+# the same flag would invert its meaning.
+#
+# Sizing: LAPTOP-sized here — the 1.5B coder model at a 2Gi request. A minikube
+# VM is ~75% of the host (≈7Gi on a 9.7Gi laptop) and the core stack already
+# fills most of it, so the 7B/6Gi shape the AWS targets use would sit Pending
+# forever. For a bigger machine, raise the request and set OLLAMA_MODEL +
+# OPENAI_COMPATIBLE_MODELS to `qwen2.5-coder:7b`. For a GPU, uncomment the
+# nodeSelector/tolerations + resources.limits `nvidia.com/gpu` below.
 # Self-contained: bundles its ServiceAccount + istio authz + NetworkPolicy so
 # `kubectl apply -f ask-model.yaml` brings everything ask needs to reach it.
 # =============================================================================
@@ -29,7 +39,7 @@ spec:
   storageClassName: ""
   resources:
     requests:
-      storage: 20Gi
+      storage: 8Gi
 ---
 apiVersion: v1
 kind: Service
@@ -84,7 +94,7 @@ spec:
               name: http
           env:
             - name: OLLAMA_MODEL
-              value: "qwen2.5-coder:7b"
+              value: "qwen2.5-coder:1.5b"
             - name: OLLAMA_HOST
               value: "0.0.0.0:11434"
           # Pull the configured model once serving is up (idempotent; cached on the PVC).
@@ -96,12 +106,17 @@ spec:
             - name: models
               mountPath: /root/.ollama
           resources:
+            # Laptop-sized. The AWS targets run the 7B at 6Gi/10Gi; a minikube
+            # VM is ~75% of the host (≈7Gi on a 9.7Gi laptop) and the core stack
+            # already fills most of it, so a 6Gi REQUEST here would simply sit
+            # Pending forever. The 1.5B coder model answers the docs-grounded
+            # Ask path acceptably in ~2Gi.
             requests:
-              cpu: "1"
-              memory: 6Gi
+              cpu: "500m"
+              memory: 2Gi
             limits:
-              cpu: "4"
-              memory: 10Gi
+              cpu: "2"
+              memory: 4Gi
               # GPU: nvidia.com/gpu: "1"
           readinessProbe:
             httpGet: { path: /api/version, port: 11434 }

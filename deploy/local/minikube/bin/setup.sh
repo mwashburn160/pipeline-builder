@@ -35,6 +35,17 @@ K8S_VERSION="${K8S_VERSION:-v1.35.1}"
 # the core stack + Istio mesh fits on an ~8-core laptop. Core services + DBs are
 # unaffected. Full stack is the default (LEAN=0) for larger machines.
 LEAN="${LEAN:-0}"
+# ASK_MODEL=1 additionally deploys the self-hosted Ask model (k8s/ask-model.yaml,
+# Ollama) and points the ask service at it. OFF by default because it is the one
+# workload that may not fit: it asks for 2Gi on a VM that is already tight (see
+# the sizing warning below). The AWS targets ship it enabled — only minikube
+# makes it a choice.
+#
+# Without it (and with no cloud provider key in .env) the Ask assistant has NO
+# provider and every turn fails with "AI is not configured" — which is correct,
+# just not useful for local testing. NOT folded into LEAN: that flag SUBTRACTS
+# optional workloads, so a "LEAN=2" that added one would invert its meaning.
+ASK_MODEL="${ASK_MODEL:-0}"
 # Minikube VM disk size. Applied only at cluster CREATE — to grow an existing
 # cluster you must `minikube delete --profile=pipeline-builder` and re-run.
 # On the docker driver it's bounded by Docker Desktop's virtual-disk limit.
@@ -411,6 +422,17 @@ kube create namespace "$NAMESPACE"
 # `grep -E '^[[:space:]]*(#|$)'` is POSIX (BSD/macOS-safe; `\s` is a GNU extension).
 CLEAN_ENV=$(mktemp); trap 'rm -f "$CLEAN_ENV"' EXIT
 grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | sed "s|[\$]{PLATFORM_FRONTEND_URL}|${PLATFORM_FRONTEND_URL}|g" > "$CLEAN_ENV"
+# ASK_MODEL=1: point the ask service at the self-hosted model. Appended to the
+# app-env source rather than edited into k8s/ask.yaml because `ask` already
+# consumes app-env via `envFrom`, so one knob covers both the manifest and the
+# ConfigMap. A cloud key in .env still wins — the registry lists key-based
+# providers first, and this only ADDS the local one.
+if [ "$ASK_MODEL" = "1" ]; then
+  {
+    echo "OPENAI_COMPATIBLE_BASE_URL=http://ask-model:11434/v1"
+    echo "OPENAI_COMPATIBLE_MODELS=qwen2.5-coder:1.5b|Qwen 2.5 Coder"
+  } >> "$CLEAN_ENV"
+fi
 configmap app-env --from-env-file="$CLEAN_ENV"
 rm -f "$CLEAN_ENV"
 
@@ -513,6 +535,17 @@ log "Applying Kubernetes manifests"
 # builds ignore the shell-format restriction and strip runtime $tokens like the
 # minio-init `$b` loop). lean_filter drops optional workloads when LEAN=1.
 kubectl kustomize "$K8S_DIR" | sed "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" | lean_filter | kubectl apply -f -
+
+# ASK_MODEL=1: the self-hosted Ask model. Applied separately (it is deliberately
+# NOT in kustomization.yaml) because it is the one optional workload whose 2Gi
+# request may not fit beside the core stack on a small VM. The file is
+# self-contained — Deployment + Service + PVC + ServiceAccount + Istio AuthZ +
+# NetworkPolicy — so a plain apply brings everything `ask` needs to reach it.
+if [ "$ASK_MODEL" = "1" ]; then
+  echo "  Deploying self-hosted Ask model (ASK_MODEL=1)..."
+  kubectl apply -n "$NAMESPACE" -f "$K8S_DIR/ask-model.yaml"
+  echo "  NOTE: first start pulls the model (~1GB); the ask pod answers once ask-model is Ready."
+fi
 
 log "Post-deploy fixups"
 REGISTRY_IP=$(kubectl get svc registry -n "$NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)

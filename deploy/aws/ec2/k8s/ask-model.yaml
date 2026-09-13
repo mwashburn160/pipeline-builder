@@ -1,13 +1,15 @@
 ---
 # =============================================================================
-# Ask model — OPT-IN self-hosted, OpenAI-compatible model (Ollama).
+# Ask model — the self-hosted, OpenAI-compatible model (Ollama) that backs the
+# Ask assistant on this target.
 #
-# NOT applied by default (commented out in kustomization.yaml). To enable:
-#   1) uncomment `- ask-model.yaml` in kustomization.yaml (or `kubectl apply -f`
-#      this file into the pipeline-builder namespace);
-#   2) point the ask service at it by setting on the `ask` Deployment (or app-env):
-#        OPENAI_COMPATIBLE_BASE_URL = http://ask-model:11434/v1
-#        OPENAI_COMPATIBLE_MODELS   = qwen2.5-coder:7b|Qwen 2.5 Coder
+# APPLIED BY DEFAULT here (listed in kustomization.yaml), and the `ask`
+# Deployment points at it via OPENAI_COMPATIBLE_BASE_URL / _MODELS. The two go
+# together: with no cloud provider key configured, removing either leaves the
+# ask service with NO provider and every turn fails with "AI is not configured".
+#
+# (The minikube target keeps this opt-in — a 6Gi request will not schedule
+# beside the rest of the namespace on a typical laptop-sized cluster.)
 #
 # Sizing: a 7B tool-capable model needs ~6-8Gi RAM (CPU) or a GPU. For GPU,
 # uncomment the nodeSelector/tolerations + resources.limits `nvidia.com/gpu` below.

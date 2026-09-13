@@ -37,7 +37,14 @@ export function initSSEStream(req: Request, res: Response, timeoutMs: number): {
 export function handleAIError(res: Response, message: string, fallbackMessage: string): void {
   if (!res.headersSent) {
     if (message.includes('not configured') || message.includes('API key')) {
-      return sendInternalError(res, 'AI generation is not configured for the requested provider');
+      // Surface the ORIGINAL message. It names the MISSING CONFIGURATION —
+      // "no provider API key is set and OPENAI_COMPATIBLE_BASE_URL is unset",
+      // or which env var a named provider wants — never a secret VALUE, so it
+      // is safe to show and it is the only thing that makes this error
+      // actionable. The generic replacement also mis-described the common case:
+      // it said "for the requested provider" when no provider was requested at
+      // all, pointing operators at a provider bug instead of at configuration.
+      return sendInternalError(res, message);
     }
     if (message.includes('not available for provider')) {
       return sendBadRequest(res, message);

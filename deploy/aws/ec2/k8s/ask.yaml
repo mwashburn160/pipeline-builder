@@ -81,11 +81,14 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "ask"
-            # Self-hosted model (deploy/*/k8s/ask-model.yaml, opt-in) — uncomment to route:
-            # - name: OPENAI_COMPATIBLE_BASE_URL
-            #   value: "http://ask-model:11434/v1"
-            # - name: OPENAI_COMPATIBLE_MODELS
-            #   value: "qwen2.5-coder:7b|Qwen 2.5 Coder"
+            # Self-hosted model (deploy/*/k8s/ask-model.yaml, deployed alongside).
+            # This is what the Ask assistant runs on: without it the service has
+            # NO provider (no cloud API key is set by default) and every turn
+            # fails with "AI is not configured".
+            - name: OPENAI_COMPATIBLE_BASE_URL
+              value: "http://ask-model:11434/v1"
+            - name: OPENAI_COMPATIBLE_MODELS
+              value: "qwen2.5-coder:7b|Qwen 2.5 Coder"
           resources:
             limits:
               cpu: "350m"

@@ -21,7 +21,7 @@ resources:
   - message.yaml
   - reporting.yaml
   - ask.yaml
-  # - ask-model.yaml  # opt-in self-hosted model (Ollama); see file header
+  - ask-model.yaml  # self-hosted model (Ollama) backing the Ask assistant
   - quota.yaml
   - billing.yaml
   - compliance.yaml
