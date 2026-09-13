@@ -113,7 +113,14 @@ spec:
             # Ask path acceptably in ~2Gi.
             requests:
               cpu: "500m"
-              memory: 2Gi
+              # 1.5Gi, not 2Gi. The REQUEST only has to get the pod scheduled —
+              # the 4Gi limit is what caps actual use, and a 1.5B Q4 model sits
+              # around 1.3-1.5Gi resident. Measured on a real laptop cluster the
+              # rest of the namespace had already RESERVED 8020Mi of ~9943Mi
+              # allocatable (though it was only USING 5860Mi), so a 2Gi request
+              # missed by ~125Mi and the pod sat Pending — which defeats the
+              # whole point of an "enable it locally" flag.
+              memory: 1536Mi
             limits:
               cpu: "2"
               memory: 4Gi

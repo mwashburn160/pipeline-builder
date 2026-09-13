@@ -24,6 +24,14 @@ NAMESPACE="pipeline-builder"
 PROFILE="pipeline-builder"
 ENV_FILE="$DEPLOY_DIR/.env"
 MK_PROFILE_DIR="${MINIKUBE_HOME:-$HOME/.minikube}/profiles/$PROFILE"
+# ASK_MODEL=1 — enable the self-hosted Ask model on an ALREADY-PROVISIONED
+# cluster, without a full re-provision. Additive and idempotent: it applies
+# k8s/ask-model.yaml, adds the OPENAI_COMPATIBLE_* keys to the app-env ConfigMap
+# the ask service already reads, and restarts ask to pick them up.
+#
+# (LEAN is a PROVISION-time choice — what setup.sh applied — so it has no effect
+# here; a warning below says so rather than letting it look honoured.)
+ASK_MODEL="${ASK_MODEL:-0}"
 
 # Shared helpers (preflight). Sourcing common.sh cd's to /tmp — every path above
 # is absolute, so that's safe.
@@ -71,6 +79,23 @@ for i in $(seq 1 30); do
   [ "$i" = "30" ] && { echo "ERROR: API server not reachable" >&2; exit 1; }
   sleep 1
 done
+
+# -- Optional: self-hosted Ask model ------------------------------------------
+if [ "$ASK_MODEL" = "1" ]; then
+  log "Enabling the self-hosted Ask model (ASK_MODEL=1)"
+  kubectl apply -n "$NAMESPACE" -f "$DEPLOY_DIR/k8s/ask-model.yaml"
+  # `ask` reads app-env via envFrom, so patching the ConfigMap is all the
+  # service needs — no manifest edit. Merge-patch keeps every other key.
+  kubectl patch configmap app-env -n "$NAMESPACE" --type merge -p \
+    '{"data":{"OPENAI_COMPATIBLE_BASE_URL":"http://ask-model:11434/v1","OPENAI_COMPATIBLE_MODELS":"qwen2.5-coder:1.5b|Qwen 2.5 Coder"}}' >/dev/null
+  # envFrom values are injected at pod START — an existing ask pod keeps the old
+  # (absent) env until it is replaced.
+  kubectl rollout restart deployment/ask -n "$NAMESPACE" >/dev/null
+  echo "  ask-model applied; ask restarted. First start pulls the model (~1GB)."
+fi
+if [ "${LEAN:-}" = "1" ]; then
+  echo "  NOTE: LEAN only applies at provision time (setup.sh) — ignoring it here."
+fi
 
 # -- Wait for pods ------------------------------------------------------------
 log "Waiting for pods"
