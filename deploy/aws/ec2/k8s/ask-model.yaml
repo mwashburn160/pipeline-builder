@@ -211,3 +211,45 @@ spec:
               app: ask
       ports:
         - port: 11434
+---
+# ask-model -> the model registry (registry.ollama.ai).
+#
+# REQUIRED, not optional. `allow-dns-egress` and `allow-internal-egress` in
+# networkpolicy.yaml both use an EMPTY podSelector, so every pod in this
+# namespace is egress-restricted the moment they exist: DNS and in-namespace
+# traffic only, unless some other policy widens it. Without this rule
+# `ollama pull` resolves the registry, opens a TCP connection that never
+# completes, and hangs forever — the pod stays in ContainerCreating (a blocking
+# postStart keeps it there), the Service keeps ZERO endpoints, and every Ask
+# turn fails with "AI_APICallError: Cannot connect to API: other side closed".
+# Nothing in the pod's own logs explains it, because a container stuck in
+# postStart has no readable logs.
+#
+# Mirrors allow-plugin-external-egress: 443/80 to the internet, minus
+# link-local and RFC1918/CGNAT ranges so this cannot be used to reach the
+# node, the metadata service, or other in-VPC hosts. FQDN-scoping this to
+# registry.ollama.ai needs Cilium (see cilium-network-policies.yaml); plain
+# NetworkPolicy cannot express it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ask-model-external-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: ask-model
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 80
+          protocol: TCP
