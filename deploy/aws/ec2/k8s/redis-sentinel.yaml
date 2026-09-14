@@ -108,6 +108,10 @@ spec:
     matchLabels: { app: redis }
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9121"
+        prometheus.io/path: /metrics
       labels: { app: redis, app.kubernetes.io/component: cache }
     spec:
       serviceAccountName: redis
@@ -140,6 +144,20 @@ spec:
             - { name: scripts, mountPath: /scripts, readOnly: true }
             - { name: conf, mountPath: /etc/redis }
             - { name: data, mountPath: /data }
+        # Prometheus exporter sidecar. Per-POD on purpose: with Sentinel the
+        # interesting metrics (role, replication offset/lag, connected replicas)
+        # differ per member, so one exporter per pod is what makes a failover
+        # visible. Redis here requires no auth, so no credentials are wired.
+        - name: redis-exporter
+          image: oliver006/redis_exporter:v1.69.0
+          args:
+            - "--redis.addr=redis://localhost:6379"
+          ports:
+            - containerPort: 9121
+              name: metrics
+          resources:
+            requests: { cpu: "20m", memory: 32Mi }
+            limits:   { cpu: "100m", memory: 96Mi }
       volumes:
         - name: scripts
           configMap: { name: redis-sentinel-config, defaultMode: 0555 }
@@ -188,6 +206,10 @@ spec:
     matchLabels: { app: redis-sentinel }
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9121"
+        prometheus.io/path: /metrics
       labels: { app: redis-sentinel, app.kubernetes.io/component: cache }
     spec:
       serviceAccountName: redis-sentinel
@@ -215,6 +237,21 @@ spec:
           volumeMounts:
             - { name: scripts, mountPath: /scripts, readOnly: true }
             - { name: conf, mountPath: /etc/redis }
+        # Prometheus exporter sidecar, pointed at Sentinel's own port. Sentinel
+        # health is the HA story: quorum size, known replicas, and failover
+        # events. Without this the PodDisruptionBudget protects a quorum nothing
+        # is watching — a Sentinel that has lost sight of the primary looks
+        # identical to a healthy one from outside.
+        - name: redis-exporter
+          image: oliver006/redis_exporter:v1.69.0
+          args:
+            - "--redis.addr=redis://localhost:26379"
+          ports:
+            - containerPort: 9121
+              name: metrics
+          resources:
+            requests: { cpu: "20m", memory: 32Mi }
+            limits:   { cpu: "100m", memory: 96Mi }
       volumes:
         - name: scripts
           configMap: { name: redis-sentinel-config, defaultMode: 0555 }

@@ -71,6 +71,10 @@ spec:
       app: pgbouncer
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9127"
+        prometheus.io/path: /metrics
       labels:
         app: pgbouncer
     spec:
@@ -142,6 +146,35 @@ spec:
             # apply; pgbouncer is a stateless proxy with no on-disk state.
             capabilities:
               drop: ["ALL"]
+        # Prometheus exporter sidecar. Reads pgbouncer's virtual `pgbouncer`
+        # admin database over localhost — pgbouncer.ini already grants the
+        # postgres user SHOW access via `stats_users`, so no extra grant is
+        # needed. Surfaces pool saturation (cl_waiting / sv_active), which is
+        # the failure this pooler exists to prevent and the one that is
+        # otherwise invisible until queries start timing out.
+        - name: pgbouncer-exporter
+          image: quay.io/prometheuscommunity/pgbouncer-exporter:v0.10.2
+          args:
+            - "--web.listen-address=:9127"
+          env:
+            - name: PGBOUNCER_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DB_USER
+            - name: PGBOUNCER_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DB_PASSWORD
+            - name: PGBOUNCER_EXPORTER_CONNECTION_STRING
+              value: "postgres://$(PGBOUNCER_USER):$(PGBOUNCER_PASS)@localhost:6432/pgbouncer?sslmode=disable"
+          ports:
+            - containerPort: 9127
+              name: metrics
+          resources:
+            requests: { cpu: "20m", memory: 32Mi }
+            limits:   { cpu: "100m", memory: 96Mi }
       volumes:
         - name: config
           configMap:

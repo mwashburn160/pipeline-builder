@@ -86,3 +86,82 @@ tests:
             exp_annotations:
               summary: "istiod is not reporting metrics"
               description: "The Istio control plane has been unscrapeable for 5m. Mesh config changes will not propagate; the ztunnel data path continues on its last-known config."
+  # 6. A scraped-but-unreachable service fires ServiceDown.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="kubernetes-pods",service="platform",pod="platform-abc"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: platform
+              tenancy: platform
+              job: kubernetes-pods
+              service: platform
+              pod: platform-abc
+            exp_annotations:
+              summary: "platform is not responding to scrapes"
+              description: "Prometheus has failed to scrape platform (pod platform-abc) for 5m. The pod exists but is unreachable — crashloop, OOM, or a hung process. Check: kubectl get pods -n pipeline-builder | grep platform"
+
+  # 7. A healthy service does NOT fire.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="kubernetes-pods",service="platform",pod="platform-abc"}'
+        values: '1+0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ServiceDown
+        exp_alerts: []
+
+  # 8. Documents the KNOWN LIMIT rather than hiding it: a workload scaled to zero
+  #    produces no `up` series at all, so ServiceDown stays silent. Detecting
+  #    absence needs absent() or kube-state-metrics. This test exists so the gap
+  #    is explicit and a future change to absent()-based detection has a failing
+  #    case to flip.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="kubernetes-pods",service="ghost",pod="ghost-1"}'
+        values: '_x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ServiceDown
+        exp_alerts: []
+  # 9-11. Datastore reachability. Distinct from ServiceDown: the exporter is UP
+  #       and reporting, but its target is not answering.
+  - interval: 1m
+    input_series:
+      - series: 'pg_up{service="postgres",pod="postgres-1"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PostgresUnreachable
+        exp_alerts:
+          - exp_labels: { severity: critical, component: postgres, tenancy: platform, service: postgres, pod: postgres-1 }
+            exp_annotations:
+              summary: "Postgres is not answering its exporter"
+              description: "postgres-exporter has been unable to query Postgres for 3m while its own pod is healthy. Postgres is the single-primary data tier — every service loses writes. Check: kubectl logs -n pipeline-builder deploy/postgres"
+
+  - interval: 1m
+    input_series:
+      - series: 'pg_up{service="postgres",pod="postgres-1"}'
+        values: '1+0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PostgresUnreachable
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'redis_up{service="redis",pod="redis-0"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: RedisUnreachable
+        exp_alerts:
+          - exp_labels: { severity: critical, component: redis, tenancy: platform, service: redis, pod: redis-0 }
+            exp_annotations:
+              summary: "Redis instance redis-0 is not answering its exporter"
+              description: "redis-exporter cannot reach Redis for 3m. This is per-pod: on the AWS targets a single member failing is survivable via Sentinel, but losing quorum is not. BullMQ plugin builds and the audit spool both depend on it."

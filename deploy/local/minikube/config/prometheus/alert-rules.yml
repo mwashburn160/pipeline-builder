@@ -161,6 +161,79 @@ groups:
   # shared registry). Routed to the ops-team Slack channels.
   - name: platform-wide
     rules:
+      # ---- Liveness ----
+      # The blind spot every other rule shares: they all need the service to be
+      # UP ENOUGH to emit the metric they alert on. ServiceError5xxBurst needs it
+      # serving 5xx; QuotaServiceFailOpenSustained needs it reporting fail-opens.
+      # A pod that is crashlooping, OOM-killed, hung, or unreachable emits
+      # nothing at all — and so tripped nothing at all until this rule existed.
+      #
+      # SCOPE, stated honestly: `up == 0` means "discovered by Kubernetes SD but
+      # the scrape failed". It does NOT catch a workload scaled to zero or whose
+      # pods are all deleted, because the series then disappears rather than
+      # going to 0 — detecting absence needs per-service `absent()` rules or
+      # kube-state-metrics. The covered case is the one that happens by accident;
+      # the uncovered one is usually deliberate.
+      #
+      # Prometheus cannot alert on its own death either. If that matters, pair
+      # this with an always-firing watchdog alert and an external check on
+      # Alertmanager, so silence itself becomes a signal.
+      - alert: ServiceDown
+        expr: up{job="kubernetes-pods"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "{{ $labels.service }} is not responding to scrapes"
+          description: "Prometheus has failed to scrape {{ $labels.service }} (pod {{ $labels.pod }}) for 5m. The pod exists but is unreachable — crashloop, OOM, or a hung process. Check: kubectl get pods -n pipeline-builder | grep {{ $labels.service }}"
+
+      # ---- Datastores ----
+      # These complement ServiceDown rather than duplicating it. ServiceDown
+      # fires when the scrape itself fails (pod gone/hung). These fire when the
+      # exporter is HEALTHY AND REPORTING but cannot reach the datastore behind
+      # it — a hung or wedged database in a running pod, a rejected credential,
+      # or a filled disk. From the outside those look identical to healthy;
+      # `up` is 1 the whole time.
+      #
+      # Metric names verified against the exporter binaries themselves rather
+      # than assumed from docs: pg_up, mongodb_up and redis_up are what
+      # postgres-exporter v0.17.1, mongodb_exporter 0.44.0 and redis_exporter
+      # v1.69.0 actually emit when their target is unreachable.
+      - alert: PostgresUnreachable
+        expr: pg_up == 0
+        for: 3m
+        labels:
+          severity: critical
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "Postgres is not answering its exporter"
+          description: "postgres-exporter has been unable to query Postgres for 3m while its own pod is healthy. Postgres is the single-primary data tier — every service loses writes. Check: kubectl logs -n pipeline-builder deploy/postgres"
+
+      - alert: MongoDBUnreachable
+        expr: mongodb_up == 0
+        for: 3m
+        labels:
+          severity: critical
+          component: mongodb
+          tenancy: platform
+        annotations:
+          summary: "MongoDB is not answering its exporter"
+          description: "mongodb-exporter has been unable to query MongoDB for 3m. Audit, billing and quota records are unavailable. Check: kubectl logs -n pipeline-builder deploy/mongodb"
+
+      - alert: RedisUnreachable
+        expr: redis_up == 0
+        for: 3m
+        labels:
+          severity: critical
+          component: redis
+          tenancy: platform
+        annotations:
+          summary: "Redis instance {{ $labels.pod }} is not answering its exporter"
+          description: "redis-exporter cannot reach Redis for 3m. This is per-pod: on the AWS targets a single member failing is survivable via Sentinel, but losing quorum is not. BullMQ plugin builds and the audit spool both depend on it."
+
       # ---- Queue ----
       - alert: PluginQueueStalled
         expr: sum(plugin_queue_jobs{state="waiting"}) > 50

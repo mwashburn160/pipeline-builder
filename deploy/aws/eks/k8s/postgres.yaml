@@ -57,6 +57,10 @@ spec:
       app: postgres
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+        prometheus.io/path: /metrics
       labels:
         app: postgres
         app.kubernetes.io/component: database
@@ -124,6 +128,35 @@ spec:
             - name: init-script
               mountPath: /docker-entrypoint-initdb.d
               readOnly: true
+        # Prometheus exporter. Sidecar rather than a separate Deployment so it
+        # shares the database's lifecycle and network namespace: it reaches
+        # Postgres on localhost (no Service, no extra NetworkPolicy), and when
+        # the database dies the exporter dies with it, which is exactly the
+        # signal ServiceDown keys off. Postgres speaks no Prometheus itself, so
+        # the pod's scrape annotation points here.
+        - name: postgres-exporter
+          image: quay.io/prometheuscommunity/postgres-exporter:v0.17.1
+          ports:
+            - containerPort: 9187
+              name: metrics
+          env:
+            # Reuses the same credentials the server is initialised with —
+            # no separate monitoring role to provision or rotate.
+            - name: DATA_SOURCE_URI
+              value: "localhost:5432/postgres?sslmode=disable"
+            - name: DATA_SOURCE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DATA_SOURCE_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests: { cpu: "25m", memory: 48Mi }
+            limits:   { cpu: "100m", memory: 128Mi }
       volumes:
         - name: postgres-data
           persistentVolumeClaim:

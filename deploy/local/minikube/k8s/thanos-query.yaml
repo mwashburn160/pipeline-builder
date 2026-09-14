@@ -58,6 +58,14 @@ spec:
       app: thanos-store-gateway
   template:
     metadata:
+      annotations:
+        # Scraped by the `kubernetes-pods` job. The observability stack has to
+        # monitor ITSELF — without this, a Loki/Thanos/Alertmanager failure is
+        # invisible, and LokiRateCapBreach could never fire because the metric
+        # it alerts on (loki_discarded_samples_total) is emitted by Loki.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "10902"
+        prometheus.io/path: /metrics
       labels:
         app: thanos-store-gateway
         app.kubernetes.io/component: observability
@@ -168,6 +176,14 @@ spec:
       app: thanos-query
   template:
     metadata:
+      annotations:
+        # Scraped by the `kubernetes-pods` job. The observability stack has to
+        # monitor ITSELF — without this, a Loki/Thanos/Alertmanager failure is
+        # invisible, and LokiRateCapBreach could never fire because the metric
+        # it alerts on (loki_discarded_samples_total) is emitted by Loki.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
       labels:
         app: thanos-query
         app.kubernetes.io/component: observability

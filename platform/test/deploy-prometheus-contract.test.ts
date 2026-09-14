@@ -72,6 +72,67 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     expect(rule).toContain('destination_workload_namespace="pipeline-builder"');
   });
 
+  it('alerts when a scraped service stops responding', () => {
+    const rules = read(`${target}/config/prometheus/alert-rules.yml`);
+    // Every other rule needs the service alive enough to emit the metric it
+    // alerts on, so a crashlooping or hung pod tripped nothing at all.
+    expect(rules).toContain('alert: ServiceDown');
+    expect(rules).toContain('up{job="kubernetes-pods"} == 0');
+  });
+
+  it('scrapes the observability stack itself', () => {
+    // Without these, a Loki/Thanos/Alertmanager failure is invisible — and
+    // LokiRateCapBreach was a DEAD RULE, alerting on a metric
+    // (loki_discarded_samples_total) that only Loki emits and nothing collected.
+    const files: Record<string, string> = {
+      'prometheus.yaml': '9090',
+      'alertmanager.yaml': '9093',
+      'loki.yaml': '3100',
+      'promtail.yaml': '9080',
+      'jaeger.yaml': '14269',
+    };
+    for (const [file, port] of Object.entries(files)) {
+      const manifest = read(`${target}/k8s/${file}`);
+      expect(manifest).toContain('prometheus.io/scrape: "true"');
+      expect(manifest).toContain(`prometheus.io/port: "${port}"`);
+    }
+    // thanos-query and thanos-store-gateway share one manifest on their own ports.
+    const thanos = read(`${target}/k8s/thanos-query.yaml`);
+    expect(thanos).toContain('prometheus.io/port: "10902"'); // store-gateway
+    expect(thanos).toContain('prometheus.io/port: "9090"'); // query
+  });
+
+  it('deploys an exporter sidecar for every datastore', () => {
+    // Postgres/Mongo/Redis/pgbouncer speak no Prometheus, so without these the
+    // entire data tier is unmonitored — including the single-primary Postgres
+    // that is the documented data-tier SPOF.
+    const sidecars: Array<[string, string, string]> = [
+      ['postgres.yaml', 'postgres-exporter', '9187'],
+      ['mongodb.yaml', 'mongodb-exporter', '9216'],
+      ['pgbouncer.yaml', 'pgbouncer-exporter', '9127'],
+    ];
+    for (const [file, container, port] of sidecars) {
+      const m = read(`${target}/k8s/${file}`);
+      expect(m).toContain(`name: ${container}`);
+      expect(m).toContain(`prometheus.io/port: "${port}"`);
+    }
+    // redis lives in redis.yaml locally and redis-sentinel.yaml on AWS.
+    const redisFile = target.includes('minikube') ? 'redis.yaml' : 'redis-sentinel.yaml';
+    const redis = read(`${target}/k8s/${redisFile}`);
+    expect(redis).toContain('name: redis-exporter');
+    expect(redis).toContain('prometheus.io/port: "9121"');
+  });
+
+  it('alerts when a datastore stops answering its exporter', () => {
+    const rules = read(`${target}/config/prometheus/alert-rules.yml`);
+    // Distinct from ServiceDown: these fire while the exporter is healthy and
+    // `up` is 1, which is what a hung/wedged database looks like from outside.
+    // Metric names were verified against the exporter binaries, not docs.
+    expect(rules).toContain('expr: pg_up == 0');
+    expect(rules).toContain('expr: mongodb_up == 0');
+    expect(rules).toContain('expr: redis_up == 0');
+  });
+
   it('alerts when the control plane stops reporting', () => {
     const rules = read(`${target}/config/prometheus/alert-rules.yml`);
     expect(rules).toContain('alert: IstiodDown');

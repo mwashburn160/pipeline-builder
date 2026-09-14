@@ -58,6 +58,10 @@ spec:
       app: mongodb
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9216"
+        prometheus.io/path: /metrics
       labels:
         app: mongodb
         app.kubernetes.io/component: database
@@ -169,6 +173,28 @@ spec:
             - name: init-script
               mountPath: /docker-entrypoint-initdb.d
               readOnly: true
+        # Prometheus exporter sidecar — see the postgres-exporter note for why
+        # this is a sidecar. --collect-all enables the replset/oplog collectors
+        # this deployment cares about; --compatible-mode keeps the legacy metric
+        # names that most community dashboards and alert rules expect.
+        - name: mongodb-exporter
+          image: percona/mongodb_exporter:0.44.0
+          args:
+            - "--collect-all"
+            - "--compatible-mode"
+            - "--web.listen-address=:9216"
+          ports:
+            - containerPort: 9216
+              name: metrics
+          env:
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGODB_URI
+          resources:
+            requests: { cpu: "25m", memory: 48Mi }
+            limits:   { cpu: "100m", memory: 128Mi }
       volumes:
         - name: mongodb-data
           persistentVolumeClaim:
