@@ -1,0 +1,21 @@
+# Grafana datasource provisioning for the docker target.
+#
+# Kept in sync with the kubernetes targets' grafana-datasources ConfigMap, with
+# ONE deliberate difference: Prometheus is the default here because this target
+# runs no Thanos (the k8s targets default to Thanos, which fans out to the
+# object-store blocks and so answers long ranges that Prometheus alone drops).
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+  - name: Jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686

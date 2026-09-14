@@ -309,7 +309,7 @@ spec:
             matchExpressions:
               - key: app
                 # `platform` reads Loki via /api/observability/logs for the
-                # native Audit Activity dashboard. Grafana removed from the
+                # native Audit Activity dashboard. Grafana is now a separate admin console (k8s/grafana.yaml), no longer embedded in the
                 # value list — the iframe is deleted in this PR.
                 operator: In
                 values: [promtail, platform]

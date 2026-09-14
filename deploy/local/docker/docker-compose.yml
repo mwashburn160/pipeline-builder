@@ -1247,9 +1247,66 @@ services:
           memory: 256M
 
   # ---------------------------------------------------------------------------
-  # Observability (Prometheus + Loki + Promtail). Grafana removed in favor of
-  # the native /dashboard/observability page.
+  # Observability (Prometheus + Loki + Promtail + Grafana).
+  #
+  # The native /dashboard/observability page remains the TENANT-facing surface —
+  # org-scoped, served through the platform's PromQL proxy. Grafana is the
+  # operator's console beside it: unscoped, admin-only, its own login. An
+  # earlier iteration embedded Grafana as an iframe inside the dashboard and was
+  # removed in favour of the native pages; this is not that — nothing links to
+  # it from a tenant page.
   # ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # Grafana — dashboards over prometheus/loki/jaeger.
+  #
+  # Mirrors the kubernetes targets, minus Kiali: this target has no service mesh
+  # (no istio/ztunnel/envoy anywhere in this file), so Kiali would render an
+  # empty graph and is deliberately NOT deployed here.
+  #
+  # Reached at https://localhost:8443/grafana/ through nginx, same as pgAdmin.
+  # It has its own login because nginx applies no auth to that route, and it
+  # queries Prometheus with no org scoping — anyone who gets in sees every
+  # tenant's metrics.
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: 'grafana/grafana:12.3.0'
+    container_name: grafana
+    restart: always
+    user: "472"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      # Served under /grafana/ by nginx; without both of these Grafana emits
+      # absolute URLs rooted at / and the subpath mount 404s on every asset.
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # Offline install — no outbound call to grafana.com on boot.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - backend-network
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 512M
+        reservations:
+          cpus: '0.05'
+          memory: 192M
+
   prometheus:
     image: 'prom/prometheus:v3.13.2'
     container_name: prometheus

@@ -1,0 +1,277 @@
+---
+# =============================================================================
+# Kiali — the Istio service-mesh console.
+#
+# Deployed like pgadmin/mongo-express: an OPTIONAL admin UI on a NodePort with
+# an nginx subpath route, dropped by LEAN.
+#
+# TWO THINGS TO KNOW BEFORE RELYING ON IT
+#
+# 1. L4 ONLY. This mesh runs Istio *ambient* with no waypoint proxies, so
+#    ztunnel reports istio_tcp_* and nothing else — measured on a live cluster:
+#    553 istio_* series, `istio_requests_total` count ZERO. The graph shows who
+#    talks to whom, how much, and whether it is mTLS. It will NOT show HTTP
+#    success rates, RPS, per-route latency or status codes. Those need waypoint
+#    proxies, which cost a pod per namespace/service and change the data path.
+#
+# 2. NO TENANT MODEL. Kiali shows the whole mesh — every org's workloads and
+#    traffic. It is sysadmin-only by construction, which is why it is not linked
+#    from any tenant-facing page and why auth.strategy is `token` below.
+#
+# Depends on the `istio-mesh` Prometheus scrape job; without it the graph is
+# empty because Kiali reads topology from Prometheus, not from the API server.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: kiali
+  labels:
+    app: kiali
+    app.kubernetes.io/component: observability
+spec:
+  type: NodePort
+  ports:
+    - port: 20001
+      targetPort: 20001
+      nodePort: 30201
+      protocol: TCP
+      name: http
+  selector:
+    app: kiali
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kiali
+  labels:
+    app: kiali
+---
+# Kiali reads Istio config and workload topology across the cluster. Read-only:
+# no create/update/delete anywhere, so the console cannot mutate the mesh even
+# if someone reaches it. (Kiali's config-editing features are correspondingly
+# unavailable — deliberate.)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kiali
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "namespaces", "nodes", "replicationcontrollers", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.istio.io", "security.istio.io", "telemetry.istio.io", "extensions.istio.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch"]
+  # Used by the "login with a token" flow to tell the holder what they can see.
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["selfsubjectaccessreviews"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kiali
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kiali
+subjects:
+  - kind: ServiceAccount
+    name: kiali
+    namespace: pipeline-builder
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kiali
+  labels:
+    app: kiali
+data:
+  config.yaml: |
+    istio_namespace: istio-system
+    auth:
+      # `token` — a Kubernetes ServiceAccount token is required to sign in.
+      # NOT `anonymous`: nginx applies no auth to the /kiali/ route (same as
+      # /pgadmin/, which relies on pgAdmin's own login), so anonymous here would
+      # publish an unauthenticated, cross-tenant view of the whole mesh.
+      # Mint one with:
+      #   kubectl -n pipeline-builder create token kiali
+      strategy: token
+    deployment:
+      view_only_mode: true
+      namespace: pipeline-builder
+    server:
+      port: 20001
+      # Served under /kiali/ by nginx; Kiali builds its asset and API URLs from
+      # this, so a mismatch yields a blank page with 404s on every asset.
+      web_root: /kiali
+    external_services:
+      istio:
+        root_namespace: istio-system
+      prometheus:
+        url: http://prometheus:9090
+      grafana:
+        enabled: true
+        internal_url: http://grafana:3000
+        external_url: /grafana
+      tracing:
+        enabled: true
+        internal_url: http://jaeger:16686
+        external_url: /jaeger
+        provider: jaeger
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kiali
+  labels:
+    app: kiali
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kiali
+  template:
+    metadata:
+      labels:
+        app: kiali
+        app.kubernetes.io/component: observability
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: kiali
+      containers:
+        - name: kiali
+          image: quay.io/kiali/kiali:v2.16
+          command: ["/opt/kiali/kiali", "-config", "/kiali-configuration/config.yaml"]
+          ports:
+            - containerPort: 20001
+              name: http
+            - containerPort: 9090
+              name: metrics
+          env:
+            - name: ACTIVE_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: config
+              mountPath: /kiali-configuration
+          resources:
+            requests:
+              cpu: "50m"
+              memory: 128Mi
+            limits:
+              cpu: "300m"
+              memory: 512Mi
+          readinessProbe:
+            httpGet: { path: /kiali/healthz, port: 20001 }
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: { path: /kiali/healthz, port: 20001 }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        - name: config
+          configMap:
+            name: kiali
+---
+# nginx -> kiali (the /kiali/ subpath route).
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: kiali-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: kiali
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+      to:
+        - operation:
+            ports: ["20001"]
+    # Prometheus scrapes kiali's own metrics port.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+      to:
+        - operation:
+            ports: ["9090"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kiali-from-nginx
+spec:
+  podSelector:
+    matchLabels:
+      app: kiali
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: nginx
+      ports:
+        - port: 20001
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 9090
+---
+# kiali -> the Kubernetes API server and istiod.
+#
+# PORTS-ONLY, no `to:` selector — the same shape as
+# allow-prometheus-mesh-scrape. Under ambient, outbound is redirected to the
+# node-local ztunnel over a link-local address, so an ipBlock that excepts
+# 169.254.0.0/16 severs the data path while still completing the TCP handshake.
+# 443/6443 = API server, 15014 = istiod.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kiali-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: kiali
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP
+        - port: 15014
+          protocol: TCP

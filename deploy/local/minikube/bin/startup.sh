@@ -111,6 +111,12 @@ fi
 if kubectl get svc pgadmin -n "$NAMESPACE" >/dev/null 2>&1; then
   port_forward "pgAdmin" pgadmin "5480:80"
 fi
+if kubectl get svc grafana -n "$NAMESPACE" >/dev/null 2>&1; then
+  port_forward "Grafana" grafana "3001:3000"
+fi
+if kubectl get svc kiali -n "$NAMESPACE" >/dev/null 2>&1; then
+  port_forward "Kiali" kiali "20001:20001"
+fi
 
 # Verify gateway
 for i in $(seq 1 5); do
@@ -161,6 +167,8 @@ echo ""
 echo "  Dev tools           port-forward (localhost)      NodePort (minikube):"
 echo "    Mongo Express   : http://localhost:8081         http://$MK_IP:30081"
 echo "    pgAdmin         : http://localhost:5480         http://$MK_IP:30480"
+echo "    Grafana         : http://localhost:3001         http://$MK_IP:30300"
+echo "    Kiali           : http://localhost:20001        http://$MK_IP:30201"
 echo ""
 echo "  Shutdown (preserve data): deploy/local/minikube/bin/shutdown.sh"
 echo "  Stop port-forwards      : pkill -f 'kubectl port-forward.*-n $NAMESPACE'"

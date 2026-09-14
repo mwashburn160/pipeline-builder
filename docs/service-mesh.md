@@ -185,10 +185,33 @@ larger machines; **eks** is unaffected (Karpenter provisions more nodes instead)
 | Pods not captured (no HBONE) | `istio-cni` not Ready before the pod started; on a non-standard node, set `values.cni.cniConfDir`/`cniBinDir`. |
 | Periodic Redis reconnects | ztunnel idle-timeout reaping idle pub/sub connections — benign; tune the client `keepAlive` if noisy. |
 
-## Optional: Kiali
+## Kiali (mesh console)
 
-Kiali (mesh visualization) is **not installed** to save resources. Add it
-per the upstream Istio docs if you want a topology/health dashboard.
+Kiali ships on the three kubernetes targets (`k8s/kiali.yaml`), reached through
+nginx at **`/kiali/`** like `/pgadmin/`, and dropped by `LEAN=1`. It is not
+deployed on **docker**, which runs no mesh.
+
+**What you get here is L4 only.** This mesh runs ambient with no waypoint
+proxies, so ztunnel is a TCP proxy and reports `istio_tcp_*` and nothing else —
+measured on a live cluster, 553 `istio_*` series with `istio_requests_total` at
+**zero**. The graph shows who talks to whom, how much traffic, and whether the
+edge is mTLS. It does **not** show HTTP success rates, RPS, per-route latency or
+status codes; those need waypoint proxies, which cost a pod per
+namespace/service and change the data path.
+
+It depends on the `istio-mesh` Prometheus scrape job — Kiali reads topology from
+Prometheus, not from the API server, so without that job the graph is empty.
+
+**Access is deliberately restricted.** Kiali has no tenant model: it shows every
+org's workloads and traffic. So it runs `view_only_mode` with read-only RBAC (no
+create/update/delete verbs in its ClusterRole) and `auth.strategy: token` —
+nginx applies no auth to `/kiali/`, so anonymous would publish a cross-tenant
+view of the whole mesh to anyone who can reach the gateway. Sign in with a
+ServiceAccount token:
+
+```bash
+kubectl -n pipeline-builder create token kiali
+```
 
 ## Cross-target parity
 

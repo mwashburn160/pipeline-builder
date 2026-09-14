@@ -30,6 +30,10 @@ pb_create_app_secrets() {
   pb_secret mongodb-secret       --from-literal=MONGO_INITDB_ROOT_USERNAME="$MONGO_INITDB_ROOT_USERNAME" --from-literal=MONGO_INITDB_ROOT_PASSWORD="$MONGO_INITDB_ROOT_PASSWORD" --from-literal=MONGODB_URI="$MONGODB_URI"
   pb_secret mongo-express-secret --from-literal=ME_CONFIG_BASICAUTH_USERNAME="$ME_CONFIG_BASICAUTH_USERNAME" --from-literal=ME_CONFIG_BASICAUTH_PASSWORD="$ME_CONFIG_BASICAUTH_PASSWORD"
   pb_secret pgadmin-secret       --from-literal=PGADMIN_DEFAULT_EMAIL="$PGADMIN_DEFAULT_EMAIL" --from-literal=PGADMIN_DEFAULT_PASSWORD="$PGADMIN_DEFAULT_PASSWORD"
+  # Grafana's own admin login — nginx applies no auth to /grafana/, and Grafana
+  # reads Prometheus with no org scoping, so this password is the only thing
+  # between a visitor and every tenant's metrics.
+  pb_secret grafana-secret       --from-literal=GRAFANA_ADMIN_USER="$GRAFANA_ADMIN_USER" --from-literal=GRAFANA_ADMIN_PASSWORD="$GRAFANA_ADMIN_PASSWORD"
   # MinIO: root creds (server + minio-init bootstrap) plus the per-service,
   # bucket-scoped keys. Created HERE from .env rather than shipped as a literal
   # Secret in k8s/minio.yaml — which is what it used to be, with working

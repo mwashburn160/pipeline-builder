@@ -29,6 +29,8 @@ resources:
   - frontend.yaml
   - mongo-express.yaml
   - pgadmin.yaml
+  - grafana.yaml   # dashboards over prometheus/thanos/loki/jaeger (LEAN drops it)
+  - kiali.yaml     # istio mesh console — L4-only under ambient (LEAN drops it)
   - minio.yaml
   - registry.yaml
   - image-registry.yaml

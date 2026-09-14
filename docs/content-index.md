@@ -111,7 +111,8 @@ the links below.
 ## K
 
 - **KEDA (autoscaling the build queue)** — [Service Mesh: Queues, KEDA & buildkit](service-mesh.md#queues-keda-buildkit)
-- **Kiali (mesh visualization, optional)** — [Service Mesh: Optional Kiali](service-mesh.md#optional-kiali)
+- **Kiali (Istio mesh console)** — [Service Mesh: Kiali](service-mesh.md#kiali-mesh-console)
+- **Grafana (operator dashboards)** — [Deploy Operations: Operator consoles](deploy-operations.md#operator-consoles-grafana-kiali)
 - **Kubernetes deploy plugins** — [Deploy Plugins: Kubernetes](plugins/deploy.md#kubernetes)
 
 ## L

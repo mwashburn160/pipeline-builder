@@ -1,0 +1,245 @@
+---
+# =============================================================================
+# Grafana — dashboards over the existing observability stack.
+#
+# Follows the pgadmin/mongo-express pattern exactly: an OPTIONAL admin UI,
+# NodePort + an nginx subpath route, dropped by LEAN, and gated by its own
+# login rather than by the gateway (nginx applies no auth to /grafana/).
+#
+# This does NOT replace the native Observability pages. Those are org-scoped —
+# platform proxies PromQL and substitutes $ORG so a tenant only ever sees their
+# own metrics. Grafana talks to Prometheus directly with no such scoping, which
+# is precisely why it is admin-only and why no tenant-facing page links to it.
+#
+# Datasources are provisioned from a ConfigMap rather than clicked in, so a
+# rebuilt Grafana comes back with the same wiring. Thanos is the long-range
+# source (Prometheus keeps ~local retention; Thanos fronts the S3/MinIO blocks),
+# so it is the default rather than Prometheus.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  labels:
+    app: grafana
+    app.kubernetes.io/component: observability
+spec:
+  type: NodePort
+  ports:
+    - port: 3000
+      targetPort: 3000
+      nodePort: 30300
+      protocol: TCP
+      name: http
+  selector:
+    app: grafana
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: grafana-pv
+  labels:
+    app: grafana
+spec:
+  storageClassName: ""
+  capacity:
+    storage: 2Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /data/db-data/grafana
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  labels:
+    app: grafana
+spec:
+  storageClassName: ""
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+  selector:
+    matchLabels:
+      app: grafana
+---
+# Datasource provisioning. Grafana reads this at boot; editing it and restarting
+# is the supported way to change wiring (the UI edits would be overwritten).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  labels:
+    app: grafana
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      # DEFAULT. Thanos Query fans out to the Prometheus sidecar AND the
+      # object-store blocks, so it answers both recent and historical ranges.
+      # Prometheus alone silently returns nothing beyond its local retention.
+      - name: Thanos
+        type: prometheus
+        access: proxy
+        url: http://thanos-query:9090
+        isDefault: true
+      # The raw Prometheus, for debugging the scrape layer itself (targets,
+      # rule evaluation) where Thanos's dedup would get in the way.
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki:3100
+      - name: Jaeger
+        type: jaeger
+        access: proxy
+        url: http://jaeger:16686
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  labels:
+    app: grafana
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  # Single writer on an RWO volume.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+        app.kubernetes.io/component: observability
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: grafana
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 472        # the grafana user in the official image
+        runAsGroup: 472
+        fsGroup: 472
+      containers:
+        - name: grafana
+          image: grafana/grafana:12.3.0
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secret
+                  key: GRAFANA_ADMIN_USER
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secret
+                  key: GRAFANA_ADMIN_PASSWORD
+            # Served under /grafana/ by nginx; without these Grafana emits
+            # absolute redirects and asset URLs rooted at / and the subpath
+            # mount breaks on first navigation.
+            - name: GF_SERVER_ROOT_URL
+              value: "%(protocol)s://%(domain)s/grafana/"
+            - name: GF_SERVER_SERVE_FROM_SUB_PATH
+              value: "true"
+            # No anonymous access and no sign-up: this reaches an unscoped
+            # Prometheus, so a viewer here sees every tenant's metrics.
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            # Offline install — no outbound call to grafana.com on boot.
+            - name: GF_ANALYTICS_REPORTING_ENABLED
+              value: "false"
+            - name: GF_ANALYTICS_CHECK_FOR_UPDATES
+              value: "false"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+          resources:
+            requests:
+              cpu: "75m"
+              memory: 192Mi
+            limits:
+              cpu: "300m"
+              memory: 512Mi
+          readinessProbe:
+            httpGet: { path: /api/health, port: 3000 }
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: { path: /api/health, port: 3000 }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: grafana-data
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana
+  labels:
+    app: grafana
+---
+# nginx -> grafana (the /grafana/ subpath route).
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: grafana-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: grafana
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+      to:
+        - operation:
+            ports: ["3000"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-grafana-from-nginx
+spec:
+  podSelector:
+    matchLabels:
+      app: grafana
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: nginx
+      ports:
+        - port: 3000

@@ -22,7 +22,8 @@ PROFILE="pipeline-builder"
 # the instance and on the minikube user's PATH (it runs via the `mk` wrapper).
 ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
 # LEAN=1 drops the optional observability + admin services (prometheus, thanos,
-# loki, promtail, jaeger, alertmanager, mongo-express, pgadmin) from the apply and
+# loki, promtail, jaeger, alertmanager, mongo-express, pgadmin, grafana, kiali)
+# from the apply and
 # collapses workloads to a single replica, so the core stack + Istio mesh fits a
 # SMALLER instance (t3.xlarge / 4 vCPU) instead of needing t3.2xlarge. Core services
 # + DBs are unaffected. Full stack is the default (LEAN=0) for t3.2xlarge+.
@@ -83,7 +84,7 @@ lean_filter() {
   if [ "$LEAN" != "1" ]; then cat; return; fi
   awk '
     function emit(  o,d) {
-      o = (nm ~ /^(prometheus|loki|thanos-query|thanos-store-gateway|alertmanager|promtail|jaeger|mongo-express|pgadmin|ask-model)(-.*)?$/)
+      o = (nm ~ /^(prometheus|loki|thanos-query|thanos-store-gateway|alertmanager|promtail|jaeger|mongo-express|pgadmin|grafana|kiali|ask-model)(-.*)?$/)
       d = (kd ~ /^(Deployment|StatefulSet|DaemonSet|Service|PersistentVolume|PersistentVolumeClaim|HorizontalPodAutoscaler|PodDisruptionBudget|ServiceAccount|ConfigMap|ClusterRole|ClusterRoleBinding|Role|RoleBinding)$/)
       if (buf != "" && !(o && d)) printf "---\n%s", buf
       buf=""; kd=""; nm=""
@@ -204,7 +205,7 @@ ensure_istioctl "$ISTIO_VERSION"
 # Pre-seed the hostPath dirs the manifests mount (all DirectoryOrCreate, so this
 # is a convenience). alertmanager IS mounted; minio runs a 4-drive erasure-set.
 # (No db-data/loki — Loki uses object storage + an in-pod emptyDir WAL.)
-mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,prometheus,alertmanager},minio-data/{1,2,3,4},pgadmin-data,tmp} 2>/dev/null || true
+mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,prometheus,alertmanager,grafana},minio-data/{1,2,3,4},pgadmin-data,tmp} 2>/dev/null || true
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$DATA_DIR/plugins-data}"
 
 # -- Start Minikube -----------------------------------------------------------
@@ -401,7 +402,7 @@ log "Applying Kubernetes manifests"
 # every referenced image must carry a valid cosign signature from this repo's
 # release workflow. Break-glass: SKIP_IMAGE_SIGNATURE_VERIFY=1.
 bash "$(dirname "${BASH_SOURCE[0]}")/../../../bin/verify-image-signatures.sh"
-[ "$LEAN" = "1" ] && echo "  LEAN=1 — omitting optional observability + admin services (prometheus/thanos/loki/promtail/jaeger/alertmanager/mongo-express/pgadmin)"
+[ "$LEAN" = "1" ] && echo "  LEAN=1 — omitting optional observability + admin services (prometheus/thanos/loki/promtail/jaeger/alertmanager/mongo-express/pgadmin/grafana/kiali)"
 # Restricted envsubst: ONLY ${BUILDKIT_MEMORY_LIMIT} is expanded, so runtime
 # shell tokens in inline configmaps (nginx ${NS}/$s, etc.) are left intact.
 # lean_filter drops optional workloads when LEAN=1 (pass-through otherwise).

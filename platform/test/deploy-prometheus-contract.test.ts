@@ -133,6 +133,35 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     expect(rules).toContain('expr: redis_up == 0');
   });
 
+  it('ships Grafana and Kiali as LEAN-droppable admin UIs', () => {
+    for (const file of ['grafana.yaml', 'kiali.yaml']) {
+      expect(() => read(`${target}/k8s/${file}`)).not.toThrow();
+    }
+    // Both must be registered, or the manifests are dead files.
+    const kustomization = read(`${target}/k8s/kustomization.yaml`);
+    expect(kustomization).toContain('grafana.yaml');
+    expect(kustomization).toContain('kiali.yaml');
+    // Reached through nginx on a subpath, like pgAdmin.
+    const nginx = read(`${target}/nginx/nginx.conf`);
+    expect(nginx).toContain('location /grafana/');
+    expect(nginx).toContain('location /kiali/');
+  });
+
+  it('keeps Kiali read-only and token-authenticated', () => {
+    // nginx applies NO auth to /kiali/, and Kiali has no tenant model — it shows
+    // every org's mesh. `anonymous` here would publish that to anyone who can
+    // reach the gateway.
+    const kiali = read(`${target}/k8s/kiali.yaml`);
+    expect(kiali).toContain('strategy: token');
+    expect(kiali).not.toContain('strategy: anonymous');
+    expect(kiali).toContain('view_only_mode: true');
+    // Read-only RBAC: no mutation verbs anywhere in the ClusterRole.
+    const role = kiali.slice(kiali.indexOf('kind: ClusterRole'), kiali.indexOf('kind: ClusterRoleBinding'));
+    for (const verb of ['"delete"', '"update"', '"patch"']) {
+      expect(role).not.toContain(verb);
+    }
+  });
+
   it('alerts when the control plane stops reporting', () => {
     const rules = read(`${target}/config/prometheus/alert-rules.yml`);
     expect(rules).toContain('alert: IstiodDown');

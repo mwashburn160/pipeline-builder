@@ -65,6 +65,27 @@ Set it on **every** subsequent run: `setup.sh` calls `up -d --remove-orphans`, a
 without the profile active `ask-model` counts as an orphan and is removed. (The
 `ask-model-models` volume survives, so re-enabling it does not re-download.)
 
+## Grafana
+
+Dashboards over the Prometheus/Loki/Jaeger already in this stack. Reached
+through nginx at **https://localhost:8443/grafana/** — the same subpath pattern
+as pgAdmin.
+
+It has its **own login** (`GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` in
+`.env`, generated on first provision) because nginx applies no auth to that
+route, and Grafana queries Prometheus with **no org scoping** — anyone who gets
+in sees every tenant's metrics. That is also why it is admin-only and not linked
+from any tenant-facing page. Datasources are provisioned from
+`config/grafana/provisioning/`, so a rebuilt container comes back wired.
+
+Unlike the kubernetes targets, Prometheus is the **default** datasource here
+rather than Thanos: this target runs no Thanos, so there are no long-range
+blocks to fan out to.
+
+**No Kiali on this target.** Kiali visualises an Istio mesh, and docker-compose
+runs none — it would render an empty graph. It ships on the three kubernetes
+targets instead.
+
 ## Services
 
 | Service | Port | Description |
@@ -85,13 +106,14 @@ without the profile active `ask-model` counts as an orphan and is removed. (The
 | redis | 6379 (internal) | Job queue (BullMQ) for plugin builds + compliance events |
 | pgadmin | 5480 (exposed) | PostgreSQL admin UI |
 | mongo-express | 27081 (exposed) | MongoDB admin UI |
+| grafana | via nginx `/grafana/` | Dashboards over prometheus/loki/jaeger (own login) |
 | registry | 5000 (exposed) | Docker image registry |
 | prometheus | 9090 (internal) | Metrics scrape target for the native Observability dashboards |
 | loki | 3100 (internal) | Log store for the native Audit Activity dashboard |
 
 Registry browser: open `https://localhost:8443/dashboard/registry` (system-admin only) — the native UI replaces the joxit `registry-express` container that previously listened on port 5080.
 
-Observability: open `https://localhost:8443/dashboard/observability` (system-admin only) — native dashboards (Plugin Builds, Audit Activity) over Prometheus + Loki. Replaces the previously-embedded Grafana iframe, which has been removed.
+Observability: open `https://localhost:8443/dashboard/observability` (system-admin only) — native dashboards (Plugin Builds, Audit Activity) over Prometheus + Loki. These replaced an embedded Grafana iframe and remain the tenant-facing, org-scoped surface. The standalone Grafana above is a separate, admin-only console — not an embed, and not linked from any tenant page.
 
 ## Troubleshooting
 

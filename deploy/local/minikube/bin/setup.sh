@@ -31,7 +31,8 @@ ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
 # defaults kubernetes-version`).
 K8S_VERSION="${K8S_VERSION:-v1.35.1}"
 # LEAN=1 drops the optional observability + admin services (prometheus, thanos,
-# loki, promtail, jaeger, alertmanager, mongo-express, pgadmin) from the apply so
+# loki, promtail, jaeger, alertmanager, mongo-express, pgadmin, grafana, kiali)
+# from the apply so
 # the core stack + Istio mesh fits on an ~8-core laptop. Core services + DBs are
 # unaffected. Full stack is the default (LEAN=0) for larger machines.
 LEAN="${LEAN:-0}"
@@ -90,7 +91,7 @@ lean_filter() {
   if [ "$LEAN" != "1" ]; then cat; return; fi
   awk '
     function emit(  o,d) {
-      o = (nm ~ /^(prometheus|loki|thanos-query|thanos-store-gateway|alertmanager|promtail|jaeger|mongo-express|pgadmin)(-.*)?$/)
+      o = (nm ~ /^(prometheus|loki|thanos-query|thanos-store-gateway|alertmanager|promtail|jaeger|mongo-express|pgadmin|grafana|kiali)(-.*)?$/)
       d = (kd ~ /^(Deployment|StatefulSet|DaemonSet|Service|PersistentVolume|PersistentVolumeClaim|HorizontalPodAutoscaler|PodDisruptionBudget|ServiceAccount|ConfigMap|ClusterRole|ClusterRoleBinding|Role|RoleBinding)$/)
       if (buf != "" && !(o && d)) printf "---\n%s", buf
       buf=""; kd=""; nm=""
@@ -447,6 +448,9 @@ secret postgres-secret   --from-literal=POSTGRES_USER="$POSTGRES_USER" --from-li
 secret mongodb-secret    --from-literal=MONGO_INITDB_ROOT_USERNAME="$MONGO_INITDB_ROOT_USERNAME" --from-literal=MONGO_INITDB_ROOT_PASSWORD="$MONGO_INITDB_ROOT_PASSWORD" --from-literal=MONGODB_URI="$MONGODB_URI"
 secret mongo-express-secret --from-literal=ME_CONFIG_BASICAUTH_USERNAME="$ME_CONFIG_BASICAUTH_USERNAME" --from-literal=ME_CONFIG_BASICAUTH_PASSWORD="$ME_CONFIG_BASICAUTH_PASSWORD"
 secret pgadmin-secret    --from-literal=PGADMIN_DEFAULT_EMAIL="$PGADMIN_DEFAULT_EMAIL" --from-literal=PGADMIN_DEFAULT_PASSWORD="$PGADMIN_DEFAULT_PASSWORD"
+# Grafana's own admin login (nginx does not gate /grafana/).
+secret grafana-secret \
+  --from-literal=GRAFANA_ADMIN_USER="$GRAFANA_ADMIN_USER" --from-literal=GRAFANA_ADMIN_PASSWORD="$GRAFANA_ADMIN_PASSWORD"
 # MinIO: root creds (server + minio-init bootstrap) plus the per-service,
 # bucket-scoped keys. Built from .env here rather than shipped as a literal
 # Secret inside k8s/minio.yaml — which is what it used to be, and which made the
@@ -551,7 +555,7 @@ minikube ssh --profile="$PROFILE" -- "sudo sysctl -w fs.inotify.max_user_instanc
 bash "$BIN_DIR/ensure-binfmt.sh" "${PUBLISH_PLATFORM:-linux/amd64}"
 
 log "Applying Kubernetes manifests"
-[ "$LEAN" = "1" ] && echo "  LEAN=1 — omitting optional observability + admin services (prometheus/thanos/loki/promtail/jaeger/alertmanager/mongo-express/pgadmin)"
+[ "$LEAN" = "1" ] && echo "  LEAN=1 — omitting optional observability + admin services (prometheus/thanos/loki/promtail/jaeger/alertmanager/mongo-express/pgadmin/grafana/kiali)"
 # Substitute ONLY ${BUILDKIT_MEMORY_LIMIT} (sed, not envsubst — some envsubst
 # builds ignore the shell-format restriction and strip runtime $tokens like the
 # minio-init `$b` loop). lean_filter drops optional workloads when LEAN=1.
