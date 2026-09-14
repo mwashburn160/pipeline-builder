@@ -195,7 +195,11 @@ export const NAV_SECTIONS: NavSection[] = [
       },
       // Sysadmin roster of which orgs have SSO/IdP configured.
       { title: 'IdP / SSO', href: '/dashboard/admin/idp', icon: Fingerprint, systemAdminOnly: true },
-      { title: 'Platform Settings', href: '/dashboard/admin/platform-settings', icon: SlidersHorizontal, systemAdminOnly: true },
+      // "Settings", not "Platform Settings" — this item lives under the
+      // `Platform` section, so the prefix rendered as "Platform / Platform
+      // Settings". The route was renamed to match (forward-only, no redirect
+      // from the old /dashboard/admin/platform-settings path).
+      { title: 'Settings', href: '/dashboard/admin/settings', icon: SlidersHorizontal, systemAdminOnly: true },
     ],
   },
   {

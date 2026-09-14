@@ -158,7 +158,7 @@ export function SysadminHome() {
                 </div>
               )}
 
-              <Link href="/dashboard/admin/platform-settings" className="action-link text-xs mt-3 inline-flex">
+              <Link href="/dashboard/admin/settings" className="action-link text-xs mt-3 inline-flex">
                 Platform settings →
               </Link>
             </Card>
@@ -211,7 +211,7 @@ export function SysadminHome() {
               <Link href="/dashboard/registry" className="action-link">Image registry</Link>
               <Link href="/dashboard/triage" className="action-link">Build triage</Link>
               <Link href="/dashboard/observability/alert-destinations?all=1" className="action-link">Alert destinations</Link>
-              <Link href="/dashboard/admin/platform-settings" className="action-link">Platform settings</Link>
+              <Link href="/dashboard/admin/settings" className="action-link">Platform settings</Link>
             </div>
           </Card>
         </>
