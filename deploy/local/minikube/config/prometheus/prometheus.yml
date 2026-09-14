@@ -53,6 +53,52 @@ scrape_configs:
     tls_config:
       insecure_skip_verify: true
 
+  # Istio ambient mesh (istio-system). A SEPARATE job from `kubernetes-pods`
+  # rather than widening that job's namespace list, because the two need
+  # different relabeling: `kubernetes-pods` rewrites `service` from the pod's
+  # `app` label, which would file every mesh component under a bogus service
+  # name and collide with real workloads.
+  #
+  # Nothing needs enabling on the Istio side — the ambient profile already sets
+  # `defaultProviders.metrics: [prometheus]` and every mesh pod ships the
+  # prometheus.io/* annotations (ztunnel :15020, istiod + istio-cni :15014).
+  # These metrics were simply never collected because discovery was scoped to
+  # the pipeline-builder namespace.
+  #
+  # What this yields: ztunnel reports istio_tcp_* per workload PAIR
+  # (source_workload -> destination_service) with `connection_security_policy`,
+  # which is the mesh topology plus live mTLS coverage; istiod reports pilot_*
+  # (xDS push latency, config errors, cert issuance).
+  #
+  # L4 ONLY, by design of ambient: there is no istio_requests_total here because
+  # ztunnel is a TCP proxy. HTTP rates/latency/response codes require waypoint
+  # proxies, which this deployment does not run.
+  - job_name: 'istio-mesh'
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - istio-system
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      # Identify the mesh component (ztunnel / istiod / istio-cni-node) rather
+      # than reusing the app-workload `service` label.
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        target_label: mesh_component
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+
   # Static targets not auto-discovered by kubernetes-pods
   - job_name: 'nginx'
     scheme: https

@@ -368,3 +368,61 @@ groups:
         annotations:
           summary: "AI provider {{ $labels.provider }} erroring"
           description: "{{ $value | humanize }} failed AI turns/sec for provider {{ $labels.provider }} over 5m sustained for 10m — likely a provider brownout or credential issue. Check the ask/generation logs."
+
+      # ---- Service mesh (Istio ambient) ----
+      # Fires when two MESHED workloads talk without mTLS. Ambient applies
+      # auto-mTLS between enrolled workloads, so a plaintext edge means one side
+      # has silently fallen out of the mesh — almost always a pod created while
+      # istio-cni was unavailable, since ambient enrolls a pod's netns at CREATE
+      # time and never retroactively. That failure is invisible from the app's
+      # side (it still resolves and dials; a STRICT-mTLS peer just drops it, so
+      # it surfaces as an unexplained connection timeout), which is why it is
+      # worth an alert rather than a dashboard panel.
+      #
+      # Scoping matters here, or this is pure noise:
+      #   reporter="destination"      — the destination is authoritative about
+      #                                 what it actually accepted, and counting
+      #                                 one reporter avoids double-counting the
+      #                                 same edge (ztunnel reports both ends).
+      #   *_workload_namespace        — both ends must be in the app namespace.
+      #                                 Traffic entering from outside the mesh
+      #                                 (the ALB/ingress hop, kubelet probes) is
+      #                                 legitimately not mTLS, and so is
+      #                                 Prometheus scraping istio-system, which
+      #                                 is not mesh-enrolled.
+      #   source_workload!="unknown"  — unmeshed/external origins report no
+      #                                 workload identity.
+      - alert: MeshMTLSDegraded
+        expr: |
+          sum by (source_workload, destination_workload) (
+            rate(istio_tcp_connections_opened_total{
+              reporter="destination",
+              connection_security_policy!="mutual_tls",
+              source_workload_namespace="pipeline-builder",
+              destination_workload_namespace="pipeline-builder",
+              source_workload!="unknown"
+            }[5m])
+          ) > 0
+        for: 10m
+        labels:
+          severity: critical
+          component: istio
+          tenancy: platform
+        annotations:
+          summary: "Plaintext traffic inside the mesh: {{ $labels.source_workload }} -> {{ $labels.destination_workload }}"
+          description: "Both workloads are mesh-enrolled but the destination accepted a non-mTLS connection ({{ $value | printf \"%.3f\" }} conn/s). Usually a pod created while istio-cni was down — ambient enrolls at pod CREATE only, so a rollout restart of the source workload re-enrolls it. Verify with: istioctl ztunnel-config workload."
+
+      # Control-plane liveness. If istiod stops reporting, config changes
+      # (AuthorizationPolicy, waypoints) silently stop propagating while the
+      # data path keeps running on its last-known config — a slow, quiet drift
+      # rather than an outage, so it needs its own signal.
+      - alert: IstiodDown
+        expr: up{job="istio-mesh", mesh_component="istiod"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: istio
+          tenancy: platform
+        annotations:
+          summary: "istiod is not reporting metrics"
+          description: "The Istio control plane has been unscrapeable for 5m. Mesh config changes will not propagate; the ztunnel data path continues on its last-known config."

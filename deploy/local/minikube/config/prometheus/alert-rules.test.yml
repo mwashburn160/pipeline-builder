@@ -1,0 +1,88 @@
+# promtool unit tests for the Istio mesh alert rules.
+#
+#   docker run --rm -v "$PWD:/t:ro" --entrypoint promtool prom/prometheus:v3.13.2 \
+#     test rules /t/alert-rules.test.yml
+#
+# These exist because MeshMTLSDegraded's risk is not syntax — promtool check
+# rules would pass a rule that pages every five minutes. The risk is SCOPING:
+# plenty of traffic is legitimately not mTLS (ingress from the ALB, kubelet
+# probes, and Prometheus scraping istio-system, which is not mesh-enrolled).
+# Cases 2-4 below are the negative controls that keep the alert quiet; case 1 is
+# the real failure it exists to catch — a pod created while istio-cni was down,
+# which ambient never retroactively enrolls.
+#
+# The rules are byte-identical across the three k8s targets; the Jest guard in
+# platform/test/deploy-prometheus-contract.test.ts asserts that, so testing the
+# minikube copy covers all three.
+
+rule_files:
+  - alert-rules.yml
+evaluation_interval: 1m
+tests:
+  # 1. A genuine plaintext edge between two meshed workloads MUST fire.
+  - interval: 1m
+    input_series:
+      - series: 'istio_tcp_connections_opened_total{reporter="destination",connection_security_policy="none",source_workload="plugin",destination_workload="postgres",source_workload_namespace="pipeline-builder",destination_workload_namespace="pipeline-builder"}'
+        values: '0+6x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: MeshMTLSDegraded
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: istio
+              tenancy: platform
+              source_workload: plugin
+              destination_workload: postgres
+            exp_annotations:
+              summary: "Plaintext traffic inside the mesh: plugin -> postgres"
+              description: "Both workloads are mesh-enrolled but the destination accepted a non-mTLS connection (0.100 conn/s). Usually a pod created while istio-cni was down — ambient enrolls at pod CREATE only, so a rollout restart of the source workload re-enrolls it. Verify with: istioctl ztunnel-config workload."
+
+  # 2. Healthy mTLS traffic must NOT fire.
+  - interval: 1m
+    input_series:
+      - series: 'istio_tcp_connections_opened_total{reporter="destination",connection_security_policy="mutual_tls",source_workload="plugin",destination_workload="postgres",source_workload_namespace="pipeline-builder",destination_workload_namespace="pipeline-builder"}'
+        values: '0+6x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: MeshMTLSDegraded
+        exp_alerts: []
+
+  # 3. Ingress from outside the mesh (no source identity) must NOT fire.
+  - interval: 1m
+    input_series:
+      - series: 'istio_tcp_connections_opened_total{reporter="destination",connection_security_policy="none",source_workload="unknown",destination_workload="nginx",source_workload_namespace="pipeline-builder",destination_workload_namespace="pipeline-builder"}'
+        values: '0+6x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: MeshMTLSDegraded
+        exp_alerts: []
+
+  # 4. Prometheus scraping istio-system (our own new job) must NOT fire.
+  - interval: 1m
+    input_series:
+      - series: 'istio_tcp_connections_opened_total{reporter="destination",connection_security_policy="none",source_workload="prometheus",destination_workload="ztunnel",source_workload_namespace="pipeline-builder",destination_workload_namespace="istio-system"}'
+        values: '0+6x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: MeshMTLSDegraded
+        exp_alerts: []
+
+  # 5. istiod disappearing must fire IstiodDown.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="istio-mesh",mesh_component="istiod"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: IstiodDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: istio
+              tenancy: platform
+              job: istio-mesh
+              mesh_component: istiod
+            exp_annotations:
+              summary: "istiod is not reporting metrics"
+              description: "The Istio control plane has been unscrapeable for 5m. Mesh config changes will not propagate; the ztunnel data path continues on its last-known config."

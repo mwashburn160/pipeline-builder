@@ -724,3 +724,36 @@ spec:
               app: ask
       ports:
         - port: 3000
+---
+# prometheus -> the Istio mesh components in istio-system (scrape only).
+#
+# REQUIRED for the `istio-mesh` scrape job in config/prometheus/prometheus.yml.
+# Every pod in this namespace is egress-restricted the moment `allow-dns-egress`
+# / `allow-internal-egress` exist (both use an EMPTY podSelector), and neither
+# covers this: `allow-internal-egress` is `to: [{podSelector: {}}]`, which is
+# SAME-NAMESPACE only, and the mesh components live in istio-system.
+#
+# PORTS-ONLY, deliberately: no `to:` selector. Under Istio ambient a pod's
+# outbound traffic is redirected to the node-local ztunnel over a LINK-LOCAL
+# address (169.254.x), so a rule that constrains `to:` — an ipBlock excepting
+# 169.254.0.0/16, or arguably a namespaceSelector — severs the data path while
+# still completing the TCP handshake, producing scrapes that hang rather than
+# fail. The ports-only shape is the one verified to work here (see
+# allow-ask-model-external-egress in ask-model.yaml for the incident this
+# encodes). 15020 = ztunnel, 15014 = istiod + istio-cni-node.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-mesh-scrape
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 15020
+          protocol: TCP
+        - port: 15014
+          protocol: TCP
