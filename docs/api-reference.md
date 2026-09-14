@@ -47,7 +47,7 @@ Access tokens are short-lived — **900 s (15 min) by default**, set by `JWT_EXP
 | `POST` | `/pipelines/generate/stream` | Stream AI generation as SSE (consumes `aiCalls` quota) |
 | `POST` | `/pipelines/generate/from-url` | Analyze Git URL + generate pipeline as one JSON response — no plugin auto-creation; used by the Ask agent's `propose_pipeline_from_repo` (consumes `aiCalls` quota) |
 | `POST` | `/pipelines/generate/from-url/stream` | Analyze Git URL + stream pipeline (consumes `aiCalls` quota) |
-| `GET` | `/pipelines/registry` | List ARN→pipelineId mappings for the caller's org |
+| `GET` | `/pipelines/registry` | List deployed-stack registrations (`pipelineId`, `stackName`, `region`, `lastDeployed`) for the caller's org — no ARNs, no account id |
 | `POST` | `/pipelines/registry` | Upsert registry entry (deploy hook; tenant-guarded) |
 
 ### Plugin Service

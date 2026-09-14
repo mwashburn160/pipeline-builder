@@ -1174,4 +1174,4 @@ The ACM cert DNS-validates during stack creation (a few minutes). If it never is
 1. Verify `pipeline-manager infra store-token` was run
 2. Check Lambda logs: `aws logs tail /aws/lambda/pipeline-builder-event-ingestion --follow`
 3. Check SQS DLQ for failed events
-4. Verify pipeline was deployed after `infra setup-events` (ARN must be registered)
+4. Verify pipeline was deployed after `infra setup-events` (it must have a `pipeline_registry` row)
