@@ -212,7 +212,7 @@ export const architectureFlowTopic: HelpTopic = {
       "blocks": [
         {
           "type": "code",
-          "content": "flowchart TB\n    ROOT[Root Organization: acme-corp<br/>orgId: abc123]\n    ROOT --> PLUG[Plugins<br/>scoped by orgId + visibility]\n    ROOT --> PIPE[Pipelines<br/>scoped by project, org, orgId]\n    ROOT --> SEC[Secrets<br/>AWS SM: /prefix/abc123/secretName]\n    ROOT --> QUO[Quotas + seats<br/>pooled at the root org]\n    ROOT --> COMP[Compliance<br/>per-org policy rules]\n    ROOT --> TEAM[Team: acme-mobile<br/>orgId: def456, parentOrgId: abc123]\n    TEAM --> TMEM[Members + roles + groups<br/>scoped to the team]",
+          "content": "flowchart TB\n    ROOT[Root Organization: acme-corp<br/>orgId: abc123]\n    ROOT --> PLUG[Plugins<br/>scoped by orgId + visibility]\n    ROOT --> PIPE[Pipelines<br/>scoped by project, org, orgId]\n    ROOT --> SEC[Secrets<br/>AWS SM: /prefix/abc123/secretName]\n    ROOT --> QUO[Quotas + seats<br/>pooled at the root org]\n    ROOT --> COMP[Compliance<br/>per-org policy rules]\n    ROOT --> TEAM[Team: acme-mobile<br/>orgId: def456, parentOrgId: abc123]\n    TEAM --> TMEM[Members + roles<br/>scoped to the team]",
           "language": "mermaid"
         },
         {

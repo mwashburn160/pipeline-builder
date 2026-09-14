@@ -960,7 +960,7 @@ export const complianceTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "./deploy/bin/init-platform.sh                           # prompted during init\nPLATFORM_TOKEN=\"$JWT\" ./deploy/bin/load-compliance.sh   # standalone (rules + policies)",
+          "content": "./deploy/bin/init-platform.sh docker                    # prompted during init\nPLATFORM_TOKEN=\"$JWT\" ./deploy/bin/load-compliance.sh   # standalone (rules + policies)",
           "language": "bash"
         },
         {

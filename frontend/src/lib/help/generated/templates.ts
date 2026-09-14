@@ -27,7 +27,7 @@ export const templatesTopic: HelpTopic = {
           "items": [
             "One plugin, many environments — parameterize namespaces, regions, cluster names via pipeline.metadata.*",
             "One pipeline template, many deployments — compose names and vars via self-references",
-            "Zero-config backward compatibility — plugins and pipelines without {{ ... }} tokens are unchanged"
+            "Opt-in — plugins and pipelines that use no {{ ... }} tokens behave exactly as they did before"
           ]
         }
       ]
@@ -532,7 +532,7 @@ export const templatesTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Adopting templates on a legacy plugin is backward-compatible when you use | default::"
+          "content": "Adopting templates on an existing plugin changes nothing for current callers when you use | default::"
         },
         {
           "type": "text",
@@ -678,7 +678,7 @@ export const templatesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Visibility — templates use a three-rung ladder, unlike pipelines and plugins (which have only public/private):"
+          "content": "Visibility — templates use the same three-rung ladder every catalog entity uses (Permissions → the visibility ladder); templates differ only in that they default to private:"
         },
         {
           "type": "table",

@@ -12,7 +12,7 @@ Pipeline Builder supports a minimal `{{ path.to.value }}` template syntax in bot
 
 - One plugin, many environments — parameterize namespaces, regions, cluster names via `pipeline.metadata.*`
 - One pipeline template, many deployments — compose names and vars via self-references
-- Zero-config backward compatibility — plugins and pipelines without `{{ ... }}` tokens are unchanged
+- Opt-in — plugins and pipelines that use no `{{ ... }}` tokens behave exactly as they did before
 
 ---
 
@@ -407,7 +407,7 @@ Every error includes `field`, `line`, `col` (when applicable), and the exact `pa
 
 ## Migrating an existing plugin
 
-Adopting templates on a legacy plugin is backward-compatible when you use `| default:`:
+Adopting templates on an existing plugin changes nothing for current callers when you use `| default:`:
 
 ### 1. Add the contract block
 

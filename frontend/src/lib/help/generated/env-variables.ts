@@ -614,7 +614,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "note",
-          "content": "Redis must use maxmemory-policy noeviction for BullMQ. allkeys-lru causes silent job data loss. HA: the shipped in-cluster Redis is single-instance (no failover). For HA, apply the redis-sentinel.yaml template (3 Redis + 3 Sentinel) and set REDIS_SENTINELS, or point it at a managed ElastiCache (Multi-AZ, cluster-mode-disabled) — the recommended production path."
+          "content": "Redis must use maxmemory-policy noeviction for BullMQ. allkeys-lru causes silent job data loss. HA: the AWS targets (ec2 and eks) ship Sentinel HA by default (redis-sentinel.yaml — 3 Redis + 3 Sentinel, reached via REDIS_SENTINELS). The docker and minikube targets run a single instance with no failover. For a managed path, point it at ElastiCache (Multi-AZ, cluster-mode-disabled)."
         }
       ]
     },
@@ -825,22 +825,22 @@ export const envVariablesTopic: HelpTopic = {
             [
               "QUOTA_DEFAULT_PLUGINS",
               "100",
-              "Max plugins per org"
+              "Fallback-read plugin cap (see note)"
             ],
             [
               "QUOTA_DEFAULT_PIPELINES",
               "10",
-              "Max pipelines per org"
+              "Fallback-read pipeline cap (see note)"
             ],
             [
               "QUOTA_DEFAULT_API_CALLS",
               "-1",
-              "Max API calls (-1 = unlimited)"
+              "Fallback-read API-call cap, -1 = unlimited (see note)"
             ],
             [
               "QUOTA_DEFAULT_AI_CALLS",
               "100",
-              "Max AI generation invocations per period (sized smaller than apiCalls because each call has external $ cost)"
+              "Fallback-read AI-call cap, sized smaller than apiCalls because each call has external $ cost (see note)"
             ],
             [
               "QUOTA_RESET_DAYS",
@@ -938,6 +938,10 @@ export const envVariablesTopic: HelpTopic = {
               "Unlimited-tier rate-limit multiplier (billing-disabled default tier)"
             ]
           ]
+        },
+        {
+          "type": "note",
+          "content": "These are not the caps a new org gets. The platform service is the sole authority for org lifecycle: it seeds each org's stored limits from its tier (see QUOTA_TIERS below) at creation time, and enforcement reserves against those stored values. The QUOTA_DEFAULT_* values govern only the fallback read for an org that has no document yet — so the dashboard renders something instead of erroring. Changing them does not raise or lower any real org's limit."
         },
         {
           "type": "text",
@@ -2037,7 +2041,7 @@ export const envVariablesTopic: HelpTopic = {
           "rows": [
             [
               "OPENAI_COMPATIBLE_BASE_URL",
-              "Endpoint that speaks the OpenAI chat API, e.g. http://ask-model:12434/v1. Setting this enables the openai-compatible provider."
+              "Endpoint that speaks the OpenAI chat API, e.g. http://ask-model:11434/v1. Setting this enables the openai-compatible provider."
             ],
             [
               "OPENAI_COMPATIBLE_MODELS",
@@ -2062,18 +2066,19 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The deploy targets ship an opt-in Ollama model container you can enable instead of running your own endpoint:"
+          "content": "The deploy targets ship an Ollama model container you can use instead of running your own endpoint. How it is enabled differs per target:"
         },
         {
           "type": "list",
           "items": [
-            "k8s (deploy/{aws/ec2,aws/eks,local/minikube}/k8s/ask-model.yaml) — commented out in kustomization.yaml; uncomment it (or kubectl apply -f the file), then set OPENAI_COMPATIBLE_BASE_URL=http://ask-model:11434/v1 + OPENAI_COMPATIBLE_MODELS=qwen2.5-coder:7b|Qwen 2.5 Coder on the ask Deployment (both are pre-added as commented env there). A 7B tool-capable model needs ~6–8Gi RAM (CPU) or a GPU (uncomment the nodeSelector/tolerations + nvidia.com/gpu limit).",
-            "docker (deploy/local/docker/docker-compose.yml) — the ask-model service is behind the ask-model profile: docker compose --profile ask-model up -d, then set OPENAI_COMPATIBLE_BASE_URL/OPENAI_COMPATIBLE_MODELS in .env (the ask service already reads them, empty by default)."
+            "aws/ec2, aws/eks (deploy/aws/{ec2,eks}/k8s/ask-model.yaml) — deployed by default (listed in kustomization.yaml), with OPENAI_COMPATIBLE_BASE_URL=http://ask-model:11434/v1 + OPENAI_COMPATIBLE_MODELS=qwen2.5-coder:7b|Qwen 2.5 Coder already set on the ask Deployment. A 7B tool-capable model needs ~6–8Gi RAM (CPU) or a GPU (uncomment the nodeSelector/tolerations + nvidia.com/gpu limit). On ec2, LEAN=1 drops it — at 6Gi it does not fit the t3.xlarge that LEAN targets — along with the ask env that points at it.",
+            "local/minikube — opt-in, because a 6Gi request will not schedule on a laptop-sized VM: ASK_MODEL=1 deploy/local/minikube/bin/setup.sh (or the same flag on startup.sh for an already-provisioned cluster) applies the manifest and wires the two env vars into the app-env ConfigMap. The minikube copy runs the 1.5B at a 1536Mi request.",
+            "local/docker (deploy/local/docker/docker-compose.yml) — behind the ask-model compose profile: docker compose --profile ask-model up -d, then uncomment OPENAI_COMPATIBLE_BASE_URL/OPENAI_COMPATIBLE_MODELS in .env and docker compose up -d ask so the change reaches the service."
           ]
         },
         {
           "type": "text",
-          "content": "Override the served model with OLLAMA_MODEL (default qwen2.5-coder:7b). Model weights persist on the ask-model-models volume/PVC."
+          "content": "Override the served model with OLLAMA_MODEL (default qwen2.5-coder:7b). It must name the same model OPENAI_COMPATIBLE_MODELS advertises — advertising one the container has not pulled sends the request to a server that has never heard of it, which closes the connection mid-stream (AI_APICallError: Cannot connect to API: other side closed). Guarding that is why the workload is held NotReady/unhealthy until ollama list actually shows the model (a startupProbe in k8s, a healthcheck on docker) rather than merely until the server is listening. Model weights persist on the ask-model-models volume/PVC."
         }
       ]
     }

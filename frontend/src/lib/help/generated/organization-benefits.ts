@@ -297,8 +297,8 @@ export const organizationBenefitsTopic: HelpTopic = {
         {
           "type": "table",
           "headers": [
-            "Role",
-            "Capabilities"
+            "Built-in Role (seeded permission bundle)",
+            "What its permissions cover"
           ],
           "rows": [
             [
@@ -316,10 +316,14 @@ export const organizationBenefitsTopic: HelpTopic = {
           ]
         },
         {
+          "type": "text",
+          "content": "The coarse owner/admin/member label on a membership is for display and ownership transfer only — it grants nothing. Permissions come only from the Roles assigned to a user (Permissions)."
+        },
+        {
           "type": "list",
           "items": [
             "Roles. Access is granted through Roles — each Role is a named set of fine-grained resource:action permissions. A user's effective permissions are the union of the Roles assigned to them; there is no separate role-based baseline. New orgs seed default Roles (Admin, Member); the system org also gets Super Admin; a platform Super Admin implicitly holds every permission. Admins with roles:manage can author custom Roles, bounded by their own permissions (a permission ceiling).",
-            "What's scoped to the org: pipelines (by project + orgId), plugins (by orgId + public/private access modifier), compliance rules and exemptions, quotas and seats, secrets (pipeline-builder/{orgId}/{secretName}), the billing subscription, and execution analytics.",
+            "What's scoped to the org: pipelines (by project + orgId), plugins (by orgId + the visibility ladder: private/org/public), compliance rules and exemptions, quotas and seats, secrets (pipeline-builder/{orgId}/{secretName}), the billing subscription, and execution analytics.",
             "The shared system organization publishes a recommended plugin catalog and compliance-rule catalog that any organization can pull from or subscribe to — a common baseline without giving up isolation.",
             "Membership is per-organization: inviting a user into one org grants no access to another."
           ]
@@ -472,7 +476,7 @@ export const organizationBenefitsTopic: HelpTopic = {
               "SSO",
               "—",
               "—",
-              "—",
+              "✅",
               "✅"
             ],
             [
@@ -594,7 +598,7 @@ export const organizationBenefitsTopic: HelpTopic = {
             [
               "EC2 (Minikube on EC2)",
               "Small-medium production",
-              "t3.2xlarge default (8 vCPU / 32 GiB), persistent storage, Let's Encrypt"
+              "m5.4xlarge default (see InstanceType), persistent storage, Let's Encrypt"
             ],
             [
               "EKS (Auto Mode)",

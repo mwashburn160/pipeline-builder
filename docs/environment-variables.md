@@ -264,9 +264,6 @@ builder, one path, no per-builder target suffixes.
 | `QUOTA_DEFAULT_API_CALLS` | `-1` | Fallback-read API-call cap, `-1` = unlimited (see note) |
 | `QUOTA_DEFAULT_AI_CALLS` | `100` | Fallback-read AI-call cap, sized smaller than `apiCalls` because each call has external $ cost (see note) |
 | `QUOTA_RESET_DAYS` | `3` | Reset period (days) |
-
-> **These are not the caps a new org gets.** The platform service is the sole authority for org lifecycle: it seeds each org's stored limits from its **tier** (see `QUOTA_TIERS` below) at creation time, and enforcement reserves against those stored values. The `QUOTA_DEFAULT_*` values govern only the *fallback read* for an org that has no document yet — so the dashboard renders something instead of erroring. Changing them does not raise or lower any real org's limit.
-
 | `QUOTA_SERVICE_HOST` | `quota` | Quota service host |
 | `QUOTA_SERVICE_PORT` | `3000` | Quota service port |
 | `LIMITER_MAX` | `100` | Global rate limit (requests/window) |
@@ -285,6 +282,8 @@ builder, one path, no per-builder target suffixes.
 | `LIMITER_MULT_TEAM` | `25` | Team-tier rate-limit multiplier |
 | `LIMITER_MULT_ENTERPRISE` | `50` | Enterprise-tier rate-limit multiplier |
 | `LIMITER_MULT_UNLIMITED` | `100` | Unlimited-tier rate-limit multiplier (billing-disabled default tier) |
+
+> **These are not the caps a new org gets.** The platform service is the sole authority for org lifecycle: it seeds each org's stored limits from its **tier** (see `QUOTA_TIERS` below) at creation time, and enforcement reserves against those stored values. The `QUOTA_DEFAULT_*` values govern only the *fallback read* for an org that has no document yet — so the dashboard renders something instead of erroring. Changing them does not raise or lower any real org's limit.
 
 Tier presets ship in `@pipeline-builder/api-core` (`QUOTA_TIERS` in `quota-tiers.ts`):
 

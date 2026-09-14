@@ -309,7 +309,7 @@ export const samplesTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Ready-to-copy configurations for the major CI/CD platforms that instantiate a pipeline template, then create and deploy the resulting pipeline with pipeline-manager pipeline create --deploy. --deploy creates the pipeline record on the platform, then runs cdk deploy for it and registers the deployed CodePipeline ARN — so a green CI run means the pipeline both exists on the platform and is deployed to AWS."
+          "content": "Ready-to-copy configurations for the major CI/CD platforms that instantiate a pipeline template, then create and deploy the resulting pipeline with pipeline-manager pipeline create --deploy. --deploy creates the pipeline record on the platform, then runs cdk deploy for it and registers the deployed stack (by name + region — never the ARN, which embeds the AWS account id) — so a green CI run means the pipeline both exists on the platform and is deployed to AWS."
         },
         {
           "type": "text",
@@ -350,7 +350,7 @@ export const samplesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Each sample instantiates the react-javascript template by default — set TEMPLATE_NAME (plus PB_PROJECT / PB_ORGANIZATION) to any other template in your catalog. Instantiation reads the platform's live catalog, so the template must already be loaded there. All three are idempotent: re-running with the same config upserts the record (keyed on project + organization + orgId), updates the CloudFormation stack, and re-registers the ARN — no duplicates, no errors."
+          "content": "Each sample instantiates the react-javascript template by default — set TEMPLATE_NAME (plus PB_PROJECT / PB_ORGANIZATION) to any other template in your catalog. Instantiation reads the platform's live catalog, so the template must already be loaded there. All three are idempotent: re-running with the same config upserts the record (keyed on project + organization + orgId), updates the CloudFormation stack, and refreshes the registry row — no duplicates, no errors."
         },
         {
           "type": "text",

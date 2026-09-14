@@ -60,8 +60,12 @@ export const apiReferenceTopic: HelpTopic = {
           ]
         },
         {
+          "type": "note",
+          "content": "Paths in this document are service-relative. Every route is served through the Nginx gateway under the /api prefix, so the table entry /pipelines/:id is called as https://<host>/api/pipelines/<id> — as the curl examples below show."
+        },
+        {
           "type": "text",
-          "content": "Access tokens expire after 2 hours by default (configurable via JWT_EXPIRES_IN, with optional per-tier overrides via JWT_EXPIRES_IN_<TIER>). Use the refresh token endpoint to obtain a new access token without re-authenticating."
+          "content": "Access tokens are short-lived — 900 s (15 min) by default, set by JWT_EXPIRES_IN with optional per-tier overrides via JWT_EXPIRES_IN_<TIER>. The short TTL is what makes privilege changes take effect quickly; see Permissions → session invalidation. Use the refresh-token endpoint to obtain a new access token without re-authenticating."
         }
       ]
     },
@@ -139,7 +143,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/pipelines/registry",
-              "List ARN→pipelineId mappings for the caller's org"
+              "List deployed-stack registrations (pipelineId, stackName, region, lastDeployed) for the caller's org — no ARNs, no account id"
             ],
             [
               "POST",

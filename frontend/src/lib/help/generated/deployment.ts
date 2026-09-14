@@ -122,7 +122,7 @@ export const deploymentTopic: HelpTopic = {
             ],
             [
               "Cost",
-              "~$140-265/mo (t3.xlarge–t3.2xlarge, 24/7)",
+              "~$140-560/mo (t3.xlarge–m5.4xlarge, 24/7)",
               "~$150-400/mo"
             ],
             [
@@ -226,7 +226,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "~0.3–0.7 GiB (istiod + ztunnel); the full stack + mesh wants t3.2xlarge (the default). To run a t3.xlarge instead, deploy with LEAN=1 — it drops the optional observability/admin services and single-replicas every workload so the core stack + mesh fits. Set it at launch (CFN Lean param): LEAN=1 deploy/aws/ec2/bin/setup.sh (or pipeline-manager infra provision --target ec2 --lean --instance-type t3.xlarge), or on the box: LEAN=1 sudo -E bash deploy/aws/ec2/bin/startup.sh (-E preserves the env through sudo). See Service Mesh: LEAN mode."
+          "content": "~0.3–0.7 GiB (istiod + ztunnel). The default is m5.4xlarge — the smallest allowed instance on which every HPA can reach maxReplicas at once alongside the self-hosted 7B ask-model; t3.2xlarge still runs the stack at steady state (lower the ResourceQuota to match — see k8s/resource-limits.yaml). To run a t3.xlarge instead, deploy with LEAN=1 — it drops the optional observability/admin services and single-replicas every workload so the core stack + mesh fits. Set it at launch (CFN Lean param): LEAN=1 deploy/aws/ec2/bin/setup.sh (or pipeline-manager infra provision --target ec2 --lean --instance-type t3.xlarge), or on the box: LEAN=1 sudo -E bash deploy/aws/ec2/bin/startup.sh (-E preserves the env through sudo). See Service Mesh: LEAN mode."
         },
         {
           "type": "list",
@@ -533,8 +533,8 @@ export const deploymentTopic: HelpTopic = {
             [
               "InstanceType",
               "No",
-              "t3.2xlarge",
-              "EC2 instance type (8 vCPU / 32 GiB; full stack fits with the default ResourceQuota). Use t3.xlarge only with Lean=true."
+              "m5.4xlarge",
+              "EC2 instance type (16 vCPU / 64 GiB) — the smallest size on which every HPA can reach maxReplicas alongside the mesh and the self-hosted ask-model. t3.2xlarge (8 vCPU / 32 GiB) runs the stack at steady state with less headroom; use t3.xlarge only with Lean=true."
             ],
             [
               "Lean",
@@ -1064,25 +1064,25 @@ export const deploymentTopic: HelpTopic = {
             ],
             [
               "In-cluster registry",
-              "pb-efs (RWX)",
-              "40-60 GB",
-              "Plugin container images (shared across nodes)"
+              "none — MinIO",
+              "—",
+              "Stateless: images go to the registry bucket via the S3 storage driver"
             ],
             [
               "Loki",
-              "pb-efs (RWX)",
-              "grows with logs",
-              "Log storage (shared across nodes)"
+              "none — MinIO",
+              "—",
+              "Chunks + index ship to the loki bucket"
             ],
             [
               "Redis",
-              "ephemeral",
-              "—",
-              "Caching / queues"
+              "pb-ebs (RWO)",
+              "1-5 GB",
+              "Sentinel HA StatefulSet (3 Redis + 3 Sentinel) — queues + cache"
             ],
             [
               "Plugin builds / uploads",
-              "emptyDir",
+              "pb-efs (RWX)",
               "per-pod",
               "BuildKit layer cache + upload staging (shared in-pod with the sidecar)"
             ]
@@ -1419,7 +1419,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "cd deploy\n\nbash bin/init-platform.sh ec2         # EC2 (resolves URL from the pipeline-builder stack)\nbash bin/init-platform.sh eks         # EKS (port-forwards svc/nginx via kubectl)\nbash bin/init-platform.sh docker       # Docker Compose\nbash bin/init-platform.sh minikube    # Minikube\n\nexport PLATFORM_BASE_URL=https://pipeline.example.com\nexport PLATFORM_IDENTIFIER=admin@internal\nexport PLATFORM_PASSWORD=SecurePassword123!\nbash bin/init-platform.sh ec2\n\nPLUGIN_BUILD_STRATEGY=prebuilt bash bin/init-platform.sh ec2\n\nPLUGIN_BUILD_STRATEGY=prebuilt PLUGIN_CATEGORY=infrastructure,language bash bin/init-platform.sh ec2\n\nPARALLEL_JOBS=2 bash bin/init-platform.sh docker\n\nPLUGIN_BUILD_STRATEGY=prebuilt FORCE_REBUILD=true bash bin/init-platform.sh ec2\n\nbash bin/init-platform.sh --force ec2\n\n./deploy/bin/init-platform.sh --cleanup local\n./deploy/bin/load-plugins.sh --rebuild --cleanup\n\nsudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh ec2\nsudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh --cleanup ec2",
+          "content": "cd deploy\n\nbash bin/init-platform.sh ec2         # EC2 (resolves URL from the pipeline-builder stack)\nbash bin/init-platform.sh eks         # EKS (port-forwards svc/nginx via kubectl)\nbash bin/init-platform.sh docker       # Docker Compose\nbash bin/init-platform.sh minikube    # Minikube\n\nexport PLATFORM_BASE_URL=https://pipeline.example.com\nexport PLATFORM_IDENTIFIER=admin@internal\nexport PLATFORM_PASSWORD=SecurePassword123!\nbash bin/init-platform.sh ec2\n\nPLUGIN_BUILD_STRATEGY=prebuilt bash bin/init-platform.sh ec2\n\nPLUGIN_BUILD_STRATEGY=prebuilt PLUGIN_CATEGORY=infrastructure,language bash bin/init-platform.sh ec2\n\nPARALLEL_JOBS=2 bash bin/init-platform.sh docker\n\nPLUGIN_BUILD_STRATEGY=prebuilt FORCE_REBUILD=true bash bin/init-platform.sh ec2\n\nbash bin/init-platform.sh --force ec2\n\n./deploy/bin/init-platform.sh --cleanup docker\n./deploy/bin/load-plugins.sh --rebuild --cleanup\n\nsudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh ec2\nsudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh --cleanup ec2",
           "language": "bash"
         },
         {
@@ -2083,6 +2083,14 @@ export const deploymentTopic: HelpTopic = {
             [
               "Registry UI",
               "/dashboard/registry (system-admin only)"
+            ],
+            [
+              "Grafana",
+              "/grafana/ (own login — GRAFANA_ADMIN_USER / GRAFANA_ADMIN_PASSWORD)"
+            ],
+            [
+              "Kiali (mesh graph)",
+              "/kiali/ (read-only)"
             ]
           ]
         }
@@ -2098,7 +2106,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "deploy/aws/ec2/\n├── template.yaml          # CloudFormation stack\n├── .env.example           # Reference config\n├── bin/\n│   ├── setup.sh         # Deploy the stack (from your machine)\n│   ├── bootstrap.sh      # EC2 setup + hardening\n│   ├── startup.sh        # Minikube + K8s deploy + ALB-target iptables bridge\n│   └── shutdown.sh       # Teardown\n├── k8s/                   # 26 Kubernetes manifests\n│   └── kustomization.yaml # Kustomize entry point\n├── nginx/\n│   ├── nginx.conf     # Nginx config (TLS + JWT)\n│   ├── jwt.js             # NJS JWT parsing\n│   └── metrics.js         # NJS metrics\n└── config/                # Prometheus, Loki, Promtail configs"
+          "content": "deploy/aws/ec2/\n├── template.yaml          # CloudFormation stack\n├── .env.example           # Reference config\n├── bin/\n│   ├── setup.sh         # Deploy the stack (from your machine)\n│   ├── bootstrap.sh      # EC2 setup + hardening\n│   ├── startup.sh        # Minikube + K8s deploy + ALB-target iptables bridge\n│   └── shutdown.sh       # Teardown\n├── k8s/                   # Kubernetes manifests\n│   └── kustomization.yaml # Kustomize entry point\n├── nginx/\n│   ├── nginx.conf     # Nginx config (TLS + JWT)\n│   ├── jwt.js             # NJS JWT parsing\n│   └── metrics.js         # NJS metrics\n└── config/                # Prometheus, Loki, Promtail configs"
         },
         {
           "type": "text",
@@ -2188,7 +2196,7 @@ export const deploymentTopic: HelpTopic = {
             "Verify pipeline-manager infra store-token was run",
             "Check Lambda logs: aws logs tail /aws/lambda/pipeline-builder-event-ingestion --follow",
             "Check SQS DLQ for failed events",
-            "Verify pipeline was deployed after infra setup-events (ARN must be registered)"
+            "Verify pipeline was deployed after infra setup-events (it must have a pipeline_registry row)"
           ]
         }
       ]

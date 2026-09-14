@@ -26,6 +26,10 @@ All requests require two headers:
 | `Authorization` | `Bearer <JWT>` -- obtained from the platform login endpoint |
 | `x-org-id` | Organization ID -- scopes the request to a specific tenant |
 
+> **Paths in this document are service-relative.** Every route is served through the
+> Nginx gateway under the `/api` prefix, so the table entry `/pipelines/:id` is
+> called as `https://<host>/api/pipelines/<id>` — as the `curl` examples below show.
+
 Access tokens are short-lived — **900 s (15 min) by default**, set by `JWT_EXPIRES_IN` with optional per-tier overrides via `JWT_EXPIRES_IN_<TIER>`. The short TTL is what makes privilege changes take effect quickly; see [Permissions → session invalidation](permissions.md#session-invalidation). Use the refresh-token endpoint to obtain a new access token without re-authenticating.
 
 ---
