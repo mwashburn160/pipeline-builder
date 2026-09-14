@@ -34,8 +34,9 @@ This is the documentation index for **Pipeline Builder**, a multi-tenant platfor
 ## Key Concepts
 
 - **Pipeline** — CI/CD definition composed of stages, each referencing plugins. Synthesized into AWS CDK stacks at deploy time.
-- **Plugin** — Reusable build step packaged as a Dockerfile + plugin-spec.yaml. Runs as an isolated CodeBuild action inside CodePipeline. Supports `build_image` (build at upload) or `prebuilt` (pre-built image.tar bundled in zip).
-- **Organization** — the isolation boundary. All resources (pipelines, plugins, rules, quotas, secrets, billing) are scoped to an org with RBAC access control.
+- **Plugin** — Reusable build step packaged as a Dockerfile + plugin-spec.yaml. Runs as an isolated CodeBuild action inside CodePipeline. Supports `build_image` (build at upload), `prebuilt` (pre-built image.tar bundled in zip), or `metadata_only` (no image — runs on CodeBuild's default).
+- **Organization** (also **org**, and **tenant** in API docs) — the isolation boundary. All resources (pipelines, plugins, rules, quotas, secrets, billing) are scoped to an org with RBAC access control.
+- **Account** — the **root** organization of an org → team tree. Billing, seats and pooled quota live here, so billing docs say "account" where the rest of the docs say "root org".
 - **Team** — an organization optionally nested one level under a parent org (the org → team hierarchy). Opt-in: every org is a flat root by default. A team has its own members, quotas, and secrets, but its parent-org admins can manage it and visibility/quotas/compliance/analytics roll across the parent ↔ team relationship.
 - **Compliance Rule** — Configurable constraint that validates plugins and pipelines before creation. Supports 18 operators, computed fields, and cross-field checks.
 - **Metadata Keys** — Typed configuration keys controlling CodePipeline and CodeBuild behavior (IAM, networking, compute). See [Metadata Keys](metadata-keys.md).
@@ -284,11 +285,13 @@ curl -X POST https://localhost:8443/api/organization \
 
 ### Roles
 
-| Role | Capabilities |
+| Built-in Role (seeded permission bundle) | What its permissions cover |
 |------|-------------|
 | **Owner** | Full control — manage members, transfer ownership, delete org |
 | **Admin** | Manage plugins, pipelines, compliance rules, quotas, and invite members |
 | **Member** | Create and manage their own pipelines and plugins |
+
+The coarse `owner`/`admin`/`member` label on a *membership* is for display and ownership transfer only — it grants nothing. Permissions come only from the Roles assigned to a user; see [Permissions](permissions.md).
 
 Invite members via email from the dashboard or API. A user can belong to multiple organizations.
 

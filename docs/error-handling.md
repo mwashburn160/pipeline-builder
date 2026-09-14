@@ -1,3 +1,8 @@
+---
+layout: default
+title: Error Handling
+---
+
 <!--
 Copyright 2026 Pipeline Builder Contributors
 SPDX-License-Identifier: Apache-2.0

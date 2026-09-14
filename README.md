@@ -13,7 +13,7 @@
 
 ---
 
-## Self-Service CI/CD Platform — golden paths for developers, guardrails for platform teams
+## Overview
 
 Pipeline Builder is a **self-service CI/CD platform for AWS**. Developers self-serve production-ready CodePipelines in minutes — from a dashboard, CLI, CDK, or a single AI prompt — while platform and DevOps teams keep control through **policy-as-code guardrails**, reusable **golden-path templates**, and a central plugin catalog. It takes DevOps off the critical path *without* giving up governance — and every pipeline ships as **native AWS CodePipeline in your own account**, so there's no vendor lock-in and nothing to rip out later.
 
@@ -21,7 +21,7 @@ Rather than hand-wiring AWS CodePipeline, CodeBuild, IAM roles, and deployment s
 
 ## At a Glance
 
-| 119 | 5 | 4 | 12 | 18 |
+| 119 | 5 | 4 | 14 | 18 |
 |:---:|:-:|:-:|:--:|:--:|
 | **plugins** ready to use | **interfaces** to create pipelines | **deploy targets** from laptop to EKS | **AI models** for pipeline generation | **compliance operators** for guardrails |
 
@@ -58,11 +58,11 @@ Generate a complete pipeline — sources, stages, plugins, env vars — from a G
 
 | Provider | Models |
 |----------|--------|
-| Anthropic | Claude Sonnet 5, Claude Haiku 4.5 |
-| OpenAI | GPT-4o, GPT-4o Mini |
-| Google | Gemini 2.0 Flash, Gemini 2.5 Pro |
-| xAI | Grok 3, Grok 3 Fast, Grok 3 Mini |
-| Amazon Bedrock | Claude 3.5 Sonnet v2, Nova Pro, Nova Lite |
+| Anthropic | Claude Sonnet 5, Claude Opus 5, Claude Haiku 4.5 |
+| OpenAI | GPT-5.6 Sol, GPT-5.6 Terra, GPT-5.6 Luna |
+| Google | Gemini 3.7 Flash, Gemini 3.1 Pro |
+| xAI (Grok) | Grok 4.6, Grok 4.5, Grok 4.3 |
+| Amazon Bedrock | Claude Sonnet 4.5, Amazon Nova Pro, Amazon Nova Lite |
 
 ### 119 Pre-Built Plugins, Ten Categories
 
@@ -70,7 +70,7 @@ Reusable build steps covering the full CI/CD lifecycle — language toolchains, 
 
 Plugin images are built with **rootless BuildKit** (`buildkitd`) — the same daemonless path on every target (EKS, EC2, minikube, local):
 
-- **Rootless & unprivileged** — `moby/buildkit:rootless` runs as a non-root user with no `privileged: true`, **no Docker daemon, and no docker-socket mount**, eliminating the classic dind/socket attack surface.
+- **Rootless & unprivileged** — `moby/buildkit:rootless` runs as a non-root user with no `privileged: true`, **no Docker daemon, and no docker-socket mount**, eliminating the classic Docker-in-Docker / socket-mounting attack surface.
 - **Builds and pushes directly** — parses the Dockerfile, builds with native **layer caching**, and pushes the OCI image **straight to the registry** — no intermediate `docker save`/`docker push`.
 - **Trust built in** — carries the system CA bundle and negotiates registry bearer tokens with the host trust store — no per-container cert mounts.
 - **One code path everywhere** — the deploy target only changes where the sidecar is hosted (ECS task / k8s pod / compose service).
@@ -121,14 +121,14 @@ commands:
 
 **Capabilities:**
 - **Path lookups** — `pipeline.*` (metadata, vars, projectName, orgId), `plugin.*`, `env.*` (own declared env vars)
-- **`| default: '...'`** — fallback value when the path is undefined
+- **`| default: '..'`** — fallback value when the path is undefined
 - **Type coercion** — `| number`, `| bool`, `| json` for non-string fields
 - **Plugin contracts** — `requiredMetadata` / `requiredVars` / `metadataTypes` declare what a plugin needs, validated at upload
 - **Self-references with cycle detection** in pipeline configs
 - **Preview & validate** — `pipeline-manager template validate`, `--show-resolved` flag, `?resolve=true` API param
 - **Editor support** — frontend MetadataEditor parses tokens inline as you type
 
-Fully backward-compatible: pipelines and plugins without `{{ ... }}` continue working unchanged. See [Template Syntax](docs/templates.md) for the full grammar, scope reference, and migration guide.
+Pipelines and plugins without `{{ .. }}` are unaffected. See [Template Syntax](docs/templates.md) for the full grammar and scope reference.
 
 ### Golden-Path Pipeline Templates
 
@@ -174,8 +174,8 @@ A **team** is an organization nested one level under a parent organization (the 
 Sign in with email + password, a social provider, or corporate SSO — side by side. See [Authentication & SSO](docs/authentication.md).
 
 - **OAuth social login** (platform-wide) — "Sign in with" **Google, GitHub, Facebook, Microsoft, GitLab, LinkedIn**. Each is enabled the moment its `OAUTH_<P>_CLIENT_ID` / `_SECRET` env is set (fail-soft — unconfigured providers are simply hidden), and the login page renders its buttons data-driven from the enabled set. One app registration per provider, global to the deployment. See [Environment Variables → OAuth / social login](docs/environment-variables.md#authentication)
-- **Per-org enterprise SSO** (OIDC) — an organization registers its **own** identity provider (`OrgIdpConfig`): **generic OIDC** for Okta, Microsoft Entra ID, Auth0, Ping, OneLogin, Keycloak, or AWS IAM Identity Center, plus a named **AWS Cognito** provider (region + userPoolId → derived discovery). The login flow validates the IdP's `id_token` against its JWKS; `allowedEmailDomains` gates a domain and **forces its users through SSO**. Gated on the `sso` tier/bundle entitlement, and configurable both by a platform operator (`/admin/org-idp`) and by an org's own admin via **self-service** (gated on `org:idp`)
-- **Other providers** — Apple, X, Amazon, and Discord are reachable today via generic OIDC where OIDC-compliant; a native **Sign in with Apple** button is a planned addition (needs a signed-JWT client secret + `form_post`)
+- **Per-org enterprise SSO** (OIDC) — an organization registers its **own** identity provider (`OrgIdpConfig`): **generic OIDC** for Okta, Microsoft Entra ID, Auth0, Ping, OneLogin, Keycloak, or AWS IAM Identity Center, plus a named **AWS Cognito** provider (region + userPoolId → derived discovery). The login flow validates the IdP's `id_token` against its JWKS; `allowedEmailDomains` gates a domain and **forces its users through SSO**. Gated on the `sso` tier/bundle entitlement, and configurable both by a platform operator (`/admin/org-idp`) and by an org's own admin via **self-service** (gated on `org:idp`).
+- **Other providers** — Apple, X, Amazon, and Discord are reachable today via generic OIDC where OIDC-compliant.
 
 ### Execution Analytics
 
@@ -186,12 +186,12 @@ Every CodePipeline and CodeBuild state change flows through EventBridge into the
 - Stage-level failure heatmaps — see which stages fail most across the organization
 - Error categorization — build vs test vs deploy failures
 - Per-organization cost attribution
-- [DORA metrics](docs/dora-metrics.md) — deployment frequency, change failure rate, MTTR, and **measured** commit→deploy lead time, with Elite/High/Medium/Low performance bands and a trend sparkline. Lead time needs the in-account commit enrichment enabled via `setup-events --with-dora` — **why enable it:** the other three metrics work without it, but lead time reads `unknown` until it's on; it's off by default because it adds an SCM + `github-token`-secret call per deploy (see [DORA metrics](docs/dora-metrics.md))
+- [DORA metrics](docs/dora-metrics.md) — deployment frequency, change failure rate, MTTR, and **measured** commit→deploy lead time, with Elite/High/Medium/Low performance bands and a trend sparkline. Lead time needs the in-account commit enrichment enabled via `setup-events --with-dora` — **why enable it:** the other three metrics work without it, but lead time reads `unknown` until it's on; it's off by default because it adds a call to your source-control provider (using the org's `github-token` secret) per deploy (see [DORA metrics](docs/dora-metrics.md))
 - [Developer portal](docs/developer-portal.md) — catalog ownership + *My Services*, golden-path templates you instantiate by filling inputs (still governed by compliance + quota), and a per-pipeline maturity scorecard (compliance posture + DORA → A–F grade)
 
 ### Built for Production
 
-- **Zero-trust internal calls** — service-to-service HTTP uses short-lived JWTs minted via `signServiceToken()`; internal traffic satisfies the same `requireAuth` middleware as user requests (no per-route bypass)
+- **Zero-trust internal calls** — service-to-service HTTP uses short-lived, internally-minted JWTs; internal traffic satisfies the same `requireAuth` middleware as user requests (no per-route bypass)
 - **Service mesh (Istio ambient)** — STRICT mutual TLS and identity-based L4 authorization between every service on all deploy targets, layered beneath the app JWTs (see [Service Mesh](docs/service-mesh.md))
 - **Kubernetes-ready endpoints** — every service exposes `GET /health` (liveness), `GET /ready` (503 when any dependency is `disconnected`), `GET /warmup` (pre-opens connection pools), and `GET /metrics` (Prometheus scrape)
 - **Graceful degradation** — readiness reflects real dependency state; load balancers route around partially-failed services automatically
@@ -273,8 +273,8 @@ Prefer to run it directly? Every target ships a `bin/setup.sh`:
 ```bash
 git clone <repo-url> pipeline-builder && cd pipeline-builder
 
-cd deploy/local/docker && chmod +x bin/setup.sh && ./bin/setup.sh   # 1. pull images + start the stack
-cd ../.. && ./deploy/bin/init-platform.sh docker                  # 2. register admin + load plugins
+cd deploy/local/docker && ./bin/setup.sh   # 1. pull images + start the stack
+cd ./. && ./deploy/bin/init-platform.sh docker                  # 2. register admin + load plugins
 ```
 
 > **Minikube instead of Docker?** Swap the target: `cd deploy/local/minikube && ./bin/setup.sh`, then `./deploy/bin/init-platform.sh minikube`. On an ~8-core laptop use **`LEAN=1 ./bin/setup.sh`** — the full stack **+ the Istio mesh** won't fit in 8 vCPU, so LEAN omits the optional observability/admin services (prometheus/thanos/loki/promtail/jaeger/alertmanager/mongo-express/pgadmin/grafana/kiali) and runs single replicas. Need more disk? **`DISK_SIZE=60g ./bin/setup.sh`** (default 30g; create-time only). Clean restart: `minikube delete --profile=pipeline-builder`, then re-run setup. minikube stores data on the **VM disk** (survives `stop/start`, not `delete`), not the host `data/` folder.
@@ -293,6 +293,32 @@ catalog; see [Post-Deploy: Initialize Platform](docs/README.md#post-deploy-initi
 > to build from source or use the CLI.
 >
 > **Change the default password immediately** on any environment reachable beyond your laptop.
+
+---
+
+## Development
+
+Building from source (not needed just to *run* the platform — see Quick Start above):
+
+```bash
+pnpm install          # Node.js >= 24.14, pnpm >= 10.33
+pnpm build            # compile every package
+pnpm test             # full monorepo gate
+```
+
+Repository layout:
+
+| Path | Contains |
+|------|----------|
+| `packages/` | Shared libraries — `api-core`, `api-server`, `pipeline-data`, `pipeline-core`, `pipeline-manager` (the CLI) |
+| `api/` | The backend services — pipeline, plugin, quota, billing, message, compliance, reporting, ask |
+| `platform/` | Auth, organizations, users, observability proxy |
+| `frontend/` | Next.js dashboard |
+| `deploy/` | Per-target install: `local/docker`, `local/minikube`, `aws/ec2`, `aws/eks` |
+| `docs/` | The documentation in this repo |
+| `projenrc/` | Build configuration |
+
+> **This repo is [projen](https://projen.io)-managed.** `package.json`, `tsconfig.json` and the CI workflows are **generated** — edit `.projenrc.ts` / `projenrc/` and re-run `pnpm dlx projen`, or your change is overwritten on the next synth.
 
 ---
 
@@ -315,7 +341,6 @@ Full docs hub: **[docs/](docs/README.md)** — grouped by task. Looking for a te
 
 | Document | Description |
 |----------|-------------|
-| [Documentation hub](docs/README.md) | The full index, grouped: Build · Govern · Operate · Reference |
 | [Onboarding a New Organization](docs/onboarding.md) | First admin: login → org → members → PAT → `store-token` → `setup-events` → first pipeline |
 | [Pipeline Manager CLI](docs/pipeline-manager.md) | The `pipeline-manager` CLI — provision the platform, build/deploy pipelines, run audits |
 | [AWS Deployment](docs/aws-deployment.md) | Deploy to EC2 / EKS — modes, post-deploy setup, reporting, teardown |
@@ -326,7 +351,7 @@ Full docs hub: **[docs/](docs/README.md)** — grouped by task. Looking for a te
 |----------|-------------|
 | [Developer Guide](docs/developer-guide.md) | Five ways to create a pipeline + cut-and-paste patterns for 7 languages |
 | [CDK Usage](docs/cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
-| [Template Syntax](docs/templates.md) | `{{ ... }}` synth-time interpolation + golden-path templates |
+| [Template Syntax](docs/templates.md) | `{{ .. }}` synth-time interpolation + golden-path templates |
 | [Metadata Keys](docs/metadata-keys.md) | Typed CodePipeline / CodeBuild / networking / IAM configuration keys |
 | [Plugin Catalog](docs/plugins/README.md) | 119 pre-built plugins across 10 categories |
 | [Developer Portal](docs/developer-portal.md) | Catalog ownership & My Services, golden-path templates, maturity scorecards |
@@ -359,7 +384,6 @@ Full docs hub: **[docs/](docs/README.md)** — grouped by task. Looking for a te
 
 | Document | Description |
 |----------|-------------|
-| [Content Index](docs/content-index.md) | A–Z keyword/topic index — find where any subject is documented |
 | [API Reference](docs/api-reference.md) | REST endpoints, query params, curl examples |
 | [Architecture Flow](docs/architecture-flow.md) | End-to-end flow diagrams (request → build → deploy) |
 

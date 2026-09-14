@@ -19,7 +19,7 @@ Rather than hand-wiring AWS CodePipeline, CodeBuild, IAM roles, and deployment s
 
 ## At a glance
 
-| 119 | 5 | 4 | 12 | 18 |
+| 119 | 5 | 4 | 14 | 18 |
 |:---:|:-:|:-:|:--:|:--:|
 | **plugins** ready to use | **interfaces** to create pipelines | **deploy targets** from laptop to EKS | **AI models** for pipeline generation | **compliance operators** for guardrails |
 
@@ -58,11 +58,11 @@ Generate a complete pipeline — sources, stages, plugins, env vars — from a G
 
 | Provider | Models |
 |----------|--------|
-| Anthropic | Claude Sonnet 5, Claude Haiku 4.5 |
-| OpenAI | GPT-4o, GPT-4o Mini |
-| Google | Gemini 2.0 Flash, Gemini 2.5 Pro |
-| xAI | Grok 3, Grok 3 Fast, Grok 3 Mini |
-| Amazon Bedrock | Claude 3.5 Sonnet v2, Nova Pro, Nova Lite |
+| Anthropic | Claude Sonnet 5, Claude Opus 5, Claude Haiku 4.5 |
+| OpenAI | GPT-5.6 Sol, GPT-5.6 Terra, GPT-5.6 Luna |
+| Google | Gemini 3.7 Flash, Gemini 3.1 Pro |
+| xAI (Grok) | Grok 4.6, Grok 4.5, Grok 4.3 |
+| Amazon Bedrock | Claude Sonnet 4.5, Amazon Nova Pro, Amazon Nova Lite |
 
 ### 119 pre-built plugins, ten categories
 
@@ -102,7 +102,7 @@ Validate plugins and pipelines **before** they're created — not in a quarterly
 
 ### Synth-time templating
 
-A minimal `{{ ... }}` template language for pipeline configs and plugin specs — resolved **once at synthesis time**, with no runtime evaluation, no shell-out, no code execution. Path lookups (`pipeline.*`, `plugin.*`, `env.*`), `| default:` fallbacks, type coercion (`| number`, `| bool`, `| json`), and plugin contracts (`requiredMetadata` / `metadataTypes`) validated at upload. See [Template Syntax]({{ '/docs/templates.html' | relative_url }}).
+A minimal `{{ .. }}` template language for pipeline configs and plugin specs — resolved **once at synthesis time**, with no runtime evaluation, no shell-out, no code execution. Path lookups (`pipeline.*`, `plugin.*`, `env.*`), `| default:` fallbacks, type coercion (`| number`, `| bool`, `| json`), and plugin contracts (`requiredMetadata` / `metadataTypes`) validated at upload. See [Template Syntax]({{ '/docs/templates.html' | relative_url }}).
 
 ### Golden-path pipeline templates
 
@@ -138,8 +138,8 @@ An **organization** is the isolation boundary — every pipeline, plugin, secret
 Sign in with email + password, a social provider, or corporate SSO — side by side. See [Authentication & SSO]({{ '/docs/authentication.html' | relative_url }}).
 
 - **OAuth social login** (platform-wide) — "Sign in with" **Google, GitHub, Facebook, Microsoft, GitLab, LinkedIn**. Each provider turns on when its `OAUTH_<P>_CLIENT_ID` / `_SECRET` env is set (fail-soft — unconfigured providers are hidden), and the login page renders its buttons data-driven from the enabled set; one app registration per provider, global to the deployment
-- **Per-org enterprise SSO** (OIDC) — an organization registers its own IdP (`OrgIdpConfig`): **generic OIDC** (Okta, Microsoft Entra ID, Auth0, Ping, OneLogin, Keycloak, AWS IAM Identity Center) plus a named **AWS Cognito** provider (region + userPoolId → derived discovery). The IdP's `id_token` is JWKS-validated; `allowedEmailDomains` gates a domain and **forces its users through SSO**. Gated on the `sso` tier/bundle entitlement and configurable by a platform operator (`/admin/org-idp`) or by an org's own admin via self-service (gated on `org:idp`)
-- **Other providers** — Apple, X, Amazon, and Discord are reachable via generic OIDC where OIDC-compliant; a native **Sign in with Apple** button is a planned addition (signed-JWT client secret + `form_post`)
+- **Per-org enterprise SSO** (OIDC) — an organization registers its own IdP (`OrgIdpConfig`): **generic OIDC** (Okta, Microsoft Entra ID, Auth0, Ping, OneLogin, Keycloak, AWS IAM Identity Center) plus a named **AWS Cognito** provider (region + userPoolId → derived discovery). The IdP's `id_token` is JWKS-validated; `allowedEmailDomains` gates a domain and **forces its users through SSO**. Gated on the `sso` tier/bundle entitlement and configurable by a platform operator (`/admin/org-idp`) or by an org's own admin via self-service (gated on `org:idp`).
+- **Other providers** — Apple, X, Amazon, and Discord are reachable via generic OIDC where OIDC-compliant.
 
 ---
 
@@ -218,7 +218,7 @@ Prefer to run it directly? The full stack runs locally with Docker — prebuilt 
 ```bash
 git clone https://github.com/mwashburn160/pipeline-builder.git && cd pipeline-builder
 cd deploy/local/docker && ./bin/setup.sh          # 1. pull images + start the stack
-cd ../.. && ./deploy/bin/init-platform.sh docker   # 2. register admin + load plugins
+cd ./. && ./deploy/bin/init-platform.sh docker   # 2. register admin + load plugins
 ```
 
 > **Minikube:** `cd deploy/local/minikube && ./bin/setup.sh` (use target `minikube` for init). On an ~8-core laptop run **`LEAN=1 ./bin/setup.sh`** — the full stack **+ the Istio mesh** exceeds 8 vCPU, so LEAN omits the optional observability/admin services and uses single replicas. More disk: **`DISK_SIZE=60g ./bin/setup.sh`** (default 30g, create-time only). Clean restart: `minikube delete --profile=pipeline-builder`. Data lives on the VM disk (survives `stop/start`, wiped by `delete`), not the host `data/` folder.
@@ -261,7 +261,7 @@ Browse the full docs at **[{{ '/docs/' | relative_url }}]({{ '/docs/' | relative
 |-------|-------------|
 | [Developer Guide]({{ '/docs/developer-guide.html' | relative_url }}) | Five ways to create a pipeline + cut-and-paste patterns for 7 languages |
 | [CDK Usage]({{ '/docs/cdk-usage.html' | relative_url }}) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
-| [Template Syntax]({{ '/docs/templates.html' | relative_url }}) | Synth-time `{{ ... }}` interpolation + golden-path templates |
+| [Template Syntax]({{ '/docs/templates.html' | relative_url }}) | Synth-time `{{ .. }}` interpolation + golden-path templates |
 | [Metadata Keys]({{ '/docs/metadata-keys.html' | relative_url }}) | Typed CodePipeline / CodeBuild / networking / IAM configuration keys |
 | [Plugin Catalog]({{ '/docs/plugins/' | relative_url }}) | 119 pre-built plugins across 10 categories |
 | [Developer Portal]({{ '/docs/developer-portal.html' | relative_url }}) | Catalog ownership & My Services, golden-path templates, maturity scorecards |
@@ -295,6 +295,6 @@ Browse the full docs at **[{{ '/docs/' | relative_url }}]({{ '/docs/' | relative
 | Guide | Description |
 |-------|-------------|
 | [API Reference]({{ '/docs/api-reference.html' | relative_url }}) | REST endpoints for pipelines, plugins, compliance, reporting, and AI |
-| [Template Syntax]({{ '/docs/templates.html' | relative_url }}) | Full `{{ ... }}` grammar, scopes, filters, error catalog |
+| [Template Syntax]({{ '/docs/templates.html' | relative_url }}) | Full `{{ .. }}` grammar, scopes, filters, error catalog |
 | [Error Handling]({{ '/docs/error-handling.html' | relative_url }}) | Error-to-HTTP convention — throw typed `AppError`s |
 | [Architecture Flow]({{ '/docs/architecture-flow.html' | relative_url }}) | End-to-end flow diagrams (request → build → deploy) |

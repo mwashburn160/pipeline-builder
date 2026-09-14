@@ -314,7 +314,7 @@ aws cloudformation describe-stacks --stack-name pipeline-builder \
 | `GhcrToken` | Yes | — | GHCR token for pulling images |
 | `DomainName` | **Yes** | — | FQDN — ACM cert + Route 53 alias to the ALB |
 | `HostedZoneId` | **Yes** | — | Public Route 53 zone ID (ACM DNS validation + alias) |
-| `InstanceType` | No | `t3.2xlarge` | EC2 instance type (8 vCPU / 32 GiB; full stack fits with the default ResourceQuota). Use `t3.xlarge` only with `Lean=true`. |
+| `InstanceType` | No | `m5.4xlarge` | EC2 instance type (16 vCPU / 64 GiB) — the smallest size on which every HPA can reach `maxReplicas` alongside the mesh and the self-hosted ask-model. `t3.2xlarge` (8 vCPU / 32 GiB) runs the stack at steady state with less headroom; use `t3.xlarge` only with `Lean=true`. |
 | `Lean` | No | `false` | When `true`, omit the optional observability/admin services + single-replica everything so the core stack + mesh fits a `t3.xlarge`. Pair with `InstanceType=t3.xlarge`. See [Service Mesh: LEAN mode](service-mesh.md#lean-mode-trimming-the-footprint). |
 | `EbsVolumeSize` | No | `60` | Root volume size in GiB (OS, binaries) |
 | `DataVolumeSize` | No | `500` | Data volume size in GiB (`/opt/pipeline`, gp3 encrypted) — Docker, plugins, registry, databases. Lower to ~200 for slim/`build_image` deploys. |
@@ -558,10 +558,10 @@ Persistent state lives on **PVCs** provisioned by the EBS/EFS CSI drivers — no
 | PostgreSQL | pb-ebs (RWO) | 5-15 GB | Pipelines, plugins, compliance, messages |
 | MongoDB | pb-ebs (RWO) | 10-20 GB | Quota + billing records |
 | Prometheus / Alertmanager / PgAdmin | pb-ebs (RWO) | 1-10 GB each | Metrics, alert state, admin UI |
-| In-cluster registry | pb-efs (RWX) | 40-60 GB | Plugin container images (shared across nodes) |
-| Loki | pb-efs (RWX) | grows with logs | Log storage (shared across nodes) |
-| Redis | ephemeral | — | Caching / queues |
-| Plugin builds / uploads | emptyDir | per-pod | BuildKit layer cache + upload staging (shared in-pod with the sidecar) |
+| In-cluster registry | none — MinIO | — | Stateless: images go to the `registry` bucket via the S3 storage driver |
+| Loki | none — MinIO | — | Chunks + index ship to the `loki` bucket |
+| Redis | pb-ebs (RWO) | 1-5 GB | Sentinel HA StatefulSet (3 Redis + 3 Sentinel) — queues + cache |
+| Plugin builds / uploads | pb-efs (RWX) | per-pod | BuildKit layer cache + upload staging (shared in-pod with the sidecar) |
 
 **Recommendations:**
 
@@ -767,7 +767,7 @@ PLUGIN_BUILD_STRATEGY=prebuilt FORCE_REBUILD=true bash bin/init-platform.sh ec2
 bash bin/init-platform.sh --force ec2
 
 # Clean up plugin.zip and image.tar after upload (reclaim disk space)
-./deploy/bin/init-platform.sh --cleanup local
+./deploy/bin/init-platform.sh --cleanup docker
 ./deploy/bin/load-plugins.sh --rebuild --cleanup
 
 # EC2 with sudo (required for minikube user context)
@@ -1075,6 +1075,8 @@ After deployment, access services at:
 | PgAdmin | `/pgadmin/` |
 | Mongo Express | `/mongo-express/` |
 | Registry UI | `/dashboard/registry` (system-admin only) |
+| Grafana | `/grafana/` (own login — `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`) |
+| Kiali (mesh graph) | `/kiali/` (read-only) |
 
 ---
 
@@ -1092,7 +1094,7 @@ deploy/aws/ec2/
 │   ├── bootstrap.sh      # EC2 setup + hardening
 │   ├── startup.sh        # Minikube + K8s deploy + ALB-target iptables bridge
 │   └── shutdown.sh       # Teardown
-├── k8s/                   # 26 Kubernetes manifests
+├── k8s/                   # Kubernetes manifests
 │   └── kustomization.yaml # Kustomize entry point
 ├── nginx/
 │   ├── nginx.conf     # Nginx config (TLS + JWT)

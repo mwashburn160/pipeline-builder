@@ -385,12 +385,13 @@ Most plugin Dockerfiles start with `FROM pipeline-plugin-base:24.04` — a share
 
 ### Build Types
 
-Plugins support two build strategies, configured via `config.yaml`:
+Plugins support three build strategies, configured via `config.yaml`:
 
 | buildType | Description | config.yaml | plugin.zip contains |
 |-----------|-------------|-------------|---------------------|
 | `build_image` (default) | Build Docker image from Dockerfile at upload time | `buildType: build_image` + `dockerfile: Dockerfile` | plugin-spec.yaml + config.yaml + Dockerfile |
 | `prebuilt` | Use a pre-built Docker image (via `build-plugin-images.sh`) | `buildType: prebuilt` | plugin-spec.yaml + config.yaml + image.tar |
+| `metadata_only` | No Docker build at all — the step runs on CodeBuild's default image. **Auto-detected** when the bundle has neither a Dockerfile nor an `image.tar` | `buildType: metadata_only` | plugin-spec.yaml + config.yaml |
 
 To pre-build all plugin images:
 ```bash
@@ -432,8 +433,8 @@ env:
 | `keywords` | Tags for search and categorization |
 | `category` | Catalog category the plugin belongs to (e.g. `security`, `deploy`) |
 | `version` | Semantic version of the plugin |
-| `pluginType` | Must be `CodeBuildStep` (the only supported type) |
-| `computeType` | CodeBuild instance size: `SMALL` (3 GB / 2 vCPU), `MEDIUM` (7 GB / 4 vCPU), or `LARGE` (15 GB / 8 vCPU) |
+| `pluginType` | `CodeBuildStep` (default), `ManualApprovalStep` (a native gate — see `infrastructure/manual-approval`), or `ShellStep` |
+| `computeType` | CodeBuild instance size: `SMALL` (3 GB / 2 vCPU), `MEDIUM` (7 GB / 4 vCPU), `LARGE` (15 GB / 8 vCPU), or `X2_LARGE` (145 GB / 72 vCPU) |
 | `timeout` | Maximum execution time in minutes |
 | `failureBehavior` | What happens on failure: `fail` (stop pipeline), `warn` (continue with warning), `ignore` |
 | `secrets` | List of required secrets with `name`, `required` (boolean), and `description` |

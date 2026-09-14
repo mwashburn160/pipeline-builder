@@ -310,7 +310,7 @@ flowchart TB
     ROOT --> QUO[Quotas + seats<br/>pooled at the root org]
     ROOT --> COMP[Compliance<br/>per-org policy rules]
     ROOT --> TEAM[Team: acme-mobile<br/>orgId: def456, parentOrgId: abc123]
-    TEAM --> TMEM[Members + roles + groups<br/>scoped to the team]
+    TEAM --> TMEM[Members + roles<br/>scoped to the team]
 ```
 
 **Org → team hierarchy.** A **team** is a nested `Organization` (a doc with `parentOrgId` set, sharing the same schema/collection). Resource scoping is per org/team by `orgId` — but **seats, quotas, and billing pool at the root** organization (a person on several teams counts as one seat; usage sums across the subtree). **Roles (permission sets) and the derived per-org label are per org/team**; a user's effective permissions are the union of their assigned Roles, resolved in whichever org/team is active. A root-org admin can administer its child teams via the hierarchy (`canAdministerOrg`), while super-admins span everything.

@@ -1,13 +1,20 @@
+---
+layout: default
+title: Service Mesh
+---
+
 # Service Mesh (Istio Ambient)
 
 Pipeline Builder runs an **Istio ambient (sidecar-less) service mesh** on every
 deploy target — `deploy/local/minikube`, `deploy/aws/ec2`, and `deploy/aws/eks`.
 It provides **STRICT mutual TLS** and **identity-based L4 authorization** between
-every service. The `CiliumNetworkPolicy` files are unenforced (no Cilium
-controller is installed), but the standard Kubernetes `NetworkPolicy` files CAN
-be enforced — minikube's `kindnet` CNI enforces them (an `inet
+every service. The `CiliumNetworkPolicy` files ship but are **inert on every target** — no
+Cilium controller is installed, and they are kept only as a ready-made overlay
+for clusters that already run Cilium. The standard Kubernetes `NetworkPolicy`
+files CAN be enforced — minikube's `kindnet` CNI enforces them (an `inet
 kindnet-network-policies` nftables table), as does the EKS VPC CNI. Because every
-ambient connection reaches the destination pod on the HBONE port `15008` rather
+ambient connection reaches the destination pod on the HBONE port `15008` (HBONE —
+HTTP-Based Overlay Network Environment, the mTLS tunnel ztunnel carries traffic in) rather
 than the app's port, each target's `networkpolicy.yaml` carries an
 `allow-ambient-hbone` policy; without it `default-deny-ingress` silently drops
 all mesh traffic (ztunnel logs "maybe a NetworkPolicy is blocking HBONE port
@@ -87,10 +94,10 @@ listing exactly the caller identities real traffic needs.
 > Observability infra (loki/alertmanager/thanos/jaeger) has **no** policy →
 > STRICT-mTLS-only (any mesh peer), to bound the enumeration surface.
 
-Allow-lists were **derived from real dependencies**, not the (stale) NetworkPolicy
-files — e.g. Redis is used by ~every service (not just `plugin`), and `reporting`
-connects to postgres. The refreshed NetworkPolicy files now agree with the mesh
-policies. See the appendix in the implementation plan for the full table.
+Allow-lists were **derived from real dependencies** rather than copied from the
+NetworkPolicy files — e.g. Redis is used by ~every service (not just `plugin`),
+and `reporting` connects to postgres. The NetworkPolicy files were then refreshed
+to agree with the mesh policies, so the two layers now describe the same graph.
 
 ### aws specifics
 
@@ -168,7 +175,7 @@ LEAN=1 sudo -E bash deploy/aws/ec2/bin/startup.sh   # -E preserves LEAN through 
 ```
 
 LEAN omits the optional observability/admin services (prometheus, thanos, loki,
-promtail, jaeger, alertmanager, mongo-express, pgadmin) and collapses every workload to
+promtail, jaeger, alertmanager, mongo-express, pgadmin, grafana, kiali) and collapses every workload to
 a single replica, leaving the core stack + mesh room to schedule. Both targets drive the
 same `lean_filter` over the kustomize stream. The full stack is the default (LEAN=0) for
 larger machines; **eks** is unaffected (Karpenter provisions more nodes instead).

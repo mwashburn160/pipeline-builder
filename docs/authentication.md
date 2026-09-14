@@ -223,10 +223,9 @@ A few consequences worth knowing:
 
 **Apple, X (Twitter), Amazon, Discord, and Slack** are **not** named social-login
 buttons today. Where they are OIDC-compliant they can be wired up as a per-org
-enterprise SSO provider through **generic OIDC** (below). A native
-**Sign in with Apple** button is a planned future addition — it needs an ES256
-signed-JWT client secret and a `form_post` callback, so it lands as a dedicated
-effort rather than a standard OAuth handler.
+enterprise SSO provider through **generic OIDC** (below). Apple is not a native button: it needs an ES256
+signed-JWT client secret and a `form_post` callback, so it does not fit the
+standard OAuth handler.
 
 ---
 
@@ -290,6 +289,10 @@ list — a standards-OIDC `id_token` flow is required):
   (`https://cognito-idp.<region>.amazonaws.com/<userPoolId>/.well-known/openid-configuration`) —
   no hand-entered URL. (A Cognito user-pool id is **not** an AWS account id and
   is safe to store.)
+- **`google`** — **Google Workspace** as a named provider. The discovery URL is
+  well-known, so there is none to enter; you supply the client id/secret only.
+- **`github`** — **GitHub** as a named provider, for orgs already standardised on
+  GitHub identities.
 
 ### IdP setup walkthroughs
 
@@ -327,7 +330,7 @@ mismatch here is the most common cause of a failed SSO login.
 4. Discovery URL: `https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration`.
 5. Set `provider: generic-oidc`, `clientId`, `clientSecret`, `discoveryUrl`.
 
-#### Google Workspace (google)
+#### Google Workspace (`google`)
 
 1. [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → **Create Credentials → OAuth client ID → Web application** (configure the consent screen first if prompted).
 2. **Authorized redirect URIs** → add `<OAUTH_CALLBACK_BASE_URL>/auth/sso/<orgId>/callback`.
@@ -382,8 +385,8 @@ create / update / delete is recorded in the [audit trail](audit-events.md)
 
 Separate from SSO, an org can let people with a **verified company email domain**
 discover and join it — so coworkers land in one org instead of many one-person
-orgs. Requires the **Team or Enterprise** tier. Full design + threat model:
-[docs/plans/domain-based-org-join.md](plans/domain-based-org-join.md).
+orgs. Requires the **Team or Enterprise** tier. The design and threat model are
+covered in the sections below.
 
 ### Admin setup (Settings → Domain-based join)
 
@@ -432,4 +435,3 @@ verified-email-gated and only ever shows the user's *own* domain's orgs.
 - [Roles & Permissions](permissions.md) — the `org:idp`/`org:kms` capabilities, sessions, and `tokenVersion` invalidation.
 - [Billing Add-on Bundles](billing-bundles.md) — the `sso` add-on bundle and feature entitlements.
 - [Audit Events](audit-events.md) — SSO/IdP config change actions.
-- [Domain-based org join (plan)](plans/domain-based-org-join.md) — the P2b design, security model, and deferred follow-ups.

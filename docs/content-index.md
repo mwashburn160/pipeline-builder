@@ -28,23 +28,24 @@ the links below.
 - **API reference (REST endpoints)** — [API Reference](api-reference.md#endpoints)
 - **Architecture / system diagram / data flow** — [Architecture Flow](architecture-flow.md#system-architecture), [Service topology](service-mesh.md#architecture)
 - **Artifact passing between steps** — [CDK: Artifact Passing](cdk-usage.md#artifact-passing-between-steps), [Artifact & Registry Plugins](plugins/artifact.md)
-- **Audit events / audit log / tamper-evidence** — [Audit Events](audit-events.md), [Integrity](audit-events.md#integrity-tamper-evidence), [Action catalog](audit-events.md#action-catalog)
+- **Audit events / audit log / tamper-evidence** — [Audit Events](audit-events.md), [Integrity](audit-events.md#integrity--tamper-evidence), [Action catalog](audit-events.md#action-catalog)
 - **Authentication (login, JWT, OAuth)** — [Authentication & SSO](authentication.md), [Env vars: Authentication](environment-variables.md#authentication)
 - **AWS deployment** — [AWS Deployment](aws-deployment.md), [EC2](aws-deployment.md#ec2), [EKS](aws-deployment.md#eks)
 - **AWS Marketplace (setup walkthrough)** — [Billing Providers: AWS Marketplace](billing-providers.md#aws-marketplace)
-- **AWS Marketplace (metering, private offers)** — [Billing Discounts: Marketplace](billing-discounts.md#aws-marketplace-private-offers-handled-in-aws-not-in-app), [Env vars: Marketplace metering](environment-variables.md#aws-marketplace-metering-credit-realization)
+- **AWS Marketplace (metering, private offers)** — [Billing Discounts: Marketplace](billing-discounts.md#aws-marketplace--private-offers-handled-in-aws-not-in-app), [Env vars: Marketplace metering](environment-variables.md#aws-marketplace-metering--credit-realization)
 
 ## B
 
-- **Backups & disaster recovery** — [Deploy Operations: Backups & DR](deploy-operations.md#backups-disaster-recovery)
-- **Billing (plans, usage, credits)** — [Organization Benefits: Billing](organization-benefits.md#organizations-teams-billing), [Env vars: Billing](environment-variables.md#billing)
+- **Backups & disaster recovery** — [Deploy Operations: Backups & DR](deploy-operations.md#backups--disaster-recovery)
+- **Billing (plans, usage, credits)** — [Organization Benefits: Billing](organization-benefits.md#organizations-teams--billing), [Env vars: Billing](environment-variables.md#billing)
 - **Billing providers (Stripe / AWS Marketplace setup)** — [Billing Providers](billing-providers.md)
-- **Bundles / add-on packs (seats, pipelines, API)** — [Billing Add-on Bundles](billing-bundles.md)
-- **buildArgs (Docker build args, templatable)** — [Templates: build plugin with buildArgs](templates.md#example-build-plugin-with-buildargs)
-- **BuildKit (rootless) / why rootless** — [Env vars: Why rootless BuildKit](environment-variables.md#why-rootless-buildkit)
-- **Build queue (BullMQ / KEDA scaling)** — [Env vars: Build Queue](environment-variables.md#build-queue), [Mesh: Queues, KEDA & buildkit](service-mesh.md#queues-keda-buildkit)
+- **Build health (per-pipeline stage success rate + timing percentiles)** — [DORA Metrics: Build health](dora-metrics.md#build-health)
+- **Build queue (BullMQ / KEDA scaling)** — [Env vars: Build Queue](environment-variables.md#build-queue), [Mesh: Queues, KEDA & buildkit](service-mesh.md#queues-keda--buildkit)
 - **Build types (Dockerfile vs shared base)** — [Architecture: Build Types](architecture-flow.md#build-types), [Plugins: Build Types](plugins/README.md#build-types)
+- **buildArgs (Docker build args, templatable)** — [Templates: build plugin with buildArgs](templates.md#example-build-plugin-with-buildargs)
 - **BuilderProps (pipeline JSON shape)** — [CDK: BuilderProps Reference](cdk-usage.md#builderprops-reference), [Architecture: BuilderProps Structure](architecture-flow.md#builderprops-structure-stored-as-json-in-props-column)
+- **BuildKit (rootless) / why rootless** — [Env vars: Why rootless BuildKit](environment-variables.md#why-rootless-buildkit)
+- **Bundles / add-on packs (seats, pipelines, API)** — [Billing Add-on Bundles](billing-bundles.md)
 
 ## C
 
@@ -71,7 +72,6 @@ the links below.
 - **Discounts / promo codes / referrals** — [Billing Discounts](billing-discounts.md), [Promotions](billing-discounts.md#promotions)
 - **Docker registry (config, tags)** — [Env vars: Docker Registry](environment-variables.md#docker-registry), [Registry audit events](audit-events.md#registry-structured-log-events)
 - **DORA metrics (deploy freq, lead time, MTTR, CFR)** — [DORA Metrics](dora-metrics.md), [Performance levels](dora-metrics.md#performance-levels)
-- **Build health (per-pipeline stage success rate + timing percentiles)** — [DORA Metrics: Build health](dora-metrics.md#build-health)
 - **Drift detection (CloudFormation stacks)** — [AWS Deployment: Drift Detection](aws-deployment.md#drift-detection-audit-stacks)
 
 ## E
@@ -81,7 +81,7 @@ the links below.
 - **EKS deployment** — [AWS Deployment: EKS](aws-deployment.md#eks), [EKS vs other k8s targets](aws-deployment.md#eks-vs-the-other-k8s-targets)
 - **Egress (external, allow-any)** — [Service Mesh: External egress](service-mesh.md#external-egress)
 - **Email / SES (sending, bounces, sandbox)** — [AWS Deployment: Email (SES)](aws-deployment.md#email-ses), [Env vars: Email](environment-variables.md#email)
-- **Event reporting / `setup-events` (EventBridge → SQS → Lambda)** — [Onboarding: Set up event reporting](onboarding.md#step-6-set-up-event-reporting-aws-targets), [AWS: EventBridge Reporting](aws-deployment.md#3-deploy-eventbridge-reporting-infrastructure)
+- **Event reporting / `setup-events` (EventBridge → SQS → Lambda)** — [Onboarding: Set up event reporting](onboarding.md#step-6--set-up-event-reporting-aws-targets), [AWS: EventBridge Reporting](aws-deployment.md#3-deploy-eventbridge-reporting-infrastructure)
 - **Encryption (per-team secret, KMS)** — [Metadata Keys: Encryption](metadata-keys.md#encryption), [Env vars: Multi-team secret encryption](environment-variables.md#multi-team-secret-encryption)
 - **Environment variables (full reference)** — [Environment Variables](environment-variables.md)
 - **Error handling / typed errors / error catalog** — [Error Handling Convention](error-handling.md), [Template error catalog](templates.md#error-catalog)
@@ -97,11 +97,15 @@ the links below.
 
 - **GitHub source / token** — [CDK: GitHub](cdk-usage.md#github), [Samples: GitHub source token](samples.md#prerequisite-github-source-token)
 - **Golden-path templates (reusable starters)** — [Developer Portal: Golden-path templates](developer-portal.md#golden-path-templates), [Templates: Golden pipeline templates](templates.md#golden-pipeline-templates)
+- **Grafana (operator dashboards)** — [Deploy Operations: Operator consoles](deploy-operations.md#operator-consoles-grafana-kiali)
 - **Grammar (template syntax)** — [Templates: Grammar](templates.md#grammar)
 
 ## I
 
 - **IAM roles (pipeline / step / action, OIDC)** — [CDK: IAM Roles](cdk-usage.md#iam-roles), [Metadata Keys: IAM Role](metadata-keys.md#iam-role-configuration), [Samples: IAM Role Levels](samples.md#iam-role-levels)
+- **Incident reporting setup (admin UI, self-serve token, per-org window)** — [Admin UI](incidents-webhook.md#admin-ui), [Getting a token](incidents-webhook.md#getting-a-token-self-serve), [Per-org window](incidents-webhook.md#per-org-correlation-window)
+- **Incident webhook — Alertmanager adapter (native payload)** — [Alertmanager adapter](incidents-webhook.md#alertmanager-adapter-native)
+- **Incident webhook (PagerDuty/Datadog/Alertmanager → automated CFR + MTTR)** — [Incident Webhook](incidents-webhook.md), [Correlation window](incidents-webhook.md#correlation-window)
 - **Infrastructure plugins (CDK synth, multi-region)** — [Infrastructure Plugins](plugins/infrastructure.md)
 - **Initialize platform (post-deploy)** — [AWS Deployment: Initialize the Platform](aws-deployment.md#1-initialize-the-platform), [Docs: Post-Deploy](README.md#post-deploy-initialize-platform)
 - **Interpolation (mixed literal + `{{ }}`)** — [Templates: Grammar](templates.md#grammar), [plugin `pipeline.*` interpolation](templates.md#example-plugin-spec-with-pipeline-interpolation)
@@ -110,18 +114,14 @@ the links below.
 
 ## K
 
-- **KEDA (autoscaling the build queue)** — [Service Mesh: Queues, KEDA & buildkit](service-mesh.md#queues-keda-buildkit)
+- **KEDA (autoscaling the build queue)** — [Service Mesh: Queues, KEDA & buildkit](service-mesh.md#queues-keda--buildkit)
 - **Kiali (Istio mesh console)** — [Service Mesh: Kiali](service-mesh.md#kiali-mesh-console)
-- **Grafana (operator dashboards)** — [Deploy Operations: Operator consoles](deploy-operations.md#operator-consoles-grafana-kiali)
 - **Kubernetes deploy plugins** — [Deploy Plugins: Kubernetes](plugins/deploy.md#kubernetes)
 
 ## L
 
-- **Incident webhook (PagerDuty/Datadog/Alertmanager → automated CFR + MTTR)** — [Incident Webhook](incidents-webhook.md), [Correlation window](incidents-webhook.md#correlation-window)
-- **Incident reporting setup (admin UI, self-serve token, per-org window)** — [Admin UI](incidents-webhook.md#admin-ui), [Getting a token](incidents-webhook.md#getting-a-token-self-serve), [Per-org window](incidents-webhook.md#per-org-correlation-window)
-- **Incident webhook — Alertmanager adapter (native payload)** — [Alertmanager adapter](incidents-webhook.md#alertmanager-adapter-native)
 - **Language plugins / version managers** — [Language Plugins](plugins/language.md)
-- **Lead time (DORA caveat)** — [DORA Metrics: Lead Time caveat](dora-metrics.md#lead-time-caveat-roadmap)
+- **Lead time (DORA)** — [DORA Metrics: How each metric is defined](dora-metrics.md#how-each-metric-is-defined)
 - **LEAN mode (trim footprint — minikube & ec2)** — [Service Mesh: LEAN mode](service-mesh.md#lean-mode-trimming-the-footprint)
 
 ## M
@@ -139,15 +139,15 @@ the links below.
 
 ## O
 
-- **OAuth / social login** — [Authentication: OAuth social login](authentication.md#oauth-social-login-platform-wide), [Env vars: OAuth](environment-variables.md#oauth-social-login-optional)
+- **OAuth / social login** — [Authentication: OAuth social login](authentication.md#oauth-social-login-platform-wide), [Env vars: OAuth](environment-variables.md#oauth--social-login-optional)
 - **OIDC (enterprise SSO, IAM role trust)** — [Authentication: Per-org SSO (OIDC)](authentication.md#per-org-enterprise-sso-oidc), [CDK: Role Types](cdk-usage.md#role-types)
 - **Onboarding a new organization (initial login → PAT → events)** — [Onboarding](onboarding.md)
 - **Organizations / teams / hierarchy** — [Docs: Organizations](README.md#organizations), [Organization Benefits](organization-benefits.md), [Permissions: Teams](permissions.md#teams)
 
 ## P
 
-- **Pagination & limits** — [Env vars: Pagination & Limits](environment-variables.md#pagination-limits), [API: Common Query Parameters](api-reference.md#common-query-parameters)
-- **PAT / Personal Access Token (CLI/automation credential)** — [Onboarding: Create a PAT](onboarding.md#step-4-create-a-personal-access-token-pat), [Pipeline Manager: auth](pipeline-manager.md#auth-infrastructure)
+- **Pagination & limits** — [Env vars: Pagination & Limits](environment-variables.md#pagination--limits), [API: Common Query Parameters](api-reference.md#common-query-parameters)
+- **PAT / Personal Access Token (CLI/automation credential)** — [Onboarding: Create a PAT](onboarding.md#step-4--create-a-personal-access-token-pat), [Pipeline Manager: auth](pipeline-manager.md#auth--infrastructure)
 - **Permissions / RBAC / roles** — [Roles & Permissions](permissions.md), [Permission catalog](permissions.md#permission-catalog)
 - **Pipeline creation (5 ways)** — [Developer Guide: Five Ways](developer-guide.md#five-ways-to-create-a-pipeline), [Docs: Creating Pipelines](README.md#creating-pipelines)
 - **Plugins (catalog, categories, structure)** — [Plugin Catalog](plugins/README.md), [Categories](plugins/README.md#categories), by type: [AI](plugins/ai.md) · [Artifact](plugins/artifact.md) · [Deploy](plugins/deploy.md) · [Infrastructure](plugins/infrastructure.md) · [Language](plugins/language.md) · [Monitoring](plugins/monitoring.md) · [Notification](plugins/notification.md) · [Quality](plugins/quality.md) · [Security](plugins/security.md) · [Testing](plugins/testing.md)
@@ -159,7 +159,7 @@ the links below.
 ## Q
 
 - **Quality plugins (lint, format, coverage)** — [Code Quality Plugins](plugins/quality.md)
-- **Quotas & rate limiting** — [Env vars: Quotas & Rate Limiting](environment-variables.md#quotas-rate-limiting)
+- **Quotas & rate limiting** — [Env vars: Quotas & Rate Limiting](environment-variables.md#quotas--rate-limiting)
 
 ## R
 
@@ -175,7 +175,7 @@ the links below.
 - **Scheduled pipelines (cron/EventBridge)** — [CDK: Scheduled Pipelines](cdk-usage.md#scheduled-pipelines)
 - **Scopes (compliance / metadata scope levels)** — [Compliance: Scopes](compliance.md#scopes), [Metadata: Scope Levels](metadata-keys.md#scope-levels)
 - **Secrets — usage & injection** — [CDK: Secrets Management](cdk-usage.md#secrets-management), [Plugins: How Secrets Work](plugins/README.md#how-secrets-work), [Env vars](environment-variables.md#authentication)
-- **Service token (`store-token`, JWT in Secrets Manager)** — [Onboarding: Store the service token](onboarding.md#step-5-store-the-service-token-aws-targets), [AWS: Store Service Credentials](aws-deployment.md#2-store-service-credentials)
+- **Service token (`store-token`, JWT in Secrets Manager)** — [Onboarding: Store the service token](onboarding.md#step-5--store-the-service-token-aws-targets), [AWS: Store Service Credentials](aws-deployment.md#2-store-service-credentials)
 - **Secret naming convention (`pipeline-builder/{orgId}/{name}`)** — [Plugins: Naming Convention](plugins/README.md#naming-convention)
 - **Secrets — rotation runbook** — [Deploy Operations: Rotation runbook](deploy-operations.md#rotation-runbook-there-is-deliberately-no-blind---rotate-flag)
 - **Security plugins (SAST, SCA, secret detection)** — [Security Plugins](plugins/security.md)
@@ -191,7 +191,7 @@ the links below.
 
 ## T
 
-- **Teams (org → team hierarchy, seats)** — [Docs: Teams](README.md#teams-org-team-hierarchy), [Permissions: Teams](permissions.md#teams)
+- **Teams (org → team hierarchy, seats)** — [Docs: Teams](README.md#teams-org--team-hierarchy), [Permissions: Teams](permissions.md#teams)
 - **Teardown (destroy a deployment)** — [AWS: EC2 Teardown](aws-deployment.md#teardown), [Deploy Operations: Teardown](deploy-operations.md#teardown)
 - **Templates — syntax (`{{ }}`, vars, scopes)** — [Template Syntax](templates.md), [Scope reference](templates.md#scope-reference)
 - **Templates — golden pipeline (starters)** — [Templates: Golden pipeline templates](templates.md#golden-pipeline-templates)

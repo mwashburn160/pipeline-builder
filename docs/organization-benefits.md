@@ -127,14 +127,18 @@ Every resource in Pipeline Builder lives inside an **organization**, organizatio
 
 - **Roles (RBAC), enforced at the API layer:**
 
-  | Role | Capabilities |
+  | Built-in Role (seeded permission bundle) | What its permissions cover |
   |------|-------------|
   | **Owner** | Full control — manage members, transfer ownership, delete the organization (exactly one owner per org) |
   | **Admin** | Manage plugins, pipelines, compliance rules, and quotas; invite and manage members |
   | **Member** | Create and manage their own pipelines and plugins |
 
+  The coarse `owner`/`admin`/`member` label on a *membership* is for display and
+  ownership transfer only — it grants nothing. Permissions come only from the
+  Roles assigned to a user ([Permissions](permissions.md#the-model)).
+
 - **Roles.** Access is granted through **Roles** — each Role is a named set of fine-grained `resource:action` permissions. A user's effective permissions are the **union of the Roles assigned to them**; there is no separate role-based baseline. New orgs seed default Roles (Admin, Member); the system org also gets Super Admin; a platform Super Admin implicitly holds every permission. Admins with `roles:manage` can author custom Roles, bounded by their own permissions (a permission ceiling).
-- **What's scoped to the org:** pipelines (by project + orgId), plugins (by orgId + `public`/`private` access modifier), compliance rules and exemptions, quotas and seats, secrets (`pipeline-builder/{orgId}/{secretName}`), the billing subscription, and execution analytics.
+- **What's scoped to the org:** pipelines (by project + orgId), plugins (by orgId + the `visibility` ladder: `private`/`org`/`public`), compliance rules and exemptions, quotas and seats, secrets (`pipeline-builder/{orgId}/{secretName}`), the billing subscription, and execution analytics.
 - **The shared system organization** publishes a recommended plugin catalog and compliance-rule catalog that any organization can pull from or subscribe to — a common baseline without giving up isolation.
 - **Membership** is per-organization: inviting a user into one org grants no access to another.
 
@@ -176,7 +180,7 @@ Every resource in Pipeline Builder lives inside an **organization**, organizatio
   | AI generation (pipelines & plugins) | — | ✅ | ✅ | ✅ |
   | Bulk operations | — | ✅ | ✅ | ✅ |
   | Audit log | — | — | ✅ | ✅ |
-  | SSO | — | — | — | ✅ |
+  | SSO | — | — | ✅ | ✅ |
   | Custom integrations | — | — | — | ✅ |
   | Teams (org → team nesting) | — | — | ✅ | ✅ |
   | Priority support | — | ✅ | ✅ | ✅ |
@@ -220,7 +224,7 @@ Every resource in Pipeline Builder lives inside an **organization**, organizatio
 |--------|----------|---------------|
 | **Local** (Docker Compose) | Development, demos | Single machine, all services in containers |
 | **Minikube** (K8s) | Testing, small teams | Single node Kubernetes, KEDA auto-scaling |
-| **EC2** (Minikube on EC2) | Small-medium production | t3.2xlarge default (8 vCPU / 32 GiB), persistent storage, Let's Encrypt |
+| **EC2** (Minikube on EC2) | Small-medium production | m5.4xlarge default (see [`InstanceType`](aws-deployment.md#parameters)), persistent storage, Let's Encrypt |
 | **EKS** (Auto Mode) | Large-scale production | Managed Kubernetes, Karpenter autoscaling, EBS/EFS-backed PostgreSQL/MongoDB/Redis |
 
 All deployment targets run the same services with the same configuration — `.env` files and K8s manifests are consistent across targets.

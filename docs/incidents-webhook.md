@@ -235,4 +235,4 @@ Both require `reports:read` + `advanced_reporting` (org-admin surfaces).
 - [DORA Metrics](dora-metrics.md) — how CFR + MTTR consume incidents
 - [Post-deploy outcomes](dora-metrics.md#post-deploy-outcomes) — the manual mark-failed/restored path (deduped against incidents)
 - [Onboarding](onboarding.md) — creating + storing the `reporting:ingest` service token
-- [Roles & Permissions](permissions.md) — the `reporting:ingest` scope
+- [Roles & Permissions](permissions.md) — how permissions differ from the machine-token scopes (`reporting:ingest`) this endpoint uses

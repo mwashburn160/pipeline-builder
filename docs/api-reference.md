@@ -26,7 +26,7 @@ All requests require two headers:
 | `Authorization` | `Bearer <JWT>` -- obtained from the platform login endpoint |
 | `x-org-id` | Organization ID -- scopes the request to a specific tenant |
 
-Access tokens expire after 2 hours by default (configurable via `JWT_EXPIRES_IN`, with optional per-tier overrides via `JWT_EXPIRES_IN_<TIER>`). Use the refresh token endpoint to obtain a new access token without re-authenticating.
+Access tokens are short-lived — **900 s (15 min) by default**, set by `JWT_EXPIRES_IN` with optional per-tier overrides via `JWT_EXPIRES_IN_<TIER>`. The short TTL is what makes privilege changes take effect quickly; see [Permissions → session invalidation](permissions.md#session-invalidation). Use the refresh-token endpoint to obtain a new access token without re-authenticating.
 
 ---
 

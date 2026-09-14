@@ -371,7 +371,7 @@ Five starter policies (named rule groups) ship alongside them in `deploy/complia
 Load them during init or standalone:
 
 ```bash
-./deploy/bin/init-platform.sh                           # prompted during init
+./deploy/bin/init-platform.sh docker                    # prompted during init
 PLATFORM_TOKEN="$JWT" ./deploy/bin/load-compliance.sh   # standalone (rules + policies)
 ```
 

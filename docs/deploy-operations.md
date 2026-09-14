@@ -1,3 +1,8 @@
+---
+layout: default
+title: Deploy Operations
+---
+
 # Deploy Operations Runbook
 
 Day-2 procedures for a running Pipeline Builder deployment: preflight, secret generation & rotation, backups & disaster recovery, and teardown. See [`deploy/README.md`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/README.md) for the target map and bring-up flow.
@@ -96,7 +101,9 @@ See [Service Mesh](service-mesh.md) for the full troubleshooting table.
 
 **Lean deploy (`LEAN=1`)** — when the full stack **+ the Istio mesh** exceeds ~8 vCPU (an ~8-core laptop, or a smaller EC2 instance), `LEAN=1` brings up the core stack + mesh only: it omits the optional observability/admin services (prometheus, thanos, loki, promtail, jaeger, alertmanager, mongo-express, pgadmin, grafana, kiali) and collapses every workload to a single replica. Supported on **minikube** (`LEAN=1 deploy/local/minikube/bin/setup.sh`) and **ec2** — at launch via the CFN `Lean` param (`LEAN=1 deploy/aws/ec2/bin/setup.sh`, or `pipeline-manager infra provision --target ec2 --lean`), or on the box (`LEAN=1 sudo -E bash deploy/aws/ec2/bin/startup.sh`; `-E` preserves the env through `sudo`). It lets ec2 run on a **t3.xlarge** instead of a t3.2xlarge. Both targets drive the same `lean_filter`. Full stack (all observability) is the default for larger machines; eks is unaffected. See [Service Mesh: LEAN mode](service-mesh.md#lean-mode-trimming-the-footprint).
 
-**Operator consoles (`/grafana/`, `/kiali/`)** — the three kubernetes targets serve two admin consoles through nginx subpaths, the same pattern as `/pgadmin/`: **Grafana** (dashboards over Thanos → Prometheus → Loki → Jaeger; Thanos is the default datasource because it fans out to the object-store blocks that Prometheus alone drops) and **Kiali** (the Istio mesh console). Both are dropped by `LEAN=1`.
+### Operator consoles (`/grafana/`, `/kiali/`)
+
+The three kubernetes targets serve two admin consoles through nginx subpaths, the same pattern as `/pgadmin/`: **Grafana** (dashboards over Thanos → Prometheus → Loki → Jaeger; Thanos is the default datasource because it fans out to the object-store blocks that Prometheus alone drops) and **Kiali** (the Istio mesh console). Both are dropped by `LEAN=1`.
 
 Each carries its **own login** — nginx applies no auth to these routes — and both read data with **no org scoping**, unlike the tenant-facing `/dashboard/observability` pages which are org-scoped through the platform's PromQL proxy. They are therefore admin-only, and nothing tenant-facing links to them. Kiali additionally runs `view_only_mode` with read-only RBAC (no create/update/delete verbs anywhere) and `auth.strategy: token`, so signing in needs a ServiceAccount token: `kubectl -n pipeline-builder create token kiali`.
 

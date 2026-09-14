@@ -523,7 +523,7 @@ POST /api/pipeline-templates/<id>/instantiate
 //    a new pipeline builds github.com/acme/checkout
 ```
 
-**Visibility** — templates use a three-rung ladder, unlike pipelines and plugins (which have only public/private):
+**Visibility** — templates use the same three-rung ladder every catalog entity uses ([Permissions → the visibility ladder](permissions.md#the-visibility-ladder)); templates differ only in that they default to `private`:
 
 | Rung | Who can see it | Who can edit it |
 | --- | --- | --- |

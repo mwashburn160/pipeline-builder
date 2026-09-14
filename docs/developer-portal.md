@@ -79,4 +79,4 @@ Response (abridged):
 }
 ```
 
-Scorecards are gated by **Advanced Reporting** (Enterprise, or the Advanced Reporting add-on) — the same feature that gates DORA — and the card is hidden when it is off. Lead time remains an approximate run-time proxy (the event stream doesn't capture commit time); see [DORA Metrics](dora-metrics.md).
+Scorecards are gated by **Advanced Reporting** (Enterprise, or the Advanced Reporting add-on) — the same feature that gates DORA — and the card is hidden when it is off. Lead time is measured commit→deploy when the forwarder is deployed with `--with-dora`, and `unknown` otherwise; see [DORA Metrics](dora-metrics.md#how-each-metric-is-defined).

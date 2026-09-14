@@ -52,8 +52,8 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly. Every p
 | **API Pack** | +100,000 API calls / period | $19.99 | $199.90 | all tiers | ✅ |
 | **AI Pack** | +2,500 AI calls / period | $19.99 | $199.90 | all tiers | ✅ |
 | **Storage Pack** | +10 GB registry storage | $19.99 | $199.90 | all tiers | ✅ |
-| **Standard Retention Pack** | +90 days standard pipeline-event retention | $15 | $150 | all tiers | ✅ |
-| **DORA History Pack** | +365 days DORA history **and** +365 days on the per-org report-query window | $30 | $300 | all tiers | ✅ |
+| **Standard Retention Pack** | +90 days standard pipeline-event retention | $15 | $150 | all tiers | ✅ (max 7) |
+| **DORA History Pack** | +365 days DORA history **and** +365 days on the per-org report-query window | $30 | $300 | all tiers | ✅ (max 1) |
 | **Audit Log** | unlocks the `audit_log` feature | $20 | $200 | Pro | ❌ |
 | **SSO / IdP** | unlocks `sso` + up to 5 IdP configs | $40 | $400 | Pro | ❌ |
 | **Advanced Reporting (DORA)** | unlocks the `advanced_reporting` feature | $30 | $300 | Developer, Pro, Team | ❌ |
@@ -138,7 +138,7 @@ Bundles are only offered when the operator enables them, and each bundle's econo
 | `BILLING_BUNDLE_<ID>_TIERS` | JSON array of tiers allowed to buy the bundle |
 | `BILLING_COMBO_<COMBO>_MONTHLY` / `_ANNUAL` | Override a combo's combined price (cents) — e.g. `BILLING_COMBO_ANALYTICS_SUITE_MONTHLY` |
 
-`<ID>` is the bundle id upper-cased: `SEAT_PACK`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `AUDIT_LOG`, `SSO`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`, `COMPLIANCE_STANDARD`, `COMPLIANCE_ADVANCED`. `<COMBO>` is the combo id upper-cased: `ANALYTICS_SUITE`, `TEAM_GROWTH`, `COMPLIANCE_SUITE`. Under AWS Marketplace the retention packs meter as the `RetentionPack` / `DoraHistoryPack` dimensions.
+`<ID>` is the bundle id upper-cased: `SEAT`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `AUDIT_LOG`, `SSO`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`, `COMPLIANCE_STANDARD`, `COMPLIANCE_ADVANCED`. `<COMBO>` is the combo id upper-cased: `ANALYTICS_SUITE`, `TEAM_GROWTH`, `COMPLIANCE_SUITE`, `SCALE_BUNDLE`. Under AWS Marketplace the retention packs meter as the `RetentionPack` / `DoraHistoryPack` dimensions.
 
 > **AWS Marketplace:** when the billing provider is `aws-marketplace`, self-service bundle purchase is disabled — entitlements flow from Marketplace instead, and add-on charges are reported as **metered usage** (`BatchMeterUsage`). Combo credits (and other usage-credit discounts) realize on Marketplace by **withholding metered usage** when `BILLING_METERING_ENABLED` is on — see [Billing Discounts → AWS Marketplace](billing-discounts.md#aws-marketplace--private-offers-handled-in-aws-not-in-app). See [Environment Variables](environment-variables.md#billing) for the full billing configuration.
 

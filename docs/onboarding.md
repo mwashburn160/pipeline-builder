@@ -133,7 +133,7 @@ curl -X POST "$PLATFORM_BASE_URL/api/organization" \
 ```
 
 Nested **teams** (an org under a parent) are created from the **Members** page →
-**Create Team**. See [Org → Team Hierarchy](README.md#teams-org-team-hierarchy).
+**Create Team**. See [Org → Team Hierarchy](README.md#teams-org--team-hierarchy).
 
 ---
 

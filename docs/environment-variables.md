@@ -190,7 +190,7 @@ deployment. The redirect URI to register in each provider's console is
 | `REDIS_SENTINEL_PASSWORD` | — | Sentinel AUTH password (Sentinel mode, optional) |
 
 > Redis must use `maxmemory-policy noeviction` for BullMQ. `allkeys-lru` causes silent job data loss.
-> **HA:** the shipped in-cluster Redis is single-instance (no failover). For HA, apply the `redis-sentinel.yaml` template (3 Redis + 3 Sentinel) and set `REDIS_SENTINELS`, or point it at a managed **ElastiCache (Multi-AZ, cluster-mode-disabled)** — the recommended production path.
+> **HA:** the AWS targets (ec2 and eks) ship **Sentinel HA by default** (`redis-sentinel.yaml` — 3 Redis + 3 Sentinel, reached via `REDIS_SENTINELS`). The docker and minikube targets run a single instance with no failover. For a managed path, point it at **ElastiCache (Multi-AZ, cluster-mode-disabled)**.
 
 ---
 
@@ -259,11 +259,14 @@ builder, one path, no per-builder target suffixes.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `QUOTA_DEFAULT_PLUGINS` | `100` | Max plugins per org |
-| `QUOTA_DEFAULT_PIPELINES` | `10` | Max pipelines per org |
-| `QUOTA_DEFAULT_API_CALLS` | `-1` | Max API calls (`-1` = unlimited) |
-| `QUOTA_DEFAULT_AI_CALLS` | `100` | Max AI generation invocations per period (sized smaller than `apiCalls` because each call has external $ cost) |
+| `QUOTA_DEFAULT_PLUGINS` | `100` | Fallback-read plugin cap (see note) |
+| `QUOTA_DEFAULT_PIPELINES` | `10` | Fallback-read pipeline cap (see note) |
+| `QUOTA_DEFAULT_API_CALLS` | `-1` | Fallback-read API-call cap, `-1` = unlimited (see note) |
+| `QUOTA_DEFAULT_AI_CALLS` | `100` | Fallback-read AI-call cap, sized smaller than `apiCalls` because each call has external $ cost (see note) |
 | `QUOTA_RESET_DAYS` | `3` | Reset period (days) |
+
+> **These are not the caps a new org gets.** The platform service is the sole authority for org lifecycle: it seeds each org's stored limits from its **tier** (see `QUOTA_TIERS` below) at creation time, and enforcement reserves against those stored values. The `QUOTA_DEFAULT_*` values govern only the *fallback read* for an org that has no document yet — so the dashboard renders something instead of erroring. Changing them does not raise or lower any real org's limit.
+
 | `QUOTA_SERVICE_HOST` | `quota` | Quota service host |
 | `QUOTA_SERVICE_PORT` | `3000` | Quota service port |
 | `LIMITER_MAX` | `100` | Global rate limit (requests/window) |
