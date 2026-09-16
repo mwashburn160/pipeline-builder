@@ -116,7 +116,7 @@ describe('AWSMarketplaceProvider', () => {
   const marketplaceConfig = {
     productCode: 'test-product',
     region: 'us-east-1',
-    snsTopicArn: 'arn:aws:sns:us-east-1:123456789:test-topic',
+    snsTopicArns: ['arn:aws:sns:us-east-1:123456789:test-topic'],
     dimensionToPlanMap: { developer: 'developer', pro: 'pro', team: 'team', enterprise: 'enterprise' },
     bundleToDimensionMap: { seat_pack: 'seats', pipeline_pack: 'pipelines' },
     dimensionPriceMap: {},

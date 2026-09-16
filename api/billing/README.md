@@ -51,7 +51,7 @@ Subscription management, plan catalog, usage rollups, and payment processing (St
 | `STRIPE_PRICE_MAP` | JSON map of `{planId}_{interval}` → Stripe Price ID | `{}` |
 | `AWS_MARKETPLACE_PRODUCT_CODE` | AWS Marketplace product code | — |
 | `AWS_MARKETPLACE_REGION` | Marketplace region (falls back to `AWS_REGION`) | `us-east-1` |
-| `AWS_MARKETPLACE_SNS_TOPIC_ARN` | Marketplace SNS topic ARN | — |
+| `AWS_MARKETPLACE_SNS_TOPIC_ARN` | Comma-separated Marketplace SNS topic ARNs (subscription + entitlement topics) | — |
 | `AWS_MARKETPLACE_DIMENSION_MAP` | JSON map of marketplace dimensions → plan IDs | developer/pro/team/enterprise |
 | `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP` | JSON map of add-on bundle IDs → metered dimension keys (BatchMeterUsage) | identity (bundle ID = dimension) |
 | `BILLING_METERING_ENABLED` | Run the Marketplace add-on metering cycle (BatchMeterUsage) | `false` |

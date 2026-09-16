@@ -20,9 +20,12 @@ import { ActionBar } from '@/components/ui/ActionBar';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { CreateUserModal } from '@/components/users/CreateUserModal';
 import { EditUserModal } from '@/components/users/EditUserModal';
+import { BreakglassModal } from '@/components/users/BreakglassModal';
+import Link from 'next/link';
 import { buildUserColumns } from '@/components/users/userColumns';
 import type { UserListItem, NewUserState, OrgRoleOption } from '@/components/users/types';
 import api from '@/lib/api';
+import { interpretImpersonationStart } from '@/lib/impersonation-start';
 
 /** System-admin-only page for managing users across all organizations. */
 export default function UsersPage() {
@@ -93,6 +96,12 @@ export default function UsersPage() {
   // calls the captured action on password-verify success.
   const [pendingGrant, setPendingGrant] = useState<UserListItem | null>(null);
   const [impersonateTarget, setImpersonateTarget] = useState<UserListItem | null>(null);
+  // Emergency access: pick the target, collect a justification, THEN step up.
+  const [breakglassTarget, setBreakglassTarget] = useState<UserListItem | null>(null);
+  const [breakglassJustification, setBreakglassJustification] = useState<string | null>(null);
+  // A request that is waiting on someone else. Not an error — it's the consent
+  // flow working — so it gets its own notice rather than the error banner.
+  const [waitingNotice, setWaitingNotice] = useState<string | null>(null);
 
   // Create-user modal state.
   const [showCreate, setShowCreate] = useState(false);
@@ -167,19 +176,51 @@ export default function UsersPage() {
   const executeImpersonate = useCallback(async (stepUpToken: string) => {
     if (!impersonateTarget) return;
     try {
-      const res = await api.impersonateUser(impersonateTarget.id, stepUpToken);
-      if (res.success && res.data?.accessToken) {
-        api.startImpersonation(res.data.accessToken);
+      const outcome = interpretImpersonationStart(
+        await api.impersonateUser(impersonateTarget.id, stepUpToken),
+        'Impersonation failed',
+      );
+      if (outcome.kind === 'waiting') {
+        // The org requires consent: nothing to start yet. Say so, instead of
+        // silently doing nothing or reporting the consent flow as an error.
+        setWaitingNotice(`Access to ${impersonateTarget.email} is waiting for approval.`);
+      } else if (outcome.kind === 'started') {
+        // requestId is kept so "Stop impersonating" can end the session on the
+        // server, not just in this browser.
+        api.startImpersonation(outcome.accessToken, outcome.requestId);
         // Hard-reload to refresh useAuth + every cached query under the new
         // identity. Lighter than threading a swap event through every hook.
         window.location.href = '/dashboard';
       } else {
-        list.setError(res.message || 'Impersonation failed');
+        list.setError(outcome.message);
       }
     } catch (err) {
       list.setError(formatError(err, 'Impersonation failed'));
     }
   }, [impersonateTarget, list]);
+
+  const executeBreakglass = useCallback(async (stepUpToken: string) => {
+    if (!breakglassTarget || !breakglassJustification) return;
+    try {
+      const outcome = interpretImpersonationStart(
+        await api.breakglassImpersonation(breakglassTarget.id, breakglassJustification, stepUpToken),
+        'Emergency access failed',
+      );
+      if (outcome.kind === 'waiting') {
+        setWaitingNotice(`Emergency access to ${breakglassTarget.email} needs a second administrator to approve it.`);
+      } else if (outcome.kind === 'started') {
+        api.startImpersonation(outcome.accessToken, outcome.requestId);
+        window.location.href = '/dashboard';
+      } else {
+        list.setError(outcome.message);
+      }
+    } catch (err) {
+      list.setError(formatError(err, 'Emergency access failed'));
+    } finally {
+      setBreakglassTarget(null);
+      setBreakglassJustification(null);
+    }
+  }, [breakglassTarget, breakglassJustification, list]);
 
   // Multi-select state for bulk delete. Stored as a Set of user IDs so
   // selection survives across filter / page changes within a session —
@@ -349,6 +390,12 @@ export default function UsersPage() {
       }
     >
       <ErrorAlert message={list.error} onRetry={list.refresh} onDismiss={() => list.setError(null)} />
+      {waitingNotice && (
+        <InfoAlert
+          message={<>{waitingNotice} Once it&apos;s approved, open it from <Link href="/dashboard/access-requests" className="action-link">Access requests</Link>.</>}
+          onDismiss={() => setWaitingNotice(null)}
+        />
+      )}
 
       <div className="filter-bar">
         <ActionBar
@@ -478,6 +525,21 @@ export default function UsersPage() {
         />
       )}
 
+      {breakglassTarget && !breakglassJustification && (
+        <BreakglassModal
+          targetLabel={breakglassTarget.email}
+          onContinue={setBreakglassJustification}
+          onClose={() => setBreakglassTarget(null)}
+        />
+      )}
+      {breakglassTarget && breakglassJustification && (
+        <StepUpModal
+          action={`Take emergency access to ${breakglassTarget.email}`}
+          onConfirmed={executeBreakglass}
+          onClose={() => { setBreakglassTarget(null); setBreakglassJustification(null); }}
+        />
+      )}
+
       <CreateUserModal
         open={showCreate}
         form={createForm}
@@ -508,6 +570,7 @@ export default function UsersPage() {
         onNewPasswordChange={setNewPassword}
         orgOptions={orgOptions}
         onImpersonate={() => setImpersonateTarget(editingUser)}
+        onBreakglass={() => setBreakglassTarget(editingUser)}
         onSubmit={handleSaveUser}
         onClose={() => setEditingUser(null)}
         onFeatureSaved={() => list.refresh()}

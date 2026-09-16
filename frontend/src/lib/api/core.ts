@@ -6,6 +6,10 @@ import { REFRESH_BUFFER_MS, MAX_REFRESH_ATTEMPTS, API_REQUEST_TIMEOUT_MS } from 
 import { ApiError, StepUpRequiredError } from './errors';
 import { API_URL, base64UrlDecode, isStepUpErrorCode } from './util';
 
+/** Upper bound on the server-side revoke when stopping impersonation. Stopping
+ *  must never wait on the network longer than this. */
+const END_IMPERSONATION_REVOKE_TIMEOUT_MS = 3000;
+
 /** SSE event received from AI streaming endpoints. */
 export interface StreamEvent {
   type: 'partial' | 'done' | 'error' | 'analyzing' | 'analyzed' | 'checking-plugins' | 'creating-plugins'
@@ -168,7 +172,7 @@ export class ApiCore {
    * impersonation token is short-lived (15min) and not refreshable; the
    * sysadmin re-prompts (or stops) when it expires.
    */
-  startImpersonation(impersonationAccessToken: string): void {
+  startImpersonation(impersonationAccessToken: string, requestId?: string): void {
     if (typeof window !== 'undefined') {
       try {
         const originalAccess = localStorage.getItem('accessToken');
@@ -177,6 +181,9 @@ export class ApiCore {
         if (originalAccess) sessionStorage.setItem('impersonation.originalAccess', originalAccess);
         if (originalRefresh) sessionStorage.setItem('impersonation.originalRefresh', originalRefresh);
         if (originalOrgId) sessionStorage.setItem('impersonation.originalOrgId', originalOrgId);
+        // Remembered so stopping can end the session on the SERVER, not just
+        // discard the token in this browser.
+        if (requestId) sessionStorage.setItem('impersonation.requestId', requestId);
       } catch {
         // storage may be unavailable; impersonation still works for the current tab
       }
@@ -221,6 +228,47 @@ export class ApiCore {
     sessionStorage.removeItem('impersonation.originalAccess');
     sessionStorage.removeItem('impersonation.originalRefresh');
     sessionStorage.removeItem('impersonation.originalOrgId');
+  }
+
+  /**
+   * End an impersonation session: restore the operator's own tokens, then revoke
+   * the session on the SERVER.
+   *
+   * `stopImpersonation` alone only discards the token in this browser — the
+   * session stays valid until its TTL, and anyone holding the token could keep
+   * using it. Revoking closes that.
+   *
+   * Order matters. The revoke is sent AFTER the operator's tokens are restored,
+   * because the impersonation token is read-only and every write under it is
+   * rejected. And it is best-effort and time-boxed: getting out of an
+   * impersonation session must never hang on, or fail because of, a network call.
+   * If the revoke doesn't land, the token is still gone from this browser and the
+   * session ends at its TTL.
+   */
+  async endImpersonation(): Promise<void> {
+    if (typeof window === 'undefined') return;
+    let requestId: string | null = null;
+    let canRestore = false;
+    try {
+      requestId = sessionStorage.getItem('impersonation.requestId');
+      canRestore = !!sessionStorage.getItem('impersonation.originalAccess')
+        && !!sessionStorage.getItem('impersonation.originalRefresh');
+      sessionStorage.removeItem('impersonation.requestId');
+    } catch { /* storage unavailable — fall through to a plain stop */ }
+
+    this.stopImpersonation();
+    // Without the operator's own tokens there is nothing authorized to revoke with;
+    // stopImpersonation has already signed out in that case.
+    if (!requestId || !canRestore) return;
+
+    try {
+      await Promise.race([
+        this.request(`/api/admin/impersonate/requests/${encodeURIComponent(requestId)}/revoke`, { method: 'POST' }),
+        new Promise((resolve) => setTimeout(resolve, END_IMPERSONATION_REVOKE_TIMEOUT_MS)),
+      ]);
+    } catch {
+      // Already ended, or unreachable — either way the operator is out.
+    }
   }
 
   /** True if the current access token is an impersonation token. */

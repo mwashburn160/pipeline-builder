@@ -20,7 +20,7 @@
  * idempotent under nested bumps: the final version always wins).
  */
 
-import { createLogger, errorMessage, publishTokenRevocation } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, publishSessionRevocation, publishTokenRevocation } from '@pipeline-builder/api-core';
 import { getRedisClient } from '../utils/redis-client.js';
 
 const logger = createLogger('session-revocation');
@@ -128,5 +128,38 @@ export async function publishUserDeletionRevocation(userId: string, tokenVersion
     logger.warn('publishUserDeletionRevocation failed (best-effort; falling back to token expiry)', {
       userId, error: errorMessage(err),
     });
+  }
+}
+
+/**
+ * Publish that one impersonation session ended, so every OTHER service rejects
+ * its token on the next request. The platform itself already refuses it — its
+ * auth middleware reads the session record directly — so this is what makes
+ * ending a session true everywhere, not just here.
+ *
+ * Returns whether that is now true. The caller reports it to whoever ended the
+ * session, rather than saying "session ended" while the token still works
+ * against other services.
+ *
+ * @param jti        - the session's token id
+ * @param consumedAt - when the session's token was issued
+ */
+export async function publishImpersonationSessionRevocation(jti: string, consumedAt: Date | undefined): Promise<boolean> {
+  const { IMPERSONATION_SESSION_TTL_MS } = await import('../constants/impersonation.js');
+  const issuedAt = consumedAt ? new Date(consumedAt).getTime() : Date.now();
+  const remainingMs = issuedAt + IMPERSONATION_SESSION_TTL_MS - Date.now();
+  // The token has already expired everywhere: nothing is left to revoke.
+  if (remainingMs <= 0) return true;
+
+  try {
+    const redis = await getRedisClient();
+    if (!redis) {
+      logger.warn('No Redis configured — impersonation session ended on the platform only', { jti });
+      return false;
+    }
+    return await publishSessionRevocation(redis, jti, remainingMs);
+  } catch (err) {
+    logger.warn('Impersonation session revocation publish failed', { jti, error: errorMessage(err) });
+    return false;
   }
 }

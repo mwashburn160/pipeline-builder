@@ -9,7 +9,7 @@ import {
   requireAuth, isSystemAdmin,
   signServiceToken, getServiceAuthHeader, isServicePrincipal, verifyServicePrincipal,
   requirePermission, requireSystemAdmin, setAuthzDenialAuditor,
-  requireAllPermissions, setTokenRevocationStore, requireFeature,
+  requireAllPermissions, setTokenRevocationStore, requireFeature, isAccessTokenRevoked,
 } from '../src/middleware/auth.js';
 import type { AuthzDenialInfo } from '../src/middleware/auth.js';
 import type { JwtPayload } from '../src/types/common.js';
@@ -513,6 +513,94 @@ describe('setTokenRevocationStore + requireAuth revocation check', () => {
     setTokenRevocationStore(store);
     expect((await runAuth(authReq(undefined))).passed).toBe(true);
     expect(store.getCurrentVersion).not.toHaveBeenCalled();
+  });
+});
+
+describe('requireAuth — impersonation session revocation (cross-service)', () => {
+  const SECRET = 'test-jwt-secret-for-unit-tests';
+  afterEach(() => setTokenRevocationStore(undefined));
+
+  function tokenReq(claims: Record<string, unknown>) {
+    const token = jwt.sign({ type: 'access', sub: 'target', role: 'member', organizationId: 'org1', tokenVersion: 1, ...claims }, SECRET);
+    return createMockReq({ headers: { authorization: `Bearer ${token}` } });
+  }
+  const impersonation = () => tokenReq({ impersonatorId: 'sysadmin', impersonationReadOnly: true, jti: 'sess-1' });
+
+  function runAuth(req: Request) {
+    return new Promise<{ status: number; passed: boolean }>((resolve) => {
+      const res = createMockRes();
+      const origJson = res.json.bind(res);
+      (res as any).json = (b: unknown) => { const r = origJson(b); resolve({ status: res._status, passed: false }); return r; };
+      requireAuth(req, res, () => resolve({ status: 0, passed: true }));
+    });
+  }
+
+  it('allows a live session', async () => {
+    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'live' });
+    expect((await runAuth(impersonation())).passed).toBe(true);
+  });
+
+  it('REJECTS a session that was ended — the point of cross-service revocation', async () => {
+    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'revoked' });
+    const out = await runAuth(impersonation());
+    expect(out).toEqual({ status: 401, passed: false });
+  });
+
+  it('REJECTS when the store cannot answer — an outage must not read as "not revoked"', async () => {
+    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'unavailable' });
+    expect((await runAuth(impersonation())).passed).toBe(false);
+  });
+
+  it('REJECTS when the store throws', async () => {
+    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => { throw new Error('redis down'); } });
+    expect((await runAuth(impersonation())).passed).toBe(false);
+  });
+
+  it('REJECTS when NO store is registered — unlike ordinary sessions, which pass', async () => {
+    // For an ordinary token, no store means no check. For an impersonation
+    // session that would silently mean "can never be revoked".
+    expect((await runAuth(impersonation())).passed).toBe(false);
+    expect((await runAuth(tokenReq({}))).passed).toBe(true);
+  });
+
+  it('REJECTS when the registered store predates session revocation', async () => {
+    setTokenRevocationStore({ getCurrentVersion: async () => 1 });
+    expect((await runAuth(impersonation())).passed).toBe(false);
+  });
+
+  it('still applies the tokenVersion check to a live session', async () => {
+    setTokenRevocationStore({ getCurrentVersion: async () => 7, getSessionRevocation: async () => 'live' });
+    expect((await runAuth(impersonation())).passed).toBe(false);
+  });
+
+  it('does not treat a Personal Access Token (jti, no impersonatorId) as a session', async () => {
+    const store = { getCurrentVersion: async () => 1, getSessionRevocation: jest.fn(async () => 'revoked' as const) };
+    setTokenRevocationStore(store);
+    expect((await runAuth(tokenReq({ jti: 'pat-1' }))).passed).toBe(true);
+    expect(store.getSessionRevocation).not.toHaveBeenCalled();
+  });
+
+  it('leaves ordinary sessions fail-open on a store outage', async () => {
+    setTokenRevocationStore({ getCurrentVersion: async () => { throw new Error('down'); }, getSessionRevocation: async () => 'unavailable' });
+    expect((await runAuth(tokenReq({}))).passed).toBe(true);
+  });
+});
+
+describe('isAccessTokenRevoked — impersonation sessions (out-of-band mint paths)', () => {
+  afterEach(() => setTokenRevocationStore(undefined));
+
+  it('reports an ended session as revoked', async () => {
+    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'revoked' });
+    await expect(isAccessTokenRevoked({ sub: 't', tokenVersion: 1, jti: 's', impersonatorId: 'op' })).resolves.toBe(true);
+  });
+
+  it('reports an unverifiable session as revoked, so it cannot mint registry tokens', async () => {
+    await expect(isAccessTokenRevoked({ sub: 't', tokenVersion: 1, jti: 's', impersonatorId: 'op' })).resolves.toBe(true);
+  });
+
+  it('reports a live session as not revoked', async () => {
+    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'live' });
+    await expect(isAccessTokenRevoked({ sub: 't', tokenVersion: 1, jti: 's', impersonatorId: 'op' })).resolves.toBe(false);
   });
 });
 

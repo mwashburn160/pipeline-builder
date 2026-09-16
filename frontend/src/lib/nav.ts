@@ -112,6 +112,10 @@ export const NAV_SECTIONS: NavSection[] = [
       // Developer-portal "my services": the pipelines & plugins this user owns.
       { title: 'My Services', href: '/dashboard/my-services', icon: Layers },
       { title: 'Messages', href: '/dashboard/messages', icon: MessageSquare, requiredPermission: 'messages:read' },
+      // Requests to view an account, and live viewing sessions. NO permission gate
+      // on purpose: the person most often asked is the impersonated user, who is
+      // usually not an admin. The server filters what each person sees.
+      { title: 'Access Requests', href: '/dashboard/access-requests', icon: KeyRound },
     ],
   },
   {

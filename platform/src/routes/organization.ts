@@ -54,6 +54,10 @@ import {
   patchOwnOrgIdpConfig,
   deleteOwnOrgIdpConfig,
 } from '../controllers/org-idp-self.js';
+import {
+  getImpersonationPolicy,
+  updateImpersonationPolicy,
+} from '../controllers/org-impersonation-policy.js';
 import { requireAuth, requireSystemAdmin, requireStepUp } from '../middleware/index.js';
 
 const router: Router = Router();
@@ -131,6 +135,19 @@ router.put('/:id', requireAuth, requireSystemAdmin, updateOrganization);
  *  `canAdministerOrg` is the tenancy gate (own org or a managed team). Mirrors
  *  the export route's gating. */
 router.patch('/:id/identity', requireAuth, requirePermission('org:settings'), updateOrganizationIdentity);
+
+/** GET/PATCH /organization/:id/impersonation-policy — whether platform operators
+ *  may view as this org's members, and on what terms.
+ *
+ *  Gated by its OWN capability, `org:impersonation`, not `org:settings` — split
+ *  out for the same reason as `org:idp`/`org:kms`: a custom role that manages
+ *  general settings must not thereby control who can view the org's data.
+ *  `canAdministerOrg` remains the tenancy gate (own org or a managed team).
+ *
+ *  The WRITE additionally requires step-up. Loosening this policy widens who can
+ *  see the org's data. Reading the current policy needs no re-auth. */
+router.get('/:id/impersonation-policy', requireAuth, requirePermission('org:impersonation'), getImpersonationPolicy);
+router.patch('/:id/impersonation-policy', requireAuth, requirePermission('org:impersonation'), requireStepUp, updateImpersonationPolicy);
 
 // -- Domain-based join (P2b) — owner/admin manage verified domains + approve
 //    join requests. Gated by `org:settings` (capability) + `canAdministerOrg`

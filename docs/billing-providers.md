@@ -239,11 +239,22 @@ The `/marketplace/register` page handles both: it resolves the token, then eithe
 
 ### Step 4 — Subscribe the SNS notification endpoint
 
-AWS Marketplace publishes entitlement/subscription notifications to an **SNS topic you own**. Set its ARN and subscribe the app's SNS webhook (HTTPS) to the topic:
+AWS Marketplace publishes notifications to **two SNS topics that AWS Marketplace creates and owns** for your product — you don't create them, you **subscribe to them**. Both ARNs are shown in the AWS Marketplace Management Portal under your product's **Product summary**:
+
+| Portal label | Topic | Carries |
+|---|---|---|
+| Metering Service SNS topic ARN | `aws-mp-subscription-notification-<product-code>` | `subscribe-success`, `subscribe-fail`, `unsubscribe-pending`, `unsubscribe-success` |
+| Entitlement Service SNS topic ARN | `aws-mp-entitlement-notification-<product-code>` | `entitlement-updated` (tier / quantity change) |
+
+Set **both**, comma-separated. Both topics live in `us-east-1` under AWS Marketplace's own account `287250355862` (not your AWS account); `<product-code>` is your listing's product code:
 
 ```bash
-AWS_MARKETPLACE_SNS_TOPIC_ARN=arn:aws:sns:us-east-1:<acct>:aws-mp-subscription-notification-<code>
+AWS_MARKETPLACE_SNS_TOPIC_ARN=arn:aws:sns:us-east-1:287250355862:aws-mp-subscription-notification-<product-code>,arn:aws:sns:us-east-1:287250355862:aws-mp-entitlement-notification-<product-code>
 ```
+
+The list is an **exact-match allowlist**: a message whose `TopicArn` isn't in it is rejected (403), and when the variable is unset **every** notification is rejected (fail-closed). Leaving one topic out silently drops that topic's actions — the service logs a startup warning when either is missing.
+
+Then subscribe the app's SNS webhook (HTTPS) to **each** topic:
 
 ```
 POST https://<your-public-host>/billing/marketplace/sns
@@ -352,7 +363,7 @@ Watch the logs for a cycle or two, confirm the intended dimensions/quantities ma
 |---|---|---|
 | `AWS_MARKETPLACE_PRODUCT_CODE` | — | The Marketplace product code |
 | `AWS_MARKETPLACE_REGION` | `AWS_REGION` or `us-east-1` | Region for the Metering/Entitlement clients |
-| `AWS_MARKETPLACE_SNS_TOPIC_ARN` | — | SNS topic for entitlement/subscription notifications |
+| `AWS_MARKETPLACE_SNS_TOPIC_ARN` | — | Comma-separated SNS topic ARNs accepted by the webhook — set both the subscription and entitlement topics |
 | `AWS_MARKETPLACE_DIMENSION_MAP` | identity | JSON map of Marketplace tier dimension → local plan id |
 | `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP` | identity | JSON map of add-on bundle id → metered dimension key |
 | `AWS_MARKETPLACE_DIMENSION_PRICE_MAP` | `{}` | JSON map of metered dimension → local list price in cents per metered unit per cycle |

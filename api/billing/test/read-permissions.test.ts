@@ -67,7 +67,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
   config: {
     billingProvider: 'stripe',
     frontendUrl: 'https://app.example',
-    marketplace: { snsTopicArn: undefined },
+    marketplace: { snsTopicArns: [] },
   },
 }));
 

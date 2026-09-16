@@ -7,6 +7,7 @@ import type { TokenScope, QuotaTier } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import type { Types } from 'mongoose';
 import { config } from '../config/index.js';
+import { IMPERSONATION_SESSION_TTL_MS } from '../constants/impersonation.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { User, Organization, UserOrganization, Role, RoleAssignment } from '../models/index.js';
@@ -134,28 +135,36 @@ async function rolePermissionsFor(userId: string, organizationId: Types.ObjectId
  * Looks up UserOrganization + Organization name for the given orgId.
  * Falls back to user.lastActiveOrgId, then first membership.
  */
+/**
+ * Membership context for ONE specific org, or `undefined` when the user has no
+ * live membership there. No fallback to any other org — see
+ * {@link resolveMembership} for the login path that does fall back, and
+ * {@link issueImpersonationToken} for the caller that must NOT.
+ */
+async function resolveOrgMembership(userId: string, orgId: string): Promise<MembershipContext | undefined> {
+  const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(orgId), isActive: true }).lean();
+  if (!membership) return undefined;
+  const org = await Organization.findById(toOrgId(orgId)).select('name tier parentOrgId featureEntitlements deletedAt').lean();
+  // CHOKEPOINT: refuse to scope a token to a SOFT-DELETED org. The org is
+  // being torn down (retention window) — treat it as gone. Combined with the
+  // tokenVersion bump on soft-delete, this cuts off ALL access to the org
+  // without any per-read `deletedAt` filtering elsewhere.
+  if (!org || org.deletedAt) return undefined;
+  return {
+    organizationId: orgId,
+    organizationName: org.name,
+    role: membership.role as OrgMemberRole,
+    tier: org.tier,
+    rolePermissions: await rolePermissionsFor(userId, toOrgId(orgId)),
+    ...(await accountContext(orgId, org)),
+  };
+}
+
 async function resolveMembership(userId: string, activeOrgId?: string): Promise<MembershipContext | undefined> {
   // Try explicit activeOrgId first
   if (activeOrgId) {
-    const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(activeOrgId), isActive: true }).lean();
-    if (membership) {
-      const org = await Organization.findById(toOrgId(activeOrgId)).select('name tier parentOrgId featureEntitlements deletedAt').lean();
-      // CHOKEPOINT: refuse to scope a token to a SOFT-DELETED org. The org is
-      // being torn down (retention window) — treat it as gone and fall through
-      // to a still-live membership. Combined with the tokenVersion bump on
-      // soft-delete, this cuts off ALL access to the org without any per-read
-      // `deletedAt` filtering elsewhere.
-      if (org && !org.deletedAt) {
-        return {
-          organizationId: activeOrgId,
-          organizationName: org?.name,
-          role: membership.role as OrgMemberRole,
-          tier: org?.tier,
-          rolePermissions: await rolePermissionsFor(userId, toOrgId(activeOrgId)),
-          ...(await accountContext(activeOrgId, org)),
-        };
-      }
-    }
+    const pinned = await resolveOrgMembership(userId, activeOrgId);
+    if (pinned) return pinned;
   }
 
   // Fall back to the earliest active membership whose org is NOT soft-deleted —
@@ -344,26 +353,40 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
  * No refresh token is issued — impersonation is intentionally
  * short-lived. The caller is responsible for storing the token client-
  * side and clearing it on "Stop impersonating".
+ *
+ * `orgId` PINS the session to one organization and is resolved STRICTLY: if the
+ * target has no live membership there, the token is issued with no org context
+ * rather than silently landing on some other org they happen to belong to. That
+ * differs deliberately from the login path (`resolveMembership`), which falls
+ * back so a user whose active org was soft-deleted still lands somewhere — the
+ * right behaviour when a person is signing in, the wrong one when an operator
+ * asked to view a specific organization. Callers pass the target's active org
+ * today; the pin is what lets a future consent flow scope the session to the
+ * org that actually approved it.
  */
 export async function issueImpersonationToken(
   target: UserDocument,
   impersonatorId: string,
-  ttlSeconds = 15 * 60,
+  orgId: string | undefined,
+  jti: string,
+  ttlSeconds = IMPERSONATION_SESSION_TTL_MS / 1000,
 ): Promise<{ accessToken: string; expiresIn: number }> {
   let membership: MembershipContext | undefined;
   try {
-    membership = await resolveMembership(
-      target._id.toString(),
-      target.lastActiveOrgId?.toString(),
-    );
+    membership = orgId ? await resolveOrgMembership(target._id.toString(), orgId) : undefined;
   } catch (err) {
-    logger.warn('Impersonation: failed to resolve target membership', { error: err });
+    logger.warn('Impersonation: failed to resolve target membership', { orgId, error: err });
   }
 
+  // `jti` identifies THIS session so it can be revoked on its own. Paired with
+  // `impersonatorId`, which is what tells the auth middleware this is an
+  // impersonation session rather than a Personal Access Token — both carry a
+  // `jti`, and they are validated against completely different records.
   const payload = {
     ...createAccessTokenPayload(target, membership),
     impersonatorId,
     impersonationReadOnly: true,
+    jti,
   };
   const accessToken = jwt.sign(payload, config.auth.jwt.secret, {
     algorithm: config.auth.jwt.algorithm,

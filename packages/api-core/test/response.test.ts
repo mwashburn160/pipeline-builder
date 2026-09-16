@@ -207,6 +207,52 @@ describe('extractDbError', () => {
     expect(extractDbError('string error')).toEqual({});
     expect(extractDbError(undefined)).toEqual({});
   });
+
+  it('should unwrap a pg error nested under .cause (drizzle)', () => {
+    const result = extractDbError(new Error('Failed query: insert ...', {
+      cause: { code: '23505', constraint: 'plugins_name_key' },
+    }));
+    expect(result).toEqual({ dbCode: '23505', constraint: 'plugins_name_key' });
+  });
+
+  it('should NOT report a transport error code as a dbCode', () => {
+    // A socket error carries `.code` too. Reporting it as `dbCode` sent readers
+    // hunting through (clean) Postgres logs for a failure that was really the
+    // pooler dropping out of the Service endpoints.
+    // EPIPE and E2BIG are five uppercase characters — SQLSTATE-shaped by length
+    // alone, so the leading-E rule is what actually rejects them.
+    for (const code of ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNREFUSED', 'EPIPE', 'E2BIG', 'EHOSTUNREACH']) {
+      expect(extractDbError({ code })).toEqual({});
+    }
+  });
+
+  it('should NOT report a nested transport error code as a dbCode', () => {
+    // undici/fetch wraps the socket error in `.cause`, which lands on the same
+    // unwrap path drizzle uses for real pg errors.
+    const result = extractDbError(new Error('fetch failed', { cause: { code: 'ECONNRESET' } }));
+    expect(result).toEqual({});
+  });
+
+  it('should reject codes that are not SQLSTATE-shaped', () => {
+    expect(extractDbError({ code: '2350' })).toEqual({}); // too short
+    expect(extractDbError({ code: '235055' })).toEqual({}); // too long
+    expect(extractDbError({ code: '23e05' })).toEqual({}); // lowercase
+    expect(extractDbError({ code: 23505 })).toEqual({}); // not a string
+  });
+
+  it('should accept every SQLSTATE shape Postgres actually emits', () => {
+    expect(extractDbError({ code: '23505' }).dbCode).toBe('23505'); // unique_violation
+    expect(extractDbError({ code: '42P01' }).dbCode).toBe('42P01'); // undefined_table
+    expect(extractDbError({ code: '57014' }).dbCode).toBe('57014'); // query_canceled
+    expect(extractDbError({ code: '08006' }).dbCode).toBe('08006'); // connection_failure
+    expect(extractDbError({ code: 'P0001' }).dbCode).toBe('P0001'); // raise_exception
+  });
+
+  it('should still extract pg field details when the code is absent', () => {
+    // Fields that only a pg error carries stay useful on their own.
+    const result = extractDbError({ constraint: 'plugins_name_key', table: 'plugins' });
+    expect(result).toEqual({ constraint: 'plugins_name_key', table: 'plugins' });
+  });
 });
 
 describe('errorMessage', () => {

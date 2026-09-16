@@ -34,6 +34,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   publishTokenRevocation: async (redis: { set: (...a: unknown[]) => Promise<unknown> }, userId: string, version: number, ttl: number) => {
     await redis.set(`authrev:tv:${userId}`, String(version), 'EX', ttl);
   },
+  // Faithful to api-core: SET authrev:jti:<jti> 1 PX <ttl>, reporting success.
+  publishSessionRevocation: async (redis: { set: (...a: unknown[]) => Promise<unknown> }, jti: string, ttlMs: number) => {
+    try { await redis.set(`authrev:jti:${jti}`, '1', 'PX', Math.max(1000, Math.ceil(ttlMs))); return true; } catch { return false; }
+  },
 }));
 
 // TTL ceiling 3600, base 900, one tier override 1800 → effective max = 3600.
@@ -43,7 +47,6 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
       jwt: { expiresIn: 900, tierExpiresIn: { developer: undefined, enterprise: 1800 } },
       sessionRevocationTtlSeconds: 3600,
     },
-    redis: { url: 'redis://test:6379' },
   },
 }));
 
@@ -60,7 +63,9 @@ jest.unstable_mockModule('../src/models/user.js', () => ({
   },
 }));
 
-const { publishUserRevocation, publishUsersRevocation } = await import('../src/helpers/session-revocation.js');
+const {
+  publishUserRevocation, publishUsersRevocation, publishImpersonationSessionRevocation,
+} = await import('../src/helpers/session-revocation.js');
 
 /** User.findById(id).select('+tokenVersion').lean() → doc */
 const findByIdResolves = (doc: unknown) =>
@@ -128,5 +133,40 @@ describe('publishUsersRevocation', () => {
     await publishUsersRevocation([]);
     expect(mockGetRedis).not.toHaveBeenCalled();
     expect(fakeRedis.set).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('publishImpersonationSessionRevocation', () => {
+  beforeEach(() => {
+    (fakeRedis.set as jest.Mock).mockReset();
+    mockGetRedis.mockReset().mockResolvedValue(fakeRedis);
+  });
+
+  it('publishes with the time LEFT on the session, and reports it landed', async () => {
+    const consumedAt = new Date(Date.now() - 5 * 60_000); // 5 of 15 minutes used
+    await expect(publishImpersonationSessionRevocation('sess-1', consumedAt)).resolves.toBe(true);
+
+    const [key, , mode, ttl] = (fakeRedis.set as jest.Mock).mock.calls[0] as [string, string, string, number];
+    expect(key).toBe('authrev:jti:sess-1');
+    expect(mode).toBe('PX');
+    expect(ttl).toBeGreaterThan(9 * 60_000);
+    expect(ttl).toBeLessThanOrEqual(10 * 60_000);
+  });
+
+  it('reports success without writing when the token has already expired', async () => {
+    const consumedAt = new Date(Date.now() - 20 * 60_000);
+    await expect(publishImpersonationSessionRevocation('sess-1', consumedAt)).resolves.toBe(true);
+    expect(fakeRedis.set).not.toHaveBeenCalled();
+  });
+
+  it('reports FAILURE when no Redis is configured — other services will still accept the token', async () => {
+    mockGetRedis.mockResolvedValue(undefined);
+    await expect(publishImpersonationSessionRevocation('sess-1', new Date())).resolves.toBe(false);
+  });
+
+  it('reports FAILURE when the write fails', async () => {
+    (fakeRedis.set as jest.Mock).mockImplementation(async () => { throw new Error('down'); });
+    await expect(publishImpersonationSessionRevocation('sess-1', new Date())).resolves.toBe(false);
   });
 });

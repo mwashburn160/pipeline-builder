@@ -132,6 +132,27 @@ spec:
         runAsUser: 472        # the grafana user in the official image
         runAsGroup: 472
         fsGroup: 472
+      # hostPath volumes are NOT chowned by fsGroup, so /data/db-data/grafana is
+      # created root-owned and Grafana (472) crashloops on "GF_PATHS_DATA is not
+      # writable". Same fix as prometheus/alertmanager. (ec2/eks use pb-ebs,
+      # where fsGroup does apply, so they don't need this.)
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.38
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "25m"
+              memory: 32Mi
+          command: ["sh", "-c", "chown -R 472:472 /var/lib/grafana"]
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
       containers:
         - name: grafana
           image: grafana/grafana:12.3.0

@@ -34,3 +34,6 @@ export {
 export type { RoleWithMembers, ActorPermissionCeiling, RoleAssignmentActor } from './roles-service.js';
 export { backfillRbacRoles } from './rbac-backfill.js';
 export type { RbacBackfillSummary } from './rbac-backfill.js';
+export { impersonationService, IMP_NOT_APPROVED, IMP_EXPIRED, IMP_NOT_FOUND, IMP_ALREADY_DECIDED, IMP_NOT_LIVE, BREAKGLASS_CAP, BREAKGLASS_WINDOW_DAYS } from './impersonation-service.js';
+export type { FourEyesReason } from './impersonation-service.js';
+export type { CreateImpersonationRequestInput } from './impersonation-service.js';

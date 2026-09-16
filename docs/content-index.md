@@ -103,6 +103,8 @@ the links below.
 ## I
 
 - **IAM roles (pipeline / step / action, OIDC)** — [CDK: IAM Roles](cdk-usage.md#iam-roles), [Metadata Keys: IAM Role](metadata-keys.md#iam-role-configuration), [Samples: IAM Role Levels](samples.md#iam-role-levels)
+- **Impersonation (sysadmin view-as-user, read-only)** — [Permissions: Impersonation](permissions.md#impersonation-view-as-user), [Audit: admin.impersonate.start](audit-events.md#action-catalog)
+- **Impersonation policy (consent, open, emergencies only)** — [Permissions: Administrator access policy](permissions.md#administrator-access-policy)
 - **Incident reporting setup (admin UI, self-serve token, per-org window)** — [Admin UI](incidents-webhook.md#admin-ui), [Getting a token](incidents-webhook.md#getting-a-token-self-serve), [Per-org window](incidents-webhook.md#per-org-correlation-window)
 - **Incident webhook — Alertmanager adapter (native payload)** — [Alertmanager adapter](incidents-webhook.md#alertmanager-adapter-native)
 - **Incident webhook (PagerDuty/Datadog/Alertmanager → automated CFR + MTTR)** — [Incident Webhook](incidents-webhook.md), [Correlation window](incidents-webhook.md#correlation-window)

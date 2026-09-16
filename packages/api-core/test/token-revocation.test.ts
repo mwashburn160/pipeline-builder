@@ -20,6 +20,9 @@ const {
   createEnvRedisTokenRevocationStore,
   tokenRevocationKey,
   TOKEN_REVOCATION_KEY_PREFIX,
+  sessionRevocationKey,
+  SESSION_REVOCATION_KEY_PREFIX,
+  publishSessionRevocation,
 } = await import('../src/services/token-revocation.js');
 
 function fakeRedis(overrides: Record<string, unknown> = {}) {
@@ -104,5 +107,58 @@ describe('createEnvRedisTokenRevocationStore', () => {
     expect(await store.getCurrentVersion('u1')).toBeNull();
     // Memoized "unavailable" — a second call is still a safe null (no throw).
     expect(await store.getCurrentVersion('u2')).toBeNull();
+  });
+});
+
+
+describe('session revocation — Redis reader', () => {
+  it('namespaces session keys apart from tokenVersion keys', () => {
+    expect(sessionRevocationKey('j1')).toBe(`${SESSION_REVOCATION_KEY_PREFIX}j1`);
+    expect(SESSION_REVOCATION_KEY_PREFIX).not.toBe(TOKEN_REVOCATION_KEY_PREFIX);
+  });
+
+  it('reads a present key as revoked and an absent key as live', async () => {
+    const redis = fakeRedis({ get: jest.fn(async (k: string) => (k === sessionRevocationKey('ended') ? '1' : null)) });
+    const store = createRedisTokenRevocationStore(redis);
+    await expect(store.getSessionRevocation!('ended')).resolves.toBe('revoked');
+    await expect(store.getSessionRevocation!('running')).resolves.toBe('live');
+  });
+
+  it('reads a Redis error as UNAVAILABLE, not live — this reader does not fail open', async () => {
+    const store = createRedisTokenRevocationStore(fakeRedis({ get: jest.fn(async () => { throw new Error('down'); }) }));
+    await expect(store.getSessionRevocation!('s')).resolves.toBe('unavailable');
+  });
+
+  it('reads "no Redis configured" as UNAVAILABLE for sessions', async () => {
+    const saved = { url: process.env.REDIS_URL, host: process.env.REDIS_HOST, sent: process.env.REDIS_SENTINELS };
+    delete process.env.REDIS_URL; delete process.env.REDIS_HOST; delete process.env.REDIS_SENTINELS;
+    try {
+      await expect(createEnvRedisTokenRevocationStore().getSessionRevocation!('s')).resolves.toBe('unavailable');
+    } finally {
+      if (saved.url !== undefined) process.env.REDIS_URL = saved.url;
+      if (saved.host !== undefined) process.env.REDIS_HOST = saved.host;
+      if (saved.sent !== undefined) process.env.REDIS_SENTINELS = saved.sent;
+    }
+  });
+});
+
+describe('publishSessionRevocation', () => {
+  it('writes the session key with a millisecond TTL and reports success', async () => {
+    const redis = fakeRedis();
+    await expect(publishSessionRevocation(redis, 'j1', 120_000)).resolves.toBe(true);
+    expect(redis.set).toHaveBeenCalledWith(sessionRevocationKey('j1'), '1', 'PX', 120_000);
+  });
+
+  it('floors a tiny remaining TTL so the key is not written already-expired', async () => {
+    const redis = fakeRedis();
+    await publishSessionRevocation(redis, 'j1', 5);
+    expect(redis.set).toHaveBeenCalledWith(sessionRevocationKey('j1'), '1', 'PX', 1000);
+  });
+
+  it('REPORTS a failed publish instead of swallowing it', async () => {
+    // The caller must be able to tell whoever ended the session that it did not
+    // end everywhere — unlike publishTokenRevocation, this is not fire-and-forget.
+    const redis = fakeRedis({ set: jest.fn(async () => { throw new Error('down'); }) });
+    await expect(publishSessionRevocation(redis, 'j1', 60_000)).resolves.toBe(false);
   });
 });

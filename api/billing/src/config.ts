@@ -6,7 +6,14 @@ export type BillingProviderType = 'stub' | 'aws-marketplace' | 'stripe';
 export interface MarketplaceConfig {
   productCode: string;
   region: string;
-  snsTopicArn: string;
+  /**
+   * SNS topic ARNs the webhook accepts, from the comma-separated
+   * `AWS_MARKETPLACE_SNS_TOPIC_ARN`. A SaaS listing has TWO AWS-owned topics
+   * (`aws-mp-subscription-notification-<code>` for subscribe/unsubscribe and
+   * `aws-mp-entitlement-notification-<code>` for `entitlement-updated`), and
+   * the endpoint subscribes to both. Empty = every notification is rejected.
+   */
+  snsTopicArns: string[];
   /** Map of AWS Marketplace dimension names to local plan IDs. */
   dimensionToPlanMap: Record<string, string>;
   /**
@@ -232,7 +239,10 @@ export const config: AppConfig = {
   marketplace: {
     productCode: process.env.AWS_MARKETPLACE_PRODUCT_CODE || '',
     region: process.env.AWS_MARKETPLACE_REGION || process.env.AWS_REGION || 'us-east-1',
-    snsTopicArn: process.env.AWS_MARKETPLACE_SNS_TOPIC_ARN || '',
+    snsTopicArns: (process.env.AWS_MARKETPLACE_SNS_TOPIC_ARN || '')
+      .split(',')
+      .map((arn) => arn.trim())
+      .filter(Boolean),
     dimensionToPlanMap: safeJsonParse(
       process.env.AWS_MARKETPLACE_DIMENSION_MAP,
       { developer: 'developer', pro: 'pro', team: 'team', enterprise: 'enterprise' },

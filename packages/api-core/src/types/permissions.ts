@@ -66,13 +66,18 @@ export type Permission =
   //  - `org:idp`      — SSO / IdP configuration (sensitive: controls login).
   //  - `org:kms`      — customer-managed KMS key configuration (sensitive:
   //                     controls encryption of org data).
-  // `org:idp`/`org:kms` were split OUT of `org:settings` so a custom role can
-  // grant general settings WITHOUT the two sensitive surfaces. Both remain
-  // org-assignable and are seeded into the admin/owner bundles (via
-  // ORG_ASSIGNABLE_PERMISSIONS) so existing admins keep full access.
+  //  - `org:impersonation` — the impersonation policy (sensitive: controls who
+  //                     may VIEW the org's data as one of its members).
+  // `org:idp`/`org:kms`/`org:impersonation` were split OUT of `org:settings` so a
+  // custom role can grant general settings WITHOUT the sensitive surfaces — a
+  // "settings manager" role for org name or AI provider must not also be able to
+  // switch the org to `open`. All remain org-assignable and are seeded into the
+  // admin/owner bundles (via ORG_ASSIGNABLE_PERMISSIONS) so existing admins keep
+  // full access.
   | 'org:settings'
   | 'org:idp'
-  | 'org:kms';
+  | 'org:kms'
+  | 'org:impersonation';
 
 /** All valid permissions (order determines display order in the picker). */
 export const ALL_PERMISSIONS: readonly Permission[] = [
@@ -88,7 +93,7 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   'billing:read', 'billing:manage',
   'quotas:read',
   'registry:read', 'registry:write',
-  'org:settings', 'org:idp', 'org:kms',
+  'org:settings', 'org:idp', 'org:kms', 'org:impersonation',
 ];
 
 /** Check whether a string is a valid Permission. */

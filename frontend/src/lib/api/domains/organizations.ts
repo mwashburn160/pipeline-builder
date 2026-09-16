@@ -408,7 +408,40 @@ export function organizationsApi(core: ApiCore) {
     decideOrgJoinRequest: async (orgId: string, reqId: string, decision: 'approve' | 'deny') => {
       return core.request<ApiResponse<{ userId: string; status: 'approved' | 'denied' }>>(`/api/organization/${orgId}/join-requests/${reqId}/${decision}`, { method: 'POST' });
     },
+
+    /** The org's impersonation policy: its OWN setting and the EFFECTIVE one. A
+     *  team's policy can be tightened by its parent (strictest wins), so the UI
+     *  must show both or an admin who set `open` can't tell why it isn't. */
+    getImpersonationPolicy: async (orgId: string) => {
+      return core.request<ApiResponse<EffectiveImpersonationPolicyDto>>(`/api/organization/${orgId}/impersonation-policy`);
+    },
+    /** Change the policy. Step-up gated: loosening it widens who can see the org's data. */
+    updateImpersonationPolicy: async (
+      orgId: string,
+      body: { impersonationPolicy?: ImpersonationPolicy; allowSelfApproval?: boolean },
+      stepUpToken?: string,
+    ) => {
+      return core.request<ApiResponse<EffectiveImpersonationPolicyDto>>(`/api/organization/${orgId}/impersonation-policy`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
   };
+}
+
+export type ImpersonationPolicy = 'open' | 'consent' | 'denied';
+
+/** Resolved impersonation policy — never re-derive defaults or inheritance client-side. */
+export interface EffectiveImpersonationPolicyDto {
+  policy: ImpersonationPolicy;
+  allowSelfApproval: boolean;
+  /** The org's own stored setting, before a parent's policy is applied. */
+  own: { policy: ImpersonationPolicy; allowSelfApproval: boolean };
+  /** Set when a parent org forces a stricter policy than `own`. */
+  inheritedFrom?: string;
+  /** False when the parent couldn't be read; the policy is then the strictest. */
+  resolved: boolean;
 }
 
 /** A registered org domain as returned to the admin UI. */

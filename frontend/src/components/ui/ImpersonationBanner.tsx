@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { ShieldAlert } from 'lucide-react';
 import api from '@/lib/api';
 
@@ -9,9 +9,11 @@ import api from '@/lib/api';
  * Sticky banner shown across the dashboard while the sysadmin is in a
  * read-only impersonation session. Renders nothing for normal sessions.
  *
- * "Stop impersonating" restores the original sysadmin tokens stored in
- * sessionStorage by `api.startImpersonation` and reloads to ditch any
- * cached state held under the impersonated identity.
+ * "Stop impersonating" restores the original sysadmin tokens, ENDS the session
+ * on the server (so the token stops working everywhere, not just in this
+ * browser), and reloads to ditch any cached state held under the impersonated
+ * identity. The server-side end is best-effort and time-boxed inside
+ * `api.endImpersonation` — the operator always gets out.
  */
 interface ImpersonationBannerProps {
   /** Extra classes appended to the root container. */
@@ -22,9 +24,16 @@ export function ImpersonationBanner({ className = '' }: ImpersonationBannerProps
   const impersonating = api.isImpersonating();
   const targetId = impersonating ? api.getImpersonatedUserId() : null;
 
-  const stop = useCallback(() => {
-    api.stopImpersonation();
-    window.location.href = '/dashboard';
+  const [stopping, setStopping] = useState(false);
+
+  const stop = useCallback(async () => {
+    setStopping(true);
+    try {
+      await api.endImpersonation();
+    } finally {
+      // Always leave, even if ending on the server failed.
+      window.location.href = '/dashboard';
+    }
   }, []);
 
   if (!impersonating) return null;
@@ -42,11 +51,12 @@ export function ImpersonationBanner({ className = '' }: ImpersonationBannerProps
         </span>
       </div>
       <button
-        onClick={stop}
+        onClick={() => void stop()}
+        disabled={stopping}
         className="btn-secondary text-xs"
         aria-label="Stop impersonating and return to sysadmin session"
       >
-        Stop impersonating
+        {stopping ? 'Ending session…' : 'Stop impersonating'}
       </button>
     </div>
   );

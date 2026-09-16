@@ -3,7 +3,7 @@
 
 import type { RedisCacheClient } from './cache-service.js';
 import { createEnvRedisClient } from './env-redis.js';
-import type { TokenRevocationStore } from '../middleware/auth.js';
+import type { SessionRevocationState, TokenRevocationStore } from '../middleware/auth.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 
@@ -21,6 +21,18 @@ export const TOKEN_REVOCATION_KEY_PREFIX = 'authrev:tv:';
 /** The revocation key for a user id. */
 export function tokenRevocationKey(userId: string): string {
   return `${TOKEN_REVOCATION_KEY_PREFIX}${userId}`;
+}
+
+/**
+ * Redis key namespace for ended IMPERSONATION sessions, by token `jti`. Same
+ * publish/read split as the tokenVersion keys above, and kept beside them for the
+ * same reason: publisher and readers must agree on this exact prefix.
+ */
+export const SESSION_REVOCATION_KEY_PREFIX = 'authrev:jti:';
+
+/** The revocation key for one session's token id. */
+export function sessionRevocationKey(jti: string): string {
+  return `${SESSION_REVOCATION_KEY_PREFIX}${jti}`;
 }
 
 /**
@@ -59,6 +71,21 @@ export function createRedisTokenRevocationStore(redis: RedisCacheClient): TokenR
         return null;
       }
     },
+    async getSessionRevocation(jti: string): Promise<SessionRevocationState> {
+      try {
+        const raw = await redis.get(sessionRevocationKey(jti));
+        return raw === null || raw === undefined ? 'live' : 'revoked';
+      } catch (err) {
+        // NOT fail-open, unlike getCurrentVersion above: `unavailable` rejects
+        // the impersonation token. Counted so a sustained outage — which stops
+        // support impersonation everywhere — is visible and alertable.
+        emitCounter('session_revocation_unavailable_total', { reason: 'read-error' });
+        logger.debug('Session-revocation read failed (rejecting impersonation token)', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return 'unavailable';
+      }
+    },
   };
 }
 
@@ -95,6 +122,17 @@ export function createEnvRedisTokenRevocationStore(): TokenRevocationStore {
       if (!cached) return null;
       return createRedisTokenRevocationStore(cached).getCurrentVersion(userId);
     },
+    async getSessionRevocation(jti: string): Promise<SessionRevocationState> {
+      if (cached === undefined) cached = build();
+      // No Redis configured ⇒ there is no way to learn a session was ended, so
+      // an impersonation token can't be trusted. Every real deployment runs Redis
+      // (the build queue needs it), so this only bites a misconfigured service.
+      if (!cached) {
+        emitCounter('session_revocation_unavailable_total', { reason: 'not-configured' });
+        return 'unavailable';
+      }
+      return createRedisTokenRevocationStore(cached).getSessionRevocation!(jti);
+    },
   };
 }
 
@@ -125,5 +163,35 @@ export async function publishTokenRevocation(
     logger.warn('Token-revocation publish failed (services fall back to token expiry)', {
       userId, error: err instanceof Error ? err.message : String(err),
     });
+  }
+}
+
+/**
+ * Publish that one IMPERSONATION session has ended, so every stateless service
+ * rejects its token on the next request (platform side).
+ *
+ * Returns whether the publish landed — unlike `publishTokenRevocation`, which is
+ * fire-and-forget. The caller must be able to tell the person who ended the
+ * session that it did NOT end everywhere, rather than reporting success while
+ * the token still works against other services.
+ *
+ * The entry expires with the session: once the token itself can no longer be
+ * used, there is nothing left to revoke, so the key cleans itself up.
+ *
+ * @param ttlMs - time remaining on the session's token
+ */
+export async function publishSessionRevocation(
+  redis: RedisCacheClient,
+  jti: string,
+  ttlMs: number,
+): Promise<boolean> {
+  try {
+    await redis.set(sessionRevocationKey(jti), '1', 'PX', Math.max(1000, Math.ceil(ttlMs)));
+    return true;
+  } catch (err) {
+    logger.warn('Session-revocation publish failed (other services will honour the token until it expires)', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
   }
 }

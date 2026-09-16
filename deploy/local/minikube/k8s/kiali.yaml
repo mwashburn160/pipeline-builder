@@ -174,6 +174,11 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /kiali-configuration
+            # auth.strategy=token needs a 16/24/32-byte session-signing key; Kiali
+            # reads it from this override-secret path (Secret kiali-signing-key).
+            - name: signing-key
+              mountPath: /kiali-override-secrets/login-token-signing-key
+              readOnly: true
           resources:
             requests:
               cpu: "50m"
@@ -197,6 +202,9 @@ spec:
         - name: config
           configMap:
             name: kiali
+        - name: signing-key
+          secret:
+            secretName: kiali-signing-key
 ---
 # nginx -> kiali (the /kiali/ subpath route).
 apiVersion: security.istio.io/v1

@@ -49,6 +49,7 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
   { id: 'org:settings', label: 'Organization settings', description: 'Manage general org settings and AI config', category: 'Organization' },
   { id: 'org:idp', label: 'Manage SSO/IdP', description: 'Configure single sign-on and identity providers', category: 'Organization' },
   { id: 'org:kms', label: 'Manage encryption keys', description: 'Configure customer-managed KMS encryption keys', category: 'Organization' },
+  { id: 'org:impersonation', label: 'Manage impersonation policy', description: 'Control whether platform operators may view the organization as one of its members', category: 'Organization' },
 ];
 
 /** Group a flat permission list into categories, preserving catalog order. */

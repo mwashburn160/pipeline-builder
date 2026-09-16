@@ -311,11 +311,12 @@ export function createMarketplaceRoutes(): Router {
         // Verify topic ARN matches config — FAIL CLOSED. If the expected topic
         // is unset, a valid signature from ANY attacker-owned SNS topic would
         // otherwise be accepted (they could publish e.g. unsubscribe-success for
-        // a guessable customerIdentifier and downgrade that org). Reject unless a
-        // topic is configured AND the message came from exactly that topic.
-        if (!config.marketplace.snsTopicArn || snsMessage.TopicArn !== config.marketplace.snsTopicArn) {
+        // a guessable customerIdentifier and downgrade that org). Reject unless
+        // the message came from exactly one of the configured topics (an empty
+        // list therefore rejects everything).
+        if (!config.marketplace.snsTopicArns.includes(snsMessage.TopicArn)) {
           logger.warn('marketplace SNS topic not configured / mismatch — rejecting', {
-            expected: config.marketplace.snsTopicArn,
+            expected: config.marketplace.snsTopicArns,
             received: snsMessage.TopicArn,
           });
           return sendError(res, 403, 'Unexpected SNS topic', ErrorCode.INSUFFICIENT_PERMISSIONS);

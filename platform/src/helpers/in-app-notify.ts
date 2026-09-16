@@ -37,3 +37,43 @@ export async function sendInAppNotification(input: {
     logger.warn('In-app notification failed (non-blocking)', { recipientOrgId: input.recipientOrgId, error: String(err) });
   }
 }
+
+/**
+ * Like {@link sendInAppNotification}, but REPORTS whether the message was
+ * persisted instead of swallowing the outcome.
+ *
+ * For a message whose non-delivery costs something. The fire-and-forget variant
+ * above is right for a courtesy notice; it is wrong for an impersonation
+ * CHALLENGE, where a dropped message becomes a silent expiry that reads as a
+ * refusal. Delivery is in-app only, with no email fallback, so the caller must
+ * know when this failed in order to mark the request undeliverable.
+ *
+ * Never throws. Returns false when the message service is disabled — with no
+ * other channel, a disabled service means nobody can be asked.
+ */
+export async function sendInAppNotificationConfirmed(input: {
+  recipientOrgId: string;
+  recipientUserId?: string;
+  subject: string;
+  content: string;
+}): Promise<boolean> {
+  if (!config.message.enabled) return false;
+  try {
+    const client = createSafeClient({
+      host: config.message.serviceHost,
+      port: config.message.servicePort,
+      timeout: config.message.serviceTimeout,
+    });
+    const result = await client.post('/messages/internal/notify', input, {
+      headers: {
+        authorization: getServiceAuthHeader({ serviceName: 'platform', orgId: input.recipientOrgId, role: 'member' }),
+      },
+    });
+    // `createSafeClient` resolves null on a transport failure rather than
+    // throwing, so a missing result is a failed delivery, not a success.
+    return result !== null && result.statusCode >= 200 && result.statusCode < 300;
+  } catch (err) {
+    logger.warn('Confirmed in-app notification failed', { recipientOrgId: input.recipientOrgId, error: String(err) });
+    return false;
+  }
+}

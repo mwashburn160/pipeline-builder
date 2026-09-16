@@ -143,3 +143,25 @@ describe('org:settings split → org:idp / org:kms (C3)', () => {
     for (const p of SPLIT) expect(ROLE_PERMISSIONS.member).not.toContain(p);
   });
 });
+
+describe('org:settings split → org:impersonation', () => {
+  it('is in the canonical catalog, alongside the settings it was split from', () => {
+    expect(ALL_PERMISSIONS).toContain('org:impersonation');
+    expect(ALL_PERMISSIONS).toContain('org:settings');
+  });
+
+  it('is org-assignable — every org must be able to set its own policy', () => {
+    expect(SUPERADMIN_ONLY_PERMISSIONS).not.toContain('org:impersonation');
+    expect(ORG_ASSIGNABLE_PERMISSIONS).toContain('org:impersonation');
+    expect(isOrgAssignablePermission('org:impersonation')).toBe(true);
+  });
+
+  it('is seeded into the admin and owner bundles (no admin lockout)', () => {
+    expect(ROLE_PERMISSIONS.admin).toContain('org:impersonation');
+    expect(ROLE_PERMISSIONS.owner).toContain('org:impersonation');
+  });
+
+  it('is NOT granted to members — it decides who may view the org\'s data', () => {
+    expect(ROLE_PERMISSIONS.member).not.toContain('org:impersonation');
+  });
+});

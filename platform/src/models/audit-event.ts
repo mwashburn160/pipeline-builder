@@ -170,7 +170,22 @@ export const ALL_AUDIT_ACTIONS = [
   // viewed-as-whom. Read-only — no destructive actions can land under
   // the impersonation token, so a single "start" event covers the
   // session (no stop event needed; the token TTL bounds the window).
+  // RETAINED DELIBERATELY. Superseded by the lifecycle actions below, but audit
+  // history is immutable and hash-chained: events already written with this
+  // action must stay readable and chain-verifiable. Removing the value would
+  // break `/audit/verify` over historical records. This is data compatibility,
+  // not a compatibility shim — do not "clean it up".
   'admin.impersonate.start',
+  // Impersonation request lifecycle. `request` is emitted when a session is
+  // asked for, `approve`/`deny` when someone decides one, `revoke` when a live
+  // session is ended early, and `breakglass` when emergency access is taken over
+  // a consent requirement. Each carries the requestId in `details` so the event
+  // and the record that holds the full decision can be tied together.
+  'admin.impersonate.request',
+  'admin.impersonate.approve',
+  'admin.impersonate.deny',
+  'admin.impersonate.revoke',
+  'admin.impersonate.breakglass',
   // Per-org k8s namespace manifest render. Operator-driven provisioning
   // for enterprise-tier customers — emitted whenever a sysadmin downloads
   // the namespace YAML to apply with kubectl. Tracks "this org got its

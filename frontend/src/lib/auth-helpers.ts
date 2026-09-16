@@ -50,12 +50,15 @@ export function hasPermission(user: User | null, permission: string): boolean {
  * `:read` (and `:rollup`, a read-visibility scope) are reads; `:write`,
  * `:manage` (members/roles/invitations/billing), and `:publish` (making an
  * entity public) are writes, and the org-config surfaces `org:settings`,
- * `org:idp` (SSO/IdP), and `org:kms` (customer-managed encryption keys) are
- * write surfaces too. Used to blanket-disable write affordances during read-only
+ * `org:idp` (SSO/IdP), `org:kms` (customer-managed encryption keys), and
+ * `org:impersonation` (the impersonation policy) are write surfaces too. Used to blanket-disable write affordances during read-only
  * impersonation, where the backend rejects every non-GET request — so surfacing
  * an enabled write control just produces a 403 dead-end.
  */
-const ORG_CONFIG_MUTATIONS = new Set(['org:settings', 'org:idp', 'org:kms']);
+// `org:impersonation` must be listed: it doesn't end in :write/:manage/:publish,
+// so without it the impersonation-policy control would render ENABLED during a
+// read-only impersonation session and dead-end on a 403.
+const ORG_CONFIG_MUTATIONS = new Set(['org:settings', 'org:idp', 'org:kms', 'org:impersonation']);
 export function isMutationPermission(permission: string): boolean {
   return /:(write|manage|publish)$/.test(permission) || ORG_CONFIG_MUTATIONS.has(permission);
 }

@@ -201,7 +201,7 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Admin / sysadmin",
-              "admin.user.create/update/delete, admin.org.delete, admin.org.export, admin.org-idp.upsert/delete, admin.superadmin.grant/revoke, admin.org.kms-config.upsert/delete, org.kms.orphaned, admin.org.tier.update, admin.org.seatLimit.update, admin.org.quota.override, admin.org.ai-config.update, admin.user.features.update, admin.impersonate.start, admin.org.namespace.render"
+              "admin.user.create/update/delete, admin.org.delete, admin.org.export, admin.org-idp.upsert/delete, admin.superadmin.grant/revoke, admin.org.kms-config.upsert/delete, org.kms.orphaned, admin.org.tier.update, admin.org.seatLimit.update, admin.org.quota.override, admin.org.ai-config.update, admin.user.features.update, admin.impersonate.start, admin.impersonate.request/approve/deny/revoke/breakglass, admin.org.namespace.render"
             ],
             [
               "Denied access",
@@ -211,7 +211,7 @@ export const auditEventsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Each record carries actorId/actorEmail, orgId (the actor's own org), and affectedOrgId (the org actually operated on). They diverge when a sysadmin acts on another org, so the trail answers \"what did a sysadmin do to org X?\" — SOC2 evidence for impersonation-style access. admin.* actions and admin.impersonate.start set affectedOrgId to the target org so the affected org's own admins can see them."
+          "content": "Each record carries actorId/actorEmail, orgId (the actor's own org), and affectedOrgId (the org actually operated on). They diverge when a sysadmin acts on another org, so the trail answers \"what did a sysadmin do to org X?\" — SOC2 evidence for impersonation-style access (see Impersonation). admin.* actions and admin.impersonate.start set affectedOrgId to the target org so the affected org's own admins can see them."
         },
         {
           "type": "text",

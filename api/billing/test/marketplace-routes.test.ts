@@ -39,7 +39,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 }));
 
 jest.unstable_mockModule('../src/config.js', () => ({
-  config: { marketplace: { snsTopicArn: undefined } },
+  config: { marketplace: { snsTopicArns: [] } },
 }));
 
 const mockCalculatePeriodEnd = jest.fn(() => new Date('2026-08-01T00:00:00.000Z'));

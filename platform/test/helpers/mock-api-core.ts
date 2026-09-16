@@ -165,6 +165,10 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // Session-revocation PUBLISHER contract (helpers/session-revocation.ts).
     // Default no-op spies; a suite exercising publishing overrides them.
     publishTokenRevocation: jest.fn(async () => undefined),
+    publishSessionRevocation: jest.fn(async () => true),
+    // Platform's Redis client is built through the SAME env resolution the services
+    // use. Default: no Redis configured (null), so suites run the in-memory paths.
+    createEnvRedisClient: jest.fn(() => null),
     createRedisTokenRevocationStore: jest.fn(() => ({ getCurrentVersion: jest.fn(async () => null) })),
     // System-admin check (faithful to api-core): authority is carried solely by
     // the JWT's `isSuperAdmin` flag. Used by tenant-binding gates (audit ingest,

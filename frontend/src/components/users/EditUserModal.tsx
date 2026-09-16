@@ -30,6 +30,8 @@ interface EditUserModalProps {
   onNewPasswordChange: (value: string) => void;
   orgOptions: Array<{ id: string; name: string }>;
   onImpersonate: () => void;
+  /** Emergency access over the org's impersonation policy. */
+  onBreakglass: () => void;
   onSubmit: () => void;
   onClose: () => void;
   onFeatureSaved: () => void;
@@ -52,6 +54,7 @@ export function EditUserModal({
   onNewPasswordChange,
   orgOptions,
   onImpersonate,
+  onBreakglass,
   onSubmit,
   onClose,
   onFeatureSaved,
@@ -73,14 +76,26 @@ export function EditUserModal({
               for sysadmin targets (you can't impersonate another sysadmin)
               and for the actor themselves. */}
           {editingUser.id !== currentUserId && !editingUser.isSuperAdmin && (
-            <Button
-              variant="secondary"
-              onClick={onImpersonate}
-              disabled={form.loading}
-              title="View the app as this user (read-only)"
-            >
-              View as user
-            </Button>
+            <>
+              <Button
+                variant="secondary"
+                onClick={onImpersonate}
+                disabled={form.loading}
+                title="Ask to view the app as this user (read-only). The organization may need to approve."
+              >
+                View as user
+              </Button>
+              {/* Deliberately secondary and separate: emergency access is for
+                  incidents, not a faster route around approval. */}
+              <Button
+                variant="ghost"
+                onClick={onBreakglass}
+                disabled={form.loading}
+                title="Emergency access without waiting for approval. The organization is notified."
+              >
+                Emergency access…
+              </Button>
+            </>
           )}
         </ModalFooter>
       }

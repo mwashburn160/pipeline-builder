@@ -117,13 +117,13 @@ subset a remote service may emit is `REMOTE_AUDIT_ACTIONS` in
 | Invitations | `invitation.send`, `invitation.accept`, `invitation.revoke`, `invitation.resend` |
 | Permission roles | `org.role.create`, `org.role.update`, `org.role.delete`, `org.role.member.add`, `org.role.member.remove` |
 | Dashboards & alerts | `dashboard.create/update/delete/clone`, `alert.destination.create/update/delete/test`, `alert.rule.create/update/delete` |
-| Admin / sysadmin | `admin.user.create/update/delete`, `admin.org.delete`, `admin.org.export`, `admin.org-idp.upsert/delete`, `admin.superadmin.grant/revoke`, `admin.org.kms-config.upsert/delete`, `org.kms.orphaned`, `admin.org.tier.update`, `admin.org.seatLimit.update`, `admin.org.quota.override`, `admin.org.ai-config.update`, `admin.user.features.update`, `admin.impersonate.start`, `admin.org.namespace.render` |
+| Admin / sysadmin | `admin.user.create/update/delete`, `admin.org.delete`, `admin.org.export`, `admin.org-idp.upsert/delete`, `admin.superadmin.grant/revoke`, `admin.org.kms-config.upsert/delete`, `org.kms.orphaned`, `admin.org.tier.update`, `admin.org.seatLimit.update`, `admin.org.quota.override`, `admin.org.ai-config.update`, `admin.user.features.update`, `admin.impersonate.start`, `admin.impersonate.request/approve/deny/revoke/breakglass`, `admin.org.namespace.render` |
 | Denied access | `authz.denied` — emitted by the shared permission gate when a state-changing (non-GET) request is rejected, so probing / privilege-escalation attempts leave a trail (`outcome: 'failure'`) |
 
 Each record carries `actorId`/`actorEmail`, `orgId` (the actor's own org), and
 `affectedOrgId` (the org actually operated on). They diverge when a sysadmin acts
 on another org, so the trail answers "what did a sysadmin do to org X?" — SOC2
-evidence for impersonation-style access. `admin.*` actions and
+evidence for impersonation-style access (see [Impersonation](permissions.md#impersonation-view-as-user)). `admin.*` actions and
 `admin.impersonate.start` set `affectedOrgId` to the target org so the affected
 org's own admins can see them.
 

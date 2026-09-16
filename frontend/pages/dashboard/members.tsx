@@ -10,6 +10,7 @@ import { useFormState } from '@/hooks/useFormState';
 import { useDelete } from '@/hooks/useDelete';
 import { useMemberRoles } from '@/hooks/useMemberRoles';
 import { useMemberTeams } from '@/hooks/useMemberTeams';
+import { TeamMemberAccess } from '@/components/members/TeamMemberAccess';
 import { useToast } from '@/components/ui/Toast';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -38,7 +39,7 @@ import type { OrganizationMember } from '@/types';
 import { formatError } from '@/lib/constants';
 
 export default function MembersPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'members:manage' });
+  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, isReadOnly, can } = useAuthGuard({ requirePermission: 'members:manage' });
   // Capability to manage members — role admins/owners hold it via their bundle,
   // and so do custom-role members granted `members:manage`. `can()` is
   // read-only-aware (false under read-only impersonation) — use it for the WRITE
@@ -523,6 +524,16 @@ export default function MembersPage() {
 
       {!list.isLoading && list.pagination.total > 0 && (
         <Pagination pagination={list.pagination} onPageChange={list.handlePageChange} onPageSizeChange={list.handlePageSizeChange} />
+      )}
+
+      {/* View a TEAM member's account from the parent org. A separate panel, not a
+          button on the roster above: that roster is this org's own members, whom a
+          parent admin can't view (same org). Admins of a root org with teams only —
+          the server re-checks authority on every request. */}
+      {isAdmin && activeOrgIsRoot && teams.length > 0 && user && (
+        <div className="mt-6">
+          <TeamMemberAccess teams={teams} currentUserId={user.id} readOnly={isReadOnly} />
+        </div>
       )}
 
       {/* Add member modal */}

@@ -55,13 +55,13 @@ export function HelpSearchResultCard({ result, query, defaultOpen = false }: Hel
   const hidden = sectionCount - sections.length;
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="p-0 overflow-hidden">
       {/* Re-mount the accordion whenever the query changes so a new search
           re-applies defaultOpen — the accordion holds its own open state. */}
       <HelpAccordionTopic key={`${topic.id}:${query}`} topic={topic} defaultOpen={defaultOpen} bare />
 
       {sections.length > 0 && (
-        <div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-800/30 px-5 py-3">
+        <div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-800/30 px-4 py-3">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
             {sectionCount} matching {sectionCount === 1 ? 'section' : 'sections'}
             <span className="ml-1.5 font-normal normal-case tracking-normal text-gray-400 dark:text-gray-500">
@@ -69,8 +69,9 @@ export function HelpSearchResultCard({ result, query, defaultOpen = false }: Hel
             </span>
           </p>
           <ul className="mt-2 space-y-2">
-            {sections.map(({ section, snippet }) => (
-              <li key={section.id} className="text-xs leading-relaxed">
+            {/* Section ids aren't unique within a generated topic (two `overview`s). */}
+            {sections.map(({ section, snippet }, i) => (
+              <li key={`${section.id}:${i}`} className="text-xs leading-relaxed">
                 <span className="font-medium text-gray-800 dark:text-gray-200">
                   <Highlighted text={section.title} term={query} />
                 </span>

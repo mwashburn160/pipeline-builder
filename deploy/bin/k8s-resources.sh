@@ -34,6 +34,10 @@ pb_create_app_secrets() {
   # reads Prometheus with no org scoping, so this password is the only thing
   # between a visitor and every tenant's metrics.
   pb_secret grafana-secret       --from-literal=GRAFANA_ADMIN_USER="$GRAFANA_ADMIN_USER" --from-literal=GRAFANA_ADMIN_PASSWORD="$GRAFANA_ADMIN_PASSWORD"
+  # Kiali session-signing key, mounted as the override-secret file Kiali reads
+  # (/kiali-override-secrets/login-token-signing-key/value.txt). Kiali v2 ignores a
+  # LOGIN_TOKEN_SIGNING_KEY env var, and with no key it crashloops at startup.
+  pb_secret kiali-signing-key    --from-literal=value.txt="$KIALI_SIGNING_KEY"
   # MinIO: root creds (server + minio-init bootstrap) plus the per-service,
   # bucket-scoped keys. Created HERE from .env rather than shipped as a literal
   # Secret in k8s/minio.yaml — which is what it used to be, with working

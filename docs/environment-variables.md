@@ -191,6 +191,10 @@ deployment. The redirect URI to register in each provider's console is
 
 > Redis must use `maxmemory-policy noeviction` for BullMQ. `allkeys-lru` causes silent job data loss.
 > **HA:** the AWS targets (ec2 and eks) ship **Sentinel HA by default** (`redis-sentinel.yaml` — 3 Redis + 3 Sentinel, reached via `REDIS_SENTINELS`). The docker and minikube targets run a single instance with no failover. For a managed path, point it at **ElastiCache (Multi-AZ, cluster-mode-disabled)**.
+>
+> **Every service resolves Redis the same way** — `REDIS_SENTINELS`, then `REDIS_URL`, then `REDIS_HOST`/`REDIS_PORT` — including the platform. Configure Redis for **platform** as well as the other services: it uses Redis to publish session revocations and to share OAuth/SSO login state, step-up single-use, and the background-sweep lock across replicas. Without it those fall back to per-replica memory, which breaks once platform scales past one replica.
+>
+> **Impersonation needs Redis on every service.** A service that cannot read Redis rejects impersonation tokens, because it could not tell whether the session was ended. Ordinary sessions are unaffected.
 
 ---
 
@@ -439,7 +443,7 @@ For `BILLING_PROVIDER=aws-marketplace`: add-on charges are reported as metered u
 | `BILLING_METERING_DRAWDOWN_DRYRUN` | `false` | Shadow mode — compute + log the intended credit withholding but report FULL quantities and leave the balance untouched. Validate the price map before going live |
 | `AWS_MARKETPLACE_PRODUCT_CODE` | — | The Marketplace product code |
 | `AWS_MARKETPLACE_REGION` | `AWS_REGION` or `us-east-1` | Region for the Metering/Entitlement clients |
-| `AWS_MARKETPLACE_SNS_TOPIC_ARN` | — | SNS topic for entitlement/subscription notifications |
+| `AWS_MARKETPLACE_SNS_TOPIC_ARN` | — | Comma-separated SNS topic ARNs accepted by the webhook — set both the subscription and entitlement topics |
 | `AWS_MARKETPLACE_DIMENSION_MAP` | identity | JSON map of Marketplace dimension → local plan id |
 | `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP` | identity | JSON map of add-on bundle id → metered dimension key |
 | `AWS_MARKETPLACE_DIMENSION_PRICE_MAP` | `{}` | JSON map of metered dimension → local list price in **cents per metered unit per metering cycle** (cycle = `BILLING_METERING_INTERVAL_MS`). Drives the credit drawdown; an unpriced dimension is never drawn against (reported in full). **A wrong value directly mis-draws credit** — mirror it to your AWS listing and cadence |

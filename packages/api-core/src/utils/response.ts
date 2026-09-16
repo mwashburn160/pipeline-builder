@@ -193,13 +193,38 @@ export function sendPaginatedNested<T>(
 }
 
 /**
+ * SQLSTATE: exactly five characters, digits and uppercase Latin letters
+ * (e.g. `23505` unique_violation, `42601` syntax_error). Node's own socket and
+ * DNS errors use the same `.code` property but spell it differently
+ * (`ECONNRESET`, `ETIMEDOUT`, `ENOTFOUND`), which is what this tells apart.
+ */
+const SQLSTATE_PATTERN = /^[0-9A-Z]{5}$/;
+
+/**
+ * Length alone is not enough: `EPIPE` and `E2BIG` are five uppercase characters
+ * and would pass as SQLSTATEs. Every libuv/Node errno starts with `E`, and
+ * Postgres defines no error class that does — its classes are 00-0Z, 20-2F,
+ * 34-3F, 40-44, 53-58, 72, F0, HV, P0 and XX (see the server's errcodes.txt).
+ * So a leading `E` settles it.
+ */
+const NODE_ERRNO_PATTERN = /^E/;
+
+/**
  * Extract database error details for logging/response.
  *
  * Extracts PostgreSQL error codes, details, hints, and constraint names
  * from database errors for better error messages.
  *
+ * Only a genuine Postgres error yields a `dbCode`. Any error object carrying a
+ * `.code` used to be reported as one, so a transport failure (`ECONNRESET` when
+ * the pooler drops out of the Service endpoints, say) logged as
+ * `{"db":{"dbCode":"ECONNRESET"}}` and sent every reader hunting through clean
+ * Postgres logs. The transport code is not lost — callers log the error message
+ * itself alongside these details — it just stops claiming to be a DB fault.
+ *
  * @param error - Error object from database operation
- * @returns Object with extracted error details
+ * @returns Object with extracted error details; `{}` when `error` is not a
+ *   Postgres error (no SQLSTATE and none of the pg-specific fields)
  *
  * @example
  * ```typescript
@@ -222,7 +247,11 @@ export function extractDbError(error: unknown): Record<string, unknown> {
   const source = (err.cause && typeof err.cause === 'object' ? err.cause : err) as Record<string, unknown>;
   const details: Record<string, unknown> = {};
 
-  if (source.code) details.dbCode = source.code;
+  if (typeof source.code === 'string'
+    && SQLSTATE_PATTERN.test(source.code)
+    && !NODE_ERRNO_PATTERN.test(source.code)) {
+    details.dbCode = source.code;
+  }
   if (source.detail) details.dbDetail = source.detail;
   if (source.hint) details.dbHint = source.hint;
   if (source.constraint) details.constraint = source.constraint;

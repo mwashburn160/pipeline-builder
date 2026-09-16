@@ -210,6 +210,14 @@ export interface JwtPayload {
    */
   impersonatorId?: string;
   /**
+   * Unique token id. On an impersonation token it identifies the SESSION, so it
+   * can be revoked on its own across every service (see
+   * `TokenRevocationStore.getSessionRevocation`). Personal Access Tokens carry
+   * one too, validated against a different record — which is why a `jti` alone
+   * never marks a token as impersonation; `impersonatorId` does.
+   */
+  jti?: string;
+  /**
    * When true, the token is read-only — any non-GET request is rejected
    * upstream by the platform's read-only impersonation gate. Lets
    * sysadmins "view as user X" without risking a destructive action.

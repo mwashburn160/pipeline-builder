@@ -451,6 +451,10 @@ secret pgadmin-secret    --from-literal=PGADMIN_DEFAULT_EMAIL="$PGADMIN_DEFAULT_
 # Grafana's own admin login (nginx does not gate /grafana/).
 secret grafana-secret \
   --from-literal=GRAFANA_ADMIN_USER="$GRAFANA_ADMIN_USER" --from-literal=GRAFANA_ADMIN_PASSWORD="$GRAFANA_ADMIN_PASSWORD"
+# Kiali session-signing key, mounted as the override-secret file Kiali reads
+# (/kiali-override-secrets/login-token-signing-key/value.txt). Kiali v2 ignores a
+# LOGIN_TOKEN_SIGNING_KEY env var, and with no key it crashloops at startup.
+secret kiali-signing-key --from-literal=value.txt="$KIALI_SIGNING_KEY"
 # MinIO: root creds (server + minio-init bootstrap) plus the per-service,
 # bucket-scoped keys. Built from .env here rather than shipped as a literal
 # Secret inside k8s/minio.yaml — which is what it used to be, and which made the

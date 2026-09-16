@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/Input';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { AIProviderConfig } from '@/components/settings/AIProviderConfig';
 import { DomainJoinSettings } from '@/components/settings/DomainJoinSettings';
+import { ImpersonationPolicySettings } from '@/components/settings/ImpersonationPolicySettings';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import Link from 'next/link';
@@ -210,6 +211,14 @@ export default function SettingsPage() {
             {/* Domain-based join (owner/admin self-serve) */}
             {can('org:settings') && user.organizationId && (
               <DomainJoinSettings orgId={user.organizationId} />
+            )}
+
+            {/* Administrator access (impersonation policy). Mounted in the same
+                change that ENFORCES it — never shown while it controlled nothing.
+                Its own capability, `org:impersonation`, not org:settings, so a role
+                that manages general settings can't also open the org to impersonation. */}
+            {can('org:impersonation') && user.organizationId && (
+              <ImpersonationPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
             )}
 
             {/* AI Providers */}

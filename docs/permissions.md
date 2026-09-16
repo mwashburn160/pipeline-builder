@@ -92,6 +92,7 @@ Enforcement lives in exactly two places, so no entity can drift:
 | Org settings | `org:settings` | General org settings + AI provider config |
 | SSO / IdP | `org:idp` | Per-org SSO/IdP (OIDC) configuration — **sensitive** (controls login); split out of `org:settings` |
 | KMS | `org:kms` | Customer-managed KMS key configuration — **sensitive** (controls encryption); split out of `org:settings` |
+| Impersonation | `org:impersonation` | The organization's impersonation policy — **sensitive** (controls who may view the org's data as one of its members); split out of `org:settings` so a role that manages general settings cannot also open the org to impersonation |
 
 **`:read` permissions are enforced.** Withholding `quotas:read` / `reports:read` /
 `billing:read` / `messages:read` from a custom Role actually blocks that read
@@ -149,6 +150,183 @@ bumps the user's `tokenVersion` and publishes it to a Redis-backed revocation
 store; `requireAuth` rejects a token whose version is behind (fail-open if Redis
 is unavailable — auth then degrades to natural token expiry, never a lockout).
 
+## Impersonation (view as user)
+
+A read-only "view as user X" session reproduces what a tenant sees — for support
+work, bug reports, "it looks wrong on my account".
+
+```
+POST /api/admin/impersonate/:userId
+X-Step-Up-Token: <token>
+```
+
+**Who can open one:**
+
+| Caller | Reach |
+|--------|-------|
+| Platform **sysadmin** | Any user |
+| Admin/owner of an **ancestor org** | Users in their own subtree — a parent org's teams |
+
+A parent organization already administers its descendant teams' members, quotas
+and secrets, so no separate approval applies within the account. This is
+**strictly downward**: a team admin gets no authority over the parent, a sibling
+team is not in the subtree, and an admin of the user's *own* org does not qualify
+— that would be "any admin may view any of their members", which this is not.
+Members get nothing in either direction.
+
+Every caller must also pass a [step-up](authentication.md) re-authentication. The
+response is an access token carrying the target user's identity, valid for
+**15 minutes**. No refresh token is issued.
+
+When a parent-org admin opens a session, the team's admins are **notified** —
+they are informed, not asked.
+
+**It is read-only, enforced server-side.** The token carries an
+`impersonationReadOnly` claim, and every request that isn't `GET`, `HEAD` or
+`OPTIONS` is rejected with `IMPERSONATION_READ_ONLY`. No state change can land
+under a borrowed identity.
+
+**What it will not do:**
+
+| Refused | Why |
+|---------|-----|
+| Impersonating yourself | No purpose; rejected `400` |
+| Impersonating another sysadmin | Stops a compromised sysadmin laundering authority through a peer's identity |
+| Impersonating from inside an impersonation session | Keeps the audit trail a single hop — always requester → user, never chained |
+| A user with no resolvable organization | There is no org to pin the session to (non-sysadmin callers) |
+
+**Tenancy.** The issued token is built from the *target's* identity, so it carries
+no `isSuperAdmin` claim — which means the `x-org-id` override is unavailable
+during impersonation. The session is **pinned to one organization** (today, the
+target's active org) and resolved strictly: if the target has no live membership
+there — or that org is soft-deleted — the token is issued with no organization
+context rather than falling back to some other org they belong to. An operator
+who asked to view a specific organization is never silently placed in a different
+one. It is not a way to roam between tenants.
+
+**Visibility.** Starting a session emits `admin.impersonate.start`, filed under
+the organization the session is pinned to rather than the system org — so that
+org's admins see it in their own audit view, not just platform operators. The
+event carries a `requestId` and an `approvalReason`, and actions taken during the
+session carry the sysadmin in a first-class `impersonatorId` field. See
+[Audit Events](audit-events.md).
+
+**Every session is recorded.** Each one creates an impersonation request that the
+token is then redeemed against — there is no path that issues a token without a
+record. An approval is single-use, so a request cannot be redeemed twice. The
+request's `approvalReason` records why it was allowed: `policy_open` (nobody had
+to be asked), `ancestor_authority` (a parent org's admin), `consent` (someone
+approved), or `breakglass` (emergency access).
+
+### Administrator access policy
+
+Each organization chooses whether platform sysadmins may view its members'
+accounts, under **Settings → Organization → Administrator access**. Changing it
+requires the `org:impersonation` permission and re-entering your password.
+
+| Policy | Shown as | What happens when a sysadmin asks |
+|--------|----------|-----------------------------------|
+| `open` | Open | The session starts immediately. It is still logged. |
+| `consent` **(default)** | Ask first | The request waits. Someone must approve it within **1 hour**. |
+| `denied` | Emergencies only | Refused. Only [emergency access](#impersonation-view-as-user) remains. |
+
+**Who is asked.** By default the request goes to the member whose account it is.
+An organization can turn off **Let members approve access to their own account**;
+requests then go to its admins, and the first to answer decides. A sysadmin who
+explicitly asks for the member to approve, in an organization that forbids it, is
+refused rather than silently redirected.
+
+**Strictest wins across teams.** A team can make its policy stricter than its
+parent's, never looser: the policy that applies is the stricter of the two, and
+self-approval is allowed only if both allow it. The settings page shows when a
+parent's policy is overriding the team's own. If the parent's policy can't be
+read, the strictest policy applies until it can.
+
+`denied` can't be selected on a deployment with fewer than two sysadmins, because
+emergency access under it needs a second sysadmin to approve.
+
+**Approving.** The request appears on the approver's **Access requests** page,
+and they are notified in the app. Approving shows exactly what is being granted —
+who, whose account, for how long, and that it's view-only. The requester then
+opens the session from their own Access requests page, which asks for their
+password again. A request nobody could be notified about is reported to the
+requester immediately rather than left waiting.
+
+Admins of a **parent** organization are not subject to the policy when viewing
+their own teams' members: the team's admins are informed, not asked. They do this
+from **Members → View a team member's account**, which appears for admins of an
+organization that has teams: pick a team, then **View as user** on a member. The
+request names that team, so the session is scoped to it regardless of which
+organization the member last had active.
+
+Through the API, an impersonation request may name the organization explicitly:
+
+```
+POST /api/admin/impersonate/:userId
+{ "orgId": "<team id>" }
+```
+
+The user must be an active member of that organization, or the request is
+refused. Without `orgId`, the session is for the user's active organization.
+
+**Seeing and ending sessions.** Every signed-in user has an **Access requests**
+page (`/dashboard/access-requests`, under Home in the sidebar). It lists live
+sessions on your own account, sessions you opened, and — for an organization
+admin — sessions on your organization's members, each with an **End session**
+button. Ending a session takes effect immediately; it never asks for confirmation.
+
+**Stop impersonating** ends the session on the server as well as in the browser,
+so the token stops working rather than remaining valid until it expires.
+
+A live session can also be revoked through the API:
+
+```
+POST /api/admin/impersonate/requests/:id/revoke
+```
+
+Permitted to the impersonated user, an admin of the pinned organization, whoever
+approved it, or the requester. Each session's token carries its own `jti`, so
+revoking ends **that session only** — the impersonated user's own sessions are
+untouched. The next request under a revoked token is rejected, rather than the
+session running out its 15-minute TTL.
+
+**Revocation reaches every service.** The platform refuses a revoked session's
+token directly; ending a session also publishes it to Redis, which every other
+service checks on each impersonated request. If that publish fails, the
+response carries `revokedEverywhere: false` and the Access requests page warns
+that the session may keep working elsewhere until it expires, rather than
+reporting it ended.
+
+A service that cannot read Redis **rejects** impersonation tokens — it cannot tell
+whether the session was ended, and a withdrawn session that keeps working is not
+withdrawn. Ordinary user sessions are unaffected by a Redis outage.
+
+**Emergency access.** A sysadmin can take read-only access without waiting for
+approval, for incidents where the account's owner can't or shouldn't be asked
+(**Emergency access…** on the user's edit dialog):
+
+```
+POST /api/admin/impersonate/:userId/breakglass
+{ "justification": "INC-1234: customer pipelines failing since 09:10" }
+```
+
+It is deliberately expensive rather than blocked:
+
+- A written **justification** of at least 20 characters is required, and it is
+  shown to the organization.
+- **Every admin** of the organization is notified immediately, including how many
+  times this operator has used emergency access in the last 30 days.
+- A **second sysadmin must approve** it before any token is issued when the
+  organization's policy is `denied`, or when the operator has already used
+  emergency access 5 times in 30 days. The response is then `202` with
+  `awaiting: "second_sysadmin"`; the second sysadmin approves it from their
+  Access requests page, and the requester opens it from there.
+- It is audited as `admin.impersonate.breakglass`, never as an ordinary start.
+- A user with no organization cannot be reached this way — there would be nobody
+  to notify.
+
+No one — including a sysadmin — can approve their own request.
+
 ## Managing Roles via the API
 
 ```bash
@@ -168,3 +346,10 @@ A parent-org **admin/owner** can administer its teams (members, rules, quotas)
 without a separate membership — fine-grained delegation applies within the team's
 own tenancy boundary, and team-local Roles still bind. See
 [Org → Team Hierarchy](README.md#teams-org--team-hierarchy).
+
+## Related
+
+- [Authentication](authentication.md) — sign-in, step-up re-auth, SSO
+- [Audit Events](audit-events.md) — the event catalog, including `admin.impersonate.*`
+- [Organization Benefits](organization-benefits.md) — org, team and account structure
+- [API Reference](api-reference.md) — route-level permission requirements

@@ -216,6 +216,20 @@ export const orgSlugSchema = z
 /** Owner/admin self-serve org identity update (name and/or slug). At least one
  *  field must be present so an empty PATCH is rejected rather than silently
  *  no-op'ing. Reuses the sysadmin name bounds; adds the slug rule. */
+/**
+ * Update an org's impersonation policy. Either field alone is allowed; an empty
+ * body is refused so a no-op PATCH can't be mistaken for a successful change.
+ */
+export const updateImpersonationPolicySchema = z
+  .object({
+    impersonationPolicy: z.enum(['open', 'consent', 'denied']).optional(),
+    allowSelfApproval: z.boolean().optional(),
+  })
+  .strict()
+  .refine((d) => d.impersonationPolicy !== undefined || d.allowSelfApproval !== undefined, {
+    message: 'Provide impersonationPolicy or allowSelfApproval to update',
+  });
+
 export const updateOrgIdentitySchema = z
   .object({
     name: z.string().trim().min(2).max(100).optional(),

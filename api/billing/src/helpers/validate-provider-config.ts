@@ -57,8 +57,18 @@ function validateStripe(): void {
 }
 
 function validateMarketplace(): void {
-  if (!config.marketplace.snsTopicArn) {
+  const topicArns = config.marketplace.snsTopicArns;
+  if (topicArns.length === 0) {
     logger.warn('AWS_MARKETPLACE_SNS_TOPIC_ARN is not set — SNS notifications fail closed (rejected), so entitlement/cancellation lifecycle changes will not sync');
+  } else {
+    // Each topic carries different actions, and a message from an unlisted
+    // topic is rejected — so a missing one silently drops that whole class.
+    if (!topicArns.some((arn) => arn.includes(':aws-mp-subscription-notification-'))) {
+      logger.warn('AWS_MARKETPLACE_SNS_TOPIC_ARN has no aws-mp-subscription-notification topic — subscribe/unsubscribe (cancellation) notifications will be rejected');
+    }
+    if (!topicArns.some((arn) => arn.includes(':aws-mp-entitlement-notification-'))) {
+      logger.warn('AWS_MARKETPLACE_SNS_TOPIC_ARN has no aws-mp-entitlement-notification topic — entitlement-updated (tier/quantity change) notifications will be rejected');
+    }
   }
   if (Object.keys(config.marketplace.dimensionToPlanMap ?? {}).length === 0) {
     logger.warn('AWS_MARKETPLACE_DIMENSION_MAP is empty (identity mapping in effect) — confirm your AWS tier dimensions are named exactly like the plan ids (pro/team/enterprise), or unmapped dimensions resolve to the free developer tier');

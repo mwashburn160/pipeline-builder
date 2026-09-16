@@ -613,8 +613,16 @@ export const envVariablesTopic: HelpTopic = {
           ]
         },
         {
-          "type": "note",
+          "type": "text",
           "content": "Redis must use maxmemory-policy noeviction for BullMQ. allkeys-lru causes silent job data loss. HA: the AWS targets (ec2 and eks) ship Sentinel HA by default (redis-sentinel.yaml — 3 Redis + 3 Sentinel, reached via REDIS_SENTINELS). The docker and minikube targets run a single instance with no failover. For a managed path, point it at ElastiCache (Multi-AZ, cluster-mode-disabled)."
+        },
+        {
+          "type": "text",
+          "content": "Every service resolves Redis the same way — REDIS_SENTINELS, then REDIS_URL, then REDIS_HOST/REDIS_PORT — including the platform. Configure Redis for platform as well as the other services: it uses Redis to publish session revocations and to share OAuth/SSO login state, step-up single-use, and the background-sweep lock across replicas. Without it those fall back to per-replica memory, which breaks once platform scales past one replica."
+        },
+        {
+          "type": "text",
+          "content": "Impersonation needs Redis on every service. A service that cannot read Redis rejects impersonation tokens, because it could not tell whether the session was ended. Ordinary sessions are unaffected."
         }
       ]
     },
@@ -1496,7 +1504,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "AWS_MARKETPLACE_SNS_TOPIC_ARN",
               "—",
-              "SNS topic for entitlement/subscription notifications"
+              "Comma-separated SNS topic ARNs accepted by the webhook — set both the subscription and entitlement topics"
             ],
             [
               "AWS_MARKETPLACE_DIMENSION_MAP",

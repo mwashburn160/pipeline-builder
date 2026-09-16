@@ -35,6 +35,13 @@ data:
     server_idle_timeout = 600
     admin_users = postgres
     stats_users = postgres
+    # Clients that send `extra_float_digits` in their startup packet (Go's lib/pq,
+    # which the pgbouncer-exporter sidecar uses) are otherwise REJECTED at login —
+    # pgbouncer refuses unknown startup parameters. That crashlooped the exporter,
+    # which made the whole pgbouncer POD NotReady, which dropped it from the
+    # Service endpoints, which broke every new app DB connection cluster-wide.
+    # node-postgres doesn't send it, so only the exporter trips this.
+    ignore_startup_parameters = extra_float_digits
     logfile = /var/log/pgbouncer/pgbouncer.log
     pidfile = /var/run/pgbouncer/pgbouncer.pid
 
@@ -79,6 +86,66 @@ spec:
         app: pgbouncer
     spec:
       serviceAccountName: pgbouncer
+      # Prometheus exporter, run as a NATIVE sidecar (an initContainer with
+      # `restartPolicy: Always`) rather than a second entry under `containers`.
+      # That distinction is load-bearing: a native sidecar reports under
+      # `initContainerStatuses`, so it does NOT contribute to the Pod's Ready
+      # condition. As an ordinary container it did — and when it crashlooped
+      # (2026-09-14, rejected `extra_float_digits` startup param) the whole
+      # pgbouncer Pod went NotReady, was dropped from the Service endpoints,
+      # and every service in the cluster lost the ability to open a NEW DB
+      # connection. A metrics sidecar must never be able to sever the data path.
+      #
+      # It reads pgbouncer's virtual `pgbouncer` admin database over localhost —
+      # pgbouncer.ini already grants the postgres user SHOW access via
+      # `stats_users`, so no extra grant is needed. Surfaces pool saturation
+      # (cl_waiting / sv_active), which is the failure this pooler exists to
+      # prevent and the one that is otherwise invisible until queries time out.
+      #
+      # The retry loop is the other half of the isolation, and is NOT optional.
+      # A native sidecar starts BEFORE the main container, and the kubelet only
+      # moves on once the sidecar is Started — so a sidecar that exits and enters
+      # CrashLoopBackOff holds the Pod in `Init:Error` and pgbouncer never starts
+      # AT ALL (verified 2026-09-16). The exporter does exit on a failed
+      # connection, and it always fails its first attempts because pgbouncer is
+      # not listening yet. Wrapping it in `until ...; do sleep; done` keeps the
+      # container alive across those failures, so it is Started immediately and
+      # the data path comes up regardless of whether metrics ever work.
+      initContainers:
+        - name: pgbouncer-exporter
+          restartPolicy: Always
+          image: quay.io/prometheuscommunity/pgbouncer-exporter:v0.10.2
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              until /bin/pgbouncer_exporter --web.listen-address=:9127; do
+                echo "pgbouncer_exporter exited ($?); retrying in 10s" >&2
+                sleep 10
+              done
+          env:
+            - name: PGBOUNCER_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DB_USER
+            - name: PGBOUNCER_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DB_PASSWORD
+            - name: PGBOUNCER_EXPORTER_CONNECTION_STRING
+              value: "postgres://$(PGBOUNCER_USER):$(PGBOUNCER_PASS)@localhost:6432/pgbouncer?sslmode=disable"
+          ports:
+            - containerPort: 9127
+              name: metrics
+          resources:
+            requests: { cpu: "20m", memory: 32Mi }
+            limits:   { cpu: "100m", memory: 96Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
       containers:
         - name: pgbouncer
           image: edoburu/pgbouncer:v1.25.2-p0
@@ -146,35 +213,6 @@ spec:
             # apply; pgbouncer is a stateless proxy with no on-disk state.
             capabilities:
               drop: ["ALL"]
-        # Prometheus exporter sidecar. Reads pgbouncer's virtual `pgbouncer`
-        # admin database over localhost — pgbouncer.ini already grants the
-        # postgres user SHOW access via `stats_users`, so no extra grant is
-        # needed. Surfaces pool saturation (cl_waiting / sv_active), which is
-        # the failure this pooler exists to prevent and the one that is
-        # otherwise invisible until queries start timing out.
-        - name: pgbouncer-exporter
-          image: quay.io/prometheuscommunity/pgbouncer-exporter:v0.10.2
-          args:
-            - "--web.listen-address=:9127"
-          env:
-            - name: PGBOUNCER_USER
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-secret
-                  key: DB_USER
-            - name: PGBOUNCER_PASS
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-secret
-                  key: DB_PASSWORD
-            - name: PGBOUNCER_EXPORTER_CONNECTION_STRING
-              value: "postgres://$(PGBOUNCER_USER):$(PGBOUNCER_PASS)@localhost:6432/pgbouncer?sslmode=disable"
-          ports:
-            - containerPort: 9127
-              name: metrics
-          resources:
-            requests: { cpu: "20m", memory: 32Mi }
-            limits:   { cpu: "100m", memory: 96Mi }
       volumes:
         - name: config
           configMap:

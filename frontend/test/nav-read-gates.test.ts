@@ -95,3 +95,13 @@ describe('SSO nav feature-entitlement gate', () => {
     expect(isNavItemVisible(findItem(SSO), ctx(user))).toBe(true);
   });
 });
+
+describe('Access Requests nav entry', () => {
+  it('is visible to an ordinary member with NO permissions', () => {
+    // The person most often asked to approve is the impersonated user, who is
+    // usually not an admin. Gating this entry would leave them no way to answer.
+    const item = findItem('/dashboard/access-requests');
+    expect(item.requiredPermission).toBeUndefined();
+    expect(isNavItemVisible(item, ctx({ permissions: [] }))).toBe(true);
+  });
+});

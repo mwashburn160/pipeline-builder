@@ -18,7 +18,8 @@
  *   - `consume(state)` returns the value ONCE and deletes it (consume-once, so a
  *     replayed state is rejected). It deletes on ANY lookup, valid or not, to
  *     match the controllers' anti-probing contract.
- *   - When Redis is UNSET (`REDIS_URL` absent) the store degrades to a
+ *   - When Redis is UNSET (none of `REDIS_SENTINELS` / `REDIS_URL` /
+ *     `REDIS_HOST` configured) the store degrades to a
  *     process-local Map with the same TTL sweep + bounded eviction the
  *     controllers used before — single-pod deployments keep working unchanged.
  *   - Fail-safe: a Redis error on `put` falls back to the local Map; a Redis

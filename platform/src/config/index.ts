@@ -260,19 +260,6 @@ export const config = {
     sessionRevocationTtlSeconds: parseInt(process.env.SESSION_REVOCATION_TTL_SECONDS || '3600', 10),
   },
 
-  /**
-   * Redis connection for cross-process signalling. Currently used ONLY to
-   * PUBLISH session-revocation entries (a user's current `tokenVersion`) that the
-   * stateless services read to reject revoked tokens before natural expiry — see
-   * helpers/session-revocation.ts + utils/redis-client.ts. Optional: when
-   * `REDIS_URL` is unset the publisher is a no-op and revocation degrades to
-   * token expiry (bounded by the short `jwt.expiresIn`). ioredis-style URL, e.g.
-   * `redis://redis:6379`.
-   */
-  redis: {
-    url: process.env.REDIS_URL || '',
-  },
-
   mongodb: {
     // MONGODB_URI must be set via environment; no credentials in source code.
     // Example: mongodb://mongo:<password>@mongodb:27017/platform?replicaSet=rs0&authSource=admin

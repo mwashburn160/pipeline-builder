@@ -33,7 +33,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: mc
-          image: minio/mc:latest
+          image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
           resources:
             limits:
               cpu: "100m"
@@ -178,7 +178,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: minio
-          image: minio/minio:latest
+          image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
           args: ["server", "/data-1", "/data-2", "/data-3", "/data-4", "--console-address", ":9001"]
           securityContext:
             allowPrivilegeEscalation: false

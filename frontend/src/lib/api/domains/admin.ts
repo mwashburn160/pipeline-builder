@@ -196,10 +196,76 @@ export function adminApi(core: ApiCore) {
      *  Backend issues a 15-minute token with `impersonationReadOnly: true`;
      *  the caller swaps it into the api client until "Stop impersonating".
      *  Step-up gated. */
-    impersonateUser: async (userId: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ accessToken: string; expiresIn: number; targetUserId: string }>>(
+    impersonateUser: async (
+      userId: string,
+      stepUpToken?: string,
+      options: {
+        reason?: string;
+        /** The organization the session is for. A parent-org admin names the
+         *  team the member was picked from; without it the server uses the
+         *  member's last active org, which may be the parent itself. */
+        orgId?: string;
+      } = {},
+    ) => {
+      // `accessToken` is present only when the request was approved on creation.
+      // Under a consent policy it is absent and `status` is `pending`: the caller
+      // must wait for approval, then open the session from Access requests.
+      const body = {
+        ...(options.reason ? { reason: options.reason } : {}),
+        ...(options.orgId ? { orgId: options.orgId } : {}),
+      };
+      return core.request<ApiResponse<ImpersonationStartDto>>(
         `/api/admin/impersonate/${userId}`,
+        {
+          method: 'POST',
+          headers: core.stepUpHeader(stepUpToken),
+          ...(Object.keys(body).length ? { body: JSON.stringify(body) } : {}),
+        },
+      );
+    },
+
+    /** Requests the caller can act on — filtered server-side by the same rules as
+     *  decide and revoke, so it never shows what you couldn't act on. */
+    listImpersonationRequests: async (view: ImpersonationListView) => {
+      return core.request<ApiResponse<{ requests: ImpersonationRequestDto[] }>>(
+        `/api/admin/impersonate/requests?view=${view}`,
+      );
+    },
+
+    /** Approve or deny a pending request. */
+    decideImpersonationRequest: async (requestId: string, approve: boolean) => {
+      return core.request<ApiResponse<{ requestId: string; status: string }>>(
+        `/api/admin/impersonate/requests/${requestId}/decide`,
+        { method: 'POST', body: JSON.stringify({ approve }) },
+      );
+    },
+
+    /** End a live session early. Not step-up gated: stopping access must never be
+     *  harder than allowing it. */
+    revokeImpersonationSession: async (requestId: string) => {
+      // `revokedEverywhere: false` means the platform refuses the token but other
+      // services may still accept it until it expires — tell the person that.
+      return core.request<ApiResponse<{ requestId: string; status: 'revoked'; revokedEverywhere: boolean }>>(
+        `/api/admin/impersonate/requests/${requestId}/revoke`,
+        { method: 'POST' },
+      );
+    },
+
+    /** Exchange an approved request for its session token. Step-up gated. */
+    redeemImpersonationRequest: async (requestId: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<ImpersonationStartDto>>(
+        `/api/admin/impersonate/requests/${requestId}/redeem`,
         { method: 'POST', headers: core.stepUpHeader(stepUpToken) },
+      );
+    },
+
+    /** Emergency access over an org's policy. Sysadmin only; a written
+     *  justification is required and shown to the org. May come back `pending`
+     *  (202) when a second sysadmin must approve. */
+    breakglassImpersonation: async (userId: string, justification: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<ImpersonationStartDto>>(
+        `/api/admin/impersonate/${userId}/breakglass`,
+        { method: 'POST', body: JSON.stringify({ justification }), headers: core.stepUpHeader(stepUpToken) },
       );
     },
 
@@ -357,4 +423,38 @@ export function adminApi(core: ApiCore) {
       }>>(`/api/quota/${encodeURIComponent(orgId)}/at-risk${qs}`);
     },
   };
+}
+
+/** The three views of impersonation requests. */
+export type ImpersonationListView = 'to-decide' | 'mine' | 'sessions';
+
+/** Result of starting, redeeming, or break-glassing a session. */
+export interface ImpersonationStartDto {
+  requestId: string;
+  status: 'consumed' | 'pending';
+  /** Present only once a token was issued. */
+  accessToken?: string;
+  expiresIn?: number;
+  targetUserId?: string;
+  /** Break-glass awaiting a second sysadmin. */
+  awaiting?: 'second_sysadmin';
+  reason?: 'policy_denied' | 'rate_limit';
+}
+
+/** An impersonation request as shown to a person. The session token id is never sent. */
+export interface ImpersonationRequestDto {
+  id: string;
+  status: 'pending' | 'approved' | 'denied' | 'consumed' | 'expired' | 'revoked' | 'undeliverable';
+  breakglass: boolean;
+  approvalReason?: 'policy_open' | 'ancestor_authority' | 'consent' | 'breakglass';
+  approverMode?: 'user' | 'org_admin';
+  orgId?: string;
+  /** Written by the requesting operator. Render as TEXT, never as markup. */
+  reason?: string;
+  requester: { id: string; name: string };
+  target: { id: string; name: string };
+  createdAt: string;
+  expiresAt: string;
+  consumedAt?: string;
+  decidedAt?: string;
 }

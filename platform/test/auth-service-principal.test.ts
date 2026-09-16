@@ -26,6 +26,8 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stub: the auth middleware resolves impersonation sessions by jti.
+  ImpersonationRequest: {},
   // findById THROWS a CastError for a non-ObjectId sub — exactly what a
   // 'service:*' sub would trigger if the branch under test didn't short-circuit.
   User: { findById: (...a: unknown[]) => mockUserFindById(...a) },

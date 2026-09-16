@@ -57,6 +57,11 @@ export interface OrganizationDocument extends Document {
   /** Account-level purchased feature entitlements (bundles), synced by billing
    *  to the root and propagated onto teams. */
   featureEntitlements: string[];
+  /** Stored impersonation policy. ABSENT on most documents — read only via
+   *  `resolveImpersonationPolicy`, which owns the default. */
+  impersonationPolicy?: 'open' | 'consent' | 'denied';
+  /** Stored self-approval flag. Same absent-value rule as `impersonationPolicy`. */
+  allowSelfApproval?: boolean;
   /** Denormalized reference to the owning user. Canonical ownership is in UserOrganization (role: 'owner'). */
   owner: Types.ObjectId;
   /**
@@ -282,6 +287,23 @@ const organizationSchema = new Schema<OrganizationDocument>(
     featureEntitlements: {
       type: [String],
       default: [],
+    },
+    // Whether platform operators may view as this org's members, and on what
+    // terms. NO Mongoose `default:` here, deliberately — orgs are read through
+    // `.lean()`, which bypasses hydration, so a schema default never fires for an
+    // existing document and the EFFECTIVE default would be whatever each call
+    // site happened to write. The default lives in exactly one place instead:
+    // `resolveImpersonationPolicy` (helpers/impersonation-policy.ts). Read the
+    // field only through that resolver.
+    impersonationPolicy: {
+      type: String,
+      enum: ['open', 'consent', 'denied'],
+    },
+    // Whether a challenge may be sent to the impersonated user themselves. When
+    // false, every challenge goes to the org's admins. Same no-default rule as
+    // above, for the same reason.
+    allowSelfApproval: {
+      type: Boolean,
     },
     owner: {
       type: Schema.Types.ObjectId,

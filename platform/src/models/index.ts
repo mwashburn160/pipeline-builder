@@ -13,6 +13,18 @@ export type { RoleAssignmentDocument } from './role-assignment.js';
 export { default as Invitation, type InvitationDocument, type InvitationStatus } from './invitation.js';
 export { default as OrgDomain, type OrgDomainDocument, type DomainJoinMode, DOMAIN_JOIN_MODES } from './org-domain.js';
 export { default as JoinRequest, type JoinRequestDocument, type JoinRequestStatus } from './join-request.js';
+export {
+  default as ImpersonationRequest,
+  type ImpersonationRequestDocument,
+  type ImpersonationRequestStatus,
+  type ImpersonationApprovalReason,
+  type ImpersonationApproverMode,
+  IMPERSONATION_REQUEST_STATUSES,
+  IMPERSONATION_APPROVAL_REASONS,
+  IMPERSONATION_APPROVER_MODES,
+  IMPERSONATION_REQUEST_TTL_MS,
+  IMPERSONATION_REASON_MAX,
+} from './impersonation-request.js';
 export { default as AuditEvent } from './audit-event.js';
 export type { AuditEventDocument, AuditAction } from './audit-event.js';
 export { default as ArchivedAuditEvent } from './archived-audit-events.js';

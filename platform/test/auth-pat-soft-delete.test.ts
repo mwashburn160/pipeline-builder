@@ -29,6 +29,8 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stub: the auth middleware resolves impersonation sessions by jti.
+  ImpersonationRequest: {},
   User: { findById: (...a: unknown[]) => mockUserFindById(...a) },
   Organization: { findById: (...a: unknown[]) => mockOrgFindById(...a) },
   UserOrganization: { findOne: (...a: unknown[]) => mockUOFindOne(...a) },

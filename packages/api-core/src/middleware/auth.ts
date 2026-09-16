@@ -183,7 +183,25 @@ export function requireAuth(
  */
 export interface TokenRevocationStore {
   getCurrentVersion(userId: string): Promise<number | null>;
+  /**
+   * Whether one IMPERSONATION session (by token `jti`) has been ended early.
+   *
+   * Optional so a store that predates it still links — but a store WITHOUT it
+   * cannot answer, and an impersonation token is then REJECTED. Unlike
+   * `getCurrentVersion`, this is deliberately not fail-open: the platform ends a
+   * session when someone withdraws consent, and a withdrawn consent that keeps
+   * working in every other service is not withdrawn.
+   */
+  getSessionRevocation?(jti: string): Promise<SessionRevocationState>;
 }
+
+/**
+ * `revoked`     — the session was ended; reject.
+ * `live`        — no revocation recorded; allow.
+ * `unavailable` — the store couldn't be read or can't answer; REJECT. Distinct
+ *                 from `live` precisely so an outage can't read as "not revoked".
+ */
+export type SessionRevocationState = 'revoked' | 'live' | 'unavailable';
 
 let tokenRevocationStore: TokenRevocationStore | undefined;
 
@@ -231,6 +249,26 @@ async function isTokenRevoked(decoded: JwtPayload): Promise<boolean> {
 }
 
 /**
+ * Resolve an impersonation session's revocation state. Never throws: any failure
+ * — no store, a store that can't answer, a read error — is `unavailable`, which
+ * callers treat as revoked.
+ */
+async function sessionRevocationState(jti: string): Promise<SessionRevocationState> {
+  const store = tokenRevocationStore;
+  if (!store?.getSessionRevocation) return 'unavailable';
+  try {
+    return await store.getSessionRevocation(jti);
+  } catch {
+    return 'unavailable';
+  }
+}
+
+/** An impersonation session token: it names the operator AND carries its own session id. */
+function isImpersonationSession(decoded: { impersonatorId?: unknown; jti?: unknown }): decoded is { impersonatorId: string; jti: string } {
+  return typeof decoded.impersonatorId === 'string' && typeof decoded.jti === 'string' && decoded.jti.length > 0;
+}
+
+/**
  * Public revocation check for routes that verify a platform JWT OUTSIDE
  * `requireAuth` (e.g. the image-registry `/token` mint path, which resolves
  * identity itself). Returns true when the token's `tokenVersion` is strictly
@@ -238,7 +276,13 @@ async function isTokenRevoked(decoded: JwtPayload): Promise<boolean> {
  * or a token/store without a usable version yields false (allow), matching
  * `requireAuth`. Pass the verified JWT claims (`sub`, `tokenVersion`).
  */
-export async function isAccessTokenRevoked(claims: { sub?: string; tokenVersion?: number }): Promise<boolean> {
+export async function isAccessTokenRevoked(
+  claims: { sub?: string; tokenVersion?: number; jti?: string; impersonatorId?: string },
+): Promise<boolean> {
+  // An impersonation session is revoked unless the store positively says live —
+  // including on this out-of-band path, or a revoked session could still mint
+  // registry tokens.
+  if (isImpersonationSession(claims) && await sessionRevocationState(claims.jti) !== 'live') return true;
   return isTokenRevoked(claims as JwtPayload);
 }
 
@@ -329,21 +373,36 @@ function _requireAuth(
     // whose `tokenVersion` is behind the revocation store's current value (a
     // privilege change the platform published). No store registered ⇒ this is a
     // no-op and control passes straight through. Fail-open on any store error.
-    if (tokenRevocationStore && decoded.sub && typeof decoded.tokenVersion === 'number') {
+    // An impersonation session is checked even when NO store is registered: the
+    // tokenVersion check below is a no-op without a store, but for a session
+    // that would silently mean "never revoked". Here no store ⇒ unavailable ⇒
+    // rejected. See `TokenRevocationStore.getSessionRevocation`.
+    const impersonation = isImpersonationSession(decoded);
+    if (impersonation || (tokenRevocationStore && decoded.sub && typeof decoded.tokenVersion === 'number')) {
       // `.catch(next)` forwards a DOWNSTREAM synchronous throw from `next()` to
       // Express's error middleware — without it, that throw would surface as an
       // unhandled rejection (this `next()` runs in a microtask, outside the
-      // surrounding try/catch and Express's per-layer dispatch). `isTokenRevoked`
-      // itself never rejects (it fail-opens internally), so the catch only ever
-      // sees a genuine downstream error.
-      isTokenRevoked(decoded)
-        .then((revoked) => {
-          if (revoked) {
-            return sendError(res, HttpStatus.UNAUTHORIZED, 'Session has been revoked; please sign in again', ErrorCode.TOKEN_REVOKED);
+      // surrounding try/catch and Express's per-layer dispatch). The checks
+      // themselves never reject, so the catch only ever sees a downstream error.
+      (async () => {
+        if (impersonation) {
+          const state = await sessionRevocationState(decoded.jti as string);
+          if (state !== 'live') {
+            return sendError(
+              res,
+              HttpStatus.UNAUTHORIZED,
+              state === 'revoked'
+                ? 'This impersonation session has been ended'
+                : 'This impersonation session could not be verified',
+              ErrorCode.TOKEN_REVOKED,
+            );
           }
-          next();
-        })
-        .catch(next);
+        }
+        if (tokenRevocationStore && decoded.sub && typeof decoded.tokenVersion === 'number' && await isTokenRevoked(decoded)) {
+          return sendError(res, HttpStatus.UNAUTHORIZED, 'Session has been revoked; please sign in again', ErrorCode.TOKEN_REVOKED);
+        }
+        next();
+      })().catch(next);
       return;
     }
 

@@ -52,6 +52,7 @@ const KNOWN_IDS = [
   'org:settings',
   'org:idp',
   'org:kms',
+  'org:impersonation',
 ] as const;
 
 describe('PERMISSION_CATALOG parity', () => {

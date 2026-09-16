@@ -215,6 +215,14 @@ spec:
             - "--objstore.config-file=/etc/thanos/objstore.yml"
             - "--http-address=0.0.0.0:10902"
             - "--grpc-address=0.0.0.0:10901"
+          # objstore.yml reads its S3 creds as $(THANOS_S3_*) — Thanos expands env
+          # refs in --objstore.config-file and fails fast on an unset one. The key
+          # is random per provision (minio-secret), so it can't live in the file.
+          env:
+            - name: THANOS_S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: thanos-access-key } }
+            - name: THANOS_S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: thanos-secret-key } }
           ports:
             - containerPort: 10902
               name: http-sidecar

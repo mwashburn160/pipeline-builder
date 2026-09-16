@@ -113,6 +113,11 @@ services:
     stop_grace_period: 10s
     environment:
       <<: [*common-env, *server-env]
+      # Redis is how this service learns an impersonation session was ended.
+      # Resolved exactly as every other service resolves it (REDIS_SENTINELS, then
+      # REDIS_URL, then REDIS_HOST/PORT). Without it, impersonation tokens are rejected, because a withdrawn session could not be detected.
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
       SERVICE_NAME: ask
       OPENAI_COMPATIBLE_BASE_URL: ${OPENAI_COMPATIBLE_BASE_URL:-}
       OPENAI_COMPATIBLE_MODELS: ${OPENAI_COMPATIBLE_MODELS:-}
@@ -407,6 +412,11 @@ services:
     stop_grace_period: 10s
     environment:
       <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
+      # Redis is how this service PUBLISHES revocations and shares login / step-up / leader state across replicas.
+      # Resolved exactly as every other service resolves it (REDIS_SENTINELS, then
+      # REDIS_URL, then REDIS_HOST/PORT). Without it, revocations never reach other services.
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
       SERVICE_NAME: platform
       # Deployment target surfaced via /config so the frontend can gate the AWS-only
       # onboarding CLI-setup section (this compose stack is the `docker` target).
@@ -1086,9 +1096,16 @@ services:
   # shared ./data folder like the other stateful services. Pin the image tag for
   # reproducible deploys (latest tracks upstream releases).
   minio:
-    image: 'minio/minio:latest'
+    image: 'quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z'
     container_name: minio
     restart: always
+    # Run as 1000:1000 — the same UID/GID the k8s targets set via
+    # runAsUser/fsGroup. bin/setup.sh pre-creates ./data/minio-data as the
+    # invoking user, so on a Linux host a UID-1000 operator owns it; without
+    # this MinIO runs as the image default (root) and writes root-owned files
+    # into it. An existing root-owned dir from an earlier root-run MinIO needs a
+    # one-time `sudo chown -R 1000:1000 ./data/minio-data`.
+    user: "1000:1000"
     # Single-node, single-drive — this is a local dev target (no HA). The
     # erasure-coded HA setups live in the ec2 (SNMD) + eks (distributed) targets.
     command: server /data --console-address ":9001"
@@ -1113,7 +1130,7 @@ services:
   # bucket-scoped MinIO users (so no service uses the root credentials). Exits 0;
   # `depends_on: minio-init: service_completed_successfully` gates the consumers.
   minio-init:
-    image: 'minio/mc:latest'
+    image: 'quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z'
     container_name: minio-init
     depends_on:
       - minio
@@ -1348,6 +1365,10 @@ services:
     image: 'quay.io/thanos/thanos:v0.39.2'
     container_name: thanos-sidecar
     restart: always
+    # objstore.yml reads $(THANOS_S3_*) — Thanos expands env refs in the config.
+    environment:
+      THANOS_S3_ACCESS_KEY: ${THANOS_S3_ACCESS_KEY}
+      THANOS_S3_SECRET_KEY: ${THANOS_S3_SECRET_KEY}
     command:
       - 'sidecar'
       - '--tsdb.path=/prometheus'
@@ -1381,6 +1402,10 @@ services:
     image: 'quay.io/thanos/thanos:v0.39.2'
     container_name: thanos-store-gateway
     restart: always
+    # objstore.yml reads $(THANOS_S3_*) — Thanos expands env refs in the config.
+    environment:
+      THANOS_S3_ACCESS_KEY: ${THANOS_S3_ACCESS_KEY}
+      THANOS_S3_SECRET_KEY: ${THANOS_S3_SECRET_KEY}
     command:
       - 'store'
       - '--objstore.config-file=/etc/thanos/objstore.yml'

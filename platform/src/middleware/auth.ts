@@ -4,7 +4,7 @@
 import { createLogger, ErrorCode, isSystemAdmin, resolveUserPermissions, sendError } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 import { toOrgId } from '../helpers/controller-helper.js';
-import { User, Organization, UserOrganization, PersonalAccessToken } from '../models/index.js';
+import { User, Organization, UserOrganization, PersonalAccessToken, ImpersonationRequest } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
 import type { AccessTokenPayload } from '../types/index.js';
 import {
@@ -174,13 +174,41 @@ export async function requireAuth(
       return sendError(res, 401, 'Session invalid');
     }
 
-    if (decoded.jti) {
+    if (decoded.jti && decoded.impersonatorId) {
+      // IMPERSONATION SESSION. It carries a `jti` like a PAT does, but its
+      // authority lives in a completely different record — so this branch MUST
+      // come first. Falling through to the PAT lookup below would find no
+      // PersonalAccessToken and 401 every impersonated request.
+      //
+      // FAIL CLOSED, deliberately against the grain of the rest of auth. The
+      // Redis revocation store is fail-open because denying on a blip would lock
+      // every user out; here the only cost of failing closed is that an operator
+      // re-requests a session, while failing open would mean a session someone
+      // explicitly ended keeps working. Consent that cannot be withdrawn is not
+      // consent, so an unreadable record denies.
+      let session;
+      try {
+        session = await ImpersonationRequest.findOne({ jti: decoded.jti })
+          .select('status expiresAt targetUserId').lean();
+      } catch (err) {
+        logger.warn('Impersonation session lookup failed — denying', { error: String(err) });
+        return sendError(res, 401, 'Session invalid');
+      }
+      if (!session || session.status !== 'consumed') {
+        // `revoked` lands here too: the session was ended early.
+        return sendError(res, 401, 'Impersonation session ended');
+      }
+      // Defense in depth against a jti/sub mismatch — the token must name the
+      // user the request was opened against.
+      if (String(session.targetUserId) !== String(decoded.sub)) {
+        return sendError(res, 401, 'Session invalid');
+      }
+    } else if (decoded.jti) {
       // Personal Access Token. Its authority comes from the PersonalAccessToken
       // record, NOT `tokenVersion` — so a normal session logout (which bumps
       // tokenVersion) does not silently kill a durable CI credential. "Sign out
       // everywhere" and account deletion explicitly flip `revoked` on the user's
-      // PATs. Only PATs carry a `jti`, so this branch never touches the hot
-      // session path. Look up by jti AND userId (defense in depth against a
+      // PATs. Look up by jti AND userId (defense in depth against a
       // jti/sub mismatch).
       const pat = await PersonalAccessToken.findOne({ jti: decoded.jti, userId: decoded.sub }).select('revoked expiresAt lastUsedAt').lean();
       if (!pat || pat.revoked || (pat.expiresAt && pat.expiresAt.getTime() < Date.now())) {

@@ -45,7 +45,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 }));
 
 // Mutable so a test can flip the expected SNS topic ARN.
-const mockConfig = { marketplace: { snsTopicArn: '' as string } };
+const mockConfig = { marketplace: { snsTopicArns: [] as string[] } };
 jest.unstable_mockModule('../src/config.js', () => ({ config: mockConfig }));
 
 const mockCalculatePeriodEnd = jest.fn(() => new Date('2026-08-01T00:00:00.000Z'));
@@ -226,7 +226,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   // Fail-closed topic check requires a configured topic that matches the
   // default envelope's TopicArn; individual tests override to exercise mismatch.
-  mockConfig.marketplace.snsTopicArn = 'arn:aws:sns:us-east-1:0:topic';
+  mockConfig.marketplace.snsTopicArns = ['arn:aws:sns:us-east-1:0:topic'];
   mockGetPaymentProvider.mockReturnValue(new FakeAWSMarketplaceProvider());
   mockVerifySNSSignature.mockResolvedValue(true);
   mockConfirmSNSSubscription.mockResolvedValue(undefined);
@@ -262,9 +262,32 @@ describe('POST /marketplace/sns — validation & security', () => {
   });
 
   it('rejects a message from an unexpected topic ARN with 403', async () => {
-    mockConfig.marketplace.snsTopicArn = 'arn:aws:sns:us-east-1:0:EXPECTED';
+    mockConfig.marketplace.snsTopicArns = ['arn:aws:sns:us-east-1:0:EXPECTED'];
     const res = mockRes();
     await handler({ body: snsEnvelope({ TopicArn: 'arn:aws:sns:us-east-1:0:OTHER' }) }, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockClaimWebhookEvent).not.toHaveBeenCalled();
+  });
+
+  it('accepts a message from ANY configured topic (subscription + entitlement)', async () => {
+    // A SaaS listing publishes subscribe/unsubscribe and entitlement-updated on
+    // two different AWS-owned topics; both must be accepted when configured.
+    const sub = 'arn:aws:sns:us-east-1:287250355862:aws-mp-subscription-notification-prod';
+    const ent = 'arn:aws:sns:us-east-1:287250355862:aws-mp-entitlement-notification-prod';
+    mockConfig.marketplace.snsTopicArns = [sub, ent];
+    for (const TopicArn of [sub, ent]) {
+      const res = mockRes();
+      await handler({ body: snsEnvelope({ TopicArn, Type: 'UnsubscribeConfirmation' }) }, res);
+      expect(res.status).toHaveBeenCalledWith(200);
+    }
+  });
+
+  it('rejects a topic outside a multi-topic allowlist (exact match, no prefix match)', async () => {
+    const sub = 'arn:aws:sns:us-east-1:287250355862:aws-mp-subscription-notification-prod';
+    mockConfig.marketplace.snsTopicArns = [sub];
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ TopicArn: `${sub}-evil` }) }, res);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockClaimWebhookEvent).not.toHaveBeenCalled();
@@ -273,7 +296,7 @@ describe('POST /marketplace/sns — validation & security', () => {
   it('fails closed: rejects with 403 when no SNS topic is configured', async () => {
     // An unset expected topic must NOT skip the check — otherwise a validly
     // signed message from any attacker-owned SNS topic would be accepted.
-    mockConfig.marketplace.snsTopicArn = '';
+    mockConfig.marketplace.snsTopicArns = [];
     const res = mockRes();
     await handler({ body: snsEnvelope({ Message: notification('unsubscribe-success') }) }, res);
 
