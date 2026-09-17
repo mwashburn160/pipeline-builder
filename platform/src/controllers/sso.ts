@@ -24,7 +24,7 @@ import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
-import { findSsoEnforcementForEmail, getEnforcedLoginConfig } from '../helpers/sso-enforcement.js';
+import { assertSsoIdentityTrusted, findSsoEnforcementForEmail, getEnforcedLoginConfig } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
 import { authService } from '../services/index.js';
 import {
@@ -98,6 +98,9 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
     const cfg = await getEnforcedLoginConfig(orgId);
     provider = cfg.provider;
     identity = await exchangeAndValidate(cfg, body.code, pending.nonce);
+    // The org's IdP vouching for an email proves nothing unless the org owns
+    // that domain — checked before the identity can reach or create any account.
+    await assertSsoIdentityTrusted(orgId, identity);
   } catch (err) {
     audit(req, 'user.login.failed', {
       targetType: 'user',
@@ -111,12 +114,16 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
 
   // Reuse the SAME identity→user mapping the OAuth login uses (link-by-verified-
   // email; auto-create with a personal org for a brand-new identity). Keying on
-  // the config's provider stores the SSO linkage under `oauth.<provider>`.
+  // the config's provider stores the SSO linkage under `oauth.<provider>`; the
+  // issuer binds the subject to THIS IdP.
   const user = await authService.findOrCreateOAuthUser(provider, {
     id: identity.subject,
     email: identity.email,
     name: identity.name,
-  }, { markOnboarding: false }); // SSO users sign in to an enforced org, not a self-named personal one
+  }, {
+    markOnboarding: false, // SSO users sign in to an enforced org, not a self-named personal one
+    sso: { issuer: identity.issuer },
+  });
   // Prefer the SSO org as the active org; issueTokens' resolveMembership falls
   // back to the user's own membership when they aren't (yet) a member of it.
   const tokens = await issueTokens(user, orgId);

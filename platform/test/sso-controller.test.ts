@@ -18,6 +18,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockGetEnforcedLoginConfig = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockFindSsoEnforcementForEmail = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockAssertSsoIdentityTrusted = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockBuildAuthorizeUrl = jest.fn<(...a: unknown[]) => Promise<string>>();
 const mockExchangeAndValidate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockFindOrCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -43,6 +44,7 @@ jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter:
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
   getEnforcedLoginConfig: (...a: unknown[]) => mockGetEnforcedLoginConfig(...a),
   findSsoEnforcementForEmail: (...a: unknown[]) => mockFindSsoEnforcementForEmail(...a),
+  assertSsoIdentityTrusted: (...a: unknown[]) => mockAssertSsoIdentityTrusted(...a),
   rejectIfSsoEnforced: async () => false,
 }));
 
@@ -52,6 +54,7 @@ jest.unstable_mockModule('../src/services/oidc-service.js', () => ({
     OIDC_DISABLED: { status: 403, message: 'disabled' },
     OIDC_NOT_ENTITLED: { status: 403, message: 'not entitled' },
     OIDC_INVALID_STATE: { status: 403, message: 'Invalid or expired SSO state' },
+    OIDC_EMAIL_DOMAIN_NOT_VERIFIED: { status: 403, message: 'domain not verified' },
   },
   buildAuthorizeUrl: (...a: unknown[]) => mockBuildAuthorizeUrl(...a),
   exchangeAndValidate: (...a: unknown[]) => mockExchangeAndValidate(...a),
@@ -109,6 +112,7 @@ async function mintState(orgId: string): Promise<string> {
 beforeEach(() => {
   jest.clearAllMocks();
   mockIssueTokens.mockResolvedValue({ accessToken: 'a', refreshToken: 'r' });
+  mockAssertSsoIdentityTrusted.mockResolvedValue(undefined);
 });
 afterEach(() => { jest.clearAllMocks(); });
 
@@ -136,16 +140,36 @@ describe('handleSsoCallback (state lifecycle + org binding)', () => {
   it('exchanges the code and issues tokens on a valid state', async () => {
     const state = await mintState('org-1');
     mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'generic-oidc' });
-    mockExchangeAndValidate.mockResolvedValue({ subject: 'sub-1', email: 'u@x.com', name: 'U' });
+    mockExchangeAndValidate.mockResolvedValue({ subject: 'sub-1', issuer: 'https://idp.test', email: 'u@x.com', name: 'U' });
     mockFindOrCreate.mockResolvedValue({ _id: 'u1' });
 
     const res = makeRes();
     await (handleSsoCallback as any)({ params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
 
     expect(mockExchangeAndValidate).toHaveBeenCalled();
-    expect(mockFindOrCreate).toHaveBeenCalledWith('generic-oidc', expect.objectContaining({ email: 'u@x.com' }), { markOnboarding: false });
+    expect(mockAssertSsoIdentityTrusted).toHaveBeenCalledWith('org-1', expect.objectContaining({ email: 'u@x.com' }));
+    // The link is bound to the IdP that signed the token.
+    expect(mockFindOrCreate).toHaveBeenCalledWith(
+      'generic-oidc',
+      expect.objectContaining({ email: 'u@x.com' }),
+      { markOnboarding: false, sso: { issuer: 'https://idp.test' } },
+    );
     expect(mockIssueTokens).toHaveBeenCalledWith(expect.anything(), 'org-1');
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('refuses an identity on a domain the org has not verified — before any account is touched', async () => {
+    const state = await mintState('org-1');
+    mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'generic-oidc' });
+    mockExchangeAndValidate.mockResolvedValue({ subject: 's', issuer: 'https://evil-idp.test', email: 'ceo@victim.com' });
+    mockAssertSsoIdentityTrusted.mockRejectedValue(new Error('OIDC_EMAIL_DOMAIN_NOT_VERIFIED'));
+
+    const res = makeRes();
+    await (handleSsoCallback as any)({ params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockFindOrCreate).not.toHaveBeenCalled();
+    expect(mockIssueTokens).not.toHaveBeenCalled();
   });
 
   it('rejects a REPLAYED state (consumed on first use) — 403', async () => {

@@ -28,6 +28,9 @@ export const ONBOARDING_NO_ORG = 'ONBOARDING_NO_ORG';
  *  onto a pre-existing but UNVERIFIED account. Mapped to 409 by the OAuth + OIDC
  *  callback error maps (single source, shared by both). */
 export const ACCOUNT_EMAIL_UNVERIFIED = 'ACCOUNT_EMAIL_UNVERIFIED';
+/** A platform administrator's sign-in must never depend on a tenant-run IdP.
+ *  Mapped to 403 in OIDC_ERROR_MAP. */
+export const SSO_SUPERADMIN_REFUSED = 'SSO_SUPERADMIN_REFUSED';
 
 /**
  * Is this email operator-authorized as a platform super-admin (i.e. listed in
@@ -339,15 +342,31 @@ class AuthService {
   async findOrCreateOAuthUser(
     providerName: string,
     userInfo: { id: string; email: string; name?: string; picture?: string },
-    opts: { markOnboarding?: boolean } = {},
+    opts: {
+      markOnboarding?: boolean;
+      /** Set by the SSO callback: the id_token's issuer. The subject is matched
+       *  only together with it, and platform administrators are refused. The
+       *  caller must already have checked the org's authority over the email. */
+      sso?: { issuer: string };
+    } = {},
   ) {
+    const sso = opts.sso;
+    const refuseSuperAdmin = <T extends { isSuperAdmin?: boolean }>(u: T): T => {
+      if (sso && u.isSuperAdmin) throw new Error(SSO_SUPERADMIN_REFUSED);
+      return u;
+    };
+
     // `+isSuperAdmin` opts in to a schema field with `select: false`; the
     // returned user feeds JWT issuance and must carry the real flag.
-    const byOAuth = await User.findOne({ [`oauth.${providerName}.id`]: userInfo.id }).select('+tokenVersion +isSuperAdmin');
-    if (byOAuth) return byOAuth;
+    const byOAuth = await User.findOne({
+      [`oauth.${providerName}.id`]: userInfo.id,
+      ...(sso ? { [`oauth.${providerName}.issuer`]: sso.issuer } : {}),
+    }).select('+tokenVersion +isSuperAdmin');
+    if (byOAuth) return refuseSuperAdmin(byOAuth);
 
     const byEmail = await User.findOne({ email: userInfo.email.toLowerCase() }).select('+tokenVersion +isSuperAdmin');
     if (byEmail) {
+      refuseSuperAdmin(byEmail);
       // Hardening: only auto-link a (provider-verified) social identity onto a
       // pre-existing account when that account's OWN email is verified. An
       // UNVERIFIED pre-existing account is an unproven email claim — silently
@@ -357,7 +376,7 @@ class AuthService {
       // account first, then links. Verified accounts link seamlessly as before.
       if (!byEmail.isEmailVerified) throw new Error(ACCOUNT_EMAIL_UNVERIFIED);
       await User.updateOne({ _id: byEmail._id }, {
-        $set: { [`oauth.${providerName}`]: { id: userInfo.id, email: userInfo.email, name: userInfo.name, picture: userInfo.picture, linkedAt: new Date() } },
+        $set: { [`oauth.${providerName}`]: { id: userInfo.id, email: userInfo.email, name: userInfo.name, picture: userInfo.picture, issuer: sso?.issuer, linkedAt: new Date() } },
       });
       return byEmail;
     }
@@ -390,7 +409,7 @@ class AuthService {
       // users sign in to an enforced org, not a self-named personal one.
       needsOnboarding: opts.markOnboarding !== false,
       tokenVersion: 0,
-      oauth: { [providerName]: { id: userInfo.id, email: userInfo.email, name: userInfo.name, picture: userInfo.picture, linkedAt: new Date() } },
+      oauth: { [providerName]: { id: userInfo.id, email: userInfo.email, name: userInfo.name, picture: userInfo.picture, issuer: sso?.issuer, linkedAt: new Date() } },
     });
 
     // Auto-create personal org + owner membership + default Roles in a single

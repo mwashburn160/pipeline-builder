@@ -18,7 +18,7 @@ const logger = createLogger('token-rate-limit');
  *
  * Backing store:
  * - **Redis** (shared env wiring, same as the idempotency / SSE stores) when
- *   `REDIS_URL`/`REDIS_HOST` is configured, so the cap is enforced ACROSS pods
+ *   `REDIS_URL`/`REDIS_SENTINELS` is configured, so the cap is enforced ACROSS pods
  *   rather than per-replica (`cap × replicas`). Fixed-window `INCR` + `PEXPIRE`.
  * - **In-memory** fallback when Redis isn't configured, or for a single call
  *   when a Redis command fails (fail back to per-pod protection, not wide-open).

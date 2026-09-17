@@ -28,7 +28,7 @@ const mockCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
-  sendQuotaExceeded: jest.fn(),
+  sendQuotaReserveDenied: jest.fn(),
   userHasPermission: () => true,
 }));
 

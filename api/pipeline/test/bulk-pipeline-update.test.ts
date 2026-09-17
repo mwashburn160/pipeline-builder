@@ -9,6 +9,11 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
+const ID1 = '10000000-0000-4000-8000-000000000001';
+const ID2 = '10000000-0000-4000-8000-000000000002';
+const ID3 = '10000000-0000-4000-8000-000000000003';
+const ID4 = '10000000-0000-4000-8000-000000000004';
+
 const mockUpdate = jest.fn<(...a: any[]) => Promise<any>>();
 const mockFindByIds = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue([]);
 const mockEmitAudit = jest.fn();
@@ -112,12 +117,12 @@ describe('PUT /pipelines/bulk/update — per-item isolation', () => {
   it('commits the successful rows and reports the rejected one in errors[] (no 500)', async () => {
     // id-2 rejects; id-1 and id-3 succeed; id-4 returns null (no match).
     mockUpdate.mockImplementation(async (id: string) => {
-      if (id === 'id-2') throw new Error('db conflict on id-2');
-      if (id === 'id-4') return null;
+      if (id === ID2) throw new Error('db conflict on row 2');
+      if (id === ID4) return null;
       return { id };
     });
 
-    const req = mockReq({ ids: ['id-1', 'id-2', 'id-3', 'id-4'], data: { description: 'x' } });
+    const req = mockReq({ ids: [ID1, ID2, ID3, ID4], data: { description: 'x' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -130,18 +135,18 @@ describe('PUT /pipelines/bulk/update — per-item isolation', () => {
     expect(status).toBe(200);
     expect(payload.updated).toBe(2);
     expect(payload.failed).toBe(1);
-    expect(payload.errors).toEqual([{ index: 1, error: 'db conflict on id-2' }]);
+    expect(payload.errors).toEqual([{ index: 1, error: 'db conflict on row 2' }]);
 
     // Audit emitted only for the two rows that actually updated.
     expect(mockEmitAudit).toHaveBeenCalledTimes(2);
     const auditedIds = mockEmitAudit.mock.calls.map((c: any[]) => c[0].targetId).sort();
-    expect(auditedIds).toEqual(['id-1', 'id-3']);
+    expect(auditedIds).toEqual([ID1, ID3]);
   });
 
   it('reports all failures without throwing when every update rejects', async () => {
     mockUpdate.mockRejectedValue(new Error('boom'));
 
-    const req = mockReq({ ids: ['a', 'b'], data: { description: 'x' } });
+    const req = mockReq({ ids: [ID1, ID2], data: { description: 'x' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -151,5 +156,26 @@ describe('PUT /pipelines/bulk/update — per-item isolation', () => {
     expect(payload.failed).toBe(2);
     expect(payload.errors.map((e: any) => e.index)).toEqual([0, 1]);
     expect(mockEmitAudit).not.toHaveBeenCalled();
+  });
+});
+
+// Free-form ids reach pipelineService.update(id), whose CRUD id filter PREFIX-
+// matches a partial id (`LIKE 'x%'`) — so `ids: ['']` would update every pipeline
+// in the org while the exact-id visibility check matched (and forbade) nothing.
+describe('bulk pipeline ids must be full UUIDs', () => {
+  beforeEach(() => { mockUpdate.mockReset(); mockFindByIds.mockClear(); });
+
+  it.each([[['']], [['1000']], [[ID1, 'x']]])('PUT /bulk/update 400s ids=%j before any lookup or write', async (ids) => {
+    const res = mockRes();
+    await getHandler('put', '/bulk/update')(mockReq({ ids, data: { description: 'x' } }), res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockFindByIds).not.toHaveBeenCalled();
+  });
+
+  it('POST /bulk/delete 400s a non-UUID id', async () => {
+    const res = mockRes();
+    await getHandler('post', '/bulk/delete')(mockReq({ ids: [''] }), res);
+    expect(res.status).toHaveBeenCalledWith(400);
   });
 });

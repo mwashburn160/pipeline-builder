@@ -40,7 +40,7 @@ export function pluginsApi(core: ApiCore) {
       return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugin/${id}`);
     },
 
-    uploadPlugin: async (file: File, visibility: 'public' | 'private' = 'private', options?: { signal?: AbortSignal }) => {
+    uploadPlugin: async (file: File, visibility: Visibility, options?: { signal?: AbortSignal }) => {
       await core.ensureFreshToken();
 
       const formData = new FormData();
@@ -231,7 +231,7 @@ export function pluginsApi(core: ApiCore) {
       commands: string[];
       env?: Record<string, string>;
       dockerfile: string;
-      visibility: 'public' | 'private';
+      visibility: Visibility;
     }) => {
       return core.request<ApiResponse<{
         requestId?: string;

@@ -16,6 +16,7 @@ import {
   useReportRetention, type SharedFilters, type TabDataStatus,
 } from '@/components/reports/useReportData';
 import { useFeatures } from '@/hooks/useFeatures';
+import { hasPermission } from '@/lib/auth-helpers';
 import api from '@/lib/api';
 
 // ─── Tab Config ─────────────────────────────────────────
@@ -91,7 +92,7 @@ function rangeCapFromError(error: string | null): number | null {
 
 // ─── Page ───────────────────────────────────────────────
 export default function ReportsPage() {
-  const { user, isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'reports:read' });
+  const { user, isReady, isAuthenticated, can, isReadOnly } = useAuthGuard({ requirePermission: 'reports:read' });
   const router = useRouter();
   // DORA / advanced delivery analytics is a paid-tier entitlement. Gates the tab
   // body (non-entitled → upsell teaser) and the fetches (skip to avoid a 403).
@@ -288,7 +289,10 @@ export default function ReportsPage() {
         {topTab === 'pipelines' && <PipelinesTab filters={filters} onStatus={onStatus} />}
         {topTab === 'plugins' && <PluginsTab filters={filters} onStatus={onStatus} />}
         {topTab === 'dora' && (
-          <DoraTab filters={filters} enabled={doraEnabled} canMark={can('reports:read')} onStatus={onStatus} />
+          // Marking an outcome is a write gated on `pipelines:write`. Checked with
+          // `hasPermission` (not `can()`, which folds in read-only impersonation) so
+          // a read-only session still SEES the controls, disabled with the reason.
+          <DoraTab filters={filters} enabled={doraEnabled} canMark={hasPermission(user, 'pipelines:write')} markReadOnly={isReadOnly} onStatus={onStatus} />
         )}
         {topTab === 'scorecard' && (
           <ScorecardTab enabled={doraEnabled} onStatus={onStatus} />

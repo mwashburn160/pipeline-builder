@@ -96,6 +96,28 @@ beforeEach(() => {
   mockLookupPrimaryOrgId.mockResolvedValue('org-target');
 });
 
+describe('updateUserById — sign-in details are platform-admin only', () => {
+  for (const [field, value] of [['password', 'Sup3rSecret!'], ['email', 'attacker@evil.com'], ['username', 'hijacked']] as const) {
+    it(`refuses an org admin changing ${field} — before touching the account`, async () => {
+      mockRequireAdminContext.mockReturnValue({ isOrgAdmin: true, isSuperAdmin: false, adminType: 'org' });
+      const res = mockRes();
+      await run({ user: { sub: 'org-admin', organizationId: 'org-1' }, params: { id: 'victim' }, body: { [field]: value } }, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(mockUpdateUserById).not.toHaveBeenCalled();
+    });
+  }
+
+  it('still lets an org admin change a member\'s role in their organization', async () => {
+    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: true, isSuperAdmin: false, adminType: 'org' });
+    mockUpdateUserById.mockResolvedValue({ user: { _id: 'm' }, changes: ['role'], organizationName: 'Acme', activeOrgRole: 'admin' });
+    const res = mockRes();
+    await run({ user: { sub: 'org-admin', organizationId: 'org-1' }, params: { id: 'm' }, body: { role: 'admin' } }, res);
+
+    expect(mockUpdateUserById).toHaveBeenCalled();
+  });
+});
+
 describe('updateUserById audit — admin.user.update', () => {
   it('records admin.user.update with the changed field names (sysadmin cross-tenant)', async () => {
     mockRequireAdminContext.mockReturnValue({ isOrgAdmin: false, isSuperAdmin: true, adminType: 'system' });

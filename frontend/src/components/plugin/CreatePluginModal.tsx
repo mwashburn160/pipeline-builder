@@ -5,7 +5,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { formatBytes } from '@/lib/format';
 import { Modal } from '@/components/ui/Modal';
 import { FormField } from '@/components/ui/FormField';
-import { Select } from '@/components/ui/Select';
+import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 import { TabBar, type TabBarItem } from '@/components/ui/TabBar';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
@@ -15,11 +15,12 @@ import WizardPluginTab from './WizardPluginTab';
 import api from '@/lib/api';
 import { PLUGIN_BUILD_TIMEOUT_MS } from '@/lib/constants';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
+import type { Visibility } from '@/types';
 
 /** Props for the CreatePluginModal component. */
 interface CreatePluginModalProps {
-  /** Whether the current user can upload public plugins (admin only). */
-  canUploadPublic: boolean;
+  /** `plugins:publish` — required for the `public` rung of the visibility ladder. */
+  canPublish: boolean;
   /** Callback to close the modal. */
   onClose: () => void;
   /** Callback when a plugin is successfully created (upload or AI deploy). */
@@ -29,12 +30,13 @@ interface CreatePluginModalProps {
 }
 
 /** Tabbed modal for creating plugins via AI generation, a guided form (wizard), or file upload. */
-export default function CreatePluginModal({ canUploadPublic, onClose, onCreated, initialTab = 'ai' }: CreatePluginModalProps) {
+export default function CreatePluginModal({ canPublish, onClose, onCreated, initialTab = 'ai' }: CreatePluginModalProps) {
   const [activeTab, setActiveTab] = useState<'upload' | 'ai' | 'wizard'>(initialTab);
 
   // Upload tab state
   const [file, setFile] = useState<File | null>(null);
-  const [access, setAccess] = useState<'public' | 'private'>('private');
+  // `org` is the backend's create default for plugins; `private` is opt-in.
+  const [access, setAccess] = useState<Visibility>('org');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
@@ -68,7 +70,7 @@ export default function CreatePluginModal({ canUploadPublic, onClose, onCreated,
   }, [buildStatus]);
 
   const { execute: uploadAsync, loading, error: uploadError, clearError } = useAsyncCallback(
-    async (f: File, a: 'public' | 'private') => {
+    async (f: File, a: Visibility) => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), PLUGIN_BUILD_TIMEOUT_MS);
       try {
@@ -282,25 +284,22 @@ export default function CreatePluginModal({ canUploadPublic, onClose, onCreated,
                 )}
               </div>
 
-              <FormField label="Access Level" hint={!canUploadPublic ? 'Only admins can upload public plugins' : undefined}>
-                <Select value={access} onChange={(e) => setAccess(e.target.value as 'public' | 'private')} disabled={uploadDisabled || !canUploadPublic}>
-                  <option value="private">Private (Organization only)</option>
-                  {canUploadPublic && <option value="public">Public (Available to all)</option>}
-                </Select>
+              <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish')}>
+                <VisibilitySelect value={access} onChange={setAccess} canPublish={canPublish} disabled={uploadDisabled} />
               </FormField>
             </div>
           )}
         </>
       ) : activeTab === 'wizard' ? (
         <WizardPluginTab
-          canUploadPublic={canUploadPublic}
+          canPublish={canPublish}
           disabled={false}
           onCreated={onCreated}
           onClose={onClose}
         />
       ) : (
         <AIPluginBuilderTab
-          canUploadPublic={canUploadPublic}
+          canPublish={canPublish}
           disabled={false}
           onCreated={onCreated}
           onClose={onClose}

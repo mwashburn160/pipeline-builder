@@ -4,9 +4,10 @@
 /**
  * The three client-side paths that carry identity or secrets and had no test:
  *
- *  - `error-reporter` — the ONLY place the app sends text off-box, and it was
- *    shipping `window.location.href` verbatim from pages whose query string
- *    holds a live invite token or OAuth authorization code.
+ *  - `error-reporter` — the ONLY place the app sends text off-box (via the
+ *    same-origin relay), and it was shipping `window.location.href` verbatim
+ *    from pages whose query string holds a live invite token or OAuth
+ *    authorization code.
  *  - `usePlugins` cache — module-level state that outlives React, so it kept
  *    serving the previous tenant's plugins after an org switch.
  *  - the OAuth intent hand-off — where a lost intent silently turned an
@@ -26,34 +27,25 @@ jest.mock('@/lib/api', () => ({
 }));
 
 describe('error-reporter egress', () => {
-  const ENDPOINT = 'https://collector.test/report';
-  let sent: string[];
+  let sent: Array<{ url: string; init: RequestInit }>;
+  let relayState: 'on' | 'off';
+  const realFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = realFetch;
+  });
 
   beforeEach(() => {
     jest.resetModules();
     sent = [];
-    process.env.NEXT_PUBLIC_ERROR_REPORT_URL = ENDPOINT;
-    Object.defineProperty(navigator, 'sendBeacon', {
-      configurable: true,
-      // Blob.text() is async; capture synchronously via the constructor arg instead.
-      value: jest.fn((_url: string, blob: Blob) => {
-        sent.push((blob as unknown as { __payload: string }).__payload);
-        return true;
-      }),
-    });
-    // jsdom's Blob doesn't expose its parts; stash them for the assertion.
-    const RealBlob = global.Blob;
-    global.Blob = class extends RealBlob {
-      __payload: string;
-      constructor(parts: BlobPart[], opts?: BlobPropertyBag) {
-        super(parts, opts);
-        this.__payload = String(parts[0]);
-      }
-    } as unknown as typeof Blob;
-  });
-
-  afterEach(() => {
-    delete process.env.NEXT_PUBLIC_ERROR_REPORT_URL;
+    relayState = 'on';
+    // The reporter posts to the same-origin relay; capture each request and
+    // answer with the relay's on/off header.
+    global.fetch = jest.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      sent.push({ url: String(url), init: init ?? {} });
+      // jsdom has no `Response`; the reporter only reads this one header.
+      return { status: 204, headers: { get: (h: string) => (h === 'X-Error-Reporting' ? relayState : null) } };
+    }) as unknown as typeof fetch;
   });
 
   /** Report one error from `href` and return the parsed payload. */
@@ -61,26 +53,32 @@ describe('error-reporter egress', () => {
     window.history.replaceState({}, '', new URL(href).pathname + new URL(href).search);
     const { reportClientError } = await import('../src/lib/error-reporter');
     reportClientError(error, { source: 'react', url: href });
-    return JSON.parse(sent[0]);
+    return JSON.parse(String(sent[0].init.body));
   }
+
+  it('posts to the same-origin relay (CSP connect-src stays self)', async () => {
+    await report('http://localhost/dashboard');
+    expect(sent[0].url).toBe('/client-errors');
+    expect(sent[0].init).toEqual(expect.objectContaining({ method: 'POST', keepalive: true, credentials: 'omit' }));
+  });
 
   it('REGRESSION: strips the query string, which carries the invite token', async () => {
     const payload = await report('http://localhost/invite/accept?token=SECRET-INVITE-TOKEN');
     expect(payload.url).toBe('http://localhost/invite/accept');
-    expect(sent[0]).not.toContain('SECRET-INVITE-TOKEN');
+    expect(String(sent[0].init.body)).not.toContain('SECRET-INVITE-TOKEN');
   });
 
   it('REGRESSION: strips the OAuth authorization code and state', async () => {
     const payload = await report('http://localhost/auth/callback/google?code=AUTH-CODE&state=ST8');
     expect(payload.url).toBe('http://localhost/auth/callback/google');
-    expect(sent[0]).not.toContain('AUTH-CODE');
-    expect(sent[0]).not.toContain('ST8');
+    expect(String(sent[0].init.body)).not.toContain('AUTH-CODE');
+    expect(String(sent[0].init.body)).not.toContain('ST8');
   });
 
   it('strips the email-verification token', async () => {
     const payload = await report('http://localhost/auth/verify-email?token=VERIFY-TOK');
     expect(payload.url).toBe('http://localhost/auth/verify-email');
-    expect(sent[0]).not.toContain('VERIFY-TOK');
+    expect(String(sent[0].init.body)).not.toContain('VERIFY-TOK');
   });
 
   it('keeps the path, so the report is still actionable', async () => {
@@ -96,12 +94,15 @@ describe('error-reporter egress', () => {
     expect(payload.message).not.toContain('123456789012');
   });
 
-  it('is a no-op when no collector is configured', async () => {
-    delete process.env.NEXT_PUBLIC_ERROR_REPORT_URL;
-    jest.resetModules();
+  it('stops sending once the relay reports no collector is configured', async () => {
+    relayState = 'off';
     const { reportClientError } = await import('../src/lib/error-reporter');
-    reportClientError(new Error('boom'), { source: 'react' });
-    expect(sent).toHaveLength(0);
+    reportClientError(new Error('first'), { source: 'react' });
+    expect(sent).toHaveLength(1);
+    // Drain the microtask queue so the relay response (and its off-latch) settles.
+    await new Promise((r) => setTimeout(r, 0));
+    reportClientError(new Error('second'), { source: 'react' });
+    expect(sent).toHaveLength(1);
   });
 });
 

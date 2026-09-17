@@ -94,15 +94,15 @@ describe('publishTokenRevocation', () => {
 
 describe('createEnvRedisTokenRevocationStore', () => {
   const savedUrl = process.env.REDIS_URL;
-  const savedHost = process.env.REDIS_HOST;
+  const savedSentinels = process.env.REDIS_SENTINELS;
   afterEach(() => {
     if (savedUrl === undefined) delete process.env.REDIS_URL; else process.env.REDIS_URL = savedUrl;
-    if (savedHost === undefined) delete process.env.REDIS_HOST; else process.env.REDIS_HOST = savedHost;
+    if (savedSentinels === undefined) delete process.env.REDIS_SENTINELS; else process.env.REDIS_SENTINELS = savedSentinels;
   });
 
-  it('fail-opens (null) when neither REDIS_URL nor REDIS_HOST is configured', async () => {
+  it('fail-opens (null) when neither REDIS_URL nor REDIS_SENTINELS is configured', async () => {
     delete process.env.REDIS_URL;
-    delete process.env.REDIS_HOST;
+    delete process.env.REDIS_SENTINELS;
     const store = createEnvRedisTokenRevocationStore();
     expect(await store.getCurrentVersion('u1')).toBeNull();
     // Memoized "unavailable" — a second call is still a safe null (no throw).
@@ -130,13 +130,12 @@ describe('session revocation — Redis reader', () => {
   });
 
   it('reads "no Redis configured" as UNAVAILABLE for sessions', async () => {
-    const saved = { url: process.env.REDIS_URL, host: process.env.REDIS_HOST, sent: process.env.REDIS_SENTINELS };
-    delete process.env.REDIS_URL; delete process.env.REDIS_HOST; delete process.env.REDIS_SENTINELS;
+    const saved = { url: process.env.REDIS_URL, sent: process.env.REDIS_SENTINELS };
+    delete process.env.REDIS_URL; delete process.env.REDIS_SENTINELS;
     try {
       await expect(createEnvRedisTokenRevocationStore().getSessionRevocation!('s')).resolves.toBe('unavailable');
     } finally {
       if (saved.url !== undefined) process.env.REDIS_URL = saved.url;
-      if (saved.host !== undefined) process.env.REDIS_HOST = saved.host;
       if (saved.sent !== undefined) process.env.REDIS_SENTINELS = saved.sent;
     }
   });

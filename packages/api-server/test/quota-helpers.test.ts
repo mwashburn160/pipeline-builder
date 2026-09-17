@@ -25,7 +25,7 @@ describe('incrementQuotaFromCtx', () => {
     mockIncrementQuota.mockReset();
   });
 
-  it('forwards orgId, type, and authorization header to incrementQuota', () => {
+  it('meters via incrementQuota WITHOUT forwarding the user authorization header', () => {
     const req = mockReq('Bearer abc');
     const ctx = mockCtx();
     incrementQuotaFromCtx({} as any, { req, ctx, orgId: 'org-1' }, 'apiCalls' as any);
@@ -33,29 +33,16 @@ describe('incrementQuotaFromCtx', () => {
       {},
       'org-1',
       'apiCalls',
-      'Bearer abc',
       expect.any(Function),
     );
-  });
-
-  it('passes empty string when authorization header is missing', () => {
-    const req = mockReq(undefined);
-    const ctx = mockCtx();
-    incrementQuotaFromCtx({} as any, { req, ctx, orgId: 'org-2' }, 'pipelines' as any);
-    expect(mockIncrementQuota).toHaveBeenCalledWith(
-      expect.anything(),
-      'org-2',
-      'pipelines',
-      '',
-      expect.any(Function),
-    );
+    expect(mockIncrementQuota.mock.calls[0]).not.toContain('Bearer abc');
   });
 
   it('binds the log function as a WARN-level logger', () => {
     const req = mockReq('tok');
     const ctx = mockCtx();
     incrementQuotaFromCtx({} as any, { req, ctx, orgId: 'org-3' }, 'plugins' as any);
-    const boundLogger = mockIncrementQuota.mock.calls[0][4];
+    const boundLogger = mockIncrementQuota.mock.calls[0][3] as (m: string, d: unknown) => void;
     boundLogger('quota close to limit', { used: 99 });
     expect(ctx.log).toHaveBeenCalledWith('WARN', 'quota close to limit', { used: 99 });
   });

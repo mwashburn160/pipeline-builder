@@ -95,10 +95,12 @@ app.use('/reports/settings', ...createAuthenticatedWithOrgRoute(), requirePermis
 // token, not a user, and the target org is the `:orgId` path param.
 app.use('/reports/retention-sync', requireAuth, createRetentionSyncRoutes());
 
-// Post-deploy outcome markers (mark failed/restored). A user-facing DORA WRITE:
-// same middleware pattern as the DORA reads — auth + orgId + `reports:read`,
-// PLUS the `advanced_reporting` feature (DORA is a paid entitlement).
-app.use('/reports/deployments', ...createAuthenticatedWithOrgRoute(), requirePermission('reports:read'), requireFeature('advanced_reporting'), createDeploymentOutcomeRoutes());
+// Post-deploy outcome markers (mark failed/restored). A user-facing DORA WRITE
+// that changes the org's change-failure rate + MTTR, so it is gated by a WRITE
+// permission — `pipelines:write` (the outcome is recorded against a pipeline
+// deployment; built-in Member/Admin carry it) — not the read-only `reports:read`
+// a report viewer holds. Plus `advanced_reporting` (DORA is a paid entitlement).
+app.use('/reports/deployments', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), requireFeature('advanced_reporting'), createDeploymentOutcomeRoutes());
 
 // Report query routes require auth + orgId + the `reports:read` capability.
 // These are the user-facing dashboard reads; a custom role that withholds

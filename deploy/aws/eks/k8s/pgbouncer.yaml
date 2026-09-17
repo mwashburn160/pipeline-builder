@@ -33,8 +33,11 @@ data:
     reserve_pool_size = 5
     reserve_pool_timeout = 5
     server_idle_timeout = 600
-    admin_users = postgres
-    stats_users = postgres
+    # No admin_users: the only login in the userlist is the application role
+    # (DB_USER), which must not be able to PAUSE/KILL/SHUTDOWN the pooler. It is
+    # a stats user so the exporter sidecar can SHOW pools. Keep the name in sync
+    # with DB_USER in .env.
+    stats_users = pipeline_app
     # Clients that send `extra_float_digits` in their startup packet (Go's lib/pq,
     # which the pgbouncer-exporter sidecar uses) are otherwise REJECTED at login —
     # pgbouncer refuses unknown startup parameters. That crashlooped the exporter,
@@ -97,7 +100,7 @@ spec:
       # connection. A metrics sidecar must never be able to sever the data path.
       #
       # It reads pgbouncer's virtual `pgbouncer` admin database over localhost —
-      # pgbouncer.ini already grants the postgres user SHOW access via
+      # pgbouncer.ini grants the DB_USER app role SHOW access via
       # `stats_users`, so no extra grant is needed. Surfaces pool saturation
       # (cl_waiting / sv_active), which is the failure this pooler exists to
       # prevent and the one that is otherwise invisible until queries time out.
@@ -154,6 +157,9 @@ spec:
               name: pgbouncer
           env:
             # edoburu uses DB_*; userlist.txt is generated from these at startup.
+            # The APPLICATION role (not the superuser): pgbouncer passes the
+            # client's login through to Postgres, so only DB_USER can connect
+            # via the pooler — the RLS-bypassing superuser is not reachable here.
             # The mounted pgbouncer.ini overrides the auto-generated config.
             - name: DB_HOST
               value: "postgres"
@@ -163,12 +169,12 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: postgres-secret
-                  key: POSTGRES_USER
+                  key: DB_USER
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: postgres-secret
-                  key: POSTGRES_PASSWORD
+                  key: DB_PASSWORD
             # DB name is not a secret — hardcoded to match POSTGRES_DB in
             # the postgres deployment. Keep in sync with the platform
             # init.sql / postgres ConfigMap if either changes.
@@ -180,8 +186,6 @@ spec:
               value: "scram-sha-256"
             - name: POOL_MODE
               value: "transaction"
-            - name: ADMIN_USERS
-              value: "postgres"
           volumeMounts:
             - name: config
               mountPath: /etc/pgbouncer/pgbouncer.ini

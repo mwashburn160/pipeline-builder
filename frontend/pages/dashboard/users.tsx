@@ -4,12 +4,10 @@ import { Users, Trash2, UserPlus } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
-import { useDelete } from '@/hooks/useDelete';
 import { useOrgOptions } from '@/hooks/useOrgOptions';
 import { LoadingPage } from '@/components/ui/Loading';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { InfoAlert } from '@/components/ui/InfoAlert';
@@ -60,13 +58,22 @@ export default function UsersPage() {
     enabled: isAuthenticated && isSuperAdmin,
   });
 
-  const del = useDelete<UserListItem>(
-    async (u) => {
-      await api.deleteUserById(u.id);
-    },
-    list.refresh,
-    (err) => list.setError(formatError(err, 'Failed to delete user')),
-  );
+  // Deleting an account and editing it both need a fresh password check; the
+  // pending action is held here until StepUpModal confirms.
+  const [pendingDelete, setPendingDelete] = useState<UserListItem | null>(null);
+  const [pendingEdit, setPendingEdit] = useState<Parameters<typeof api.updateUserById>[1] | null>(null);
+
+  const executeDelete = useCallback(async (stepUpToken: string) => {
+    if (!pendingDelete) return;
+    try {
+      await api.deleteUserById(pendingDelete.id, stepUpToken);
+      list.refresh();
+    } catch (err) {
+      list.setError(formatError(err, 'Failed to delete user'));
+    } finally {
+      setPendingDelete(null);
+    }
+  }, [list, pendingDelete]);
 
   // Shared org picker for both the create- and edit-user modals — reused to
   // populate the cross-org "Organization" filter dropdown below.
@@ -330,8 +337,15 @@ export default function UsersPage() {
       return;
     }
 
+    setPendingEdit(updates);
+  };
+
+  const executeEdit = async (stepUpToken: string) => {
+    const updates = pendingEdit;
+    setPendingEdit(null);
+    if (!editingUser || !updates) return;
     const result = await editForm.run(
-      () => api.updateUserById(editingUser.id, updates),
+      () => api.updateUserById(editingUser.id, updates, stepUpToken),
       { successMessage: 'User updated successfully' },
     );
 
@@ -371,10 +385,10 @@ export default function UsersPage() {
     onToggleSelected: toggleSelected,
     onEdit: handleEditUser,
     onToggleSuperAdmin: toggleSuperAdmin,
-    onDelete: (u) => del.open(u),
+    onDelete: (u) => setPendingDelete(u),
   }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user, toggleSuperAdmin, selectedIds, toggleSelected, allVisibleSelected, toggleSelectAllVisible, del]);
+    [user, toggleSuperAdmin, selectedIds, toggleSelected, allVisibleSelected, toggleSelectAllVisible]);
 
   if (!isReady || !user) return <LoadingPage />;
   if (!isSuperAdmin) return null;
@@ -491,13 +505,19 @@ export default function UsersPage() {
         <Pagination pagination={list.pagination} onPageChange={list.handlePageChange} onPageSizeChange={list.handlePageSizeChange} />
       )}
 
-      {del.target && (
-        <DeleteConfirmModal
-          title="Delete User"
-          itemName={del.target.username}
-          loading={del.loading}
-          onConfirm={del.confirm}
-          onCancel={del.close}
+      {pendingDelete && (
+        <StepUpModal
+          action={`Permanently delete ${pendingDelete.email}'s account from every organization`}
+          onConfirmed={executeDelete}
+          onClose={() => setPendingDelete(null)}
+        />
+      )}
+
+      {editingUser && pendingEdit && (
+        <StepUpModal
+          action={`Save changes to ${editingUser.email}`}
+          onConfirmed={executeEdit}
+          onClose={() => setPendingEdit(null)}
         />
       )}
 

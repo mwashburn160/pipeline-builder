@@ -9,14 +9,10 @@
  * `tokenVersion`, and ended impersonation sessions — see
  * helpers/session-revocation.ts).
  *
- * The client is built with api-core's `createEnvRedisClient` — the SAME
- * resolution the reading services use: `REDIS_SENTINELS` (HA), then `REDIS_URL`,
- * then `REDIS_HOST`/`REDIS_PORT`. That match is the whole point. The publisher
- * previously read `REDIS_URL` only, which no deployment target sets — the targets
- * configure `REDIS_HOST` (docker, minikube) or `REDIS_SENTINELS` (ec2, eks) — so
- * platform never published anything and every service's revocation check read
- * keys that were never written. A writer and its readers must resolve Redis the
- * same way, or revocation silently does nothing.
+ * The client is built with api-core's `createEnvRedisClient`, the same
+ * resolution every reading service uses (`REDIS_URL` or `REDIS_SENTINELS`). A
+ * writer and its readers must resolve Redis the same way, or revocation silently
+ * does nothing.
  *
  * Graceful degradation: when no Redis is configured the accessor returns
  * `undefined` and callers treat the publish as not having happened.
@@ -45,7 +41,7 @@ export async function getRedisClient(): Promise<RedisCacheClient | undefined> {
   if (cached) {
     logger.info('Redis client initialized for revocation publishing');
   } else {
-    logger.warn('No Redis configured (REDIS_SENTINELS / REDIS_URL / REDIS_HOST) — revocations will not reach other services');
+    logger.warn('No Redis configured (REDIS_URL / REDIS_SENTINELS) — revocations will not reach other services');
   }
   return cached ?? undefined;
 }

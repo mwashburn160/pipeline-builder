@@ -22,8 +22,9 @@ let insertedResult = true;
 const mockIncrement = jest.fn().mockResolvedValue(undefined);
 const mockReserveQuota = jest.fn<(...args: any[]) => any>().mockResolvedValue({ exceeded: false, quota: { type: 'pipelines', limit: 100, used: 1, remaining: 99 } });
 const mockDecrementQuota = jest.fn();
-const mockSendQuotaExceeded = jest.fn((res: any, _t: string, q: any) => {
-  res.status(429).json({ success: false, statusCode: 429, quota: q });
+const mockSendQuotaReserveDenied = jest.fn((res: any, _t: string, r: any) => {
+  if (r.unavailable) return res.status(503).json({ success: false, statusCode: 503 });
+  res.status(429).json({ success: false, statusCode: 429, quota: r.quota });
 });
 
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
@@ -75,7 +76,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   // `mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota:... })`.
   reserveQuota: (...args: unknown[]) => mockReserveQuota(...args),
   decrementQuota: (...args: unknown[]) => mockDecrementQuota(...args),
-  sendQuotaExceeded: (...args: unknown[]) => mockSendQuotaExceeded(...(args as [unknown, string, unknown])),
+  sendQuotaReserveDenied: (...args: unknown[]) => mockSendQuotaReserveDenied(...(args as [unknown, string, unknown])),
   createComplianceClient: jest.fn(() => ({
     validatePipeline: mockValidatePipeline,
   })),
@@ -105,6 +106,10 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
     try {
       await handler({ req, res, ctx, orgId, userId });
     } catch (error: any) {
+      // Mirrors the real withRoute: a typed AppError keeps its own status.
+      if (typeof error?.statusCode === 'number' && error.statusCode >= 400 && error.statusCode < 600) {
+        return res.status(error.statusCode).json({ success: false, statusCode: error.statusCode, message: error.message, code: error.code });
+      }
       const msg = error instanceof Error ? error.message: String(error);
       return mockSendInternalErrorForRoute(res, msg);
     }
@@ -124,7 +129,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   tokenize: () => [],
 }));
 
-const { sendBadRequest, validateBody } = await import('@pipeline-builder/api-core');
+const { sendBadRequest, validateBody, ConflictError, ForbiddenError } = await import('@pipeline-builder/api-core') as any;
 const { createCreatePipelineRoutes } = await import('../src/routes/create-pipeline.js');
 
 // Helpers
@@ -363,6 +368,47 @@ describe('POST /pipelines (create)', () => {
     expect(res.status).toHaveBeenCalledWith(500);
   });
 
+  // The upsert's ON CONFLICT branch is a WRITE to an existing row: the service
+  // refuses (typed 403/409) a row the caller couldn't PUT, or a tombstone.
+  it('passes the caller\'s visibility authority to the service overwrite gate', async () => {
+    mockCreateAsDefault.mockResolvedValue({ id: 'uuid-1', visibility: 'org' });
+    await handler(mockReq(), mockRes());
+    expect(mockCreateAsDefault).toHaveBeenCalledWith(
+      expect.anything(), 'user-1', 'my_project', 'my_org',
+      { isSystemAdmin: false, canPublish: false },
+    );
+  });
+
+  it.each([
+    ['409 for a tombstone / another author\'s private pipeline', () => new ConflictError('exists'), 409],
+    ['403 for a public pipeline without pipelines:publish', () => new ForbiddenError('nope'), 403],
+  ])('maps a service overwrite refusal to %s, refunds quota, emits no audit', async (_label, makeErr, status) => {
+    mockCreateAsDefault.mockRejectedValue((makeErr as () => Error)());
+    const res = mockRes();
+    await handler(mockReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(status);
+    expect(mockSendInternalErrorForRoute).not.toHaveBeenCalled();
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+    expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
+  });
+
+  it('answers 503 (not 429) when the quota service could not confirm the reservation, and never creates', async () => {
+    mockReserveQuota.mockResolvedValueOnce({ exceeded: true, unavailable: true, quota: { type: 'pipelines', limit: 0, used: 0, remaining: 0 } });
+    const res = mockRes();
+    await handler(mockReq(), res);
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(mockCreateAsDefault).not.toHaveBeenCalled();
+  });
+
+  it('answers 429 when the org is genuinely over its pipelines quota', async () => {
+    mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'pipelines', limit: 1, used: 1, remaining: 0 } });
+    const res = mockRes();
+    await handler(mockReq(), res);
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(mockCreateAsDefault).not.toHaveBeenCalled();
+  });
+
   it('generates pipelineName from project and org when not provided', async () => {
     mockCreateAsDefault.mockResolvedValue({
       id: 'uuid-3',
@@ -387,6 +433,7 @@ describe('POST /pipelines (create)', () => {
     expect.any(String),
     expect.any(String),
     expect.any(String),
+    expect.any(Object),
     );
   });
 
@@ -413,6 +460,7 @@ describe('POST /pipelines (create)', () => {
       expect.any(String),
       expect.any(String),
       expect.any(String),
+      expect.any(Object),
     );
   });
 });

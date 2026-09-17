@@ -18,7 +18,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, code: number, body: unknown) => res.status(code).json({ success: true, data: body }),
   sendError: (res: any, code: number, message: string) => res.status(code).json({ success: false, message }),
-  sendQuotaExceeded: (res: any) => res.status(429).json({ success: false, message: 'quota exceeded' }),
+  sendQuotaReserveDenied: (res: any, _type: string, r: { unavailable?: boolean }) => res.status(r.unavailable ? 503 : 429).json({ success: false, message: r.unavailable ? 'quota unavailable' : 'quota exceeded' }),
 }));
 
 const findByOrg = jest.fn<(orgId: string) => Promise<unknown>>();
@@ -123,6 +123,17 @@ describe.each(['admin', 'self-service'] as const)('upsertOrgIdp — %s surface',
     getLoginConfig.mockResolvedValue({ clientSecret: 's' });
     await upsertOrgIdp(mockReq({ ...EDIT_BODY }), mockRes(), 'org-1', surface);
     expect(reserveFeatureQuota).not.toHaveBeenCalled();
+  });
+
+  it('answers 503 — not "quota exceeded" — when the quota service could not confirm the slot', async () => {
+    findByOrg.mockResolvedValue(null);
+    reserveFeatureQuota.mockResolvedValue({ exceeded: true, unavailable: true, quota: { resetAt: null } });
+    const res = mockRes() as unknown as { statusCode: number };
+
+    await upsertOrgIdp(mockReq({ ...EDIT_BODY, clientSecret: 'new' }), res as never, 'org-1', surface);
+
+    expect(res.statusCode).toBe(503);
+    expect(upsert).not.toHaveBeenCalled();
   });
 
   it('releases the reserved slot when the write throws', async () => {

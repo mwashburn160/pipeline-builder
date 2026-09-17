@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ShieldCheck, UserMinus, UserCheck, UserX, Crown, KeyRound, Network } from 'lucide-react';
+import { ShieldCheck, UserMinus, UserCheck, UserX, Crown, Network } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { IconButton } from '@/components/ui/IconButton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -24,7 +24,6 @@ interface BuildMemberColumnsOptions {
   onManageTeams: (m: OrganizationMember) => void;
   onTransfer: (m: OrganizationMember) => void;
   onManageRoles: (m: OrganizationMember) => void;
-  onResetPassword: (m: OrganizationMember) => void;
   onToggleActive: (m: OrganizationMember) => void;
   onRemove: (m: OrganizationMember) => void;
 }
@@ -44,7 +43,6 @@ export function buildMemberColumns({
   onManageTeams,
   onTransfer,
   onManageRoles,
-  onResetPassword,
   onToggleActive,
   onRemove,
 }: BuildMemberColumnsOptions): Column<OrganizationMember>[] {
@@ -157,14 +155,6 @@ export function buildMemberColumns({
             )}
             {canManageMembers && (
               <>
-                <IconButton
-                  tone="warn"
-                  onClick={() => onResetPassword(m)}
-                  title="Reset password"
-                  aria-label={`Reset password for ${m.username}`}
-                >
-                  <KeyRound className="w-4 h-4" />
-                </IconButton>
                 <IconButton
                   tone={m.isActive ? 'orange' : 'success'}
                   onClick={() => onToggleActive(m)}

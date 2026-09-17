@@ -13,6 +13,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Button } from '@/components/ui/Button';
 import { LinkButton } from '@/components/ui/LinkButton';
+import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { WarningAlert } from '@/components/ui/WarningAlert';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
@@ -125,7 +126,7 @@ function ObservabilityDegradedBanner() {
  * `/dashboard/observability/[id]`).
  */
 export default function DashboardPage() {
-  const { isReady, isAuthenticated, user, can } = useAuthGuard();
+  const { isReady, isAuthenticated, user, can, isReadOnly } = useAuthGuard();
   const router = useRouter();
   const toast = useToast();
   const id = typeof router.query.id === 'string' ? router.query.id : '';
@@ -219,9 +220,14 @@ export default function DashboardPage() {
   // Show Edit only when the caller might have write access. Doesn't enforce
   // anything — server rejects writes the caller isn't allowed to make — but
   // hides the button from members who can't touch it to reduce noise.
-  const mightEdit = !!user
+  // `!isReadOnly`: the author branch (`createdBy === user.id`) isn't read-only-
+  // aware (only `can()` is), so without it a read-only impersonation of the
+  // author would still get Edit/Delete — writes the backend rejects.
+  const mightEdit = !!user && !isReadOnly
     && (dashboard.visibility !== 'public' || isSystemAdmin(user))
     && (dashboard.createdBy === user.id || can('dashboards:write'));
+
+  const canClone = can('dashboards:write');
 
   return (
     <DashboardLayout
@@ -248,6 +254,10 @@ export default function DashboardPage() {
             variant="secondary"
             size="xs"
             onClick={() => void onClone()}
+            // Clone is a create (POST, `dashboards:write` at the route); `can()`
+            // also reports false under read-only impersonation.
+            disabled={!canClone}
+            title={canClone ? undefined : (isReadOnly ? READ_ONLY_REASON : 'Requires dashboards:write')}
             className="gap-1"
           >
             <Copy className="w-3.5 h-3.5" /> Clone

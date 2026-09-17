@@ -13,6 +13,58 @@
 \connect pipeline_builder
 
 -- ============================================================================
+-- Application login role (what makes row-level security actually enforce)
+-- ============================================================================
+-- This script runs as the bootstrap superuser (POSTGRES_USER). That role OWNS
+-- every object created below, and a superuser bypasses row-level security
+-- unconditionally — even on tables with FORCE ROW LEVEL SECURITY. So services
+-- must never connect as it. They connect as the role named by DB_USER, created
+-- here as NOSUPERUSER NOBYPASSRLS, owning nothing and holding only DML grants
+-- (see "Application role grants" at the end of this file). Because it is not
+-- the owner, the RLS policies apply to it with or without FORCE. The superuser
+-- is kept for this init script, backup/restore and manual DDL only.
+--
+-- The name and password come from the postgres container's environment
+-- (DB_USER / DB_PASSWORD, the same values the services use), read with psql's
+-- \getenv so no credential lives in this file. Init fails loudly if either is
+-- missing, or if DB_USER names a superuser / BYPASSRLS role.
+\getenv pb_app_user DB_USER
+\getenv pb_app_password DB_PASSWORD
+\if :{?pb_app_user}
+\else
+\set pb_app_user ''
+\endif
+\if :{?pb_app_password}
+\else
+\set pb_app_password ''
+\endif
+-- \gset swallows the result row so the password is never echoed to the init log.
+SELECT set_config('pb.app_user', :'pb_app_user', false) AS pb_app_user_set,
+       set_config('pb.app_password', :'pb_app_password', false) AS pb_app_password_set \gset
+\unset pb_app_password
+\unset pb_app_password_set
+
+DO $$
+DECLARE
+    app_user     TEXT := current_setting('pb.app_user');
+    app_password TEXT := current_setting('pb.app_password');
+BEGIN
+    IF app_user = '' OR app_password = '' THEN
+        RAISE EXCEPTION 'postgres-init: DB_USER and DB_PASSWORD must be set in the postgres container environment (the application role cannot be created without them)';
+    END IF;
+    IF app_user = current_user
+       OR EXISTS (SELECT 1 FROM pg_roles WHERE rolname = app_user AND (rolsuper OR rolbypassrls)) THEN
+        RAISE EXCEPTION 'postgres-init: DB_USER (%) must be a dedicated non-superuser role, not the bootstrap superuser (%); superusers bypass row-level security', app_user, current_user;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = app_user) THEN
+        EXECUTE format('ALTER ROLE %I WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L', app_user, app_password);
+    ELSE
+        EXECUTE format('CREATE ROLE %I WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L', app_user, app_password);
+    END IF;
+END $$;
+SELECT set_config('pb.app_password', '', false) AS pb_app_password_cleared \gset
+
+-- ============================================================================
 -- Drop existing tables (OPTIONAL - only if you want to recreate from scratch)
 -- ============================================================================
 -- WARNING: This will delete all data!
@@ -1432,20 +1484,20 @@ CREATE INDEX IF NOT EXISTS message_purge_idx               ON messages(purge_aft
 -- leaking cross-tenant data. Today the app filters by org_id at the
 -- application layer; this block is the second line of defense.
 --
--- Rollout model (table owner bypass)-- - All tables are owned by the connection user (`postgres` by default;
--- overridable via DB_USER env). Postgres lets table owners bypass RLS
--- unless `FORCE ROW LEVEL SECURITY` is set. So enabling RLS here does
--- NOT change application behavior  the app keeps working unchanged.
--- - Policies below use a session GUC `app.org_id` (set per-request by the
--- application layer) to scope visible rows. The `app.is_sysadmin` GUC
--- (set to 'true' for sysadmin requests) allows cross-org reads.
--- - To start ENFORCING RLS in prod once the app is verified to set the
--- GUCs at request entry, run-- ALTER TABLE plugins FORCE ROW LEVEL SECURITY;
--- -- (repeat for each table below)
--- - When enforcement is on, every query path must run inside a transaction
--- that does `SET LOCAL app.org_id = $1` (and `app.is_sysadmin = 'true'`
--- for sysadmin requests). Drizzle's `db.transaction(async tx =>...)`
--- is the natural seam.
+-- Enforcement model:
+-- - All tables are owned by the bootstrap superuser that runs this script.
+--   Services connect as the separate DB_USER application role (created at
+--   the top of this file: NOSUPERUSER, NOBYPASSRLS, not an owner), so every
+--   policy below applies to every service query.
+-- - `FORCE ROW LEVEL SECURITY` (set on every table below) additionally
+--   subjects the OWNER to the policies. It is defense-in-depth only: the
+--   bootstrap role is a superuser, and superusers bypass RLS regardless.
+-- - Policies use a session GUC `app.org_id` (set per-request by the
+--   application layer) to scope visible rows. The `app.is_sysadmin` GUC
+--   (set to 'true' for sysadmin requests) allows cross-org reads.
+-- - Every query path must run inside a transaction that does
+--   `SET LOCAL app.org_id = $1` (and `app.is_sysadmin = 'true'` for
+--   sysadmin requests) — `withTenantTx` in packages/pipeline-data.
 --
 -- Helper functions for policy expressions
 
@@ -1638,6 +1690,34 @@ ALTER TABLE dora_settings FORCE ROW LEVEL SECURITY;
 \echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules'
 \echo ' - messages, pipeline_registry, all compliance_* tables'
 \echo ' - plugins, pipelines, pipeline_events (hot path)'
+
+-- ============================================================================
+-- Application role grants
+-- ============================================================================
+-- DML only: no CREATE on the schema, no TRUNCATE/REFERENCES/TRIGGER, no
+-- ownership — so the role can neither bypass RLS nor alter the schema. Schema
+-- changes ship in this file (run as the bootstrap superuser). The DEFAULT
+-- PRIVILEGES cover objects the bootstrap role creates later (manual DDL), so a
+-- new table is usable by the services without a hand-written GRANT.
+DO $$
+DECLARE
+    app_user TEXT := current_setting('pb.app_user');
+BEGIN
+    EXECUTE format('GRANT CONNECT ON DATABASE %I TO %I', current_database(), app_user);
+    EXECUTE format('GRANT USAGE ON SCHEMA public TO %I', app_user);
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I', app_user);
+    EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', app_user);
+    EXECUTE format('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO %I', app_user);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I', current_user, app_user);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO %I', current_user, app_user);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO %I', current_user, app_user);
+END $$;
+
+\echo ''
+\echo '=== APPLICATION ROLE ==='
+SELECT rolname, rolsuper, rolbypassrls, rolcanlogin
+FROM pg_roles
+WHERE rolname = current_setting('pb.app_user');
 
 \echo ''
 \echo '=== SCHEMA UPDATE COMPLETE ==='

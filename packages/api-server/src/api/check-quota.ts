@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, createLogger, emitCounter, sendError, sendQuotaExceeded } from '@pipeline-builder/api-core';
+import { ErrorCode, createLogger, emitCounter, getQuotaServiceAuthHeader, sendError, sendQuotaExceeded } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaService } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 import { getContext } from './get-context.js';
@@ -36,13 +36,20 @@ export function checkQuota(
   quotaType: QuotaType,
 ) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    // The check is sent with THIS service's credentials, so it must only run for
+    // a VERIFIED caller — otherwise the org would come from the spoofable
+    // header-derived identity. Mounted after requireAuth everywhere; an
+    // unauthenticated request here is a wiring bug, so skip (fail open) loudly.
+    if (!req.user) {
+      logger.warn('Quota check skipped: request is not authenticated');
+      return next();
+    }
+
     let orgId: string | undefined;
-    let authHeader = '';
 
     try {
       const ctx = getContext(req);
       orgId = ctx.identity.orgId;
-      authHeader = req.headers.authorization || '';
     } catch {
       // Context middleware not applied — fail open (log and continue)
       logger.warn('Quota check skipped: request context not initialized');
@@ -55,7 +62,12 @@ export function checkQuota(
     }
 
     try {
-      const quotaStatus = await quotaService.check(orgId, quotaType, authHeader);
+      // Authenticate as THIS service, not by forwarding the user's token: the
+      // user token 403s at the quota read route for custom roles without
+      // `quotas:read`, and (being non-service) counts against the quota
+      // service's per-IP limiter keyed on THIS pod's IP — both of which
+      // silently fail the gate open under load.
+      const quotaStatus = await quotaService.check(orgId, quotaType, getQuotaServiceAuthHeader(orgId));
 
       if (!quotaStatus.allowed) {
         logger.warn(`${quotaType} quota exceeded`, {

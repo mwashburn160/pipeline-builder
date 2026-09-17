@@ -28,7 +28,7 @@ beforeEach(() => {
   delete process.env.JWT_AUDIENCE;
   delete process.env.JWT_ALGORITHM;
   // No REDIS_* → the process-local jti store is the one under test.
-  delete process.env.REDIS_HOST;
+  delete process.env.REDIS_SENTINELS;
   delete process.env.REDIS_URL;
   // Secrets are cached for 5 minutes in auth.ts; drop the cache so the env
   // set above is what gets verified against.

@@ -8,6 +8,7 @@ export * from './context-middleware.js';
 export * from './check-quota.js';
 export * from './meter-quota.js';
 export * from './rate-limit-by-org.js';
+export { createSharedRateLimitStore } from './rate-limit-store.js';
 export * from './require-org-id.js';
 export * from './tenant-context.js';
 export * from './get-context.js';

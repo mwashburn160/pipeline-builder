@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
+import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { useFormState } from '@/hooks/useFormState';
@@ -34,7 +35,7 @@ import { formatDateTime } from '@/lib/format';
  *   - `cognito`      → `region` + `userPoolId` (discovery URL derived server-side).
  *   - `google`/`github` → built-in endpoints; no extra fields.
  */
-export function OrgSsoSettings({ orgId }: { orgId: string }) {
+export function OrgSsoSettings({ orgId, readOnly }: { orgId: string; readOnly: boolean }) {
   const form = useFormState();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -83,6 +84,7 @@ export function OrgSsoSettings({ orgId }: { orgId: string }) {
 
   const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (readOnly) return;
     if (!clientId.trim()) { form.setError('Client ID is required'); return; }
     // On a fresh create the secret is required; on update an empty secret means
     // "leave existing", so only enforce non-empty when there's no existing config.
@@ -137,6 +139,7 @@ export function OrgSsoSettings({ orgId }: { orgId: string }) {
         <RetryError message={loadError} onRetry={() => void load()} />
       ) : (
         <form onSubmit={handleSave} className="space-y-4">
+          <ReadOnlyNotice show={readOnly} />
           <ErrorAlert message={form.error} />
           <SuccessAlert message={form.success} />
 
@@ -152,133 +155,137 @@ export function OrgSsoSettings({ orgId }: { orgId: string }) {
             </div>
           )}
 
-          <div>
-            <label htmlFor="sso-provider" className="label">Provider</label>
-            <Select
-              id="sso-provider"
-              value={provider}
-              onChange={(e) => setProvider(e.target.value as IdpProvider)}
-              disabled={loading || form.loading}
-            >
-              <option value="generic-oidc">Generic OIDC</option>
-              <option value="cognito">AWS Cognito</option>
-              <option value="google">Google</option>
-              <option value="github">GitHub</option>
-            </Select>
-          </div>
-
-          <div>
-            <label htmlFor="sso-client-id" className="label">Client ID</label>
-            <Input
-              id="sso-client-id"
-              type="text"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              placeholder="oauth-client-id"
-              className="font-mono text-sm"
-              disabled={loading || form.loading}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="sso-client-secret" className="label">
-              Client Secret
-              {existing && <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">(leave empty to keep existing)</span>}
-            </label>
-            <Input
-              id="sso-client-secret"
-              type="password"
-              value={clientSecret}
-              onChange={(e) => setClientSecret(e.target.value)}
-              placeholder={existing ? '••••••••' : 'Set the OAuth client secret'}
-              className="font-mono text-sm"
-              disabled={loading || form.loading}
-              autoComplete="new-password"
-            />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Encrypted at rest under your organization&apos;s key provider. Never echoed back on read.
-            </p>
-          </div>
-
-          {provider === 'generic-oidc' && (
+          {/* Read-only impersonation: the backend rejects the PUT, so disable the
+              whole form (inputs + submit) rather than dead-ending on a 403. */}
+          <fieldset disabled={readOnly} className="space-y-4">
             <div>
-              <label htmlFor="sso-discovery-url" className="label">Discovery URL</label>
+              <label htmlFor="sso-provider" className="label">Provider</label>
+              <Select
+                id="sso-provider"
+                value={provider}
+                onChange={(e) => setProvider(e.target.value as IdpProvider)}
+                disabled={loading || form.loading}
+              >
+                <option value="generic-oidc">Generic OIDC</option>
+                <option value="cognito">AWS Cognito</option>
+                <option value="google">Google</option>
+                <option value="github">GitHub</option>
+              </Select>
+            </div>
+
+            <div>
+              <label htmlFor="sso-client-id" className="label">Client ID</label>
               <Input
-                id="sso-discovery-url"
-                type="url"
-                value={discoveryUrl}
-                onChange={(e) => setDiscoveryUrl(e.target.value)}
-                placeholder="https://idp.example.com/.well-known/openid-configuration"
+                id="sso-client-id"
+                type="text"
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                placeholder="oauth-client-id"
                 className="font-mono text-sm"
                 disabled={loading || form.loading}
               />
             </div>
-          )}
 
-          {provider === 'cognito' && (
-            <>
+            <div>
+              <label htmlFor="sso-client-secret" className="label">
+                Client Secret
+                {existing && <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">(leave empty to keep existing)</span>}
+              </label>
+              <Input
+                id="sso-client-secret"
+                type="password"
+                value={clientSecret}
+                onChange={(e) => setClientSecret(e.target.value)}
+                placeholder={existing ? '••••••••' : 'Set the OAuth client secret'}
+                className="font-mono text-sm"
+                disabled={loading || form.loading}
+                autoComplete="new-password"
+              />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Encrypted at rest under your organization&apos;s key provider. Never echoed back on read.
+              </p>
+            </div>
+
+            {provider === 'generic-oidc' && (
               <div>
-                <label htmlFor="sso-region" className="label">Region</label>
+                <label htmlFor="sso-discovery-url" className="label">Discovery URL</label>
                 <Input
-                  id="sso-region"
-                  type="text"
-                  value={region}
-                  onChange={(e) => setRegion(e.target.value)}
-                  placeholder="us-east-1"
+                  id="sso-discovery-url"
+                  type="url"
+                  value={discoveryUrl}
+                  onChange={(e) => setDiscoveryUrl(e.target.value)}
+                  placeholder="https://idp.example.com/.well-known/openid-configuration"
                   className="font-mono text-sm"
                   disabled={loading || form.loading}
                 />
               </div>
-              <div>
-                <label htmlFor="sso-user-pool-id" className="label">User Pool ID</label>
-                <Input
-                  id="sso-user-pool-id"
-                  type="text"
-                  value={userPoolId}
-                  onChange={(e) => setUserPoolId(e.target.value)}
-                  placeholder="us-east-1_aB1cD2eF3"
-                  className="font-mono text-sm"
-                  disabled={loading || form.loading}
-                />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  The discovery URL is derived automatically from the region and user pool.
-                </p>
-              </div>
-            </>
-          )}
+            )}
 
-          <div>
-            <label htmlFor="sso-domains" className="label">Allowed Email Domains</label>
-            <Input
-              id="sso-domains"
-              type="text"
-              value={allowedEmailDomains}
-              onChange={(e) => setAllowedEmailDomains(e.target.value)}
-              placeholder="example.com, acme.io"
-              className="text-sm"
-              disabled={loading || form.loading}
-            />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Comma-separated. Empty = any email the IdP authenticates.
-            </p>
-          </div>
+            {provider === 'cognito' && (
+              <>
+                <div>
+                  <label htmlFor="sso-region" className="label">Region</label>
+                  <Input
+                    id="sso-region"
+                    type="text"
+                    value={region}
+                    onChange={(e) => setRegion(e.target.value)}
+                    placeholder="us-east-1"
+                    className="font-mono text-sm"
+                    disabled={loading || form.loading}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="sso-user-pool-id" className="label">User Pool ID</label>
+                  <Input
+                    id="sso-user-pool-id"
+                    type="text"
+                    value={userPoolId}
+                    onChange={(e) => setUserPoolId(e.target.value)}
+                    placeholder="us-east-1_aB1cD2eF3"
+                    className="font-mono text-sm"
+                    disabled={loading || form.loading}
+                  />
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    The discovery URL is derived automatically from the region and user pool.
+                  </p>
+                </div>
+              </>
+            )}
 
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={enabled}
-              onChange={(e) => setEnabled(e.target.checked)}
-              disabled={loading || form.loading}
-            />
-            Enabled
-          </label>
+            <div>
+              <label htmlFor="sso-domains" className="label">Allowed Email Domains</label>
+              <Input
+                id="sso-domains"
+                type="text"
+                value={allowedEmailDomains}
+                onChange={(e) => setAllowedEmailDomains(e.target.value)}
+                placeholder="example.com, acme.io"
+                className="text-sm"
+                disabled={loading || form.loading}
+              />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Comma-separated. Empty = any email the IdP authenticates.
+              </p>
+            </div>
 
-          <Button
-            type="submit"
-            loading={form.loading}
-            disabled={loading || !clientId.trim() || (!existing && !clientSecret.trim())}
-          >
-            {existing ? 'Save SSO settings' : 'Create SSO config'}
-          </Button>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={enabled}
+                onChange={(e) => setEnabled(e.target.checked)}
+                disabled={loading || form.loading}
+              />
+              Enabled
+            </label>
+
+            <Button
+              type="submit"
+              loading={form.loading}
+              disabled={loading || !clientId.trim() || (!existing && !clientSecret.trim())}
+            >
+              {existing ? 'Save SSO settings' : 'Create SSO config'}
+            </Button>
+          </fieldset>
         </form>
       )}
     </SectionCard>

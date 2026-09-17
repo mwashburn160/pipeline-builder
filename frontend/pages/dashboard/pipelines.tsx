@@ -36,7 +36,7 @@ import api from '@/lib/api';
 import type { BulkPipelineSpec, BulkCreateResult } from '@/lib/api/domains/pipelines';
 import { mapCommonParams, canWritePipeline } from '@/lib/resource-helpers';
 import { buildListSummary } from '@/lib/list-summary';
-import type { Pipeline, BuilderProps } from '@/types';
+import type { Pipeline, BuilderProps, Visibility } from '@/types';
 
 // Maps a DataTable column id to the server-side sort field the pipelines list
 // endpoint honors (via parsePaginationParams → sortBy). Columns absent here
@@ -151,7 +151,7 @@ export default function PipelinesPage() {
   // shortcut (`?create=1`).
   useOpenOnCreateQuery(() => { if (canWrite) setShowCreateModal(true); });
 
-  const handleCreatePipeline = async (props: BuilderProps, visibility: 'public' | 'private', description?: string, keywords?: string[]) => {
+  const handleCreatePipeline = async (props: BuilderProps, visibility: Visibility, description?: string, keywords?: string[]) => {
     setCreateSuccess(null);
     const result = await createForm.run(() =>
       api.createPipeline({
@@ -583,7 +583,7 @@ export default function PipelinesPage() {
         createLoading={createForm.loading}
         createError={createForm.error}
         createSuccess={createSuccess}
-        canCreatePublic={isSuperAdmin}
+        canPublish={can('pipelines:publish')}
       />
 
       {showBulkCreate && (

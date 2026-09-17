@@ -12,6 +12,7 @@ import { FormField } from '@/components/ui/FormField';
 import { Callout } from '@/components/ui/Callout';
 import { RetryError } from '@/components/ui/RetryError';
 import { Button } from '@/components/ui/Button';
+import { ReadOnlyNotice, READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 import { Input } from '@/components/ui/Input';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { AIProviderConfig } from '@/components/settings/AIProviderConfig';
@@ -157,6 +158,9 @@ export default function SettingsPage() {
     <DashboardLayout title="Settings" subtitle="Account preferences and defaults">
       <div className="space-y-6">
         <TabBar items={[...SETTINGS_TABS]} activeId={activeTab} onSelect={(id) => changeTab(id as SettingsTab)} />
+        {/* Profile + security are the viewer's OWN account writes, which aren't
+            capability-gated (so `can()` doesn't catch them) — gate on `isReadOnly`. */}
+        <ReadOnlyNotice show={isReadOnly && (activeTab === 'profile' || activeTab === 'security')} />
 
         {activeTab === 'profile' && (
         /* Profile */
@@ -169,13 +173,14 @@ export default function SettingsPage() {
           onSubmit={handleProfileSubmit}
           submitLabel="Save changes"
           submitLoading={profile.loading}
+          submitDisabled={isReadOnly}
         >
           <FormField label="Username">
-            <Input type="text" value={username} onChange={(e) => setUsername(e.target.value)} disabled={profile.loading} />
+            <Input type="text" value={username} onChange={(e) => setUsername(e.target.value)} disabled={profile.loading || isReadOnly} />
           </FormField>
 
           <FormField label="Email">
-            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={profile.loading} />
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={profile.loading || isReadOnly} />
           </FormField>
 
           {user.isEmailVerified ? (
@@ -188,7 +193,7 @@ export default function SettingsPage() {
                     Mark as verified
                   </Button>
                 )}
-                <Button type="button" variant="secondary" size="sm" loading={verify.loading} onClick={handleResendVerification}>
+                <Button type="button" variant="secondary" size="sm" loading={verify.loading} onClick={handleResendVerification} disabled={isReadOnly} title={isReadOnly ? READ_ONLY_REASON : undefined}>
                   Resend verification email
                 </Button>
               </div>
@@ -238,15 +243,16 @@ export default function SettingsPage() {
           onSubmit={handlePasswordSubmit}
           submitLabel="Change password"
           submitLoading={password.loading}
+          submitDisabled={isReadOnly}
         >
           <FormField label="Current password">
-            <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} disabled={password.loading} />
+            <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} disabled={password.loading || isReadOnly} />
           </FormField>
           <FormField label="New password" hint="At least 8 characters.">
-            <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} disabled={password.loading} />
+            <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} disabled={password.loading || isReadOnly} />
           </FormField>
           <FormField label="Confirm new password">
-            <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={password.loading} />
+            <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={password.loading || isReadOnly} />
           </FormField>
         </FormSection>
 
@@ -257,7 +263,7 @@ export default function SettingsPage() {
           description="Permanently delete your account and all associated data. This cannot be undone."
           className="border-[var(--pb-danger)]/40"
         >
-          <Button variant="danger" onClick={() => setShowDeleteConfirm(true)}>
+          <Button variant="danger" onClick={() => setShowDeleteConfirm(true)} disabled={isReadOnly} title={isReadOnly ? READ_ONLY_REASON : undefined}>
             Delete account
           </Button>
         </SectionCard>

@@ -66,11 +66,13 @@ x-postgres-env: &postgres-env
   DRIZZLE_MAX_POOL_SIZE: ${DRIZZLE_MAX_POOL_SIZE:-20}
   DRIZZLE_IDLE_TIMEOUT_MILLIS: ${DRIZZLE_IDLE_TIMEOUT_MILLIS:-30000}
   DRIZZLE_CONNECTION_TIMEOUT_MILLIS: ${DRIZZLE_CONNECTION_TIMEOUT_MILLIS:-30000}
-  # Multi-tenant context mode for withTenantTx (see api/.../tenancy.ts).
-  # warn (default) logs missing-context calls; strict throws. Every
-  # Postgres-backed service inherits this via x-postgres-env so the
-  # setting is uniform across the fleet.
-  RLS_CONTEXT_MODE: ${RLS_CONTEXT_MODE:-warn}
+  # DB_USER is the NOSUPERUSER NOBYPASSRLS application role postgres-init.sql
+  # creates — never POSTGRES_USER (a superuser bypasses row-level security).
+  # Multi-tenant context mode for withTenantTx (packages/pipeline-data
+  # tenancy.ts): strict throws when a query runs without tenant context, which
+  # under the non-bypass role would otherwise silently see zero rows. Every
+  # Postgres-backed service inherits this via x-postgres-env.
+  RLS_CONTEXT_MODE: ${RLS_CONTEXT_MODE:-strict}
   # Postgres serves no TLS in compose, so SSL must stay off explicitly:
   # getSslConfig turns it ON by default under NODE_ENV=production.
   DB_SSL: ${DB_SSL:-false}
@@ -86,6 +88,16 @@ x-server-env: &server-env
   CORS_ORIGIN: ${CORS_ORIGIN}
   LIMITER_MAX: ${LIMITER_MAX:-2000}
   LIMITER_WINDOWMS: ${LIMITER_WINDOWMS:-900000}
+  # Reverse-proxy hops in front of every service (browser -> nginx -> service).
+  # Express uses it to derive req.ip for rate-limit buckets and audit source IPs.
+  TRUST_PROXY: ${TRUST_PROXY:-1}
+
+# -- Redis (every service that uses it) --
+# Standalone mode: REDIS_URL only. REDIS_HOST/REDIS_PORT are not supported (a
+# service refuses to start with REDIS_HOST set); REDIS_SENTINELS is the HA
+# alternative and must not be combined with REDIS_URL.
+x-redis-env: &redis-env
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379}
 
 # -- Env for services that call the quota service --
 x-quota-client-env: &quota-client-env
@@ -93,11 +105,20 @@ x-quota-client-env: &quota-client-env
   QUOTA_SERVICE_PORT: ${QUOTA_SERVICE_PORT:-3000}
 
 # -- Env for services that use AI generation --
+# Everything the shared AI provider registry (packages/ai-core) reads: the
+# per-provider keys, the Bedrock opt-in and the self-hosted OpenAI-compatible
+# endpoint. Used by ask, pipeline and plugin alike, so a provider configured
+# once in .env is available to every AI surface.
 x-ai-env: &ai-env
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
   XAI_API_KEY: ${XAI_API_KEY:-}
+  BEDROCK_ENABLED: ${BEDROCK_ENABLED:-}
+  OPENAI_COMPATIBLE_BASE_URL: ${OPENAI_COMPATIBLE_BASE_URL:-}
+  OPENAI_COMPATIBLE_MODELS: ${OPENAI_COMPATIBLE_MODELS:-}
+  OPENAI_COMPATIBLE_NAME: ${OPENAI_COMPATIBLE_NAME:-}
+  OPENAI_COMPATIBLE_API_KEY: ${OPENAI_COMPATIBLE_API_KEY:-}
 
 # =============================================================================
 # Services
@@ -107,20 +128,15 @@ services:
   # Infrastructure
   # ---------------------------------------------------------------------------
   ask:
-    image: 'ghcr.io/mwashburn160/ask:4.1.2'
+    image: 'ghcr.io/mwashburn160/ask:4.1.3'
     container_name: ask
     restart: always
     stop_grace_period: 10s
     environment:
-      <<: [*common-env, *server-env]
-      # Redis is how this service learns an impersonation session was ended.
-      # Resolved exactly as every other service resolves it (REDIS_SENTINELS, then
-      # REDIS_URL, then REDIS_HOST/PORT). Without it, impersonation tokens are rejected, because a withdrawn session could not be detected.
-      REDIS_HOST: ${REDIS_HOST:-redis}
-      REDIS_PORT: ${REDIS_PORT:-6379}
+      # Redis (x-redis-env) is how this service learns an impersonation session
+      # was ended; without it impersonation tokens are rejected.
+      <<: [*common-env, *server-env, *redis-env, *ai-env]
       SERVICE_NAME: ask
-      OPENAI_COMPATIBLE_BASE_URL: ${OPENAI_COMPATIBLE_BASE_URL:-}
-      OPENAI_COMPATIBLE_MODELS: ${OPENAI_COMPATIBLE_MODELS:-}
     networks:
       - backend-network
     healthcheck: *api-healthcheck
@@ -298,6 +314,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      # Read by postgres-init.sql (psql \getenv) on first init to create the
+      # NOSUPERUSER NOBYPASSRLS application role every service logs in as.
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
     volumes:
       - './data/db-data/postgres/:/var/lib/postgresql:rw'
       - './postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'
@@ -322,16 +342,17 @@ services:
     restart: always
     environment:
       # edoburu uses DB_*; userlist.txt is generated from these at startup.
-      # Our mounted pgbouncer.ini overrides the auto-generated config.
+      # Our mounted pgbouncer.ini overrides the auto-generated config. This is
+      # the APPLICATION role: pgbouncer passes the client login through, so only
+      # DB_USER can connect via the pooler (the superuser is not in the userlist).
       DB_HOST: postgres
       DB_PORT: '5432'
-      DB_USER: ${POSTGRES_USER}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${POSTGRES_DB}
       LISTEN_PORT: '6432'
       AUTH_TYPE: scram-sha-256
       POOL_MODE: transaction
-      ADMIN_USERS: postgres
     volumes:
       - './config/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro'
     depends_on:
@@ -375,7 +396,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:4.1.5'
+    image: 'ghcr.io/mwashburn160/frontend:4.1.6'
     container_name: frontend
     restart: always
     stop_grace_period: 10s
@@ -385,6 +406,8 @@ services:
       # Resolved at RUNTIME by the frontend (see frontend/src/lib/site-url.ts), so
       # one image works across environments. Local docker serves on :8443.
       APP_SITE_URL: ${APP_SITE_URL:-https://localhost:8443}
+      # Server-side relay target for client error reports; empty = reporting off.
+      ERROR_REPORT_URL: ${ERROR_REPORT_URL:-}
     volumes:
       - './data/cache:/app/.next/cache:rw'
       - './data/tmp:/tmp:rw'
@@ -406,17 +429,14 @@ services:
           memory: 256M
 
   platform:
-    image: 'ghcr.io/mwashburn160/platform:4.1.5'
+    image: 'ghcr.io/mwashburn160/platform:4.1.6'
     container_name: platform
     restart: always
     stop_grace_period: 10s
     environment:
-      <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
-      # Redis is how this service PUBLISHES revocations and shares login / step-up / leader state across replicas.
-      # Resolved exactly as every other service resolves it (REDIS_SENTINELS, then
-      # REDIS_URL, then REDIS_HOST/PORT). Without it, revocations never reach other services.
-      REDIS_HOST: ${REDIS_HOST:-redis}
-      REDIS_PORT: ${REDIS_PORT:-6379}
+      # Redis (x-redis-env) is how this service PUBLISHES revocations and shares
+      # login / step-up / leader state; without it revocations never propagate.
+      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env]
       SERVICE_NAME: platform
       # Deployment target surfaced via /config so the frontend can gate the AWS-only
       # onboarding CLI-setup section (this compose stack is the `docker` target).
@@ -441,7 +461,6 @@ services:
       REFRESH_TOKEN_EXPIRES_IN: ${REFRESH_TOKEN_EXPIRES_IN}
       # Platform
       PLATFORM_FRONTEND_URL: ${PLATFORM_FRONTEND_URL:-https://localhost:8443}
-      TRUST_PROXY: ${TRUST_PROXY}
       # MongoDB
       MONGODB_URI: ${MONGODB_URI}
       # Email
@@ -491,12 +510,33 @@ services:
       JWT_EXPIRES_IN_TEAM: ${JWT_EXPIRES_IN_TEAM:-}
       JWT_EXPIRES_IN_ENTERPRISE: ${JWT_EXPIRES_IN_ENTERPRISE:-}
       # OAuth
-      OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID}
-      OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET}
+      # OAuth — each provider stays hidden until its CLIENT_ID is set.
+      OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID:-}
+      OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
+      OAUTH_GITHUB_CLIENT_ID: ${OAUTH_GITHUB_CLIENT_ID:-}
+      OAUTH_GITHUB_CLIENT_SECRET: ${OAUTH_GITHUB_CLIENT_SECRET:-}
+      OAUTH_FACEBOOK_CLIENT_ID: ${OAUTH_FACEBOOK_CLIENT_ID:-}
+      OAUTH_FACEBOOK_CLIENT_SECRET: ${OAUTH_FACEBOOK_CLIENT_SECRET:-}
+      OAUTH_MICROSOFT_CLIENT_ID: ${OAUTH_MICROSOFT_CLIENT_ID:-}
+      OAUTH_MICROSOFT_CLIENT_SECRET: ${OAUTH_MICROSOFT_CLIENT_SECRET:-}
+      OAUTH_MICROSOFT_TENANT: ${OAUTH_MICROSOFT_TENANT:-common}
+      OAUTH_GITLAB_CLIENT_ID: ${OAUTH_GITLAB_CLIENT_ID:-}
+      OAUTH_GITLAB_CLIENT_SECRET: ${OAUTH_GITLAB_CLIENT_SECRET:-}
+      OAUTH_GITLAB_BASE_URL: ${OAUTH_GITLAB_BASE_URL:-https://gitlab.com}
+      OAUTH_LINKEDIN_CLIENT_ID: ${OAUTH_LINKEDIN_CLIENT_ID:-}
+      OAUTH_LINKEDIN_CLIENT_SECRET: ${OAUTH_LINKEDIN_CLIENT_SECRET:-}
       OAUTH_CALLBACK_BASE_URL: ${OAUTH_CALLBACK_BASE_URL:-https://localhost:8443}
       SERVICE_TIMEOUT: ${SERVICE_TIMEOUT:-30000}
       # Loki
       LOKI_URL: ${LOKI_URL:-http://loki:3100}
+      # Native observability: queries go to the Thanos querier (recent + archived
+      # blocks), alerts to Alertmanager.
+      PROMETHEUS_URL: ${PROMETHEUS_URL:-http://thanos-query:9090}
+      ALERTMANAGER_URL: ${ALERTMANAGER_URL:-http://alertmanager:9093}
+      # Per-org alert relay: the single Alertmanager instance (id `alertmanager`,
+      # sent as X-Alertmanager-Instance) and its bearer token, which Alertmanager
+      # reads from the `alert_webhook_token` compose secret below.
+      ALERT_WEBHOOK_INSTANCES: '[{"id":"alertmanager","token":"${ALERT_WEBHOOK_INSTANCE_TOKEN:?ALERT_WEBHOOK_INSTANCE_TOKEN must be set (run gen-env-secrets)}"}]'
     networks:
       - backend-network
     depends_on:
@@ -506,12 +546,12 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:4.1.2'
+    image: 'ghcr.io/mwashburn160/plugin:4.1.3'
     container_name: plugin
     restart: always
     stop_grace_period: 10s
     environment:
-      <<: [*common-env, *postgres-env, *server-env, *quota-client-env, *ai-env]
+      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env, *ai-env]
       SERVICE_NAME: plugin
       COMPLIANCE_SERVICE_HOST: ${COMPLIANCE_SERVICE_HOST:-compliance}
       COMPLIANCE_SERVICE_PORT: ${COMPLIANCE_SERVICE_PORT:-3000}
@@ -536,13 +576,6 @@ services:
       # CodeBuild runtime). Set PUBLISH_PLATFORM=linux/arm64 to build native on an
       # Apple-Silicon dev box (faster — local plugin images aren't run on AWS).
       PUBLISH_PLATFORM: ${PUBLISH_PLATFORM:-linux/amd64}
-      REDIS_HOST: ${REDIS_HOST:-redis}
-      REDIS_PORT: ${REDIS_PORT:-6379}
-      # Per-tier Redis DB index for the plugin build queues (plugin reads these)
-      REDIS_DB_DEVELOPER: ${REDIS_DB_DEVELOPER:-}
-      REDIS_DB_PRO: ${REDIS_DB_PRO:-}
-      REDIS_DB_TEAM: ${REDIS_DB_TEAM:-}
-      REDIS_DB_ENTERPRISE: ${REDIS_DB_ENTERPRISE:-}
       DOCKER_BUILD_TIMEOUT_MS: ${DOCKER_BUILD_TIMEOUT_MS:-900000}
       DOCKER_PUSH_TIMEOUT_MS: ${DOCKER_PUSH_TIMEOUT_MS:-300000}
       PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-1}
@@ -654,15 +687,13 @@ services:
           memory: 512M
 
   pipeline:
-    image: 'ghcr.io/mwashburn160/pipeline:4.1.2'
+    image: 'ghcr.io/mwashburn160/pipeline:4.1.3'
     container_name: pipeline
     restart: always
     stop_grace_period: 10s
     environment:
-      <<: [*common-env, *postgres-env, *server-env, *quota-client-env, *ai-env]
+      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env, *ai-env]
       SERVICE_NAME: pipeline
-      REDIS_HOST: ${REDIS_HOST:-redis}
-      REDIS_PORT: ${REDIS_PORT:-6379}
       COMPLIANCE_SERVICE_HOST: ${COMPLIANCE_SERVICE_HOST:-compliance}
       COMPLIANCE_SERVICE_PORT: ${COMPLIANCE_SERVICE_PORT:-3000}
       COMPLIANCE_BYPASS: ${COMPLIANCE_BYPASS:-false}
@@ -678,15 +709,13 @@ services:
     deploy: *api-deploy
 
   message:
-    image: 'ghcr.io/mwashburn160/message:4.1.2'
+    image: 'ghcr.io/mwashburn160/message:4.1.3'
     container_name: message
     restart: always
     stop_grace_period: 10s
     environment:
-      <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
+      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env]
       SERVICE_NAME: message
-      REDIS_HOST: ${REDIS_HOST:-redis}
-      REDIS_PORT: ${REDIS_PORT:-6379}
       SUPPORT_ALIASES: ${SUPPORT_ALIASES:-support@pipeline-builder,help@pipeline-builder}
       # Message attachments — S3-compatible object storage (MinIO). Path-style +
       # custom endpoint. Uses a per-service, bucket-scoped MinIO key (created by
@@ -715,15 +744,13 @@ services:
           memory: 192M
 
   reporting:
-    image: 'ghcr.io/mwashburn160/reporting:4.1.2'
+    image: 'ghcr.io/mwashburn160/reporting:4.1.3'
     container_name: reporting
     restart: always
     stop_grace_period: 10s
     environment:
-      <<: [*common-env, *postgres-env, *server-env]
+      <<: [*common-env, *postgres-env, *server-env, *redis-env]
       SERVICE_NAME: reporting
-      REDIS_HOST: ${REDIS_HOST:-redis}
-      REDIS_PORT: ${REDIS_PORT:-6379}
     networks:
       - backend-network
     depends_on:
@@ -740,12 +767,12 @@ services:
           memory: 192M
 
   compliance:
-    image: 'ghcr.io/mwashburn160/compliance:4.1.2'
+    image: 'ghcr.io/mwashburn160/compliance:4.1.3'
     container_name: compliance
     restart: always
     stop_grace_period: 10s
     environment:
-      <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
+      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env]
       SERVICE_NAME: compliance
       MESSAGE_SERVICE_HOST: message
       MESSAGE_SERVICE_PORT: '3000'
@@ -753,8 +780,6 @@ services:
       PLUGIN_SERVICE_PORT: '3000'
       PIPELINE_SERVICE_HOST: pipeline
       PIPELINE_SERVICE_PORT: '3000'
-      REDIS_HOST: ${REDIS_HOST:-redis}
-      REDIS_PORT: ${REDIS_PORT:-6379}
     networks:
       - backend-network
     depends_on:
@@ -771,18 +796,16 @@ services:
           memory: 256M
 
   quota:
-    image: 'ghcr.io/mwashburn160/quota:4.1.2'
+    image: 'ghcr.io/mwashburn160/quota:4.1.3'
     container_name: quota
     restart: always
     stop_grace_period: 10s
     environment:
-      <<: *common-env
+      # server-env: NODE_ENV=production (security guards), CORS, rate limits, TRUST_PROXY.
+      <<: [*common-env, *server-env, *redis-env]
       SERVICE_NAME: quota
-      REDIS_HOST: ${REDIS_HOST:-redis}
-      REDIS_PORT: ${REDIS_PORT:-6379}
       PORT: ${PORT:-3000}
       MONGODB_URI: ${MONGODB_URI}
-      LIMITER_MAX: ${LIMITER_MAX:-2000}
       QUOTA_DEFAULT_PLUGINS: ${QUOTA_DEFAULT_PLUGINS:-100}
       QUOTA_DEFAULT_PIPELINES: ${QUOTA_DEFAULT_PIPELINES:-10}
       QUOTA_DEFAULT_API_CALLS: ${QUOTA_DEFAULT_API_CALLS:--1}
@@ -855,15 +878,14 @@ services:
   # the Basic-auth password — image-registry verifies the JWT and issues
   # a registry-scoped Bearer token.
   image-registry:
-    image: 'ghcr.io/mwashburn160/image-registry:4.1.2'
+    image: 'ghcr.io/mwashburn160/image-registry:4.1.3'
     container_name: image-registry
     restart: always
     stop_grace_period: 10s
     environment:
-      <<: *common-env
+      # server-env: NODE_ENV=production (security guards), CORS, rate limits, TRUST_PROXY.
+      <<: [*common-env, *server-env, *redis-env]
       SERVICE_NAME: image-registry
-      REDIS_HOST: ${REDIS_HOST:-redis}
-      REDIS_PORT: ${REDIS_PORT:-6379}
       PORT: ${PORT:-3000}
       # Underlying registry the proxy + management API talks to.
       IMAGE_REGISTRY_HOST: ${IMAGE_REGISTRY_HOST:-registry}
@@ -907,15 +929,14 @@ services:
           memory: 192M
 
   billing:
-    image: 'ghcr.io/mwashburn160/billing:4.1.2'
+    image: 'ghcr.io/mwashburn160/billing:4.1.3'
     container_name: billing
     restart: always
     stop_grace_period: 10s
     environment:
-      <<: [*common-env, *postgres-env, *quota-client-env]
+      # server-env: NODE_ENV=production (security guards), CORS, rate limits, TRUST_PROXY.
+      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env]
       SERVICE_NAME: billing
-      REDIS_HOST: ${REDIS_HOST:-redis}
-      REDIS_PORT: ${REDIS_PORT:-6379}
       BILLING_ENABLED: ${BILLING_ENABLED:-true}
       PORT: ${PORT:-3000}
       MONGODB_URI: ${MONGODB_URI}
@@ -926,8 +947,12 @@ services:
       # Fallback return URL for the Stripe billing portal (the request Origin is
       # preferred; this is used only when it's absent).
       PLATFORM_FRONTEND_URL: ${PLATFORM_FRONTEND_URL:-https://localhost:8443}
-      # Billing provider (stub | aws-marketplace)
+      # Billing provider (stub | aws-marketplace | stripe)
       BILLING_PROVIDER: ${BILLING_PROVIDER:-stub}
+      # Stripe (only when BILLING_PROVIDER=stripe)
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_MAP: ${STRIPE_PRICE_MAP:-}
       # AWS Marketplace (only when BILLING_PROVIDER=aws-marketplace)
       AWS_MARKETPLACE_PRODUCT_CODE: ${AWS_MARKETPLACE_PRODUCT_CODE:-}
       AWS_MARKETPLACE_REGION: ${AWS_MARKETPLACE_REGION:-us-east-1}
@@ -1459,15 +1484,11 @@ services:
           memory: 128M
 
   # Alertmanager: routes Prometheus alerts to Slack and to the platform relay.
-  # NOTE: Alertmanager does NOT expand environment variables in its config
-  # file, and this image ships no envsubst/entrypoint to do it for us. So
-  # there is deliberately NO `environment:` wiring here — passing
-  # SLACK_WEBHOOK_URL_* / ALERT_WEBHOOK_* would be dead (never read).
-  # config/alertmanager/alertmanager.yml ships dev-safe placeholder Slack URLs
-  # + relay token that no-op silently (Slack returns 404, alertmanager logs +
-  # keeps running); the alerts still land in Alertmanager's UI / API. To
-  # actually deliver, edit that file DIRECTLY with real webhook URLs / bearer
-  # token before deploy (there is no runtime substitution).
+  # Alertmanager does NOT expand environment variables in its config file, so
+  # there is no `environment:` wiring. The per-org relay token reaches it as
+  # the `alert_webhook_token` secret file (credentials_file in
+  # config/alertmanager/alertmanager.yml); platform gets the same token via
+  # ALERT_WEBHOOK_INSTANCES. Slack URLs are placeholders to edit in that file.
   alertmanager:
     image: 'prom/alertmanager:v0.33.1'
     container_name: alertmanager
@@ -1478,6 +1499,10 @@ services:
     volumes:
       - './config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro'
       - './data/db-data/alertmanager/:/alertmanager:rw'
+    secrets:
+      - source: alert_webhook_token
+        target: /etc/alertmanager-secrets/relay-token
+        mode: 0444
     networks:
       - backend-network
     healthcheck:
@@ -1617,6 +1642,12 @@ services:
 # is the single command for a clean slate. Postgres/Mongo data dirs were
 # previously named volumes for I/O perf — the trade-off is acceptable on
 # dev laptops where reproducibility matters more than raw throughput.
+
+# Per-org alert relay bearer, materialised as a file for alertmanager
+# (credentials_file). Sourced from .env (generated by gen-env-secrets).
+secrets:
+  alert_webhook_token:
+    environment: ALERT_WEBHOOK_INSTANCE_TOKEN
 
 networks:
   proxy-network:

@@ -52,7 +52,10 @@ export interface QueryOptions {
   sortOrder?: 'asc' | 'desc';
   /** When true, runs a separate COUNT(*) query to include exact total. Default: false. */
   includeTotal?: boolean;
-  /** Cursor-based pagination: fetch rows after this cursor value (uses sortBy column). */
+  /**
+   * Keyset pagination: the opaque `nextCursor` of the previous page. Continues
+   * strictly after that row in (sortBy, id) order; takes precedence over `offset`.
+   */
   cursor?: string;
   /** Sparse fieldset: column names to select. Returns all columns when omitted. */
   fields?: string[];
@@ -68,7 +71,7 @@ export interface PaginatedResult<T> {
   limit: number;
   offset: number;
   hasMore: boolean;
-  /** Cursor pointing to the last item, for cursor-based pagination. */
+  /** Opaque cursor for the next page. Present only when `hasMore`. */
   nextCursor?: string;
 }
 
@@ -121,6 +124,62 @@ interface CrudColumns {
   deletedAt?: AnyColumn;
   purgeAfter?: AnyColumn;
   [key: string]: AnyColumn | undefined;
+}
+
+/** Projection alias carrying the sort column's exact DB text for the next cursor. */
+const CURSOR_SORT_KEY = '__cursorSortKey';
+
+/**
+ * Opaque keyset cursor: the last row's sort value as Postgres TEXT (full
+ * precision — a JS `Date` would truncate `timestamptz` microseconds to ms, so
+ * `created_at > '<ms>'` re-returns or skips rows in the same millisecond) plus
+ * its `id` as the tie-breaker.
+ */
+function encodeCursor(sortText: string | null, id: string): string {
+  return Buffer.from(JSON.stringify([sortText, id]), 'utf8').toString('base64url');
+}
+
+/** Decode a cursor produced by {@link encodeCursor}; `null` when malformed. */
+function decodeCursor(cursor: string): { sortText: string | null; id: string } | null {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    if (
+      Array.isArray(parsed) && parsed.length === 2
+      && (parsed[0] === null || typeof parsed[0] === 'string')
+      && typeof parsed[1] === 'string' && parsed[1].length > 0
+    ) {
+      return { sortText: parsed[0], id: parsed[1] };
+    }
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
+/**
+ * Keyset predicate "strictly after (sortText, id)" for `ORDER BY sort <dir>, id <dir>`
+ * under Postgres' default null placement (ASC → NULLS LAST, DESC → NULLS FIRST).
+ * The text value is bound as a parameter compared against the column, so Postgres
+ * casts it back to the column's type at full precision.
+ */
+function keysetAfter(
+  sortColumn: AnyColumn,
+  idColumn: AnyColumn,
+  sortOrder: 'asc' | 'desc',
+  sortText: string | null,
+  id: string,
+): SQL {
+  if (sortColumn === idColumn) {
+    return sortOrder === 'desc' ? sql`${idColumn} < ${id}` : sql`${idColumn} > ${id}`;
+  }
+  if (sortOrder === 'asc') {
+    return sortText === null
+      ? sql`(${sortColumn} IS NULL AND ${idColumn} > ${id})`
+      : sql`(${sortColumn} > ${sortText} OR (${sortColumn} = ${sortText} AND ${idColumn} > ${id}) OR ${sortColumn} IS NULL)`;
+  }
+  return sortText === null
+    ? sql`(${sortColumn} IS NOT NULL OR (${sortColumn} IS NULL AND ${idColumn} < ${id}))`
+    : sql`(${sortColumn} < ${sortText} OR (${sortColumn} = ${sortText} AND ${idColumn} < ${id}))`;
 }
 
 /**
@@ -350,20 +409,26 @@ export abstract class CrudService<
     const { limit: rawLimit = DEFAULT_PAGE_LIMIT, offset = 0, sortBy, sortOrder = 'asc', includeTotal = false, cursor, fields } = options;
     const limit = Math.min(Math.max(1, rawLimit), MAX_PAGE_LIMIT);
 
-    // Cursor and offset are mutually exclusive — cursor takes precedence
-    const useCursor = !!(cursor && sortBy);
+    // Total, deterministic order: (sort column, id). `id` is unique, so rows that
+    // share a sort value have a stable relative order and a keyset cursor can
+    // never skip or repeat them. An absent or UNKNOWN `sortBy` orders by `id`
+    // alone — an unknown sort used to add no WHERE and no ORDER BY while still
+    // emitting a cursor, so a cursor client looped on page 1 forever.
+    const idColumn = this.cols.id;
+    const sortColumn = (sortBy ? this.getSortColumn(sortBy) : null) ?? idColumn;
+    const direction = sortOrder === 'desc' ? desc : asc;
+    const orderBy = sortColumn === idColumn ? [direction(idColumn)] : [direction(sortColumn), direction(idColumn)];
+
+    // Cursor and offset are mutually exclusive — a valid cursor takes precedence.
+    // A malformed/tampered cursor is ignored (reads from the start).
+    const decodedCursor = cursor ? decodeCursor(cursor) : null;
+    if (cursor && !decodedCursor) {
+      this._logger.warn('Ignoring malformed pagination cursor', { entity: this.constructor.name });
+    }
 
     const conditions = this.buildConditions(filter, orgId, parentOrgId);
-
-    // Cursor-based pagination: add WHERE clause for keyset pagination
-    if (useCursor) {
-      const sortColumn = this.getSortColumn(sortBy);
-      if (sortColumn) {
-        const op = sortOrder === 'desc'
-          ? sql`${sortColumn} < ${cursor}`
-          : sql`${sortColumn} > ${cursor}`;
-        conditions.push(op);
-      }
+    if (decodedCursor) {
+      conditions.push(keysetAfter(sortColumn, idColumn, sortOrder, decodedCursor.sortText, decodedCursor.id));
     }
 
     // Wrap the whole paginated read (SELECT + optional COUNT) in one
@@ -372,41 +437,32 @@ export abstract class CrudService<
     // between them. When widening to a parent org, the whole read runs under
     // sysadmin context (see runRead) so the access-control WHERE is the gate.
     return this.runRead(parentOrgId, () => withTenantTx(async (tx) => {
-      // Build SELECT — sparse fieldset when fields are specified. The sortBy
-      // column MUST be part of the projection whenever sorting is active: the
-      // next cursor is derived from `lastItem[sortBy]` below, so a fields set
-      // that omits sortBy would leave the cursor undefined and stall the client
-      // on page 1. buildFieldSelect always adds it back (like `id`).
-      const selectSpec = fields ? this.buildFieldSelect(fields, sortBy) : undefined;
-      let query = selectSpec
-        ? tx.select(selectSpec as any).from(this.schema).where(and(...conditions))
-        : tx.select().from(this.schema).where(and(...conditions));
-
-      if (sortBy) {
-        const sortColumn = this.getSortColumn(sortBy);
-        if (sortColumn) {
-          query = query.orderBy(sortOrder === 'desc' ? desc(sortColumn) : asc(sortColumn)) as any;
-        }
-      }
+      // Projection: the sparse fieldset (always includes `id`) or every column,
+      // plus the sort column's exact text for the next cursor.
+      const baseSelect = (fields ? this.buildFieldSelect(fields) : undefined) ?? getTableColumns(this.schema);
+      const selectSpec = { ...baseSelect, [CURSOR_SORT_KEY]: sql<string | null>`${sortColumn}::text` };
 
       // Fetch limit+1 to detect hasMore without COUNT(*)
-      const effectiveOffset = useCursor ? 0 : offset;
-      const rows = await query
+      const effectiveOffset = decodedCursor ? 0 : offset;
+      const rows = await tx.select(selectSpec as any).from(this.schema).where(and(...conditions))
+        .orderBy(...orderBy)
         .limit(limit + 1)
-        .offset(effectiveOffset).then(r => drizzleRows<TEntity>(r));
+        .offset(effectiveOffset).then(r => drizzleRows<Record<string, unknown>>(r));
 
       const hasMore = rows.length > limit;
-      const data = hasMore ? rows.slice(0, limit) : rows;
+      const page = hasMore ? rows.slice(0, limit) : rows;
+      const data = page.map((row) => {
+        const entity = { ...row };
+        delete entity[CURSOR_SORT_KEY];
+        return entity as TEntity;
+      });
 
       const result: PaginatedResult<TEntity> = { data, limit, offset: effectiveOffset, hasMore };
 
-      // Provide next cursor from last item's sort column value
-      if (data.length > 0 && sortBy) {
-        const lastItem = data[data.length - 1] as Record<string, unknown>;
-        const cursorValue = lastItem[sortBy];
-        if (cursorValue !== undefined) {
-          result.nextCursor = cursorValue instanceof Date ? cursorValue.toISOString() : String(cursorValue);
-        }
+      if (hasMore) {
+        const last = page[page.length - 1];
+        const sortText = last[CURSOR_SORT_KEY];
+        result.nextCursor = encodeCursor(sortText == null ? null : String(sortText), String(last.id));
       }
 
       // Only run the COUNT(*) query when the caller explicitly needs the total.
@@ -426,14 +482,13 @@ export abstract class CrudService<
 
   /**
    * Build a column selection map for sparse fieldsets.
-   * Falls back to full select if no matching columns found.
+   * Falls back to full select if no fields are requested.
    *
-   * `sortBy` (when set) is always folded into the projection even if the caller's
-   * `fields` omits it — cursor pagination reads the next cursor from the sort
-   * column's value on the last row, so dropping it from the SELECT would yield an
-   * undefined cursor and stall paging. Included the same way `id` always is.
+   * `id` is always included — it is the entity identity AND the keyset cursor's
+   * tie-breaker. The sort value for the cursor is projected separately (as text)
+   * by `findPaginated`, so the fieldset need not carry the sort column.
    */
-  private buildFieldSelect(fields: string[], sortBy?: string): Record<string, unknown> | undefined {
+  private buildFieldSelect(fields: string[]): Record<string, unknown> | undefined {
     if (fields.length === 0) return undefined;
 
     const columns: Record<string, unknown> = {};
@@ -444,13 +499,6 @@ export abstract class CrudService<
       if (field === 'id') continue; // Already included
       const col = this.cols[field];
       if (col) columns[field] = col;
-    }
-
-    // Guarantee the sort column is selectable so the next cursor can be read
-    // from the last row (see findPaginated). No-op if already added or unknown.
-    if (sortBy && sortBy !== 'id' && !(sortBy in columns)) {
-      const sortCol = this.cols[sortBy];
-      if (sortCol) columns[sortBy] = sortCol;
     }
 
     // At minimum we'll have { id }, which is valid

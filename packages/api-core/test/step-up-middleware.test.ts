@@ -20,7 +20,7 @@ beforeAll(() => {
   process.env.JWT_SECRET = SECRET;
   // Force the in-memory jti path (no cross-instance Redis in unit tests).
   delete process.env.REDIS_URL;
-  delete process.env.REDIS_HOST;
+  delete process.env.REDIS_SENTINELS;
 });
 
 let jtiSeq = 0;

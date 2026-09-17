@@ -16,8 +16,8 @@ process.env.IMAGE_REGISTRY_PASSWORD = 'pw';
 process.env.REGISTRY_TOKEN_PRIVATE_KEY = privateKeyPem;
 process.env.REGISTRY_TOKEN_CERTIFICATE = publicKeyPem;
 process.env.JWT_SECRET = 'test-jwt-secret';
-// Default: platform-user path disabled. Tests that exercise it set
-// PLATFORM_BASE_URL and re-import the module to opt in per-suite.
+// The platform-user (`docker login`) path always posts to the in-cluster
+// platform service (PLATFORM_SERVICE_HOST/PORT, default platform:3000).
 
 const mockPost = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
@@ -80,10 +80,14 @@ describe('resolveIdentity', () => {
     });
   });
 
-  it('returns null for invalid JWT (platform-user disabled)', async () => {
+  it('returns null for an invalid JWT when platform login also rejects it', async () => {
+    mockPost.mockResolvedValueOnce({ status: 401, data: { success: false, statusCode: 401, message: 'Invalid credentials' } });
     await expect(resolveIdentity('whoever', 'not-a-jwt')).resolves.toBeNull();
-    // Platform-user path requires PLATFORM_BASE_URL — unset in this test
-    // suite, so axios should never be called.
+  });
+
+  it('does not call platform at all when the password is a valid platform JWT', async () => {
+    const token = signPlatformJwt({ sub: 'user-1', organizationId: 'acme' });
+    await resolveIdentity('whoever', token);
     expect(mockPost).not.toHaveBeenCalled();
   });
 
@@ -115,14 +119,17 @@ describe('resolveIdentity', () => {
 });
 
 /**
- * Platform-user (`docker login`) path. Re-imports the module after setting
- * PLATFORM_BASE_URL so the config snapshot picks up the env change.
+ * Path 2 (`docker login` with a platform username/password). Platform answers
+ * `/auth/login` via api-core's `sendSuccess` envelope — the token is at
+ * `data.accessToken`, not top level. Host/port come from PLATFORM_SERVICE_HOST/
+ * PORT (the in-cluster address every service uses), so re-import with them set.
  */
 describe('resolveIdentity — platform-user path', () => {
   let resolveIdentityWithPlatform: typeof resolveIdentity;
 
   beforeAll(async () => {
-    process.env.PLATFORM_BASE_URL = 'https://platform.example.com';
+    process.env.PLATFORM_SERVICE_HOST = 'platform-svc';
+    process.env.PLATFORM_SERVICE_PORT = '4000';
     jest.resetModules();
     ({ resolveIdentity: resolveIdentityWithPlatform } = await import(
       '../src/services/auth-resolver.js'
@@ -130,29 +137,47 @@ describe('resolveIdentity — platform-user path', () => {
   });
 
   afterAll(() => {
-    delete process.env.PLATFORM_BASE_URL;
+    delete process.env.PLATFORM_SERVICE_HOST;
+    delete process.env.PLATFORM_SERVICE_PORT;
   });
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('resolves identity when platform login returns a valid JWT', async () => {
+  const envelope = (accessToken: string) => ({
+    success: true,
+    statusCode: 200,
+    data: { accessToken, refreshToken: 'r', expiresIn: 900 },
+  });
+
+  it('resolves identity from the sendSuccess-wrapped login response, via the in-cluster URL', async () => {
     const platformJwt = signPlatformJwt({ sub: 'user-9', organizationId: 'acme', isAdmin: false });
-    mockPost.mockResolvedValueOnce({ status: 200, data: { accessToken: platformJwt } });
+    mockPost.mockResolvedValueOnce({ status: 200, data: envelope(platformJwt) });
 
     const identity = await resolveIdentityWithPlatform('user@acme.com', 'real-password');
 
     expect(mockPost).toHaveBeenCalledWith(
-      'https://platform.example.com/auth/login',
+      'http://platform-svc:4000/auth/login',
       { identifier: 'user@acme.com', password: 'real-password' },
-      expect.objectContaining({ timeout: 5000 }),
+      expect.objectContaining({
+        timeout: 5000,
+        // Identified as a service so platform's per-IP login limiter doesn't pool
+        // every docker login under this pod's IP.
+        headers: { authorization: 'Bearer service-token-for-image-registry' },
+      }),
     );
     expect(identity).toEqual({ type: 'jwt', orgId: 'acme', userId: 'user-9', isAdmin: false, isSuperAdmin: false, canWritePlugins: false });
   });
 
-  it('returns null when platform login returns no accessToken', async () => {
-    mockPost.mockResolvedValueOnce({ status: 401, data: {} });
+  it('rejects an UNWRAPPED top-level accessToken (not what platform sends)', async () => {
+    const platformJwt = signPlatformJwt({ sub: 'user-9', organizationId: 'acme' });
+    mockPost.mockResolvedValueOnce({ status: 200, data: { accessToken: platformJwt } });
+    await expect(resolveIdentityWithPlatform('user@acme.com', 'pw')).resolves.toBeNull();
+  });
+
+  it('returns null when platform login returns 401', async () => {
+    mockPost.mockResolvedValueOnce({ status: 401, data: { success: false, statusCode: 401, message: 'Invalid credentials' } });
     await expect(resolveIdentityWithPlatform('user@acme.com', 'wrong')).resolves.toBeNull();
   });
 
@@ -163,7 +188,7 @@ describe('resolveIdentity — platform-user path', () => {
 
   it('returns null when JWT from platform is missing organizationId', async () => {
     const platformJwt = signPlatformJwt({ sub: 'user-9' });
-    mockPost.mockResolvedValueOnce({ status: 200, data: { accessToken: platformJwt } });
+    mockPost.mockResolvedValueOnce({ status: 200, data: envelope(platformJwt) });
     await expect(resolveIdentityWithPlatform('user@acme.com', 'pw')).resolves.toBeNull();
   });
 });

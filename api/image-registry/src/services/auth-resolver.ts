@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, isAccessTokenRevoked } from '@pipeline-builder/api-core';
+import { createLogger, getServiceAuthHeader, isAccessTokenRevoked, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
@@ -11,8 +11,15 @@ const logger = createLogger('auth-resolver');
 
 const ORG_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
+/**
+ * Platform's `/auth/login` reply. Platform answers through api-core's
+ * `sendSuccess`, so the tokens sit under the standard envelope's `data` —
+ * `{ success: true, statusCode, data: { accessToken, refreshToken, ... } }` —
+ * never at the top level.
+ */
 const PlatformLoginResponseSchema = z.object({
-  accessToken: z.string(),
+  success: z.literal(true),
+  data: z.object({ accessToken: z.string() }),
 });
 
 /**
@@ -56,9 +63,9 @@ interface PlatformJwtPayload {
  *      `api/plugin` (during plugin uploads) all use.
  *
  *   2. **platform user** — for direct `docker login`. Posts to platform's
- *      `/auth/login` with the supplied creds; on success the returned JWT
- *      carries the same org/admin claims Path 1 looks for. Disabled when
- *      `PLATFORM_BASE_URL` is unset.
+ *      `/auth/login` in-cluster (`PLATFORM_SERVICE_HOST`/`_PORT`) with the
+ *      supplied creds; on success the returned JWT carries the same org/admin
+ *      claims Path 1 looks for.
  *
  * Returns `null` if all paths fail. Caller should respond 401 in that case.
  */
@@ -69,10 +76,7 @@ export async function resolveIdentity(username: string, password: string): Promi
   if (fromJwt) return fromJwt;
 
   // Path 2: platform user — `docker login` flow.
-  if (config.platformUrl) {
-    return resolvePlatformUser(username, password);
-  }
-  return null;
+  return resolvePlatformUser(username, password);
 }
 
 /**
@@ -147,10 +151,14 @@ async function verifyPlatformJwt(token: string): Promise<Identity | null> {
 async function resolvePlatformUser(identifier: string, password: string): Promise<Identity | null> {
   try {
     const response = await axios.post<unknown>(
-      `${config.platformUrl.replace(/\/$/, '')}/auth/login`,
+      `http://${config.platformService.host}:${config.platformService.port}/auth/login`,
       { identifier, password },
       {
         timeout: 5000,
+        // Identify the relay as a service, so platform's per-IP login limiter
+        // doesn't pool every user's attempts under this pod's IP. This service
+        // rate-limits by client and username before it gets here.
+        headers: { authorization: getServiceAuthHeader({ serviceName: 'image-registry', orgId: SYSTEM_ORG_ID, role: 'member' }) },
         // Treat any non-2xx as a failed lookup; we don't want axios to throw
         // an error whose `.message` could interpolate the request body
         // (which contains the user's password).
@@ -166,7 +174,7 @@ async function resolvePlatformUser(identifier: string, password: string): Promis
       });
       return null;
     }
-    return await verifyPlatformJwt(parsed.data.accessToken);
+    return await verifyPlatformJwt(parsed.data.data.accessToken);
   } catch {
     // Never interpolate err.message — axios error messages can include the
     // outbound request body, which contains the user's password.

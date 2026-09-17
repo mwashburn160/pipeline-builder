@@ -73,7 +73,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     res.status(400).json({ success: false, statusCode: 400, message: msg }),
   sendError: (res: any, statusCode: number, msg: string) =>
     res.status(statusCode).json({ success: false, statusCode, message: msg }),
-  sendQuotaExceeded: (res: any) => res.status(429).json({ success: false, statusCode: 429 }),
+  sendQuotaReserveDenied: (res: any) => res.status(429).json({ success: false, statusCode: 429 }),
+  sendQuotaReserveDenied: (res: any) => res.status(429).json({ success: false, statusCode: 429 }),
   sendEntityNotFound: (res: any, entity: string) => res.status(404).json({ message: `${entity} not found` }),
   sendInternalError: (res: any, msg: string) => res.status(500).json({ message: msg }),
   handleAIError: (res: any, msg: string) => res.status(500).json({ message: msg }),
@@ -137,7 +138,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
-  runMigrations: jest.fn(async () => undefined),
   withTenantTx: (fn: (tx: unknown) => unknown) => fn({}),
   schema: {},
   // Scorecard route calls per-pipeline DORA in-process; stub the singleton.

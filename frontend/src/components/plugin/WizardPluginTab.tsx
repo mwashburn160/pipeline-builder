@@ -4,6 +4,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 import { Textarea } from '@/components/ui/Textarea';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
@@ -12,12 +13,12 @@ import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
-import type { Plugin } from '@/types';
+import type { Plugin, Visibility } from '@/types';
 
 /** Props for the WizardPluginTab component. */
 interface WizardPluginTabProps {
-  /** Whether the current user can create/publish public plugins (admin only). */
-  canUploadPublic: boolean;
+  /** `plugins:publish` — required for the `public` rung of the visibility ladder. */
+  canPublish: boolean;
   /** Whether the tab inputs should be disabled. */
   disabled?: boolean;
   /** Callback when a plugin is successfully created or updated. */
@@ -81,7 +82,7 @@ function envToText(env?: Record<string, string>): string {
  *    version, and Dockerfile aren't editable without a rebuild).
  * The no-AI, no-offline-ZIP path.
  */
-export default function WizardPluginTab({ canUploadPublic, disabled, onCreated, onClose }: WizardPluginTabProps) {
+export default function WizardPluginTab({ canPublish, disabled, onCreated, onClose }: WizardPluginTabProps) {
   const [mode, setMode] = useState<Mode>('create');
 
   // Shared spec fields.
@@ -96,7 +97,8 @@ export default function WizardPluginTab({ canUploadPublic, disabled, onCreated, 
   const [commands, setCommands] = useState('');
   const [envText, setEnvText] = useState('');
   const [dockerfile, setDockerfile] = useState(DEFAULT_DOCKERFILE);
-  const [access, setAccess] = useState<'public' | 'private'>('private');
+  // `org` is the backend's create default for plugins; `private` is opt-in.
+  const [access, setAccess] = useState<Visibility>('org');
   // Edit-only settings (not accepted by the create/build path).
   const [timeout, setTimeoutVal] = useState<string>('');
   const [failureBehavior, setFailureBehavior] = useState<string>('fail');
@@ -137,7 +139,7 @@ export default function WizardPluginTab({ canUploadPublic, disabled, onCreated, 
     setPluginType('CodeBuildStep'); setComputeType('MEDIUM');
     setKeywords(''); setPrimaryOutputDirectory(''); setInstallCommands('');
     setCommands(''); setEnvText(''); setDockerfile(DEFAULT_DOCKERFILE);
-    setAccess('private'); setTimeoutVal(''); setFailureBehavior('fail');
+    setAccess('org'); setTimeoutVal(''); setFailureBehavior('fail');
     setIsActive(true); setIsDefault(false); setSelectedId('');
   }, []);
 
@@ -192,7 +194,9 @@ export default function WizardPluginTab({ canUploadPublic, disabled, onCreated, 
       setInstallCommands((p.installCommands ?? []).join('\n'));
       setCommands((p.commands ?? []).join('\n'));
       setEnvText(envToText(p.env));
-      setAccess(p.visibility === 'public' ? 'public' : 'private');
+      // Keep the row's real rung — collapsing `org` to `private` here made a
+      // plain metadata save silently hide the plugin from the rest of the org.
+      setAccess(p.visibility);
       setTimeoutVal(p.timeout != null ? String(p.timeout) : '');
       setFailureBehavior(p.failureBehavior ?? 'fail');
       setIsActive(p.isActive);
@@ -452,11 +456,8 @@ export default function WizardPluginTab({ canUploadPublic, disabled, onCreated, 
           )}
 
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4 flex items-center justify-between">
-            <FormField label="Access Level" hint={!canUploadPublic ? 'Only admins can create/publish public plugins' : undefined}>
-              <Select value={access} onChange={(e) => setAccess(e.target.value as 'public' | 'private')} className="!w-auto" disabled={isWorking || !canUploadPublic}>
-                <option value="private">Private (Organization only)</option>
-                {(canUploadPublic || access === 'public') && <option value="public">Public (Available to all)</option>}
-              </Select>
+            <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish')}>
+              <VisibilitySelect value={access} onChange={setAccess} canPublish={canPublish} disabled={isWorking} />
             </FormField>
 
             {editing ? (

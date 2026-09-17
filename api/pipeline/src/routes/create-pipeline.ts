@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { extractDbError, ErrorCode, createLogger, resolveVisibility, errorMessage, reserveQuota, decrementQuota, getServiceAuthHeader, requirePermission, sendBadRequest, sendError, sendInternalError, sendQuotaExceeded, sendSuccess, validateBody, PipelineCreateSchema, createComplianceClient } from '@pipeline-builder/api-core';
+import { AppError, extractDbError, ErrorCode, isSystemAdmin, userHasPermission, createLogger, resolveVisibility, errorMessage, reserveQuota, decrementQuota, getServiceAuthHeader, requirePermission, sendBadRequest, sendError, sendInternalError, sendQuotaReserveDenied, sendSuccess, validateBody, PipelineCreateSchema, createComplianceClient } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
@@ -82,8 +82,9 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
       // `decrementQuota` in the catch block.
       const reservation = await reserveQuota(quotaService, orgId, 'pipelines', serviceAuth);
       if (reservation.exceeded) {
-        ctx.log('WARN', 'Pipeline quota exceeded', { orgId, used: reservation.quota.used, limit: reservation.quota.limit });
-        return sendQuotaExceeded(res, 'pipelines', reservation.quota, reservation.quota.resetAt);
+        ctx.log('WARN', reservation.unavailable ? 'Pipeline quota unconfirmable (quota service unavailable)' : 'Pipeline quota exceeded', { orgId, used: reservation.quota.used, limit: reservation.quota.limit });
+        // 503 + Retry-After when the quota service couldn't confirm; 429 when over limit.
+        return sendQuotaReserveDenied(res, 'pipelines', reservation);
       }
 
       try {
@@ -142,6 +143,9 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
         userId || 'system',
         project,
         organization,
+        // A same-slot pipeline is updated in place only if the caller could
+        // PUT it (visibility ladder); a tombstone must go through restore.
+        { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'pipelines:publish') },
         );
 
         // Quota was reserved at the top of the handler. If the upsert UPDATED an
@@ -191,13 +195,17 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
           },
         }, message);
       } catch (error) {
-        const message = errorMessage(error);
-        const dbDetails = extractDbError(error);
-        logger.error('Pipeline save failed', { requestId: ctx.requestId, error: message, orgId, ...dbDetails });
-
         // Roll back the quota slot — the action failed so the org shouldn't
         // be charged for it.
         decrementQuota(quotaService, orgId, 'pipelines', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+        // A typed refusal from the service (403 not-writable / 409 tombstone or
+        // another author's private pipeline) is a client outcome, not a save
+        // failure — let withRoute map it to its own status.
+        if (error instanceof AppError) throw error;
+
+        const message = errorMessage(error);
+        const dbDetails = extractDbError(error);
+        logger.error('Pipeline save failed', { requestId: ctx.requestId, error: message, orgId, ...dbDetails });
         return sendInternalError(res, 'Failed to save pipeline configuration', { details: message, ...dbDetails });
       }
     }),

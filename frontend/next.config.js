@@ -28,12 +28,22 @@ const nextConfig = {
     ];
   },
 
+  async rewrites() {
+    // Client error reports post to a same-origin relay (pages/api/client-errors)
+    // that forwards to the runtime ERROR_REPORT_URL collector. Exposed OUTSIDE
+    // `/api/*` because nginx routes that namespace to the backend services.
+    return [
+      { source: '/client-errors', destination: '/api/client-errors' },
+    ];
+  },
+
   async headers() {
     // CSP for the Next.js app. `unsafe-inline` on scripts is required by
     // Next.js for its inline runtime bootstrap; `unsafe-eval` would NOT be
     // safe to add. `connect-src` includes `'self'` so same-origin /api
     // calls go through nginx; if you front the API on a separate hostname,
-    // add it here explicitly.
+    // add it here explicitly. Error reports need no entry: they go through the
+    // same-origin `/client-errors` relay, never straight to the collector.
     const csp = [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline'",

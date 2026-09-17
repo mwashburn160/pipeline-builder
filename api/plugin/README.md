@@ -41,7 +41,7 @@ The service listens on port `3000`. The API gateway (nginx) routes `/api/plugin*
 
 ## Configuration
 
-Shared server/auth/DB/Redis settings (`PORT`, `JWT_SECRET`, `DB_*`, `REDIS_HOST`, `REDIS_PORT`, `PLATFORM_BASE_URL`, CORS) are read via `@pipeline-builder/pipeline-core`, and AI provider keys via `@pipeline-builder/ai-core`. Env vars read directly by this service:
+Shared server/auth/DB/Redis settings (`PORT`, `JWT_SECRET`, `DB_*`, `PLATFORM_BASE_URL`, CORS) are read via `@pipeline-builder/pipeline-core`, Redis (`REDIS_URL` or `REDIS_SENTINELS`, required for the build queue) via `@pipeline-builder/api-core`, and AI provider keys via `@pipeline-builder/ai-core`. Env vars read directly by this service:
 
 | Variable | Purpose | Default |
 |----------|---------|---------|

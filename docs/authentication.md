@@ -246,10 +246,19 @@ stored as an `OrgIdpConfig` (one config per org).
   authorization code, and validates the returned `id_token` signature against
   the IdP's published JWKS before trusting any identity claim.
 - **Domain gating that forces SSO.** `allowedEmailDomains` pins an org to one or
-  more email domains. When set, users in those domains are **turned away from
-  password login and routed through SSO** — and only IdP users whose email
-  matches an allowed domain may sign in to that org (so an over-broad corporate
-  IdP can't let `evil-contractor.com` in through your `acme.com` config).
+  more email domains. Users in those domains are **turned away from password
+  login and routed through SSO**, but only for domains the org (or its account
+  root) has **verified through DNS** — listing a domain you haven't verified
+  forces nothing. Only IdP users whose email matches an allowed domain may sign
+  in to that org (so an over-broad corporate IdP can't let `evil-contractor.com`
+  in through your `acme.com` config).
+- **The org must own the email domain.** An org's own IdP can sign any address
+  as verified, so an SSO sign-in is refused unless the email's domain is one the
+  org (or its account root) has verified through DNS. Google (`provider:
+  google`) is the exception: Google owns the addresses it signs. An SSO identity
+  is linked by its subject *and* issuer, so one IdP can't claim another's users.
+- **Platform administrators never sign in through an org's SSO**, and SSO never
+  links onto a platform administrator's account.
 - **`sso` entitlement.** SSO is a tier/bundle feature. It enforces only when the
   org's config is `enabled` **and** the org is `sso`-entitled (Team / Enterprise
   tier, or the `sso` add-on bundle). Entitlements pool at the account root, so a
@@ -359,6 +368,8 @@ mismatch here is the most common cause of a failed SSO login.
 3. Copy the app client **id** and **secret**, and note the pool's **region** and **User pool ID**.
 4. Set `provider: cognito`, `clientId`, `clientSecret`, `region`, `userPoolId` — **do not** set `discoveryUrl`; it's derived as `https://cognito-idp.<region>.amazonaws.com/<userPoolId>/.well-known/openid-configuration`.
 
+> Before enabling, verify ownership of your email domains (DNS TXT, under the
+> org's domains settings) — SSO refuses sign-ins on unverified domains.
 > After saving, set `allowedEmailDomains` to force those domains through SSO, flip
 > `enabled: true`, and confirm the org is `sso`-entitled. Secret-bearing writes
 > require step-up re-authentication on both config surfaces.

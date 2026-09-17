@@ -11,6 +11,10 @@ const mockTransactionOnConflict = jest.fn().mockReturnValue({
 const mockTransactionValues = jest.fn().mockReturnValue({
   onConflictDoUpdate: mockTransactionOnConflict,
 });
+// The row occupying the (project, organization, orgId) slot, as the service's
+// locked conflict lookup sees it. Empty = no existing row.
+let mockExistingRows: Array<Record<string, unknown>> = [];
+const mockSelectFor = jest.fn(async () => mockExistingRows);
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
   const mockFind = jest.fn();
@@ -91,6 +95,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     withTenantTx: jest.fn(async (cb: Function) => {
       const tx = {
         execute: jest.fn().mockResolvedValue([]),
+        select: jest.fn(() => ({ from: () => ({ where: () => ({ for: mockSelectFor }) }) })),
         update: jest.fn().mockReturnValue({ set: mockTransactionSet }),
         insert: jest.fn().mockReturnValue({ values: mockTransactionValues }),
       };
@@ -128,15 +133,23 @@ describe('PipelineService', () => {
     service = new PipelineService();
   });
 
-  describe('createAsDefault', () => {
-    it('should clear existing defaults and create new pipeline in a transaction', async () => {
-      const data = { orgId: 'org-1', project: 'proj', organization: 'org' } as any;
+  describe('createAsDefaultReportInserted', () => {
+    const data = { orgId: 'org-1', project: 'proj', organization: 'org' } as any;
+    const member = { isSystemAdmin: false, canPublish: false };
 
-      const result = await service.createAsDefault(data, 'user-1', 'proj', 'org');
+    beforeEach(() => {
+      mockExistingRows = [];
+    });
+
+    it('should clear existing defaults and create new pipeline in a transaction', async () => {
+      const result = await service.createAsDefaultReportInserted(data, 'user-1', 'proj', 'org', member);
 
       // Verify the tenancy-aware transaction wrapper was used.
       const { withTenantTx } = pipelineDataMock as unknown as { withTenantTx: jest.Mock };
       expect(withTenantTx).toHaveBeenCalled();
+
+      // The conflicting slot is looked up under a row lock before any write.
+      expect(mockSelectFor).toHaveBeenCalledWith('update');
 
       // Verify update was called to clear defaults
       expect(mockTransactionSet).toHaveBeenCalledWith(
@@ -148,7 +161,73 @@ describe('PipelineService', () => {
         expect.objectContaining({ isDefault: true, isActive: true }),
       );
 
-      expect(result).toEqual({ id: 'new-pipeline', isDefault: true });
+      expect(result.pipeline).toEqual({ id: 'new-pipeline', isDefault: true });
+    });
+
+    it('never un-deletes on the conflict branch (no deletedAt/deletedBy reset in the SET)', async () => {
+      mockExistingRows = [{ visibility: 'org', createdBy: 'someone', deletedAt: null }];
+      await service.createAsDefaultReportInserted(data, 'user-1', 'proj', 'org', member);
+      const { set } = (mockTransactionOnConflict.mock.calls[0] as any[])[0];
+      expect(set).not.toHaveProperty('deletedAt');
+      expect(set).not.toHaveProperty('deletedBy');
+    });
+
+    // --- overwrite gate: the ON CONFLICT branch is a write to an existing row ---
+
+    it('refuses to resurrect a soft-deleted pipeline (409) — restore is the step-up path', async () => {
+      mockExistingRows = [{ visibility: 'org', createdBy: 'user-1', deletedAt: new Date() }];
+      await expect(service.createAsDefaultReportInserted(data, 'user-1', 'proj', 'org', member))
+        .rejects.toMatchObject({ statusCode: 409 });
+      expect(mockTransactionValues).not.toHaveBeenCalled();
+      expect(mockTransactionSet).not.toHaveBeenCalled();
+    });
+
+    it('refuses a tombstone even for a system admin', async () => {
+      mockExistingRows = [{ visibility: 'org', createdBy: 'user-1', deletedAt: new Date() }];
+      await expect(service.createAsDefaultReportInserted(data, 'admin', 'proj', 'org', { isSystemAdmin: true, canPublish: true }))
+        .rejects.toMatchObject({ statusCode: 409 });
+      expect(mockTransactionValues).not.toHaveBeenCalled();
+    });
+
+    it("refuses to overwrite another author's PRIVATE pipeline (409)", async () => {
+      mockExistingRows = [{ visibility: 'private', createdBy: 'user-A', deletedAt: null }];
+      await expect(service.createAsDefaultReportInserted(data, 'user-B', 'proj', 'org', member))
+        .rejects.toMatchObject({ statusCode: 409 });
+      expect(mockTransactionValues).not.toHaveBeenCalled();
+      expect(mockTransactionSet).not.toHaveBeenCalled();
+    });
+
+    it('lets the author re-create over their own private pipeline', async () => {
+      mockExistingRows = [{ visibility: 'private', createdBy: 'user-A', deletedAt: null }];
+      await service.createAsDefaultReportInserted(data, 'user-A', 'proj', 'org', member);
+      expect(mockTransactionValues).toHaveBeenCalled();
+    });
+
+    it('fails closed for an empty caller id against a private row with an empty author', async () => {
+      mockExistingRows = [{ visibility: 'private', createdBy: '', deletedAt: null }];
+      await expect(service.createAsDefaultReportInserted(data, '', 'proj', 'org', member))
+        .rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('refuses to overwrite a PUBLIC pipeline without pipelines:publish (403)', async () => {
+      mockExistingRows = [{ visibility: 'public', createdBy: 'user-A', deletedAt: null }];
+      await expect(service.createAsDefaultReportInserted(data, 'user-A', 'proj', 'org', member))
+        .rejects.toMatchObject({ statusCode: 403 });
+      expect(mockTransactionValues).not.toHaveBeenCalled();
+    });
+
+    it('allows a PUBLIC overwrite with pipelines:publish, and an ORG overwrite with plain write', async () => {
+      mockExistingRows = [{ visibility: 'public', createdBy: 'user-A', deletedAt: null }];
+      await service.createAsDefaultReportInserted(data, 'user-B', 'proj', 'org', { isSystemAdmin: false, canPublish: true });
+      mockExistingRows = [{ visibility: 'org', createdBy: 'user-A', deletedAt: null }];
+      await service.createAsDefaultReportInserted(data, 'user-B', 'proj', 'org', member);
+      expect(mockTransactionValues).toHaveBeenCalledTimes(2);
+    });
+
+    it("lets a system admin overwrite another author's private pipeline", async () => {
+      mockExistingRows = [{ visibility: 'private', createdBy: 'user-A', deletedAt: null }];
+      await service.createAsDefaultReportInserted(data, 'admin', 'proj', 'org', { isSystemAdmin: true, canPublish: false });
+      expect(mockTransactionValues).toHaveBeenCalled();
     });
   });
 

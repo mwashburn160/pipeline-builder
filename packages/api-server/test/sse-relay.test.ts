@@ -127,14 +127,63 @@ describe('SSEManager cross-pod relay (A3)', () => {
 
   it('createEnvRedisSSERelay returns null when Redis is not configured', () => {
     const prevUrl = process.env.REDIS_URL;
-    const prevHost = process.env.REDIS_HOST;
+    const prevSentinels = process.env.REDIS_SENTINELS;
     delete process.env.REDIS_URL;
-    delete process.env.REDIS_HOST;
+    delete process.env.REDIS_SENTINELS;
     try {
       expect(relayMod.createEnvRedisSSERelay()).toBeNull();
     } finally {
       if (prevUrl !== undefined) process.env.REDIS_URL = prevUrl;
-      if (prevHost !== undefined) process.env.REDIS_HOST = prevHost;
+      if (prevSentinels !== undefined) process.env.REDIS_SENTINELS = prevSentinels;
+    }
+  });
+});
+
+describe('createRedisSSERelay — subscribing at startup', () => {
+  it('keeps retrying SUBSCRIBE until the connection is up, instead of giving up', async () => {
+    jest.useFakeTimers();
+    try {
+      const subscribe = jest.fn<(...c: string[]) => Promise<unknown>>()
+        .mockRejectedValueOnce(new Error("Stream isn't writeable and enableOfflineQueue options is false"))
+        .mockRejectedValueOnce(new Error('still connecting'))
+        .mockResolvedValue(1);
+      const subscriber = { on: jest.fn(), subscribe, quit: jest.fn(async () => 'OK') };
+      const publisher: any = { publish: jest.fn(async () => 1), duplicate: () => subscriber, quit: jest.fn(async () => 'OK') };
+
+      const relay = relayMod.createRedisSSERelay(publisher);
+      relay.subscribe(() => {});
+      await jest.advanceTimersByTimeAsync(0);
+      expect(subscribe).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(500);
+      expect(subscribe).toHaveBeenCalledTimes(2);
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(subscribe).toHaveBeenCalledTimes(3);
+
+      // Subscribed — no further attempts.
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(subscribe).toHaveBeenCalledTimes(3);
+      await relay.close();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('stops retrying once closed', async () => {
+    jest.useFakeTimers();
+    try {
+      const subscribe = jest.fn<(...c: string[]) => Promise<unknown>>().mockRejectedValue(new Error('down'));
+      const subscriber = { on: jest.fn(), subscribe, quit: jest.fn(async () => 'OK') };
+      const publisher: any = { publish: jest.fn(async () => 1), duplicate: () => subscriber, quit: jest.fn(async () => 'OK') };
+
+      const relay = relayMod.createRedisSSERelay(publisher);
+      relay.subscribe(() => {});
+      await jest.advanceTimersByTimeAsync(0);
+      await relay.close();
+      await jest.advanceTimersByTimeAsync(120_000);
+      expect(subscribe).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
     }
   });
 });

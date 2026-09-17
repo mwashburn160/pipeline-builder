@@ -36,12 +36,16 @@ async function autoSubscribeToPublishedRules(orgId: string): Promise<void> {
       timeout: config.compliance.serviceTimeout,
     });
 
-    await client.post('/compliance/subscriptions/auto-subscribe', {}, {
+    const res = await client.post('/compliance/subscriptions/auto-subscribe', {}, {
       headers: {
         'x-org-id': orgId,
         'authorization': getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'member' }),
       },
     });
+    // The safe client resolves null / an error status instead of throwing.
+    if (!res || res.statusCode < 200 || res.statusCode >= 300) {
+      throw new Error(res ? `Compliance service returned ${res.statusCode}` : 'Compliance service unreachable');
+    }
 
     logger.info('Auto-subscribed org to published compliance rules', { orgId });
   } catch (error) {

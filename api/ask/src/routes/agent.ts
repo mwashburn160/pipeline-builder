@@ -12,7 +12,7 @@ import {
   requireFeature,
   reserveQuota,
   sendBadRequest,
-  sendQuotaExceeded,
+  sendQuotaReserveDenied,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incCounter, observe, withSpan } from '@pipeline-builder/api-server';
@@ -92,7 +92,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
     const quotaAuth = getServiceAuthHeader({ serviceName: 'ask', orgId, role: 'member' });
     const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', quotaAuth);
     if (reservation.exceeded) {
-      return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
+      return sendQuotaReserveDenied(res, 'aiCalls', reservation);
     }
     let reserved = true;
     // True once the FIRST stream part arrives — proof the provider responded and

@@ -1,10 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { entityEvents, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
+import { ConflictError, ForbiddenError, entityEvents, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
 import { CoreConstants, ComputeType, PluginType } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildPluginConditions, getTenantContext, schema, withTenantTx, type PluginFilter } from '@pipeline-builder/pipeline-data';
-import { and, eq, sql, SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 
@@ -12,6 +12,8 @@ const logger = createLogger('plugin-service');
 
 /** Server-side cache for plugin reads. */
 const pluginCache = createCacheService('plugin:', CoreConstants.CACHE_TTL_ENTITY);
+
+type TenantTx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
 
 export type Plugin = typeof schema.plugin.$inferSelect;
 export type PluginInsert = typeof schema.plugin.$inferInsert;
@@ -21,6 +23,46 @@ export type PluginUpdate = Partial<Omit<Plugin, 'id' | 'createdAt' | 'createdBy'
 // in api-core — it was a byte-identical copy here + in pipeline-service, and a
 // security-critical function must not drift. Re-exported for existing importers.
 export { toComplianceAttributes };
+
+/**
+ * The deploying caller's authority on the visibility ladder, captured from the
+ * request (`isSystemAdmin(req)`, `userHasPermission(req, 'plugins:publish')`) —
+ * the same shape `CrudService.bulkDelete` takes. Plain data so it survives the
+ * trip through a BullMQ build job to the worker that performs the deploy.
+ */
+export interface WriteAccess {
+  isSystemAdmin: boolean;
+  canPublish: boolean;
+}
+
+/**
+ * Refuse to let a deploy's ON CONFLICT branch overwrite a plugin version the
+ * caller could not modify through PUT/DELETE, or resurrect a tombstone without
+ * restore's step-up. Mirrors `checkVisibilityWriteAccess` rung for rung.
+ */
+export function assertMayOverwritePlugin(
+  existing: { visibility: string | null; createdBy: string | null; deletedAt: Date | null },
+  userId: string,
+  access: WriteAccess,
+  /** `version`: the row being overwritten. `default`: the live default a deploy would demote. */
+  target: 'version' | 'default' = 'version',
+): void {
+  if (existing.deletedAt) {
+    throw new ConflictError(
+      'A deleted plugin with this name and version exists. Restore it or purge it before uploading it again.',
+    );
+  }
+  if (access.isSystemAdmin) return;
+  if (existing.visibility === 'public' && !access.canPublish) {
+    throw new ForbiddenError('You lack permission to modify this public resource.');
+  }
+  // Fail closed on an absent caller — an empty userId must never match an empty author.
+  if (existing.visibility === 'private' && (!userId || existing.createdBy !== userId)) {
+    throw new ConflictError(target === 'default'
+      ? 'The current default version of this plugin belongs to another author.'
+      : 'A plugin with this name and version already exists and belongs to another author.');
+  }
+}
 
 /** Plugin CRUD service with multi-tenant access control. */
 export class PluginService extends CrudService<
@@ -73,6 +115,22 @@ export class PluginService extends CrudService<
     return pluginCache.getOrSet(cacheKey, () => super.findById(id, orgId, parentOrgId));
   }
 
+  /**
+   * Batched, EXACT-id sibling of {@link findById} for bulk routes: the rows among
+   * `ids` visible to `orgId` (own org + public; soft-deleted excluded). Uncached.
+   * `inArray` (not the prefix-matching id filter) so a bulk visibility check sees
+   * precisely the rows named.
+   */
+  async findByIds(ids: string[], orgId?: string, parentOrgId?: string): Promise<Plugin[]> {
+    if (ids.length === 0) return [];
+    const conditions = this.buildConditions({} as Partial<PluginFilter>, orgId, parentOrgId);
+    return withTenantTx(async (tx) => tx
+      .select()
+      .from(schema.plugin)
+      .where(and(inArray(schema.plugin.id, ids), ...conditions))
+      .then((rows) => rows as unknown as Plugin[]));
+  }
+
   // -- Lifecycle hooks — emit events + invalidate cache ---------------------
 
   private async invalidateAndEmit(eventType: 'created' | 'updated' | 'deleted', id: string, entity: Plugin, userId: string): Promise<void> {
@@ -121,10 +179,67 @@ export class PluginService extends CrudService<
     await this.invalidateAndEmit('updated', id, entity, userId);
   }
 
-  /** Atomically deploy a new plugin version as default (clears old defaults for same name+org). */
+  /**
+   * The `(name, version, org_id)` row a deploy would overwrite, IGNORING the
+   * visibility ladder and soft-delete state (the unique index ignores both).
+   */
+  private selectVersionRow(tx: TenantTx, orgId: string, name: string, version: string) {
+    return tx
+      .select({
+        visibility: schema.plugin.visibility,
+        createdBy: schema.plugin.createdBy,
+        deletedAt: schema.plugin.deletedAt,
+      })
+      .from(schema.plugin)
+      .where(and(eq(schema.plugin.name, name), eq(schema.plugin.version, version), eq(schema.plugin.orgId, orgId)));
+  }
+
+  /**
+   * Fail-fast pre-check for the upload routes: throws the same typed refusal
+   * {@link deployVersion} would, BEFORE quota is spent on an image build that
+   * could never be persisted. Unlocked — `deployVersion` re-checks under its
+   * lock, which is the authoritative guarantee.
+   */
+  async assertDeployable(orgId: string, name: string, version: string, userId: string, access: WriteAccess): Promise<void> {
+    const [existing, currentDefaults] = await withTenantTx(async (tx) => [
+      (await this.selectVersionRow(tx, orgId, name, version))[0],
+      await this.selectLiveDefaults(tx, orgId, name),
+    ] as const);
+    if (existing) assertMayOverwritePlugin(existing, userId, access);
+    for (const current of currentDefaults) assertMayOverwritePlugin(current, userId, access, 'default');
+  }
+
+  /** The live default version(s) of `name` — the rows a deploy would demote. */
+  private selectLiveDefaults(tx: TenantTx, orgId: string, name: string) {
+    return tx
+      .select({
+        visibility: schema.plugin.visibility,
+        createdBy: schema.plugin.createdBy,
+        deletedAt: schema.plugin.deletedAt,
+      })
+      .from(schema.plugin)
+      .where(and(
+        eq(schema.plugin.name, name),
+        eq(schema.plugin.orgId, orgId),
+        eq(schema.plugin.isDefault, true),
+        isNull(schema.plugin.deletedAt),
+      ));
+  }
+
+  /**
+   * Atomically deploy a plugin version as default (clears old defaults for same
+   * name+org). Re-deploying an existing `(name, version)` updates it in place —
+   * but only when that row is LIVE and the caller may write it per the
+   * visibility ladder (see {@link assertMayOverwritePlugin}). The unique index is
+   * org-wide and blind to visibility and soft-delete, so without that check the
+   * ON CONFLICT branch let any `plugins:write` member overwrite another author's
+   * private plugin or a public one without `plugins:publish`, and silently
+   * un-delete a tombstone past restore's step-up.
+   */
   async deployVersion(
     data: PluginInsert,
     userId: string,
+    access: WriteAccess,
   ): Promise<Plugin> {
     return withTenantTx(async (tx) => {
       // Serialize ALL deploys for the same (org, name) — including the FIRST,
@@ -138,14 +253,21 @@ export class PluginService extends CrudService<
         sql`SELECT pg_advisory_xact_lock(hashtext(${data.orgId} || ':' || ${data.name}))`,
       );
 
-      // Lock existing defaults by name+org to prevent concurrent races
-      await tx.execute(
-        sql`SELECT id FROM ${schema.plugin}
-            WHERE ${schema.plugin.name} = ${data.name}
-              AND ${schema.plugin.orgId} = ${data.orgId}
-              AND ${schema.plugin.isDefault} = true
-            FOR UPDATE`,
-      );
+      // The row this deploy's ON CONFLICT would land on (any visibility, any
+      // soft-delete state). Serialized by the advisory lock above, so the check
+      // can't be raced by a concurrent deploy of the same name.
+      // `version` falls back to the column default, which is what the INSERT would store.
+      const [existing] = await this.selectVersionRow(tx, data.orgId!, data.name, data.version ?? '1.0.0').for('update');
+      if (existing) assertMayOverwritePlugin(existing, userId, access);
+
+      // Lock the current live default(s) for this name. Deploying makes the new
+      // version the default, which takes that status away from the current one —
+      // a change to that row, so the caller needs the same write access to it as
+      // to an overwrite. Without this, any `plugins:write` member could demote
+      // another author's private plugin by uploading a version of the same name.
+      const currentDefaults = await this.selectLiveDefaults(tx, data.orgId!, data.name)
+        .for('update');
+      for (const current of currentDefaults) assertMayOverwritePlugin(current, userId, access, 'default');
 
       // Unset the CURRENT default for this plugin name in the org. Scope to
       // `isDefault = true` (mirrors pipeline-service) so we don't stamp
@@ -206,8 +328,6 @@ export class PluginService extends CrudService<
             visibility: data.visibility,
             isDefault: true,
             isActive: true,
-            deletedAt: null,
-            deletedBy: null,
             updatedBy: userId,
             updatedAt: new Date(),
           },

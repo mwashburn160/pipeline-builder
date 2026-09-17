@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Sparkles, Rocket, XCircle } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
-import { Select } from '@/components/ui/Select';
+import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 import { Textarea } from '@/components/ui/Textarea';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
@@ -15,11 +15,12 @@ import api from '@/lib/api';
 import { isAskAgentProvider } from '@/lib/ai-constants';
 import { streamAgentDraft } from '@/lib/ask-agent-draft';
 import { AI_MAX_PROMPT_LENGTH, formatError, formatJSON } from '@/lib/constants';
+import type { Visibility } from '@/types';
 
 /** Props for the AIPluginBuilderTab component. */
 interface AIPluginBuilderTabProps {
-  /** Whether the current user can upload public plugins (admin only). */
-  canUploadPublic: boolean;
+  /** `plugins:publish` — required for the `public` rung of the visibility ladder. */
+  canPublish: boolean;
   /** Whether the tab inputs should be disabled. */
   disabled?: boolean;
   /** Callback when a plugin is successfully deployed. */
@@ -43,7 +44,7 @@ interface GeneratedConfig {
 }
 
 /** AI-powered plugin builder that generates config and Dockerfile from a natural language prompt. */
-export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreated, onClose }: AIPluginBuilderTabProps) {
+export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, onClose }: AIPluginBuilderTabProps) {
   const [prompt, setPrompt] = useState('');
   const [deploying, setDeploying] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
@@ -52,8 +53,8 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
   const [generatedConfig, setGeneratedConfig] = useState<GeneratedConfig | null>(null);
   const [generatedDockerfile, setGeneratedDockerfile] = useState<string | null>(null);
 
-  // Access level
-  const [access, setAccess] = useState<'public' | 'private'>('private');
+  // Visibility — `org` is the backend's create default for plugins; `private` is opt-in.
+  const [access, setAccess] = useState<Visibility>('org');
 
   // Build queue tracking
   const [requestId, setRequestId] = useState<string | null>(null);
@@ -278,16 +279,8 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
           {/* Access Level + Deploy */}
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
             <div className="flex items-center justify-between">
-              <FormField label="Access Level" hint={!canUploadPublic ? 'Only admins can create public plugins' : undefined}>
-                <Select
-                  value={access}
-                  onChange={(e) => setAccess(e.target.value as 'public' | 'private')}
-                  className="!w-auto"
-                  disabled={isWorking || !canUploadPublic}
-                >
-                  <option value="private">Private (Organization only)</option>
-                  {canUploadPublic && <option value="public">Public (Available to all)</option>}
-                </Select>
+              <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish')}>
+                <VisibilitySelect value={access} onChange={setAccess} canPublish={canPublish} disabled={isWorking} />
               </FormField>
 
               <Button

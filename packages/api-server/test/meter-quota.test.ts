@@ -61,9 +61,12 @@ describe('meterQuotaOnSuccess', () => {
 
     res.finish();
     expect(mockIncrementQuota).toHaveBeenCalledTimes(1);
+    // No auth header argument: incrementQuota authenticates as the SERVICE — the
+    // caller's user token ('Bearer tok') must never be forwarded (it 403s).
     expect(mockIncrementQuota).toHaveBeenCalledWith(
-      quotaService, 'org-1', 'apiCalls', 'Bearer tok', expect.any(Function),
+      quotaService, 'org-1', 'apiCalls', expect.any(Function),
     );
+    expect(mockIncrementQuota.mock.calls[0]).not.toContain('Bearer tok');
   });
 
   it('does NOT meter a non-2xx response', () => {
@@ -76,6 +79,14 @@ describe('meterQuotaOnSuccess', () => {
   it('does NOT meter when there is no verified org (unauthenticated)', () => {
     const res = mockRes(200);
     meterQuotaOnSuccess(quotaService, 'apiCalls')(mockReq({ user: undefined }), res as never, jest.fn());
+    res.finish();
+    expect(mockIncrementQuota).not.toHaveBeenCalled();
+  });
+
+  it('does NOT meter an unverified request even when context carries a header-derived org', () => {
+    const res = mockRes(200);
+    const req = mockReq({ user: undefined, context: { identity: { orgId: 'victim-org' } } });
+    meterQuotaOnSuccess(quotaService, 'apiCalls')(req, res as never, jest.fn());
     res.finish();
     expect(mockIncrementQuota).not.toHaveBeenCalled();
   });

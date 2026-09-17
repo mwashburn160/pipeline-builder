@@ -19,7 +19,7 @@
 import { resolveUserFeatures, sendError } from '@pipeline-builder/api-core';
 import { resolveOrgLineage } from './org-hierarchy.js';
 import { toOrgId } from './org-id.js';
-import { Organization } from '../models/index.js';
+import { OrgDomain, Organization } from '../models/index.js';
 import type { OidcLoginConfig } from '../services/oidc-service.js';
 import { orgIdpService } from '../services/org-idp-service.js';
 
@@ -28,6 +28,46 @@ export function emailDomain(email: string): string | null {
   const at = email.lastIndexOf('@');
   if (at <= 0 || at === email.length - 1) return null;
   return email.slice(at + 1).toLowerCase();
+}
+
+/** Google is the authority for every address it signs in — no org can mint a
+ *  Google identity — so its `email_verified` is trusted as-is. Every other IdP
+ *  (generic OIDC, Cognito) is run by the org's own admin, who can assert any
+ *  email as verified. */
+export const GOOGLE_ISSUER = 'https://accounts.google.com';
+
+/**
+ * Whether `orgId` — or the account root it belongs to — has proven ownership of
+ * `domain` through the DNS challenge. This is what makes an org's say-so about an
+ * address trustworthy; the free-text `allowedEmailDomains` list proves nothing.
+ * If the lineage can't be read, only the org's own domains count (fail closed).
+ */
+export async function ownsVerifiedDomain(orgId: string, domain: string): Promise<boolean> {
+  const owners = [orgId];
+  try {
+    const { rootOrgId } = await resolveOrgLineage(orgId);
+    if (rootOrgId !== orgId) owners.push(rootOrgId);
+  } catch {
+    // Own domains only.
+  }
+  return !!(await OrgDomain.exists({ domain: domain.toLowerCase(), verified: true, orgId: { $in: owners } }));
+}
+
+/**
+ * Refuse an SSO identity the org has no authority over. An admin-run IdP can
+ * sign any email as verified, so unless the IdP is Google the email's domain
+ * must be one the org has verified — otherwise one org could sign in as (or link
+ * onto) any other account on the platform by email.
+ */
+export async function assertSsoIdentityTrusted(
+  orgId: string,
+  identity: { issuer: string; email: string },
+): Promise<void> {
+  if (identity.issuer === GOOGLE_ISSUER) return;
+  const domain = emailDomain(identity.email);
+  if (!domain || !(await ownsVerifiedDomain(orgId, domain))) {
+    throw new Error('OIDC_EMAIL_DOMAIN_NOT_VERIFIED');
+  }
 }
 
 /**
@@ -88,6 +128,10 @@ export async function findSsoEnforcementForEmail(
 
   const candidateOrgIds = await orgIdpService.findEnabledOrgIdsByDomain(domain);
   for (const orgId of candidateOrgIds) {
+    // Only a domain the org has VERIFIED may force its users through SSO —
+    // otherwise any org could list `gmail.com` and lock every Gmail user out of
+    // password and social login.
+    if (!(await ownsVerifiedDomain(orgId, domain))) continue;
     if (await isSsoEntitled(orgId)) {
       const cfg = await orgIdpService.findByOrg(orgId);
       return { orgId, provider: cfg?.provider ?? 'generic-oidc' };

@@ -22,7 +22,6 @@ Database layer for [Pipeline Builder](https://mwashburn160.github.io/pipeline-bu
 | `db` | Shared Drizzle database instance |
 | `getConnection`, `closeConnection` | PostgreSQL connection lifecycle (with retry strategy) |
 | `schema` | All Drizzle table definitions and their `*Insert` / `*Update` types |
-| `runMigrations` (`MigrateOptions`) | Drizzle migration runner |
 | `tenantContext`, `runWithTenantContext`, `getTenantContext`, `withTenantTx` | Tenant-context primitives for scoped/RLS transactions |
 
 ### Services

@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 
-import { ErrorCode, createLogger, errorMessage, getServiceAuthHeader, requirePermission, reserveQuota, decrementQuota, resolveVisibility, sendBadRequest, sendError, sendQuotaExceeded, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
+import { ErrorCode, createLogger, isSystemAdmin, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, reserveQuota, decrementQuota, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { requireAuth, requireOrgId, withRoute, withTenantContext, rateLimitByOrg, type SSEManager } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
@@ -159,8 +159,9 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         // limit can't both pass  the MongoDB filter rejects the second one.
         const reservation = await reserveQuota(quotaService, orgId, 'plugins', authHeader);
         if (reservation.exceeded) {
-          ctx.log('WARN', 'Plugin quota exceeded', { orgId, used: reservation.quota.used, limit: reservation.quota.limit });
-          return sendQuotaExceeded(res, 'plugins', reservation.quota, reservation.quota.resetAt);
+          ctx.log('WARN', reservation.unavailable ? 'Plugin quota unconfirmable (quota service unavailable)' : 'Plugin quota exceeded', { orgId, used: reservation.quota.used, limit: reservation.quota.limit });
+          // 503 + Retry-After when the quota service couldn't confirm; 429 when over limit.
+          return sendQuotaReserveDenied(res, 'plugins', reservation);
         }
         reserved = true;
         reservedResetAt = reservation.quota.resetAt;
@@ -180,6 +181,13 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           pluginName: plugin.pluginSpec.name,
           version: plugin.pluginSpec.version,
         });
+
+        // Refuse up front (before compliance, S3 staging and an image build) a
+        // re-upload that would overwrite a version the caller can't write or
+        // un-delete a tombstone. Throws a typed 403/409; the catch below refunds
+        // the slot. deployVersion re-checks under its lock.
+        const access = { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'plugins:publish') };
+        await pluginService.assertDeployable(orgId, plugin.pluginSpec.name, plugin.pluginSpec.version || '0.0.0', userId || 'system', access);
 
         // -- Compliance check (fail-closed) -----------------------------------
         const s = plugin.pluginSpec;
@@ -256,7 +264,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
 
         // -- No image to build (metadata_only): deploy directly ----------------
         if (!getBuildStrategy(plugin.buildType).producesImage) {
-          const result = await pluginService.deployVersion(pluginRecord, userId || 'system');
+          const result = await pluginService.deployVersion(pluginRecord, userId || 'system', access);
 
           ctx.log('INFO', 'Metadata-only plugin deployed', {
             pluginName: s.name,
@@ -310,6 +318,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           requestId: ctx.requestId,
           orgId,
           userId: userId || 'system',
+          access,
           // Period snapshot for the reserved slot so a DLQ retry spanning a
           // quota reset refunds the correct period (see releasePluginQuota).
           reservedResetAt,

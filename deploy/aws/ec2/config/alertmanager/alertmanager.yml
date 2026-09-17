@@ -4,14 +4,12 @@
 #   - critical → critical-slack receiver (paging channel)
 #   - warning  → warning-slack receiver (non-paging channel)
 #
-# DELIVERY — be honest about what this actually does: the deploy script loads
-# this file verbatim into the `alertmanager-config` ConfigMap and does NOT run
-# envsubst over it. The Slack `api_url`s and the platform-relay `credentials`
-# below are HARDCODED placeholders, so out of the box Slack/relay delivery no-ops
-# (Slack 404s the placeholder IDs; the relay bearer is a stub) while firing
-# alerts still show in Alertmanager's UI/API. There is NO `null` receiver. To
-# actually deliver, replace the placeholders here with real values (or wire
-# envsubst into the deploy script and switch the literals back to ${VAR} refs).
+# Alertmanager does NOT expand environment variables in its config, and the
+# deploy runs no envsubst over this file. The per-org platform relay is fully
+# wired (its token comes from a mounted secret file — see `platform-relay`).
+# The Slack receivers ship dev-safe placeholder URLs that Slack rejects with 404
+# (alertmanager logs the rejection and keeps running); edit them into this file
+# directly with real `https://hooks.slack.com/services/...` URLs to deliver.
 #
 # Tunables:
 #   group_wait      — batch alerts that fire within this window into one
@@ -61,24 +59,28 @@ receivers:
   # platform service, which looks up the alert's `org_id` label in the
   # `org_alert_destinations` table and fans out to each enabled destination.
   #
-  # Auth: the Bearer `credentials` below must match a `token` in the platform's
-  # `ALERT_WEBHOOK_INSTANCES` config. It's a dev-safe placeholder — replace it with
-  # a real token before deploy (Alertmanager loads this file verbatim and does not
-  # expand env vars). The `platform` URL resolves via DNS in every target; point it
-  # at the cluster's public HTTPS ingress instead if you want TLS.
+  # Auth (both required by the platform relay, which is configured with
+  # ALERT_WEBHOOK_INSTANCES=[{"id":"alertmanager","token":…}]):
+  #   - `X-Alertmanager-Instance: alertmanager` selects the instance entry;
+  #   - the Bearer token is read per request from credentials_file, a mounted
+  #     secret holding ALERT_WEBHOOK_INSTANCE_TOKEN (generated into .env by
+  #     gen-env-secrets; k8s: the `alertmanager-relay` Secret, docker: a compose
+  #     secret). Nothing secret lives in this file.
+  # The URL targets platform directly: platform serves the relay at
+  # /observability/alert-webhook (nginx strips `/api` for browser traffic, so
+  # the `/api/...` form only exists at the gateway).
   - name: 'platform-relay'
     webhook_configs:
-      - url: 'http://platform:3000/api/observability/alert-webhook'
+      - url: 'http://platform:3000/observability/alert-webhook'
         http_config:
           authorization:
             type: Bearer
-            credentials: 'local-dev-token'
-          tls_config:
-            insecure_skip_verify: true
+            credentials_file: /etc/alertmanager-secrets/relay-token
+          http_headers:
+            X-Alertmanager-Instance:
+              values: ['alertmanager']
         send_resolved: true
         max_alerts: 64
-        # No custom webhook header is sent; the platform relay authenticates on the
-        # Bearer token alone.
 
   # Slack receivers below carry placeholder webhook URLs so alertmanager
   # parses the config successfully. Slack rejects requests to these IDs

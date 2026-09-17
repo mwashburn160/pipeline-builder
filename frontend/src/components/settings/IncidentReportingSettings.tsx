@@ -14,6 +14,7 @@ import { RetryError } from '@/components/ui/RetryError';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Button } from '@/components/ui/Button';
 import { LinkButton } from '@/components/ui/LinkButton';
+import { ReadOnlyNotice, READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { FormField } from '@/components/ui/FormField';
@@ -114,8 +115,12 @@ function providerGuide(key: ProviderKey, genericUrl: string, alertmanagerUrl: st
  * webhook token (reuses the PAT issuance — copy-once, step-up gated), provider
  * presets with copy-paste setup, the per-org correlation-window override, a
  * non-persisting "send test incident" wiring check, and the recent-incidents list.
+ *
+ * `readOnly` (read-only impersonation) disables every POST/PUT control — token
+ * mint, window save, and the test incident (a POST, so the backend's global
+ * read-only guard rejects it despite being non-persisting).
  */
-export function IncidentReportingSettings() {
+export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
   const toast = useToast();
   const router = useRouter();
 
@@ -256,6 +261,7 @@ export function IncidentReportingSettings() {
 
   return (
     <div className="space-y-6">
+      <ReadOnlyNotice show={readOnly} />
       <TabBar items={[...INCIDENT_TABS]} activeId={activeTab} onSelect={changeTab} />
 
       {activeTab === 'overview' && (
@@ -297,7 +303,7 @@ export function IncidentReportingSettings() {
           rotate, generate a new one and revoke the old token on the <a className="action-link" href="/dashboard/tokens">API Tokens</a> page.</>
         }
       >
-        <Button onClick={requestToken} loading={creating || !!pendingCreate}>Generate webhook token</Button>
+        <Button onClick={requestToken} loading={creating || !!pendingCreate} disabled={readOnly} title={readOnly ? READ_ONLY_REASON : undefined}>Generate webhook token</Button>
 
         {pendingCreate && (
           <StepUpModal
@@ -349,10 +355,10 @@ export function IncidentReportingSettings() {
               value={windowInput}
               placeholder={String(effectiveWindow)}
               onChange={(e) => setWindowInput(e.target.value)}
-              disabled={savingWindow}
+              disabled={savingWindow || readOnly}
             />
           </FormField>
-          <Button onClick={saveWindow} loading={savingWindow} disabled={!windowInput}>Save window</Button>
+          <Button onClick={saveWindow} loading={savingWindow} disabled={!windowInput || readOnly} title={readOnly ? READ_ONLY_REASON : undefined}>Save window</Button>
         </div>
       </SectionCard>
       </div>
@@ -399,9 +405,9 @@ export function IncidentReportingSettings() {
       >
         <div className="flex flex-wrap items-end gap-2">
           <FormField label="Environment" className="w-56">
-            <Input value={testEnv} onChange={(e) => setTestEnv(e.target.value)} placeholder="production" disabled={testing} />
+            <Input value={testEnv} onChange={(e) => setTestEnv(e.target.value)} placeholder="production" disabled={testing || readOnly} />
           </FormField>
-          <Button onClick={sendTest} loading={testing}>Send test incident</Button>
+          <Button onClick={sendTest} loading={testing} disabled={readOnly} title={readOnly ? READ_ONLY_REASON : undefined}>Send test incident</Button>
         </div>
         {testResult && (
           <Callout variant={testResult.correlated ? 'success' : 'warning'} className="mt-3">

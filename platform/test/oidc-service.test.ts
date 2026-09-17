@@ -129,7 +129,7 @@ describe('exchangeAndValidate', () => {
   it('returns the verified identity for a well-signed id_token', async () => {
     stubFetch(signIdToken(goodPem));
     const identity = await exchangeAndValidate(cfg, 'auth-code', 'nonce-1');
-    expect(identity).toEqual({ subject: 'idp-user-1', email: 'user@acme.com', name: 'Test User' });
+    expect(identity).toEqual({ subject: 'idp-user-1', issuer: 'https://idp.test', email: 'user@acme.com', name: 'Test User' });
   });
 
   it('lowercases the email claim', async () => {

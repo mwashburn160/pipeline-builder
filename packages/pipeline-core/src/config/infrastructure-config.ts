@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import path from 'path';
-import type { AWSConfig, BuildConfig, ComplianceConfig, DatabaseConfig, ObservabilityConfig, PluginBuildConfig, RedisConfig, RegistryConfig } from './config-types.js';
+import type { AWSConfig, BuildConfig, ComplianceConfig, DatabaseConfig, ObservabilityConfig, PluginBuildConfig, RegistryConfig } from './config-types.js';
 
 /**
  * Load Docker registry configuration from environment variables.
@@ -58,13 +58,6 @@ export function parsePlatformBaseUrl(raw?: string): { host: string; port: number
   } catch {
     return null;
   }
-}
-
-export function loadRedisConfig(): RedisConfig {
-  return {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379', 10),
-  };
 }
 
 /**

@@ -142,6 +142,13 @@ only to a caller holding the resource's `:publish` permission — so a custom Ro
 can be granted publish rights instead of being forced private by its coarse label.
 Downward report roll-up (`?includeDescendants`) requires `reports:rollup`.
 
+**Accounts are not org-scoped.** A user account can belong to many
+organizations, so `members:manage` covers a member's **role in your
+organization** and removing them from it — not the account itself. Changing a
+user's username, email or password, and deleting an account, are platform-admin
+actions (`PUT`/`DELETE /users/:id`, both behind step-up). An org admin who
+needs someone locked out removes or deactivates the membership.
+
 ## Session invalidation
 
 Access tokens are short-lived (15 min) and carry a `tokenVersion`. On any

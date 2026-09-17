@@ -346,17 +346,29 @@ class InvitationService {
       if (!invitation.canAcceptViaOAuth(oauthProvider)) throw new Error(INV_OAUTH_NOT_ALLOWED);
       if (oauthData.email.toLowerCase() !== invitation.email) throw new Error(INV_EMAIL_MISMATCH);
 
-      let user = await User.findOne({
-        $or: [
-          { [`oauth.${oauthProvider}.id`]: oauthData.id },
-          { email: oauthData.email.toLowerCase() },
-        ],
-      }).session(session);
+      // Same identity rules as social login (authService.findOrCreateOAuthUser):
+      // match the provider identity first; only fall back to linking by email
+      // when that existing account's OWN email is verified. An unverified
+      // account is an unproven claim on the address — linking would sign its
+      // planter into the invitee's identity.
+      let user = await User.findOne({ [`oauth.${oauthProvider}.id`]: oauthData.id }).session(session);
+      if (!user) {
+        user = await User.findOne({ email: oauthData.email.toLowerCase() }).session(session);
+        // Key must match ACCOUNT_EMAIL_UNVERIFIED in auth-service.ts (mapped to
+        // 409 by OAUTH_ERROR_MAP, which the accept-oauth controller spreads in).
+        if (user && !user.isEmailVerified) throw new Error('ACCOUNT_EMAIL_UNVERIFIED');
+      }
 
       if (!user) {
+        // The local part may already be someone's username; probe for a free one.
+        const baseUsername = oauthData.email.split('@')[0].toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 30) || 'user';
+        let username = baseUsername;
+        for (let suffix = 1; await User.exists({ username }).session(session); suffix += 1) {
+          username = `${baseUsername}${suffix}`;
+        }
         user = new User({
           email: oauthData.email.toLowerCase(),
-          username: oauthData.email.split('@')[0],
+          username,
           isEmailVerified: true,
           tokenVersion: 0,
           oauth: { [oauthProvider]: { id: oauthData.id, email: oauthData.email, name: oauthData.name, picture: oauthData.picture, linkedAt: new Date() } },

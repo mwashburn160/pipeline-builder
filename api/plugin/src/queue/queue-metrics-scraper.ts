@@ -63,7 +63,9 @@ export function startQueueMetricsScraper(
   intervalMs: number = DEFAULT_INTERVAL_MS,
 ): () => void {
   if (timer) return stopQueueMetricsScraper;
+  // unref: a metrics sampler must never be what keeps the process alive.
   timer = setInterval(() => void scrapeOnce(targets), intervalMs);
+  timer.unref();
   // First sample immediately so Prometheus sees data on its first scrape
   // (rather than waiting up to `intervalMs` after worker start).
   void scrapeOnce(targets);

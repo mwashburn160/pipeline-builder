@@ -14,20 +14,26 @@
  *
  * Reuses the platform's env Redis client (`getRedisClient`, the same client used
  * for session-revocation publishing) as the lock backend, so there is no extra
- * connection. When Redis is UNSET the wrapper runs the body on every pod — i.e.
- * exactly today's behavior — which the sweeps' own idempotency/atomicity keeps
+ * connection. When Redis is UNSET the wrapper runs the body on every pod, which
+ * the sweeps' own idempotency/atomicity keeps
  * safe (the lock is an optimization + a destructive-work de-duplicator, not a
  * correctness prerequisite).
  */
 
-import { withLeaderLock, type LockRedis } from '@pipeline-builder/api-core';
+import { createLogger, withLeaderLock, type LockRedis } from '@pipeline-builder/api-core';
 import { getRedisClient } from './redis-client.js';
+
+const logger = createLogger('leader-lock');
 
 /**
  * Run `fn` under a cross-pod leader lock keyed by `key`. Returns true when this
- * pod ran the body (either it won the lock, or Redis is unset so every pod
- * runs), false when another pod holds the lock this window. Never throws for
- * lock-acquisition reasons; `fn`'s own errors propagate to the caller as before.
+ * pod ran the body (it won the lock, or Redis is unset so every pod runs), false
+ * when another pod holds the lock or the lock couldn't be taken.
+ *
+ * NEVER rejects. Every caller is a timer that fires it with `void`, so a
+ * rejection is an unhandled promise rejection — which exits the process. A Redis
+ * blip (including the window before the first connection completes) skips the
+ * run; an error thrown by `fn` is logged against `key`.
  *
  * @param key    stable lock key (e.g. `platform:leader:org-purge`)
  * @param ttlMs  lock lifetime — must comfortably exceed one sweep's duration
@@ -38,14 +44,21 @@ export async function runWithLeaderLock(
   ttlMs: number,
   fn: () => Promise<void>,
 ): Promise<boolean> {
+  const guarded = async (): Promise<void> => {
+    try {
+      await fn();
+    } catch (err) {
+      logger.error('Background job failed', { key, error: err instanceof Error ? err.message : String(err) });
+    }
+  };
   const redis = await getRedisClient();
   if (!redis) {
-    // No Redis configured — degrade to running on this pod (today's behavior).
-    await fn();
+    // No Redis configured — run on this pod.
+    await guarded();
     return true;
   }
   // getRedisClient returns a real ioredis instance (typed as RedisCacheClient);
   // it exposes set/get/del/eval, satisfying LockRedis including the atomic CAS
-  // release used by withLeaderLock.
-  return withLeaderLock(redis as unknown as LockRedis, key, ttlMs, fn);
+  // release used by withLeaderLock, which itself never rejects on Redis errors.
+  return withLeaderLock(redis as unknown as LockRedis, key, ttlMs, guarded);
 }

@@ -82,10 +82,10 @@ describe('getOrganizationQuotaStatus', () => {
     expect(result).toBeNull();
   });
 
-  it('should default authHeader to empty string', async () => {
+  it('forwards the caller-supplied auth header', async () => {
     mockCheck.mockResolvedValue({ allowed: true });
-    await getOrganizationQuotaStatus('org-1', 'pipelines');
-    expect(mockCheck).toHaveBeenCalledWith('org-1', 'pipelines', '');
+    await getOrganizationQuotaStatus('org-1', 'pipelines', 'Bearer svc');
+    expect(mockCheck).toHaveBeenCalledWith('org-1', 'pipelines', 'Bearer svc');
   });
 });
 

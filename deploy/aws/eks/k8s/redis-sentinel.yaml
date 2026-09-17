@@ -1,27 +1,32 @@
 # =============================================================================
-# HA Redis via Sentinel — TEMPLATE (kept OUT of k8s/kustomization.yaml).
+# HA Redis via Sentinel — the DEFAULT Redis for this target (listed in
+# k8s/kustomization.yaml; there is no single-instance redis.yaml here).
 #
-# Replaces the single-instance redis.yaml with a 3-node Redis (1 primary + 2
-# replicas) monitored by 3 Sentinels (quorum 2), so a single Redis pod loss
-# fails over automatically instead of taking down the shared Redis.
+# A 3-node Redis (1 primary + 2 replicas) monitored by 3 Sentinels (quorum 2),
+# so a single Redis pod loss fails over automatically instead of taking down
+# the shared Redis.
 #
-# Enable it:
-#   1. Remove `redis.yaml` from kustomization.yaml (or don't list this there —
-#      it is applied explicitly, like the backup-cronjob template).
-#   2. kubectl apply -f redis-sentinel.yaml
-#   3. Point the app at Sentinel — set in the `app-env` ConfigMap / .env:
-#        REDIS_SENTINELS=redis-sentinel-0.redis-sentinel-headless:26379,redis-sentinel-1.redis-sentinel-headless:26379,redis-sentinel-2.redis-sentinel-headless:26379
-#        REDIS_SENTINEL_MASTER=mymaster
-#      (createEnvRedisClient switches to Sentinel mode automatically — it then
-#       tracks the current primary + reconnects after a failover.)
-#   4. VALIDATE FAILOVER in a scratch cluster: `kubectl delete pod redis-0`,
-#      then confirm a replica is promoted (`redis-cli -p 26379 sentinel
-#      get-master-addr-by-name mymaster`) and the app keeps serving.
+# App wiring (.env → `app-env` ConfigMap), Sentinel mode:
+#     REDIS_SENTINELS=redis-sentinel-0.redis-sentinel-headless:26379,redis-sentinel-1.redis-sentinel-headless:26379,redis-sentinel-2.redis-sentinel-headless:26379
+#     REDIS_SENTINEL_MASTER=mymaster
+#   (+ REDIS_PASSWORD / REDIS_SENTINEL_PASSWORD if auth is enabled). The client
+#   tracks the current primary via Sentinel and reconnects after a failover.
+#   REDIS_URL must NOT also be set — setting both is a startup error — and
+#   REDIS_HOST / REDIS_PORT are not supported at all. (Kubernetes injects a
+#   `REDIS_PORT=tcp://…` service-link var for the `redis` Service; the app
+#   ignores it.) Do not point the app at the `redis` Service for writes: it
+#   fronts every data node, including read-only replicas.
+#
+# VALIDATE FAILOVER in a scratch cluster: `kubectl delete pod redis-0`, then
+# confirm a replica is promoted (`redis-cli -p 26379 sentinel
+# get-master-addr-by-name mymaster`) and the app keeps serving.
 #
 # PRODUCTION RECOMMENDATION: prefer a managed **ElastiCache for Redis/Valkey,
-# cluster-mode DISABLED, Multi-AZ + automatic failover** — it provides the same
-# Sentinel-style failover with no self-managed quorum/announce-IP fiddling.
-# Point REDIS_SENTINELS (or REDIS_URL) at it and delete this manifest.
+# cluster-mode DISABLED, Multi-AZ + automatic failover**. ElastiCache does not
+# speak the Sentinel protocol — it fails over behind its primary endpoint's DNS
+# name — so switch to standalone mode: set REDIS_URL=rediss://<primary-endpoint>:6379,
+# REMOVE REDIS_SENTINELS / REDIS_SENTINEL_MASTER, and delete this manifest from
+# the kustomization.
 # =============================================================================
 ---
 apiVersion: v1

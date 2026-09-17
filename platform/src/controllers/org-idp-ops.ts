@@ -19,7 +19,7 @@
  * before these are called) and its `surface` audit tag.
  */
 
-import { createLogger, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendQuotaReserveDenied, sendSuccess } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { audit } from '../helpers/audit.js';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
@@ -72,7 +72,7 @@ export async function upsertOrgIdp(req: Request, res: Response, orgId: string, s
   if (!existing) {
     const reservation = await reserveFeatureQuota(orgId, 'idpConfigs');
     if (reservation.exceeded) {
-      sendQuotaExceeded(res, 'idpConfigs', reservation.quota, reservation.quota.resetAt);
+      sendQuotaReserveDenied(res, 'idpConfigs', reservation);
       return;
     }
     reserved = true;

@@ -34,22 +34,42 @@ export const loggerMock = () => ({
 /** Mirrors api-core: `ErrorCode.ANY_CODE` resolves to the string `'ANY_CODE'`. */
 const ErrorCode = new Proxy({}, { get: (_t, key) => key }) as Record<string, string>;
 
-/** Mirrors api-core's NotFoundError (statusCode 404 / code NOT_FOUND). */
-class NotFoundError extends Error {
-  statusCode = 404;
-  code = 'NOT_FOUND';
-  constructor(message?: string) {
+/** Mirrors api-core's AppError base (typed HTTP error: statusCode + code). */
+class AppError extends Error {
+  constructor(public readonly statusCode: number, public readonly code: string, message?: string) {
     super(message);
+    this.name = 'AppError';
+  }
+}
+
+/** Mirrors api-core's NotFoundError (statusCode 404 / code NOT_FOUND). */
+class NotFoundError extends AppError {
+  constructor(message?: string) {
+    super(404, 'NOT_FOUND', message);
     this.name = 'NotFoundError';
   }
 }
 
-/** Mirrors api-core's ValidationError (statusCode 400 / code VALIDATION_ERROR). */
-class ValidationError extends Error {
-  statusCode = 400;
-  code = 'VALIDATION_ERROR';
+/** Mirrors api-core's ConflictError (statusCode 409 / code CONFLICT). */
+class ConflictError extends AppError {
   constructor(message?: string) {
-    super(message);
+    super(409, 'CONFLICT', message);
+    this.name = 'ConflictError';
+  }
+}
+
+/** Mirrors api-core's ForbiddenError (statusCode 403 / code INSUFFICIENT_PERMISSIONS). */
+class ForbiddenError extends AppError {
+  constructor(message?: string) {
+    super(403, 'INSUFFICIENT_PERMISSIONS', message);
+    this.name = 'ForbiddenError';
+  }
+}
+
+/** Mirrors api-core's ValidationError (statusCode 400 / code VALIDATION_ERROR). */
+class ValidationError extends AppError {
+  constructor(message?: string) {
+    super(400, 'VALIDATION_ERROR', message);
     this.name = 'ValidationError';
   }
 }
@@ -118,12 +138,25 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // option b) — stubbed so suites that transitively load the boot module link.
     setTokenRevocationStore: () => {},
     createRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
+    AppError,
     NotFoundError,
     ValidationError,
+    ForbiddenError,
+    ConflictError,
     createCacheService: () => ({
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
       invalidatePattern: () => Promise.resolve(0),
     }),
+    // Caller-authority probes the create/upload overwrite gate snapshots.
+    // Default: an ordinary member (no admin, no publish); suites override.
+    isSystemAdmin: () => false,
+    userHasPermission: () => false,
+    // Mirrors api-core: 503 (+Retry-After) when the quota service couldn't
+    // confirm the reservation, 429 when the org is actually over its limit.
+    sendQuotaReserveDenied: (res: any, _type: string, reservation: { unavailable?: boolean; quota?: unknown }) =>
+      reservation.unavailable
+        ? res.status(503).json({ success: false, statusCode: 503, code: 'SERVICE_UNAVAILABLE' })
+        : res.status(429).json({ success: false, statusCode: 429, quota: reservation.quota }),
     ...overrides,
   };
 }

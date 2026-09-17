@@ -78,9 +78,23 @@ beforeEach(() => {
   mockListPending.mockResolvedValue([]);
 });
 
+// createSafeClient never throws: a transport failure resolves null and an HTTP
+// error resolves with its status — the mocks mirror that.
+const CREATED = { statusCode: 201, body: {} };
+
 describe('provisionBillingSubscription (paid-signup)', () => {
+  it('treats an HTTP error response as a failure — retries, then marks the org', async () => {
+    mockPost.mockResolvedValue({ statusCode: 500, body: {} });
+
+    await provisionBillingSubscription('org-http', 'pro');
+
+    expect(mockPost).toHaveBeenCalledTimes(3);
+    expect(mockSetPending).toHaveBeenCalledWith('org-http', 'pro');
+    expect(mockIncCounter).not.toHaveBeenCalledWith('platform_billing_provision_total', { outcome: 'success' });
+  });
+
   it('provisions on the first attempt — no marker set, success counter', async () => {
-    mockPost.mockResolvedValueOnce({});
+    mockPost.mockResolvedValueOnce(CREATED);
 
     await provisionBillingSubscription('org-1', 'pro');
 
@@ -94,7 +108,7 @@ describe('provisionBillingSubscription (paid-signup)', () => {
   });
 
   it('retries transient failures then succeeds without marking', async () => {
-    mockPost.mockRejectedValueOnce(new Error('ECONNREFUSED')).mockResolvedValueOnce({});
+    mockPost.mockResolvedValueOnce(null).mockResolvedValueOnce(CREATED);
 
     await provisionBillingSubscription('org-2', 'team');
 
@@ -104,7 +118,7 @@ describe('provisionBillingSubscription (paid-signup)', () => {
   });
 
   it('persists the durable marker after ALL attempts fail (registration still succeeds)', async () => {
-    mockPost.mockRejectedValue(new Error('billing down'));
+    mockPost.mockResolvedValue(null);
 
     // Never throws — registration must not fail because billing is down.
     await expect(provisionBillingSubscription('org-3', 'enterprise')).resolves.toBeUndefined();
@@ -130,7 +144,7 @@ describe('provisionBillingSubscription (paid-signup)', () => {
 describe('reconcilePendingBillingSubscriptions', () => {
   it('retries a marked org and clears the marker on success', async () => {
     mockListPending.mockResolvedValue([{ orgId: 'org-5', planId: 'pro' }]);
-    mockPost.mockResolvedValueOnce({});
+    mockPost.mockResolvedValueOnce(CREATED);
 
     const summary = await reconcilePendingBillingSubscriptions();
 
@@ -142,7 +156,7 @@ describe('reconcilePendingBillingSubscriptions', () => {
 
   it('leaves the marker in place when billing is still unavailable', async () => {
     mockListPending.mockResolvedValue([{ orgId: 'org-6', planId: 'team' }]);
-    mockPost.mockRejectedValue(new Error('still down'));
+    mockPost.mockResolvedValue({ statusCode: 503, body: {} });
 
     const summary = await reconcilePendingBillingSubscriptions();
 
@@ -186,7 +200,7 @@ describe('reconcilePendingBillingSubscriptions', () => {
     // pass overlap the next interval. One POST, then leave the marker.
     billingConfig.provisionRetryAttempts = 3;
     mockListPending.mockResolvedValue([{ orgId: 'org-7', planId: 'pro' }]);
-    mockPost.mockRejectedValue(new Error('billing down'));
+    mockPost.mockResolvedValue(null);
 
     const summary = await reconcilePendingBillingSubscriptions();
 

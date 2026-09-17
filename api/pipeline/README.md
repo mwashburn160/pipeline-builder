@@ -53,7 +53,7 @@ pnpm test    # jest
 pnpm watch   # incremental compile
 ```
 
-On startup the service runs any pending Drizzle migrations (`runMigrations()`) before opening the listening socket. CRUD and access control are centralized in `PipelineService`, which extends the shared `CrudService` for consistent multi-tenant queries and pagination.
+The service never changes the database schema at runtime: it connects as a non-superuser application role, and the schema comes from `postgres-init.sql`. CRUD and access control are centralized in `PipelineService`, which extends the shared `CrudService` for consistent multi-tenant queries and pagination.
 
 ## License
 

@@ -61,6 +61,9 @@ export const OIDC_ERROR_MAP = {
   OIDC_INVALID_ID_TOKEN: { status: 401, message: 'The identity provider returned an invalid token' },
   OIDC_NO_EMAIL: { status: 400, message: 'The identity provider did not return a verified email address' },
   OIDC_EMAIL_DOMAIN_NOT_ALLOWED: { status: 403, message: 'Your email domain is not permitted to sign in to this organization' },
+  OIDC_EMAIL_DOMAIN_NOT_VERIFIED: { status: 403, message: 'This organization has not verified ownership of your email domain, so it cannot sign you in with single sign-on' },
+  // Key must match `SSO_SUPERADMIN_REFUSED` in auth-service.ts (literal for the same reason as below).
+  SSO_SUPERADMIN_REFUSED: { status: 403, message: 'Platform administrators cannot sign in through an organization\'s single sign-on' },
   // Key must match `ACCOUNT_EMAIL_UNVERIFIED` in auth-service.ts (kept a literal
   // here to avoid importing the large auth-service module into this core service).
   ACCOUNT_EMAIL_UNVERIFIED: { status: 409, message: 'An account already exists for this email but is not verified. Verify (or reset the password on) that account first, then sign in.' },
@@ -186,8 +189,11 @@ async function resolveSigningKey(jwksUri: string, kid: string | undefined): Prom
 
 /** The provider-VERIFIED identity extracted from a validated `id_token`. */
 export interface OidcIdentity {
-  /** IdP subject identifier (stable per-user within the IdP). */
+  /** IdP subject identifier (stable per-user within the IdP — NOT across IdPs). */
   subject: string;
+  /** The validated `iss`. A subject is only unique together with its issuer, and
+   *  an org admin fully controls the subjects a generic-OIDC/Cognito IdP mints. */
+  issuer: string;
   email: string;
   name?: string;
 }
@@ -356,6 +362,7 @@ export async function exchangeAndValidate(
 
   return {
     subject: claims.sub,
+    issuer: discovery.issuer,
     email,
     name: claims.name,
   };

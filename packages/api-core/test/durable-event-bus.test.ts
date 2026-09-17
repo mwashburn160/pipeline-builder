@@ -150,10 +150,39 @@ describe('durable event bus', () => {
     expect(fake.groups.get('g1')!.pending.size).toBe(0); // eventually acked
   });
 
+  it('keeps trying to create the consumer group when Redis is not ready at startup', async () => {
+    const fake = makeFakeStream();
+    const realXgroup = fake.xgroup.bind(fake);
+    let attempts = 0;
+    fake.xgroup = async (...args: (string | number)[]) => {
+      attempts++;
+      if (attempts === 1) throw new Error("Stream isn't writeable and enableOfflineQueue options is false");
+      return realXgroup(...args);
+    };
+    const bus = createRedisDurableEventBus(fake as never);
+    let resolveGot: () => void;
+    const got = new Promise<void>((r) => { resolveGot = r; });
+
+    const sub = bus.subscribe<{ n: number }>({
+      topic: 't',
+      group: 'g1',
+      consumer: 'c1',
+      blockMs: 1,
+      minIdleMs: 0,
+      handler: async () => { resolveGot(); },
+    });
+    // Once the group exists (after the backoff), a new event is delivered.
+    while (!fake.groups.has('g1')) await new Promise((r) => setTimeout(r, 20));
+    await bus.publish('t', { n: 1 });
+    await got;
+    await sub.stop();
+
+    expect(attempts).toBe(2);
+  });
+
   it('createEnvRedisDurableEventBus returns null when Redis is not configured', async () => {
     const prev = { ...process.env };
     delete process.env.REDIS_URL;
-    delete process.env.REDIS_HOST;
     delete process.env.REDIS_SENTINELS;
     const { createEnvRedisDurableEventBus } = await import('../src/services/durable-event-bus.js');
     expect(createEnvRedisDurableEventBus()).toBeNull();

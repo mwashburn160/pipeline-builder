@@ -43,7 +43,7 @@ AWS CDK construct library for [Pipeline Builder](https://mwashburn160.github.io/
 | `buildConfigFromMetadata`, `metadataForCodePipeline`, `metadataForShellStep`, … | Metadata builders |
 
 ### Re-exported from `pipeline-data`
-`db`, `getConnection`, `closeConnection`, `schema`, `CrudService`, `runMigrations`, the tenant-context primitives (`tenantContext`, `runWithTenantContext`, `withTenantTx`), the query condition builders/filters, and `drizzleRows` / `drizzleCount`.
+`db`, `getConnection`, `closeConnection`, `schema`, `CrudService`, the tenant-context primitives (`tenantContext`, `runWithTenantContext`, `withTenantTx`), the query condition builders/filters, and `drizzleRows` / `drizzleCount`.
 
 ## Usage
 

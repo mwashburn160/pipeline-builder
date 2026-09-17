@@ -65,6 +65,10 @@ export interface RedisPubSubClient {
  */
 const RELAY_CHANNEL = 'sse:relay';
 
+/** Backoff bounds for the startup SUBSCRIBE retry. */
+const SUBSCRIBE_RETRY_MIN_MS = 500;
+const SUBSCRIBE_RETRY_MAX_MS = 30_000;
+
 /**
  * Redis-backed relay. Uses the given client for PUBLISH and a `duplicate()` for
  * SUBSCRIBE (ioredis forbids mixing subscribe with normal commands on one
@@ -99,9 +103,24 @@ export function createRedisSSERelay(publisher: RedisPubSubClient): SSERelay {
           logger.warn('SSE relay handler threw', { error: err instanceof Error ? err.message : String(err) });
         }
       });
-      void Promise.resolve(subscriber.subscribe(RELAY_CHANNEL)).catch((err) => {
-        logger.warn('SSE relay subscribe failed — falling back to local-only delivery', { error: err instanceof Error ? err.message : String(err) });
-      });
+      // Retry until subscribed: at startup the connection usually isn't up yet,
+      // and giving up after one attempt left the pod on local-only delivery for
+      // its whole life. Once subscribed, ioredis re-subscribes after reconnects.
+      let delayMs = SUBSCRIBE_RETRY_MIN_MS;
+      const attempt = (): void => {
+        if (closed) return;
+        void Promise.resolve(subscriber.subscribe(RELAY_CHANNEL)).then(
+          () => logger.info('SSE relay subscribed'),
+          (err) => {
+            logger.warn('SSE relay subscribe failed; retrying (local-only delivery meanwhile)', {
+              retryInMs: delayMs, error: err instanceof Error ? err.message : String(err),
+            });
+            setTimeout(attempt, delayMs).unref?.();
+            delayMs = Math.min(delayMs * 2, SUBSCRIBE_RETRY_MAX_MS);
+          },
+        );
+      };
+      attempt();
     },
     async close() {
       closed = true;
@@ -113,7 +132,7 @@ export function createRedisSSERelay(publisher: RedisPubSubClient): SSERelay {
 /**
  * Build a Redis-backed SSE relay from the shared env Redis (same wiring as the
  * SSE ticket store / rate-limiter / audit-spool). Returns null when Redis isn't
- * configured so the caller keeps local-only delivery. Never throws.
+ * configured so the caller keeps local-only delivery.
  */
 export function createEnvRedisSSERelay(): SSERelay | null {
   const client = createEnvRedisClient<RedisPubSubClient>('sse-relay');

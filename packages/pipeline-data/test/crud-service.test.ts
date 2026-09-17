@@ -633,8 +633,10 @@ describe('CrudService', () => {
       mockSelect.mockReturnValueOnce({
         from: jest.fn().mockReturnValue({
           where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockReturnValue({
-              offset: jest.fn().mockRejectedValue(new Error('DB error')),
+            orderBy: jest.fn().mockReturnValue({
+              limit: jest.fn().mockReturnValue({
+                offset: jest.fn().mockRejectedValue(new Error('DB error')),
+              }),
             }),
           }),
         }),
@@ -1020,42 +1022,118 @@ describe('CrudService', () => {
     });
   });
 
-  // Cursor pagination — the sort column must survive a sparse fieldset so the
-  // next cursor (lastItem[sortBy]) resolves; otherwise the client stalls on
-  // page 1. Regression guard for buildFieldSelect(fields, sortBy).
+  // Keyset (cursor) pagination — total (sort, id) order, full-precision cursor,
+  // and no page-1 loop for an unknown sortBy.
 
-  describe('cursor pagination sortBy inclusion', () => {
-    const row: TestEntity = {
-      id: 'last-id',
-      orgId: 'org1',
-      name: 'Z',
-      isDefault: false,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      createdBy: 'u',
-      updatedBy: 'u',
-    };
+  describe('keyset cursor pagination', () => {
+    const dialect = new PgDialect();
 
-    it('adds the sortBy column to the projection even when fields omit it', async () => {
-      const offset = jest.fn().mockResolvedValue([row]);
+    /** Same contract as TestService but over REAL pipeline columns so the
+     *  generated SQL can be rendered and inspected. */
+    class PipelineColsService extends TestService {
+      protected get schema(): PgTable { return schema.pipeline as unknown as PgTable; }
+      protected buildConditions(): SQL[] { return []; }
+      protected getSortColumn(sortBy: string): AnyColumn | null {
+        const cols: Record<string, AnyColumn> = { createdAt: schema.pipeline.createdAt, id: schema.pipeline.id };
+        return cols[sortBy] ?? null;
+      }
+    }
+
+    /** Wire one data query and capture the select spec / where / orderBy / offset args. */
+    function captureQuery(rows: Record<string, unknown>[]) {
+      const offset = jest.fn<(n: number) => Promise<unknown>>().mockResolvedValue(rows);
       const limit = jest.fn().mockReturnValue({ offset });
       const orderBy = jest.fn().mockReturnValue({ limit });
-      const where = jest.fn().mockReturnValue({ orderBy, limit });
+      const where = jest.fn().mockReturnValue({ orderBy });
       const from = jest.fn().mockReturnValue({ where });
       mockSelect.mockReturnValueOnce({ from } as unknown as ReturnType<typeof mockSelect>);
+      return { where, orderBy, offset };
+    }
 
-      const result = await service.findPaginated({}, 'org1', {
-        fields: ['id'], // caller omits the sort column
-        sortBy: 'name',
-        cursor: 'prev-cursor', // activates cursor pagination
-      });
+    const render = (node: unknown) => dialect.sqlToQuery(node as SQL);
 
-      // The projection passed to tx.select(...) must include the sort column.
+    const row = (id: string, sortText: string | null) => ({ id, pipelineName: `p-${id}`, __cursorSortKey: sortText });
+
+    it('orders by (sort column, id) and emits a cursor only when there is a next page', async () => {
+      const svc = new PipelineColsService();
+      const q = captureQuery([row('a', '2026-09-16 10:00:00.123456+00'), row('b', '2026-09-16 10:00:00.123456+00')]);
+
+      const page = await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', sortOrder: 'desc' });
+
+      const orderSql = q.orderBy.mock.calls[0].map((o) => render(o).sql);
+      expect(orderSql).toEqual(['"pipelines"."created_at" desc', '"pipelines"."id" desc']);
+      expect(page.hasMore).toBe(true);
+      expect(page.nextCursor).toBeDefined();
+      // The helper projection never leaks into the returned entities.
+      expect(page.data[0]).not.toHaveProperty('__cursorSortKey');
+      // Last page → no cursor.
+      captureQuery([row('c', null)]);
+      expect((await svc.findPaginated({}, 'org1', { limit: 5, sortBy: 'createdAt' })).nextCursor).toBeUndefined();
+    });
+
+    it('continues strictly after (sortValue, id) at FULL precision — ties are neither skipped nor repeated', async () => {
+      const svc = new PipelineColsService();
+      captureQuery([row('a', '2026-09-16 10:00:00.123456+00'), row('b', '2026-09-16 10:00:00.123999+00')]);
+      const first = await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', sortOrder: 'desc' });
+
+      const q = captureQuery([]);
+      await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', sortOrder: 'desc', cursor: first.nextCursor, offset: 40 });
+
+      const where = render(q.where.mock.calls[0][0]);
+      expect(where.sql).toContain('"pipelines"."created_at" < $1');
+      expect(where.sql).toContain('"pipelines"."created_at" = $2 AND "pipelines"."id" < $3');
+      // Exact DB text (microseconds), not a millisecond-truncated JS Date.
+      expect(where.params).toEqual(['2026-09-16 10:00:00.123456+00', '2026-09-16 10:00:00.123456+00', 'a']);
+      // Cursor wins over offset.
+      expect(q.offset).toHaveBeenCalledWith(0);
+    });
+
+    it('asc keyset keeps NULL sort values (NULLS LAST) reachable', async () => {
+      const svc = new PipelineColsService();
+      captureQuery([row('a', '2026-01-01 00:00:00+00'), row('b', null)]);
+      const first = await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', sortOrder: 'asc' });
+      let q = captureQuery([]);
+      await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', sortOrder: 'asc', cursor: first.nextCursor });
+      expect(render(q.where.mock.calls[0][0]).sql).toContain('OR "pipelines"."created_at" IS NULL');
+
+      captureQuery([row('b', null), row('c', null)]);
+      const nullPage = await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', sortOrder: 'asc' });
+      q = captureQuery([]);
+      await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', sortOrder: 'asc', cursor: nullPage.nextCursor });
+      const where = render(q.where.mock.calls[0][0]);
+      expect(where.sql).toContain('"pipelines"."created_at" IS NULL AND "pipelines"."id" > $1');
+      expect(where.params).toEqual(['b']);
+    });
+
+    it('an UNKNOWN sortBy orders by id and its cursor advances (no page-1 loop)', async () => {
+      const svc = new PipelineColsService();
+      let q = captureQuery([row('a', 'a'), row('b', 'b')]);
+      const first = await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'noSuchColumn' });
+      expect(q.orderBy.mock.calls[0].map((o) => render(o).sql)).toEqual(['"pipelines"."id" asc']);
+      expect(first.nextCursor).toBeDefined();
+
+      q = captureQuery([]);
+      await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'noSuchColumn', cursor: first.nextCursor });
+      const where = render(q.where.mock.calls[0][0]);
+      expect(where.sql).toContain('"pipelines"."id" > $1');
+      expect(where.params).toEqual(['a']);
+    });
+
+    it('ignores a malformed cursor (reads from the given offset) instead of throwing', async () => {
+      const svc = new PipelineColsService();
+      const q = captureQuery([]);
+      await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', cursor: 'not-a-cursor', offset: 3 });
+      expect(q.where.mock.calls[0][0]).toBeUndefined(); // and() of no conditions
+      expect(q.offset).toHaveBeenCalledWith(3);
+    });
+
+    it('a sparse fieldset still carries id and the cursor sort key', async () => {
+      const svc = new PipelineColsService();
+      captureQuery([row('a', 'x'), row('b', 'y')]);
+      const page = await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', fields: ['pipelineName'] });
       const spec = mockSelect.mock.calls[0][0] as Record<string, unknown>;
-      expect(spec).toHaveProperty('name');
-      expect(spec).toHaveProperty('id');
-      // And the next cursor is produced from that column's value.
-      expect(result.nextCursor).toBe('Z');
+      expect(Object.keys(spec).sort()).toEqual(['__cursorSortKey', 'id', 'pipelineName']);
+      expect(page.nextCursor).toBeDefined();
     });
   });
 

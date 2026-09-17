@@ -30,7 +30,7 @@ router.post('/', requireAuth, requirePermission('members:manage'), createUserByA
 router.get('/:id', requireAuth, requirePermission('members:manage'), getUserById);
 
 /** PUT /users/:id - Update a user (members:manage; org-admin scoped to a shared org). */
-router.put('/:id', requireAuth, requirePermission('members:manage'), updateUserById);
+router.put('/:id', requireAuth, requirePermission('members:manage'), requireStepUp, updateUserById);
 
 /** PUT /users/:id/features - Update user feature overrides (admin only) */
 router.put('/:id/features', requireAuth, requirePermission('members:manage'), updateUserFeatures);

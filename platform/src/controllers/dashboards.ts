@@ -18,7 +18,7 @@
  * boundary even when dashboards are user-editable.
  */
 
-import { createLogger, getParam, sendError, sendQuotaExceeded, sendSuccess, userHasPermission } from '@pipeline-builder/api-core';
+import { createLogger, getParam, sendError, sendQuotaReserveDenied, sendSuccess, userHasPermission } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { getAdminContext, isSystemAdmin, requireAuthContext, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
@@ -181,7 +181,7 @@ export const createDashboard = withController('Create dashboard', async (req, re
   // Per-org cap on dashboards; reserve atomically before insert.
   const reservation = await reserveFeatureQuota(orgId, 'dashboards');
   if (reservation.exceeded) {
-    return sendQuotaExceeded(res, 'dashboards', reservation.quota, reservation.quota.resetAt);
+    return sendQuotaReserveDenied(res, 'dashboards', reservation);
   }
 
   try {
@@ -334,7 +334,7 @@ export const restoreDashboard = withController('Restore dashboard', async (req, 
   // Reserve against the dashboard's own org (matching delete/create).
   const reservation = await reserveFeatureQuota(existing.orgId, 'dashboards');
   if (reservation.exceeded) {
-    return sendQuotaExceeded(res, 'dashboards', reservation.quota, reservation.quota.resetAt);
+    return sendQuotaReserveDenied(res, 'dashboards', reservation);
   }
 
   try {
@@ -393,7 +393,7 @@ export const cloneDashboard = withController('Clone dashboard', async (req, res)
   // a flurry of clones can't bypass the cap.
   const reservation = await reserveFeatureQuota(orgId, 'dashboards');
   if (reservation.exceeded) {
-    return sendQuotaExceeded(res, 'dashboards', reservation.quota, reservation.quota.resetAt);
+    return sendQuotaReserveDenied(res, 'dashboards', reservation);
   }
 
   try {

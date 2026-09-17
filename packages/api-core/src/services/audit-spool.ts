@@ -223,10 +223,9 @@ export function createRedisAuditSpool(
 }
 
 /**
- * Build a Redis-backed audit spool from the ambient `REDIS_URL` / `REDIS_HOST`
+ * Build a Redis-backed audit spool from the ambient `REDIS_URL` / `REDIS_SENTINELS`
  * env via the shared `createEnvRedisClient`. Returns `null` when Redis is not
- * configured or the client can't be constructed — the caller then runs without a
- * spool (pre-spool best-effort behavior), never crashing. The shared helper loads
+ * configured — the caller then runs without a spool (best-effort behavior). The shared helper loads
  * ioredis via `createRequire`, so this stays importable where Redis isn't present.
  */
 export function createEnvRedisAuditSpool(opts: { maxDepth?: number; key?: string } = {}): AuditSpool | null {

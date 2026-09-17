@@ -19,9 +19,11 @@ const logger = createLogger('entitlement-watermark');
  * only after a successful reconcile.
  *
  * The store lives in a tiny standalone table (`compliance_entitlement_watermark`,
- * one row per org) created lazily with `CREATE TABLE IF NOT EXISTS` — no RLS
- * policy (it carries no tenant content, only sync metadata) and reachable from
- * this service alone. All access runs under a sysadmin tenant scope because the
+ * one row per org) — no RLS policy (it carries no tenant content, only sync
+ * metadata) and reachable from this service alone. The table is owned by the
+ * schema bootstrap (`postgres-init.sql`), NOT created here: services connect as
+ * a non-superuser app role with no DDL rights on `public`, so a runtime
+ * `CREATE TABLE IF NOT EXISTS` fails with "permission denied for schema public". All access runs under a sysadmin tenant scope because the
  * entitlement-sync route has no org context (`:orgId` is the target root org,
  * not the token's org).
  */
@@ -29,19 +31,6 @@ const logger = createLogger('entitlement-watermark');
 /** Row shape returned by the raw watermark SELECT. */
 interface WatermarkRow {
   last_occurred_at: string | Date;
-}
-
-/** Ensure the watermark table exists. Idempotent; cheap after first call. */
-let ensured = false;
-async function ensureTable(tx: Parameters<Parameters<typeof withTenantTx>[0]>[0]): Promise<void> {
-  if (ensured) return;
-  await tx.execute(sql`
-    CREATE TABLE IF NOT EXISTS compliance_entitlement_watermark (
-      org_id text PRIMARY KEY,
-      last_occurred_at timestamptz NOT NULL
-    )
-  `);
-  ensured = true;
 }
 
 export class EntitlementWatermarkStore {
@@ -52,7 +41,6 @@ export class EntitlementWatermarkStore {
   async getLastOccurredAt(orgId: string): Promise<Date | null> {
     return runWithTenantContext({ isSuperAdmin: true }, () =>
       withTenantTx(async (tx) => {
-        await ensureTable(tx);
         const rows = drizzleRows<WatermarkRow>((await tx.execute(sql`
           SELECT last_occurred_at
           FROM compliance_entitlement_watermark
@@ -72,7 +60,6 @@ export class EntitlementWatermarkStore {
   async record(orgId: string, occurredAt: Date): Promise<void> {
     await runWithTenantContext({ isSuperAdmin: true }, () =>
       withTenantTx(async (tx) => {
-        await ensureTable(tx);
         await tx.execute(sql`
           INSERT INTO compliance_entitlement_watermark (org_id, last_occurred_at)
           VALUES (${orgId}, ${occurredAt.toISOString()})

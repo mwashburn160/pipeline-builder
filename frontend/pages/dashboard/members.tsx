@@ -26,7 +26,6 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ActionBar } from '@/components/ui/ActionBar';
 import { AddMemberModal } from '@/components/members/AddMemberModal';
-import { PasswordResetModal } from '@/components/members/PasswordResetModal';
 import { CreateOrgModal } from '@/components/members/CreateOrgModal';
 import { ManageTeamsModal } from '@/components/members/ManageTeamsModal';
 import { AddToTeamModal } from '@/components/members/AddToTeamModal';
@@ -201,11 +200,6 @@ export default function MembersPage() {
 
   const createOrgForm = useFormState();
 
-  // Password reset
-  const [passwordTarget, setPasswordTarget] = useState<OrganizationMember | null>(null);
-  const [newPassword, setNewPassword] = useState('');
-  const passwordForm = useFormState();
-
   // Manage teams (org → team hierarchy: a member can belong to multiple teams).
   // Only meaningful when the active org is a root that parents teams.
   const canManageTeams = activeOrgIsRoot && childTeamCount > 0;
@@ -288,22 +282,6 @@ export default function MembersPage() {
     }
   };
 
-  const handlePasswordReset = async () => {
-    if (!passwordTarget) return;
-    if (!newPassword || newPassword.length < 8) {
-      passwordForm.setError('Password must be at least 8 characters');
-      return;
-    }
-    const result = await passwordForm.run(
-      () => api.updateUserById(passwordTarget.id, { password: newPassword }),
-      { successMessage: 'Password updated successfully' },
-    );
-    if (result !== null) {
-      setNewPassword('');
-      setTimeout(() => { setPasswordTarget(null); passwordForm.reset(); }, 1500);
-    }
-  };
-
   // Deactivating a member revokes their access, so it's confirmed first;
   // reactivation is harmless and applies immediately. Both paths toast.
   const [deactivateTarget, setDeactivateTarget] = useState<OrganizationMember | null>(null);
@@ -369,7 +347,6 @@ export default function MembersPage() {
     onManageTeams: memberTeams.openManageTeams,
     onTransfer: (m) => setTransferConfirm(m),
     onManageRoles: memberRoles.openManageRoles,
-    onResetPassword: (m) => { setPasswordTarget(m); setNewPassword(''); passwordForm.reset(); },
     onToggleActive: handleToggleActive,
     onRemove: (m) => removeMember.open(m),
   }),
@@ -566,16 +543,6 @@ export default function MembersPage() {
         onRetry={memberRoles.fetchRoles}
         onSubmit={memberRoles.handleSaveRoles}
         onClose={memberRoles.closeRoles}
-      />
-
-      {/* Password reset modal */}
-      <PasswordResetModal
-        target={passwordTarget}
-        password={newPassword}
-        onPasswordChange={setNewPassword}
-        form={passwordForm}
-        onSubmit={handlePasswordReset}
-        onClose={() => setPasswordTarget(null)}
       />
 
       {/* Create organization modal */}

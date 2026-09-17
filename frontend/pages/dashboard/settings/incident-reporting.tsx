@@ -21,7 +21,7 @@ import { Callout } from '@/components/ui/Callout';
 import { IncidentReportingSettings } from '@/components/settings/IncidentReportingSettings';
 
 export default function IncidentReportingSettingsPage() {
-  const { isReady, user, isSuperAdmin } = useAuthGuard({ requireAdmin: true });
+  const { isReady, user, isSuperAdmin, isReadOnly } = useAuthGuard({ requireAdmin: true });
   const { isEnabled, isLoaded } = useFeatures();
 
   if (!isReady || !user) return <LoadingPage />;
@@ -46,7 +46,7 @@ export default function IncidentReportingSettingsPage() {
             Reporting add-on on other tiers. Upgrade or add the entitlement to configure the incident webhook.
           </Callout>
         ) : (
-          <IncidentReportingSettings />
+          <IncidentReportingSettings readOnly={isReadOnly} />
         )}
       </div>
     </DashboardLayout>

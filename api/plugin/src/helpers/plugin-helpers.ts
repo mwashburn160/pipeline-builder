@@ -5,6 +5,7 @@ import { normalizeArrayFields, SYSTEM_ORG_ID, type Visibility } from '@pipeline-
 import { type ComputeType, type PluginType } from '@pipeline-builder/pipeline-core';
 
 import type { BuildRequest, BuildType } from './docker-build.js';
+import type { WriteAccess } from '../services/plugin-service.js';
 
 /** Plugin config parsed from config.yaml in the ZIP root. */
 export interface PluginConfig {
@@ -89,6 +90,9 @@ export interface PluginBuildJobData {
   requestId: string;
   orgId: string;
   userId: string;
+  /** The uploader's visibility-ladder authority, snapshotted at upload time so
+   *  the worker's `deployVersion` applies the same overwrite gate the route did. */
+  access: WriteAccess;
   buildRequest: BuildRequest;
   pluginRecord: PluginRecordData;
   failureCategory?: FailureCategory;
@@ -118,6 +122,7 @@ interface CreateBuildJobParams {
   requestId: string;
   orgId: string;
   userId: string;
+  access: WriteAccess;
   buildRequest: BuildRequest;
   pluginRecord: Partial<PluginRecordData> & Pick<PluginRecordData, 'orgId' | 'name' | 'version' | 'commands' | 'visibility'>;
   /** ISO `resetAt` observed when the plugins slot was reserved (see

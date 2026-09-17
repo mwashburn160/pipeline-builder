@@ -15,7 +15,7 @@
  * pulls to pick up operator-authored rules at runtime.
  */
 
-import { createLogger, getParam, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, getParam, sendError, sendQuotaReserveDenied, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { isSystemAdmin, requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
@@ -98,7 +98,7 @@ export const createAlertRule = withController('Create alert rule', async (req, r
   // Per-org cap on alert rules; reserve atomically before insert.
   const reservation = await reserveFeatureQuota(orgId, 'alertRules');
   if (reservation.exceeded) {
-    return sendQuotaExceeded(res, 'alertRules', reservation.quota, reservation.quota.resetAt);
+    return sendQuotaReserveDenied(res, 'alertRules', reservation);
   }
 
   try {
@@ -192,7 +192,7 @@ export const restoreAlertRule = withController('Restore alert rule', async (req,
   // Restore re-adds a live row → re-reserve the feature slot delete released.
   const reservation = await reserveFeatureQuota(orgId, 'alertRules');
   if (reservation.exceeded) {
-    return sendQuotaExceeded(res, 'alertRules', reservation.quota, reservation.quota.resetAt);
+    return sendQuotaReserveDenied(res, 'alertRules', reservation);
   }
 
   try {

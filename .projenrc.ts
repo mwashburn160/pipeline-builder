@@ -344,7 +344,7 @@ const apiCore = new PackageProject({
     '@aws-sdk/credential-providers@3.1101.0',
     // Redis client for the env-based token-revocation READER
     // (createEnvRedisTokenRevocationStore). Loaded via a guarded dynamic require
-    // only when a service configures REDIS_URL/REDIS_HOST, so it stays optional
+    // only when a service configures REDIS_URL/REDIS_SENTINELS, so it stays optional
     // at runtime; declared here so the require resolves in every consumer.
     'ioredis@6.0.0',
   ],

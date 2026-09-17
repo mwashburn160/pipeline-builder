@@ -347,7 +347,9 @@ grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | sed "s|[\$]{PLATFORM_FRONTEND_URL}|$
 # minikube user, so make it readable by that user only — not world (mktemp is 600
 # root, which the minikube-user kubectl couldn't read; 644 would expose secrets).
 chown minikube:minikube "$CLEAN_ENV"; chmod 600 "$CLEAN_ENV"
-pb_app_env_configmap "$CLEAN_ENV"
+# Split into the app-env ConfigMap (settings) + app-secrets Secret (credentials);
+# superuser/admin creds go to neither. The split files get the same owner/mode.
+PB_ENV_FILE_OWNER=minikube:minikube pb_app_env_resources "$CLEAN_ENV"
 rm -f "$CLEAN_ENV"
 
 # Application secrets + optional GHCR pull secret (shared creators).

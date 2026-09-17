@@ -147,7 +147,7 @@ spec:
             failureThreshold: 3
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:4.1.2
+          image: ghcr.io/mwashburn160/plugin:4.1.3
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -164,10 +164,11 @@ spec:
           envFrom:
             - configMapRef:
                 name: app-env
+            # Credentials (DB_PASSWORD, MONGODB_URI, API keys, …) split out of app-env.
+            - secretRef:
+                name: app-secrets
             - secretRef:
                 name: jwt-secret
-            - secretRef:
-                name: postgres-secret
           env:
             - name: SERVICE_NAME
               value: "plugin"
@@ -193,10 +194,6 @@ spec:
             # the CodeBuild runtime). Set linux/arm64 for an all-Graviton stack.
             - name: PUBLISH_PLATFORM
               value: "linux/amd64"
-            - name: REDIS_HOST
-              value: "redis"
-            - name: REDIS_PORT
-              value: "6379"
             - name: COMPLIANCE_SERVICE_HOST
               value: "compliance"
             - name: COMPLIANCE_SERVICE_PORT

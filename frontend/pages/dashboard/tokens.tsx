@@ -10,6 +10,7 @@ import { CodeBlock } from '@/components/ui/CodeBlock';
 import { DescriptionList, type DescriptionItem } from '@/components/ui/DescriptionList';
 import { SegmentedFilter } from '@/components/ui/SegmentedFilter';
 import { Button } from '@/components/ui/Button';
+import { ReadOnlyNotice, READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { CopyButton } from '@/components/ui/CopyButton';
@@ -159,7 +160,9 @@ type TokenTab = (typeof TOKEN_TABS)[number]['id'];
 const TOKEN_TAB_IDS = TOKEN_TABS.map((t) => t.id) as readonly string[];
 
 export default function TokensPage() {
-  const { user, isReady, isAuthenticated } = useAuthGuard();
+  // `isReadOnly` (read-only impersonation) disables every token mint/revoke —
+  // all POSTs the backend's global read-only guard rejects.
+  const { user, isReady, isAuthenticated, isReadOnly } = useAuthGuard();
 
   // Active tab, hydrated from `?tab=` and kept in sync (shallow) so it's
   // shareable / back-forward-friendly — same pattern as the Billing page.
@@ -272,6 +275,7 @@ export default function TokensPage() {
     <DashboardLayout title="API Tokens" subtitle="Create and revoke API tokens" maxWidth="4xl">
       <div className="space-y-6">
         <TabBar items={[...TOKEN_TABS]} activeId={activeTab} onSelect={(id) => changeTab(id as TokenTab)} />
+        <ReadOnlyNotice show={isReadOnly} />
 
         {activeTab === 'tokens' && (
           <div className="space-y-6">
@@ -283,12 +287,12 @@ export default function TokensPage() {
               <ErrorAlert message={genError} />
               <SuccessAlert message={genSuccess} />
 
-              <Button onClick={handleGenerateToken} loading={generating} className={genError || genSuccess ? 'mt-4' : ''}>
+              <Button onClick={handleGenerateToken} loading={generating} disabled={isReadOnly} title={isReadOnly ? READ_ONLY_REASON : undefined} className={genError || genSuccess ? 'mt-4' : ''}>
                 {generating ? 'Generating...' : <><RefreshCw className="w-4 h-4 mr-2" />Generate Token</>}
               </Button>
             </SectionCard>
 
-            <PatSection />
+            <PatSection readOnly={isReadOnly} />
           </div>
         )}
 
@@ -310,7 +314,7 @@ export default function TokensPage() {
           }
           description="Last 20 access tokens issued for your account, with computed status. Each unexpired + unrevoked token is an active session. JWTs cannot be revoked individually — use “Sign out everywhere” to invalidate all of them at once."
           actions={
-            <Button variant="danger" onClick={() => setPendingRevokeAll(true)} loading={revoking} className="flex-shrink-0">
+            <Button variant="danger" onClick={() => setPendingRevokeAll(true)} loading={revoking} disabled={isReadOnly} title={isReadOnly ? READ_ONLY_REASON : undefined} className="flex-shrink-0">
               {revoking ? 'Revoking…' : <><ShieldOff className="w-4 h-4 mr-2" />Sign out everywhere</>}
             </Button>
           }

@@ -112,7 +112,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
 
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: {} }));
 
-const { bulkDeleteUsers } = await import('../src/controllers/user-admin.js');
+const { bulkDeleteUsers, deleteUserById } = await import('../src/controllers/user-admin.js');
 
 
 function mockRes() {
@@ -241,5 +241,29 @@ describe('bulkDeleteUsers', () => {
 
     const payload = (res.json as jest.Mock).mock.calls[0][0].data;
     expect(payload.results[0].error).toBe('mongo timeout');
+  });
+});
+
+describe('deleteUserById — deleting an account is platform-admin only', () => {
+  it('refuses an org admin, even for a member of their own organization', async () => {
+    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: true, isSuperAdmin: false });
+    const res = mockRes();
+    await (deleteUserById as unknown as (req: any, res: any) => Promise<void>)(
+      { user: { sub: 'org-admin', organizationId: 'org-1' }, params: { id: 'member' } }, res,
+    );
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockDeleteUserById).not.toHaveBeenCalled();
+  });
+
+  it('lets a platform admin delete an account', async () => {
+    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: false, isSuperAdmin: true });
+    mockLookupPrimaryOrgId.mockResolvedValue('org-9');
+    mockDeleteUserById.mockResolvedValue(undefined);
+    const res = mockRes();
+    await (deleteUserById as unknown as (req: any, res: any) => Promise<void>)(
+      { user: { sub: 'root' }, params: { id: 'member' } }, res,
+    );
+    expect(mockDeleteUserById).toHaveBeenCalledWith('member');
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'admin.user.delete', expect.objectContaining({ affectedOrgId: 'org-9' }));
   });
 });

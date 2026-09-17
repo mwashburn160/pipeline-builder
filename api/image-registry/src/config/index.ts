@@ -74,15 +74,17 @@ export interface AppConfig {
   };
 
   /**
-   * Platform service URL — used for the `docker login` flow (auth-resolver
-   * Path 2). Incoming Basic auth that doesn't decode as a JWT is forwarded
-   * to platform's `/auth/login`, which returns a JWT we can introspect for
-   * org claims.
-   *
-   * Empty string disables the `docker login` path (defaults to disabled
-   * to avoid surprise outbound calls during testing).
+   * Platform service, reached IN-CLUSTER for the `docker login` flow
+   * (auth-resolver Path 2): Basic auth whose password isn't a JWT is forwarded
+   * to platform's `/auth/login`. Same `PLATFORM_SERVICE_HOST`/`_PORT` every other
+   * service uses to call platform (billing, message, remote audit) — NOT the
+   * public `PLATFORM_BASE_URL`, which is the ingress URL (with an `/api` prefix
+   * that the platform service itself doesn't serve).
    */
-  readonly platformUrl: string;
+  readonly platformService: {
+    readonly host: string;
+    readonly port: number;
+  };
 }
 
 export function loadConfig(): AppConfig {
@@ -114,7 +116,10 @@ export function loadConfig(): AppConfig {
       audience: process.env.JWT_AUDIENCE,
     },
 
-    platformUrl: process.env.PLATFORM_BASE_URL || '',
+    platformService: {
+      host: process.env.PLATFORM_SERVICE_HOST || 'platform',
+      port: parseInt(process.env.PLATFORM_SERVICE_PORT || '3000', 10),
+    },
   };
 }
 

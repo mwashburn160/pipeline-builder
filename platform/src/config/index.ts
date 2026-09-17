@@ -216,6 +216,12 @@ export const config = {
       // most this TTL before natural expiry forces a refresh.
       expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '900', 10), // 15 min
       algorithm: (process.env.JWT_ALGORITHM || 'HS256') as Algorithm,
+      /** Rotation: tokens signed with the previous secret keep verifying while it's set. */
+      secretPrevious: process.env.JWT_SECRET_PREVIOUS || undefined,
+      /** Pinned on every token platform signs and checked on every token it verifies,
+       *  when set. Must match what api-core's requireAuth expects. */
+      issuer: process.env.JWT_ISSUER || undefined,
+      audience: process.env.JWT_AUDIENCE || undefined,
       /**
        * Per-tier access-token TTL overrides (seconds). When a tier's
        * override is unset, falls back to `expiresIn`. Enterprise/

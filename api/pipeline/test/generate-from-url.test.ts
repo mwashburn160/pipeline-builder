@@ -15,7 +15,7 @@ const mockValidateBody = jest.fn();
 const mockSendBadRequest = jest.fn();
 const mockSendInternalError = jest.fn();
 const mockSendSuccess = jest.fn();
-const mockSendQuotaExceeded = jest.fn();
+const mockSendQuotaReserveDenied = jest.fn();
 const mockCreateSafeClient = jest.fn();
 const mockPluginClientPost = jest.fn();
 const mockDbSelect = jest.fn();
@@ -70,7 +70,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   // reserve+rollback. Default: not exceeded.
   reserveQuota: (...args: unknown[]) => mockReserveQuota(...args),
   decrementQuota: (...args: unknown[]) => mockDecrementQuota(...args),
-  sendQuotaExceeded: (...args: unknown[]) => mockSendQuotaExceeded(...args),
+  sendQuotaReserveDenied: (...args: unknown[]) => mockSendQuotaReserveDenied(...args),
   // Concurrency-bounded fan-out helper used by autoCreateMissingPlugins. Tests
   // don't care about the concurrency bound — run sequentially and aggregate.
   runConcurrent: async <T, R>(items: T[], _max: number, fn: (item: T) => Promise<R>): Promise<R[]> => {

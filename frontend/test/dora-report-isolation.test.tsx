@@ -168,4 +168,24 @@ describe('DoraReport — deploy list (mark failed/restored)', () => {
     expect(screen.queryByRole('button', { name: /mark failed/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /mark restored/i })).not.toBeInTheDocument();
   });
+
+  it('disables the mark actions with the reason under read-only impersonation', () => {
+    const onMarkOutcome = jest.fn().mockResolvedValue(undefined);
+    render(
+      <DoraReport
+        {...baseProps}
+        dora={doraWithData}
+        deployments={[deployRow]}
+        deployPipelineSelected
+        markReadOnly
+        onMarkOutcome={onMarkOutcome}
+      />,
+    );
+    const failed = screen.getByRole('button', { name: /mark failed/i });
+    expect(failed).toBeDisabled();
+    expect(failed).toHaveAttribute('title', expect.stringMatching(/read-only session/i));
+    expect(screen.getByRole('button', { name: /mark restored/i })).toBeDisabled();
+    fireEvent.click(failed);
+    expect(onMarkOutcome).not.toHaveBeenCalled();
+  });
 });

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendBadRequest, sendSuccess, ErrorCode, resolveVisibility, isSystemAdmin, userHasPermission, VisibilitySchema } from '@pipeline-builder/api-core';
+import { sendBadRequest, sendError, sendSuccess, ErrorCode, resolveVisibility, isSystemAdmin, checkVisibilityWriteAccess, userHasPermission, VisibilitySchema } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
@@ -26,6 +26,33 @@ const BulkPluginUpdateDataSchema = z.object({
 
 
 /**
+ * Bulk `ids`: FULL UUIDs only. The id filter the CRUD layer builds treats a
+ * partial id as a PREFIX (`id::text LIKE 'x%'` — a list-search affordance), so a
+ * bulk write accepting free-form strings let `ids: ['']` (or `['a']`) match every
+ * plugin in the org (or ~1/16 of it) — and the per-row visibility check, which
+ * loads rows by EXACT id, never saw those rows at all.
+ */
+const BulkIdsSchema = z.array(z.string().uuid()).min(1).max(CoreConstants.MAX_BULK_ITEMS);
+
+/** Parse `ids`, or send the 400 and return null. */
+function parseBulkIds(res: Parameters<typeof sendBadRequest>[0], raw: unknown): string[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    sendBadRequest(res, 'Request body must include a non-empty "ids" array', ErrorCode.VALIDATION_ERROR);
+    return null;
+  }
+  if (raw.length > CoreConstants.MAX_BULK_ITEMS) {
+    sendBadRequest(res, `Maximum ${CoreConstants.MAX_BULK_ITEMS} items per bulk operation`, ErrorCode.VALIDATION_ERROR);
+    return null;
+  }
+  const parsed = BulkIdsSchema.safeParse(raw);
+  if (!parsed.success) {
+    sendBadRequest(res, '"ids" must be full plugin UUIDs', ErrorCode.VALIDATION_ERROR);
+    return null;
+  }
+  return parsed.data;
+}
+
+/**
  * Register bulk operation routes for plugins.
  * Requires auth + orgId middleware applied at the parent level.
  */
@@ -34,15 +61,8 @@ export function createBulkPluginRoutes(): Router {
 
   /** POST /plugins/bulk/delete — Soft-delete multiple plugins by ID */
   router.post('/bulk/delete', withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const { ids } = req.body;
-
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return sendBadRequest(res, 'Request body must include a non-empty "ids" array', ErrorCode.VALIDATION_ERROR);
-    }
-
-    if (ids.length > CoreConstants.MAX_BULK_ITEMS) {
-      return sendBadRequest(res, `Maximum ${CoreConstants.MAX_BULK_ITEMS} items per bulk operation`, ErrorCode.VALIDATION_ERROR);
-    }
+    const ids = parseBulkIds(res, req.body?.ids);
+    if (!ids) return;
 
     ctx.log('INFO', 'Bulk delete plugins', { count: ids.length });
 
@@ -78,15 +98,9 @@ export function createBulkPluginRoutes(): Router {
 
   /** PUT /plugins/bulk/update — Update multiple plugins with the same data */
   router.put('/bulk/update', withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const { ids, data } = req.body;
-
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return sendBadRequest(res, 'Request body must include a non-empty "ids" array', ErrorCode.VALIDATION_ERROR);
-    }
-
-    if (ids.length > CoreConstants.MAX_BULK_ITEMS) {
-      return sendBadRequest(res, `Maximum ${CoreConstants.MAX_BULK_ITEMS} items per bulk operation`, ErrorCode.VALIDATION_ERROR);
-    }
+    const ids = parseBulkIds(res, req.body?.ids);
+    if (!ids) return;
+    const data = req.body?.data;
 
     if (!data || typeof data !== 'object') {
       return sendBadRequest(res, 'Request body must include a "data" object with fields to update', ErrorCode.VALIDATION_ERROR);
@@ -106,6 +120,35 @@ export function createBulkPluginRoutes(): Router {
     const updateData = { ...dataValidation.data };
     if (updateData.visibility !== undefined) {
       updateData.visibility = resolveVisibility(req, updateData.visibility, 'plugins:publish');
+    }
+
+    // A default is singular per (name, org). Bulk-setting `isDefault: true` fans
+    // out a plain UPDATE, bypassing deployVersion/setDefault's clear-others
+    // transaction and leaving several defaults. Promote one via PUT /plugins/:id.
+    // (Bulk-clearing `false` is fine.) Mirrors bulk pipeline update.
+    if (updateData.isDefault === true) {
+      return sendBadRequest(res, 'Cannot set isDefault=true in bulk; promote a default via PUT /plugins/:id', ErrorCode.VALIDATION_ERROR);
+    }
+
+    // Same per-row visibility rule as single-row update (requireVisibilityWriteAccess):
+    // `public` needs plugins:publish, `private` is author-only, `org` any member.
+    // updateMany's read predicate already hides other authors' private rows, but
+    // it happily matches PUBLIC rows — so without this a member could bulk-edit
+    // (deactivate, re-describe, or downgrade to `org`) a published plugin.
+    if (!isSystemAdmin(req)) {
+      const matched = await pluginService.findByIds(ids, orgId);
+      const forbidden = matched.filter(
+        (p) => checkVisibilityWriteAccess(req, p, userId, 'plugins:publish') !== 'ok',
+      );
+      if (forbidden.length > 0) {
+        return sendError(
+          res,
+          403,
+          'Bulk update rejected: you cannot modify one or more of these plugins',
+          ErrorCode.INSUFFICIENT_PERMISSIONS,
+          { ids: forbidden.map((p) => p.id) },
+        );
+      }
     }
 
     ctx.log('INFO', 'Bulk update plugins', { count: ids.length });

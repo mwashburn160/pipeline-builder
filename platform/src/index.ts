@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { createHealthRouter, createLogger, installCrashHandlers, mongoSanitize, sendError } from '@pipeline-builder/api-core';
-import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck } from '@pipeline-builder/api-server';
+import { createHealthRouter, createLogger, installCrashHandlers, mongoSanitize, resolveRedisConnection, sendError, verifyServicePrincipal } from '@pipeline-builder/api-core';
+import { createSharedRateLimitStore, withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -22,6 +22,10 @@ import {
 import { authRoutes, oauthRoutes, ssoRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, logRoutes, auditRoutes, notifyEmailRoutes, configRoutes, observabilityRoutes, dashboardRoutes, orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminSummaryRoutes, impersonateRoutes } from './routes/index.js';
 
 const logger = createLogger('platform-api');
+
+// Refuse to start on an unusable Redis configuration (throws RedisConfigError)
+// rather than running with Redis-backed guarantees quietly switched off.
+resolveRedisConnection();
 
 // NOTE: OpenTelemetry is initialized by the `otel-bootstrap.js` preload
 // (`node -r ./otel-bootstrap.js index.js` — see Dockerfile / start script),
@@ -80,6 +84,9 @@ function isAlertWebhook(req: Request): boolean {
 
 /** Generous, dedicated bucket for the alert relay — see `isAlertWebhook`. */
 const alertWebhookLimiter = rateLimit({
+  // Shared across replicas (Redis); a store outage lets requests through.
+  store: createSharedRateLimitStore('platform:alert-webhook'),
+  passOnStoreError: true,
   windowMs: config.rateLimit.alertWebhook.windowMs,
   max: config.rateLimit.alertWebhook.max,
   keyGenerator: extractClientIp,
@@ -90,6 +97,9 @@ const alertWebhookLimiter = rateLimit({
 
 /** General rate limiter  per-tier max, keyed by org (or IP for anon callers). */
 const limiter = rateLimit({
+  // Shared across replicas (Redis); a store outage lets requests through.
+  store: createSharedRateLimitStore('platform:general'),
+  passOnStoreError: true,
   windowMs: config.rateLimit.windowMs,
   max: tierLimitedMax,
   keyGenerator: rateLimitKey,
@@ -115,9 +125,17 @@ const limiter = rateLimit({
 
 /** Strict rate limiter for auth endpoints (login, register, OAuth)  IP-based since user is not yet authenticated. */
 const authLimiter = rateLimit({
+  // Shared across replicas (Redis); a store outage lets requests through.
+  store: createSharedRateLimitStore('platform:auth'),
+  passOnStoreError: true,
   windowMs: config.rateLimit.auth.windowMs,
   max: config.rateLimit.auth.max,
   keyGenerator: extractClientIp,
+  // A verified internal service (image-registry relaying `docker login`) sends
+  // every user's attempt from one pod IP; counting those in one IP bucket would
+  // let one user's failures lock everyone out. That service limits per client
+  // and username itself (image-registry token-rate-limiter).
+  skip: (req: Request) => verifyServicePrincipal(req),
   message: { success: false, statusCode: 429, message: 'Too many authentication attempts. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -130,6 +148,9 @@ const authLimiter = rateLimit({
  * orgs go blank). Keys by JWT-claimed org when present, falls back to IP.
  */
 const observabilityLimiter = rateLimit({
+  // Shared across replicas (Redis); a store outage lets requests through.
+  store: createSharedRateLimitStore('platform:observability'),
+  passOnStoreError: true,
   windowMs: config.rateLimit.observability.windowMs,
   max: config.rateLimit.observability.max,
   keyGenerator: rateLimitKey,
@@ -421,10 +442,6 @@ async function initDependencies(): Promise<void> {
       backgroundSweeps.push(setInterval(() => {
         void runWithLeaderLock('platform:leader:billing-reconcile', lockTtlMs, async () => {
           await reconcilePendingBillingSubscriptions();
-        }).catch((err) => {
-          logger.error('Billing reconcile (interval) failed', {
-            error: err instanceof Error ? err.message : String(err),
-          });
         });
       }, intervalMs).unref());
     }
@@ -446,10 +463,6 @@ async function initDependencies(): Promise<void> {
           const { orgDomainService } = await import('./services/org-domain-service.js');
           const res = await orgDomainService.reverifyStaleDomains(reverifyStaleMs);
           if (res.checked > 0) logger.info('Domain re-verification sweep', res);
-        }).catch((err) => {
-          logger.error('Domain re-verification sweep failed', {
-            error: err instanceof Error ? err.message : String(err),
-          });
         });
       }, reverifyIntervalMs).unref());
     }

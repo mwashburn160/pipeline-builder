@@ -132,23 +132,6 @@ spec:
                   name: alertmanager-slack
                   key: SLACK_WEBHOOK_URL_WARNING
                   optional: true
-            # Multi-tenant relay: alertmanager POSTs org-labeled alerts to
-            # the platform service, which fans out per the org_alert_destinations
-            # table.
-            - name: PLATFORM_ALERT_WEBHOOK_URL
-              value: "http://nginx:8080/api/observability/alert-webhook"
-            - name: ALERT_WEBHOOK_INSTANCE_ID
-              valueFrom:
-                secretKeyRef:
-                  name: alertmanager-relay
-                  key: ALERT_WEBHOOK_INSTANCE_ID
-                  optional: true
-            - name: ALERT_WEBHOOK_INSTANCE_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: alertmanager-relay
-                  key: ALERT_WEBHOOK_INSTANCE_TOKEN
-                  optional: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -183,12 +166,25 @@ spec:
             - name: alertmanager-config
               mountPath: /etc/alertmanager
               readOnly: true
+            # Per-org relay bearer token, read per request by the platform-relay
+            # receiver (credentials_file: /etc/alertmanager-secrets/relay-token).
+            # A separate path — not nested under the read-only config mount.
+            - name: alertmanager-relay
+              mountPath: /etc/alertmanager-secrets
+              readOnly: true
             - name: alertmanager-storage
               mountPath: /alertmanager
       volumes:
         - name: alertmanager-config
           configMap:
             name: alertmanager-config
+        - name: alertmanager-relay
+          secret:
+            secretName: alertmanager-relay
+            defaultMode: 0444
+            items:
+              - key: ALERT_WEBHOOK_INSTANCE_TOKEN
+                path: relay-token
         - name: alertmanager-storage
           persistentVolumeClaim:
             claimName: alertmanager-data

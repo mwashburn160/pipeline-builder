@@ -70,14 +70,14 @@ describe('IncidentReportingSettings', () => {
   });
 
   it('renders the generic + Alertmanager webhook endpoints', async () => {
-    render(<IncidentReportingSettings />);
+    render(<IncidentReportingSettings readOnly={false} />);
     goTab(/^Webhooks$/);
     expect(await screen.findByText(/\/api\/reports\/incidents$/)).toBeInTheDocument();
     expect(screen.getAllByText(/\/api\/reports\/incidents\/alertmanager$/).length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows the loaded per-org correlation window (override)', async () => {
-    render(<IncidentReportingSettings />);
+    render(<IncidentReportingSettings readOnly={false} />);
     await waitFor(() => expect(getIncidentSettings).toHaveBeenCalled());
     goTab(/^Providers$/);
     expect(await screen.findByText(/override/)).toBeInTheDocument();
@@ -85,7 +85,7 @@ describe('IncidentReportingSettings', () => {
   });
 
   it('opens the step-up modal when generating a webhook token', async () => {
-    render(<IncidentReportingSettings />);
+    render(<IncidentReportingSettings readOnly={false} />);
     goTab(/^Webhooks$/);
     fireEvent.click(screen.getByRole('button', { name: /generate webhook token/i }));
     expect(await screen.findByTestId('stepup-modal')).toBeInTheDocument();
@@ -93,7 +93,7 @@ describe('IncidentReportingSettings', () => {
 
   it('runs a non-persisting test-incident correlation and shows the result', async () => {
     sendTestIncident.mockResolvedValue({ environment: 'production', openedAt: '2026-08-20T00:00:00Z', windowHours: 6, correlated: true, executionId: 'exec-A', deployCompletedAt: '2026-08-19T23:00:00Z' });
-    render(<IncidentReportingSettings />);
+    render(<IncidentReportingSettings readOnly={false} />);
     goTab(/Test & history/);
     fireEvent.click(screen.getByRole('button', { name: /send test incident/i }));
     await waitFor(() => expect(sendTestIncident).toHaveBeenCalledWith('production'));
@@ -101,14 +101,14 @@ describe('IncidentReportingSettings', () => {
   });
 
   it('lists recent incidents with their correlated deploy', async () => {
-    render(<IncidentReportingSettings />);
+    render(<IncidentReportingSettings readOnly={false} />);
     goTab(/Test & history/);
     expect(await screen.findByText('pd-1')).toBeInTheDocument();
     expect(screen.getByText('exec-A')).toBeInTheDocument();
   });
 
   it('shows the default split retention windows (30 / 180 days)', async () => {
-    render(<IncidentReportingSettings />);
+    render(<IncidentReportingSettings readOnly={false} />);
     await waitFor(() => expect(getIncidentSettings).toHaveBeenCalled());
     goTab(/^Retention$/);
     expect(await screen.findByText(/30 days/)).toBeInTheDocument();
@@ -116,7 +116,7 @@ describe('IncidentReportingSettings', () => {
   });
 
   it('renders retention READ-ONLY (no editable inputs, no save) with an extend CTA', async () => {
-    render(<IncidentReportingSettings />);
+    render(<IncidentReportingSettings readOnly={false} />);
     await waitFor(() => expect(getIncidentSettings).toHaveBeenCalled());
     goTab(/^Retention$/);
     // Retention is billing-owned now: no editable inputs, no save button.
@@ -135,9 +135,27 @@ describe('IncidentReportingSettings', () => {
       eventRetentionDays: -1, doraRetentionDays: -1,
       defaultEventRetentionDays: 30, defaultDoraRetentionDays: 180,
     });
-    render(<IncidentReportingSettings />);
+    render(<IncidentReportingSettings readOnly={false} />);
     await waitFor(() => expect(getIncidentSettings).toHaveBeenCalled());
     goTab(/^Retention$/);
     expect((await screen.findAllByText(/Unlimited/)).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('disables every write (token, window, test incident) under read-only impersonation', async () => {
+    render(<IncidentReportingSettings readOnly />);
+    expect(screen.getByText('Read-only session')).toBeInTheDocument();
+
+    goTab(/^Webhooks$/);
+    expect(screen.getByRole('button', { name: /generate webhook token/i })).toBeDisabled();
+
+    goTab(/^Providers$/);
+    await waitFor(() => expect(getIncidentSettings).toHaveBeenCalled());
+    expect(screen.getByRole('button', { name: /save window/i })).toBeDisabled();
+
+    goTab(/Test & history/);
+    const send = screen.getByRole('button', { name: /send test incident/i });
+    expect(send).toBeDisabled();
+    fireEvent.click(send);
+    expect(sendTestIncident).not.toHaveBeenCalled();
   });
 });

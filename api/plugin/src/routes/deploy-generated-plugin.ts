@@ -5,13 +5,14 @@ import * as fs from 'fs';
 import path from 'path';
 
 import {
+  isSystemAdmin,
   requirePermission,
   reserveQuota,
   decrementQuota,
   resolveVisibility,
   sendBadRequest,
   sendError,
-  sendQuotaExceeded,
+  sendQuotaReserveDenied,
   sendSuccess,
   validateBody,
   errorMessage,
@@ -19,6 +20,7 @@ import {
   getServiceAuthHeader,
   createComplianceClient,
   PluginDeployGeneratedSchema,
+  userHasPermission,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { getIdempotencyStore, withRoute, type SSEManager } from '@pipeline-builder/api-server';
@@ -32,6 +34,7 @@ import { createBuildJobData } from '../helpers/plugin-helpers.js';
 import { validateBuildArgs } from '../helpers/plugin-spec.js';
 import { enqueueBuild, getOrgTier } from '../queue/plugin-build-queue.js';
 import { emitPluginAudit } from '../services/audit.js';
+import { pluginService } from '../services/plugin-service.js';
 
 // Fail-closed compliance client (shared with the upload path's contract):
 // an unreachable compliance service rejects the deploy rather than letting it through.
@@ -79,6 +82,13 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
 
       // Validate buildArgs (throws ValidationError → handled by withRoute)
       validateBuildArgs(buildArgs);
+
+      // Refuse (typed 403/409 → withRoute) a deploy that would overwrite a
+      // (name, version) the caller can't write or un-delete a tombstone — before
+      // the idempotency claim, quota and the image build. The worker's
+      // deployVersion re-checks under its lock with the same snapshot.
+      const access = { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'plugins:publish') };
+      await pluginService.assertDeployable(orgId, name, version, userId || 'system', access);
 
       // -- Idempotency guard (Wave-1 Redis IdempotencyStore) ----------------
       // The auto-plugin-creation path sends `Idempotency-Key: <requestId>:<name>`
@@ -149,9 +159,10 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
         throw err;
       }
       if (reservation.exceeded) {
-        ctx.log('WARN', 'Plugin quota exceeded', { orgId, used: reservation.quota.used, limit: reservation.quota.limit });
+        ctx.log('WARN', reservation.unavailable ? 'Plugin quota unconfirmable (quota service unavailable)' : 'Plugin quota exceeded', { orgId, used: reservation.quota.used, limit: reservation.quota.limit });
         releaseIdem();
-        return sendQuotaExceeded(res, 'plugins', reservation.quota, reservation.quota.resetAt);
+        // 503 + Retry-After when the quota service couldn't confirm; 429 when over limit.
+        return sendQuotaReserveDenied(res, 'plugins', reservation);
       }
       let reserved = true;
 
@@ -219,6 +230,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
           requestId: ctx.requestId,
           orgId,
           userId: userId || 'system',
+          access,
           // Period snapshot for the reserved slot so a DLQ retry spanning a
           // quota reset refunds the correct period (see releasePluginQuota).
           reservedResetAt: reservation.quota.resetAt,

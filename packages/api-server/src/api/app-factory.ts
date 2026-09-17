@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, setCounterEmitter, safeCreateRequire, requireAuth, safeEqual, createEnvRedisClient } from '@pipeline-builder/api-core';
+import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, setCounterEmitter, requireAuth, safeEqual } from '@pipeline-builder/api-core';
 import type { OpenApiSpecOptions } from '@pipeline-builder/api-core';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { getConnection } from '@pipeline-builder/pipeline-data';
@@ -15,6 +15,7 @@ import { v7 as uuid } from 'uuid';
 import { etagMiddleware } from './etag-middleware.js';
 import { createEnvRedisIdempotencyStore, setIdempotencyStore, type IdempotencyStore } from './idempotency-middleware.js';
 import { metricsMiddleware, metricsHandler, incCounter } from './metrics.js';
+import { createSharedRateLimitStore } from './rate-limit-store.js';
 import { readinessGuard } from './readiness.js';
 import { SSEManager, SSE_REQUEST_ID_RE } from '../http/sse-connection-manager.js';
 import { createEnvRedisSSERelay } from '../http/sse-relay.js';
@@ -36,8 +37,6 @@ export interface CreateAppOptions {
   enableHelmet?: boolean;
   /** Enable rate limiting (default: true) */
   enableRateLimit?: boolean;
-  /** Redis URL for shared rate-limit state (e.g. 'redis://host:6379'). In-memory when omitted. */
-  redisUrl?: string;
   /** Enable JSON body parsing (default: true) */
   enableJsonBody?: boolean;
   /** JSON body size limit (default: '1mb') */
@@ -333,7 +332,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     }));
   }
 
-  // Rate limiting — uses Redis when redisUrl is provided for shared state across instances
+  // Rate limiting — shared across replicas via the env Redis when configured
   if (enableRateLimit) {
     const rateLimitConfig = Config.get('rateLimit');
 
@@ -355,48 +354,20 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
       // flood a victim org's bucket. ipKeyGenerator normalizes IPv6 to a /64
       // prefix (also required by express-rate-limit 8.x's validator).
       keyGenerator: (req: Request) => ipKeyGenerator(req.ip || 'anon', 64),
+      // A store failure (Redis down / failing over) must degrade to "not rate
+      // limited", never to a 500 on every request of every service.
+      passOnStoreError: true,
       handler: (_req: Request, res: Response) => {
         sendError(res, 429, 'Too many requests, please try again later.', ErrorCode.RATE_LIMIT_EXCEEDED);
       },
     };
 
-    // Shared state across instances.
-    //
-    // Falls back to the ENV Redis when no explicit `redisUrl` is passed — and
-    // nothing passes one, so until now every service rate-limited PER POD. With
-    // an HPA (pipeline scales to 4, billing to 3) the effective ceiling became
-    // `max × replicas` for any client the load balancer spreads across pods,
-    // i.e. the DoS control was weakest exactly when load was highest. Every
-    // other Redis consumer here (idempotency, SSE tickets, token revocation)
-    // already derives its client from the environment; this now matches them.
-    //
-    // `createEnvRedisClient` returns null when no Redis is configured, which
-    // leaves the per-process memory store — correct for single-replica/local.
-    const rateLimitRedis = options.redisUrl ?? createEnvRedisClient<{ call: (...a: string[]) => Promise<unknown> }>('rate-limit');
-    if (rateLimitRedis) {
-      try {
-        // ESM has no global `require`; safeCreateRequire loads the optional
-        // redis deps synchronously here (only when a redisUrl is configured).
-        // (CJS-bundle safe — see api-core's safe-require.ts.)
-        const require = safeCreateRequire(import.meta.url);
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { RedisStore } = require('rate-limit-redis');
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const Redis = require('ioredis');
-        // An explicit `redisUrl` still wins; otherwise reuse the env client.
-        const redisClient = typeof rateLimitRedis === 'string' ? new Redis(rateLimitRedis) : rateLimitRedis;
-        // ioredis emits 'error' on connection loss; without a listener Node
-        // treats it as an unhandled 'error' event and CRASHES the process. Log
-        // and let ioredis auto-reconnect (rate limiting falls back per-store).
-        redisClient.on('error', (e: unknown) =>
-          createLogger('rate-limit').warn('Redis rate-limit store error', { error: e instanceof Error ? e.message : String(e) }));
-        rateLimitOptions.store = new RedisStore({
-          sendCommand: (...args: string[]) => redisClient.call(...args),
-        });
-      } catch {
-        createLogger('rate-limit').warn('Redis store unavailable, falling back to in-memory rate limiting');
-      }
-    }
+    // Shared state across replicas (the process-wide rate-limit Redis connection;
+    // undefined without Redis → per-process memory store, right for one replica).
+    // Namespaced per SERVICE: every service shares one Redis, and the old
+    // unprefixed `rl:<ip>` key let one client's traffic to ANY service drain its
+    // budget on EVERY service.
+    rateLimitOptions.store = createSharedRateLimitStore(`${process.env.SERVICE_NAME || 'api'}:global`);
 
     app.use(rateLimit(rateLimitOptions));
   }

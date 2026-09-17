@@ -217,6 +217,23 @@ function registerMocks() {
     createRemoteAuditAccessor: () => ({ getAuditClient: () => ({ record: mockAuditRecord }), emit: (e: any) => mockAuditRecord(e, 'plugin') }),
     VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
     DEFAULT_TIER: 'developer',
+    // Env-resolved Redis (REDIS_URL / REDIS_SENTINELS). The queue builds its
+    // BullMQ connections through these; hand back the mocked ioredis client.
+    resolveRedisConnection: () => ({ mode: 'url', url: 'redis://localhost:6379' }),
+    describeRedisConnection: () => ({ mode: 'url', host: 'localhost', port: '6379', tls: false }),
+    createRedisClient: () => ({
+      status: 'ready',
+      disconnect: jest.fn(),
+      on: jest.fn(),
+      eval: jest.fn<(...args: any[]) => any>().mockResolvedValue(1),
+      incr: jest.fn<(...args: any[]) => any>().mockResolvedValue(1),
+      decr: jest.fn<(...args: any[]) => any>().mockResolvedValue(0),
+      expire: jest.fn<(...args: any[]) => any>().mockResolvedValue(1),
+      set: jest.fn<(...args: any[]) => any>().mockResolvedValue('OK'),
+      hset: jest.fn<(...args: any[]) => any>().mockResolvedValue(1),
+      hdel: jest.fn<(...args: any[]) => any>().mockResolvedValue(1),
+      hgetall: jest.fn<(...args: any[]) => any>().mockResolvedValue({}),
+    }),
   }));
 
   jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
@@ -251,6 +268,7 @@ function makeJobData(overrides: Partial<PluginBuildJobData> = {}): PluginBuildJo
     requestId: 'req-123',
     orgId: 'org-1',
     userId: 'user-1',
+    access: { isSystemAdmin: false, canPublish: false },
     buildRequest: {
       contextDir: '/tmp/build-ctx',
       // Every producesImage job stages its context in object storage; the worker
@@ -448,7 +466,9 @@ describe('plugin-build-queue', () => {
 
       // added a second arg with the per-tier buildkitd address.
       expect(mockBuildAndPush).toHaveBeenCalledWith(jobData.buildRequest, expect.objectContaining({ buildkitAddr: expect.any(String) }));
-      expect(mockDeployVersion).toHaveBeenCalledWith(jobData.pluginRecord, 'user-1');
+      // The uploader's visibility authority, snapshotted into the job, reaches the
+      // deploy so the worker applies the same overwrite gate the route did.
+      expect(mockDeployVersion).toHaveBeenCalledWith(jobData.pluginRecord, 'user-1', { isSystemAdmin: false, canPublish: false });
 
       expect(sse.send).toHaveBeenCalledWith('req-123', 'INFO', 'Build started', expect.any(Object));
       expect(sse.send).toHaveBeenCalledWith('req-123', 'INFO', 'Image pushed', expect.any(Object));
@@ -928,6 +948,21 @@ describe('plugin-build-queue', () => {
 
       expect(auditActions()).toEqual(['plugin.build.failed']);
       expect(mockQueueAdd).not.toHaveBeenCalledWith('dlq-job-1', expect.anything(), expect.anything());
+    });
+
+    it('treats a typed 4xx refusal from deployVersion (overwrite gate) as PERMANENT — no DLQ rebuild loop', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+      queueModule.startWorker(sse, quota);
+      const { ConflictError } = await import('@pipeline-builder/api-core') as any;
+
+      const failed = getTierFailedHandler();
+      // A plain message (no COMPLIANCE_/VALIDATION_ marker) would classify retryable.
+      await failed(makeJob(makeJobData(), { attemptsMade: 2 }), new ConflictError('belongs to another author'));
+      await flush();
+
+      expect(auditActions()).toEqual(['plugin.build.failed']);
+      expect(mockQueueAdd).not.toHaveBeenCalledWith(expect.stringMatching(/^dlq-/), expect.anything(), expect.anything());
     });
 
     it('classifies a timeout at tier exhaustion as plugin.build.timeout', async () => {

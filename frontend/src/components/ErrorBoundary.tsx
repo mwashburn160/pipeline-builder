@@ -39,7 +39,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     // Route every caught render error through the single reporting sink (logs in
-    // dev, ships to NEXT_PUBLIC_ERROR_REPORT_URL in prod when configured).
+    // dev; relayed to the runtime ERROR_REPORT_URL collector when configured).
     reportClientError(error, { source: 'react', componentStack: errorInfo.componentStack ?? undefined });
     this.props.onError?.(error, errorInfo);
   }

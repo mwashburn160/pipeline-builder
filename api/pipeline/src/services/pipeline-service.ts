@@ -1,12 +1,47 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { entityEvents, createCacheService, toComplianceAttributes } from '@pipeline-builder/api-core';
+import { ConflictError, ForbiddenError, entityEvents, createCacheService, toComplianceAttributes } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildPipelineConditions, getTenantContext, schema, withTenantTx, type PipelineFilter } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, sql, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
+
+/**
+ * The caller's authority on the visibility ladder, captured from the request
+ * (`isSystemAdmin(req)`, `userHasPermission(req, 'pipelines:publish')`) — the
+ * same shape `CrudService.bulkDelete` takes.
+ */
+export interface WriteAccess {
+  isSystemAdmin: boolean;
+  canPublish: boolean;
+}
+
+/**
+ * Refuse to let a create's ON CONFLICT branch overwrite a row the caller could
+ * not modify through PUT/DELETE, or resurrect a tombstone without restore's
+ * step-up. Mirrors `checkVisibilityWriteAccess` rung for rung.
+ */
+function assertMayOverwrite(
+  existing: { visibility: string | null; createdBy: string | null; deletedAt: Date | null },
+  userId: string,
+  access: WriteAccess,
+): void {
+  if (existing.deletedAt) {
+    throw new ConflictError(
+      'A deleted pipeline already occupies this project/organization. Restore it or purge it before creating a new one.',
+    );
+  }
+  if (access.isSystemAdmin) return;
+  if (existing.visibility === 'public' && !access.canPublish) {
+    throw new ForbiddenError('You lack permission to modify this public resource.');
+  }
+  // Fail closed on an absent caller — an empty userId must never match an empty author.
+  if (existing.visibility === 'private' && (!userId || existing.createdBy !== userId)) {
+    throw new ConflictError('A pipeline for this project/organization already exists and belongs to another author.');
+  }
+}
 
 /** Server-side cache for pipeline reads. */
 const pipelineCache = createCacheService('pipeline:', CoreConstants.CACHE_TTL_ENTITY);
@@ -163,7 +198,8 @@ export class PipelineService extends CrudService<
    * branch — `createdBy`/`createdAt` would be reset to the current caller/time
    * (rewriting provenance on every re-create) and `id` must never change — so
    * strip those and write only mutable columns plus the fresh default/active
-   * flags, the undelete, and the update stamps.
+   * flags and the update stamps. (No undelete: a tombstone is refused before
+   * the upsert — see {@link createAsDefaultReportInserted}.)
    *
    * `ownerId`/`ownerType` are stripped for the same provenance reason: a re-create
    * of an existing default must not silently transfer catalog ownership to whoever
@@ -176,97 +212,69 @@ export class PipelineService extends CrudService<
       ...mutable,
       isDefault: true,
       isActive: true,
-      deletedAt: null,
-      deletedBy: null,
       updatedAt: new Date(),
       updatedBy: userId,
     };
   }
 
-  /** Atomically create a pipeline as the default for a project (clears existing defaults). */
-  async createAsDefault(
-    data: PipelineInsert,
-    userId: string,
-    project: string,
-    organization: string,
-  ): Promise<Pipeline> {
-    // orgId is structurally optional on PipelineInsert but is required here —
-    // the FOR UPDATE lock + clear-other-defaults UPDATE both predicate on it
-    // (C23 fix). Refuse early instead of silently treating undefined as a
-    // wildcard, which would risk clearing defaults across orgs.
-    if (!data.orgId) {
-      throw new Error('createAsDefault requires data.orgId');
-    }
-    const orgId = data.orgId;
-    return withTenantTx(async (tx) => {
-      await tx.execute(
-        sql`SELECT id FROM ${schema.pipeline}
-            WHERE ${schema.pipeline.project} = ${project}
-              AND ${schema.pipeline.organization} = ${organization}
-              AND ${schema.pipeline.orgId} = ${orgId}
-              AND ${schema.pipeline.isDefault} = true
-            FOR UPDATE`,
-      );
-
-      await tx
-        .update(schema.pipeline)
-        .set({
-          isDefault: false,
-          updatedAt: new Date(),
-          updatedBy: userId,
-        })
-        .where(
-          and(
-            eq(schema.pipeline.project, project),
-            eq(schema.pipeline.organization, organization),
-            eq(schema.pipeline.orgId, orgId),
-            eq(schema.pipeline.isDefault, true),
-          ),
-        );
-
-      const [result] = await tx
-        .insert(schema.pipeline)
-        .values({ ...data, isDefault: true, isActive: true })
-        .onConflictDoUpdate({
-          target: [schema.pipeline.project, schema.pipeline.organization, schema.pipeline.orgId],
-          set: this.buildDefaultConflictSet(data, userId) as any,
-        })
-        .returning();
-
-      const pipeline = result as unknown as Pipeline;
-      await pipelineCache.invalidatePattern(`${data.orgId}:*`);
-      await this.invalidateSharedReadCaches(pipeline.id, pipeline.visibility);
-      return pipeline;
-    });
-  }
-
   /**
-   * Like {@link createAsDefault}, but also reports whether the row was inserted
-   * (new) or updated (existing). Uses Postgres's `xmax = 0` returning trick:
-   * `xmax` is 0 on fresh inserts and non-zero on rows touched by the
-   * onConflictDoUpdate path. Used by bulk-create to split the response into
-   * `created` vs `updated` counts.
+   * Create a pipeline as the default for its (project, organization) — or, when
+   * that slot is already taken by a LIVE row the caller may write, update it in
+   * place. Reports whether the row was inserted (new) or updated (existing) via
+   * Postgres's `xmax = 0` returning trick (`xmax` is 0 on fresh inserts and
+   * non-zero on rows touched by the onConflictDoUpdate path), so create and
+   * bulk-create can split `created` vs `updated` and refund quota.
+   *
+   * The `(project, organization, org_id)` unique index is ORG-WIDE and blind to
+   * visibility and soft-delete, so the ON CONFLICT branch can land on a row the
+   * caller could never touch through PUT/DELETE. Before the upsert, the
+   * conflicting row is loaded (locked) and:
+   *   - a soft-deleted TOMBSTONE → {@link ConflictError}. Create must not be a
+   *     step-up-free back door around `POST /pipelines/:id/restore`; restore or
+   *     purge it (both step-up gated) first.
+   *   - a live row the caller may not write per the visibility ladder
+   *     (`public` needs `pipelines:publish`, `private` is author-only) →
+   *     {@link ForbiddenError} / {@link ConflictError}, exactly the verdicts
+   *     `requireVisibilityWriteAccess` gives PUT/DELETE.
+   * A transaction-scoped advisory lock on (org, project, organization) serializes
+   * concurrent creates for the same slot — including the FIRST, when there is no
+   * row yet for `FOR UPDATE` to lock — so the check can't be raced.
    */
   async createAsDefaultReportInserted(
     data: PipelineInsert,
     userId: string,
     project: string,
     organization: string,
+    access: WriteAccess,
   ): Promise<{ pipeline: Pipeline; inserted: boolean }> {
-    // Same orgId requirement as createAsDefault — see that function for rationale.
+    // orgId is structurally optional on PipelineInsert but is required here —
+    // the lock, the conflict lookup and the clear-other-defaults UPDATE all
+    // predicate on it. Refuse early instead of treating undefined as a wildcard.
     if (!data.orgId) {
       throw new Error('createAsDefaultReportInserted requires data.orgId');
     }
     const orgId = data.orgId;
     return withTenantTx(async (tx) => {
       await tx.execute(
-        sql`SELECT id FROM ${schema.pipeline}
-            WHERE ${schema.pipeline.project} = ${project}
-              AND ${schema.pipeline.organization} = ${organization}
-              AND ${schema.pipeline.orgId} = ${orgId}
-              AND ${schema.pipeline.isDefault} = true
-            FOR UPDATE`,
+        sql`SELECT pg_advisory_xact_lock(hashtext(${'pipeline:' + orgId + ':' + project + ':' + organization}))`,
       );
+
+      const [existing] = await tx
+        .select({
+          visibility: schema.pipeline.visibility,
+          createdBy: schema.pipeline.createdBy,
+          deletedAt: schema.pipeline.deletedAt,
+        })
+        .from(schema.pipeline)
+        .where(
+          and(
+            eq(schema.pipeline.project, project),
+            eq(schema.pipeline.organization, organization),
+            eq(schema.pipeline.orgId, orgId),
+          ),
+        )
+        .for('update');
+      if (existing) assertMayOverwrite(existing, userId, access);
 
       await tx
         .update(schema.pipeline)

@@ -79,7 +79,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: platform
-          image: ghcr.io/mwashburn160/platform:4.1.5
+          image: ghcr.io/mwashburn160/platform:4.1.6
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -93,17 +93,26 @@ spec:
           envFrom:
             - configMapRef:
                 name: app-env
+            # Credentials (DB_PASSWORD, MONGODB_URI, API keys, …) split out of app-env.
+            - secretRef:
+                name: app-secrets
             - secretRef:
                 name: jwt-secret
-            - secretRef:
-                name: postgres-secret
-            - secretRef:
-                name: mongodb-secret
           env:
             - name: SERVICE_NAME
               value: "platform"
             - name: PORT
               value: "3000"
+            # Per-org alert relay: the one Alertmanager instance (id `alertmanager`,
+            # sent as X-Alertmanager-Instance by config/alertmanager/alertmanager.yml)
+            # and its bearer token. $(VAR) expands the secret-backed entry above it.
+            - name: ALERT_WEBHOOK_INSTANCE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-relay
+                  key: ALERT_WEBHOOK_INSTANCE_TOKEN
+            - name: ALERT_WEBHOOK_INSTANCES
+              value: '[{"id":"alertmanager","token":"$(ALERT_WEBHOOK_INSTANCE_TOKEN)"}]'
           resources:
             limits:
               cpu: "750m"

@@ -146,10 +146,12 @@ describe('src/index.ts — reports:read enforcement', () => {
     expect(gate.__allowService).toBe(false);
   });
 
-  it('mounts the deployment-outcome write behind requirePermission("reports:read")', () => {
-    // The mark failed/restored WRITE is user-facing and DORA-gated: same
-    // reports:read gate as the DORA reads (advanced_reporting is applied too).
-    const gate = readGate(mountFor(ROUTERS.deployments));
+  it('mounts the deployment-outcome WRITE behind requirePermission("pipelines:write"), not reports:read', () => {
+    // Marking a deploy failed/restored mutates DORA CFR/MTTR — a read-only report
+    // viewer (reports:read alone) must not be able to forge outcomes.
+    const mount = mountFor(ROUTERS.deployments);
+    expect(readGate(mount)).toBeUndefined();
+    const gate = mount.find((a) => typeof a === 'function' && (a as any).__permission === 'pipelines:write') as any;
     expect(gate).toBeDefined();
     expect(gate.__allowService).toBe(false);
   });

@@ -280,6 +280,59 @@ describe('AuthService.findOrCreateOAuthUser — reserved system org', () => {
   });
 });
 
+describe('AuthService.findOrCreateOAuthUser — SSO identities', () => {
+  it('matches an SSO subject only together with the issuer that signed it', async () => {
+    mockUserFindOne.mockReturnValue({ select: () => Promise.resolve(null) });
+    mockUserExists.mockResolvedValue(false);
+
+    await authService.findOrCreateOAuthUser('generic-oidc', {
+      id: 'victim-sub', email: 'someone@attacker.com',
+    }, { markOnboarding: false, sso: { issuer: 'https://attacker-idp.test' } });
+
+    // Another org's IdP minting the victim's subject must not match the victim.
+    expect(mockUserFindOne.mock.calls[0][0]).toEqual({
+      'oauth.generic-oidc.id': 'victim-sub',
+      'oauth.generic-oidc.issuer': 'https://attacker-idp.test',
+    });
+    expect((lastUser.oauth as any)['generic-oidc'].issuer).toBe('https://attacker-idp.test');
+  });
+
+  it('social login still matches by provider id alone', async () => {
+    mockUserFindOne.mockReturnValue({ select: () => Promise.resolve(null) });
+    mockUserExists.mockResolvedValue(false);
+
+    await authService.findOrCreateOAuthUser('google', { id: 'g-1', email: 'a@example.com' });
+
+    expect(mockUserFindOne.mock.calls[0][0]).toEqual({ 'oauth.google.id': 'g-1' });
+  });
+
+  it('refuses to sign a platform administrator in through SSO — even when already linked', async () => {
+    mockUserFindOne.mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'admin', isSuperAdmin: true }) });
+
+    await expect(authService.findOrCreateOAuthUser('generic-oidc', { id: 's', email: 'root@corp.com' }, {
+      sso: { issuer: 'https://idp.corp.com' },
+    })).rejects.toThrow('SSO_SUPERADMIN_REFUSED');
+  });
+
+  it('refuses to LINK an SSO identity onto a platform administrator by email', async () => {
+    mockUserFindOne
+      .mockReturnValueOnce({ select: () => Promise.resolve(null) })
+      .mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'admin', isSuperAdmin: true, isEmailVerified: true }) });
+
+    await expect(authService.findOrCreateOAuthUser('generic-oidc', { id: 's', email: 'root@corp.com' }, {
+      sso: { issuer: 'https://idp.corp.com' },
+    })).rejects.toThrow('SSO_SUPERADMIN_REFUSED');
+    expect(mockUserUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('a platform administrator can still use social login', async () => {
+    mockUserFindOne.mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'admin', isSuperAdmin: true }) });
+
+    await expect(authService.findOrCreateOAuthUser('google', { id: 'g', email: 'root@corp.com' }))
+      .resolves.toMatchObject({ _id: 'admin' });
+  });
+});
+
 describe('AuthService pending-billing marker (paid-signup fail-open)', () => {
   it('setPendingBillingPlan writes the planId + stamps `since` only on first set', async () => {
     await authService.setPendingBillingPlan('org-42', 'pro');

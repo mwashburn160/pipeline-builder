@@ -15,8 +15,10 @@ interface DoraTabProps {
   filters: SharedFilters;
   /** Whether `advanced_reporting` is entitled — non-entitled renders the upsell. */
   enabled: boolean;
-  /** Whether the viewer may mark deployment outcomes (`reports:read`). */
+  /** Whether the viewer may mark deployment outcomes (`pipelines:write`). */
   canMark: boolean;
+  /** Read-only impersonation — mark actions render disabled (the outcome POST would 403). */
+  markReadOnly?: boolean;
   /** Report loading/error/refetch up to the shell (for the shared banner + refresh). */
   onStatus: (status: TabDataStatus) => void;
 }
@@ -29,7 +31,7 @@ interface DoraTabProps {
  * tab is genuinely empty (no executions, no scope) it shows ONE consolidated
  * empty state with a next-step hint instead of four stacked empty cards.
  */
-export function DoraTab({ filters, enabled, canMark, onStatus }: DoraTabProps) {
+export function DoraTab({ filters, enabled, canMark, markReadOnly = false, onStatus }: DoraTabProps) {
   const [pipelineId, setPipelineId] = useState('');
   // `environment` is the live input value; `environmentApplied` is the committed
   // value that feeds the fetch. Typing updates only the former; a short debounce
@@ -108,6 +110,7 @@ export function DoraTab({ filters, enabled, canMark, onStatus }: DoraTabProps) {
         deployPipelineSelected={!!pipelineId}
         markEnvironment={markEnvironment}
         canMark={canMark}
+        markReadOnly={markReadOnly}
         onMarkOutcome={handleMarkOutcome}
         requestedFrom={filters.dateFrom}
         doraScope={{

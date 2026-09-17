@@ -3,7 +3,7 @@
 
 import { createLogger, createQuotaService, registerComplianceEventSubscriber, requirePermission, requireStepUp, wireServiceSecurity } from '@pipeline-builder/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
-import { createSoftDeletePurgeScheduler, runMigrations } from '@pipeline-builder/pipeline-data';
+import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data';
 
 import { createBulkPipelineRoutes } from './routes/bulk-pipeline.js';
 import { createCreatePipelineRoutes } from './routes/create-pipeline.js';
@@ -120,9 +120,8 @@ const purgeScheduler = createSoftDeletePurgeScheduler({
 void runServer(app, {
   name: 'Pipeline Service',
   sseManager,
-  // Run any pending Drizzle migrations before opening the listening socket.
-  // Idempotent and a no-op when ./drizzle/ has no journal yet.
-  onBeforeStart: () => runMigrations(),
+  // No boot-time migrations: the schema is owned by postgres-init.sql and the
+  // service connects as a non-superuser app role without DDL rights.
   onShutdown: async () => { purgeScheduler?.stop(); },
 });
 purgeScheduler?.start();

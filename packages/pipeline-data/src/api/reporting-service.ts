@@ -84,7 +84,7 @@ export class ReportingService {
     // in-memory invalidations are unrelated to the tx but still serialized
     // its commit). Cache TTL is 2-5 min so fire-and-forget post-commit is
     // an acceptable trade for tighter lock windows.
-    const { inserted, skipped, unregisteredPipelineIds, affectedOrgs } = await withTenantTx(async (tx) => {
+    const { inserted, skipped, unregisteredPipelineIds, affectedOrgs, insertedRows } = await withTenantTx(async (tx) => {
       // Batch-resolve all unique pipeline ids in one query
       const uniqueIds = [...new Set(events.map(e => e.pipelineId))];
       const registryRows = await tx
@@ -154,39 +154,53 @@ export class ReportingService {
             : undefined,
         });
 
-        // Phase 3b: fan terminal STAGE outcomes into Prometheus counters via the
-        // route's hook (pipeline-data can't import api-server's registry). Emit
-        // per registered stage event with a terminal succeeded/failed result;
-        // a non-null environment additionally marks it a deploy result.
-        if (onMetric && event.eventType === 'STAGE' && (event.status === 'SUCCEEDED' || event.status === 'FAILED')) {
-          onMetric({
-            pipelineId: registry.pipelineId,
-            orgId: registry.orgId,
-            stage: scrubOptional(event.stageName) ?? '',
-            environment: scrubOptional(event.environment) ?? null,
-            result: event.status === 'SUCCEEDED' ? 'succeeded' : 'failed',
-          });
-        }
       }
 
       // SQS is at-least-once, so EventBridge can deliver the same state-change
       // twice. `onConflictDoNothing` + the partial unique index on
       // (pipeline_id, execution_id, event_type, status, stage_name, action_name)
       // makes re-delivery idempotent. `returning` gives the REAL inserted set so
-      // counts + cache invalidation ignore duplicates.
-      const insertedRows = rows.length > 0
+      // counts, metrics and cache invalidation all ignore duplicates.
+      const landed = rows.length > 0
         ? await tx.insert(schema.pipelineEvent).values(rows)
           .onConflictDoNothing()
-          .returning({ orgId: schema.pipelineEvent.orgId })
+          .returning({
+            orgId: schema.pipelineEvent.orgId,
+            pipelineId: schema.pipelineEvent.pipelineId,
+            eventType: schema.pipelineEvent.eventType,
+            status: schema.pipelineEvent.status,
+            stageName: schema.pipelineEvent.stageName,
+            environment: schema.pipelineEvent.environment,
+          })
         : [];
 
       return {
-        inserted: insertedRows.length,
+        inserted: landed.length,
         skipped: skippedLocal,
         unregisteredPipelineIds: unregisteredLocal,
-        affectedOrgs: [...new Set(insertedRows.map(r => r.orgId))],
+        affectedOrgs: [...new Set(landed.map(r => r.orgId))],
+        insertedRows: landed,
       };
     });
+
+    // Phase 3b: fan terminal STAGE outcomes into Prometheus counters via the
+    // route's hook (pipeline-data can't import api-server's registry), after the
+    // insert COMMITS. Driven off the INSERTED rows — not the request batch — so a re-delivered event
+    // the dedup index swallowed is never counted twice (counters, unlike the
+    // table, have no idempotency of their own). Values are the persisted,
+    // already-scrubbed columns. A non-null environment also marks a deploy.
+    if (onMetric) {
+      for (const r of insertedRows) {
+        if (r.eventType !== 'STAGE' || (r.status !== 'SUCCEEDED' && r.status !== 'FAILED') || !r.pipelineId) continue;
+        onMetric({
+          pipelineId: r.pipelineId,
+          orgId: r.orgId,
+          stage: r.stageName ?? '',
+          environment: r.environment ?? null,
+          result: r.status === 'SUCCEEDED' ? 'succeeded' : 'failed',
+        });
+      }
+    }
 
     // Surface the silent skip: an unregistered pipeline id usually means the
     // pipeline hasn't called POST /pipelines/registry yet (or its

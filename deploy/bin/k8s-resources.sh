@@ -4,7 +4,8 @@
 #
 # Shared Kubernetes Secret/ConfigMap creation for the AWS deploy targets
 # (deploy/aws/ec2/bin/startup.sh + deploy/aws/eks/bin/setup.sh). SOURCE this file — it
-# defines pb_* functions only (no side effects).
+# defines pb_* functions only (no side effects). The minikube target sources it too, but
+# only for the kubectl-free `pb_split_app_env` (it has its own create helpers).
 #
 # Caller contract — set these BEFORE calling, and source the target's .env first (the
 # secret VALUES come from it):
@@ -20,12 +21,56 @@ pb_kube_apply() { $PB_KUBECTL "$@" --dry-run=client -o yaml | $PB_KUBECTL apply 
 pb_secret()    { local _n="$1"; shift; pb_kube_apply create secret generic "$_n" "$@" -n "$PB_NAMESPACE"; echo "  secret $_n"; }
 pb_configmap() { local _n="$1"; shift; pb_kube_apply create configmap "$_n" "$@" -n "$PB_NAMESPACE"; echo "  configmap $_n"; }
 
-# app-env ConfigMap from a cleaned (comment/blank-stripped, envsubst'd) .env file.
-pb_app_env_configmap() { pb_configmap app-env --from-env-file="$1"; }
+# pb_split_app_env <clean_env> <config_out> <secret_out>
+#
+# Split a cleaned (comment/blank-stripped, envsubst'd) .env into what the app pods get:
+#   <config_out>  non-secret settings  -> the `app-env` ConfigMap
+#   <secret_out>  credentials/tokens   -> the `app-secrets` Secret
+# Every workload that reads app-env via envFrom ALSO lists app-secrets (except frontend,
+# which reads no secret), so the split changes where values live, not what apps see.
+#
+# ADMIN-ONLY keys are dropped from BOTH: the Postgres/Mongo/MinIO superusers and the
+# admin-UI logins. Their consumers (postgres, mongodb, minio, pgbouncer, pgadmin,
+# mongo-express, grafana, kiali, loki/thanos/registry, backup) read them from their own
+# Secrets (postgres-secret, mongodb-secret, minio-secret, …) by key, so no application
+# pod ever receives a credential that bypasses row-level security or tenant scoping.
+#
+# Secret detection is by NAME, so a newly added *_PASSWORD / *_SECRET / *_TOKEN / *_KEY /
+# API key lands in the Secret without touching this function. Knobs that merely contain
+# those words (…_TOKEN_EXPIRES_IN, …_TOKEN_URL, …_KEY_ID, PASSWORD_MIN_LENGTH) stay config.
+pb_split_app_env() {
+  local _src="$1" _cfg="$2" _sec="$3"
+  : > "$_cfg"; : > "$_sec"
+  awk -v cfg="$_cfg" -v sec="$_sec" '
+    {
+      key = $0; sub(/=.*/, "", key)
+      if (key ~ /^(POSTGRES_USER|POSTGRES_PASSWORD|MONGO_INITDB_ROOT_USERNAME|MONGO_INITDB_ROOT_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|GRAFANA_ADMIN_USER|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|GHCR_TOKEN)$/ \
+          || key ~ /^(ME_CONFIG_|PGADMIN_|LOKI_S3_|THANOS_S3_|REGISTRY_S3_)/) next
+      if (key ~ /(_EXPIRES_IN|_ISSUER|_SERVICE|_REALM|_TTL_MS|_TOKEN_URL|_KEY_ID|_LENGTH|_KMS|ATTRIBUTE_KEYS)$/) { print > cfg; next }
+      if (key ~ /(PASSWORD|_PASS|SECRET|TOKEN|_KEY|_KEYS|_URI)$/ || key ~ /SECRET|PASSWORD|WEBHOOK_URL/ || key == "REDIS_URL") { print > sec; next }
+      print > cfg
+    }' "$_src"
+}
+
+# app-env ConfigMap + app-secrets Secret from a cleaned .env file (see pb_split_app_env).
+pb_app_env_resources() {
+  local _cfg _sec
+  _cfg=$(mktemp); _sec=$(mktemp)
+  pb_split_app_env "$1" "$_cfg" "$_sec"
+  # Same ownership as the source: ec2 runs kubectl as the minikube user.
+  if [ -n "${PB_ENV_FILE_OWNER:-}" ]; then chown "$PB_ENV_FILE_OWNER" "$_cfg" "$_sec"; chmod 600 "$_cfg" "$_sec"; fi
+  pb_configmap app-env --from-env-file="$_cfg"
+  pb_secret app-secrets --from-env-file="$_sec"
+  rm -f "$_cfg" "$_sec"
+}
 
 # Application secrets — names/keys must match the k8s manifests. Reads the sourced .env.
 pb_create_app_secrets() {
   pb_secret jwt-secret           --from-literal=JWT_SECRET="$JWT_SECRET" --from-literal=REFRESH_TOKEN_SECRET="$REFRESH_TOKEN_SECRET"
+  # postgres-secret is read BY KEY only (postgres, its exporter, pgbouncer, backup): the
+  # superuser pair for init/backup, the DB_USER app-role pair for postgres-init.sql and
+  # pgbouncer's userlist. App pods get DB_USER/DB_PASSWORD from app-env/app-secrets and
+  # must never envFrom this Secret (it would hand them the RLS-bypassing superuser).
   pb_secret postgres-secret      --from-literal=POSTGRES_USER="$POSTGRES_USER" --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" --from-literal=DB_USER="$DB_USER" --from-literal=DB_PASSWORD="$DB_PASSWORD"
   pb_secret mongodb-secret       --from-literal=MONGO_INITDB_ROOT_USERNAME="$MONGO_INITDB_ROOT_USERNAME" --from-literal=MONGO_INITDB_ROOT_PASSWORD="$MONGO_INITDB_ROOT_PASSWORD" --from-literal=MONGODB_URI="$MONGODB_URI"
   pb_secret mongo-express-secret --from-literal=ME_CONFIG_BASICAUTH_USERNAME="$ME_CONFIG_BASICAUTH_USERNAME" --from-literal=ME_CONFIG_BASICAUTH_PASSWORD="$ME_CONFIG_BASICAUTH_PASSWORD"
@@ -38,6 +83,9 @@ pb_create_app_secrets() {
   # (/kiali-override-secrets/login-token-signing-key/value.txt). Kiali v2 ignores a
   # LOGIN_TOKEN_SIGNING_KEY env var, and with no key it crashloops at startup.
   pb_secret kiali-signing-key    --from-literal=value.txt="$KIALI_SIGNING_KEY"
+  # Per-org alert relay bearer: mounted as a file into alertmanager (credentials_file
+  # in alertmanager.yml) and injected into platform's ALERT_WEBHOOK_INSTANCES.
+  pb_secret alertmanager-relay   --from-literal=ALERT_WEBHOOK_INSTANCE_TOKEN="$ALERT_WEBHOOK_INSTANCE_TOKEN"
   # MinIO: root creds (server + minio-init bootstrap) plus the per-service,
   # bucket-scoped keys. Created HERE from .env rather than shipped as a literal
   # Secret in k8s/minio.yaml — which is what it used to be, with working

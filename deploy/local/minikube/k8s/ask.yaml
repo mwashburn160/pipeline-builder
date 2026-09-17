@@ -62,7 +62,7 @@ spec:
       # conversation state is client-held; the docs corpus is in the image).
       containers:
         - name: ask
-          image: ghcr.io/mwashburn160/ask:4.1.2
+          image: ghcr.io/mwashburn160/ask:4.1.3
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -76,6 +76,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: app-env
+            # Credentials (DB_PASSWORD, MONGODB_URI, API keys, …) split out of app-env.
+            - secretRef:
+                name: app-secrets
             - secretRef:
                 name: jwt-secret
           env:

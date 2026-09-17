@@ -49,7 +49,8 @@ This service loads its own config (`src/config`) rather than the shared server c
 | `JWT_SECRET` | Platform JWT verification secret (Basic-auth password path) (**required**) | — |
 | `JWT_ISSUER` | Expected `iss` on platform JWTs | unset |
 | `JWT_AUDIENCE` | Permitted `aud` on platform JWTs | unset |
-| `PLATFORM_BASE_URL` | Platform URL for the `docker login` flow; empty disables it | `''` |
+| `PLATFORM_SERVICE_HOST` | In-cluster platform host for the `docker login` flow (password forwarded to `/auth/login`) | `platform` |
+| `PLATFORM_SERVICE_PORT` | In-cluster platform port | `3000` |
 | `REGISTRY_TOKEN_RATE_LIMIT_WINDOW_MS` | `/token` rate-limit window (ms) | `60000` |
 | `REGISTRY_TOKEN_RATE_LIMIT_MAX` | `/token` requests per window | `60` |
 | `REGISTRY_MAX_BLOB_PROXY_BYTES` | Max size of a proxied config blob (bytes) | `5242880` |

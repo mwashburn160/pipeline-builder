@@ -49,6 +49,10 @@ spec:
       backoffLimit: 2
       activeDeadlineSeconds: 3600
       template:
+        metadata:
+          labels:
+            # Matched by allow-postgres-ingress in k8s/networkpolicy.yaml.
+            app: db-backup
         spec:
           serviceAccountName: db-backup
           restartPolicy: Never
@@ -78,7 +82,10 @@ spec:
                   date_dir="$(date -u +%Y/%m/%d)"
                   prefix="s3://$BACKUP_BUCKET/$ENV_NAME/$date_dir"
                   echo "backup start $ts -> $prefix"
-                  PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h "$DB_HOST" -U "$POSTGRES_USER" "$POSTGRES_DB" \
+                  # Straight to postgres as the superuser (needs every row: RLS would
+                  # hide tenant data from the app role). Not via pgbouncer, whose
+                  # userlist only holds the application role.
+                  PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h postgres -p 5432 -U "$POSTGRES_USER" "$POSTGRES_DB" \
                     | gzip | aws s3 cp - "$prefix/postgres-$ts.sql.gz" --sse aws:kms
                   mongodump --uri "$MONGODB_URI" --archive --gzip \
                     | aws s3 cp - "$prefix/mongo-$ts.archive.gz" --sse aws:kms
@@ -98,8 +105,8 @@ spec:
                   fi
                   echo "backup ok $ts"
               envFrom:
-                - configMapRef: { name: app-env }        # DB_HOST, POSTGRES_DB, …
-                - secretRef: { name: postgres-secret }   # POSTGRES_USER/PASSWORD
+                - configMapRef: { name: app-env }        # POSTGRES_DB, …
+                - secretRef: { name: postgres-secret }   # POSTGRES_USER/PASSWORD (superuser)
                 - secretRef: { name: mongodb-secret }    # MONGODB_URI
               env:
                 - name: BACKUP_BUCKET

@@ -54,7 +54,11 @@ const RELEASE_IF_OWNER =
  * released on completion, but only if we still own it — a slower predecessor
  * never deletes a successor's lock. `ttlMs` should comfortably exceed one run.
  *
- * @returns true if we held the lock and ran `fn`; false if another holder did.
+ * If Redis can't be reached the run is skipped (returns false) rather than
+ * rejecting — callers are timers, and a Redis blip must not crash the process.
+ *
+ * @returns true if we held the lock and ran `fn`; false if another holder did or
+ *   the lock couldn't be taken.
  */
 export async function withLeaderLock(
   redis: LockRedis,
@@ -63,7 +67,18 @@ export async function withLeaderLock(
   fn: () => Promise<void>,
 ): Promise<boolean> {
   const token = randomUUID();
-  const acquired = await redis.set(key, token, 'PX', ttlMs, 'NX');
+  let acquired: unknown;
+  try {
+    acquired = await redis.set(key, token, 'PX', ttlMs, 'NX');
+  } catch (err) {
+    // Redis unreachable (including before the first connection completes): no
+    // pod can prove it's the leader, so nobody runs this window. Skipping is
+    // the safe side — running here could duplicate destructive work across pods.
+    lockLogger.warn('Leader lock unavailable; skipping this run', {
+      key, error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
   if (acquired !== 'OK') return false;
 
   try {
@@ -87,8 +102,7 @@ export async function withLeaderLock(
 }
 
 /**
- * A `LockRedis` backed by an env-configured ioredis client (`REDIS_URL` or
- * `REDIS_HOST`) — the leader-lock counterpart to `createEnvRedisAuditSpool` /
+ * A `LockRedis` backed by the shared env Redis client (see env-redis.ts) — the leader-lock counterpart to `createEnvRedisAuditSpool` /
  * `createEnvRedisTokenRevocationStore`, for a service that has no BullMQ client to
  * borrow. Returns `null` when Redis isn't configured, so a caller can degrade to
  * running on every pod (the atomic guards it wraps must still make that safe).

@@ -91,7 +91,7 @@ export function createRedisTokenRevocationStore(redis: RedisCacheClient): TokenR
 
 /**
  * Build a {@link TokenRevocationStore} backed by a Redis client that is lazily
- * constructed from the standard `REDIS_URL` or `REDIS_HOST`/`REDIS_PORT` env —
+ * constructed from the standard `REDIS_URL` or `REDIS_SENTINELS` env —
  * for a stateless service that keeps NO Redis client of its own. The client is
  * built on first `getCurrentVersion` call and memoized; `ioredis` is loaded via
  * a guarded dynamic require so merely importing this never breaks a build/test
@@ -108,9 +108,9 @@ export function createEnvRedisTokenRevocationStore(): TokenRevocationStore {
   let cached: RedisCacheClient | null | undefined;
 
   function build(): RedisCacheClient | null {
-    // Shared env-configured ioredis construction (fail-open, error-listener
-    // attached, null when Redis isn't configured/available); the reader stays
-    // fail-open — a null client just falls back to natural token expiry.
+    // Shared env-configured ioredis construction (error listener attached, null
+    // when Redis isn't configured); the reader stays fail-open — a null client
+    // just falls back to natural token expiry.
     const inst = createEnvRedisClient<RedisCacheClient>('revocation-reader');
     if (inst) logger.info('Redis token-revocation reader initialized');
     return inst;

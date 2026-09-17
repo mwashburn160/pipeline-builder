@@ -15,6 +15,7 @@ import { Card } from '@/components/ui/Card';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 import { Modal } from '@/components/ui/Modal';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { ResourceList } from '@/components/ui/ResourceList';
@@ -24,7 +25,7 @@ import { CreateTemplateModal } from '@/components/pipeline/CreateTemplateModal';
 import EditTemplateModal from '@/components/pipeline/EditTemplateModal';
 import { ImportTemplateModal } from '@/components/pipeline/ImportTemplateModal';
 import api from '@/lib/api';
-import type { PipelineTemplate, TemplateInput } from '@/types';
+import type { PipelineTemplate, TemplateInput, Visibility } from '@/types';
 
 /** Badge tint per visibility rung — widest reach is the most prominent. */
 const VISIBILITY_BADGE: Record<string, string> = {
@@ -65,6 +66,7 @@ export default function TemplatesPage() {
   const canWrite = can('templates:write');
   const canPublish = can('templates:publish');
   const canCreatePipeline = can('pipelines:write');
+  const canPublishPipeline = can('pipelines:publish');
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [deletedView, setDeletedView] = useState<'active' | 'deleted'>('active');
@@ -102,6 +104,8 @@ export default function TemplatesPage() {
   const [selected, setSelected] = useState<PipelineTemplate | null>(null);
   const [project, setProject] = useState('');
   const [pipelineName, setPipelineName] = useState('');
+  // Visibility of the PIPELINE this creates — `org` is the pipeline create default.
+  const [pipelineVisibility, setPipelineVisibility] = useState<Visibility>('org');
   const [inputValues, setInputValues] = useState<Record<string, string | boolean>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -127,6 +131,7 @@ export default function TemplatesPage() {
     setSelected(t);
     setProject('');
     setPipelineName('');
+    setPipelineVisibility('org');
     // Seed input values from declared defaults.
     const seed: Record<string, string | boolean> = {};
     for (const inp of t.inputs || []) {
@@ -178,7 +183,7 @@ export default function TemplatesPage() {
         pipelineName: pipelineName.trim() || undefined,
         description: inst.data.description,
         keywords: inst.data.keywords,
-        visibility: 'private',
+        visibility: pipelineVisibility,
         props: inst.data.props,
       });
       if (created.success && created.data) {
@@ -355,6 +360,17 @@ export default function TemplatesPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pipeline name</label>
               <Input value={pipelineName} onChange={(e) => setPipelineName(e.target.value)} placeholder="(defaults to org-project-pipeline)" disabled={submitting} />
+            </div>
+            <div>
+              <label htmlFor="tpl-pipeline-visibility" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pipeline visibility</label>
+              <VisibilitySelect
+                id="tpl-pipeline-visibility"
+                value={pipelineVisibility}
+                onChange={setPipelineVisibility}
+                canPublish={canPublishPipeline}
+                disabled={submitting}
+              />
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{visibilityHint(canPublishPipeline, 'pipelines:publish')}</p>
             </div>
 
             {(selected.inputs?.length ?? 0) > 0 && (

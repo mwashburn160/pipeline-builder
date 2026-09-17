@@ -12,7 +12,7 @@
  *     atomic `SET key NX PX ttl`, so exactly one pod in the fleet wins the first
  *     use and every replay (any pod) loses. This closes the multi-instance
  *     replay gap where a token replayed against a DIFFERENT instance succeeded.
- *   - Without Redis (none of `REDIS_SENTINELS` / `REDIS_URL` / `REDIS_HOST`) it degrades to the previous per-process
+ *   - Without Redis (neither `REDIS_URL` nor `REDIS_SENTINELS`) it degrades to the previous per-process
  *     Map: true single-use within one instance, best-effort across a fleet —
  *     acceptable for the 60s TTL on a single-replica deploy.
  *   - Fail-safe: a Redis error falls back to the in-memory claim for that call,

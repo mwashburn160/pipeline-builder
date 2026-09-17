@@ -270,7 +270,9 @@ trap 'rm -f "$CLEAN_ENV"; [ -n "$CERT_DIR" ] && rm -rf "$CERT_DIR"' EXIT
 # password) as a variable and silently blank/corrupt it. POSIX grep class
 # `[[:space:]]` (not the GNU-only `\s`) keeps this correct when run from a Mac.
 grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | sed "s|[\$]{PLATFORM_FRONTEND_URL}|${PLATFORM_FRONTEND_URL}|g; s|[\$]{DOMAIN}|${DOMAIN}|g" > "$CLEAN_ENV"
-pb_app_env_configmap "$CLEAN_ENV"
+# Split into the app-env ConfigMap (settings) + app-secrets Secret (credentials);
+# superuser/admin creds go to neither (see pb_split_app_env).
+pb_app_env_resources "$CLEAN_ENV"
 rm -f "$CLEAN_ENV"
 
 # Application secrets + optional GHCR pull secret (shared creators).

@@ -15,6 +15,9 @@ interface OAuthProviderData {
   email: string;
   name?: string;
   picture?: string;
+  /** Set for SSO links only: the IdP's `iss`. An SSO subject is matched only
+   *  together with it, because an org admin controls the subjects its IdP mints. */
+  issuer?: string;
   linkedAt: Date;
 }
 
@@ -113,6 +116,7 @@ const oauthProviderSchema = new Schema<OAuthProviderData>(
     email: { type: String, required: true },
     name: { type: String },
     picture: { type: String },
+    issuer: { type: String },
     linkedAt: { type: Date, default: Date.now },
   },
   { _id: false },

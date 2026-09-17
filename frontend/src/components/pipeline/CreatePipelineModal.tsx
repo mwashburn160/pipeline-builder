@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { Plus, ChevronLeft, ChevronRight, ShieldCheck, Sparkles, Lock } from 'lucide-react';
 import { useFeatures } from '@/hooks/useFeatures';
-import { BuilderProps } from '@/types';
+import type { BuilderProps, Visibility } from '@/types';
 import type { ComplianceCheckResult } from '@/types/compliance';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Select } from '@/components/ui/Select';
+import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 import { TabBar, type TabBarItem } from '@/components/ui/TabBar';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
@@ -27,15 +27,15 @@ interface CreatePipelineModalProps {
   /** Callback to close the modal. */
   onClose: () => void;
   /** Callback invoked with assembled BuilderProps when the user submits. */
-  onSubmit: (props: BuilderProps, visibility: 'public' | 'private', description?: string, keywords?: string[]) => Promise<void>;
+  onSubmit: (props: BuilderProps, visibility: Visibility, description?: string, keywords?: string[]) => Promise<void>;
   /** Whether a create request is in flight. */
   createLoading: boolean;
   /** Error message from the last create attempt, if any. */
   createError: string | null;
   /** Success message from the last create attempt, if any. */
   createSuccess: string | null;
-  /** Whether the current user is allowed to create public pipelines. */
-  canCreatePublic: boolean;
+  /** `pipelines:publish` — required for the `public` rung of the visibility ladder. */
+  canPublish: boolean;
   /** Optional pre-filled Git URL (opens on Git URL tab and starts generation). */
   initialGitUrl?: string;
 }
@@ -49,14 +49,16 @@ interface CreatePipelineModalProps {
  */
 export default function CreatePipelineModal({
   isOpen, onClose, onSubmit,
-  createLoading, createError, createSuccess, canCreatePublic, initialGitUrl,
+  createLoading, createError, createSuccess, canPublish, initialGitUrl,
 }: CreatePipelineModalProps) {
   const [activeTab, setActiveTab] = useState<'upload' | 'form' | 'ai' | 'prompt'>('ai');
   // AI generation is a paid feature. The two AI tabs (Git URL, From prompt) hit a
   // server-side `requireFeature('ai_generation')` gate — pre-gate them with an
   // upsell so an unentitled org sees why, instead of a 403 dead-end on submit.
   const aiEnabled = useFeatures().isEnabled('ai_generation');
-  const [createAccess, setCreateAccess] = useState<'public' | 'private'>('private');
+  // Preselect `org` — the backend's create default for pipelines (a pipeline is
+  // a team asset); `private` stays an explicit opt-in personal draft.
+  const [visibility, setVisibility] = useState<Visibility>('org');
   const [showPreview, setShowPreview] = useState(false);
   const [previewJson, setPreviewJson] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -69,7 +71,7 @@ export default function CreatePipelineModal({
   // The builder owns the bulk of the form, so it reports its own edits; the
   // fields this modal owns are compared here. Together they gate the discard prompt.
   const [formDirty, setFormDirty] = useState(false);
-  const ownFieldsDirty = useIsDirty({ createAccess });
+  const ownFieldsDirty = useIsDirty({ visibility });
   const aiRef = useRef<GitUrlTabRef>(null);
   const promptRef = useRef<PromptGenerateTabRef>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -86,6 +88,7 @@ export default function CreatePipelineModal({
   useEffect(() => {
     if (isOpen) {
       setActiveTab('ai');
+      setVisibility('org');
       setCurrentStep(0);
       setShowPreview(false);
       setPreviewJson(null);
@@ -155,7 +158,7 @@ export default function CreatePipelineModal({
         break;
     }
     const keywordsArray = kw.split(',').map(k => k.trim()).filter(k => k);
-    await onSubmit(props, createAccess, desc || undefined, keywordsArray.length > 0 ? keywordsArray : undefined);
+    await onSubmit(props, visibility, desc || undefined, keywordsArray.length > 0 ? keywordsArray : undefined);
   };
 
   const handleNext = () => {
@@ -215,21 +218,15 @@ export default function CreatePipelineModal({
 
   const accessSlot = (
     <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-      <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Access</h3>
-      <div className="flex items-center space-x-3">
-        <Select
-          value={createAccess}
-          onChange={(e) => setCreateAccess(e.target.value as 'public' | 'private')}
-          className="!w-auto"
-          disabled={createLoading || !canCreatePublic}
-        >
-          <option value="private">Private</option>
-          {canCreatePublic && <option value="public">Public</option>}
-        </Select>
-        {!canCreatePublic && (
-          <span className="text-xs text-gray-500 dark:text-gray-400">Only admins can create public pipelines</span>
-        )}
-      </div>
+      <label htmlFor="create-pipeline-visibility" className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Visibility</label>
+      <VisibilitySelect
+        id="create-pipeline-visibility"
+        value={visibility}
+        onChange={setVisibility}
+        canPublish={canPublish}
+        disabled={createLoading}
+      />
+      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{visibilityHint(canPublish, 'pipelines:publish')}</p>
     </div>
   );
 
@@ -365,6 +362,11 @@ export default function CreatePipelineModal({
           accessStatusSlot={accessSlot}
         />
       )}
+
+      {/* The wizard renders the picker inside its own step; every other create
+          mode submits directly, so it shows here — no tab creates with an
+          unseen sharing rung. */}
+      {!isWizardTab && !aiGated && accessSlot}
 
       {previewError && (
         <div className="mt-4 rounded-xl bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-3">

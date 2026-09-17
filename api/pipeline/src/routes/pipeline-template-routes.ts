@@ -225,7 +225,7 @@ export function createPipelineTemplateRoutes(): Router {
     }, userId ?? 'system');
     // NOTE: losing the race against a concurrent same-name create throws
     // ConflictError from the service (→ 409), so nothing can slip past the
-    // pre-check above and clobber another author's private draft.
+    // pre-check above and overwrite (or un-delete) the existing template.
 
     ctx.log('COMPLETED', 'Created pipeline template', { id: created.id });
     emitPipelineAudit({

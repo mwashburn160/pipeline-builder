@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Server } from 'http';
-import { createLogger, errorMessage, installCrashHandlers } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, installCrashHandlers, resolveRedisConnection } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { getConnection, closeConnection } from '@pipeline-builder/pipeline-data';
 import type { Express } from 'express';
@@ -174,6 +174,10 @@ export async function startServer(
 
   // Validate auth configuration at server startup (not during CDK synthesis)
   Config.validateAuth();
+  // Fail fast on an unusable Redis configuration (throws RedisConfigError) — a
+  // Redis client is created lazily on first use, so without this a bad config
+  // would surface as request-time errors instead of a failed start.
+  resolveRedisConnection();
 
   logger.info(`Starting ${name}...`);
 

@@ -8,6 +8,15 @@
  * - In-memory (default): true-LRU Map cache, no external dependencies
  * - Redis: When a Redis client is provided, uses Redis for cross-process caching
  *
+ * Cross-replica invalidation (in-memory backend): every service runs several
+ * replicas (HPA), each with its OWN in-memory cache. An invalidation performed on
+ * one pod (`del` / `invalidatePattern` / `clear`) is broadcast over Redis pub/sub
+ * ({@link CacheInvalidationBus}, wired from the ambient Redis env by default) and
+ * applied by every other pod, so a write on pod A can't leave pod B serving the
+ * stale entry until its TTL lapses. A pod whose subscriber (re)connects flushes
+ * its local cache — it may have missed invalidations while disconnected — and a
+ * `getOrSet` whose factory raced an invalidation does not cache its result.
+ *
  * Design:
  * - All operations are fail-safe: cache misses/errors return null, never throw
  * - JSON serialization for Redis; the in-memory backend deep-clones on read so
@@ -16,6 +25,13 @@
  * - Key namespace prefixing to avoid collisions between services
  */
 
+import { randomUUID } from 'crypto';
+
+import { createEnvRedisClient } from './env-redis.js';
+import { createLogger } from '../utils/logger.js';
+import { emitCounter } from '../utils/metric-emitter.js';
+
+const logger = createLogger('cache-service');
 
 /**
  * Cache entry with value and expiration time.
@@ -66,6 +82,125 @@ export interface CacheConfig {
   maxEntries?: number;
   /** Optional Redis client — uses in-memory cache if not provided */
   redis?: RedisCacheClient;
+  /**
+   * Cross-replica invalidation bus for the in-memory backend. Omit to use the
+   * shared env-Redis bus (null when Redis isn't configured → single-process
+   * semantics); pass `null` to disable explicitly. Ignored with `redis` (the
+   * store itself is shared, so there is nothing to fan out).
+   */
+  invalidationBus?: CacheInvalidationBus | null;
+}
+
+/** One invalidation broadcast to every replica. */
+export interface CacheInvalidationMessage {
+  /** Id of the CacheService instance that invalidated (it ignores its own echo). */
+  origin: string;
+  /** The cache namespace (`CacheConfig.prefix`) the invalidation applies to. */
+  prefix: string;
+  op: 'del' | 'pattern' | 'clear';
+  /** Un-prefixed key (`del`) or glob pattern (`pattern`). */
+  key?: string;
+}
+
+/** Transport that fans cache invalidations out to every replica. */
+export interface CacheInvalidationBus {
+  /** Fire-and-forget broadcast. Never throws. */
+  publish(msg: CacheInvalidationMessage): void;
+  /**
+   * Register handlers. `onMessage` receives every broadcast (including this
+   * process's own); `onResync` fires whenever the subscription is (re)established,
+   * i.e. whenever invalidations may have been missed.
+   */
+  subscribe(onMessage: (msg: CacheInvalidationMessage) => void, onResync: () => void): void;
+}
+
+/** Minimal ioredis pub/sub surface the env bus needs. */
+export interface RedisInvalidationClient {
+  publish(channel: string, message: string): Promise<number>;
+  subscribe(...channels: string[]): Promise<unknown>;
+  on(event: string, cb: (...args: any[]) => void): unknown;
+  duplicate(): RedisInvalidationClient;
+  status?: string;
+}
+
+const CACHE_INVALIDATION_CHANNEL = 'cache:invalidate';
+
+/**
+ * Redis pub/sub invalidation bus. PUBLISH on the given client; SUBSCRIBE on a
+ * `duplicate()` (a subscribed ioredis connection can't run other commands).
+ *
+ * The SUBSCRIBE is issued on every `ready` (initial connect AND each reconnect)
+ * rather than once at construction: the env client runs without an offline
+ * queue, so a subscribe issued before the connection is up is rejected and would
+ * never be retried. Each `ready` also triggers `onResync` so every cache flushes
+ * whatever it may have missed while disconnected.
+ */
+export function createRedisCacheInvalidationBus(publisher: RedisInvalidationClient): CacheInvalidationBus {
+  const subscriber = publisher.duplicate();
+  const messageHandlers: Array<(msg: CacheInvalidationMessage) => void> = [];
+  const resyncHandlers: Array<() => void> = [];
+
+  const resync = (): void => {
+    for (const h of resyncHandlers) {
+      try { h(); } catch { /* isolated */ }
+    }
+  };
+  const doSubscribe = (): void => {
+    void Promise.resolve(subscriber.subscribe(CACHE_INVALIDATION_CHANNEL))
+      .then(() => resync())
+      .catch((err: unknown) => {
+        emitCounter('cache_invalidation_subscribe_failed_total', {});
+        logger.warn('Cache invalidation subscribe failed; will retry on next reconnect', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+  };
+
+  subscriber.on('message', (channel: string, raw: string) => {
+    if (channel !== CACHE_INVALIDATION_CHANNEL) return;
+    let msg: CacheInvalidationMessage;
+    try {
+      msg = JSON.parse(raw) as CacheInvalidationMessage;
+    } catch {
+      return;
+    }
+    for (const h of messageHandlers) {
+      try { h(msg); } catch { /* one cache can't break the others */ }
+    }
+  });
+  subscriber.on('ready', doSubscribe);
+  subscriber.on('error', (e: unknown) =>
+    logger.warn('Cache invalidation subscriber error', { error: e instanceof Error ? e.message : String(e) }));
+  if (subscriber.status === 'ready') doSubscribe();
+
+  return {
+    publish(msg) {
+      void Promise.resolve()
+        .then(() => publisher.publish(CACHE_INVALIDATION_CHANNEL, JSON.stringify(msg)))
+        .catch((err: unknown) => {
+          emitCounter('cache_invalidation_publish_failed_total', { prefix: msg.prefix });
+          logger.warn('Cache invalidation publish failed (other replicas keep the entry until TTL)', {
+            prefix: msg.prefix, op: msg.op, error: err instanceof Error ? err.message : String(err),
+          });
+        });
+    },
+    subscribe(onMessage, onResync) {
+      messageHandlers.push(onMessage);
+      resyncHandlers.push(onResync);
+    },
+  };
+}
+
+// undefined = not yet attempted; null = attempted, Redis not configured.
+let envInvalidationBus: CacheInvalidationBus | null | undefined;
+
+/** Process-wide invalidation bus from the ambient Redis env (null without Redis). */
+function getEnvCacheInvalidationBus(): CacheInvalidationBus | null {
+  if (envInvalidationBus === undefined) {
+    const client = createEnvRedisClient<RedisInvalidationClient>('cache-invalidation');
+    envInvalidationBus = client ? createRedisCacheInvalidationBus(client) : null;
+  }
+  return envInvalidationBus;
 }
 
 /**
@@ -100,6 +235,14 @@ export class CacheService {
   private readonly defaultTtlMs: number;
   private readonly maxEntries: number;
   private readonly redis?: RedisCacheClient;
+  private readonly bus: CacheInvalidationBus | null;
+  private readonly instanceId = randomUUID();
+  /**
+   * Bumped on EVERY invalidation (local or remote). `getOrSet` only caches a
+   * factory result if no invalidation happened while the factory ran — otherwise
+   * it could re-cache a value read before the write that invalidated it.
+   */
+  private generation = 0;
 
   /** Cache metrics — tracks hits, misses, and invalidations. */
   readonly metrics = { hits: 0, misses: 0, sets: 0, invalidations: 0 };
@@ -109,6 +252,45 @@ export class CacheService {
     this.defaultTtlMs = config.defaultTtlSeconds * 1000;
     this.maxEntries = config.maxEntries ?? 1000;
     this.redis = config.redis;
+    this.bus = this.redis ? null : (config.invalidationBus === undefined ? getEnvCacheInvalidationBus() : config.invalidationBus);
+    this.bus?.subscribe(
+      (msg) => {
+        if (msg.origin === this.instanceId || msg.prefix !== this.prefix) return;
+        this.applyLocalInvalidation(msg.op, msg.key);
+      },
+      () => this.applyLocalInvalidation('clear'),
+    );
+  }
+
+  /** Broadcast an invalidation to the other replicas (in-memory backend only). */
+  private broadcast(op: CacheInvalidationMessage['op'], key?: string): void {
+    this.bus?.publish({ origin: this.instanceId, prefix: this.prefix, op, ...(key !== undefined && { key }) });
+  }
+
+  /** Apply an invalidation to THIS process's in-memory entries. Returns the count removed. */
+  private applyLocalInvalidation(op: CacheInvalidationMessage['op'], key?: string): number {
+    this.generation++;
+    if (op === 'clear') {
+      const n = this.memory.size;
+      this.memory.clear();
+      return n;
+    }
+    if (op === 'del') {
+      return this.memory.delete(this.fullKey(key ?? '')) ? 1 : 0;
+    }
+    // Glob pattern. Escape regex metacharacters first so a literal `.`/`(`/`[`
+    // in a key prefix (e.g. `org:v1.2:*`) can't over-match or throw (a throw
+    // here would leave entries stale); only `*` is treated as a wildcard.
+    const fp = this.fullKey(key ?? '');
+    const regex = new RegExp('^' + fp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '.*') + '$');
+    let deleted = 0;
+    for (const k of this.memory.keys()) {
+      if (regex.test(k)) {
+        this.memory.delete(k);
+        deleted++;
+      }
+    }
+    return deleted;
   }
 
   private fullKey(key: string): string {
@@ -204,7 +386,8 @@ export class CacheService {
         await this.redis.del(fk);
         return;
       }
-      this.memory.delete(fk);
+      this.applyLocalInvalidation('del', key);
+      this.broadcast('del', key);
     } catch {
       // Cache delete failure is non-fatal
     }
@@ -229,18 +412,9 @@ export class CacheService {
         return keys.length;
       }
 
-      // In-memory — match glob-style pattern. Escape regex metacharacters first
-      // so a literal `.`/`(`/`[` in a key prefix (e.g. `org:v1.2:*`) can't
-      // over-match or throw (a throw here is swallowed → nothing invalidated →
-      // stale reads); only `*` is treated as a wildcard.
-      const regex = new RegExp('^' + fp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '.*') + '$');
-      let deleted = 0;
-      for (const key of this.memory.keys()) {
-        if (regex.test(key)) {
-          this.memory.delete(key);
-          deleted++;
-        }
-      }
+      // In-memory — apply locally, then fan out to the other replicas.
+      const deleted = this.applyLocalInvalidation('pattern', pattern);
+      this.broadcast('pattern', pattern);
       this.metrics.invalidations += deleted;
       return deleted;
     } catch {
@@ -288,9 +462,12 @@ export class CacheService {
     const existing = this.inflight.get(fk) as Promise<T> | undefined;
     if (existing) return cloneValue(await existing);
 
+    const generationAtStart = this.generation;
     const flight = (async () => {
       const value = await factory();
-      await this.set(key, value, ttlSeconds);
+      // An invalidation (here or on another replica) landed while the factory
+      // ran: its read may predate that write, so don't cache it.
+      if (this.generation === generationAtStart) await this.set(key, value, ttlSeconds);
       return value;
     })();
     this.inflight.set(fk, flight);
@@ -308,7 +485,8 @@ export class CacheService {
     if (this.redis) {
       await this.invalidatePattern('*');
     } else {
-      this.memory.clear();
+      this.applyLocalInvalidation('clear');
+      this.broadcast('clear');
     }
   }
 

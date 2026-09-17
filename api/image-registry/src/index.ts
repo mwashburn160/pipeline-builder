@@ -28,8 +28,7 @@ app.use(attachRequestContext(sseManager));
 
 // Docker registry token endpoint  Basic auth (validated inside the route);
 // must NOT go through requireAuth since it accepts platform-JWT-as-password
-// AND (when PLATFORM_BASE_URL is set) `docker login` creds proxied to
-// platform's /auth/login. The route itself returns 401 + WWW-Authenticate
+// AND `docker login` creds proxied to platform's in-cluster /auth/login. The route itself returns 401 + WWW-Authenticate
 // when creds are missing/invalid.
 app.use('/token', createTokenRoute());
 

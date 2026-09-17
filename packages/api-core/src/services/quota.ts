@@ -1,13 +1,18 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { Response } from 'express';
+
 import { createSafeClient, type RequestOptions } from './http-client.js';
+import { getServiceAuthHeader } from '../middleware/auth.js';
 import type { QuotaType, QuotaCheckResult, ServiceConfig } from '../types/common.js';
+import { ErrorCode } from '../types/error-codes.js';
 import { DEFAULT_TIER, isValidTier, type QuotaTier } from '../types/quota-tiers.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
+import { sendError, sendQuotaExceeded } from '../utils/response.js';
 
-/** Retry options for quota calls  fail fast since quota is fail-open. */
+/** Retry options for quota calls — fail fast (a slow quota service must not stall the request). */
 const QUOTA_REQUEST_OPTIONS: Pick<RequestOptions, 'maxRateLimitRetries' | 'maxRetries'> = {
   maxRateLimitRetries: 1,
   maxRetries: 1,
@@ -15,15 +20,39 @@ const QUOTA_REQUEST_OPTIONS: Pick<RequestOptions, 'maxRateLimitRetries' | 'maxRe
 
 const logger = createLogger('quota');
 
-// `reserve` gates EXPENSIVE resources (plugin builds, pipelines). When the
-// quota service is reachable but returns an error (often an OVERLOADED service),
-// failing open would pile unmetered expensive work onto it and bypass quota
-// entirely — the textbook fail-open blow-up. So `reserve` fails CLOSED on an
-// errored response by default. Operators who prefer availability over
-// enforcement can opt back into fail-open with QUOTA_RESERVE_FAIL_OPEN=true.
-// (A genuinely UNREACHABLE service still fails open — that's a confirmed outage,
-// not an overload signal.)
+// RESERVE FAIL MODE — explicit, single policy.
+//
+// `reserve` gates EXPENSIVE, billable resources (pipelines, plugin builds, AI
+// calls, platform feature slots). Every quota type is a per-period FLOW counter
+// with no after-the-fact reconciliation: a unit consumed while the reservation
+// could not be confirmed is never counted, so fail-open lets an org consume
+// unbounded unmetered units for the whole length of an incident — and an
+// unconfirmed reserve (timeout, open circuit) may even have landed server-side.
+// So `reserve` fails CLOSED whenever the quota service did not CONFIRM the slot:
+//   - unreachable / timed out / circuit breaker open (no response),
+//   - a reachable-but-errored response (5xx, 4xx, malformed body),
+//   - a 429 that is NOT a genuine QUOTA_EXCEEDED (gateway / rate limiter).
+// Operators who prefer availability over enforcement opt the WHOLE set into
+// fail-open with QUOTA_RESERVE_FAIL_OPEN=true. Both outcomes emit a counter
+// (`quota_fail_closed_total` / `quota_fail_open_total`) tagged with the reason.
+// `check` (a cheap read gate) stays fail-open; `increment` is fire-and-forget.
 const QUOTA_RESERVE_FAIL_OPEN = process.env.QUOTA_RESERVE_FAIL_OPEN === 'true';
+
+/**
+ * Service-principal `Authorization` header for a quota call made on behalf of
+ * `orgId` by the CURRENT service (`SERVICE_NAME`, the same identity the health
+ * router reports).
+ *
+ * The quota service's mutation endpoints (`/:orgId/increment`, `/decrement`)
+ * reject anything but a signed service principal or a system admin, so
+ * forwarding the end user's bearer token there is always a 403. Service tokens
+ * are also exempt from the quota service's per-IP rate limiter, so hot-path
+ * quota traffic from a busy pod can't exhaust that pod IP's bucket and silently
+ * turn enforcement off. Scoped to the target org with the lowest role (member).
+ */
+export function getQuotaServiceAuthHeader(orgId: string): string {
+  return getServiceAuthHeader({ serviceName: process.env.SERVICE_NAME || 'api', orgId, role: 'member' });
+}
 
 /**
  * Result of a synchronous quota reservation  the atomic check+increment
@@ -31,7 +60,16 @@ const QUOTA_RESERVE_FAIL_OPEN = process.env.QUOTA_RESERVE_FAIL_OPEN === 'true';
  * level; the caller should return 429 without running the gated action.
  */
 export interface QuotaReserveResult {
+  /** True when the slot was NOT reserved — the gated action must not run. */
   exceeded: boolean;
+  /**
+   * Set (true) by the quota CLIENT when the reservation was denied because the
+   * quota service could not CONFIRM it (unreachable / timeout / circuit open /
+   * errored) — not because the org is over its limit. Always paired with
+   * `exceeded: true`. Answer with {@link sendQuotaReserveDenied}, which maps it to
+   * 503 instead of a misleading 429 "quota exceeded".
+   */
+  unavailable?: boolean;
   quota: {
     type: QuotaType;
     limit: number;
@@ -55,9 +93,9 @@ export interface QuotaService {
    * reserved. Use this for expensive resources where the post-hoc fire-
    * and-forget pattern allows concurrent over-spend.
    *
-   * Fail-open semantics on transport errors: returns `exceeded: false` so
-   * the caller can proceed and the request isn't blocked by quota-service
-   * outages (matches `check()`).
+   * Fails CLOSED (`exceeded: true`) whenever the slot is not confirmed —
+   * unreachable, timeout, open circuit, non-ok, or a non-quota 429 — unless
+   * `QUOTA_RESERVE_FAIL_OPEN=true` (see the policy note at the top of this file).
    */
   reserve(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, requestId?: string): Promise<QuotaReserveResult>;
   /**
@@ -92,6 +130,26 @@ export interface QuotaServiceConfig {
   port?: number;
   /** Request timeout in milliseconds (default: 5000) */
   timeout?: number;
+}
+
+/**
+ * Apply the explicit reserve fail-mode policy to a reservation the quota service
+ * did NOT confirm (see QUOTA_RESERVE_FAIL_OPEN above). Default: deny.
+ */
+function unconfirmedReserve(
+  orgId: string,
+  quotaType: QuotaType,
+  reason: 'unreachable' | 'transient-429' | 'non-ok',
+  statusCode?: number,
+): QuotaReserveResult {
+  if (QUOTA_RESERVE_FAIL_OPEN) {
+    logger.warn('QUOTA_FAIL_OPEN: quota reserve not confirmed, allowing request', { orgId, quotaType, reason, statusCode });
+    emitCounter('quota_fail_open_total', { operation: 'reserve', reason, quotaType });
+    return { exceeded: false, quota: { type: quotaType, limit: -1, used: 0, remaining: -1 } };
+  }
+  logger.warn('QUOTA_FAIL_CLOSED: quota reserve not confirmed, denying request', { orgId, quotaType, reason, statusCode });
+  emitCounter('quota_fail_closed_total', { operation: 'reserve', reason, quotaType });
+  return { exceeded: true, unavailable: true, quota: { type: quotaType, limit: 0, used: 0, remaining: 0 } };
 }
 
 /**
@@ -204,50 +262,24 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
         errorCode?: string;
       }>(path, { quotaType, amount }, { headers: buildHeaders(orgId, authHeader, requestId), ...QUOTA_REQUEST_OPTIONS });
 
-      if (!response) {
-        logger.warn('QUOTA_FAIL_OPEN: Quota service unreachable on reserve, allowing request', { orgId, quotaType });
-        emitCounter('quota_fail_open_total', { operation: 'reserve', reason: 'unreachable', quotaType });
-        return { exceeded: false, quota: { type: quotaType, limit: -1, used: 0, remaining: -1 } };
-      }
+      if (!response) return unconfirmedReserve(orgId, quotaType, 'unreachable');
 
       if (response.statusCode === 429) {
         const q = response.body.details?.quota;
         // Only a GENUINE quota-exceeded 429 means "over quota". A generic 429 —
-        // the quota service's OWN rate limiter (RATE_LIMIT_EXCEEDED) or an
-        // intervening gateway during a spike — must NOT be surfaced as
-        // quota-exceeded: that would falsely block legitimate work behind a
-        // transient rate limit. Require the QUOTA_EXCEEDED error code (or the
-        // quota payload) and otherwise fall through to the non-ok
-        // fail-open/closed policy below (the right handling for a transient 429).
+        // an intervening gateway or rate limiter — did not confirm anything, so
+        // it goes through the same unconfirmed-reservation policy as an outage.
         if (response.body.errorCode === 'QUOTA_EXCEEDED' || q) {
           return {
             exceeded: true,
             quota: q ?? { type: quotaType, limit: 0, used: 0, remaining: 0 },
           };
         }
-        // A non-QUOTA_EXCEEDED 429 is a TRANSIENT signal (the quota service's own
-        // rate limiter, or a gateway during a spike) — the tenant is NOT over quota,
-        // so fail OPEN (as for an unreachable service) rather than falsely blocking
-        // legitimate work. Do not fall through to the fail-closed non-ok default.
-        logger.warn('QUOTA_FAIL_OPEN: transient 429 on reserve (not quota-exceeded), allowing request', { orgId, quotaType });
-        emitCounter('quota_fail_open_total', { operation: 'reserve', reason: 'transient-429', quotaType });
-        return { exceeded: false, quota: { type: quotaType, limit: -1, used: 0, remaining: -1 } };
+        return unconfirmedReserve(orgId, quotaType, 'transient-429', response.statusCode);
       }
 
       if (response.statusCode !== 200 || !response.body.success) {
-        if (QUOTA_RESERVE_FAIL_OPEN) {
-          logger.warn('QUOTA_FAIL_OPEN: Quota reserve returned non-ok, allowing request', {
-            orgId, quotaType, statusCode: response.statusCode,
-          });
-          emitCounter('quota_fail_open_total', { operation: 'reserve', reason: 'non-ok', quotaType });
-          return { exceeded: false, quota: { type: quotaType, limit: -1, used: 0, remaining: -1 } };
-        }
-        // Service reachable but didn't confirm the reservation → fail CLOSED.
-        logger.warn('QUOTA_FAIL_CLOSED: Quota reserve returned non-ok, denying request', {
-          orgId, quotaType, statusCode: response.statusCode,
-        });
-        emitCounter('quota_fail_closed_total', { operation: 'reserve', reason: 'non-ok', quotaType });
-        return { exceeded: true, quota: { type: quotaType, limit: 0, used: 0, remaining: 0 } };
+        return unconfirmedReserve(orgId, quotaType, 'non-ok', response.statusCode);
       }
 
       const q = response.body.data?.quota;
@@ -335,24 +367,25 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
 }
 
 /**
- * Fire-and-forget quota increment with standardized error logging.
+ * Fire-and-forget quota METERING increment with standardized error logging.
  *
- * Wraps `quotaService.increment()` with a `.catch()` that logs a warning.
- * Eliminates the identical one-liner repeated across every read route.
+ * Authenticates as the calling SERVICE ({@link getQuotaServiceAuthHeader}), never
+ * with the end user's token: `/quotas/:orgId/increment` is service-principal /
+ * system-admin only, so a forwarded user JWT was always rejected (403) and the
+ * metered quota (e.g. `apiCalls`, and the `api_pack` bundle raising it) never
+ * moved.
  *
  * @param quotaService - Quota service client
- * @param orgId - Organization ID
+ * @param orgId - Organization ID whose counter is incremented
  * @param quotaType - Quota type to increment
- * @param authHeader - Authorization header value
  * @param logWarn - Logging function for warnings
  */
 export function incrementQuota( quotaService: QuotaService,
   orgId: string,
   quotaType: QuotaType,
-  authHeader: string,
   logWarn: (message: string, data?: unknown) => void,
 ): void {
-  quotaService.increment(orgId, quotaType, authHeader).catch((err: unknown) =>
+  quotaService.increment(orgId, quotaType, getQuotaServiceAuthHeader(orgId)).catch((err: unknown) =>
     logWarn('Quota increment failed', { error: err instanceof Error ? err.message: String(err) }),
   );
 }
@@ -368,7 +401,7 @@ export function incrementQuota( quotaService: QuotaService,
  * @example
  * ```typescript
  * const reservation = await reserveQuota(quotaService, orgId, 'pipelines', authHeader);
- * if (reservation.exceeded) return sendQuotaExceeded(res, 'pipelines', reservation.quota);
+ * if (reservation.exceeded) return sendQuotaReserveDenied(res, 'pipelines', reservation);
  * try {
  * await doExpensiveThing();
  * } catch (err) {
@@ -386,6 +419,31 @@ export function reserveQuota( quotaService: QuotaService,
   requestId?: string,
 ): Promise<QuotaReserveResult> {
   return quotaService.reserve(orgId, quotaType, authHeader, amount, requestId);
+}
+
+/** Seconds a client should wait before retrying when quota couldn't be confirmed. */
+const QUOTA_UNAVAILABLE_RETRY_AFTER_SECONDS = 5;
+
+/**
+ * Answer a DENIED reservation (`reservation.exceeded === true`).
+ *
+ * - `unavailable` (the quota service couldn't confirm the slot) → **503**
+ *   `SERVICE_UNAVAILABLE` with a short `Retry-After`: the org is not over its
+ *   limit, so a 429 "quota exceeded" would send users to upgrade for an outage.
+ * - otherwise → the standard 429 `QUOTA_EXCEEDED` with the X-Quota-* headers.
+ */
+export function sendQuotaReserveDenied(res: Response, quotaType: QuotaType, reservation: QuotaReserveResult): void {
+  if (reservation.unavailable) {
+    if (!res.headersSent) res.setHeader('Retry-After', QUOTA_UNAVAILABLE_RETRY_AFTER_SECONDS);
+    sendError(
+      res,
+      503,
+      `Unable to confirm ${quotaType} quota right now. Please try again shortly.`,
+      ErrorCode.SERVICE_UNAVAILABLE,
+    );
+    return;
+  }
+  sendQuotaExceeded(res, quotaType, reservation.quota, reservation.quota.resetAt);
 }
 
 /**

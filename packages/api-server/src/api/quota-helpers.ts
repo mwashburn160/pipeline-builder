@@ -6,11 +6,12 @@ import type { Request } from 'express';
 import type { RequestContext } from './request-types.js';
 
 /**
- * Increment a quota counter using values pulled from a route context.
+ * Increment (meter) a quota counter using values pulled from a route context.
  *
- * Wraps `incrementQuota(quotaService, orgId, type, authHeader, logWarn)` so
- * route handlers don't have to re-derive `req.headers.authorization` and
- * `ctx.log.bind(null, 'WARN')` at every call site.
+ * Wraps `incrementQuota(quotaService, orgId, type, logWarn)` so route handlers
+ * don't have to re-derive `ctx.log.bind(null, 'WARN')` at every call site. The
+ * increment authenticates as the calling service (see `incrementQuota`), never
+ * with the end user's token.
  *
  * @example
  * ```typescript
@@ -29,7 +30,6 @@ export function incrementQuotaFromCtx(
     quotaService,
     rc.orgId,
     type,
-    rc.req.headers.authorization || '',
     rc.ctx.log.bind(null, 'WARN'),
   );
 }

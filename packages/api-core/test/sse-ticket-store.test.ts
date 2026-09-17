@@ -4,7 +4,7 @@
 import { describe, it, expect, afterEach } from '@jest/globals';
 import { createEnvSseTicketStore } from '../src/services/sse-ticket-store.js';
 
-// No REDIS_URL / REDIS_HOST in the test env, so createEnvSseTicketStore falls
+// No REDIS_URL / REDIS_SENTINELS in the test env, so createEnvSseTicketStore falls
 // back to the in-memory backend — which is what we exercise here.
 const stores: Array<{ stop(): void }> = [];
 function makeStore(cfg: { ttlMs?: number; maxTotal?: number; maxPerOrg?: number } = {}) {

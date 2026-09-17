@@ -28,12 +28,17 @@ const mockUpdateChain = { set: jest.fn(), where: jest.fn() };
 const mockDeleteChain = { where: jest.fn() };
 const mockSelectChain = { from: jest.fn(), where: jest.fn() };
 
+// Every statement must run inside withTenantTx (which applies the RLS context);
+// the transaction handle is the only way to reach the query builders here.
+const mockTx = {
+  update: jest.fn(() => mockUpdateChain),
+  delete: jest.fn(() => mockDeleteChain),
+  select: jest.fn(() => mockSelectChain),
+};
+const mockWithTenantTx = jest.fn(async (fn: (tx: typeof mockTx) => unknown) => fn(mockTx));
+
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
-  db: {
-    update: jest.fn(() => mockUpdateChain),
-    delete: jest.fn(() => mockDeleteChain),
-    select: jest.fn(() => mockSelectChain),
-  },
+  withTenantTx: (fn: (tx: typeof mockTx) => unknown) => mockWithTenantTx(fn),
   schema: {
     plugin: { orgId: 'plugins.org_id' },
     pipeline: { orgId: 'pipelines.org_id' },
@@ -189,6 +194,13 @@ function orgLean(value: unknown) {
 describe('cascadeDeleteOrg', () => {
   it('refuses to delete the system org', async () => {
     await expect(cascadeDeleteOrg('000000000000000000000001', '000000000000000000000001')).rejects.toThrow(SYSTEM_ORG_DELETE_FORBIDDEN);
+  });
+
+  it('runs every Postgres statement inside withTenantTx — a bare db call has no RLS context', async () => {
+    await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+    // One tenant transaction per soft-delete (9) and hard-delete table.
+    expect(mockWithTenantTx.mock.calls.length).toBe(mockTx.update.mock.calls.length + mockTx.delete.mock.calls.length);
+    expect(mockTx.update).toHaveBeenCalledTimes(9);
   });
 
   it('soft-deletes the 9 tables that have a deleted_at column', async () => {

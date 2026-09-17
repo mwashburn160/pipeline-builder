@@ -10,7 +10,7 @@
  * the worker calls them, nothing here calls back into the worker.
  */
 
-import { createLogger, errorMessage, extractDbError } from '@pipeline-builder/api-core';
+import { AppError, createLogger, errorMessage, extractDbError } from '@pipeline-builder/api-core';
 import { db, schema, reportingService, runWithTenantContext, withTenantTx } from '@pipeline-builder/pipeline-data';
 import type { Job } from 'bullmq';
 import { BuildProcessError, maskSecrets } from '../helpers/docker-build.js';
@@ -42,6 +42,10 @@ export function summarizeBuildFailure(error: Error, isTimeout: boolean): { messa
 export function classifyFailure(error: Error): FailureCategory {
   const msg = error.message;
   const dbCode = extractDbError(error)?.dbCode;
+
+  // A typed client refusal (e.g. deployVersion's 403/409 overwrite gate) will
+  // refuse identically on every retry — don't burn the rebuild budget on it.
+  if (error instanceof AppError && error.statusCode < 500) return 'permanent';
 
   if (dbCode === '42703' || dbCode === '42P01' || dbCode === '23505') return 'permanent';
   if (msg.includes('COMPLIANCE_VIOLATION') || msg.includes('VALIDATION_ERROR')) return 'permanent';

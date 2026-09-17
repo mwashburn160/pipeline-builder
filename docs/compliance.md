@@ -416,8 +416,7 @@ Add your own by creating `deploy/compliance/rules/<name>/rule.json` + `README.md
 | `SCAN_LOCK_TTL_MS` | `300000` | Scan scheduler cross-pod leader-lock TTL (ms) |
 | `DIGEST_SCHEDULER_INTERVAL_MS` | `3600000` | Notification digest scheduler interval (ms) |
 | `DIGEST_LOCK_TTL_MS` | `300000` | Digest scheduler cross-pod leader-lock TTL (ms) |
-| `REDIS_HOST` | `redis` | Redis host (BullMQ queue + scheduler leader locks) |
-| `REDIS_PORT` | `6379` | Redis port |
+| `REDIS_URL` / `REDIS_SENTINELS` | — | Redis for scheduler leader locks (see [environment variables](environment-variables.md#redis)) |
 | `MESSAGE_SERVICE_HOST` | `message` | Message service (in-app notifications) |
 | `PLATFORM_SERVICE_HOST` | `platform` | Platform service (email delivery + recipient resolution) |
 | `PLUGIN_SERVICE_HOST` | `plugin` | Plugin service (bulk scans) |

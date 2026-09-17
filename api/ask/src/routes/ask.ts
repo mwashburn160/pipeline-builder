@@ -16,7 +16,7 @@ import {
   requireFeature,
   reserveQuota,
   sendBadRequest,
-  sendQuotaExceeded,
+  sendQuotaReserveDenied,
   sendSuccess,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
@@ -101,7 +101,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
 
     const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', authHeader);
     if (reservation.exceeded) {
-      return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
+      return sendQuotaReserveDenied(res, 'aiCalls', reservation);
     }
 
     const startedAt = Date.now();
@@ -135,7 +135,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
 
     const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', authHeader);
     if (reservation.exceeded) {
-      return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
+      return sendQuotaReserveDenied(res, 'aiCalls', reservation);
     }
     let reserved = true;
     // See agent.ts: true once the provider has actually streamed something, so

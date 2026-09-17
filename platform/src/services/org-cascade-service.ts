@@ -21,7 +21,7 @@
  */
 
 import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { db, runWithTenantContext, schema } from '@pipeline-builder/pipeline-data';
+import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { eq, sql } from 'drizzle-orm';
 import type { Types } from 'mongoose';
 import { auditService } from './audit-service.js';
@@ -232,6 +232,10 @@ export async function cascadeDeleteOrg( orgId: string,
 
   // -- Postgres: run under sysadmin tenant context so the soft-delete UPDATEs
   // pass FORCE'd RLS without needing a per-table USING clause for the deletor.
+  // Each statement goes through `withTenantTx`, which is what applies that
+  // context to the connection — a bare `db` call runs with empty RLS settings,
+  // and under the non-superuser app role it silently matches 0 rows. One
+  // transaction per table so one table's failure doesn't roll back the rest.
   await runWithTenantContext({ orgId: actorOrgId, isSuperAdmin: true }, async () => {
     const now = new Date();
     for (const { table, name } of SOFT_DELETE_TABLES) {
@@ -248,9 +252,9 @@ export async function cascadeDeleteOrg( orgId: string,
         // compliance_policies / compliance_rules), leaving the org's data in
         // Postgres forever (GDPR erasure gap). The org snapshot captured at
         // soft-delete time remains the recovery source and is untouched here.
-        const result = await db.update(table as never)
+        const result = await withTenantTx((tx) => tx.update(table as never)
           .set({ deletedAt: now, purgeAfter: now } as never)
-          .where(sql`${(table as { orgId: unknown }).orgId} = ${orgId} AND deleted_at IS NULL`);
+          .where(sql`${(table as { orgId: unknown }).orgId} = ${orgId} AND deleted_at IS NULL`));
         report.postgres[name] = { ok: true, rowCount: (result as { rowCount?: number }).rowCount ?? 0 };
       } catch (err) {
         logger.error('Postgres soft-delete failed', { table: name, orgId, error: errorMessage(err) });
@@ -259,8 +263,8 @@ export async function cascadeDeleteOrg( orgId: string,
     }
     for (const { table, name } of HARD_DELETE_TABLES) {
       try {
-        const result = await db.delete(table as never)
-          .where(eq((table as { orgId: unknown }).orgId as never, orgId as never));
+        const result = await withTenantTx((tx) => tx.delete(table as never)
+          .where(eq((table as { orgId: unknown }).orgId as never, orgId as never)));
         report.postgres[name] = { ok: true, rowCount: (result as { rowCount?: number }).rowCount ?? 0 };
       } catch (err) {
         logger.error('Postgres hard-delete failed', { table: name, orgId, error: errorMessage(err) });
@@ -629,8 +633,8 @@ export async function exportOrg( orgId: string,
   await runWithTenantContext({ orgId: actorOrgId, isSuperAdmin: true }, async () => {
     for (const { table, name } of [...SOFT_DELETE_TABLES, ...HARD_DELETE_TABLES]) {
       try {
-        const rows = await db.select().from(table as never)
-          .where(eq((table as { orgId: unknown }).orgId as never, orgId as never));
+        const rows = await withTenantTx((tx) => tx.select().from(table as never)
+          .where(eq((table as { orgId: unknown }).orgId as never, orgId as never)));
         result.postgres[name] = rows as unknown[];
       } catch (err) {
         logger.warn('Export read failed', { table: name, orgId, error: errorMessage(err) });

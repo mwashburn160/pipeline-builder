@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createQuotaService, getServiceAuthHeader, reserveQuota, decrementQuota } from '@pipeline-builder/api-core';
-import type { QuotaType, QuotaCheckResult } from '@pipeline-builder/api-core';
+import type { QuotaType, QuotaCheckResult, QuotaReserveResult } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
 
@@ -36,7 +36,7 @@ const quotaService = createQuotaService({
 export async function reserveFeatureQuota(
   orgId: string,
   quotaType: QuotaType,
-): Promise<{ exceeded: boolean; quota: { type: QuotaType; limit: number; used: number; remaining: number; resetAt?: string } }> {
+): Promise<QuotaReserveResult> {
   const { rootOrgId } = await resolveOrgLineage(orgId);
   const auth = getServiceAuthHeader({ serviceName: 'platform', orgId: rootOrgId, role: 'member' });
   return reserveQuota(quotaService, rootOrgId, quotaType, auth);
@@ -73,11 +73,13 @@ export async function updateQuotaLimits(
 
 /**
  * Get quota status for an organization, returning null if unavailable.
+ * `authHeader` must authorize reading ANOTHER org's quota: a sysadmin's own
+ * token, or a platform service token (the quota service refuses anything else).
  */
 export async function getOrganizationQuotaStatus(
   organizationId: string,
   quotaType: QuotaType,
-  authHeader: string = '',
+  authHeader: string,
 ): Promise<QuotaCheckResult | null> {
   try {
     return await quotaService.check(organizationId, quotaType, authHeader);

@@ -3,7 +3,7 @@
 
 import { ConflictError } from '@pipeline-builder/api-core';
 import { CrudService, buildPipelineTemplateConditions, schema, withTenantTx, withViewerContext, type PipelineTemplateFilter } from '@pipeline-builder/pipeline-data';
-import { and, eq, or, sql, SQL } from 'drizzle-orm';
+import { and, eq, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 
@@ -84,43 +84,27 @@ export class PipelineTemplateService extends CrudService<
   }
 
   /**
-   * Create — overrides the base upsert so a `(name, orgId)` conflict does NOT
-   * reassign ownership or rewrite provenance. The base `create` spreads the full
-   * insert `data` (including `ownerId`/`createdBy`) into the ON CONFLICT set, so
-   * a racing re-create with the same name would silently re-home the template to
-   * whoever re-ran it. Here the conflict set writes only mutable columns; owner
-   * and provenance are preserved. (The route also does a friendly 409 pre-check;
-   * this is the durable, race-proof guarantee.)
+   * Create — overrides the base upsert: a template create NEVER writes over an
+   * existing `(name, org_id)` row. The route 409s any same-name collision up
+   * front (org-wide, visibility- and tombstone-blind); this is the race-proof
+   * backstop for two concurrent creates that both pass that pre-check.
    *
-   * Throws `ConflictError` (→ 409) when the conflicting row is a PRIVATE template
-   * belonging to someone else: `setWhere` makes the UPDATE branch a no-op there,
-   * so a racing same-name create can never overwrite (or resurrect) another
-   * author's draft — a hole the route's pre-check alone can't close, and one the
-   * per-user `private` rung newly opens.
+   * The base `create` (and this method's previous ON CONFLICT DO UPDATE) let the
+   * losing racer overwrite the winner's body — which bypassed the visibility
+   * ladder for a `public` template (no `templates:publish` check), re-homed
+   * ownership, and could resurrect a soft-deleted template without the step-up
+   * that `POST /pipeline-templates/:id/restore` requires. `DO NOTHING` +
+   * {@link ConflictError} (→ 409) closes all three: editing goes through PUT,
+   * reviving through restore.
    */
   async create(data: PipelineTemplateInsert, userId: string): Promise<PipelineTemplate> {
     const user = userId || 'system';
     const safeData = this.enforceOrgId(data) as Record<string, unknown>;
-    const { id: _id, createdAt: _createdAt, createdBy: _createdBy, ownerId: _ownerId, ownerType: _ownerType, ...mutable } = safeData;
 
     const rows = await withTenantTx((tx) => tx
       .insert(schema.pipelineTemplate)
       .values({ ...safeData, createdBy: user, updatedBy: user } as any)
-      .onConflictDoUpdate({
-        target: [schema.pipelineTemplate.name, schema.pipelineTemplate.orgId],
-        // RESURRECT on re-create: delete soft-deletes (isActive=false, deletedAt set),
-        // but the (name, orgId) unique index still holds the tombstoned row. Without
-        // resetting isActive/deletedAt here, re-creating a same-named template updates
-        // its body but leaves it soft-deleted — so it never reappears in the catalog
-        // (reads default to isActive=true). Reactivate it so delete→re-create works.
-        set: { ...mutable, isActive: true, deletedAt: null, deletedBy: null, updatedAt: new Date(), updatedBy: user } as any,
-        // ...but only over a row the caller is entitled to write: a shared
-        // (`org`/`public`) template, or a `private` one they authored.
-        setWhere: or(
-          sql`${schema.pipelineTemplate.visibility} <> 'private'`,
-          eq(schema.pipelineTemplate.createdBy, user),
-        ),
-      })
+      .onConflictDoNothing({ target: [schema.pipelineTemplate.name, schema.pipelineTemplate.orgId] })
       .returning());
 
     const created = rows[0] as unknown as PipelineTemplate | undefined;

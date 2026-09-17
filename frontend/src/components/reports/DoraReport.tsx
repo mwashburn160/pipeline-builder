@@ -9,6 +9,7 @@ import { fmtDate, ReportEmpty, SectionHeading, StatCardSkeleton, SectionCardSkel
 import { fmtWindow, DoraCard, DoraTrendSparkline, DoraScopeControls, type DoraScope } from './DoraParts';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 import { formatDurationSeconds } from '@/lib/format';
 
 /** Billing deep-link that rings the DORA-History pack on the add-ons grid. */
@@ -31,8 +32,10 @@ interface DoraReportProps {
   deployPipelineSelected: boolean;
   /** Environment a marked outcome is attributed to (applied env filter or `production`). */
   markEnvironment: string;
-  /** Whether the viewer may mark deployment outcomes (same `reports:read` the page needs). */
+  /** Whether the viewer may mark deployment outcomes (`pipelines:write`). */
   canMark: boolean;
+  /** Read-only impersonation — mark actions render disabled with the reason (the outcome POST would 403). */
+  markReadOnly?: boolean;
   /** Record a deploy outcome, then refresh. */
   onMarkOutcome: (executionId: string, outcome: 'failed' | 'restored') => Promise<void>;
   /** DORA scope value + callbacks (owned by the page), forwarded to DoraScopeControls. */
@@ -75,7 +78,7 @@ function windowDays(window: { from: string; to: string }): number {
  */
 export function DoraReport({
   loading, dora, doraTrend, pipelineOptions, executions, environmentOptions,
-  deployments, deployPipelineSelected, markEnvironment, canMark, onMarkOutcome, doraScope,
+  deployments, deployPipelineSelected, markEnvironment, canMark, markReadOnly = false, onMarkOutcome, doraScope,
   requestedFrom,
 }: DoraReportProps) {
   // Picker options: registry pipelines PLUS any pipeline that only appears in
@@ -230,6 +233,7 @@ export function DoraReport({
             pipelineSelected={deployPipelineSelected}
             markEnvironment={markEnvironment}
             canMark={canMark}
+            readOnly={markReadOnly}
             onMarkOutcome={onMarkOutcome}
           />
         </>
@@ -248,6 +252,7 @@ interface DeploymentListProps {
   pipelineSelected: boolean;
   markEnvironment: string;
   canMark: boolean;
+  readOnly: boolean;
   onMarkOutcome: (executionId: string, outcome: 'failed' | 'restored') => Promise<void>;
 }
 
@@ -257,7 +262,7 @@ interface DeploymentListProps {
  * outcome endpoint keys on an executionId, so the list only shows once a single
  * pipeline is scoped.
  */
-function DeploymentList({ deployments, pipelineSelected, markEnvironment, canMark, onMarkOutcome }: DeploymentListProps) {
+function DeploymentList({ deployments, pipelineSelected, markEnvironment, canMark, readOnly, onMarkOutcome }: DeploymentListProps) {
   // Per-row in-flight guard so a double-click can't fire two outcome writes.
   const [pending, setPending] = useState<string | null>(null);
 
@@ -319,18 +324,18 @@ function DeploymentList({ deployments, pipelineSelected, markEnvironment, canMar
                         <Button
                           variant="ghost"
                           size="xs"
-                          disabled={pending === d.execution_id}
+                          disabled={readOnly || pending === d.execution_id}
                           onClick={() => mark(d.execution_id, 'failed')}
-                          title="Mark this deployment as failed in production (post-deploy failure)"
+                          title={readOnly ? READ_ONLY_REASON : 'Mark this deployment as failed in production (post-deploy failure)'}
                         >
                           Mark failed
                         </Button>
                         <Button
                           variant="ghost"
                           size="xs"
-                          disabled={pending === d.execution_id}
+                          disabled={readOnly || pending === d.execution_id}
                           onClick={() => mark(d.execution_id, 'restored')}
-                          title="Mark this deployment as restored (recovery — feeds MTTR)"
+                          title={readOnly ? READ_ONLY_REASON : 'Mark this deployment as restored (recovery — feeds MTTR)'}
                         >
                           Mark restored
                         </Button>

@@ -4,9 +4,9 @@
 import { isValidTier } from '@pipeline-builder/api-core';
 import type express from 'express';
 import { ipKeyGenerator } from 'express-rate-limit';
-import jwt from 'jsonwebtoken';
 
 import { config } from '../config/index.js';
+import { verifyPlatformJwt } from '../utils/jwt-options.js';
 
 /**
  * Rate-limit key/bucket selection, extracted from `index.ts`.
@@ -127,9 +127,7 @@ export function verifiedIsSuperAdmin(req: express.Request): boolean {
   const auth = req.headers.authorization;
   if (!auth?.startsWith('Bearer ')) return false;
   try {
-    const payload = jwt.verify(auth.slice(7), config.auth.jwt.secret, {
-      algorithms: [config.auth.jwt.algorithm],
-    }) as { isSuperAdmin?: boolean };
+    const payload = verifyPlatformJwt<{ isSuperAdmin?: boolean }>(auth.slice(7));
     return payload.isSuperAdmin === true;
   } catch {
     return false;

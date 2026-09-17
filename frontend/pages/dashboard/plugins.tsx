@@ -733,7 +733,7 @@ export default function PluginsPage() {
 
       {createInitialTab && (
         <CreatePluginModal
-          canUploadPublic={canPublish}
+          canPublish={canPublish}
           initialTab={createInitialTab}
           onClose={() => setCreateInitialTab(null)}
           onCreated={list.refresh}

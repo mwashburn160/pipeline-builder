@@ -4,7 +4,7 @@
 import * as fs from 'fs';
 import path from 'path';
 
-import { createLogger, decrementQuota, DEFAULT_TIER, errorMessage, extractDbError, getServiceAuthHeader, reserveQuota, VALID_TIERS } from '@pipeline-builder/api-core';
+import { createLogger, createRedisClient, decrementQuota, describeRedisConnection, DEFAULT_TIER, errorMessage, extractDbError, getServiceAuthHeader, reserveQuota, resolveRedisConnection, VALID_TIERS } from '@pipeline-builder/api-core';
 import type { QuotaService, QuotaTier } from '@pipeline-builder/api-core';
 import { incCounter, observe, withSpan } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
@@ -13,7 +13,7 @@ import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { Queue, Worker } from 'bullmq';
 import type { Job, ConnectionOptions } from 'bullmq';
-import { Redis } from 'ioredis';
+import type { Redis } from 'ioredis';
 
 import { summarizeBuildFailure, classifyFailure, recordBuildEvent } from './build-failures.js';
 import { cleanupBuildArtifacts, ensureLocalBuildContext } from './build-workspace.js';
@@ -136,55 +136,21 @@ export async function getOrgTier(quotaService: QuotaService, orgId: string, auth
 export function getConnectionForDb(dbNum: number): Redis {
   let conn = connectionsByDb.get(dbNum);
   if (!conn) {
-    // Redis Sentinel (HA) support. The ec2/eks deploys front Redis with Sentinel
-    // and set REDIS_SENTINELS (comma-separated host:port), leaving REDIS_HOST/PORT
-    // unset. Using Sentinel here fixes two failures the old standalone-only path hit:
-    //   1. A single-instance connection can't survive a Sentinel master failover.
-    //   2. Because a Service is named `redis`, Kubernetes injects the legacy link
-    //      var REDIS_PORT=tcp://<clusterIP>:6379 into every pod; loadRedisConfig's
-    //      parseInt(REDIS_PORT) then yields NaN → ERR_SOCKET_BAD_PORT and the queue
-    //      workers never connect. Sentinel mode never reads REDIS_PORT, so it's immune.
-    // (The main app Redis client already uses Sentinel via createEnvRedisClient; this
-    // brings the BullMQ connection to parity. Mirrors parseSentinels in api-core.)
-    const sentinels = (process.env.REDIS_SENTINELS ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((entry) => {
-        const [h, p] = entry.split(':');
-        return { host: h, port: parseInt(p ?? '26379', 10) || 26379 };
-      })
-      .filter((s) => !!s.host);
-
-    let logCtx: Record<string, unknown>;
-    if (sentinels.length > 0) {
-      const name = process.env.REDIS_SENTINEL_MASTER || 'mymaster';
-      conn = new Redis({
-        sentinels,
-        name,
-        db: dbNum,
-        maxRetriesPerRequest: null, // Required by BullMQ
-        ...(process.env.REDIS_PASSWORD ? { password: process.env.REDIS_PASSWORD } : {}),
-        ...(process.env.REDIS_SENTINEL_PASSWORD ? { sentinelPassword: process.env.REDIS_SENTINEL_PASSWORD } : {}),
-      });
-      logCtx = { mode: 'sentinel', master: name, sentinels: sentinels.length, db: dbNum };
-    } else {
-      const redis = Config.get('redis');
-      conn = new Redis({
-        host: redis.host,
-        port: redis.port,
-        db: dbNum,
-        maxRetriesPerRequest: null, // Required by BullMQ
-        ...(process.env.REDIS_PASSWORD ? { password: process.env.REDIS_PASSWORD } : {}),
-      });
-      logCtx = { mode: 'standalone', host: redis.host, port: redis.port, db: dbNum };
+    // Same resolution as every other Redis client (REDIS_URL or REDIS_SENTINELS;
+    // see api-core env-redis). Sentinel mode follows the master across a
+    // failover. Builds can't run without Redis, so no configuration is an error.
+    const resolved = resolveRedisConnection();
+    if (!resolved) {
+      throw new Error('Plugin builds need Redis: set REDIS_URL or REDIS_SENTINELS');
     }
+    const logCtx = { ...describeRedisConnection(resolved), db: dbNum };
+    conn = createRedisClient<Redis>(resolved, `plugin-build-queue-db${dbNum}`, {
+      db: dbNum,
+      maxRetriesPerRequest: null, // Required by BullMQ
+    });
 
     conn.on('connect', () => {
       logger.info('Redis connected', logCtx);
-    });
-    conn.on('error', (err: Error) => {
-      logger.error('Redis connection error', { ...logCtx, error: err.message });
     });
     conn.on('close', () => {
       logger.warn('Redis connection closed', logCtx);
@@ -259,7 +225,14 @@ export async function reserveReplaySlot(quotaService: QuotaService, orgId: strin
   try {
     const reservation = await reserveQuota(quotaService, orgId, 'plugins', authHeader);
     if (reservation.exceeded) {
-      logger.warn('Re-enqueue proceeding without a plugin-quota slot (org at cap)', { jobId, orgId });
+      // `unavailable` = the quota service couldn't CONFIRM (transient, not a cap);
+      // log it as such so an outage isn't misread as the org being at its limit.
+      // Either way the admin re-enqueue proceeds slot-less (see above).
+      if (reservation.unavailable) {
+        logger.warn('Re-enqueue proceeding without a plugin-quota slot (quota service unavailable)', { jobId, orgId });
+      } else {
+        logger.warn('Re-enqueue proceeding without a plugin-quota slot (org at cap)', { jobId, orgId });
+      }
       return { quotaReleased: true };
     }
     return { quotaReleased: false, reservedResetAt: reservation.quota.resetAt };
@@ -466,7 +439,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
   };
 
   const processor = async (job: Job<PluginBuildJobData>, token?: string) => {
-    const { requestId, orgId, userId, buildRequest, pluginRecord } = job.data;
+    const { requestId, orgId, userId, access, buildRequest, pluginRecord } = job.data;
 
     // Custom span around the whole build: BullMQ jobs run out-of-band from any
     // inbound HTTP span, so without this a slow/hung build shows no trace detail.
@@ -526,7 +499,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
           sseManager.send(requestId, 'INFO', 'Image pushed', { fullImage });
         }
 
-        const result = await pluginService.deployVersion(pluginRecord, userId);
+        const result = await pluginService.deployVersion(pluginRecord, userId, access);
 
         recordBuildEvent(orgId, 'completed', job, {
           pluginName: result.name,

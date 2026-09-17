@@ -26,11 +26,22 @@ import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants, replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
+import { z } from 'zod';
 import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator.js';
 import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineService, type PipelineInsert, type PipelineUpdate } from '../services/pipeline-service.js';
 
 const complianceClient = createComplianceClient();
+
+/**
+ * Bulk update/delete `ids` must be FULL UUIDs. `pipelineService.update(id)` goes
+ * through the CRUD layer's id filter, which treats a partial id as a PREFIX
+ * (`id::text LIKE 'x%'`): a free-form `ids: ['']` would update EVERY pipeline in
+ * the org, while the per-row visibility check below (exact `inArray`) matched
+ * nothing and so forbade nothing.
+ */
+const FullUuid = z.string().uuid();
+const nonUuidIds = (ids: unknown[]): boolean => ids.some((id) => !FullUuid.safeParse(id).success);
 
 /**
  * Register bulk operation routes for pipelines.
@@ -109,7 +120,13 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       const reservation = await reserveQuota(quotaService, orgId, 'pipelines', authHeader);
       if (reservation.exceeded) {
         results.failed++;
-        results.errors.push({ index: i, error: `Quota exceeded: ${reservation.quota.used}/${reservation.quota.limit}` });
+        // Distinguish "couldn't confirm" (quota service down — retryable) from a real limit.
+        results.errors.push({
+          index: i,
+          error: reservation.unavailable
+            ? 'Quota service unavailable — could not confirm the pipelines quota; retry shortly'
+            : `Quota exceeded: ${reservation.quota.used}/${reservation.quota.limit}`,
+        });
         continue;
       }
 
@@ -149,6 +166,8 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
           userId || 'system',
           project,
           organization,
+          // Same overwrite gate as single create (visibility ladder + no tombstone revival).
+          { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'pipelines:publish') },
         );
 
         if (inserted) {
@@ -201,6 +220,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
   router.post('/bulk/delete', ...bulkGuards, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const bulk = validateBulkArray<string>(req.body?.ids, 'ids', CoreConstants.MAX_BULK_ITEMS);
     if ('error' in bulk) return sendBadRequest(res, bulk.error, ErrorCode.VALIDATION_ERROR);
+    if (nonUuidIds(bulk.value)) return sendBadRequest(res, '"ids" must be full pipeline UUIDs', ErrorCode.VALIDATION_ERROR);
     const ids = bulk.value;
 
     ctx.log('INFO', 'Bulk delete pipelines', { count: ids.length });
@@ -251,6 +271,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
   router.put('/bulk/update', ...bulkGuards, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const bulk = validateBulkArray<string>(req.body?.ids, 'ids', CoreConstants.MAX_BULK_ITEMS);
     if ('error' in bulk) return sendBadRequest(res, bulk.error, ErrorCode.VALIDATION_ERROR);
+    if (nonUuidIds(bulk.value)) return sendBadRequest(res, '"ids" must be full pipeline UUIDs', ErrorCode.VALIDATION_ERROR);
     const ids = bulk.value;
 
     if (!req.body?.data || typeof req.body.data !== 'object') {

@@ -69,7 +69,7 @@ pb_sync_env_keys() {
 
 pb_gen_env_secrets() {
   local env_file="$1" ghcr_user="${2:-mwashburn160}"
-  local jwt refresh pg mongo me pgadmin registry seckey minioroot s3msg s3reg s3loki s3thanos s3plugin grafana kiali
+  local jwt refresh pg pgapp mongo me pgadmin registry seckey minioroot s3msg s3reg s3loki s3thanos s3plugin grafana kiali alerttoken
   jwt=$(openssl rand -base64 32 | tr -d '=+/')
   refresh=$(openssl rand -base64 32 | tr -d '=+/')
   # Secret-column master key (AES-256-GCM envelope encryption of aiProviderKeys
@@ -78,6 +78,11 @@ pb_gen_env_secrets() {
   # =+/-stripping below would corrupt a base64 key's length.
   seckey=$(openssl rand -hex 32)
   pg=$(openssl rand -base64 24 | tr -d '=+/')
+  # The services' Postgres login (DB_USER, a NOSUPERUSER NOBYPASSRLS role that
+  # postgres-init.sql creates) gets its OWN password — never the superuser's.
+  pgapp=$(openssl rand -base64 24 | tr -d '=+/')
+  # Bearer token for the Alertmanager -> platform per-org alert relay.
+  alerttoken=$(openssl rand -base64 32 | tr -d '=+/')
   mongo=$(openssl rand -base64 24 | tr -d '=+/')
   me=$(openssl rand -base64 16 | tr -d '=+/')
   pgadmin=$(openssl rand -base64 16 | tr -d '=+/')
@@ -100,7 +105,8 @@ pb_gen_env_secrets() {
     -e "s|REFRESH_TOKEN_SECRET=CHANGE_ME_generate_with_openssl_rand_base64_32|REFRESH_TOKEN_SECRET=${refresh}|" \
     -e "s|SECRET_ENCRYPTION_KEY=CHANGE_ME_generate_with_openssl_rand_base64_32|SECRET_ENCRYPTION_KEY=${seckey}|" \
     -e "s|POSTGRES_PASSWORD=CHANGE_ME|POSTGRES_PASSWORD=${pg}|" \
-    -e "s|DB_PASSWORD=CHANGE_ME|DB_PASSWORD=${pg}|" \
+    -e "s|^DB_PASSWORD=CHANGE_ME$|DB_PASSWORD=${pgapp}|" \
+    -e "s|^ALERT_WEBHOOK_INSTANCE_TOKEN=CHANGE_ME$|ALERT_WEBHOOK_INSTANCE_TOKEN=${alerttoken}|" \
     -e "s|MONGO_INITDB_ROOT_PASSWORD=CHANGE_ME|MONGO_INITDB_ROOT_PASSWORD=${mongo}|" \
     -e "s|mongodb://mongo:CHANGE_ME@|mongodb://mongo:${mongo}@|g" \
     -e "s|ME_CONFIG_MONGODB_ADMINPASSWORD=CHANGE_ME|ME_CONFIG_MONGODB_ADMINPASSWORD=${mongo}|" \
@@ -124,7 +130,7 @@ pb_gen_env_secrets() {
   # and the sed above silently matched nothing — shipping a literal `CHANGE_ME`
   # credential (a real security hole that would otherwise pass green). Scoped to
   # these keys so optional user-supplied CHANGE_ME placeholders aren't flagged.
-  if grep -qE '^(JWT_SECRET|REFRESH_TOKEN_SECRET|SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_MONGODB_ADMINPASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|MINIO_ROOT_PASSWORD|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_KEY|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY)=CHANGE_ME' "$env_file" \
+  if grep -qE '^(JWT_SECRET|REFRESH_TOKEN_SECRET|SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_MONGODB_ADMINPASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|MINIO_ROOT_PASSWORD|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_KEY|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|ALERT_WEBHOOK_INSTANCE_TOKEN)=CHANGE_ME' "$env_file" \
      || grep -q 'mongodb://mongo:CHANGE_ME@' "$env_file"; then
     echo "ERROR: gen-env-secrets left an unsubstituted CHANGE_ME in a required secret in $env_file" >&2
     echo "  — a placeholder in .env.example drifted from this script's sed patterns." >&2

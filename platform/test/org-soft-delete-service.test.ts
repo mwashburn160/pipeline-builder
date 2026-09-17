@@ -25,7 +25,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 // resolves to an (empty) blob without a real DB.
 const mockSelectChain = { from: jest.fn(), where: jest.fn() };
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
-  db: { update: jest.fn(), delete: jest.fn(), select: jest.fn(() => mockSelectChain) },
+  withTenantTx: (fn: (tx: unknown) => unknown) => fn({ update: jest.fn(), delete: jest.fn(), select: jest.fn(() => mockSelectChain) }),
   schema: new Proxy({}, { get: (_t, name) => ({ orgId: `${String(name)}.org_id` }) }),
   runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
 }));

@@ -22,7 +22,7 @@ import { Callout } from '@/components/ui/Callout';
 import { OrgSsoSettings } from '@/components/settings/OrgSsoSettings';
 
 export default function OrgSsoSettingsPage() {
-  const { isReady, user, isSuperAdmin } = useAuthGuard({ requirePermission: 'org:idp' });
+  const { isReady, user, isSuperAdmin, isReadOnly } = useAuthGuard({ requirePermission: 'org:idp' });
   const { isEnabled, isLoaded } = useFeatures();
 
   if (!isReady || !user) return <LoadingPage />;
@@ -53,7 +53,7 @@ export default function OrgSsoSettingsPage() {
             Could not determine your active organization. Try reloading the page.
           </Callout>
         ) : (
-          <OrgSsoSettings orgId={orgId} />
+          <OrgSsoSettings orgId={orgId} readOnly={isReadOnly} />
         )}
       </div>
     </DashboardLayout>

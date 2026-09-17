@@ -13,7 +13,7 @@ import {
   reserveQuota,
   runConcurrent,
   sendBadRequest,
-  sendQuotaExceeded,
+  sendQuotaReserveDenied,
   sendSuccess,
   validateBody,
   AIGenerateBodySchema,
@@ -149,7 +149,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
       // Two concurrent generates at the limit can't both burn a call.
       const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', serviceAuth);
       if (reservation.exceeded) {
-        return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
+        return sendQuotaReserveDenied(res, 'aiCalls', reservation);
       }
 
       try {
@@ -233,7 +233,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
       // OR an error throws, the catch block decrements to give the slot back.
       const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', serviceAuth);
       if (reservation.exceeded) {
-        return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
+        return sendQuotaReserveDenied(res, 'aiCalls', reservation);
       }
       let reserved = true;
       // True once the FIRST partial flows — proof the provider responded (and its $
@@ -336,7 +336,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
 
       const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', serviceAuth);
       if (reservation.exceeded) {
-        return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
+        return sendQuotaReserveDenied(res, 'aiCalls', reservation);
       }
 
       // Log only the parsed host/owner/repo — never the raw `gitUrl`, which may
@@ -449,7 +449,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
       // reserve the aiCalls slot before any LLM work.
       const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', serviceAuth);
       if (reservation.exceeded) {
-        return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
+        return sendQuotaReserveDenied(res, 'aiCalls', reservation);
       }
       let reserved = true;
       let providerContacted = false; // true once the first LLM partial flows

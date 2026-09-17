@@ -11,7 +11,7 @@ import {
   requireFeature,
   reserveQuota,
   sendBadRequest,
-  sendQuotaExceeded,
+  sendQuotaReserveDenied,
   sendSuccess,
   validateBody,
   AIGenerateBodySchema,
@@ -65,7 +65,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
     // reserve the aiCalls slot atomically; roll back on LLM failure.
     const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', authHeader);
     if (reservation.exceeded) {
-      return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
+      return sendQuotaReserveDenied(res, 'aiCalls', reservation);
     }
 
     try {
@@ -109,7 +109,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
 
     const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', authHeader);
     if (reservation.exceeded) {
-      return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
+      return sendQuotaReserveDenied(res, 'aiCalls', reservation);
     }
     let reserved = true;
 

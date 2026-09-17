@@ -119,7 +119,7 @@ POST /api/reports/deployments/:executionId/outcome
 
 Body `{ "outcome": "failed" | "restored", "at": "<iso>", "environment": "<name>?" }`.
 Marks a deployment failed (a production incident linked to the deploy) or restored.
-Feeds the **post-deploy** CFR component and **real MTTR**. `advanced_reporting`-gated,
+Feeds the **post-deploy** CFR component and **real MTTR**. Requires `pipelines:write` (it's a write — `reports:read` only views), `advanced_reporting`-gated,
 org-scoped, and idempotent — re-posting the same `(execution, outcome)` refreshes
 `at` instead of double-counting.
 

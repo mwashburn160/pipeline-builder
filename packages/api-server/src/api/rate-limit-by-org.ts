@@ -1,11 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendError, ErrorCode, createLogger, verifyServicePrincipal, createEnvRedisClient, safeCreateRequire } from '@pipeline-builder/api-core';
+import { sendError, ErrorCode, verifyServicePrincipal } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
-
-const logger = createLogger('rate-limit-by-org');
+import { createSharedRateLimitStore } from './rate-limit-store.js';
 
 /** Config for a {@link rateLimitByOrg} limiter. */
 export interface OrgRateLimitOptions {
@@ -46,6 +45,8 @@ export function rateLimitByOrg(opts: OrgRateLimitOptions) {
     legacyHeaders: false,
     // Exempt cryptographically-verified internal service callers (signed JWT).
     skip: (req: Request) => verifyServicePrincipal(req),
+    // Redis store failure degrades to "not limited", never a 500 on the route.
+    passOnStoreError: true,
     // Bucket by VERIFIED org (set by requireAuth), NOT the spoofable `x-org-id`
     // header. Fall back to a normalized client-IP bucket when unauthenticated so
     // the limiter still bounds pre-auth traffic. Namespaced (`org:`/`ip:`) so an
@@ -59,23 +60,11 @@ export function rateLimitByOrg(opts: OrgRateLimitOptions) {
     },
   };
 
-  // Shared Redis store for cross-replica buckets when Redis is configured;
-  // namespaced per limiter so distinct limiters don't share a bucket. Fail-open:
-  // no Redis / a load failure falls back to per-process in-memory limiting.
-  const redis = createEnvRedisClient<{ call: (...args: unknown[]) => Promise<unknown> }>(`rate-limit-${name}`);
-  if (redis) {
-    try {
-      const require = safeCreateRequire(import.meta.url);
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { RedisStore } = require('rate-limit-redis');
-      options.store = new RedisStore({
-        prefix: `rl:${name}:`,
-        sendCommand: (...args: string[]) => redis.call(...args),
-      });
-    } catch {
-      logger.warn('Redis store unavailable; per-org limiter falls back to in-memory', { name });
-    }
-  }
+  // Shared cross-replica store (one process-wide Redis connection) when Redis is
+  // configured, else per-process memory. Namespaced by service AND limiter name so
+  // distinct limiters — or same-named limiters in different services — never
+  // share a counter.
+  options.store = createSharedRateLimitStore(`${process.env.SERVICE_NAME || 'api'}:${name}`);
 
   return rateLimit(options);
 }

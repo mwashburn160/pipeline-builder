@@ -90,7 +90,7 @@ spec:
               echo "Registry ready"
       containers:
         - name: image-registry
-          image: ghcr.io/mwashburn160/image-registry:4.1.2
+          image: ghcr.io/mwashburn160/image-registry:4.1.3
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -104,6 +104,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: app-env
+            # Credentials (DB_PASSWORD, MONGODB_URI, API keys, …) split out of app-env.
+            - secretRef:
+                name: app-secrets
             - secretRef:
                 name: jwt-secret
             - secretRef:
@@ -114,10 +117,6 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "image-registry"
-            - name: REDIS_HOST
-              value: "redis"
-            - name: REDIS_PORT
-              value: "6379"
             - name: PORT
               value: "3000"
             # Underlying registry the proxy + management API talks to.

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ErrorCode, requirePermission, sendError } from '@pipeline-builder/api-core';
+import { createSharedRateLimitStore } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import {
@@ -66,6 +67,9 @@ const router: Router = Router();
  *  TXT lookup, so bound it tighter than the global limiter (keyed per-user;
  *  requireAuth runs first). */
 const domainVerifyLimiter = rateLimit({
+  // Shared across replicas (Redis); a store outage lets requests through.
+  store: createSharedRateLimitStore('platform:domain-verify'),
+  passOnStoreError: true,
   windowMs: 60_000,
   max: 10,
   keyGenerator: (req) => req.user?.sub ?? ipKeyGenerator(req.ip || 'anon', 64),

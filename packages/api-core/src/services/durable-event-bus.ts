@@ -190,21 +190,26 @@ export function createRedisDurableEventBus(
         }
       };
 
+      // The consumer group must exist before XREADGROUP can succeed. Creating it
+      // is retried inside the loop: at startup the client may not have connected
+      // yet, and a single failed attempt used to leave the consumer reading a
+      // group that was never created — forever.
+      let groupReady = false;
       const ensureGroup = async (): Promise<void> => {
         try {
           // MKSTREAM so the stream need not exist yet; '$' = only new messages.
           await redis.xgroup('CREATE', key, group, '$', 'MKSTREAM');
+          groupReady = true;
         } catch (err) {
-          if (!isBusyGroup(err)) {
-            logger.warn('Event bus group create failed', { topic, group, error: errMsg(err) });
-          }
+          if (!isBusyGroup(err)) throw err;
+          groupReady = true;
         }
       };
 
       const loop = async (): Promise<void> => {
-        await ensureGroup();
         while (!stopped) {
           try {
+            if (!groupReady) await ensureGroup();
             // 1) Reclaim messages stranded by a crashed consumer in this group.
             const claimed = await redis.xautoclaim(key, group, consumer, minIdle, '0', 'COUNT', batch);
             // XAUTOCLAIM reply: [nextCursor, entries, deletedIds]
@@ -223,6 +228,8 @@ export function createRedisDurableEventBus(
             }
           } catch (err) {
             if (stopped) break;
+            // The stream or group was deleted out from under us — recreate it.
+            if (/NOGROUP/i.test(errMsg(err))) groupReady = false;
             logger.warn('Event bus consumer loop error; backing off', { topic, group, error: errMsg(err) });
             // Back off so a persistent Redis error doesn't hot-spin.
             await new Promise((r) => setTimeout(r, 1000));

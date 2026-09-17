@@ -58,7 +58,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: frontend
-          image: ghcr.io/mwashburn160/frontend:4.1.5
+          image: ghcr.io/mwashburn160/frontend:4.1.6
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -72,6 +72,14 @@ spec:
             - configMapRef:
                 name: app-env
           env:
+            # Server-side relay target for client error reports (runtime, from .env
+            # via app-env); unset/empty = reporting off.
+            - name: ERROR_REPORT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-env
+                  key: ERROR_REPORT_URL
+                  optional: true
             - name: PLATFORM_BASE_URL
               value: "https://nginx:8443"
             - name: NODE_TLS_REJECT_UNAUTHORIZED

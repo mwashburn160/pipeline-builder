@@ -397,6 +397,8 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/message
               - cluster.local/ns/pipeline-builder/sa/quota
               - cluster.local/ns/pipeline-builder/sa/reporting
+              # Per-org alert relay: POST /observability/alert-webhook.
+              - cluster.local/ns/pipeline-builder/sa/alertmanager
       to:
         - operation:
             ports: ["3000"]

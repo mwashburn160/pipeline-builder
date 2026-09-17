@@ -174,7 +174,7 @@ export function createRedisIdempotencyStore(redis: RedisIdempotencyClient): Idem
 
 /**
  * Build a Redis-backed idempotency store from the shared env Redis (the same
- * `REDIS_URL` / `REDIS_HOST` wiring the rate-limiter and audit-spool use).
+ * `REDIS_URL` / `REDIS_SENTINELS` wiring the rate-limiter and audit-spool use).
  * Returns `null` when Redis isn't configured/available so the caller keeps the
  * in-memory default (single-replica correctness). Never throws.
  */

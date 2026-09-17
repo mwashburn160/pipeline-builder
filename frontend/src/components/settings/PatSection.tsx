@@ -9,6 +9,7 @@ import { SecretReveal } from '@/components/ui/SecretReveal';
 import { RetryError } from '@/components/ui/RetryError';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Button } from '@/components/ui/Button';
+import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 import { Input } from '@/components/ui/Input';
 import { FormField } from '@/components/ui/FormField';
 import { Badge } from '@/components/ui/Badge';
@@ -31,8 +32,11 @@ const STATUS_COLOR: Record<PatMeta['status'], 'green' | 'gray' | 'red'> = {
  * Personal Access Token management. Named, long-lived API credentials that —
  * unlike session tokens — can each be revoked individually (the server tracks
  * them by `jti`). The raw token is shown exactly once, at creation.
+ *
+ * `readOnly` (read-only impersonation) disables create + revoke — both writes
+ * the backend rejects in that session.
  */
-export function PatSection() {
+export function PatSection({ readOnly }: { readOnly: boolean }) {
   const toast = useToast();
   // A load failure must NOT render as "no tokens yet" — on a security surface a
   // false-empty could imply the account has no live credentials when it may.
@@ -125,7 +129,8 @@ export function PatSection() {
           variant="ghost"
           size="xs"
           onClick={() => setPendingRevoke(p)}
-          disabled={revoking === p.jti}
+          disabled={readOnly || revoking === p.jti}
+          title={readOnly ? READ_ONLY_REASON : undefined}
           className="gap-1 text-red-600 hover:text-red-700"
         >
           <Trash2 className="w-3.5 h-3.5" /> Revoke
@@ -142,12 +147,12 @@ export function PatSection() {
     >
       <div className="flex flex-wrap items-end gap-2 mb-4">
         <FormField label="Name" className="flex-1 min-w-[180px]">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. ci-deploy" maxLength={100} disabled={creating} />
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. ci-deploy" maxLength={100} disabled={creating || readOnly} />
         </FormField>
         <FormField label="Expires (days)" className="w-32">
-          <Input type="number" min={1} max={365} value={days} onChange={(e) => setDays(Number(e.target.value))} disabled={creating} />
+          <Input type="number" min={1} max={365} value={days} onChange={(e) => setDays(Number(e.target.value))} disabled={creating || readOnly} />
         </FormField>
-        <Button onClick={handleCreate} loading={creating || !!pendingCreate}>Create token</Button>
+        <Button onClick={handleCreate} loading={creating || !!pendingCreate} disabled={readOnly} title={readOnly ? READ_ONLY_REASON : undefined}>Create token</Button>
       </div>
 
       {pendingCreate && (

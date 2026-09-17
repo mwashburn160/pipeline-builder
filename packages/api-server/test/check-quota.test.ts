@@ -9,6 +9,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getIdentity: jest.fn(() => ({ orgId: 'fallback-org' })),
   sendError: jest.fn(),
   sendQuotaExceeded: jest.fn(),
+  getQuotaServiceAuthHeader: (orgId: string) => `Bearer service-token-for-${orgId}`,
 }));
 
 const { sendError, sendQuotaExceeded, getIdentity } = await import('@pipeline-builder/api-core');
@@ -17,6 +18,7 @@ const { checkQuota } = await import('../src/api/check-quota.js');
 function mockReq(overrides: Record<string, unknown> = {}): any {
   return {
     headers: { authorization: 'Bearer tok' },
+    user: { sub: 'user-1', organizationId: 'org-1' },
     context: {
       identity: { orgId: 'org-1', userId: 'user-1' },
       log: jest.fn(),
@@ -52,9 +54,21 @@ describe('checkQuota', () => {
 
     await middleware(req, res, next);
 
-    expect(mockQuotaService.check).toHaveBeenCalledWith('org-1', 'apiCalls', 'Bearer tok');
+    // Authenticates as the SERVICE (never forwards the user's bearer token).
+    expect(mockQuotaService.check).toHaveBeenCalledWith('org-1', 'apiCalls', 'Bearer service-token-for-org-1');
     expect(next).toHaveBeenCalled();
     expect(sendError).not.toHaveBeenCalled();
+  });
+
+  it('skips the check (fails open) for an unauthenticated request — never mints service creds for a header-derived org', async () => {
+    const middleware = checkQuota(mockQuotaService, 'apiCalls');
+    const req = mockReq({ user: undefined, context: { identity: { orgId: 'victim-org' }, log: jest.fn() } });
+    const next = jest.fn();
+
+    await middleware(req, mockRes(), next);
+
+    expect(mockQuotaService.check).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalled();
   });
 
   it('returns 429 when quota is exceeded', async () => {

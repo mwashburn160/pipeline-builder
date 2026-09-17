@@ -28,6 +28,19 @@ describe('withLeaderLock', () => {
     expect(redis.del).toHaveBeenCalledWith('k');
   });
 
+  it('skips the run — and does NOT reject — when Redis rejects the lock (e.g. not connected yet)', async () => {
+    // Regression: platform crash-looped on minikube. Timers fire this with `void`,
+    // so a rejection here was an unhandled rejection that exited the process.
+    const redis = {
+      set: jest.fn(async () => { throw new Error("Stream isn't writeable and enableOfflineQueue options is false"); }),
+      get: jest.fn(async () => null),
+      del: jest.fn(async () => 0),
+    };
+    const fn = jest.fn(async () => {});
+    await expect(withLeaderLock(redis, 'k', 1000, fn)).resolves.toBe(false);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
   it('passes SET key token NX PX ttl', async () => {
     const redis = fakeRedis({ acquire: true, getOwner: 'self' });
     await withLeaderLock(redis as never, 'mykey', 5000, async () => {});

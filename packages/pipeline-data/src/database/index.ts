@@ -5,4 +5,3 @@ export * from './drizzle-schema.js';
 export * from './postgres-connection.js';
 export * from './retry-strategy.js';
 export * from './tenancy.js';
-export { runMigrations, type MigrateOptions } from './migrator.js';

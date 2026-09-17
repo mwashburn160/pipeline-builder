@@ -40,7 +40,13 @@ export interface BillingReconcileSummary {
   stillPending: number;
 }
 
-/** Single billing subscription POST (no retry). Throws on any failure. */
+/**
+ * Single billing subscription POST (no retry). Throws on any failure.
+ *
+ * `createSafeClient` never throws: a transport failure (timeout, refused, open
+ * circuit) resolves `null`, and an HTTP error resolves with its status. Both
+ * must become a throw here, or the retry and the pending marker never engage.
+ */
 async function postSubscription(orgId: string, planId: string): Promise<void> {
   const client = createSafeClient({
     host: config.billing.serviceHost,
@@ -48,12 +54,14 @@ async function postSubscription(orgId: string, planId: string): Promise<void> {
     timeout: config.billing.serviceTimeout,
   });
 
-  await client.post('/billing/subscriptions', { planId, interval: 'monthly' }, {
+  const res = await client.post('/billing/subscriptions', { planId, interval: 'monthly' }, {
     headers: {
       'x-org-id': orgId,
       'authorization': getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'member' }),
     },
   });
+  if (!res) throw new Error('Billing service unreachable');
+  if (res.statusCode < 200 || res.statusCode >= 300) throw new Error(`Billing service returned ${res.statusCode}`);
 }
 
 /**

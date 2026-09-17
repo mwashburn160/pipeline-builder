@@ -12,7 +12,6 @@ export interface AppConfig {
   readonly auth: AuthConfig;
   readonly database: DatabaseConfig;
   readonly registry: RegistryConfig;
-  readonly redis: RedisConfig;
   readonly pluginBuild: PluginBuildConfig;
   readonly dockerConfig: BuildConfig;
   readonly observability: ObservabilityConfig;
@@ -135,11 +134,6 @@ export interface RegistryConfig {
    * the in-cluster registry has no TLS).
    */
   readonly http: boolean;
-}
-
-export interface RedisConfig {
-  readonly host: string;
-  readonly port: number;
 }
 
 export interface PluginBuildConfig {

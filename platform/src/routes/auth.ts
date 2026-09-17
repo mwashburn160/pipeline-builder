@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ErrorCode, sendError } from '@pipeline-builder/api-core';
+import { createSharedRateLimitStore } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { login, logout, register, refresh, switchOrg, sendVerificationEmail, verifyEmail, markEmailVerified, completeOnboarding, getDomainOrgs, joinDomainOrg } from '../controllers/index.js';
@@ -23,6 +24,9 @@ const router: Router = Router();
  * On limit-hit returns 429; the StepUpModal surfaces the message verbatim.
  */
 const stepUpLimiter = rateLimit({
+  // Shared across replicas (Redis); a store outage lets requests through.
+  store: createSharedRateLimitStore('platform:step-up'),
+  passOnStoreError: true,
   windowMs: 60_000,
   max: 5,
   // requireAuth runs BEFORE this middleware in the chain, so req.user is
@@ -82,6 +86,9 @@ router.post('/step-up', requireAuth, stepUpLimiter, stepUpVerify);
  * (requireAuth runs first), tighter than the shared IP `authLimiter`.
  */
 const domainJoinLimiter = rateLimit({
+  // Shared across replicas (Redis); a store outage lets requests through.
+  store: createSharedRateLimitStore('platform:domain-join'),
+  passOnStoreError: true,
   windowMs: 60_000,
   max: 15,
   keyGenerator: (req) => req.user?.sub ?? ipKeyGenerator(req.ip || 'anon', 64),

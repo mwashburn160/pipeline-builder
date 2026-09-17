@@ -8,7 +8,6 @@ import type { AppConfig } from './config-types.js';
 import * as HandlerConstants from './handler-constants.js';
 import {
   loadRegistryConfig,
-  loadRedisConfig,
   loadPluginBuildConfig,
   loadDockerConfig,
   loadDatabaseConfig,
@@ -124,7 +123,6 @@ const sectionLoaders: { [K in keyof AppConfig]: () => AppConfig[K] } = {
   auth: loadAuthConfig,
   database: loadDatabaseConfig,
   registry: loadRegistryConfig,
-  redis: loadRedisConfig,
   pluginBuild: loadPluginBuildConfig,
   dockerConfig: loadDockerConfig,
   observability: loadObservabilityConfig,

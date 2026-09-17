@@ -1,9 +1,18 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { EventEmitter } from 'events';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 
-import { CacheService, createCacheService } from '../src/services/cache-service.js';
+
+import {
+  CacheService,
+  createCacheService,
+  createRedisCacheInvalidationBus,
+  type CacheInvalidationBus,
+  type CacheInvalidationMessage,
+  type RedisInvalidationClient,
+} from '../src/services/cache-service.js';
 
 describe('CacheService (in-memory)', () => {
   let cache: CacheService;
@@ -255,5 +264,143 @@ describe('createCacheService', () => {
   it('creates with custom TTL', () => {
     const cache = createCacheService('test:', 120);
     expect(cache).toBeInstanceOf(CacheService);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-replica invalidation — each pod has its own in-memory cache, so an
+// invalidation on one pod must reach the others (HPA-scaled services).
+// ---------------------------------------------------------------------------
+
+/** In-process stand-in for Redis pub/sub shared by several "pods". */
+function createFakeBusNetwork() {
+  const subscribers: Array<{ onMessage: (m: CacheInvalidationMessage) => void; onResync: () => void }> = [];
+  const bus: CacheInvalidationBus = {
+    publish: (msg) => { for (const s of subscribers) s.onMessage(JSON.parse(JSON.stringify(msg))); },
+    subscribe: (onMessage, onResync) => { subscribers.push({ onMessage, onResync }); },
+  };
+  return { bus, resyncAll: () => subscribers.forEach((s) => s.onResync()) };
+}
+
+describe('CacheService cross-replica invalidation', () => {
+  it('del on pod A evicts the entry on pod B', async () => {
+    const { bus } = createFakeBusNetwork();
+    const podA = new CacheService({ prefix: 'plugin:', defaultTtlSeconds: 60, invalidationBus: bus });
+    const podB = new CacheService({ prefix: 'plugin:', defaultTtlSeconds: 60, invalidationBus: bus });
+    await podA.set('org1:id:p1', { v: 1 });
+    await podB.set('org1:id:p1', { v: 1 });
+
+    await podA.del('org1:id:p1');
+
+    expect(await podB.get('org1:id:p1')).toBeNull();
+  });
+
+  it('invalidatePattern and clear on pod A reach pod B (same prefix only)', async () => {
+    const { bus } = createFakeBusNetwork();
+    const podA = new CacheService({ prefix: 'pipeline:', defaultTtlSeconds: 60, invalidationBus: bus });
+    const podB = new CacheService({ prefix: 'pipeline:', defaultTtlSeconds: 60, invalidationBus: bus });
+    const other = new CacheService({ prefix: 'message:', defaultTtlSeconds: 60, invalidationBus: bus });
+    await podB.set('org1:list', [1]);
+    await podB.set('org2:list', [2]);
+    await other.set('org1:list', ['untouched']);
+
+    await podA.invalidatePattern('org1:*');
+    expect(await podB.get('org1:list')).toBeNull();
+    expect(await podB.get('org2:list')).toEqual([2]);
+    expect(await other.get('org1:list')).toEqual(['untouched']);
+
+    await podA.clear();
+    expect(await podB.get('org2:list')).toBeNull();
+    expect(await other.get('org1:list')).toEqual(['untouched']);
+  });
+
+  it('a resync (subscriber reconnect) flushes the local cache — invalidations may have been missed', async () => {
+    const { bus, resyncAll } = createFakeBusNetwork();
+    const pod = new CacheService({ prefix: 'compliance:rules:', defaultTtlSeconds: 60, invalidationBus: bus });
+    await pod.set('org1:all', ['rule']);
+    resyncAll();
+    expect(await pod.get('org1:all')).toBeNull();
+  });
+
+  it('getOrSet does not cache a value whose factory raced an invalidation from another pod', async () => {
+    const { bus } = createFakeBusNetwork();
+    const podA = new CacheService({ prefix: 'plugin:', defaultTtlSeconds: 60, invalidationBus: bus });
+    const podB = new CacheService({ prefix: 'plugin:', defaultTtlSeconds: 60, invalidationBus: bus });
+
+    let release!: (v: string) => void;
+    const pending = podB.getOrSet('org1:id:p1', () => new Promise<string>((r) => { release = r; }));
+    await new Promise((r) => setImmediate(r));
+    await podA.del('org1:id:p1'); // write + invalidate lands while B's stale read is in flight
+    release('stale');
+    expect(await pending).toBe('stale');
+
+    expect(await podB.get('org1:id:p1')).toBeNull();
+  });
+});
+
+describe('createRedisCacheInvalidationBus', () => {
+  /** Fake ioredis client: an EventEmitter with a status and pub/sub spies. */
+  function fakeClient() {
+    const sub = Object.assign(new EventEmitter(), {
+      status: 'connecting',
+      subscribe: jest.fn(async (..._c: string[]) => 1),
+      publish: jest.fn(async () => 0),
+      duplicate: jest.fn(),
+    });
+    const pub = Object.assign(new EventEmitter(), {
+      status: 'ready',
+      subscribe: jest.fn(async () => 1),
+      publish: jest.fn(async (_ch: string, _m: string) => 1),
+      duplicate: jest.fn(() => sub),
+    });
+    return { pub: pub as unknown as RedisInvalidationClient & typeof pub, sub };
+  }
+
+  it('does not SUBSCRIBE before the connection is ready, subscribes on every ready, and resyncs', async () => {
+    const { pub, sub } = fakeClient();
+    const bus = createRedisCacheInvalidationBus(pub);
+    const onResync = jest.fn();
+    bus.subscribe(jest.fn(), onResync);
+
+    // Not ready yet: a subscribe now would be rejected (no offline queue) and lost.
+    expect(sub.subscribe).not.toHaveBeenCalled();
+
+    sub.status = 'ready';
+    sub.emit('ready');
+    await new Promise((r) => setImmediate(r));
+    expect(sub.subscribe).toHaveBeenCalledWith('cache:invalidate');
+    expect(onResync).toHaveBeenCalledTimes(1);
+
+    // Reconnect → re-subscribe + resync again.
+    sub.emit('ready');
+    await new Promise((r) => setImmediate(r));
+    expect(sub.subscribe).toHaveBeenCalledTimes(2);
+    expect(onResync).toHaveBeenCalledTimes(2);
+  });
+
+  it('delivers channel messages to handlers and publishes JSON on the channel', async () => {
+    const { pub, sub } = fakeClient();
+    const bus = createRedisCacheInvalidationBus(pub);
+    const onMessage = jest.fn();
+    bus.subscribe(onMessage, jest.fn());
+
+    const msg: CacheInvalidationMessage = { origin: 'x', prefix: 'plugin:', op: 'del', key: 'k' };
+    sub.emit('message', 'cache:invalidate', JSON.stringify(msg));
+    sub.emit('message', 'other-channel', JSON.stringify(msg));
+    sub.emit('message', 'cache:invalidate', '{not json');
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(onMessage).toHaveBeenCalledWith(msg);
+
+    bus.publish(msg);
+    await new Promise((r) => setImmediate(r));
+    expect(pub.publish).toHaveBeenCalledWith('cache:invalidate', JSON.stringify(msg));
+  });
+
+  it('never throws when PUBLISH fails', async () => {
+    const { pub } = fakeClient();
+    (pub.publish as jest.Mock).mockImplementation(async () => { throw new Error('down'); });
+    const bus = createRedisCacheInvalidationBus(pub);
+    expect(() => bus.publish({ origin: 'x', prefix: 'p:', op: 'clear' })).not.toThrow();
+    await new Promise((r) => setImmediate(r));
   });
 });

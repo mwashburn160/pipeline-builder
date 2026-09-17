@@ -61,7 +61,7 @@ describe('ReportingService', () => {
      * insert batch + the `onConflictDoNothing`/`returning` spies so a test can
      * assert idempotency wiring and the scrubbed persisted payload.
      */
-    function wireIngest(registryRows: Array<{ pipelineId: string; orgId: string }>) {
+    function wireIngest(registryRows: Array<{ pipelineId: string; orgId: string }>, duplicates: Set<string> = new Set()) {
       // tx.select({...}).from(...).where(...) → registry rows (awaited directly)
       mockSelect.mockReturnValue({
         from: jest.fn().mockReturnValue({
@@ -71,8 +71,16 @@ describe('ReportingService', () => {
 
       let capturedRows: Array<Record<string, unknown>> = [];
       const returning = jest.fn().mockImplementation(() =>
-        // echo one inserted row per captured row so `inserted` counts match
-        Promise.resolve(capturedRows.map((r) => ({ orgId: r.orgId }))),
+        // echo one inserted row per captured row (minus any the test marks as
+        // dedup-swallowed) so `inserted` counts match
+        Promise.resolve(capturedRows.filter((r) => !duplicates.has(String(r.executionId))).map((r) => ({
+          orgId: r.orgId,
+          pipelineId: r.pipelineId,
+          eventType: r.eventType,
+          status: r.status,
+          stageName: r.stageName,
+          environment: r.environment,
+        }))),
       );
       const onConflictDoNothing = jest.fn().mockReturnValue({ returning });
       const values = jest.fn().mockImplementation((rows: Array<Record<string, unknown>>) => {
@@ -206,6 +214,25 @@ describe('ReportingService', () => {
       expect(row.commitCount).toBe(3);
       // Phase 3b: one metric emitted for the terminal deploy-stage event, with
       // the registry-resolved org (never the caller's claimed org).
+      expect(metrics).toEqual([
+        { pipelineId: 'pl-1', orgId: 'acme', stage: 'Deploy-prod', environment: 'production', result: 'succeeded' },
+      ]);
+    });
+
+    // At-least-once delivery: a re-delivered STAGE outcome is swallowed by the
+    // dedup index (ON CONFLICT DO NOTHING → not in RETURNING). The Prometheus
+    // counters have no idempotency of their own, so the metric must follow the
+    // INSERTED set, not the request batch — else every redelivery double-counts.
+    it('emits NO stage metric for a re-delivered event the dedup index swallowed', async () => {
+      wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }], new Set(['e-dup']));
+      const metrics: unknown[] = [];
+
+      const result = await service.ingestEvents([
+        { pipelineId: 'pl-1', eventSource: 'codepipeline', eventType: 'STAGE', status: 'FAILED', executionId: 'e-dup', stageName: 'Deploy-prod', environment: 'production' },
+        { pipelineId: 'pl-1', eventSource: 'codepipeline', eventType: 'STAGE', status: 'SUCCEEDED', executionId: 'e-new', stageName: 'Deploy-prod', environment: 'production' },
+      ], (m) => metrics.push(m));
+
+      expect(result.inserted).toBe(1);
       expect(metrics).toEqual([
         { pipelineId: 'pl-1', orgId: 'acme', stage: 'Deploy-prod', environment: 'production', result: 'succeeded' },
       ]);

@@ -179,16 +179,24 @@ export function adminApi(core: ApiCore) {
       });
     },
 
-    updateUserById: async (id: string, data: { username?: string; email?: string; role?: string; organizationId?: string | null; password?: string }) => {
+    /** Platform admins only for username/email/password; requires a fresh password check. */
+    updateUserById: async (
+      id: string,
+      data: { username?: string; email?: string; role?: string; organizationId?: string | null; password?: string },
+      stepUpToken: string,
+    ) => {
       return core.request<ApiResponse<{ user: User }>>(`/api/users/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
+        headers: core.stepUpHeader(stepUpToken),
       });
     },
 
-    deleteUserById: async (id: string) => {
+    /** Deletes the whole account (platform admins only); requires a fresh password check. */
+    deleteUserById: async (id: string, stepUpToken: string) => {
       return core.request<ApiResponse<{ message: string }>>(`/api/users/${id}`, {
         method: 'DELETE',
+        headers: core.stepUpHeader(stepUpToken),
       });
     },
 

@@ -13,7 +13,8 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import type { BuilderProps, ExecutionCountRow } from '@/types';
+import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
+import type { BuilderProps, ExecutionCountRow, Visibility } from '@/types';
 import { LoadingPage } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
@@ -54,7 +55,7 @@ const stagger = {
  * removed — it duplicated the sidebar; navigation lives in one place now.
  */
 export default function DashboardPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin, isAdmin } = useAuthGuard();
+  const { user, isReady, isAuthenticated, isSuperAdmin, isAdmin, can, isReadOnly } = useAuthGuard();
   // Finish an in-flight AWS Marketplace registration if the purchaser just signed
   // up / signed in (the fulfillment page stashed a single-use registrationRef).
   usePendingMarketplaceClaim();
@@ -227,15 +228,20 @@ export default function DashboardPage() {
 
   // ─── Handlers ───
 
+  // Every entry into the create flow ends in a pipeline create (`pipelines:write`).
+  // `can()` also reports false under read-only impersonation, where the POST 403s.
+  const canCreatePipeline = can('pipelines:write');
+  const createBlockedReason = canCreatePipeline ? undefined : (isReadOnly ? READ_ONLY_REASON : 'Requires pipelines:write');
+
   const handleGenerateFromUrl = () => {
-    if (!gitUrl.trim()) return;
+    if (!canCreatePipeline || !gitUrl.trim()) return;
     setModalGitUrl(gitUrl.trim());
     setCreateError(null);
     setCreateSuccess(null);
     setShowCreateModal(true);
   };
 
-  const handleCreateSubmit = async (props: BuilderProps, visibility: 'public' | 'private', description?: string, keywords?: string[]) => {
+  const handleCreateSubmit = async (props: BuilderProps, visibility: Visibility, description?: string, keywords?: string[]) => {
     setCreateLoading(true);
     setCreateError(null);
     setCreateSuccess(null);
@@ -254,6 +260,7 @@ export default function DashboardPage() {
   };
 
   const openModalTab = () => {
+    if (!canCreatePipeline) return;
     setModalGitUrl(undefined);
     setCreateError(null);
     setCreateSuccess(null);
@@ -296,18 +303,20 @@ export default function DashboardPage() {
                     onKeyDown={(e) => { if (e.key === 'Enter') handleGenerateFromUrl(); }}
                     placeholder="https://github.com/owner/repo"
                     className="pl-9"
+                    disabled={!canCreatePipeline}
+                    title={createBlockedReason}
                   />
                 </div>
-                <Button onClick={handleGenerateFromUrl} disabled={!gitUrl.trim()}>
+                <Button onClick={handleGenerateFromUrl} disabled={!canCreatePipeline || !gitUrl.trim()} title={createBlockedReason}>
                   Generate
                   <ArrowRight className="w-4 h-4 ml-1.5" />
                 </Button>
               </div>
               <div className="mt-2 flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-                <button onClick={openModalTab} className="action-link-muted underline">
+                <button onClick={openModalTab} disabled={!canCreatePipeline} title={createBlockedReason} className="action-link-muted underline disabled:no-underline disabled:opacity-50 disabled:cursor-not-allowed">
                   <Upload className="w-3 h-3 inline mr-0.5" /> Upload config
                 </button>
-                <button onClick={openModalTab} className="action-link-muted underline">
+                <button onClick={openModalTab} disabled={!canCreatePipeline} title={createBlockedReason} className="action-link-muted underline disabled:no-underline disabled:opacity-50 disabled:cursor-not-allowed">
                   <Wand2 className="w-3 h-3 inline mr-0.5" /> Create manually
                 </button>
                 <Link href="/dashboard/templates" className="action-link-muted underline">
@@ -457,7 +466,7 @@ export default function DashboardPage() {
         createLoading={createLoading}
         createError={createError}
         createSuccess={createSuccess}
-        canCreatePublic={isSuperAdmin}
+        canPublish={can('pipelines:publish')}
         initialGitUrl={modalGitUrl}
       />
     </DashboardLayout>

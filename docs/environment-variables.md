@@ -75,6 +75,9 @@ This reference documents every environment variable across the Pipeline Builder 
 | `JWT_EXPIRES_IN_ENTERPRISE` | (inherits `JWT_EXPIRES_IN`) | Enterprise-tier override (e.g. `1800` = 30 min) |
 | `JWT_EXPIRES_IN_UNLIMITED` | (inherits `JWT_EXPIRES_IN`) | Unlimited-tier override (billing-disabled default tier) |
 | `JWT_ALGORITHM` | `HS256` | `HS256`, `HS384`, `HS512`, `RS256` |
+| `JWT_SECRET_PREVIOUS` | — | Rotation: while set, tokens signed with the previous secret still verify (on every service, including platform). Expired tokens are never revived. Remove once old tokens have expired. |
+| `JWT_ISSUER` | — | When set, platform stamps it on every token it signs and every service rejects tokens without it. Set on all services at once. |
+| `JWT_AUDIENCE` | — | Same as `JWT_ISSUER`, for the `aud` claim. |
 | `BCRYPT_SALT_ROUNDS` | `12` | bcrypt cost factor for password hashing (10-12 recommended). |
 | `REFRESH_TOKEN_EXPIRES_IN` | `2592000` | Refresh token TTL (30d) |
 | `PASSWORD_MIN_LENGTH` | `8` | Minimum password length |
@@ -104,8 +107,7 @@ AI provider keys and IdP client secrets are encrypted at rest. `SECRET_ENCRYPTIO
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ALERT_WEBHOOK_INSTANCES` | — | JSON array of `{ id, token, allowedOrgIds? }` entries. **Required** to enable the relay; unset / empty returns 503 at the webhook endpoint. Each Alertmanager sends `X-Alertmanager-Instance: <id>` + `Authorization: Bearer <token>`. `allowedOrgIds` restricts which orgs that instance can relay alerts for. |
-| `ALERT_WEBHOOK_INSTANCE_ID` | — | (Alertmanager side) The id of this Alertmanager's entry. |
-| `ALERT_WEBHOOK_INSTANCE_TOKEN` | — | (Alertmanager side) The matching token. |
+| `ALERT_WEBHOOK_INSTANCE_TOKEN` | — | Deploy input: the bundled Alertmanager's relay token. Setup generates it, builds platform's `ALERT_WEBHOOK_INSTANCES` entry (id `alertmanager`) from it, and mounts it for Alertmanager. |
 
 ### OAuth / social login (Optional)
 
@@ -181,18 +183,18 @@ deployment. The redirect URI to register in each provider's console is
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `REDIS_URL` | — | Full connection URL (takes precedence over HOST/PORT) |
-| `REDIS_HOST` | `redis` | Hostname |
-| `REDIS_PORT` | `6379` | Port |
-| `REDIS_PASSWORD` | — | Data-node AUTH password (optional) |
-| `REDIS_SENTINELS` | — | **HA:** comma-separated `host:port` Sentinel list. When set, the app connects via Sentinel and auto-fails-over to the promoted primary (HOST/PORT/URL ignored). Also the shape a managed ElastiCache (cluster-mode-disabled) uses. See [`deploy/aws/*/k8s/redis-sentinel.yaml`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/aws/eks/k8s/redis-sentinel.yaml) |
+| `REDIS_URL` | — | **Standalone:** `redis://<host>:<port>[/db]`, or `rediss://` for TLS |
+| `REDIS_PASSWORD` | — | Data-node AUTH password (optional, either mode) |
+| `REDIS_SENTINELS` | — | **HA:** comma-separated `host:port` Sentinel list. The app connects via Sentinel and follows the promoted primary after a failover. Also the shape a managed ElastiCache (cluster-mode-disabled) uses. See [`deploy/aws/*/k8s/redis-sentinel.yaml`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/aws/eks/k8s/redis-sentinel.yaml) |
 | `REDIS_SENTINEL_MASTER` | `mymaster` | Sentinel monitored-primary name (Sentinel mode) |
 | `REDIS_SENTINEL_PASSWORD` | — | Sentinel AUTH password (Sentinel mode, optional) |
 
 > Redis must use `maxmemory-policy noeviction` for BullMQ. `allkeys-lru` causes silent job data loss.
 > **HA:** the AWS targets (ec2 and eks) ship **Sentinel HA by default** (`redis-sentinel.yaml` — 3 Redis + 3 Sentinel, reached via `REDIS_SENTINELS`). The docker and minikube targets run a single instance with no failover. For a managed path, point it at **ElastiCache (Multi-AZ, cluster-mode-disabled)**.
 >
-> **Every service resolves Redis the same way** — `REDIS_SENTINELS`, then `REDIS_URL`, then `REDIS_HOST`/`REDIS_PORT` — including the platform. Configure Redis for **platform** as well as the other services: it uses Redis to publish session revocations and to share OAuth/SSO login state, step-up single-use, and the background-sweep lock across replicas. Without it those fall back to per-replica memory, which breaks once platform scales past one replica.
+> **Set exactly one of `REDIS_URL` or `REDIS_SENTINELS`.** Setting both, or setting the retired `REDIS_HOST`, stops every service at startup with a configuration error, as does a malformed `REDIS_URL` or Sentinel entry. Neither set means Redis is off. `REDIS_PORT` is ignored — Kubernetes injects `REDIS_PORT=tcp://…` into pods next to a Service named `redis`.
+>
+> **Every service resolves Redis the same way**, including the platform. Configure Redis for **platform** as well as the other services: it uses Redis to publish session revocations and to share OAuth/SSO login state, step-up single-use, and the background-sweep lock across replicas. Without it those fall back to per-replica memory, which breaks once platform scales past one replica.
 >
 > **Impersonation needs Redis on every service.** A service that cannot read Redis rejects impersonation tokens, because it could not tell whether the session was ended. Ordinary sessions are unaffected.
 

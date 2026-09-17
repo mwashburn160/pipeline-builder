@@ -236,6 +236,14 @@ export const updateUserById = withController('Update user', async (req, res) => 
   const body = validateBody(adminUpdateUserSchema, req.body, res);
   if (!body) return;
 
+  // Username, email and password belong to the ACCOUNT, which can span many
+  // organizations — an admin of one of them must not be able to take it over
+  // (set a password, or point the email at an address they control). Only a
+  // platform admin changes sign-in details.
+  if (!admin.isSuperAdmin && (body.username !== undefined || body.email !== undefined || body.password !== undefined)) {
+    return sendError(res, 403, 'Forbidden: Only platform administrators can change a user\'s sign-in details', 'SIGN_IN_DETAILS_PLATFORM_ADMIN_ONLY');
+  }
+
   // Org-admin authz pre-check (separate from the update so we can 403 early
   // without touching the DB record). System-admin can change org assignment;
   // org-admin can't.
@@ -289,25 +297,23 @@ export const deleteUserById = withController('Delete user', async (req, res) => 
   const admin = requireAdminContext(req, res);
   if (!admin) return;
 
+  // Deleting removes the whole ACCOUNT from every organization it belongs to, so
+  // it is a platform-admin action. An org admin removes a member from their own
+  // organization instead (DELETE /organization/:id/members/:userId).
+  if (!admin.isSuperAdmin) {
+    return sendError(res, 403, 'Forbidden: Only platform administrators can delete an account. Remove the member from your organization instead.', 'ACCOUNT_DELETE_PLATFORM_ADMIN_ONLY');
+  }
+
   const { id } = req.params;
   if (id === req.user!.sub) {
     return sendError(res, 400, 'Cannot delete your own account through this endpoint');
   }
 
   // Capture the org context this delete affects BEFORE the user record
-  // disappears — for sysadmins acting cross-tenant, this is the only field
-  // that tells reviewers "what org was hit" when the actor's `orgId` is the
-  // system org and the deleted user is in a different one. Falls back to
-  // any membership found on the user; sysadmins deleting a user with no
-  // memberships still get a record with affectedOrgId omitted.
-  const affectedOrgId = admin.isOrgAdmin
-    ? req.user!.organizationId!
-    : await userAdminService.lookupPrimaryOrgId(id as string).catch(() => undefined);
-
-  if (admin.isOrgAdmin) {
-    const allowed = await userAdminService.hasMembershipInOrg(id as string, req.user!.organizationId!);
-    if (!allowed) return sendError(res, 403, 'Forbidden: Can only delete users in your organization');
-  }
+  // disappears — the actor's `orgId` is the system org, so this is the only
+  // field that tells reviewers "what org was hit". Omitted for a user with no
+  // memberships.
+  const affectedOrgId = await userAdminService.lookupPrimaryOrgId(id as string).catch(() => undefined);
 
   await userAdminService.deleteUserById(id as string);
 

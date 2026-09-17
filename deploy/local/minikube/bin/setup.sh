@@ -71,6 +71,9 @@ VM_DATA_DIR="/data"
 . "$BIN_DIR/common.sh"
 . "$BIN_DIR/gen-env-secrets.sh"
 . "$BIN_DIR/mongo-keyfile.sh"
+# Only for pb_split_app_env (the app-env ConfigMap / app-secrets Secret split);
+# this script keeps its own kube/secret/configmap helpers.
+. "$BIN_DIR/k8s-resources.sh"
 
 # Fail fast with ONE actionable error if a required CLI tool is missing.
 preflight kubectl minikube openssl envsubst
@@ -439,11 +442,20 @@ if [ "$ASK_MODEL" = "1" ]; then
     echo "OPENAI_COMPATIBLE_MODELS=qwen2.5-coder:1.5b|Qwen 2.5 Coder"
   } >> "$CLEAN_ENV"
 fi
-configmap app-env --from-env-file="$CLEAN_ENV"
-rm -f "$CLEAN_ENV"
+# Split: non-secret settings -> app-env ConfigMap; credentials -> app-secrets
+# Secret; superuser/admin credentials -> neither (their consumers read their own
+# Secrets below by key). See pb_split_app_env in deploy/bin/k8s-resources.sh.
+APP_ENV_CFG=$(mktemp); APP_ENV_SEC=$(mktemp)
+pb_split_app_env "$CLEAN_ENV" "$APP_ENV_CFG" "$APP_ENV_SEC"
+configmap app-env --from-env-file="$APP_ENV_CFG"
+secret app-secrets --from-env-file="$APP_ENV_SEC"
+rm -f "$CLEAN_ENV" "$APP_ENV_CFG" "$APP_ENV_SEC"
 
 # Secrets
 secret jwt-secret        --from-literal=JWT_SECRET="$JWT_SECRET" --from-literal=REFRESH_TOKEN_SECRET="$REFRESH_TOKEN_SECRET"
+# Read BY KEY only (postgres, its exporter, pgbouncer): the superuser pair for
+# init/backup and the DB_USER app-role pair for postgres-init.sql + pgbouncer's
+# userlist. App pods must never envFrom it (RLS-bypassing superuser).
 secret postgres-secret   --from-literal=POSTGRES_USER="$POSTGRES_USER" --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" --from-literal=DB_USER="$DB_USER" --from-literal=DB_PASSWORD="$DB_PASSWORD"
 secret mongodb-secret    --from-literal=MONGO_INITDB_ROOT_USERNAME="$MONGO_INITDB_ROOT_USERNAME" --from-literal=MONGO_INITDB_ROOT_PASSWORD="$MONGO_INITDB_ROOT_PASSWORD" --from-literal=MONGODB_URI="$MONGODB_URI"
 secret mongo-express-secret --from-literal=ME_CONFIG_BASICAUTH_USERNAME="$ME_CONFIG_BASICAUTH_USERNAME" --from-literal=ME_CONFIG_BASICAUTH_PASSWORD="$ME_CONFIG_BASICAUTH_PASSWORD"
@@ -472,18 +484,16 @@ secret minio-secret \
   --from-literal=thanos-access-key="$THANOS_S3_ACCESS_KEY"     --from-literal=thanos-secret-key="$THANOS_S3_SECRET_KEY" \
   --from-literal=plugin-access-key="$PLUGIN_S3_ACCESS_KEY"     --from-literal=plugin-secret-key="$PLUGIN_S3_SECRET_KEY"
 
-# Optional alert-delivery secrets — alertmanager.yaml references these with
-# optional:true. Create them (empty by default) so the refs resolve to a real
-# Secret instead of dangling; set SLACK_WEBHOOK_URL_* / ALERT_WEBHOOK_* in .env
-# to populate them. NOTE: the shipped alertmanager.yml hardcodes placeholders
-# and does not read these env vars, so delivery no-ops until that config is
-# updated with real values (see config/alertmanager/alertmanager.yml).
+# Optional Slack secret — alertmanager.yaml references it with optional:true.
+# NOTE: the shipped alertmanager.yml hardcodes placeholder Slack URLs and does
+# not read these env vars, so Slack delivery no-ops until that config is edited.
 secret alertmanager-slack \
   --from-literal=SLACK_WEBHOOK_URL_CRITICAL="${SLACK_WEBHOOK_URL_CRITICAL:-}" \
   --from-literal=SLACK_WEBHOOK_URL_WARNING="${SLACK_WEBHOOK_URL_WARNING:-}"
+# Per-org alert relay bearer (REQUIRED). Mounted as a file into alertmanager
+# (credentials_file) and injected into platform's ALERT_WEBHOOK_INSTANCES.
 secret alertmanager-relay \
-  --from-literal=ALERT_WEBHOOK_INSTANCE_ID="${ALERT_WEBHOOK_INSTANCE_ID:-}" \
-  --from-literal=ALERT_WEBHOOK_INSTANCE_TOKEN="${ALERT_WEBHOOK_INSTANCE_TOKEN:-}"
+  --from-literal=ALERT_WEBHOOK_INSTANCE_TOKEN="$ALERT_WEBHOOK_INSTANCE_TOKEN"
 
 # GHCR pull secret
 GHCR_TOKEN="${GHCR_TOKEN:-}"

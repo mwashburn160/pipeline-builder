@@ -50,7 +50,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   validateBody: () => ({ ok: false, error: 'stub-invalid-body' }),
   sendSuccess: (res: any, statusCode: number, data?: any) => res.status(statusCode).json({ success: true, statusCode, data }),
   sendBadRequest: (res: any, msg: string) => res.status(400).json({ success: false, statusCode: 400, message: msg }),
-  sendQuotaExceeded: (res: any) => res.status(429).json({ success: false, statusCode: 429 }),
+  sendQuotaReserveDenied: (res: any) => res.status(429).json({ success: false, statusCode: 429 }),
+  sendQuotaReserveDenied: (res: any) => res.status(429).json({ success: false, statusCode: 429 }),
   AIGenerateBodySchema: {},
 }));
 

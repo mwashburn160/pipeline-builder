@@ -18,7 +18,7 @@
  * create/update/delete (org admins own their notification surface).
  */
 
-import { assertSafeUrl, createLogger, errorMessage, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
+import { assertSafeUrl, createLogger, errorMessage, sendError, sendQuotaReserveDenied, sendSuccess } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
@@ -151,7 +151,7 @@ export const createAlertDestination = withController('Create alert destination',
   // two concurrent creates at the limit can't both succeed.
   const reservation = await reserveFeatureQuota(orgId, 'alertDestinations');
   if (reservation.exceeded) {
-    return sendQuotaExceeded(res, 'alertDestinations', reservation.quota, reservation.quota.resetAt);
+    return sendQuotaReserveDenied(res, 'alertDestinations', reservation);
   }
 
   try {
@@ -278,7 +278,7 @@ export const restoreAlertDestination = withController('Restore alert destination
   // delete→restore→create can't drift an org past its alertDestinations cap.
   const reservation = await reserveFeatureQuota(orgId, 'alertDestinations');
   if (reservation.exceeded) {
-    return sendQuotaExceeded(res, 'alertDestinations', reservation.quota, reservation.quota.resetAt);
+    return sendQuotaReserveDenied(res, 'alertDestinations', reservation);
   }
 
   try {

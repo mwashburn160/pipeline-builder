@@ -163,7 +163,7 @@ function createRedisSseTicketStore(redis: SseRedis, config: SseTicketStoreConfig
 
 /**
  * Build an {@link SseTicketStore} from the standard Redis env (`REDIS_URL` or
- * `REDIS_HOST`/`REDIS_PORT`). Uses the Redis backend when configured
+ * `REDIS_SENTINELS`). Uses the Redis backend when configured
  * (multi-replica safe), otherwise falls back to the in-memory single-process
  * backend. A service opts in with one boot line:
  *   `const tickets = createEnvSseTicketStore({ ttlMs, maxTotal, maxPerOrg });`

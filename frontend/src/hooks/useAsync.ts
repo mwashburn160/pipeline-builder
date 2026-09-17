@@ -117,7 +117,7 @@ export interface UseAsyncCallbackResult<T, A extends unknown[]> {
  * @example
  * ```tsx
  * const { execute: upload, loading, error } = useAsyncCallback(
- *   (file: File) => api.uploadPlugin(file, 'private'),
+ *   (file: File) => api.uploadPlugin(file, 'org'),
  * );
  *
  * const handleSubmit = async () => {

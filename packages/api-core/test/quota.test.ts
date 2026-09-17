@@ -83,6 +83,8 @@ describe('quota.reserve', () => {
 
     expect(result.exceeded).toBe(true);
     expect(result.quota).toEqual({ type: 'pipelines', limit: 5, used: 5, remaining: 0, resetAt: '2026-08-01T00:00:00Z' });
+    // A real over-limit is NOT an outage.
+    expect(result.unavailable).toBeUndefined();
   });
 
   it('returns exceeded:true even when a 429 omits the quota detail (safe default)', async () => {
@@ -104,6 +106,7 @@ describe('quota.reserve', () => {
     const result = await quotaService.reserve('org1', 'pipelines', AUTH);
 
     expect(result.exceeded).toBe(true);
+    expect(result.unavailable).toBe(true);
     expect(result.quota).toEqual({ type: 'pipelines', limit: 0, used: 0, remaining: 0 });
   });
 
@@ -117,16 +120,47 @@ describe('quota.reserve', () => {
     expect(result.quota).toEqual({ type: 'pipelines', limit: -1, used: 0, remaining: -1 });
   });
 
-  it('FAILS OPEN on an UNREACHABLE service (network error → null response) regardless of env', async () => {
-    // A confirmed outage (null from createSafeClient) is fail-open even with
-    // the default fail-closed-on-error policy — it is not an overload signal.
-    const quotaService = await loadQuotaService(); // fail-closed-on-error default
+  // Explicit reserve fail mode: an UNCONFIRMED reservation — unreachable,
+  // timed out, circuit open (all surface as a null response from the safe
+  // client), or a non-QUOTA_EXCEEDED 429 — is denied by default. Quota types are
+  // per-period FLOW counters with no reconciliation, so fail-open would let an
+  // org consume unmetered billable units for the length of the incident.
+  it('FAILS CLOSED on an UNREACHABLE / timed-out / circuit-open service (null response) by default', async () => {
+    const quotaService = await loadQuotaService();
     mockPost.mockResolvedValue(null);
 
     const result = await quotaService.reserve('org1', 'pipelines', AUTH);
 
-    expect(result.exceeded).toBe(false);
-    expect(result.quota).toEqual({ type: 'pipelines', limit: -1, used: 0, remaining: -1 });
+    expect(result.unavailable).toBe(true);
+    expect(result.exceeded).toBe(true);
+    expect(result.quota).toEqual({ type: 'pipelines', limit: 0, used: 0, remaining: 0 });
+  });
+
+  it('FAILS CLOSED on a 429 that is NOT a genuine QUOTA_EXCEEDED (gateway / rate limiter) by default', async () => {
+    const quotaService = await loadQuotaService();
+    mockPost.mockResolvedValue(httpResponse(429, { success: false, errorCode: 'RATE_LIMIT_EXCEEDED' }));
+
+    const result = await quotaService.reserve('org1', 'pipelines', AUTH);
+
+    expect(result.unavailable).toBe(true);
+    expect(result.exceeded).toBe(true);
+    expect(result.quota).toEqual({ type: 'pipelines', limit: 0, used: 0, remaining: 0 });
+  });
+
+  it('FAILS OPEN on every unconfirmed outcome when QUOTA_RESERVE_FAIL_OPEN=true', async () => {
+    const quotaService = await loadQuotaService({ reserveFailOpen: true });
+    for (const outcome of [null, httpResponse(429, { success: false, errorCode: 'RATE_LIMIT_EXCEEDED' }), httpResponse(503, { success: false })]) {
+      mockPost.mockResolvedValueOnce(outcome);
+      const result = await quotaService.reserve('org1', 'pipelines', AUTH);
+      expect(result.exceeded).toBe(false);
+    }
+  });
+
+  it('a genuine QUOTA_EXCEEDED 429 is denied even with QUOTA_RESERVE_FAIL_OPEN=true', async () => {
+    const quotaService = await loadQuotaService({ reserveFailOpen: true });
+    mockPost.mockResolvedValue(httpResponse(429, { success: false, errorCode: 'QUOTA_EXCEEDED' }));
+
+    expect((await quotaService.reserve('org1', 'pipelines', AUTH)).exceeded).toBe(true);
   });
 
   it('returns exceeded:false with the reserved quota on a 200 success', async () => {
@@ -263,5 +297,92 @@ describe('quota.getTier', () => {
     mockGet.mockResolvedValue(null);
 
     expect(await quotaService.getTier('org1', AUTH)).toBe('developer');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// incrementQuota() — metering helper authenticates as the SERVICE
+// ---------------------------------------------------------------------------
+
+describe('incrementQuota (metering helper)', () => {
+  it('sends a signed service-principal token scoped to the org, never a user token', async () => {
+    process.env.JWT_SECRET = 'test-secret-for-quota-metering';
+    process.env.SERVICE_NAME = 'pipeline';
+    try {
+      jest.resetModules();
+      registerMocks();
+      const mod = await import('../src/services/quota.js');
+      const quotaService = mod.createQuotaService();
+      mockPost.mockResolvedValue(httpResponse(200, { success: true }));
+
+      mod.incrementQuota(quotaService, 'org1', 'apiCalls', jest.fn());
+      await new Promise((r) => setImmediate(r));
+
+      expect(mockPost).toHaveBeenCalledTimes(1);
+      const [path, , opts] = mockPost.mock.calls[0] as [string, unknown, { headers: Record<string, string> }];
+      expect(path).toBe('/quotas/org1/increment');
+      const auth = opts.headers.Authorization;
+      expect(auth).toMatch(/^Bearer /);
+      const { default: jwt } = await import('jsonwebtoken');
+      const decoded = jwt.verify(auth.slice(7), 'test-secret-for-quota-metering') as Record<string, unknown>;
+      expect(decoded.sub).toBe('service:pipeline');
+      expect(decoded.organizationId).toBe('org1');
+      expect(decoded.role).toBe('member');
+      expect(decoded.isAdmin).toBe(false);
+    } finally {
+      delete process.env.SERVICE_NAME;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendQuotaReserveDenied() — 503 for an unconfirmed reservation, 429 for over-limit
+// ---------------------------------------------------------------------------
+
+describe('sendQuotaReserveDenied', () => {
+  function mockRes() {
+    const res = {
+      headersSent: false,
+      headers: {} as Record<string, unknown>,
+      statusCode: 0,
+      body: undefined as unknown,
+      setHeader(k: string, v: unknown) { this.headers[k] = v; return this; },
+      status(code: number) { this.statusCode = code; return this; },
+      json(b: unknown) { this.body = b; return this; },
+    };
+    return res;
+  }
+
+  it('answers 503 SERVICE_UNAVAILABLE when the quota service could not confirm the slot', async () => {
+    const quotaService = await loadQuotaService();
+    mockPost.mockResolvedValue(null);
+    const mod = await import('../src/services/quota.js');
+    const reservation = await quotaService.reserve('org1', 'aiCalls', AUTH);
+
+    const res = mockRes();
+    mod.sendQuotaReserveDenied(res as never, 'aiCalls', reservation);
+
+    expect(res.statusCode).toBe(503);
+    expect(JSON.stringify(res.body)).toContain('SERVICE_UNAVAILABLE');
+    expect(res.headers['Retry-After']).toBeDefined();
+    expect(res.headers['X-Quota-Limit']).toBeUndefined();
+  });
+
+  it('answers 429 QUOTA_EXCEEDED for a genuine over-limit', async () => {
+    const quotaService = await loadQuotaService();
+    mockPost.mockResolvedValue(httpResponse(429, {
+      success: false,
+      errorCode: 'QUOTA_EXCEEDED',
+      details: { quota: { type: 'aiCalls', limit: 5, used: 5, remaining: 0, resetAt: '2099-01-01T00:00:00Z' } },
+    }));
+    const mod = await import('../src/services/quota.js');
+    const reservation = await quotaService.reserve('org1', 'aiCalls', AUTH);
+
+    const res = mockRes();
+    mod.sendQuotaReserveDenied(res as never, 'aiCalls', reservation);
+
+    expect(res.statusCode).toBe(429);
+    expect(JSON.stringify(res.body)).toContain('QUOTA_EXCEEDED');
+    expect(res.headers['X-Quota-Limit']).toBe(5);
   });
 });

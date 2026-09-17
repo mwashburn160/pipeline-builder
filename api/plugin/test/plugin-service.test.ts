@@ -79,12 +79,15 @@ jest.unstable_mockModule('drizzle-orm', () => ({
   or: jest.fn((...args: any[]) => args),
   ilike: jest.fn((col: any, val: any) => ({ col, val, op: 'ilike' })),
   eq: jest.fn((col: any, val: any) => ({ col, val, op: 'eq' })),
+  isNull: jest.fn((col: any) => ({ col, op: 'isNull' })),
+  inArray: jest.fn((col: any, vals: any[]) => ({ col, vals, op: 'inArray' })),
 }));
 
 jest.unstable_mockModule('drizzle-orm/column', () => ({}));
 jest.unstable_mockModule('drizzle-orm/pg-core', () => ({}));
 
 const { PluginService, toComplianceAttributes } = await import('../src/services/plugin-service.js');
+const pipelineDataMock = await import('@pipeline-builder/pipeline-data') as unknown as { withTenantTx: jest.Mock };
 // api-core is NOT mocked — use the real in-process event emitter to capture the
 // event the service emits to the compliance subscriber.
 const { entityEvents } = await import('@pipeline-builder/api-core');
@@ -97,6 +100,108 @@ describe('PluginService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     service = new PluginService();
+  });
+
+  // deployVersion's ON CONFLICT (name, version, org_id) branch is a WRITE to an
+  // existing row: it must apply the visibility ladder and refuse a tombstone.
+  describe('deployVersion overwrite gate', () => {
+    let existingRows: Array<Record<string, unknown>>;
+    const mockFor = jest.fn(async () => existingRows);
+    const mockValues = jest.fn(() => ({
+      onConflictDoUpdate: jest.fn(() => ({ returning: jest.fn(async () => [{ id: 'p-1', orgId: 'org-1' }]) })),
+    }));
+    const mockUpdateSet = jest.fn(() => ({ where: jest.fn() }));
+    const selectChain = () => {
+      const where = jest.fn(() => Object.assign(Promise.resolve(existingRows), { for: mockFor }));
+      return { from: () => ({ where }) };
+    };
+    const data = { orgId: 'org-1', name: 'my-plugin', version: '1.0.0', visibility: 'org' } as any;
+    const member = { isSystemAdmin: false, canPublish: false };
+
+    beforeEach(() => {
+      existingRows = [];
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({
+        execute: jest.fn(async () => []),
+        select: jest.fn(selectChain),
+        update: jest.fn(() => ({ set: mockUpdateSet })),
+        insert: jest.fn(() => ({ values: mockValues })),
+      }));
+    });
+
+    it('deploys a brand-new version (no conflicting row) and locks the lookup', async () => {
+      await service.deployVersion(data, 'user-1', member);
+      expect(mockFor).toHaveBeenCalledWith('update');
+      expect(mockValues).toHaveBeenCalled();
+    });
+
+    it('refuses to resurrect a soft-deleted version (409), even for a system admin', async () => {
+      existingRows = [{ visibility: 'org', createdBy: 'user-1', deletedAt: new Date() }];
+      await expect(service.deployVersion(data, 'user-1', { isSystemAdmin: true, canPublish: true }))
+        .rejects.toMatchObject({ statusCode: 409 });
+      expect(mockValues).not.toHaveBeenCalled();
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+    });
+
+    it("refuses to overwrite another author's PRIVATE version (409)", async () => {
+      existingRows = [{ visibility: 'private', createdBy: 'user-A', deletedAt: null }];
+      await expect(service.deployVersion(data, 'user-B', member)).rejects.toMatchObject({ statusCode: 409 });
+      expect(mockValues).not.toHaveBeenCalled();
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+    });
+
+    it('refuses to overwrite a PUBLIC version without plugins:publish (403)', async () => {
+      existingRows = [{ visibility: 'public', createdBy: 'user-A', deletedAt: null }];
+      await expect(service.deployVersion(data, 'user-A', member)).rejects.toMatchObject({ statusCode: 403 });
+      expect(mockValues).not.toHaveBeenCalled();
+    });
+
+    it("refuses to take the default away from another author's PRIVATE plugin (409)", async () => {
+      // No row at this version, but the current default of the name is user-A's private plugin.
+      let call = 0;
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({
+        execute: jest.fn(async () => []),
+        select: jest.fn(() => {
+          const rows = call++ === 0 ? [] : [{ visibility: 'private', createdBy: 'user-A', deletedAt: null }];
+          return { from: () => ({ where: () => Object.assign(Promise.resolve(rows), { for: async () => rows }) }) };
+        }),
+        update: jest.fn(() => ({ set: mockUpdateSet })),
+        insert: jest.fn(() => ({ values: mockValues })),
+      }));
+
+      await expect(service.deployVersion({ ...data, version: '2.0.0' }, 'user-B', member)).rejects.toMatchObject({ statusCode: 409 });
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+      expect(mockValues).not.toHaveBeenCalled();
+    });
+
+    it('allows the author (private), a publisher (public), a member (org), and a system admin', async () => {
+      existingRows = [{ visibility: 'private', createdBy: 'user-A', deletedAt: null }];
+      await service.deployVersion(data, 'user-A', member);
+      existingRows = [{ visibility: 'public', createdBy: 'user-A', deletedAt: null }];
+      await service.deployVersion(data, 'user-B', { isSystemAdmin: false, canPublish: true });
+      existingRows = [{ visibility: 'org', createdBy: 'user-A', deletedAt: null }];
+      await service.deployVersion(data, 'user-B', member);
+      existingRows = [{ visibility: 'private', createdBy: 'user-A', deletedAt: null }];
+      await service.deployVersion(data, 'admin', { isSystemAdmin: true, canPublish: false });
+      expect(mockValues).toHaveBeenCalledTimes(4);
+    });
+
+    it('never un-deletes on the conflict branch (no deletedAt/deletedBy reset in the SET)', async () => {
+      const onConflict = jest.fn(() => ({ returning: jest.fn(async () => [{ id: 'p-1', orgId: 'org-1' }]) }));
+      mockValues.mockReturnValueOnce({ onConflictDoUpdate: onConflict });
+      await service.deployVersion(data, 'user-1', member);
+      const { set } = (onConflict.mock.calls[0] as any[])[0];
+      expect(set).not.toHaveProperty('deletedAt');
+      expect(set).not.toHaveProperty('deletedBy');
+    });
+
+    it('assertDeployable applies the same refusal up front (no lock, no write)', async () => {
+      existingRows = [{ visibility: 'private', createdBy: 'user-A', deletedAt: null }];
+      await expect(service.assertDeployable('org-1', 'my-plugin', '1.0.0', 'user-B', member))
+        .rejects.toMatchObject({ statusCode: 409 });
+      existingRows = [];
+      await expect(service.assertDeployable('org-1', 'my-plugin', '1.0.0', 'user-B', member)).resolves.toBeUndefined();
+      expect(mockFor).not.toHaveBeenCalled();
+    });
   });
 
   describe('getSortColumn', () => {

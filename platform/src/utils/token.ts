@@ -6,6 +6,7 @@ import { createLogger, resolveUserFeatures, resolveUserPermissions } from '@pipe
 import type { TokenScope, QuotaTier } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import type { Types } from 'mongoose';
+import { jwtSignOptions, verifyPlatformJwt } from './jwt-options.js';
 import { config } from '../config/index.js';
 import { IMPERSONATION_SESSION_TTL_MS } from '../constants/impersonation.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
@@ -283,7 +284,7 @@ export async function issueTokens(user: UserDocument, activeOrgId?: string, expi
   const accessToken = jwt.sign(
     createAccessTokenPayload(user, membership, scope),
     config.auth.jwt.secret,
-    { algorithm: config.auth.jwt.algorithm, expiresIn: tokenExpiresIn },
+    jwtSignOptions(tokenExpiresIn),
   );
 
   const refreshToken = generateRefreshToken(user);
@@ -331,17 +332,12 @@ export async function signPersonalAccessToken(
     logger.warn('Failed to resolve membership for PAT', { error });
   }
   const payload: AccessTokenPayload = { ...createAccessTokenPayload(user, membership, scope), jti };
-  return jwt.sign(payload, config.auth.jwt.secret, {
-    algorithm: config.auth.jwt.algorithm,
-    expiresIn: expiresInSeconds,
-  });
+  return jwt.sign(payload, config.auth.jwt.secret, jwtSignOptions(expiresInSeconds));
 }
 
 /** Verify and decode a JWT access token. */
 export function verifyAccessToken(token: string): AccessTokenPayload {
-  return jwt.verify(token, config.auth.jwt.secret, {
-    algorithms: [config.auth.jwt.algorithm],
-  }) as AccessTokenPayload;
+  return verifyPlatformJwt<AccessTokenPayload>(token);
 }
 
 /**
@@ -388,10 +384,7 @@ export async function issueImpersonationToken(
     impersonationReadOnly: true,
     jti,
   };
-  const accessToken = jwt.sign(payload, config.auth.jwt.secret, {
-    algorithm: config.auth.jwt.algorithm,
-    expiresIn: ttlSeconds,
-  });
+  const accessToken = jwt.sign(payload, config.auth.jwt.secret, jwtSignOptions(ttlSeconds));
   return { accessToken, expiresIn: ttlSeconds };
 }
 
@@ -439,10 +432,7 @@ export function issueStepUpToken(userId: string, ttlSeconds = 60): { token: stri
     sub: userId,
     jti: crypto.randomBytes(8).toString('hex'),
   };
-  const token = jwt.sign(payload, config.auth.jwt.secret, {
-    algorithm: config.auth.jwt.algorithm,
-    expiresIn: ttlSeconds,
-  });
+  const token = jwt.sign(payload, config.auth.jwt.secret, jwtSignOptions(ttlSeconds));
   return { token, expiresAt };
 }
 
@@ -450,9 +440,7 @@ export function issueStepUpToken(userId: string, ttlSeconds = 60): { token: stri
  *  additionally check that `payload.sub === req.user.sub` — `requireStepUp`
  *  middleware does this. */
 export function verifyStepUpToken(token: string): StepUpTokenPayload {
-  const payload = jwt.verify(token, config.auth.jwt.secret, {
-    algorithms: [config.auth.jwt.algorithm],
-  }) as StepUpTokenPayload;
+  const payload = verifyPlatformJwt<StepUpTokenPayload>(token);
   // A normal access token shares the same JWT secret + `sub`, so without
   // asserting the step-up type (and a jti) it would satisfy requireStepUp and
   // bypass the password re-verification gate on destructive endpoints.

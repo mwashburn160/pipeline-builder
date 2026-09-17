@@ -68,7 +68,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   })),
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendError: jest.fn((res: any, status: number, msg: string) => res.status(status).json({ message: msg })),
-  sendQuotaExceeded: jest.fn((res: any) => res.status(429).json({ message: 'quota exceeded' })),
+  sendQuotaReserveDenied: jest.fn((res: any, _t: string, r: any) => (r.unavailable
+    ? res.status(503).json({ message: 'quota unavailable' })
+    : res.status(429).json({ message: 'quota exceeded' }))),
   sendSuccess: jest.fn((res: any, status: number, data?: any) => res.status(status).json({ success: true, data })),
   PluginDeployGeneratedSchema: {},
 }));
@@ -91,6 +93,10 @@ jest.unstable_mockModule('../src/helpers/plugin-helpers.js', () => ({ createBuil
 jest.unstable_mockModule('../src/helpers/plugin-spec.js', () => ({ validateBuildArgs: jest.fn() }));
 jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({ enqueueBuild: mockEnqueueBuild, getOrgTier: mockGetOrgTier }));
 jest.unstable_mockModule('../src/services/audit.js', () => ({ emitPluginAudit: mockEmitPluginAudit }));
+// Overwrite gate pre-check (throws a typed 403/409 for a non-writable / tombstoned
+// (name, version)); default: deployable.
+const mockAssertDeployable = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
+jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService: { assertDeployable: mockAssertDeployable } }));
 
 const { createDeployGeneratedPluginRoutes } = await import('../src/routes/deploy-generated-plugin.js');
 
@@ -272,5 +278,31 @@ describe('POST /deploy-generated — Idempotency-Key guard', () => {
     expect(mockReserveQuota).toHaveBeenCalledTimes(1);
     expect(mockEnqueueBuild).toHaveBeenCalledTimes(1);
     expect(res.status).toHaveBeenCalledWith(202);
+  });
+
+  it('refuses a deploy that would overwrite a non-writable / deleted version BEFORE the idem claim, quota and build', async () => {
+    const { ConflictError } = await import('@pipeline-builder/api-core') as any;
+    mockAssertDeployable.mockRejectedValueOnce(new ConflictError('belongs to another author'));
+    const res = mockRes();
+    await expect(handler(mockReq('req-1:my-plugin'), res)).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(mockAssertDeployable).toHaveBeenCalledWith('org-1', 'my-plugin', '1.0.0', 'user-9', { isSystemAdmin: false, canPublish: false });
+    expect(mockIdemReserve).not.toHaveBeenCalled();
+    expect(mockReserveQuota).not.toHaveBeenCalled();
+    expect(mockEnqueueBuild).not.toHaveBeenCalled();
+  });
+
+  it('snapshots the caller visibility authority into the build job for the worker re-check', async () => {
+    await handler(mockReq(), mockRes());
+    expect(mockCreateBuildJobData).toHaveBeenCalledWith(expect.objectContaining({ access: { isSystemAdmin: false, canPublish: false } }));
+  });
+
+  it('answers 503 (not 429) and releases the key when the quota service cannot confirm', async () => {
+    mockReserveQuota.mockResolvedValueOnce({ exceeded: true, unavailable: true, quota: { type: 'plugins', limit: 0, used: 0, remaining: 0 } });
+    const res = mockRes();
+    await handler(mockReq('req-1:my-plugin'), res);
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(mockIdemDelete).toHaveBeenCalled();
+    expect(mockEnqueueBuild).not.toHaveBeenCalled();
   });
 });

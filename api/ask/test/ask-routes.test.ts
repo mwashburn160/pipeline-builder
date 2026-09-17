@@ -45,7 +45,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
   requireFeature: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   initSSEStream: jest.fn(() => ({ aborted: () => false })),
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
-  sendQuotaExceeded: jest.fn((res: any) => res.status(429).json({ message: 'quota exceeded' })),
+  sendQuotaReserveDenied: jest.fn((res: any, _t: string, r: { unavailable?: boolean }) => res.status(r.unavailable ? 503 : 429).json({ message: r.unavailable ? 'quota unavailable' : 'quota exceeded' })),
   sendSuccess: jest.fn((res: any, code: number, data?: any) => res.status(code).json({ success: true, data })),
   handleAIError: jest.fn((res: any, message: string) => res.status(502).json({ message })),
 }));

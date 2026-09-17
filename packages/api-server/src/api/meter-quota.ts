@@ -49,16 +49,23 @@ export function meterQuotaOnSuccess(quotaService: QuotaService, quotaType: Quota
         // normalized id would land increments on a different key than the check
         // reads (a silent bypass if an org id ever carries mixed case). Fall back to
         // the raw auth org only when context middleware isn't mounted.
+        //
+        // Only a VERIFIED caller is metered. The increment is sent with THIS
+        // service's credentials, so metering an org taken from the header-derived
+        // identity of an unauthenticated request would let anyone burn a victim
+        // org's quota by setting `x-org-id`.
+        if (!req.user?.organizationId) return;
         let orgId: string | undefined;
-        try { orgId = getContext(req).identity.orgId; } catch { orgId = req.user?.organizationId; }
+        try { orgId = getContext(req).identity.orgId; } catch { orgId = req.user.organizationId; }
         if (!orgId) return;
         // Internal service-to-service calls must not consume a tenant's quota.
         if (isServicePrincipal(req)) return;
+        // incrementQuota authenticates as THIS service (the increment endpoint
+        // is service-principal only — a forwarded user token is always 403).
         incrementQuota(
           quotaService,
           orgId,
           quotaType,
-          req.headers.authorization || '',
           (message, data) => logger.warn(message, data as Record<string, unknown>),
         );
       } catch {

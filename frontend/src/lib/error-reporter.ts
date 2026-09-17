@@ -4,23 +4,25 @@
 /**
  * Lightweight, dependency-free client-side error reporting.
  *
- * The sink is configured via `NEXT_PUBLIC_ERROR_REPORT_URL` (a collector
- * endpoint). When unset, reporting is a no-op in production and logs to the
- * console in development. The point is a SINGLE wired integration point instead
- * of scattered `console.error` calls — turning on monitoring is one env var, no
- * code change and no vendor lock-in (point it at a backend route, Sentry tunnel,
- * or any HTTP collector).
+ * Reports go to the SAME-ORIGIN relay at {@link CLIENT_ERROR_PATH}, which
+ * forwards them to the collector named by the runtime `ERROR_REPORT_URL` env on
+ * the frontend server (see `error-report-relay.ts`). Same-origin keeps the CSP's
+ * `connect-src 'self'` intact, and a runtime env works with the single prebuilt
+ * image shared by every deployment. When no collector is configured the relay
+ * answers `X-Error-Reporting: off` and this module stops sending for the rest of
+ * the session — so an unconfigured deployment costs at most one request. In
+ * development every error is also logged to the console.
  */
 
 import { redactString } from './redact';
+import { CLIENT_ERROR_PATH, REPORTING_STATE_HEADER } from './error-report-relay';
 
 /**
  * Drop everything after the path: the query string and hash are where the
  * app's single-use secrets live — `/invite/accept?token=…`,
  * `/auth/verify-email?token=…`, `/auth/callback/[provider]?code=…&state=…`.
  * Reporting `window.location.href` verbatim handed a live invite token or OAuth
- * authorization code to whatever collector `NEXT_PUBLIC_ERROR_REPORT_URL`
- * points at. The path alone is what makes a report actionable anyway.
+ * authorization code to whatever collector `ERROR_REPORT_URL` points at. The path alone is what makes a report actionable anyway.
  */
 function sanitizeUrl(raw: string): string {
   try {
@@ -39,8 +41,9 @@ export interface ClientErrorContext {
   url?: string;
 }
 
-const ENDPOINT = process.env.NEXT_PUBLIC_ERROR_REPORT_URL;
 let initialized = false;
+/** Latched once the relay reports no collector is configured (per page session). */
+let reportingOff = false;
 
 /** Report a single client-side error. Never throws. */
 export function reportClientError(error: Error, context: ClientErrorContext): void {
@@ -48,7 +51,7 @@ export function reportClientError(error: Error, context: ClientErrorContext): vo
     // eslint-disable-next-line no-console
     console.error(`[client-error:${context.source}]`, error, context);
   }
-  if (!ENDPOINT || typeof window === 'undefined') return;
+  if (reportingOff || typeof window === 'undefined' || typeof fetch !== 'function') return;
 
   try {
     // Everything free-form goes through `redactString` on the way out — the
@@ -65,18 +68,18 @@ export function reportClientError(error: Error, context: ClientErrorContext): vo
       userAgent: navigator.userAgent,
       ts: new Date().toISOString(),
     });
-    // `sendBeacon` is non-blocking and survives a page unload (e.g. an error that
-    // navigates away); fall back to a keepalive fetch where it's unavailable.
-    if (typeof navigator.sendBeacon === 'function') {
-      navigator.sendBeacon(ENDPOINT, new Blob([payload], { type: 'application/json' }));
-    } else {
-      void fetch(ENDPOINT, {
-        method: 'POST',
-        body: payload,
-        headers: { 'Content-Type': 'application/json' },
-        keepalive: true,
-      }).catch(() => { /* swallow — reporting must never surface to the user */ });
-    }
+    // `keepalive` lets the request outlive a page unload (e.g. an error that
+    // navigates away), like sendBeacon — but unlike a beacon it exposes the
+    // response, which carries the relay's on/off state.
+    void fetch(CLIENT_ERROR_PATH, {
+      method: 'POST',
+      body: payload,
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'omit',
+      keepalive: true,
+    }).then((res) => {
+      if (res.headers.get(REPORTING_STATE_HEADER) === 'off') reportingOff = true;
+    }).catch(() => { /* swallow — reporting must never surface to the user */ });
   } catch {
     // Error reporting must never throw.
   }

@@ -36,7 +36,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   decrementQuota: mockDecrementQuota,
   validateBody: jest.fn(() => ({ ok: true, value: { prompt: 'make a linter', provider: 'anthropic', model: 'claude', apiKey: undefined } })),
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
-  sendQuotaExceeded: jest.fn((res: any) => res.status(429).json({ message: 'quota exceeded' })),
+  sendQuotaReserveDenied: jest.fn((res: any, _t: string, r: { unavailable?: boolean }) => res.status(r.unavailable ? 503 : 429).json({ message: r.unavailable ? 'quota unavailable' : 'quota exceeded' })),
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any) => res.status(statusCode).json({ success: true, data })),
   handleAIError: jest.fn((res: any, message: string) => res.status(502).json({ message })),
   initSSEStream: jest.fn(() => ({ aborted: () => false })),
@@ -136,6 +136,16 @@ describe('POST /generate — quota reserve auth', () => {
     await handler(mockReq(), res);
 
     expect(res.status).toHaveBeenCalledWith(429);
+    expect(mockGeneratePluginConfig).not.toHaveBeenCalled();
+  });
+
+  it('returns 503 (not a 429 "quota exceeded") when the quota service could not confirm the slot', async () => {
+    mockReserveQuota.mockResolvedValueOnce({ exceeded: true, unavailable: true, quota: { type: 'aiCalls', limit: 0, used: 0, remaining: 0 } });
+
+    const res = mockRes();
+    await handler(mockReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(503);
     expect(mockGeneratePluginConfig).not.toHaveBeenCalled();
   });
 });
