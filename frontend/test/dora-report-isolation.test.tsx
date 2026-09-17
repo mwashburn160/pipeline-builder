@@ -149,6 +149,9 @@ describe('DoraReport — deploy list (mark failed/restored)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /mark failed/i }));
     await waitFor(() => expect(onMarkOutcome).toHaveBeenCalledWith('exec-9', 'failed'));
+    // The row's actions stay disabled until that save settles; clicking before
+    // then is (correctly) ignored, so wait for them to come back.
+    await waitFor(() => expect(screen.getByRole('button', { name: /mark restored/i })).toBeEnabled());
 
     fireEvent.click(screen.getByRole('button', { name: /mark restored/i }));
     await waitFor(() => expect(onMarkOutcome).toHaveBeenCalledWith('exec-9', 'restored'));

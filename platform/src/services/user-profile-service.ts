@@ -8,7 +8,7 @@ import { Types } from 'mongoose';
 import { authService } from './auth-service.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
-import { User, Organization, UserOrganization, Role, RoleAssignment, PersonalAccessToken, type PersonalAccessTokenDocument, UserPreferences } from '../models/index.js';
+import { User, Organization, UserOrganization, Role, RoleAssignment, PersonalAccessToken, type NotificationPreferences, type PersonalAccessTokenDocument, UserPreferences } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { signPersonalAccessToken } from '../utils/token.js';
 
@@ -21,6 +21,30 @@ export const PROFILE_INVALID_CREDENTIALS = 'PROFILE_INVALID_CREDENTIALS';
 export const PROFILE_OWNER_HAS_ORGS = 'PROFILE_OWNER_HAS_ORGS';
 export const PROFILE_LAST_PRIVILEGED_MEMBER = 'PROFILE_LAST_PRIVILEGED_MEMBER';
 export const PROFILE_PAT_LIMIT = 'PROFILE_PAT_LIMIT';
+
+/** A user's per-org preferences as the API returns them (defaults filled in). */
+export interface UserPreferencesView {
+  favorites: string[];
+  recents: string[];
+  notifications: NotificationPreferences;
+}
+
+/** A partial update: only the provided fields change. */
+export interface PreferencesPatch {
+  favorites?: string[];
+  recents?: string[];
+  notifications?: Partial<NotificationPreferences>;
+}
+
+function toPreferencesView(
+  doc: { favorites?: string[]; recents?: string[]; notifications?: Partial<NotificationPreferences> } | null | undefined,
+): UserPreferencesView {
+  return {
+    favorites: doc?.favorites ?? [],
+    recents: doc?.recents ?? [],
+    notifications: { muteQuotaWarnings: doc?.notifications?.muteQuotaWarnings === true },
+  };
+}
 
 interface OrgInfo {
   id: string;
@@ -332,34 +356,38 @@ class UserProfileService {
   private readonly MAX_FAVORITES = 500;
   private readonly MAX_RECENTS = 50;
 
-  /** Read a user's per-org preferences (favorites + recents). Empty when unset. */
-  async getPreferences(userId: string, organizationId: string): Promise<{ favorites: string[]; recents: string[] }> {
+  /** Read a user's per-org preferences. Defaults when unset. */
+  async getPreferences(userId: string, organizationId: string): Promise<UserPreferencesView> {
     const doc = await UserPreferences.findOne({ userId, organizationId }).lean();
-    return { favorites: doc?.favorites ?? [], recents: doc?.recents ?? [] };
+    return toPreferencesView(doc);
   }
 
   /**
-   * Replace a user's per-org favorites and/or recents (upsert). Each provided
-   * list is de-duplicated and capped. Undefined lists are left unchanged.
+   * Update a user's per-org preferences (upsert). Each provided list replaces
+   * the stored one, de-duplicated and capped; each provided notification
+   * preference is set individually. Anything not provided is left unchanged.
    */
   async updatePreferences(
     userId: string,
     organizationId: string,
-    patch: { favorites?: string[]; recents?: string[] },
-  ): Promise<{ favorites: string[]; recents: string[] }> {
+    patch: PreferencesPatch,
+  ): Promise<UserPreferencesView> {
     // Cap element length too (not just array count) so a user can't bloat the
     // document toward the 16MB BSON limit with a few giant strings.
     const clean = (arr: string[], cap: number) =>
       [...new Set(arr.filter((s) => typeof s === 'string' && s && s.length <= 256))].slice(0, cap);
-    const set: Record<string, string[]> = {};
+    const set: Record<string, string[] | boolean> = {};
     if (patch.favorites !== undefined) set.favorites = clean(patch.favorites, this.MAX_FAVORITES);
     if (patch.recents !== undefined) set.recents = clean(patch.recents, this.MAX_RECENTS);
+    if (patch.notifications?.muteQuotaWarnings !== undefined) {
+      set['notifications.muteQuotaWarnings'] = patch.notifications.muteQuotaWarnings;
+    }
     const doc = await UserPreferences.findOneAndUpdate(
       { userId, organizationId },
       { $set: set },
       { upsert: true, new: true, setDefaultsOnInsert: true },
     ).lean();
-    return { favorites: doc?.favorites ?? [], recents: doc?.recents ?? [] };
+    return toPreferencesView(doc);
   }
 
   /**

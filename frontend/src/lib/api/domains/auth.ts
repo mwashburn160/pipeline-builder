@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ApiCore } from '../core';
-import type { ApiResponse, User } from '@/types';
+import type { ApiResponse, User, UserPreferences } from '@/types';
 
 /** Personal Access Token metadata (never includes the token secret). */
 export interface PatMeta {
@@ -212,12 +212,12 @@ export function authApi(core: ApiCore) {
 
     /** GET /user/preferences — server-persisted favorites/recents for the active org. */
     getPreferences: async () => {
-      return core.request<ApiResponse<{ preferences: { favorites: string[]; recents: string[] } }>>('/api/user/preferences');
+      return core.request<ApiResponse<{ preferences: UserPreferences }>>('/api/user/preferences');
     },
 
-    /** PUT /user/preferences — replace favorites and/or recents for the active org. */
-    updatePreferences: async (patch: { favorites?: string[]; recents?: string[] }) => {
-      return core.request<ApiResponse<{ preferences: { favorites: string[]; recents: string[] } }>>('/api/user/preferences', {
+    /** PUT /user/preferences — update favorites, recents and/or notification preferences for the active org. */
+    updatePreferences: async (patch: { favorites?: string[]; recents?: string[]; notifications?: Partial<UserPreferences['notifications']> }) => {
+      return core.request<ApiResponse<{ preferences: UserPreferences }>>('/api/user/preferences', {
         method: 'PUT',
         body: JSON.stringify(patch),
       });

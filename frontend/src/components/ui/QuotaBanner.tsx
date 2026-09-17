@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, AlertOctagon, Info, X } from 'lucide-react';
 import api from '@/lib/api';
+import { useNotificationPrefs } from '@/lib/notification-prefs';
 import { highestPressure, type QuotaPressure, type QuotaPressureLevel } from '@/lib/quota-pressure';
 import type { OrgQuotaResponse } from '@/types';
 
@@ -91,8 +92,13 @@ export function QuotaBanner({ className = '' }: QuotaBannerProps = {}) {
     };
   }, []);
 
+  const { muteQuotaWarnings } = useNotificationPrefs(quota?.orgId);
+
   const pressure = highestPressure(quota);
   if (pressure.level === 'none' || dismissed || !quota) return null;
+  // Muting silences approaching-limit notices only; an exceeded limit means
+  // requests are being rejected, which the user needs to see.
+  if (muteQuotaWarnings && pressure.level !== 'critical') return null;
 
   const style = STYLES[pressure.level];
   const { Icon } = style;

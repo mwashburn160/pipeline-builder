@@ -2,19 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Per-user notification preferences (client-side).
+ * Notification preferences.
  *
- * In-app mute toggles, stored in localStorage — the platform hasn't shipped a
- * per-user pref schema yet, so these react at render time without a backend
- * round trip. *Where* alerts are delivered (Slack / webhook / in-app) is
- * org-level configuration and lives on the single Alert destinations page,
- * linked below — this page no longer duplicates that list.
- *
- * Future: a backend `/api/user/notification-preferences` would let the mute
- * toggles persist + propagate to push notifications.
+ * In-app preferences are saved per user and organization on the server (see
+ * lib/notification-prefs), so they follow the user across devices, and each one
+ * is read by the UI it silences. *Where* alerts are delivered (Slack / webhook /
+ * in-app) is org-level configuration and lives on the Alert destinations page,
+ * linked below.
  */
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Bell, SlidersHorizontal } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -22,64 +18,36 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { ToggleRow } from '@/components/ui/SettingRow';
-import { Badge } from '@/components/ui/Badge';
-
-/** localStorage keys for in-app preferences. Bumped if the shape changes. */
-const PREF_KEY = 'pb-notification-prefs:v1';
-
-interface Prefs {
-  muteQuotaWarnings: boolean;
-  muteBuildFailures: boolean;
-  muteAuditMentions: boolean;
-}
-
-const DEFAULT_PREFS: Prefs = {
-  muteQuotaWarnings: false,
-  muteBuildFailures: false,
-  muteAuditMentions: false,
-};
-
-function loadPrefs(): Prefs {
-  if (typeof window === 'undefined') return DEFAULT_PREFS;
-  try {
-    const raw = localStorage.getItem(PREF_KEY);
-    if (!raw) return DEFAULT_PREFS;
-    return { ...DEFAULT_PREFS, ...JSON.parse(raw) };
-  } catch {
-    return DEFAULT_PREFS;
-  }
-}
-
-function savePrefs(prefs: Prefs): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(PREF_KEY, JSON.stringify(prefs));
-  } catch {
-    // localStorage may be unavailable (Safari private mode, quota exceeded)
-  }
-}
+import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
+import { useToast } from '@/components/ui/Toast';
+import { formatError } from '@/lib/constants';
+import { saveNotificationPrefs, useNotificationPrefs, type NotificationPrefs } from '@/lib/notification-prefs';
 
 export default function NotificationsPage() {
-  const { isReady, user } = useAuthGuard();
-  const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
+  const { isReady, user, isReadOnly } = useAuthGuard();
+  const toast = useToast();
+  const orgId = user?.organizationId;
+  const prefs = useNotificationPrefs(orgId);
 
-  // Load prefs from localStorage on mount.
-  useEffect(() => { setPrefs(loadPrefs()); }, []);
-
-  const update = (patch: Partial<Prefs>) => {
-    setPrefs((prev) => {
-      const next = { ...prev, ...patch };
-      savePrefs(next);
-      return next;
-    });
+  const update = async (patch: Partial<NotificationPrefs>) => {
+    if (!orgId) return;
+    try {
+      await saveNotificationPrefs(orgId, { ...prefs, ...patch });
+    } catch (err) {
+      // The toggle has already been put back; say why.
+      toast.error(formatError(err, 'Could not save your notification preferences'));
+    }
   };
 
   if (!isReady || !user) return <LoadingPage />;
 
+  const orgName = user.organizationName || 'this organization';
   const PREFS = [
-    { key: 'muteQuotaWarnings' as const, label: 'Mute quota-warning banners', hint: 'Pause "X% of quota used" toasts.' },
-    { key: 'muteBuildFailures' as const, label: 'Mute build-failure toasts', hint: 'Failed builds still appear in the executions list and inbox.' },
-    { key: 'muteAuditMentions' as const, label: 'Mute audit-mention notifications', hint: 'Hide red dots on audit-event mentions.' },
+    {
+      key: 'muteQuotaWarnings' as const,
+      label: 'Mute quota warnings',
+      hint: 'Hide the banner when usage is nearing a limit. It still appears once a limit is exceeded, because requests are being rejected.',
+    },
   ];
 
   return (
@@ -88,15 +56,13 @@ export default function NotificationsPage() {
       subtitle="What you get pinged about — and where"
     >
       <div className="space-y-6">
-        {/* In-app preferences — localStorage only; mute is a UI-level filter (the
-            underlying alerts still fire on the platform side). */}
         <SectionCard
           icon={SlidersHorizontal}
           title="In-app preferences"
-          description="Saved in this browser only — they don't sync across devices, and they don't stop org-level Slack / webhook delivery."
-          actions={<Badge color="gray">This browser only</Badge>}
+          description={`Your preferences for ${orgName}, on every device. They don't change org-level Slack or webhook delivery.`}
           bodyClassName="px-5"
         >
+          <ReadOnlyNotice show={isReadOnly} className="mt-4" />
           <div className="divide-y divide-[var(--pb-border)]">
             {PREFS.map(({ key, label, hint }) => (
               <ToggleRow
@@ -104,7 +70,8 @@ export default function NotificationsPage() {
                 label={label}
                 description={hint}
                 checked={prefs[key]}
-                onChange={(v) => update({ [key]: v } as Partial<Prefs>)}
+                disabled={isReadOnly}
+                onChange={(v) => { void update({ [key]: v }); }}
               />
             ))}
           </div>

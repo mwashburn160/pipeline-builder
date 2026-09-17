@@ -3,9 +3,17 @@
 
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
+/** In-app notification preferences. Each one is read by the UI it silences. */
+export interface NotificationPreferences {
+  /** Hide the quota banner while usage is only nearing a limit (an exceeded
+   *  limit still shows). Per org, because quotas are. */
+  muteQuotaWarnings: boolean;
+}
+
 /**
  * Per-user, per-organization personalization — server-persisted so a user's
- * favorites and recently-viewed items follow them across devices instead of
+ * favorites, recently-viewed items and in-app notification preferences follow
+ * them across devices instead of
  * living only in a single browser's localStorage. Favorites are per-org (a
  * plugin id means nothing outside its org), so the record is keyed on
  * `(userId, organizationId)`.
@@ -17,6 +25,7 @@ export interface UserPreferencesDocument extends Document {
   favorites: string[];
   /** Recently-viewed items (service names / resource ids), newest first, capped. */
   recents: string[];
+  notifications: NotificationPreferences;
   updatedAt: Date;
 }
 
@@ -26,6 +35,13 @@ const userPreferencesSchema = new Schema<UserPreferencesDocument>(
     organizationId: { type: String, required: true },
     favorites: { type: [String], default: [] },
     recents: { type: [String], default: [] },
+    notifications: {
+      type: new Schema<NotificationPreferences>(
+        { muteQuotaWarnings: { type: Boolean, default: false } },
+        { _id: false },
+      ),
+      default: () => ({}),
+    },
   },
   { timestamps: { createdAt: false, updatedAt: true } },
 );

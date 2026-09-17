@@ -14,11 +14,15 @@ import {
   PROFILE_OWNER_HAS_ORGS,
   PROFILE_LAST_PRIVILEGED_MEMBER,
   PROFILE_PAT_LIMIT,
+  type PreferencesPatch,
 } from '../services/index.js';
 import { issueTokens } from '../utils/token.js';
 import { validateBody, updateProfileSchema, changePasswordSchema } from '../utils/validation.js';
 
 const logger = createLogger('user-profile-controller');
+
+/** Notification preferences a client may set; anything else is rejected. */
+const NOTIFICATION_PREFERENCE_KEYS: ReadonlySet<string> = new Set(['muteQuotaWarnings']);
 
 const profileErrorMap = {
   [PROFILE_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
@@ -344,7 +348,7 @@ export const revokePat = withController('Revoke personal access token', async (r
   sendSuccess(res, 200, { revoked: true });
 }, profileErrorMap);
 
-/** GET /user/preferences — the current user's per-org favorites and recents. */
+/** GET /user/preferences — the current user's per-org favorites, recents and notification preferences. */
 export const getPreferences = withController('Get preferences', async (req, res) => {
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
@@ -354,14 +358,14 @@ export const getPreferences = withController('Get preferences', async (req, res)
   sendSuccess(res, 200, { preferences });
 }, profileErrorMap);
 
-/** PUT /user/preferences — replace favorites and/or recents for the active org. */
+/** PUT /user/preferences — update favorites, recents and/or notification preferences for the active org. */
 export const updatePreferences = withController('Update preferences', async (req, res) => {
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
   const orgId = req.user?.organizationId;
   if (!orgId) return sendError(res, 400, 'No active organization', 'NO_ACTIVE_ORG');
 
-  const patch: { favorites?: string[]; recents?: string[] } = {};
+  const patch: PreferencesPatch = {};
   if (req.body?.favorites !== undefined) {
     if (!Array.isArray(req.body.favorites)) return sendError(res, 400, 'favorites must be an array of strings', 'INVALID_FAVORITES');
     patch.favorites = req.body.favorites.map(String);
@@ -369,6 +373,21 @@ export const updatePreferences = withController('Update preferences', async (req
   if (req.body?.recents !== undefined) {
     if (!Array.isArray(req.body.recents)) return sendError(res, 400, 'recents must be an array of strings', 'INVALID_RECENTS');
     patch.recents = req.body.recents.map(String);
+  }
+  if (req.body?.notifications !== undefined) {
+    const n = req.body.notifications as unknown;
+    if (!n || typeof n !== 'object' || Array.isArray(n)) {
+      return sendError(res, 400, 'notifications must be an object', 'INVALID_NOTIFICATIONS');
+    }
+    const entries = Object.entries(n as Record<string, unknown>);
+    const unknownKeys = entries.map(([k]) => k).filter((k) => !NOTIFICATION_PREFERENCE_KEYS.has(k));
+    if (unknownKeys.length > 0) {
+      return sendError(res, 400, `Unknown notification preference(s): ${unknownKeys.join(', ')}`, 'INVALID_NOTIFICATIONS');
+    }
+    if (entries.some(([, v]) => typeof v !== 'boolean')) {
+      return sendError(res, 400, 'Notification preferences must be booleans', 'INVALID_NOTIFICATIONS');
+    }
+    patch.notifications = n as PreferencesPatch['notifications'];
   }
 
   const preferences = await userProfileService.updatePreferences(userId, orgId, patch);

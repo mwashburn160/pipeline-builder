@@ -3,7 +3,7 @@
 
 export { default as User, type UserDocument } from './user.js';
 export { default as PersonalAccessToken, type PersonalAccessTokenDocument } from './personal-access-token.js';
-export { default as UserPreferences, type UserPreferencesDocument } from './user-preferences.js';
+export { default as UserPreferences, type UserPreferencesDocument, type NotificationPreferences } from './user-preferences.js';
 export { default as Organization, type OrganizationDocument } from './organization.js';
 export { default as UserOrganization, type UserOrganizationDocument, type OrgMemberRole, MEMBER_ROLES } from './user-organization.js';
 export { default as Role, ROLE_GRANTS } from './role.js';

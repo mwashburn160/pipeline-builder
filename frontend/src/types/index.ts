@@ -50,6 +50,16 @@ export interface User {
 }
 
 /** A user's membership in an organization. */
+/** The current user's preferences for the active organization (`/user/preferences`). */
+export interface UserPreferences {
+  favorites: string[];
+  recents: string[];
+  notifications: {
+    /** Hide the quota banner while usage is only nearing a limit. */
+    muteQuotaWarnings: boolean;
+  };
+}
+
 export interface UserOrgMembership {
   id: string;
   name: string;
