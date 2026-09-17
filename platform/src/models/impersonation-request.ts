@@ -63,6 +63,13 @@ export type ImpersonationApproverMode = 'user' | 'org_admin';
 export const IMPERSONATION_APPROVER_MODES: readonly ImpersonationApproverMode[] = ['user', 'org_admin'];
 
 export interface ImpersonationRequestDocument extends Document {
+  /**
+   * The string form of `_id` — Mongoose's default `id` virtual, present on every
+   * hydrated document. Declared because this Mongoose version's `Document` type
+   * doesn't carry it, and the request id is passed around (audit events, API
+   * responses, redemption) as a string.
+   */
+  id: string;
   /** The operator asking — a sysadmin today, an ancestor-org admin later. */
   requesterId: Types.ObjectId;
   /** The user whose view is being reproduced. */

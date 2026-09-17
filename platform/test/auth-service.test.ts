@@ -395,6 +395,34 @@ describe('AuthService.switchActiveOrg', () => {
   });
 });
 
+/**
+ * DECIDED (2026-09-16): switching follows the user's OWN active memberships — NOT
+ * the organization hierarchy. The cross-organization rule ("except the system
+ * organization, an org can only reach into its child teams") governs reaching
+ * into an org WITHOUT membership — impersonation and admin access — and is pinned
+ * in effective-org-access.test.ts. Do not add a hierarchy check here: it would
+ * strand people who belong to more than one organization.
+ */
+describe('AuthService.switchActiveOrg — membership, not hierarchy', () => {
+  it('lets a member switch into a SEPARATE account they belong to', async () => {
+    const userDoc = { _id: 'user-1' };
+    mockUserOrgFindOne.mockReturnValue({ lean: () => Promise.resolve({ _id: 'm1', isActive: true }) });
+    mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ deletedAt: null }) }) });
+    mockUserFindById.mockReturnValue({ select: () => Promise.resolve(userDoc) });
+
+    await expect(authService.switchActiveOrg('user-1', 'unrelated-org')).resolves.toBe(userDoc);
+  });
+
+  it('does not let a parent admin switch into a child team they are not a member of', async () => {
+    // They administer and can view the team FROM the parent; switching into it
+    // would require actually belonging to it.
+    mockUserOrgFindOne.mockReturnValue({ lean: () => Promise.resolve(null) });
+
+    await expect(authService.switchActiveOrg('parent-admin', 'child-team')).resolves.toBeNull();
+    expect(mockUserUpdateOne).not.toHaveBeenCalled();
+  });
+});
+
 describe('AuthService.completeOnboarding', () => {
   const makeUser = (over: Record<string, unknown> = {}) => ({
     _id: { toString: () => 'user-1' },

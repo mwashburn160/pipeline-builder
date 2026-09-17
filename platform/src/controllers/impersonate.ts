@@ -35,7 +35,7 @@ import { audit } from '../helpers/audit.js';
 import { canAdministerOrg, isOrgAdmin, isSystemAdmin, withController } from '../helpers/controller-helper.js';
 import { isTenantAdminOf, resolveImpersonationAuthority } from '../helpers/impersonation-authority.js';
 import { resolveChallengeRoute, sendImpersonationChallenge } from '../helpers/impersonation-challenge.js';
-import { notifyOrgOfBreakglass, notifyTeamOfAncestorImpersonation } from '../helpers/impersonation-notify.js';
+import { notifyOrgOfBreakglass, notifyRequesterOfDecision, notifyTeamOfAncestorImpersonation } from '../helpers/impersonation-notify.js';
 import { resolveEffectiveImpersonationPolicy } from '../helpers/impersonation-policy.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -329,6 +329,16 @@ export const decideImpersonationRequest = withController('Decide impersonation r
     targetId: String(request.targetUserId),
     affectedOrgId: request.orgId != null ? String(request.orgId) : undefined,
     details: { requestId },
+  });
+
+  // Tell the requester. Not awaited: the decision is recorded and visible on
+  // their Access requests page regardless, so a notice hiccup must not fail it.
+  void notifyRequesterOfDecision({
+    requesterId: String(request.requesterId),
+    targetUserId: String(request.targetUserId),
+    deciderId: actorId,
+    approved: approve,
+    breakglass: request.breakglass === true,
   });
   sendSuccess(res, 200, { requestId, status: decided.request.status });
 });

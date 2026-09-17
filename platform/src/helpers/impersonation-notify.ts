@@ -133,3 +133,56 @@ export async function notifyOrgOfBreakglass(input: {
     return { attempted: 0, delivered: 0 };
   }
 }
+
+/**
+ * Tell the person who asked for access that their request was decided.
+ *
+ * Fire-and-forget, deliberately — unlike the challenge. The decision is already
+ * recorded and shows on the requester's Access requests page either way, so a
+ * lost notice delays them rather than losing anything. (A lost CHALLENGE is
+ * different: nobody would ever be asked.) Without this, a requester would have to
+ * keep checking back to learn they'd been approved — and an approval unopened
+ * within the hour lapses.
+ */
+export async function notifyRequesterOfDecision(input: {
+  requesterId: string;
+  targetUserId: string;
+  deciderId: string;
+  approved: boolean;
+  breakglass: boolean;
+}): Promise<void> {
+  try {
+    const [requester, target, decider] = await Promise.all([
+      User.findById(input.requesterId).select('username email lastActiveOrgId').lean(),
+      User.findById(input.targetUserId).select('username email').lean(),
+      User.findById(input.deciderId).select('username email').lean(),
+    ]);
+    // The requester's inbox lives under their own active org.
+    const recipientOrgId = (requester as { lastActiveOrgId?: unknown } | null)?.lastActiveOrgId;
+    if (!requester || recipientOrgId == null) return;
+
+    const who = (u: unknown) =>
+      (u as { username?: string } | null)?.username
+      ?? (u as { email?: string } | null)?.email
+      ?? 'someone';
+    const what = input.breakglass ? 'emergency access to' : 'your request to view';
+    const account = `${who(target)}'s account`;
+
+    const subject = input.approved
+      ? (input.breakglass ? 'Emergency access approved' : 'Access request approved')
+      : (input.breakglass ? 'Emergency access denied' : 'Access request denied');
+    const content = input.approved
+      ? `${who(decider)} approved ${what} ${account}. Open it from /dashboard/access-requests `
+        + 'within an hour, or the approval lapses.'
+      : `${who(decider)} denied ${what} ${account}.`;
+
+    await sendInAppNotification({
+      recipientOrgId: String(recipientOrgId),
+      recipientUserId: input.requesterId,
+      subject,
+      content,
+    });
+  } catch (err) {
+    logger.warn('Decision notice failed (non-blocking)', { requesterId: input.requesterId, error: String(err) });
+  }
+}

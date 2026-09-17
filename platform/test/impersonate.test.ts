@@ -35,6 +35,7 @@ const mockResolveChallengeRoute = jest.fn();
 const mockSendChallenge = jest.fn();
 const mockMarkUndeliverable = jest.fn();
 const mockUOFindOne = jest.fn();
+const mockNotifyRequester = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
@@ -88,6 +89,7 @@ jest.unstable_mockModule('../src/helpers/impersonation-policy.js', () => ({
 jest.unstable_mockModule('../src/helpers/impersonation-notify.js', () => ({
   notifyTeamOfAncestorImpersonation: (...a: unknown[]) => mockNotifyTeam(...a),
   notifyOrgOfBreakglass: (...a: unknown[]) => mockNotifyBreakglass(...a),
+  notifyRequesterOfDecision: (...a: unknown[]) => mockNotifyRequester(...a),
 }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
@@ -158,6 +160,7 @@ beforeEach(() => {
   mockResolveChallengeRoute.mockReset().mockImplementation((mode: string) => ({ ok: true, mode }));
   mockSendChallenge.mockReset().mockResolvedValue({ attempted: 1, delivered: 1 });
   mockMarkUndeliverable.mockReset().mockResolvedValue(undefined);
+  mockNotifyRequester.mockReset().mockResolvedValue(undefined);
   mockUOFindOne.mockReset().mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ _id: 'm1' }) }) });
   mockIssueImpersonation.mockReset();
   mockAudit.mockReset();
@@ -763,5 +766,42 @@ describe('impersonateUser — explicit organization', () => {
     await start({});
     expect(mockResolveAuthority).toHaveBeenCalledWith(expect.anything(), 'org-parent');
     expect(mockUOFindOne).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('decideImpersonationRequest — requester is told', () => {
+  const leanOf = (doc: unknown) => ({ lean: () => Promise.resolve(doc) });
+  const decide = (approve: boolean) => {
+    const res = mockRes();
+    return (decideImpersonationRequest as unknown as (req: any, res: any) => Promise<void>)(
+      { user: { sub: 'the-user' }, params: { id: 'req-1' }, body: { approve } }, res,
+    ).then(() => res);
+  };
+
+  beforeEach(() => {
+    mockRequestFindById.mockReturnValue(leanOf({
+      requesterId: 'op', targetUserId: 'the-user', orgId: 'org-a', approverUserId: 'the-user',
+    }));
+    mockDecide.mockResolvedValue({ ok: true, request: { status: 'approved' } });
+  });
+
+  it('notifies the requester when their request is APPROVED', async () => {
+    await decide(true);
+    expect(mockNotifyRequester).toHaveBeenCalledWith({
+      requesterId: 'op', targetUserId: 'the-user', deciderId: 'the-user', approved: true, breakglass: false,
+    });
+  });
+
+  it('notifies the requester when their request is DENIED', async () => {
+    mockDecide.mockResolvedValue({ ok: true, request: { status: 'denied' } });
+    await decide(false);
+    expect(mockNotifyRequester).toHaveBeenCalledWith(expect.objectContaining({ approved: false }));
+  });
+
+  it('does not notify when the decision did not land (already answered)', async () => {
+    mockDecide.mockResolvedValue({ ok: false, code: 'IMP_ALREADY_DECIDED' });
+    await decide(true);
+    expect(mockNotifyRequester).not.toHaveBeenCalled();
   });
 });

@@ -97,6 +97,18 @@ export interface CreateImpersonationRequestInput {
   approverUserId?: string;
 }
 
+/**
+ * A request's status as it should be SHOWN: a `pending` or `approved` request
+ * whose window has passed is `expired`, whether or not the reaper has yet
+ * rewritten the row. Final statuses are returned unchanged.
+ */
+export function effectiveStatus(status: string, expiresAt: Date | undefined, now: Date = new Date()): string {
+  if ((status === 'pending' || status === 'approved') && expiresAt && new Date(expiresAt).getTime() <= now.getTime()) {
+    return 'expired';
+  }
+  return status;
+}
+
 /** How a new (non-emergency) request starts out. */
 export type InitialApproval =
   /** Approved on creation; `reason` says why nobody was asked. */
@@ -403,7 +415,11 @@ class ImpersonationService {
 
     return docs.map((d) => ({
       id: String(d._id),
-      status: d.status,
+      // Report a request whose window has passed as `expired` NOW, rather than
+      // waiting for the reaper to rewrite the row. Otherwise the requester sees
+      // "Waiting for approval" on something that can no longer be approved, or
+      // "Approved — ready to open" on something that can no longer be opened.
+      status: effectiveStatus(d.status, d.expiresAt, now),
       breakglass: d.breakglass === true,
       approvalReason: d.approvalReason,
       approverMode: d.approverMode,

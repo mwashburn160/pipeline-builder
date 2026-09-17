@@ -483,6 +483,11 @@ async function initDependencies(): Promise<void> {
   const { startInvitationReaper } = await import('./services/invitation-reaper.js');
   startInvitationReaper();
 
+  // Same for impersonation requests: flip ones whose window lapsed unused to
+  // `expired`, so their status stays truthful (see impersonation-reaper.ts).
+  const { startImpersonationReaper } = await import('./services/impersonation-reaper.js');
+  startImpersonationReaper();
+
   // Start the org purge sweep: periodically hard-deletes (via the existing
   // fail-closed cascade) any org whose SOFT-DELETE retention window has lapsed
   // (`purgeAfter <= now`). Immediate first sweep now that Mongo is connected;
@@ -552,6 +557,8 @@ async function startServer(): Promise<void> {
       // down Mongo.
       const { stopInvitationReaper } = await import('./services/invitation-reaper.js');
       stopInvitationReaper();
+      const { stopImpersonationReaper } = await import('./services/impersonation-reaper.js');
+      stopImpersonationReaper();
       const { stopOrgPurgeSweep } = await import('./services/org-purge.js');
       stopOrgPurgeSweep();
       const { stopSoftDeletePurge } = await import('./services/soft-delete-purge.js');

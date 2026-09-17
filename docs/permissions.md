@@ -247,9 +247,10 @@ emergency access under it needs a second sysadmin to approve.
 
 **Approving.** The request appears on the approver's **Access requests** page,
 and they are notified in the app. Approving shows exactly what is being granted —
-who, whose account, for how long, and that it's view-only. The requester then
-opens the session from their own Access requests page, which asks for their
-password again. A request nobody could be notified about is reported to the
+who, whose account, for how long, and that it's view-only. The requester is
+notified of the decision either way, and opens an approved session from their own
+Access requests page, which asks for their password again. An approval that isn't
+opened within the hour lapses and shows as expired. A request nobody could be notified about is reported to the
 requester immediately rather than left waiting.
 
 Admins of a **parent** organization are not subject to the policy when viewing
@@ -346,6 +347,29 @@ A parent-org **admin/owner** can administer its teams (members, rules, quotas)
 without a separate membership — fine-grained delegation applies within the team's
 own tenancy boundary, and team-local Roles still bind. See
 [Org → Team Hierarchy](README.md#teams-org--team-hierarchy).
+
+### Cross-organization reach
+
+**Except for platform sysadmins (the system organization), an organization cannot
+reach into another organization unless it is that organization's child team.**
+
+This governs every way of acting on an organization you are not a member of:
+
+| Reaching into… | From the same org | From its parent | From a sibling team | From its child team | From a separate account |
+|---|---|---|---|---|---|
+| Administering it | admins | admins ✅ | ❌ | ❌ | ❌ |
+| Reading it | members | admins ✅ | ❌ | ❌ | ❌ |
+| Impersonating a member | ❌ | admins ✅ | ❌ | ❌ | ❌ |
+| Overriding the org via `x-org-id` | sysadmin only | | | | |
+
+A sysadmin can do all of these for any organization. Reach only ever flows
+**down** the tree, from a parent to its teams.
+
+**Switching organizations is different.** Switching your active organization
+follows your own memberships: you can switch to any organization you are an
+active member of, including a separate one. Being a parent admin does not let you
+switch into a team you don't belong to — you administer and view it from the
+parent instead.
 
 ## Related
 

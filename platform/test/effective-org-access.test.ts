@@ -19,6 +19,7 @@ jest.unstable_mockModule('../src/models/index.js', () => {
 });
 
 const { canAdministerOrg, canAccessOrg, canManageOrgScope } = await import('../src/helpers/controller-helper.js');
+const { resolveImpersonationAuthority } = await import('../src/helpers/impersonation-authority.js');
 
 import type { Request } from 'express';
 
@@ -29,13 +30,15 @@ const { Organization } = (await import('../src/models/index.js')) as unknown as 
 type U = { role?: string; organizationId?: string; organizationName?: string; isSuperAdmin?: boolean };
 const reqWith = (user: U): Request => ({ user } as unknown as Request);
 
-// root ──┬── teamA
-//        └── teamB
+// root ──┬── teamA          otherRoot ─── otherTeam
+//        └── teamB          (a SEPARATE account: no relationship to root)
 beforeEach(() => {
   Organization.__set([
     { _id: 'root', parentOrgId: null },
     { _id: 'teamA', parentOrgId: 'root' },
     { _id: 'teamB', parentOrgId: 'root' },
+    { _id: 'otherRoot', parentOrgId: null },
+    { _id: 'otherTeam', parentOrgId: 'otherRoot' },
   ]);
 });
 
@@ -128,5 +131,70 @@ describe('canAccessOrg', () => {
   it('denies a member reading any unrelated/sibling org even with admin elsewhere implied', async () => {
     // A teamA admin has no read on teamB (sibling) — ancestry, not adjacency.
     expect(await canAccessOrg(reqWith({ role: 'admin', organizationId: 'teamA' }), 'teamB')).toBe(false);
+  });
+});
+
+
+/**
+ * THE CROSS-ORGANIZATION RULE, pinned across every check that lets one
+ * organization reach into another without membership:
+ *
+ *   Except for a platform sysadmin (the system organization), an organization
+ *   cannot reach into another organization unless that organization is its
+ *   CHILD team.
+ *
+ * Sibling and parent cases are covered above; these add the case the rule most
+ * directly protects — a completely SEPARATE account — and run impersonation
+ * against the real hierarchy walk rather than a mock. (Switching organizations is
+ * deliberately NOT governed by this rule: it follows the user's own active
+ * memberships.)
+ */
+describe('cross-organization rule: no reach into a separate account', () => {
+  const adminOf = (org: string) => reqWith({ role: 'admin', organizationId: org });
+
+  it('canAdministerOrg: an admin of one account cannot administer another', async () => {
+    expect(await canAdministerOrg(adminOf('root'), 'otherRoot')).toBe(false);
+    expect(await canAdministerOrg(adminOf('root'), 'otherTeam')).toBe(false);
+    expect(await canAdministerOrg(adminOf('otherRoot'), 'teamA')).toBe(false);
+  });
+
+  it('canAccessOrg: an admin of one account cannot read another', async () => {
+    expect(await canAccessOrg(adminOf('root'), 'otherRoot')).toBe(false);
+    expect(await canAccessOrg(adminOf('otherRoot'), 'teamA')).toBe(false);
+  });
+
+  it('canManageOrgScope: a permission holder in one account cannot write to another', async () => {
+    expect(await canManageOrgScope(adminOf('root'), 'otherTeam')).toBe(false);
+    expect(await canManageOrgScope(reqWith({ role: 'member', organizationId: 'otherRoot' }), 'root')).toBe(false);
+  });
+
+  it('a sysadmin (system organization) may reach any organization', async () => {
+    const sys = reqWith({ isSuperAdmin: true, role: 'member', organizationId: 'system' });
+    expect(await canAdministerOrg(sys, 'otherTeam')).toBe(true);
+    expect(await canAccessOrg(sys, 'teamA')).toBe(true);
+  });
+});
+
+describe('cross-organization rule: impersonation (real hierarchy)', () => {
+  const adminOf = (org: string) => reqWith({ role: 'admin', organizationId: org });
+
+  it('allows a parent admin into its CHILD team', async () => {
+    await expect(resolveImpersonationAuthority(adminOf('root'), 'teamA')).resolves.toEqual({ kind: 'ancestor', viaOrgId: 'root' });
+  });
+
+  it('refuses a separate account', async () => {
+    await expect(resolveImpersonationAuthority(adminOf('root'), 'otherRoot')).resolves.toEqual({ kind: 'none' });
+    await expect(resolveImpersonationAuthority(adminOf('root'), 'otherTeam')).resolves.toEqual({ kind: 'none' });
+  });
+
+  it('refuses a sibling team, the parent, and the admin\'s own organization', async () => {
+    await expect(resolveImpersonationAuthority(adminOf('teamA'), 'teamB')).resolves.toEqual({ kind: 'none' });
+    await expect(resolveImpersonationAuthority(adminOf('teamA'), 'root')).resolves.toEqual({ kind: 'none' });
+    await expect(resolveImpersonationAuthority(adminOf('root'), 'root')).resolves.toEqual({ kind: 'none' });
+  });
+
+  it('allows a sysadmin (system organization) into any organization', async () => {
+    const sys = reqWith({ isSuperAdmin: true, role: 'member', organizationId: 'system' });
+    await expect(resolveImpersonationAuthority(sys, 'otherTeam')).resolves.toEqual({ kind: 'sysadmin' });
   });
 });

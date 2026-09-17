@@ -36,7 +36,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   IMPERSONATION_REASON_MAX: 500,
 }));
 
-const { impersonationService, decideInitialApproval, IMP_NOT_APPROVED, IMP_EXPIRED, IMP_ALREADY_DECIDED, IMP_NOT_LIVE, BREAKGLASS_CAP } = await import(
+const { impersonationService, decideInitialApproval, effectiveStatus, IMP_NOT_APPROVED, IMP_EXPIRED, IMP_ALREADY_DECIDED, IMP_NOT_LIVE, BREAKGLASS_CAP } = await import(
   '../src/services/impersonation-service.js'
 );
 
@@ -458,5 +458,56 @@ describe('decideInitialApproval — the consent decision', () => {
 
   it('an unrecognised policy fails toward asking', () => {
     expect(decideInitialApproval({ ancestorAuthority: false, policy: { policy: 'wide-open' as never } })).toEqual({ kind: 'pending' });
+  });
+});
+
+
+describe('effectiveStatus — what a person is shown', () => {
+  const now = new Date('2026-09-16T12:00:00Z');
+  const past = new Date('2026-09-16T11:00:00Z');
+  const future = new Date('2026-09-16T13:00:00Z');
+
+  it('shows a lapsed PENDING request as expired, not "waiting for approval"', () => {
+    expect(effectiveStatus('pending', past, now)).toBe('expired');
+  });
+
+  it('shows a lapsed APPROVED request as expired, not "ready to open"', () => {
+    expect(effectiveStatus('approved', past, now)).toBe('expired');
+  });
+
+  it('leaves live requests alone', () => {
+    expect(effectiveStatus('pending', future, now)).toBe('pending');
+    expect(effectiveStatus('approved', future, now)).toBe('approved');
+  });
+
+  it('never rewrites a final status', () => {
+    for (const s of ['consumed', 'denied', 'revoked', 'undeliverable']) {
+      expect(effectiveStatus(s, past, now)).toBe(s);
+    }
+  });
+});
+
+describe('listForCaller — reports lapsed requests as expired immediately', () => {
+  it('maps a lapsed pending row to expired before the reaper runs', async () => {
+    mockFind.mockReturnValue({
+      sort: () => ({
+        limit: () => ({
+          select: () => ({
+            lean: () => Promise.resolve([{
+              _id: 'r1',
+              status: 'pending',
+              requesterId: 'me',
+              targetUserId: 'u',
+              createdAt: new Date(Date.now() - 2 * 3600_000),
+              expiresAt: new Date(Date.now() - 3600_000),
+            }]),
+          }),
+        }),
+      }),
+    });
+    mockUserFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([]) }) });
+
+    const [row] = await impersonationService.listForCaller({ userId: 'me', isSysadmin: false, adminOrgIds: [] }, 'mine');
+    expect(row!.status).toBe('expired');
   });
 });
