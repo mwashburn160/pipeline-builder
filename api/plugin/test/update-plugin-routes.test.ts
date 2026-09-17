@@ -108,7 +108,7 @@ function getHandler(method: string, path: string) {
     (l: any) => l.route?.path === path && l.route?.methods[method],
   );
   if (!layer) throw new Error(`No handler for ${method.toUpperCase()} ${path}`);
-  return layer.route.stack[0].handle;
+  return layer.route.stack[layer.route.stack.length - 1].handle;
 }
 
 function mockReq(overrides: Record<string, unknown> = {}): any {
@@ -166,6 +166,9 @@ describe('PUT /plugins/:id (update)', () => {
       expect.objectContaining({ description: 'updated description', category: 'security' }),
       'org-1',
       'user-1',
+      // Caller authority — promoting a default demotes the current one, which
+      // the service gates on the visibility ladder.
+      { isSystemAdmin: false, canPublish: false },
     );
     // name/version must NOT be forwarded — they key the pushed registry image
     // (`<namespace>/<name>:<version>`); allowing a rename desyncs the DB row.

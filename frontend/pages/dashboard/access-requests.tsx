@@ -26,7 +26,7 @@ import { SectionCard } from '@/components/ui/SectionCard';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
-import { Callout } from '@/components/ui/Callout';
+import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
@@ -89,7 +89,7 @@ export default function AccessRequestsPage() {
     }
   }, []);
 
-  useEffect(() => { if (isReady && user) void load(); }, [isReady, user, load]);
+  useEffect(() => { if (isReady && user) void load(); }, [isReady, user?.id, user?.organizationId, load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const decide = async (req: ImpersonationRequestDto, approve: boolean) => {
     setBusyId(req.id);
@@ -119,7 +119,7 @@ export default function AccessRequestsPage() {
       if (res.success && res.data?.revokedEverywhere === false) {
         // Don't claim it's over when it isn't: the platform refuses the token, but
         // other services couldn't be told and may accept it until it expires.
-        toast.warning('Session ended here, but it may keep working in other services for up to 15 minutes.');
+        toast.warning(`Session ended here, but it may keep working in other services for up to ${SESSION_MINUTES} minutes.`);
       } else {
         toast.success('Session ended');
       }
@@ -172,17 +172,12 @@ export default function AccessRequestsPage() {
       <div className="space-y-6">
         {error && <ErrorAlert message={error} />}
 
-        {isReadOnly && (
-          <Callout variant="warning">
-            You&apos;re viewing as another user, so you can&apos;t approve, deny, or end sessions here.
-            Stop impersonating to take action.
-          </Callout>
-        )}
+        <ReadOnlyNotice show={isReadOnly} />
 
         <SectionCard
           icon={KeyRound}
           title="Waiting for your decision"
-          description="Approving lets the requester see that account, read-only, for 15 minutes."
+          description={`Approving lets the requester see that account, read-only, for ${SESSION_MINUTES} minutes.`}
           actions={toDecide.length > 0 ? <Badge color="yellow">{toDecide.length} pending</Badge> : undefined}
         >
           {loading ? (
@@ -219,7 +214,8 @@ export default function AccessRequestsPage() {
                     <div className="flex shrink-0 items-center gap-2">
                       <Button
                         type="button"
-                        disabled={isReadOnly || busyId === r.id}
+                        readOnly={isReadOnly}
+                        disabled={busyId === r.id}
                         onClick={() => setConfirming(r)}
                       >
                         Approve
@@ -227,7 +223,8 @@ export default function AccessRequestsPage() {
                       <Button
                         type="button"
                         variant="secondary"
-                        disabled={isReadOnly || busyId === r.id}
+                        readOnly={isReadOnly}
+                        disabled={busyId === r.id}
                         onClick={() => void decide(r, false)}
                       >
                         Deny
@@ -269,7 +266,8 @@ export default function AccessRequestsPage() {
                   <Button
                     type="button"
                     variant="danger"
-                    disabled={isReadOnly || busyId === s.id}
+                    readOnly={isReadOnly}
+                    disabled={busyId === s.id}
                     onClick={() => void revoke(s)}
                   >
                     End session
@@ -302,7 +300,7 @@ export default function AccessRequestsPage() {
                       </p>
                     </div>
                     {openable && (
-                      <Button type="button" disabled={isReadOnly} onClick={() => setRedeeming(r)}>
+                      <Button type="button" readOnly={isReadOnly} onClick={() => setRedeeming(r)}>
                         Open session
                       </Button>
                     )}

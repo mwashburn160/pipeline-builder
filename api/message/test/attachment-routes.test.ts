@@ -8,6 +8,7 @@
  * its uploader).
  */
 
+import { Readable, Writable } from 'node:stream';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -96,6 +97,21 @@ function mockRes(): any {
   return res;
 }
 
+/** A REAL Writable standing in for the Express response, so `pipeline()` runs
+ *  its genuine teardown semantics (destroy-on-close) instead of a spy. */
+function streamRes(): any {
+  const chunks: Buffer[] = [];
+  const res: any = new Writable({
+    write(chunk, _enc, cb) { chunks.push(Buffer.from(chunk)); cb(); },
+  });
+  res.status = jest.fn().mockReturnValue(res);
+  res.json = jest.fn().mockReturnValue(res);
+  res.setHeader = jest.fn().mockReturnValue(res);
+  res.headersSent = false;
+  res.body = () => Buffer.concat(chunks).toString();
+  return res;
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   identity = { orgId: 'org-1', userId: 'user-1' };
@@ -137,15 +153,14 @@ describe('POST /attachments (upload)', () => {
 
 describe('GET /attachments/:id (download visibility gate)', () => {
   const handler = getHandler('get', '/attachments/:id');
-  const fakeStream = () => ({ on: jest.fn(), pipe: jest.fn() });
 
   it('streams a linked attachment when the parent message is visible', async () => {
     mockFindById.mockResolvedValue({ id: 'att-1', messageId: 'msg-1', storageKey: 'k', contentType: 'image/png', filename: 'p.png', sizeBytes: 5, uploadedBy: 'user-1' });
     mockFindVisibleById.mockResolvedValue({ id: 'msg-1' });
-    const stream = fakeStream();
+    const stream = Readable.from([Buffer.from('hello')]);
     mockGetAttachmentStream.mockResolvedValue(stream);
     const req: any = { params: { id: 'att-1' } };
-    const res = mockRes();
+    const res = streamRes();
     await handler(req, res);
 
     // No viewer argument: the per-user scope now rides on the request's tenant
@@ -153,7 +168,9 @@ describe('GET /attachments/:id (download visibility gate)', () => {
     // drop it by forgetting a parameter.
     expect(mockFindVisibleById).toHaveBeenCalledWith('msg-1', 'org-1');
     expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/png');
-    expect(stream.pipe).toHaveBeenCalledWith(res);
+    // The blob body was streamed into the response.
+    expect(res.body()).toBe('hello');
+    expect(res.writableFinished).toBe(true);
   });
 
   it('404s a linked attachment whose parent message is NOT visible to the caller', async () => {
@@ -183,5 +200,44 @@ describe('GET /attachments/:id (download visibility gate)', () => {
     const res = mockRes();
     await handler(req, res);
     expect(res.status).toHaveBeenCalledWith(404);
+  });
+});
+
+describe('GET /attachments/:id (stream teardown)', () => {
+  const handler = getHandler('get', '/attachments/:id');
+  const linked = { id: 'att-1', messageId: 'msg-1', storageKey: 'k', contentType: 'application/pdf', filename: 'd.pdf', sizeBytes: 5, uploadedBy: 'user-1' };
+
+  it('destroys the S3 body when the client disconnects mid-download (no leaked socket)', async () => {
+    mockFindById.mockResolvedValue(linked);
+    mockFindVisibleById.mockResolvedValue({ id: 'msg-1' });
+    // An S3 body that never ends on its own (a large object still downloading).
+    const source = new Readable({ read() {} });
+    source.push(Buffer.from('partial'));
+    mockGetAttachmentStream.mockResolvedValue(source);
+    const res = streamRes();
+
+    const done = handler({ params: { id: 'att-1' } }, res);
+    await new Promise((r) => setImmediate(r));
+    res.destroy(); // client went away
+
+    await expect(done).resolves.toBeUndefined();
+    expect(source.destroyed).toBe(true);
+    expect(res.status).not.toHaveBeenCalledWith(500);
+  });
+
+  it('tears down the response (no 500, no throw) when the blob stream errors mid-flight', async () => {
+    mockFindById.mockResolvedValue(linked);
+    mockFindVisibleById.mockResolvedValue({ id: 'msg-1' });
+    const source = new Readable({ read() {} });
+    mockGetAttachmentStream.mockResolvedValue(source);
+    const res = streamRes();
+
+    const done = handler({ params: { id: 'att-1' } }, res);
+    await new Promise((r) => setImmediate(r));
+    source.destroy(new Error('S3 connection reset'));
+
+    await expect(done).resolves.toBeUndefined();
+    expect(res.destroyed).toBe(true);
+    expect(res.status).not.toHaveBeenCalledWith(500);
   });
 });

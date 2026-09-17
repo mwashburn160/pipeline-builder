@@ -67,11 +67,6 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
   },
 }));
 
-const mockBillingEventDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ deletedCount: 0 });
-jest.unstable_mockModule('../src/models/billing-event.js', () => ({
-  BillingEvent: { deleteMany: mockBillingEventDeleteMany },
-}));
-
 // Central-trail audit client — the route emits billing.subscription.* here
 // ALONGSIDE the local billing_events write. Mock it so we can assert emission.
 const mockAuditRecord = jest.fn();
@@ -434,12 +429,64 @@ describe('POST /subscriptions', () => {
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 201, expect.any(Object));
   });
 
+  it('stashes the referral code on an incomplete sub so the settle webhook can credit it', async () => {
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro', interval: 'monthly', referralCode: 'org-referrer' } });
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockSubscriptionFindOne.mockResolvedValue(null);
+    const createdSub = makeSubscription({ metadata: { provider: 'stripe' } });
+    mockSubscriptionCreate.mockResolvedValue(createdSub);
+    mockCreateSubscription.mockResolvedValue({ externalId: 'ext-sub-1', externalCustomerId: 'ext-cust-1', status: 'incomplete' });
+
+    await handler(mockReq(), mockRes());
+
+    expect(createdSub.metadata).toEqual({ provider: 'stripe', pendingReferralCode: 'org-referrer' });
+    expect(createdSub.save).toHaveBeenCalled();
+  });
+
+  it('rejects a create while an incomplete (still-settling) subscription exists', async () => {
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockSubscriptionFindOne.mockResolvedValue(makeSubscription({ status: 'incomplete' }));
+    const res = mockRes();
+
+    await handler(mockReq(), res);
+
+    expect(mockSubscriptionFindOne).toHaveBeenCalledWith({ orgId: 'org-1', status: { $in: ['active', 'trialing', 'past_due', 'incomplete'] } });
+    expect(mockSendError).toHaveBeenCalledWith(res, 409, expect.any(String), 'DUPLICATE_ENTRY');
+    expect(mockSubscriptionCreate).not.toHaveBeenCalled();
+  });
+
   it('returns 400 when orgId is missing', async () => {
     const req = mockReq({ user: { sub: 'user-1' } });
     const res = mockRes();
     await handler(req, res);
 
     expect(mockSendError).toHaveBeenCalledWith(res, 400, 'Organization ID is required', 'MISSING_REQUIRED_FIELD');
+  });
+
+  it('stashes the referral code on an incomplete sub so the settle webhook can credit it', async () => {
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro', interval: 'monthly', referralCode: 'org-referrer' } });
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockSubscriptionFindOne.mockResolvedValue(null);
+    const createdSub = makeSubscription({ metadata: { provider: 'stripe' } });
+    mockSubscriptionCreate.mockResolvedValue(createdSub);
+    mockCreateSubscription.mockResolvedValue({ externalId: 'ext-sub-1', externalCustomerId: 'ext-cust-1', status: 'incomplete' });
+
+    await handler(mockReq(), mockRes());
+
+    expect(createdSub.metadata).toEqual({ provider: 'stripe', pendingReferralCode: 'org-referrer' });
+    expect(createdSub.save).toHaveBeenCalled();
+  });
+
+  it('rejects a create while an incomplete (still-settling) subscription exists', async () => {
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockSubscriptionFindOne.mockResolvedValue(makeSubscription({ status: 'incomplete' }));
+    const res = mockRes();
+
+    await handler(mockReq(), res);
+
+    expect(mockSubscriptionFindOne).toHaveBeenCalledWith({ orgId: 'org-1', status: { $in: ['active', 'trialing', 'past_due', 'incomplete'] } });
+    expect(mockSendError).toHaveBeenCalledWith(res, 409, expect.any(String), 'DUPLICATE_ENTRY');
+    expect(mockSubscriptionCreate).not.toHaveBeenCalled();
   });
 
   it('returns validation error on bad body', async () => {
@@ -819,97 +866,6 @@ describe('POST /subscriptions/:id/cancel', () => {
     await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
 
     expect(mockAuditRecord).not.toHaveBeenCalled();
-  });
-});
-
-describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
-  const handler = getHandler('delete', '/subscriptions/by-org/:orgId');
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockIsSystemAdmin.mockReturnValue(true);
-    mockSubscriptionDeleteMany.mockResolvedValue({ deletedCount: 1 });
-    mockBillingEventDeleteMany.mockResolvedValue({ deletedCount: 2 });
-  });
-
-  it('mirrors each removed subscription to the CENTRAL audit trail (no secrets)', async () => {
-    const sub = makeSubscription({
-      _id: { toString: () => 'sub-9' },
-      orgId: 'org-9',
-      externalCustomerId: 'cus_LEAKED',
-      stripeCustomerId: 'cus_LEAKED',
-    });
-    mockSubscriptionFind.mockReturnValue({ limit: jest.fn().mockResolvedValue([sub]) });
-    mockCancelSubscription.mockResolvedValue(undefined);
-
-    // withRoute mock gates on req.user.organizationId; the handler itself uses the
-    // :orgId param + req.user.sub (a sysadmin / service caller here).
-    const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
-    await handler(req, mockRes());
-
-    expect(mockAuditRecord).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'billing.subscription.delete',
-        actorId: 'sysadmin-1',
-        orgId: 'org-9',
-        targetId: 'sub-9',
-        details: expect.objectContaining({ planId: 'pro', orgId: 'org-9' }),
-      }),
-      'billing',
-    );
-    const [event] = mockAuditRecord.mock.calls[0];
-    expect(JSON.stringify(event)).not.toContain('cus_LEAKED');
-  });
-
-  it('looks up the manageable (non-terminal) set, not just active, for the provider-cancel sweep', async () => {
-    mockSubscriptionFind.mockReturnValue({ limit: jest.fn().mockResolvedValue([]) });
-    const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
-    await handler(req, mockRes());
-
-    expect(mockSubscriptionFind).toHaveBeenCalledWith({
-      orgId: 'org-9',
-      status: { $in: expect.arrayContaining(['active', 'trialing', 'past_due']) },
-    });
-  });
-
-  it('provider-cancels a trialing sub before the local cascade (live externalId would keep billing otherwise)', async () => {
-    // A trialing row carries a live externalId at the provider. Before the fix
-    // the sweep matched only status:'active', so deleteMany wiped the local row
-    // while the provider kept billing with nothing left to reconcile.
-    const trialing = makeSubscription({
-      _id: { toString: () => 'sub-trial' },
-      orgId: 'org-9',
-      status: 'trialing',
-      externalId: 'ext-trial-1',
-    });
-    mockSubscriptionFind.mockReturnValue({ limit: jest.fn().mockResolvedValue([trialing]) });
-    mockCancelSubscription.mockResolvedValue(undefined);
-
-    const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
-    await handler(req, mockRes());
-
-    expect(mockCancelSubscription).toHaveBeenCalledWith('ext-trial-1');
-    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9' });
-  });
-
-  it('continues the local cascade when a provider-cancel fails (fail-soft)', async () => {
-    const trialing = makeSubscription({
-      _id: { toString: () => 'sub-trial' },
-      orgId: 'org-9',
-      status: 'trialing',
-      externalId: 'ext-trial-1',
-    });
-    mockSubscriptionFind.mockReturnValue({ limit: jest.fn().mockResolvedValue([trialing]) });
-    mockCancelSubscription.mockRejectedValue(new Error('provider down'));
-
-    const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
-    const res = mockRes();
-    await handler(req, res);
-
-    // Provider failure is swallowed; the local delete still runs and the route
-    // returns 200 (not 500).
-    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9' });
-    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({ deleted: 1 }));
   });
 });
 

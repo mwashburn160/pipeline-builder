@@ -1,13 +1,14 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { formatError } from '@/lib/constants';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useAuth } from '@/hooks/useAuth';
+import { useFeatures } from '@/hooks/useFeatures';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { LoadingPage } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
 import { overallHealthColor } from '@/lib/quota-helpers';
 import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType } from '@/types';
-import { QUOTA_KEYS, TIER_PRESETS, buildTierPresets } from '@/components/quotas/constants';
+import { QUOTA_KEYS, buildTierPresets } from '@/components/quotas/constants';
 import { QuotasReadOnly, type AtRiskDimension } from '@/components/quotas/QuotasReadOnly';
 import { QuotasAdmin } from '@/components/quotas/QuotasAdmin';
 import api from '@/lib/api';
@@ -63,18 +64,11 @@ export default function QuotasPage() {
   const [editTier, setEditTier] = useState<QuotaTier>('developer');
   const [dirty, setDirty] = useState(false);
 
-  // Effective per-tier presets: seeded from the hardcoded fallback, then replaced
-  // with the server's env-override-aware values from /config once they load. Keeps
-  // the tier-preset prefill honest under `QUOTA_TIER_*` overrides (pkg#9); fetch
-  // failure silently keeps the fallback.
-  const [tierPresets, setTierPresets] = useState(TIER_PRESETS);
-  useEffect(() => {
-    let cancelled = false;
-    api.getConfig()
-      .then((res) => { if (!cancelled && res.success && res.data?.tierPresets) setTierPresets(buildTierPresets(res.data.tierPresets)); })
-      .catch(() => { /* fail-soft: keep the hardcoded fallback presets */ });
-    return () => { cancelled = true; };
-  }, []);
+  // Effective per-tier presets: the hardcoded fallback overlaid with the server's
+  // env-override-aware values from /config (already loaded by FeaturesProvider),
+  // so the tier-preset prefill stays honest under `QUOTA_TIER_*` overrides (pkg#9).
+  const serverTierPresets = useFeatures().tierPresets;
+  const tierPresets = useMemo(() => buildTierPresets(serverTierPresets), [serverTierPresets]);
 
   // System-admin only: orgs at >= 80% on any quota dimension. Refetched
   // alongside the org list so the banner updates after edits.
@@ -109,8 +103,12 @@ export default function QuotasPage() {
   }, [canViewOwnAtRisk, user?.organizationId]);
   useEffect(() => { fetchOwnAtRisk(); }, [fetchOwnAtRisk]);
 
+  // Request-generation guard for the org search: typing re-queries the server,
+  // and a slower response for an older term must not replace a newer one.
+  const orgListReqIdRef = useRef(0);
   const fetchAllOrgs = useCallback(async (search?: string) => {
     if (!isSuperAdmin) return;
+    const reqId = ++orgListReqIdRef.current;
     try {
       // Page size is capped (the server default is ~10). We hold one page and
       // surface the total via `orgTotal`; a `search` term re-queries the server
@@ -118,6 +116,7 @@ export default function QuotasPage() {
       // that happened to land in the first page.
       const q = (search ?? '').trim();
       const res = await api.listOrganizations({ limit: 200, ...(q ? { search: q } : {}) });
+      if (reqId !== orgListReqIdRef.current) return;
       const raw = res.data?.organizations || [];
       const orgs = raw.map((o) => ({ id: o.id, name: o.name, slug: o.slug }));
       setPlatformOrgs(orgs);
@@ -127,8 +126,10 @@ export default function QuotasPage() {
       // the sidebar would re-create fetchAllOrgs and refetch the whole org list.
       if (orgs.length > 0) setSelectedOrgId((cur) => cur || orgs[0].id);
     } catch {
+      if (reqId !== orgListReqIdRef.current) return;
       try {
         const res = await api.getAllOrgQuotas();
+        if (reqId !== orgListReqIdRef.current) return;
         const quotaOrgs = (res.data?.organizations || []) as OrgQuotaResponse[];
         const orgs = quotaOrgs.map((o) => ({ id: o.orgId, name: o.name, slug: o.slug }));
         setPlatformOrgs(orgs);

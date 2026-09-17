@@ -16,6 +16,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: jest.fn(),
+  requireSystemAdmin: jest.fn(),
   sendError: jest.fn(),
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   DEFAULT_TIER: 'developer',
@@ -134,42 +135,6 @@ describe('authorizeOrg', () => {
     });
   });
 
-  describe('requireSystemAdmin option', () => {
-    const middleware = authorizeOrg({ requireSystemAdmin: true });
-
-    it('should allow system admin', () => {
-      mockIsSystemAdmin.mockReturnValue(true);
-      const { req, res, next } = createMockReqResNext({
-        user: { organizationId: '000000000000000000000001' },
-        params: { orgId: 'org-1' },
-      });
-
-      middleware(req, res, next);
-      expect(next).toHaveBeenCalled();
-    });
-
-    it('should deny same-org non-admin', () => {
-      mockIsSystemAdmin.mockReturnValue(false);
-      const { req, res, next } = createMockReqResNext({
-        user: { organizationId: 'org-1' },
-        params: { orgId: 'org-1' },
-      });
-
-      middleware(req, res, next);
-      expect(next).not.toHaveBeenCalled();
-      expect(mockSendError).toHaveBeenCalledWith(res, 403, expect.stringContaining('system administrator'), 'INSUFFICIENT_PERMISSIONS');
-    });
-
-    it('should deny cross-org non-admin', () => {
-      mockIsSystemAdmin.mockReturnValue(false);
-      const { req, res, next } = createMockReqResNext({
-        user: { organizationId: 'org-2' },
-        params: { orgId: 'org-1' },
-      });
-
-      middleware(req, res, next);
-      expect(next).not.toHaveBeenCalled();
-      expect(mockSendError).toHaveBeenCalledWith(res, 403, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
-    });
-  });
+  // The requireSystemAdmin option delegates to api-core's real gate — covered
+  // (including the authz.denied audit) in authorize-org-audit.test.ts.
 });

@@ -2,17 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for `deleteUser` (DELETE /user/account) — the self-delete owner
- * guard. A user cannot orphan an org by deleting their account while still
- * owning it; they must transfer ownership first. This guard was added after
- * the corresponding admin-side check existed but the self-delete didn't.
+ * Tests for `deleteUser` (DELETE /user/account) — how the controller surfaces
+ * the shared delete cascade's guards (see user-cascade.test.ts for the guards
+ * themselves): an org owner gets 400 (transfer first), the last member of a
+ * privileged Role gets 409, a vanished user 404.
  */
 
 import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-const mockUserOrgCount = jest.fn();
-const mockUserOrgDeleteMany = jest.fn();
-const mockUserFindByIdAndDelete = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => {
@@ -79,36 +76,20 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},
-  User: { findByIdAndDelete: (...args: unknown[]) => mockUserFindByIdAndDelete(...args) },
+  User: {},
   Organization: {},
-  UserOrganization: {
-    countDocuments: (...args: unknown[]) => mockUserOrgCount(...args),
-    deleteMany: (...args: unknown[]) => mockUserOrgDeleteMany(...args),
-  },
+  UserOrganization: {},
 }));
 
 // Mock the services barrel so the controller's `import from '../services'`
 // doesn't pull in auth-service / audit-service / etc. (which would
 // transitively load real config + JWT_SECRET enforcement).
+const mockDeleteAccount = jest.fn<(userId: string) => Promise<void>>();
 jest.unstable_mockModule('../src/services/index.js', () => ({
-  PROFILE_USER_NOT_FOUND: 'PROFILE_USER_NOT_FOUND',
-  PROFILE_EMAIL_TAKEN: 'PROFILE_EMAIL_TAKEN',
-  PROFILE_INVALID_CREDENTIALS: 'PROFILE_INVALID_CREDENTIALS',
-  PROFILE_OWNER_HAS_ORGS: 'PROFILE_OWNER_HAS_ORGS',
-  PROFILE_LAST_PRIVILEGED_MEMBER: 'PROFILE_LAST_PRIVILEGED_MEMBER',
-  PROFILE_PAT_LIMIT: 'PROFILE_PAT_LIMIT',
-  userProfileService: {
-    deleteAccount: async (userId: string) => {
-      const ownerCount = await mockUserOrgCount({ userId, role: 'owner' });
-      if (ownerCount > 0) throw new Error('PROFILE_OWNER_HAS_ORGS');
-      const result = await mockUserFindByIdAndDelete(userId);
-      if (!result) throw new Error('PROFILE_USER_NOT_FOUND');
-      await mockUserOrgDeleteMany({ userId });
-    },
-  },
+  userProfileService: { deleteAccount: (userId: string) => mockDeleteAccount(userId) },
 }));
 
-jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn() }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn(), renewSessionTokens: jest.fn() }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: jest.fn(),
   updateProfileSchema: {},
@@ -128,47 +109,30 @@ function makeRes() {
   return { res: { status, json }, status, json };
 }
 
-describe('deleteUser — self-delete owner guard', () => {
+const { USER_OWNER_HAS_ORGS, PROFILE_USER_NOT_FOUND } = await import('../src/services/user-errors.js');
+const { RL_LAST_PRIVILEGED_MEMBER } = await import('../src/services/roles-errors.js');
+
+const run = async () => {
+  const { res, status } = makeRes();
+  await (deleteUser as unknown as (r: unknown, s: unknown, n: unknown) => Promise<void>)(makeReq(), res, jest.fn());
+  return status;
+};
+
+describe('deleteUser — cascade guard mapping', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('rejects with 400 when caller still owns at least one org', async () => {
-    mockUserOrgCount.mockResolvedValue(2);
-
-    const req = makeReq();
-    const { res, status } = makeRes();
-    await (deleteUser as unknown as (r: unknown, s: unknown, n: unknown) => Promise<void>)(req, res, jest.fn());
-
-    expect(mockUserOrgCount).toHaveBeenCalledWith({
-      userId: expect.anything(),
-      role: 'owner',
-    });
-    expect(status).toHaveBeenCalledWith(400);
-    expect(mockUserFindByIdAndDelete).not.toHaveBeenCalled();
-    expect(mockUserOrgDeleteMany).not.toHaveBeenCalled();
+  it.each([
+    [USER_OWNER_HAS_ORGS, 400],
+    [RL_LAST_PRIVILEGED_MEMBER, 409],
+    [PROFILE_USER_NOT_FOUND, 404],
+  ])('maps %s to %i', async (code, httpStatus) => {
+    mockDeleteAccount.mockRejectedValue(new Error(code));
+    expect(await run()).toHaveBeenCalledWith(httpStatus);
   });
 
-  it('proceeds with delete when caller owns zero orgs', async () => {
-    mockUserOrgCount.mockResolvedValue(0);
-    mockUserFindByIdAndDelete.mockResolvedValue({ _id: 'user-1' });
-    mockUserOrgDeleteMany.mockResolvedValue({ deletedCount: 0 });
-
-    const req = makeReq();
-    const { res } = makeRes();
-    await (deleteUser as unknown as (r: unknown, s: unknown, n: unknown) => Promise<void>)(req, res, jest.fn());
-
-    expect(mockUserFindByIdAndDelete).toHaveBeenCalled();
-    expect(mockUserOrgDeleteMany).toHaveBeenCalled();
-  });
-
-  it('returns 404 when user record not found', async () => {
-    mockUserOrgCount.mockResolvedValue(0);
-    mockUserFindByIdAndDelete.mockResolvedValue(null);
-
-    const req = makeReq();
-    const { res, status } = makeRes();
-    await (deleteUser as unknown as (r: unknown, s: unknown, n: unknown) => Promise<void>)(req, res, jest.fn());
-
-    expect(status).toHaveBeenCalledWith(404);
-    expect(mockUserOrgDeleteMany).not.toHaveBeenCalled();
+  it('deletes the caller\'s own account', async () => {
+    mockDeleteAccount.mockResolvedValue(undefined);
+    expect(await run()).toHaveBeenCalledWith(200);
+    expect(mockDeleteAccount).toHaveBeenCalledWith('user-1');
   });
 });

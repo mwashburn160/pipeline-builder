@@ -7,9 +7,8 @@
  * Orchestrates the destructive sweep across every store the platform owns
  * data in for a given org * - Postgres (via pipeline-core): every org-scoped (`org_id`) table. Soft-deleted
  * where `deleted_at` exists; hard-deleted otherwise.
- * - Mongo (platform's own): Invitation, AuditEvent (except the
- * `admin.org.delete` audit event for this very action, which is preserved so the
- * audit log can prove the delete happened), and OrgIdpConfig. NOTE:
+ * - Mongo (platform's own): Invitation, AuditEvent (the org's own hash chain,
+ * archived first), OrgIdpConfig, OrgDomain and JoinRequest. NOTE:
  * `UserOrganization` membership rows are removed later by
  * `organizationService.delete` (the purge sweep), not by this cascade.
  * - Quota service: HTTP DELETE /quotas/:orgId.
@@ -64,12 +63,6 @@ const AUDIT_ARCHIVE_BATCH_SIZE = 1000;
  * keeps the most recent (most forensically useful) window.
  */
 const AUDIT_EXPORT_CAP = 50_000;
-
-// Error sentinels live in `org-errors.ts` — one declaration shared with
-// `organization-service`, since the controller `errorMap` matches on the string
-// VALUE and two independent declarations had to stay byte-identical by hand.
-// Re-exported because the cascade test imports them from here.
-export { SYSTEM_ORG_DELETE_FORBIDDEN, ORG_NOT_FOUND, ORG_ALREADY_DELETED, ORG_SNAPSHOT_FAILED };
 
 // ---------------------------------------------------------------------------
 // Table classification
@@ -142,31 +135,27 @@ export const CASCADE_TABLE_NAMES: ReadonlySet<string> = new Set(
 // HTTP clients for downstream services
 // ---------------------------------------------------------------------------
 
-/** Timeout for cascade HTTP DELETEs. Cascade is rarely-run and best-effort
- * 5s is generous; override via `ORG_CASCADE_HTTP_TIMEOUT_MS`. */
-const CASCADE_HTTP_TIMEOUT_MS = parseInt(process.env.ORG_CASCADE_HTTP_TIMEOUT_MS || '5000', 10);
-
 function quotaClient() {
   return createSafeClient({
     host: config.quota.serviceHost,
     port: config.quota.servicePort,
-    timeout: CASCADE_HTTP_TIMEOUT_MS,
+    timeout: config.organization.cascadeHttpTimeoutMs,
   });
 }
 
 function billingClient() {
   return createSafeClient({
-    host: config.billing?.serviceHost ?? 'billing',
-    port: config.billing?.servicePort ?? 3000,
-    timeout: CASCADE_HTTP_TIMEOUT_MS,
+    host: config.billing.serviceHost,
+    port: config.billing.servicePort,
+    timeout: config.organization.cascadeHttpTimeoutMs,
   });
 }
 
 function messageClient() {
   return createSafeClient({
-    host: process.env.MESSAGE_SERVICE_HOST || 'message',
-    port: parseInt(process.env.MESSAGE_SERVICE_PORT || '3000', 10),
-    timeout: CASCADE_HTTP_TIMEOUT_MS,
+    host: config.message.serviceHost,
+    port: config.message.servicePort,
+    timeout: config.organization.cascadeHttpTimeoutMs,
   });
 }
 
@@ -207,12 +196,12 @@ export interface CascadeReport {
 /**
  * Soft- or hard-delete every row across the platform's own Postgres + Mongo
  * stores AND fire HTTP DELETEs at the quota / billing services. Returns a
- * report of what happened so the calling controller can stash it in the
- * `admin.org.delete` audit event.
+ * report of what happened so the purge sweep can gate the hard delete on it and
+ * summarize it in the `admin.org.delete` audit event.
  *
- * `actorOrgId` is the org of the sysadmin running the delete  needed for
- * the tenant-context scope so the soft-delete UPDATEs pass FORCE'd RLS on
- * the affected tables. Sysadmins bypass RLS via the `is_sysadmin` GUC.
+ * `actorOrgId` is the actor org for the tenant-context scope (the purge sweep
+ * passes the system org) so the soft-delete UPDATEs pass FORCE'd RLS on the
+ * affected tables. Sysadmins bypass RLS via the `is_sysadmin` GUC.
  */
 export async function cascadeDeleteOrg( orgId: string,
   actorOrgId: string,
@@ -273,10 +262,9 @@ export async function cascadeDeleteOrg( orgId: string,
     }
   });
 
-  // -- Mongo: invitations + audit events. The `admin.org.delete` event for
-  // this very action is written AFTER the cascade returns (by the caller),
-  // so deleting AuditEvent here is safe  the controller's audit() call
-  // lands a fresh record afterward.
+  // -- Mongo: invitations + audit events. The `admin.org.delete` event for this
+  // purge is written by the purge sweep AFTER the cascade returns and the org is
+  // hard-deleted, so no such row exists yet to preserve.
   try {
     const invRes = await Invitation.deleteMany({ organizationId: orgId } as never);
     report.mongo.invitations = invRes.deletedCount ?? 0;
@@ -293,11 +281,15 @@ export async function cascadeDeleteOrg( orgId: string,
   // retry, `report.auditArchive.ok` stays false, and the purge sweep DEFERS the
   // hard delete for this org. A forensic record is never destroyed without a
   // durable copy.
-  const auditScope = { $or: [{ orgId }, { affectedOrgId: orgId }] };
+  //
+  // The ARCHIVE covers every event touching the org — its own chain plus the
+  // events its members performed on OTHER orgs (`orgId` = this org). The live
+  // DELETE covers only this org's own hash chain (`affectedOrgId` = this org,
+  // the chain key — see helpers/audit-chain.ts): an event whose `affectedOrgId`
+  // is another org is a link in THAT org's chain, and deleting it would break
+  // that tenant's tamper-evidence.
+  const auditArchiveScope = { $or: [{ orgId }, { affectedOrgId: orgId }] };
   try {
-    // Archive EVERY matching event (including `admin.org.delete`) — the archive
-    // is a complete copy. The subsequent live-delete still preserves the
-    // in-place `admin.org.delete` trail (see the `$ne` filter below).
     // STREAMED in fixed batches, never materialized. A tenant at the retention
     // ceiling has millions of events; `find().lean()` + one bulkWrite built from
     // the whole array OOM-killed the pod mid-purge — and because the archive is
@@ -324,7 +316,7 @@ export async function cascadeDeleteOrg( orgId: string,
       batch = [];
     };
 
-    const cursor = AuditEvent.find(auditScope).lean().cursor({ batchSize: AUDIT_ARCHIVE_BATCH_SIZE });
+    const cursor = AuditEvent.find(auditArchiveScope).lean().cursor({ batchSize: AUDIT_ARCHIVE_BATCH_SIZE });
     try {
       for await (const leanDoc of cursor) {
         batch.push(leanDoc as unknown as Record<string, unknown>);
@@ -335,14 +327,9 @@ export async function cascadeDeleteOrg( orgId: string,
       await cursor.close();
     }
 
-    // Archive succeeded (or there was nothing to archive) — safe to delete the
-    // live rows now. Keep the `admin.org.delete` action: it's intentionally
-    // preserved in-place as the trail of this very operation; the controller
-    // emits a fresh one after cascade returns.
-    const auditRes = await AuditEvent.deleteMany({
-      ...auditScope,
-      action: { $ne: 'admin.org.delete' },
-    });
+    // Archive succeeded (or there was nothing to archive) — safe to delete this
+    // org's own chain now.
+    const auditRes = await AuditEvent.deleteMany({ affectedOrgId: orgId });
     report.mongo.auditEvents = auditRes.deletedCount ?? 0;
     report.auditArchive = { ok: true, archived };
   } catch (err) {
@@ -384,8 +371,8 @@ export async function cascadeDeleteOrg( orgId: string,
   // -- Quota service: HTTP DELETE /quotas/:orgId. Service-token auth  the
   // quota service trusts billing/platform as peer services.
   //
-  // NOTE: quota + billing `ok` are HARD GATES for the caller — the org-delete
-  // controller aborts the org-doc delete when either is false (a live
+  // NOTE: quota + billing `ok` are HARD GATES for the caller — the purge sweep
+  // defers the org-doc hard delete when either is false (a live
   // subscription must never outlive its org). We still only warn + record the
   // flag here so the cascade returns a full report; the caller decides.
   try {
@@ -533,9 +520,11 @@ export async function softDeleteOrg(
 
   // 1. Recovery snapshot FIRST — abort the whole soft-delete if we can't capture
   // + persist it. Losing an org without a snapshot is the one outcome we refuse.
+  // STRICT export: any unreadable table or collection aborts, rather than
+  // persisting a snapshot with silently empty stores.
   let snapshotId: string;
   try {
-    const snapshot = await exportOrg(orgId, actorOrgId);
+    const snapshot = await exportOrg(orgId, actorOrgId, { strict: true });
     const doc = await DeletedOrgSnapshot.create({
       orgId,
       name: org.name,
@@ -564,14 +553,14 @@ export async function softDeleteOrg(
 
     // Bump tokenVersion for every ACTIVE member (mirrors removeMember): their
     // outstanding access tokens are rejected on the next request, and clearing
-    // the refresh token blocks a silent re-issue.
+    // the refresh-session slots blocks a silent re-issue.
     const memberships = await UserOrganization.find({ organizationId: toOrgId(orgId), isActive: true })
       .select('userId').session(session).lean();
     bumpedMemberIds = memberships.map((m) => m.userId);
     if (bumpedMemberIds.length > 0) {
       await User.updateMany(
         { _id: { $in: bumpedMemberIds } },
-        { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } },
+        { $inc: { tokenVersion: 1 }, $set: { refreshSessions: [] } },
       ).session(session);
 
       // Revoke every member's PAT scoped to THIS org. A PAT's authority is
@@ -609,25 +598,48 @@ export interface OrgExport {
   /** Set when a collection hit its export cap, so the caller can tell a
    *  complete artifact from a partial one. Absent means nothing was capped. */
   truncated?: { auditEvents: { cap: number } };
+  /** Stores that could not be read (lenient mode only). Their entries above are
+   *  empty because the read FAILED, not because the org has no rows. Absent
+   *  means every store was read. */
+  failed?: { postgres?: string[]; mongo?: string[] };
+}
+
+export interface ExportOrgOptions {
+  /** Rethrow the first read failure instead of recording it in `failed`. The
+   *  soft-delete recovery snapshot uses this: a snapshot with a silently empty
+   *  store is not a recovery snapshot. */
+  strict?: boolean;
 }
 
 /**
  * Walk every store the cascade touches and emit a single JSON blob. Read-
- * only  does not mutate. The returned object is intended for handing to
+ * only — does not mutate. The returned object is intended for handing to
  * the org as a portability artifact before the delete.
  *
- * `actorOrgId` is needed for the same RLS reason as `cascadeDeleteOrg`
+ * Lenient by default: a store that fails to read is left empty and named in
+ * `failed`, so the portability export still returns what it can. `strict`
+ * rethrows instead (see {@link ExportOrgOptions}).
+ *
+ * `actorOrgId` is needed for the same RLS reason as `cascadeDeleteOrg` —
  * the SELECTs must run with a sysadmin context to read rows owned by an
  * org that isn't the caller's own.
  */
-export async function exportOrg( orgId: string,
+export async function exportOrg(
+  orgId: string,
   actorOrgId: string,
+  { strict = false }: ExportOrgOptions = {},
 ): Promise<OrgExport> {
   const result: OrgExport = {
     exportedAt: new Date().toISOString(),
     orgId,
     postgres: {},
     mongo: { invitations: [], auditEvents: [] },
+  };
+  const recordFailure = (store: 'postgres' | 'mongo', name: string, err: unknown): void => {
+    if (strict) throw err;
+    logger.warn('Export read failed', { store, name, orgId, error: errorMessage(err) });
+    result.failed ??= {};
+    (result.failed[store] ??= []).push(name);
   };
 
   await runWithTenantContext({ orgId: actorOrgId, isSuperAdmin: true }, async () => {
@@ -637,8 +649,8 @@ export async function exportOrg( orgId: string,
           .where(eq((table as { orgId: unknown }).orgId as never, orgId as never)));
         result.postgres[name] = rows as unknown[];
       } catch (err) {
-        logger.warn('Export read failed', { table: name, orgId, error: errorMessage(err) });
         result.postgres[name] = [];
+        recordFailure('postgres', name, err);
       }
     }
   });
@@ -646,7 +658,7 @@ export async function exportOrg( orgId: string,
   try {
     result.mongo.invitations = await Invitation.find({ organizationId: orgId }).lean();
   } catch (err) {
-    logger.warn('Invitation export failed', { orgId, error: errorMessage(err) });
+    recordFailure('mongo', 'invitations', err);
   }
   try {
     // CAPPED: the export materializes into one JSON object, so an uncapped
@@ -665,9 +677,8 @@ export async function exportOrg( orgId: string,
       logger.warn('AuditEvent export hit its cap — artifact is partial', { orgId, cap: AUDIT_EXPORT_CAP });
     }
   } catch (err) {
-    logger.warn('AuditEvent export failed', { orgId, error: errorMessage(err) });
+    recordFailure('mongo', 'auditEvents', err);
   }
 
   return result;
 }
-

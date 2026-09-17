@@ -14,6 +14,7 @@ import { toOrgId } from '../helpers/org-id.js';
 import { User, Organization, UserOrganization, Role, RoleAssignment } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
 import type { UserDocument } from '../models/user.js';
+import { TOKEN_SCOPE_ESCALATION } from '../services/auth-errors.js';
 import type { AccessTokenPayload, RefreshTokenPayload } from '../types/index.js';
 
 const logger = createLogger('token');
@@ -47,7 +48,12 @@ export interface MembershipContext {
  * gate treats it as a plain member. This is critical: a scoped token minted by a
  * super-admin operator must NOT inherit super-admin authority.
  */
-function createAccessTokenPayload(user: UserDocument, membership?: MembershipContext, scope?: TokenScope): AccessTokenPayload {
+function createAccessTokenPayload(
+  user: UserDocument,
+  membership?: MembershipContext,
+  scope?: TokenScope,
+  sessionId?: string,
+): AccessTokenPayload {
   const role = scope ? 'member' : (membership?.role ?? 'member');
   const tier: QuotaTier = membership?.tier ?? 'developer';
   const isSuperAdmin = scope ? false : user.isSuperAdmin === true;
@@ -85,15 +91,29 @@ function createAccessTokenPayload(user: UserDocument, membership?: MembershipCon
     ...(scope ? { scope } : {}),
     tokenVersion: user.tokenVersion,
     isEmailVerified: user.isEmailVerified,
+    // The refresh-session slot this token was minted with — logout and
+    // switch-org act on that slot. Absent on PATs and impersonation tokens.
+    ...(sessionId ? { sid: sessionId } : {}),
   };
 }
 
-/** Sign and return a JWT refresh token for the given user. */
-function generateRefreshToken(user: UserDocument): string {
+/**
+ * Most refresh-session slots (signed-in devices) a user keeps. Opening a new
+ * session beyond this evicts the OLDEST slot.
+ */
+export const MAX_REFRESH_SESSIONS = 10;
+
+/**
+ * Sign a refresh token for one session slot. The random `jti` makes every
+ * rotation produce a distinct token (and hash), even within the same second.
+ */
+function generateRefreshToken(user: UserDocument, sessionId: string): string {
   const payload: RefreshTokenPayload = {
     type: 'refresh',
     sub: user._id.toString(),
     tokenVersion: user.tokenVersion,
+    sid: sessionId,
+    jti: crypto.randomBytes(8).toString('hex'),
   };
   return jwt.sign(payload, config.auth.refreshToken.secret, {
     algorithm: config.auth.jwt.algorithm,
@@ -132,11 +152,6 @@ async function rolePermissionsFor(userId: string, organizationId: Types.ObjectId
 }
 
 /**
- * Resolve the membership context for a user's active organization.
- * Looks up UserOrganization + Organization name for the given orgId.
- * Falls back to user.lastActiveOrgId, then first membership.
- */
-/**
  * Membership context for ONE specific org, or `undefined` when the user has no
  * live membership there. No fallback to any other org — see
  * {@link resolveMembership} for the login path that does fall back, and
@@ -161,29 +176,23 @@ async function resolveOrgMembership(userId: string, orgId: string): Promise<Memb
   };
 }
 
+/**
+ * Resolve the membership context for a user's active organization: the pinned
+ * `activeOrgId` when it is still a live membership, else the earliest active
+ * membership whose org is live. A user whose active org was just soft-deleted
+ * lands on another live org (or nothing), never back on the dying one.
+ */
 async function resolveMembership(userId: string, activeOrgId?: string): Promise<MembershipContext | undefined> {
-  // Try explicit activeOrgId first
   if (activeOrgId) {
     const pinned = await resolveOrgMembership(userId, activeOrgId);
     if (pinned) return pinned;
   }
-
-  // Fall back to the earliest active membership whose org is NOT soft-deleted —
-  // a user whose active org was just soft-deleted must land on another live org
-  // (or nothing), never back on the dying one.
   const memberships = await UserOrganization.find({ userId, isActive: true }).sort({ joinedAt: 1 }).lean();
-  for (const first of memberships) {
-    const orgId = first.organizationId.toString();
-    const org = await Organization.findById(toOrgId(orgId)).select('name tier parentOrgId featureEntitlements deletedAt').lean();
-    if (!org || org.deletedAt) continue;
-    return {
-      organizationId: orgId,
-      organizationName: org?.name,
-      role: first.role as OrgMemberRole,
-      tier: org?.tier,
-      rolePermissions: await rolePermissionsFor(userId, toOrgId(orgId)),
-      ...(await accountContext(orgId, org)),
-    };
+  for (const m of memberships) {
+    const orgId = m.organizationId.toString();
+    if (orgId === activeOrgId) continue; // already tried above
+    const context = await resolveOrgMembership(userId, orgId);
+    if (context) return context;
   }
   return undefined;
 }
@@ -247,22 +256,33 @@ async function accountContext(
   };
 }
 
+/** A signed token pair plus what the caller persists for it. */
+interface MintedTokens {
+  tokens: IssuedTokens;
+  refreshHash: string;
+  /** `issuedTokens` history entry (ring-buffered to the 20 most recent). */
+  historyEntry: { id: string; createdAt: Date; expiresAt: Date; tokenVersionAtIssue: number };
+}
+
 /**
- * Generate a new token pair and persist the hashed refresh token in the database.
+ * Resolve the active membership and sign an access + refresh token pair for
+ * refresh-session slot `sessionId`. Persists nothing.
  *
- * Resolves the user's membership context by looking up {@link UserOrganization}
- * for the active org. The resulting access token JWT contains:
+ * The access token carries:
  * - `role`: the user's per-org role ('owner' | 'admin' | 'member')
  * - `isAdmin`: derived as `role === 'admin' || role === 'owner'`
  * - `organizationId` / `organizationName`: the active org context
+ * - `sid`: the session slot
  *
  * Falls back to `user.lastActiveOrgId`, then the user's earliest active membership.
- *
- * @param user - User document to generate tokens for
- * @param activeOrgId - Optional org ID to use as active (falls back to lastActiveOrgId, then first membership)
- * @param expiresIn - Optional access token lifetime in seconds (default: config.auth.jwt.expiresIn)
  */
-export async function issueTokens(user: UserDocument, activeOrgId?: string, expiresIn?: number, scope?: TokenScope): Promise<IssuedTokens> {
+async function mintTokens(
+  user: UserDocument,
+  sessionId: string,
+  activeOrgId?: string,
+  expiresIn?: number,
+  scope?: TokenScope,
+): Promise<MintedTokens> {
   let membership: MembershipContext | undefined;
   try {
     membership = await resolveMembership(
@@ -282,31 +302,114 @@ export async function issueTokens(user: UserDocument, activeOrgId?: string, expi
   const tokenExpiresIn = expiresIn ?? tierExpiresIn ?? config.auth.jwt.expiresIn;
 
   const accessToken = jwt.sign(
-    createAccessTokenPayload(user, membership, scope),
+    createAccessTokenPayload(user, membership, scope, sessionId),
     config.auth.jwt.secret,
     jwtSignOptions(tokenExpiresIn),
   );
+  const refreshToken = generateRefreshToken(user, sessionId);
 
-  const refreshToken = generateRefreshToken(user);
-  const hashedRefresh = hashRefreshToken(refreshToken);
-
-  // Append to the user's issued-tokens history (ring-buffered to 20 most recent).
   const now = new Date();
-  const tokenRecord = {
-    id: crypto.randomBytes(8).toString('hex'),
-    createdAt: now,
-    expiresAt: new Date(now.getTime() + tokenExpiresIn * 1000),
-    tokenVersionAtIssue: user.tokenVersion,
+  return {
+    tokens: { accessToken, refreshToken, expiresIn: tokenExpiresIn },
+    refreshHash: hashRefreshToken(refreshToken),
+    historyEntry: {
+      id: crypto.randomBytes(8).toString('hex'),
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + tokenExpiresIn * 1000),
+      tokenVersionAtIssue: user.tokenVersion,
+    },
   };
+}
+
+/**
+ * Sign in on a NEW device: mint a token pair in a fresh refresh-session slot.
+ * The user keeps at most {@link MAX_REFRESH_SESSIONS} slots; the oldest is
+ * evicted when a new one would exceed the cap.
+ *
+ * @param user - User document to generate tokens for (`+tokenVersion +isSuperAdmin`)
+ * @param activeOrgId - Optional org ID to use as active (falls back to lastActiveOrgId, then first membership)
+ * @param expiresIn - Optional access token lifetime in seconds (default: per-tier, then config.auth.jwt.expiresIn)
+ * @param scope - Optional narrow capability scope (least-privilege machine token)
+ */
+export async function issueTokens(user: UserDocument, activeOrgId?: string, expiresIn?: number, scope?: TokenScope): Promise<IssuedTokens> {
+  const sessionId = crypto.randomBytes(12).toString('hex');
+  const { tokens, refreshHash, historyEntry } = await mintTokens(user, sessionId, activeOrgId, expiresIn, scope);
   await User.updateOne(
     { _id: user._id },
     {
-      $set: { refreshToken: hashedRefresh },
-      $push: { issuedTokens: { $each: [tokenRecord], $slice: -20 } },
+      $push: {
+        refreshSessions: {
+          $each: [{
+            id: sessionId,
+            hash: refreshHash,
+            createdAt: historyEntry.createdAt,
+            lastUsedAt: historyEntry.createdAt,
+            ...(scope ? { scope } : {}),
+          }],
+          $slice: -MAX_REFRESH_SESSIONS,
+        },
+        issuedTokens: { $each: [historyEntry], $slice: -20 },
+      },
     },
   );
+  return tokens;
+}
 
-  return { accessToken, refreshToken, expiresIn: tokenExpiresIn };
+
+/**
+ * Re-issue the token pair for an EXISTING refresh-session slot, replacing the
+ * slot's hash in one atomic `findOneAndUpdate`.
+ *
+ * - Refresh passes `presentedToken`: the write matches only while the slot still
+ *   holds THAT token's hash (and the user's tokenVersion is unchanged), so of two
+ *   racing uses of one refresh token exactly one wins.
+ * - Switch-org and generate-token omit it: the caller is authenticated by an
+ *   access token minted for this slot, so only the slot's existence is required.
+ *   `mint` carries generate-token's lifetime / scope overrides.
+ *
+ * Returns `null` when nothing matched — the slot is gone, the tokenVersion moved,
+ * or `presentedToken` was already rotated away (reuse). The caller decides what
+ * that means; nothing is persisted.
+ */
+export async function renewSessionTokens(
+  user: UserDocument,
+  activeOrgId: string | undefined,
+  slot: { sessionId: string; presentedToken?: string },
+  mint: { expiresIn?: number; scope?: TokenScope } = {},
+): Promise<IssuedTokens | null> {
+  // The slot's stored scope is authoritative. Renewal keeps it; a scoped slot can
+  // never be re-minted unscoped or under another scope (that would turn a narrow
+  // machine credential into a full-privilege one). An unscoped slot may narrow.
+  const current = await User.findOne(
+    { '_id': user._id, 'refreshSessions.id': slot.sessionId },
+    { 'refreshSessions.$': 1 },
+  ).lean();
+  const slotScope = (current?.refreshSessions?.[0] as { scope?: TokenScope } | undefined)?.scope;
+  if (slotScope && mint.scope !== undefined && mint.scope !== slotScope) {
+    throw new Error(TOKEN_SCOPE_ESCALATION);
+  }
+  const scope = mint.scope ?? slotScope;
+
+  const { tokens, refreshHash, historyEntry } = await mintTokens(user, slot.sessionId, activeOrgId, mint.expiresIn, scope);
+  const slotMatch = {
+    id: slot.sessionId,
+    // Match the scope we read, so a concurrent change can't be silently widened.
+    scope: slotScope ?? null,
+    ...(slot.presentedToken === undefined ? {} : { hash: hashRefreshToken(slot.presentedToken) }),
+  };
+  const updated = await User.findOneAndUpdate(
+    { _id: user._id, tokenVersion: user.tokenVersion, refreshSessions: { $elemMatch: slotMatch } },
+    {
+      $set: {
+        'refreshSessions.$.hash': refreshHash,
+        'refreshSessions.$.lastUsedAt': historyEntry.createdAt,
+        ...(scope ? { 'refreshSessions.$.scope': scope } : {}),
+      },
+      $push: { issuedTokens: { $each: [historyEntry], $slice: -20 } },
+    },
+    { projection: { _id: 1 } },
+  ).lean();
+  return updated ? tokens : null;
 }
 
 /**
@@ -356,9 +459,8 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
  * differs deliberately from the login path (`resolveMembership`), which falls
  * back so a user whose active org was soft-deleted still lands somewhere — the
  * right behaviour when a person is signing in, the wrong one when an operator
- * asked to view a specific organization. Callers pass the target's active org
- * today; the pin is what lets a future consent flow scope the session to the
- * org that actually approved it.
+ * asked to view a specific organization. The pin is the org the request (and,
+ * under a consent policy, its approval) was for.
  */
 export async function issueImpersonationToken(
   target: UserDocument,
@@ -393,8 +495,8 @@ export function verifyRefreshToken(token: string): RefreshTokenPayload {
   const payload = jwt.verify(token, config.auth.refreshToken.secret, {
     algorithms: [config.auth.jwt.algorithm],
   }) as RefreshTokenPayload;
-  // Assert token type (mirrors requireAuth's `access` check + verifyStepUpToken's
-  // `step-up` check): reject an access/step-up token presented on the refresh path,
+  // Assert token type (mirrors requireAuth's `access` check and api-core's
+  // step-up check): reject an access/step-up token presented on the refresh path,
   // which matters if REFRESH_TOKEN_SECRET is ever misconfigured to equal JWT_SECRET.
   if ((payload as { type?: unknown }).type !== 'refresh') {
     throw new jwt.JsonWebTokenError('Invalid token type for refresh');
@@ -403,28 +505,12 @@ export function verifyRefreshToken(token: string): RefreshTokenPayload {
 }
 
 /**
- * Payload of a short-lived step-up token. Issued by POST /api/auth/step-up
- * once the caller re-verifies their password; required (as
- * `X-Step-Up-Token`) on destructive endpoints behind `requireStepUp`.
- *
- * Single-use IS enforced ACROSS replicas: `requireStepUp` consumes the `jti`
- * via `middleware/consumed-jti.ts`, which claims it on the shared Redis with an
- * atomic `SET NX PX` — only the first setter wins, and the key expires with the
- * token, so a replay is rejected fleet-wide within the (60s default) TTL. This
- * matters: the platform HPA runs up to 5 replicas.
- *
- * Only when Redis is unreachable does it fall back to the process-local set,
- * which is best-effort per instance.
+ * Sign a short-lived step-up token bound to `userId` (default 60s TTL). Issued
+ * by POST /api/auth/step-up once the caller re-verifies their password, and
+ * replayed as `X-Step-Up-Token` on routes behind api-core's `requireStepUp`,
+ * which verifies the `type: 'step-up'` + `jti` claims, binds `sub` to the caller
+ * and consumes the `jti` once.
  */
-export interface StepUpTokenPayload {
-  type: 'step-up';
-  sub: string;
-  jti: string;
-  iat: number;
-  exp: number;
-}
-
-/** Sign a short-lived step-up token bound to `userId`. Defaults to 60s TTL. */
 export function issueStepUpToken(userId: string, ttlSeconds = 60): { token: string; expiresAt: number } {
   const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
   const payload = {
@@ -434,18 +520,4 @@ export function issueStepUpToken(userId: string, ttlSeconds = 60): { token: stri
   };
   const token = jwt.sign(payload, config.auth.jwt.secret, jwtSignOptions(ttlSeconds));
   return { token, expiresAt };
-}
-
-/** Verify a step-up token; throws on invalid signature/expiry. Caller must
- *  additionally check that `payload.sub === req.user.sub` — `requireStepUp`
- *  middleware does this. */
-export function verifyStepUpToken(token: string): StepUpTokenPayload {
-  const payload = verifyPlatformJwt<StepUpTokenPayload>(token);
-  // A normal access token shares the same JWT secret + `sub`, so without
-  // asserting the step-up type (and a jti) it would satisfy requireStepUp and
-  // bypass the password re-verification gate on destructive endpoints.
-  if (payload.type !== 'step-up' || !payload.jti) {
-    throw new Error('INVALID_STEP_UP_TOKEN');
-  }
-  return payload;
 }

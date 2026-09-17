@@ -12,6 +12,7 @@
 
 import { AppError, createLogger, errorMessage, extractDbError } from '@pipeline-builder/api-core';
 import { db, schema, reportingService, runWithTenantContext, withTenantTx } from '@pipeline-builder/pipeline-data';
+import { UnrecoverableError } from 'bullmq';
 import type { Job } from 'bullmq';
 import { BuildProcessError, maskSecrets } from '../helpers/docker-build.js';
 import type { FailureCategory } from '../helpers/plugin-helpers.js';
@@ -39,9 +40,23 @@ export function summarizeBuildFailure(error: Error, isTimeout: boolean): { messa
   return { message: `Build failed (${reason}): ${maskSecrets(error.message)}`, reason, tail: [] };
 }
 
+/**
+ * Whether this failure ends the job's run in its queue. Normally that is the
+ * last configured attempt, but BullMQ fails an {@link UnrecoverableError}
+ * immediately regardless of the attempts left — treating that as non-final
+ * would skip the terminal release/cleanup and leak the org's quota slot.
+ */
+export function isFinalAttempt(job: Pick<Job, 'attemptsMade' | 'opts'>, error: Error): boolean {
+  return error instanceof UnrecoverableError || job.attemptsMade >= (job.opts.attempts ?? 1);
+}
+
 export function classifyFailure(error: Error): FailureCategory {
   const msg = error.message;
   const dbCode = extractDbError(error)?.dbCode;
+
+  // BullMQ never retries an UnrecoverableError (e.g. a vanished build context),
+  // so it can only ever be terminal.
+  if (error instanceof UnrecoverableError) return 'permanent';
 
   // A typed client refusal (e.g. deployVersion's 403/409 overwrite gate) will
   // refuse identically on every retry — don't burn the rebuild budget on it.
@@ -107,16 +122,11 @@ export function recordBuildEvent(orgId: string, status: 'completed' | 'failed', 
  * Record a terminal `failed` build event under a tenant context (the RLS insert
  * in `recordBuildEvent` needs one). Exposed for the DLQ terminal paths, which
  * run detached from the tier worker's `runWithTenantContext`. Keeping the
- * context-wrapping here means the DLQ module depends only on plugin-build-queue
- * (not directly on pipeline-data). Fire-and-forget, mirroring recordBuildEvent.
+ * context-wrapping here means the DLQ module needn't depend on pipeline-data
+ * directly. Fire-and-forget, mirroring recordBuildEvent.
  */
 export function recordTerminalFailedBuildEvent(orgId: string, job: Job, detail: Record<string, unknown>): void {
   void runWithTenantContext({ orgId, isSuperAdmin: false }, async () => {
     recordBuildEvent(orgId, 'failed', job, detail);
   });
 }
-
-/**
- * Collect context dirs referenced by jobs across main queue and DLQ.
- * Includes failed state to protect dirs during DLQ backoff.
- */

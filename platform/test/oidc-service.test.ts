@@ -20,7 +20,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { oauth: { callbackBaseUrl: 'https://app.test' } },
+  config: { oauth: { callbackBaseUrl: 'https://app.test', oidcDocCacheTtlMs: 3_600_000 } },
 }));
 
 const {

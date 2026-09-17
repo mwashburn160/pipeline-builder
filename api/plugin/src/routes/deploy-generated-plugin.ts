@@ -25,6 +25,7 @@ import {
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { getIdempotencyStore, withRoute, type SSEManager } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
+import AdmZip from 'adm-zip';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { v7 as uuid } from 'uuid';
@@ -32,13 +33,20 @@ import { v7 as uuid } from 'uuid';
 import { BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import { createBuildJobData } from '../helpers/plugin-helpers.js';
 import { validateBuildArgs } from '../helpers/plugin-spec.js';
-import { enqueueBuild, getOrgTier } from '../queue/plugin-build-queue.js';
+import { enqueueBuild, getOrgTier } from '../queue/connections.js';
 import { emitPluginAudit } from '../services/audit.js';
+import { deletePluginArtifact, pluginArtifactKey, putPluginArtifact } from '../services/plugin-artifact-storage.js';
 import { pluginService } from '../services/plugin-service.js';
 
 // Fail-closed compliance client (shared with the upload path's contract):
 // an unreachable compliance service rejects the deploy rather than letting it through.
 const complianceClient = createComplianceClient();
+
+/** Best-effort removal of a local scratch context that will never be built. */
+function removeScratchDir(dir: string | undefined): void {
+  if (!dir) return;
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* the stale-temp sweep reclaims it */ }
+}
 
 /**
  * Create and register the deploy-generated plugin route.
@@ -46,7 +54,8 @@ const complianceClient = createComplianceClient();
  * Builds a Docker image from an AI-generated Dockerfile and persists
  * the plugin record to the database via the build queue.
  *
- * Requires admin permissions. Validated with {@link PluginDeployGeneratedSchema}.
+ * Requires `plugins:write` (auth + orgId come from the parent mount). Validated
+ * with {@link PluginDeployGeneratedSchema}.
  */
 export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
   sseManager: SSEManager,
@@ -54,11 +63,11 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
   const router: Router = Router();
 
   router.post( '/deploy-generated',
-    // Admin check BEFORE quota  non-admins should be rejected without consuming quota.
-    // Both system admins and org admins/owners can deploy AI-generated plugins.
-    // quota reservation happens inside the handler (atomic) so two
-    // concurrent deploys at the limit can't both succeed; on any failure
-    // path the worker decrements to give the slot back.
+    // Permission check BEFORE quota — callers without plugins:write are rejected
+    // without consuming quota. The quota reservation happens inside the handler
+    // (atomic) so two concurrent deploys at the limit can't both succeed; on any
+    // failure path the slot is given back (by the handler pre-enqueue, by the
+    // worker after).
     requirePermission('plugins:write') as RequestHandler,
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const registry = Config.get('registry');
@@ -147,10 +156,10 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
       };
 
       // Reserve the plugins quota slot atomically. Worker decrements on
-      // permanent failure; success keeps the reservation. Wrap the await so a
-      // throw (quota service down) also releases the idempotency claim — else it
-      // persists for the TTL and wrongly suppresses a legit retry with a false
-      // 202 + no build (this is the one post-claim await not otherwise covered).
+      // permanent failure; success keeps the reservation. An unreachable quota
+      // service does NOT throw — it comes back as an `unavailable` reservation
+      // (503 below). The try only guards an unexpected throw so it can't strand
+      // the idempotency claim for its TTL (a false 202 + no build on retry).
       let reservation: Awaited<ReturnType<typeof reserveQuota>>;
       try {
         reservation = await reserveQuota(quotaService, orgId, 'plugins', authHeader);
@@ -219,11 +228,35 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
         visibility,
       });
 
+      // Local scratch context (same-replica fast path) — created inside the try
+      // below so a failure after it can clean it up.
+      let tempDir: string | undefined;
+      let s3Key: string | undefined;
       try {
-      // Create temp directory and write Dockerfile (worker will clean up)
-        const tempDir = path.join(BUILD_TEMP_ROOT, uuid());
+        tempDir = path.join(BUILD_TEMP_ROOT, uuid());
         fs.mkdirSync(tempDir, { recursive: true });
         fs.writeFileSync(path.join(tempDir, 'Dockerfile'), dockerfile, 'utf-8');
+
+        // -- Stage the build context in object storage ----------------------
+        // The build worker runs on EVERY replica and BullMQ may hand this job to
+        // a different one; `tempDir` is per-pod scratch, so a build elsewhere
+        // would find no context. Stage the context as a ZIP first (exactly like
+        // upload-plugin.ts) so any replica can re-materialize it; never queue a
+        // build whose context can't be reconstructed.
+        const stagedKey = pluginArtifactKey(orgId, ctx.requestId);
+        const contextZip = new AdmZip();
+        contextZip.addFile('Dockerfile', Buffer.from(dockerfile, 'utf-8'));
+        try {
+          await putPluginArtifact(stagedKey, contextZip.toBuffer());
+        } catch (s3Err) {
+          ctx.log('ERROR', 'Failed to stage build context in object storage', { error: errorMessage(s3Err) });
+          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+          reserved = false;
+          releaseIdem();
+          removeScratchDir(tempDir);
+          return sendError(res, 503, 'Object storage unavailable — please retry', ErrorCode.SERVICE_UNAVAILABLE);
+        }
+        s3Key = stagedKey;
 
         // Queue build job (returns immediately)
         const jobData = createBuildJobData({
@@ -236,6 +269,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
           reservedResetAt: reservation.quota.resetAt,
           buildRequest: {
             contextDir: tempDir,
+            s3Key,
             dockerfile: 'Dockerfile',
             name,
             version,
@@ -306,12 +340,15 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
         // Roll back the reserved slot if anything between reserve and the
         // successful queue.add throws (fs operations, queue down). Release the
         // idempotency key too so the client's retry isn't wrongly suppressed —
-        // the build was never queued.
+        // the build was never queued — and drop the staged context so it
+        // doesn't orphan (best-effort; the bucket's expiry rule is the backstop).
         if (reserved) {
           decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
         }
         releaseIdem();
+        await deletePluginArtifact(s3Key);
+        removeScratchDir(tempDir);
         throw err;
       }
     }),

@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/router';
+import { useCallback, useMemo, useState } from 'react';
+import { useUrlTab } from '@/hooks/useUrlTab';
 import { Siren, KeyRound, Webhook, FlaskConical, Clock, Archive } from 'lucide-react';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { TabBar } from '@/components/ui/TabBar';
@@ -14,7 +14,7 @@ import { RetryError } from '@/components/ui/RetryError';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Button } from '@/components/ui/Button';
 import { LinkButton } from '@/components/ui/LinkButton';
-import { ReadOnlyNotice, READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
+import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { FormField } from '@/components/ui/FormField';
@@ -41,7 +41,7 @@ const INCIDENT_TABS = [
   { id: 'test', label: 'Test & history' },
 ] as const;
 type IncidentTab = (typeof INCIDENT_TABS)[number]['id'];
-const INCIDENT_TAB_IDS = INCIDENT_TABS.map((t) => t.id) as readonly string[];
+const INCIDENT_TAB_IDS: readonly IncidentTab[] = INCIDENT_TABS.map((t) => t.id);
 
 /**
  * Billing deep-link that highlights the DORA-History pack on the add-ons grid
@@ -122,19 +122,9 @@ function providerGuide(key: ProviderKey, genericUrl: string, alertmanagerUrl: st
  */
 export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
   const toast = useToast();
-  const router = useRouter();
 
-  // Active tab, hydrated from `?tab=` and kept in sync (shallow) so it's
-  // shareable / back-forward-friendly — same pattern as the Billing page.
-  const [activeTab, setActiveTab] = useState<IncidentTab>('overview');
-  useEffect(() => {
-    const raw = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
-    if (raw && INCIDENT_TAB_IDS.includes(raw) && raw !== activeTab) setActiveTab(raw as IncidentTab);
-  }, [router.query.tab]); // eslint-disable-line react-hooks/exhaustive-deps
-  const changeTab = (id: string) => {
-    setActiveTab(id as IncidentTab);
-    void router.replace({ query: { ...router.query, tab: id } }, undefined, { shallow: true });
-  };
+  // Active tab lives in `?tab=` so it's shareable / back-forward-friendly.
+  const [activeTab, changeTab] = useUrlTab<IncidentTab>('tab', INCIDENT_TAB_IDS, 'overview');
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const genericUrl = `${origin}/api/reports/incidents`;
@@ -262,7 +252,7 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
   return (
     <div className="space-y-6">
       <ReadOnlyNotice show={readOnly} />
-      <TabBar items={[...INCIDENT_TABS]} activeId={activeTab} onSelect={changeTab} />
+      <TabBar items={[...INCIDENT_TABS]} activeId={activeTab} onSelect={(id) => changeTab(id as IncidentTab)} />
 
       {activeTab === 'overview' && (
       /* Overview */
@@ -303,7 +293,7 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
           rotate, generate a new one and revoke the old token on the <a className="action-link" href="/dashboard/tokens">API Tokens</a> page.</>
         }
       >
-        <Button onClick={requestToken} loading={creating || !!pendingCreate} disabled={readOnly} title={readOnly ? READ_ONLY_REASON : undefined}>Generate webhook token</Button>
+        <Button onClick={requestToken} loading={creating || !!pendingCreate} readOnly={readOnly}>Generate webhook token</Button>
 
         {pendingCreate && (
           <StepUpModal
@@ -358,7 +348,7 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
               disabled={savingWindow || readOnly}
             />
           </FormField>
-          <Button onClick={saveWindow} loading={savingWindow} disabled={!windowInput || readOnly} title={readOnly ? READ_ONLY_REASON : undefined}>Save window</Button>
+          <Button onClick={saveWindow} loading={savingWindow} readOnly={readOnly} disabled={!windowInput}>Save window</Button>
         </div>
       </SectionCard>
       </div>
@@ -407,7 +397,7 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
           <FormField label="Environment" className="w-56">
             <Input value={testEnv} onChange={(e) => setTestEnv(e.target.value)} placeholder="production" disabled={testing || readOnly} />
           </FormField>
-          <Button onClick={sendTest} loading={testing} disabled={readOnly} title={readOnly ? READ_ONLY_REASON : undefined}>Send test incident</Button>
+          <Button onClick={sendTest} loading={testing} readOnly={readOnly}>Send test incident</Button>
         </div>
         {testResult && (
           <Callout variant={testResult.correlated ? 'success' : 'warning'} className="mt-3">

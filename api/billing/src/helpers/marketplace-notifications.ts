@@ -31,6 +31,13 @@ import { getPaymentProvider } from '../providers/provider-factory.js';
 
 const logger = createLogger('billing-marketplace-notifications');
 
+/**
+ * A resolved entitlement whose remaining term exceeds this horizon is treated as
+ * an ANNUAL contract, otherwise monthly. At resolve time (immediately after the
+ * customer subscribes) the entitlement's remaining term ≈ the full contract
+ * term, so an annual offer's expiration is ~1 year out and a monthly offer's is
+ * ~1 month out — well separated by a ~6-month threshold.
+ */
 const ANNUAL_TERM_THRESHOLD_MS = 180 * 24 * 60 * 60 * 1000;
 
 /**

@@ -377,7 +377,7 @@ const pipelineCore = new PackageProject({
   deps: [
     `@pipeline-builder/api-core@${pkg.apiCore}`,
     `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
-    'jsonwebtoken@9.0.3', 'axios@1.19.0', 'uuid@14.0.1',
+    'jsonwebtoken@9.0.3', 'axios@1.19.0',
   ],
   // `aws-cdk-lib` / `constructs` are PEER deps, not regular deps  the standard
   // shape for a published CDK construct library. As regular deps they were a
@@ -427,8 +427,8 @@ const apiServer = new PackageProject({
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     `express@${expressVersion}`,
     'express-rate-limit@8.6.1', 'helmet@8.3.0', 'cors@2.8.6', 'compression@1.8.1',
-    'jsonwebtoken@9.0.3', 'uuid@14.0.1', 'prom-client@15.1.3',
-    'swagger-ui-express@5.0.1', 'ioredis@6.0.0', 'rate-limit-redis@6.0.0',
+    'uuid@14.0.1', 'prom-client@15.1.3',
+    'swagger-ui-express@5.0.1', 'rate-limit-redis@6.0.0',
     '@opentelemetry/sdk-node@0.221.0', '@opentelemetry/exporter-trace-otlp-http@0.221.0',
     '@opentelemetry/resources@2.10.0', '@opentelemetry/auto-instrumentations-node@0.79.0',
     // Direct dep so the ESM loader hook (hook.mjs) is resolvable from the
@@ -439,7 +439,7 @@ const apiServer = new PackageProject({
   ],
   devDeps: [
     '@types/express@5.0.6', '@types/express-serve-static-core@5.1.3',
-    '@types/compression@1.8.1', '@types/cors@2.8.19', '@types/jsonwebtoken@9.0.10',
+    '@types/compression@1.8.1', '@types/cors@2.8.19', 'jsonwebtoken@9.0.3', '@types/jsonwebtoken@9.0.10',
     '@types/swagger-ui-express@4.1.8', '@types/node@26.1.2', `typescript@${typescriptVersion}`,
   ],
 });
@@ -682,21 +682,21 @@ frontend.addPackageIgnore('/dist/js/');
 const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
   {
     name: 'quota',
-    deps: ['cors@2.8.6', 'express-rate-limit@8.6.1', 'helmet@8.3.0', 'jsonwebtoken@9.0.3', 'mongoose@9.9.1', 'winston@3.19.0', 'zod@4.4.3'],
-    devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19'],
+    // HTTP middleware (cors/helmet/rate limit) and JWT/logging come from
+    // api-server/api-core; a service lists only what its own code imports.
+    deps: ['mongoose@9.9.1', 'zod@4.4.3'],
   },
   {
     name: 'billing',
     deps: [
       `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
-      'cors@2.8.6', 'express-rate-limit@8.6.1', 'helmet@8.3.0', 'jsonwebtoken@9.0.3', 'mongoose@9.9.1', 'winston@3.19.0', 'zod@4.4.3',
+      'mongoose@9.9.1', 'zod@4.4.3',
       '@aws-sdk/client-marketplace-metering@3.1101.0', '@aws-sdk/client-marketplace-entitlement-service@3.1101.0',
       // stripe v22's CJS type entry (`export = StripeConstructor`) doesn't expose
       // the `Stripe.Subscription` namespace to NodeNext+CJS — but billing is ESM,
       // so it resolves stripe's ESM types and uses `Stripe.Subscription` natively.
       'stripe@22.4.0',
     ],
-    devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19'],
   },
   {
     name: 'plugin',
@@ -708,40 +708,37 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     // the dep tree.
     deps: [
       `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
-      'express-rate-limit@8.6.1', 'jsonwebtoken@9.0.3', 'helmet@8.3.0', 'cors@2.8.6',
       'pg@8.22.0', 'drizzle-orm@0.45.2', 'uuid@14.0.1', 'yaml@2.9.0',
       'adm-zip@0.6.0', 'yauzl@3.4.0', 'multer@2.2.0', `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.4.3',
       'bullmq@5.80.6', 'ioredis@6.0.0', '@aws-sdk/client-s3@3.1101.0',
     ],
-    devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19', '@types/pg@8.20.3', '@types/adm-zip@0.5.8', '@types/yauzl@3.4.0', '@types/multer@2.2.0'],
+    devDeps: ['jsonwebtoken@9.0.3', '@types/jsonwebtoken@9.0.10', '@types/pg@8.20.3', '@types/adm-zip@0.5.8', '@types/yauzl@3.4.0', '@types/multer@2.2.0'],
   },
   {
     name: 'pipeline',
     deps: [
       `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
-      'express-rate-limit@8.6.1', 'jsonwebtoken@9.0.3', 'helmet@8.3.0', 'cors@2.8.6',
-      'pg@8.22.0', 'drizzle-orm@0.45.2', 'uuid@14.0.1', 'yaml@2.9.0',
+      'pg@8.22.0', 'drizzle-orm@0.45.2',
       `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.4.3',
       '@aws-sdk/client-codepipeline@3.1101.0',
     ],
-    devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19', '@types/pg@8.20.3'],
+    devDeps: ['@types/pg@8.20.3'],
   },
   {
     name: 'message',
     // multer: multipart attachment uploads (same pin as the plugin service).
-    // @aws-sdk/client-s3 + s3-request-presigner: S3-compatible blob storage
+    // @aws-sdk/client-s3: S3-compatible blob storage
     // (MinIO everywhere; a real-S3 swap is an endpoint env change). Pinned to
     // the shared @aws-sdk version so it doesn't perturb the dep tree.
     // jimp: PURE-JS image resize for attachment thumbnails — deliberately NOT
     // sharp, so the alpine (musl) service image needs no native libvips binary /
     // Dockerfile change (thumbnails are occasional + small, so perf is a non-issue).
-    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.22.0', 'drizzle-orm@0.45.2', 'uuid@14.0.1', 'ws@8.21.1', 'zod@4.4.3', 'multer@2.2.0', '@aws-sdk/client-s3@3.1101.0', '@aws-sdk/s3-request-presigner@3.1101.0', 'jimp@1.6.0'],
-    devDeps: ['@types/pg@8.20.3', '@types/ws@8.18.1', '@types/multer@2.2.0'],
+    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.22.0', 'drizzle-orm@0.45.2', 'multer@2.2.0', '@aws-sdk/client-s3@3.1101.0', 'jimp@1.6.0'],
+    devDeps: ['@types/pg@8.20.3', '@types/multer@2.2.0'],
   },
   {
     name: 'reporting',
-    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.22.0', 'drizzle-orm@0.45.2', 'zod@4.4.3'],
-    devDeps: ['@types/pg@8.20.3'],
+    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'zod@4.4.3'],
   },
   {
     // "Ask" agent: read-only conversational how-to grounded in docs/*.md (Phase 1),
@@ -755,7 +752,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
   },
   {
     name: 'compliance',
-    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.22.0', 'drizzle-orm@0.45.2', 'uuid@14.0.1', 'zod@4.4.3', 'bullmq@5.80.6'],
+    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.22.0', 'drizzle-orm@0.45.2', 'zod@4.4.3'],
     devDeps: ['@types/pg@8.20.3'],
   },
   {
@@ -765,11 +762,8 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     // against platform JWTs, the build service account, or platform user
     // creds; signs outgoing registry tokens with RS256.
     name: 'image-registry',
-    deps: [
-      'cors@2.8.6', 'express-rate-limit@8.6.1', 'helmet@8.3.0',
-      'jsonwebtoken@9.0.3', 'winston@3.19.0', 'zod@4.4.3', 'axios@1.19.0',
-    ],
-    devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19'],
+    deps: ['jsonwebtoken@9.0.3', 'zod@4.4.3', 'axios@1.19.0'],
+    devDeps: ['@types/jsonwebtoken@9.0.10'],
   },
 ];
 

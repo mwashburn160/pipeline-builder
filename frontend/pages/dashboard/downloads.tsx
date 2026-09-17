@@ -1,35 +1,26 @@
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { Terminal, Package, Copy, Check, ExternalLink } from 'lucide-react';
-import { useState } from 'react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LinkButton } from '@/components/ui/LinkButton';
 
 function CopyInline({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    // Only flip to "copied" once the write actually resolves — and swallow the
-    // rejection (insecure context / permission) instead of an unhandled reject
-    // + a false success checkmark.
-    navigator.clipboard.writeText(text)
-      .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      })
-      .catch(() => { /* clipboard unavailable — leave state unchanged */ });
-  };
+  // The checkmark shows only once the write resolves; a refused write
+  // (insecure context / permission) leaves the copy icon in place.
+  const { state, copy } = useCopyToClipboard(2000);
 
   return (
     <button
-      onClick={handleCopy}
+      type="button"
+      onClick={() => { void copy(text); }}
       className="ml-2 inline-flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
       title="Copy to clipboard"
       aria-label="Copy to clipboard"
     >
-      {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+      {state === 'copied' ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
     </button>
   );
 }

@@ -41,7 +41,6 @@ jest.unstable_mockModule('../src/helpers/compliance-notifier.js', () => ({
   notifyComplianceBlock: jest.fn(async () => undefined),
   notifyComplianceWarnings: jest.fn(async () => undefined),
 }));
-jest.unstable_mockModule('../src/helpers/env.js', () => ({ parseIntEnv: (_v: unknown, d: number) => d }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy-client.js', () => ({
   resolveParentOrgId: (...a: unknown[]) => resolveParentMock(...(a as [string])),
 }));

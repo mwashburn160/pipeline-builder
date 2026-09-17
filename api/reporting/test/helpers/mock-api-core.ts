@@ -59,11 +59,20 @@ class NotFoundError extends Error {
 }
 
 /**
+ * The REAL api-core exports, used as the base of every mock below. Suites stub
+ * only what they exercise; everything else is the genuine export, so adding an
+ * export to api-core can never again break a suite with "does not provide an
+ * export named X". (`requireActual` bypasses the module mock.)
+ */
+const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record<string, unknown>;
+
+/**
  * Default api-core namespace for `unstable_mockModule`. Spread `overrides` last
  * so a suite can replace any default (and add exports the default omits).
  */
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
+    ...actualApiCore,
     createLogger: loggerMock,
     MAX_PAGE_LIMIT: 1000,
     DEFAULT_PAGE_LIMIT: 100,
@@ -125,7 +134,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
         ? { ok: true, value: r.data }
         : { ok: false, error: r.error.issues.map((i: any) => `${i.path.join('.')}: ${i.message}`).join('; ') };
     },
-    // Shared org-descendants resolver imported by src/helpers.ts (resolveOrgRollup).
+    // Shared org-descendants resolver imported by src/helpers/report-helpers.ts (resolveOrgRollup).
     // A stub is enough for the module to link; suites that exercise the rollup
     // mock resolveOrgRollup itself at the helpers layer.
     fetchOrgDescendants: jest.fn(),

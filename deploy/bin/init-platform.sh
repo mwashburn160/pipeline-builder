@@ -462,6 +462,8 @@ if _truthy "$LOAD_TEMPLATES"; then
   # wait for both services so the load doesn't race a still-starting compliance
   # service (the failure that motivated this gate).
   gate_services_ready compliance pipeline || exit 1
+  # Access tokens live 15 min — a long plugin upload above can outlast the last login.
+  login
   PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-templates.sh"
 else
   echo "  Skipping pipeline template loading."
@@ -474,6 +476,7 @@ prompt_toggle LOAD_COMPLIANCE "Load sample compliance rules and policy templates
 if _truthy "$LOAD_COMPLIANCE"; then
   # load-compliance talks straight to the compliance service — wait for it.
   gate_services_ready compliance || exit 1
+  login
   PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-compliance.sh"
 else
   echo "  Skipping compliance loading."

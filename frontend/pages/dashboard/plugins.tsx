@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { useToast } from '@/components/ui/Toast';
@@ -35,7 +35,7 @@ import api from '@/lib/api';
 import { mapCommonParams, canModify } from '@/lib/resource-helpers';
 import { buildListSummary } from '@/lib/list-summary';
 import { visitedPluginsKey } from '@/lib/onboarding';
-import { loadFavorites, toggleFavorite, hydrateFavoritesFromServer } from '@/lib/favorites';
+import { useFavorites } from '@/lib/favorites';
 import type { Plugin } from '@/types';
 import { formatDateTime } from '@/lib/format';
 
@@ -49,7 +49,7 @@ const PLUGIN_SORT_FIELD: Record<string, string> = {
   category: 'category',
   type: 'pluginType',
   compute: 'computeType',
-  access: 'visibility',
+  visibility: 'visibility',
   uri: 'uri',
   timeout: 'timeout',
   failureBehavior: 'failureBehavior',
@@ -122,27 +122,10 @@ export default function PluginsPage() {
     try { localStorage.setItem(visitedPluginsKey(user.organizationId), '1'); } catch { /* localStorage may be unavailable */ }
   }, [user?.organizationId]);
 
-  // Per-org favorited plugin IDs. localStorage gives an instant first paint;
-  // hydrateFavoritesFromServer then reconciles with the server source of truth
-  // so favorites follow the user across devices.
-  const [favorites, setFavorites] = useState<Set<string>>(new Set());
-  // Bumped on every local toggle. Captured when a hydrate starts, so a hydrate
-  // that resolves AFTER the user toggled doesn't revert their newer local state.
-  const favMutationRef = useRef(0);
-  useEffect(() => {
-    if (!user?.organizationId) return;
-    setFavorites(loadFavorites(user.organizationId));
-    const startVersion = favMutationRef.current;
-    void hydrateFavoritesFromServer(user.organizationId).then((server) => {
-      if (favMutationRef.current === startVersion) setFavorites(server);
-    });
-  }, [user?.organizationId]);
-  const handleToggleFavorite = useCallback((id: string) => {
-    if (!user?.organizationId) return;
-    favMutationRef.current += 1;
-    toggleFavorite(user.organizationId, id);
-    setFavorites(loadFavorites(user.organizationId));
-  }, [user?.organizationId]);
+  // Favorited plugin IDs for this user in this org. The preferences store
+  // paints from its local cache, reconciles with the server once per page load,
+  // and never lets that load revert a toggle made while it was in flight.
+  const { favorites, toggle: handleToggleFavorite } = useFavorites(user?.id, user?.organizationId);
 
   // Plugin usage counts (how many of the org's pipelines reference each plugin).
   const [pluginUsage, setPluginUsage] = useState<Record<string, number>>({});
@@ -167,7 +150,7 @@ export default function PluginsPage() {
       { key: 'category', type: 'select', defaultValue: 'all' },
       { key: 'pluginType', type: 'select', defaultValue: 'all' },
       { key: 'computeType', type: 'select', defaultValue: 'all' },
-      { key: 'access', type: 'select', defaultValue: 'all' },
+      { key: 'visibility', type: 'select', defaultValue: 'all' },
       { key: 'status', type: 'select', defaultValue: 'all' },
       { key: 'default', type: 'select', defaultValue: 'all' },
     ],
@@ -236,7 +219,7 @@ export default function PluginsPage() {
   // Backend returns the right scope (own org + system-public catalog). The
   // remaining client-side filters compose over that page: `computeType`
   // (PluginFilterSchema strips it, so there's no server support) and the
-  // localStorage-backed "favorites only" chip.
+  // "favorites only" chip.
   const computeTypeFilter = list.filters.computeType;
   const filteredPlugins = useMemo(() => {
     let result = list.data;
@@ -445,10 +428,10 @@ export default function PluginsPage() {
       render: (p) => <>{p.computeType}</>,
     },
     {
-      id: 'access',
-      header: 'Access',
+      id: 'visibility',
+      header: 'Visibility',
       sortValue: (p) => p.visibility,
-      render: (p) => <AccessCell modifier={p.visibility} />,
+      render: (p) => <AccessCell visibility={p.visibility} />,
     },
     {
       id: 'uri',
@@ -598,7 +581,7 @@ export default function PluginsPage() {
         )}
 
         {canWrite && deletedView === 'deleted' ? (
-          <RecentlyDeletedPanel resource="plugin" onRestored={list.refresh} canRestoreRow={(r) => canModify({ visibility: r.access, createdBy: r.createdBy }, pluginGateOpts)} />
+          <RecentlyDeletedPanel resource="plugin" onRestored={list.refresh} canRestoreRow={(r) => canModify({ visibility: r.visibility, createdBy: r.createdBy }, pluginGateOpts)} />
         ) : (
         <>
         {/* Sticky search + advanced-filter panel stays above the list shell.
@@ -647,8 +630,8 @@ export default function PluginsPage() {
                 <option value="default">Default only</option>
               </FilterSelect>
               {canViewPublic && (
-                <FilterSelect aria-label="Filter by access" value={list.filters.access} onChange={(e) => list.updateFilter('access', e.target.value)}>
-                  <option value="all">All Access</option>
+                <FilterSelect aria-label="Filter by visibility" value={list.filters.visibility} onChange={(e) => list.updateFilter('visibility', e.target.value)}>
+                  <option value="all">All Visibility</option>
                   <option value="public">Public</option>
                   {/* The ladder has THREE rungs — omitting `org` made every
                       org-shared row invisible under both other filter values. */}

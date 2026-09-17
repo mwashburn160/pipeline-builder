@@ -115,7 +115,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 
 jest.unstable_mockModule('../src/middleware/authorize-org.js', () => ({
   authorizeOrg: () => (_req: any, _res: any, next: any) => next(),
-  INTERNAL_AUTH_OPTS: { allowOrgHeaderOverride: true },
 }));
 
 const mockFindById = jest.fn();

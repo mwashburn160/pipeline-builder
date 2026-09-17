@@ -36,12 +36,8 @@ jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter:
 jest.unstable_mockModule('../src/services/billing-provision.js', () => ({ provisionBillingSubscription: jest.fn() }));
 jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { markEmailVerifiedById: (...a: unknown[]) => mockMarkVerified(...a) },
-  DUPLICATE_CREDENTIALS: 'DUPLICATE_CREDENTIALS',
-  RESERVED_ORG_NAME: 'RESERVED_ORG_NAME',
-  ONBOARDING_USER_NOT_FOUND: 'ONBOARDING_USER_NOT_FOUND',
-  ONBOARDING_NO_ORG: 'ONBOARDING_NO_ORG',
 }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn() }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({ issueTokens: jest.fn(), renewSessionTokens: jest.fn() }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: jest.fn(), registerSchema: {}, loginSchema: {}, refreshSchema: {}, completeOnboardingSchema: {}, joinOrgSchema: {},
 }));

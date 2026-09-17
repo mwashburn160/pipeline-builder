@@ -153,7 +153,7 @@ export function ImpersonationPolicySettings({ orgId, readOnly }: { orgId: string
           />
 
           <div className="flex justify-end">
-            <Button type="button" disabled={readOnly || !dirty} onClick={() => setConfirmingSave(true)}>
+            <Button type="button" readOnly={readOnly} disabled={!dirty} onClick={() => setConfirmingSave(true)}>
               Save
             </Button>
           </div>

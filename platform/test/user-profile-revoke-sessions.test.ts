@@ -6,13 +6,13 @@
  * must behave EXACTLY like auth logout — it now routes through the real
  * `authService.invalidateAllSessions`, so it MUST:
  *   - bump `tokenVersion` (via `$inc`),
- *   - CLEAR the stored `refreshToken` hash (via `$unset`), and
+ *   - CLEAR every refresh-session slot, and
  *   - publish the revocation to the stateless services.
  *
  * Previously it called the model's `invalidateAllSessions()`, which only bumped
- * `tokenVersion` and left the refresh-token hash valid — a divergence from the
+ * `tokenVersion` and left the refresh-token hash(es) valid — a divergence from the
  * logout path masked only because refresh also re-checks `tokenVersion`. This
- * test imports the REAL auth-service (not a mock) so the actual `$unset` + publish
+ * test imports the REAL auth-service (not a mock) so the actual slot clear + publish
  * are asserted end-to-end, and confirms the returned doc carries the bumped
  * version for issuing a replacement token.
  */
@@ -46,6 +46,7 @@ jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
 // auth-service deps (the real auth-service is imported below and must load).
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   seedDefaultRoles: jest.fn(async () => undefined),
+  assertNotLastPrivilegedMember: jest.fn(),
 }));
 jest.unstable_mockModule('../src/config/index.js', () => ({
   config: { auth: {} },
@@ -54,9 +55,10 @@ jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unkno
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => unknown) => fn({ id: 'sess' }),
 }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), hashRefreshToken: (t: string) => `hash:${t}` }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn() }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  JoinRequest: {},
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: { updateMany: jest.fn(async () => ({ modifiedCount: 0 })) },
   UserPreferences: {},
@@ -73,7 +75,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: {},
 }));
 
-const { userProfileService, PROFILE_USER_NOT_FOUND } = await import('../src/services/user-profile-service.js');
+const { userProfileService } = await import('../src/services/user-profile-service.js');
+const { PROFILE_USER_NOT_FOUND } = await import('../src/services/user-errors.js');
 
 const selectResolving = (doc: unknown) => ({ select: () => Promise.resolve(doc) });
 
@@ -83,7 +86,7 @@ beforeEach(() => {
 });
 
 describe('UserProfileService.revokeAllSessions — matches logout', () => {
-  it('bumps tokenVersion, CLEARS the refreshToken hash, and publishes revocation', async () => {
+  it('bumps tokenVersion, CLEARS every refresh-session slot, and publishes revocation', async () => {
     const userDoc = { _id: 'user-1', tokenVersion: 3, lastActiveOrgId: 'org-1', issuedTokens: [] };
     mockUserFindById.mockReturnValue(selectResolving(userDoc));
 
@@ -94,7 +97,7 @@ describe('UserProfileService.revokeAllSessions — matches logout', () => {
     expect(mockUserUpdateOne).toHaveBeenCalledTimes(1);
     expect(mockUserUpdateOne).toHaveBeenCalledWith(
       { _id: 'user-1' },
-      { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } },
+      { $inc: { tokenVersion: 1 }, $set: { refreshSessions: [] } },
     );
     // Revocation is published so stateless services reject outstanding tokens.
     expect(mockPublishUser).toHaveBeenCalledTimes(1);

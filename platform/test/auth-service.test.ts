@@ -71,11 +71,6 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   seedDefaultRoles: (...a: unknown[]) => mockSeedDefaultGroups(...a),
 }));
 
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  signPersonalAccessToken: jest.fn(),
-  hashRefreshToken: (t: string) => `hash:${t}`,
-}));
-
 // Invoke the callback with a fake session — no real Mongo. This mirrors the
 // real wrapper's contract closely enough for orchestration assertions: on
 // throw, the error propagates (the real driver aborts the tx).
@@ -101,7 +96,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   },
 }));
 
-const { authService, DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME } = await import('../src/services/auth-service.js');
+const { authService } = await import('../src/services/auth-service.js');
+const { DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME } = await import('../src/services/auth-errors.js');
 
 const ORIGINAL_BOOTSTRAP_EMAILS = process.env.BOOTSTRAP_SUPERADMIN_EMAILS;
 

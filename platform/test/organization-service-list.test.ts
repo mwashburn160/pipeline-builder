@@ -119,7 +119,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
   },
 }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
@@ -144,7 +144,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { create: jest.fn(), find: jest.fn(), exists: jest.fn(), countDocuments: jest.fn() },
 }));
 
-const { organizationService, ORG_SLUG_TAKEN } = await import('../src/services/organization-service.js');
+const { organizationService } = await import('../src/services/organization-service.js');
+const { ORG_SLUG_TAKEN } = await import('../src/services/org-errors.js');
 
 
 // Build a chain matching Organization.find(...).populate(...).sort(...).skip(...).limit(...).lean()

@@ -2,19 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Select } from '@/components/ui/Select';
+import { VISIBILITY_RUNGS } from '@/components/ui/visibility-rungs';
 import type { Visibility } from '@/types';
-
-/** Label + meaning of each rung, in ladder order (narrowest first). */
-const RUNGS: { value: Visibility; label: string }[] = [
-  { value: 'private', label: 'Private — only you' },
-  { value: 'org', label: 'Org — everyone in your organization' },
-  { value: 'public', label: 'Public — shared with your org & its teams' },
-];
 
 /**
  * Sharing-rung picker for any catalog entity — pipelines, plugins, templates.
- * The single place the three-rung ladder is spelled out for the UI, so the
- * wording can't drift between the create, edit and import flows.
+ * Its wording comes from VISIBILITY_RUNGS, shared with the table cell, so it
+ * can't drift between the create, edit and import flows and the lists.
  *
  * `public` is gated on the resource's `:publish` permission, but ONLY that rung:
  * a member without it can still move a row between `private` and `org`. An
@@ -37,8 +31,8 @@ export function VisibilitySelect({ value, onChange, canPublish, disabled, id }: 
       className="disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500"
       disabled={disabled}
     >
-      {RUNGS.filter((r) => r.value !== 'public' || canPublish || value === 'public').map((r) => (
-        <option key={r.value} value={r.value}>{r.label}</option>
+      {VISIBILITY_RUNGS.filter((r) => r.value !== 'public' || canPublish || value === 'public').map((r) => (
+        <option key={r.value} value={r.value}>{`${r.label} — ${r.meaning}`}</option>
       ))}
     </Select>
   );

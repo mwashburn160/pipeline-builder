@@ -27,6 +27,13 @@ const bulkSetActiveMock = jest.fn(async (_o: unknown, ids: string[]) => ids);
 const emitComplianceAuditMock = jest.fn();
 const recordMock = jest.fn();
 
+// api-core's REAL authorization gates and `authz.denied` sink, imported from
+// their module files (the package-specifier mock below does not intercept these
+// paths), so the route's inline gates and denial audit are exercised for real.
+const { requireFeature, requirePermission } = await import('@pipeline-builder/api-core/lib/middleware/auth.js');
+const { wireAuthzDenialAuditor } = await import('@pipeline-builder/api-core/lib/services/remote-audit-client.js');
+wireAuthzDenialAuditor('compliance', () => ({ record: recordMock }) as any);
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (p: any, k: string) => p[k],
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),
@@ -37,14 +44,12 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       return { ok: false, error: err.message ?? 'invalid' };
     }
   },
-  // Activate does NOT need compliance:write; grant it so only the FEATURE gate
-  // is under test here (clone's requirePermission is a pass-through by default).
-  userHasPermission: () => true,
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendError: jest.fn((res: any, status: number, msg: string, code: string) => res.status(status).json({ message: msg, code })),
   sendSuccess: jest.fn((res: any, status: number, data: any) => res.status(status).json({ success: true, statusCode: status, data })),
   sendPaginatedNested: jest.fn(),
-  requirePermission: () => (_req: any, _res: any, next: any) => next(),
+  requirePermission,
+  requireFeature,
   isServicePrincipal: () => true,
 }));
 
@@ -78,9 +83,8 @@ jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   },
 }));
 
-jest.unstable_mockModule('../src/services/remote-audit-client.js', () => ({
+jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-  getAuditClient: () => ({ record: recordMock }),
 }));
 
 jest.unstable_mockModule('../src/services/subscription-service.js', () => ({
@@ -122,7 +126,7 @@ describe('PATCH /:ruleId activate — entitlement gate', () => {
   function activate(user: any, isActive = true) {
     const handler = handlerFor('patch', '/:ruleId');
     const { res, status, json } = makeRes();
-    return handler({ __orgId: 'org-a', method: 'PATCH', params: { ruleId: RULE_ID }, body: { isActive }, user } as any, res)
+    return handler({ __orgId: 'org-a', method: 'PATCH', originalUrl: '/compliance/subscriptions', params: { ruleId: RULE_ID }, body: { isActive }, user } as any, res)
       .then(() => ({ status, json }));
   }
 
@@ -153,7 +157,8 @@ describe('PATCH /:ruleId activate — entitlement gate', () => {
 
   it('leaves DEACTIVATE ungated by the feature gate', async () => {
     findPublishedByIdMock.mockResolvedValue({ id: RULE_ID, tags: ['set:advanced'] });
-    const { status } = await activate({ sub: 'u-1', features: [] }, false);
+    // compliance:write is the (separate) governance gate on deactivate.
+    const { status } = await activate({ sub: 'u-1', permissions: ['compliance:write'], features: [] }, false);
     expect(status).toHaveBeenCalledWith(200);
     // Never looked the rule up — deactivate skips the feature gate entirely.
     expect(findPublishedByIdMock).not.toHaveBeenCalled();
@@ -171,7 +176,7 @@ describe('POST /bulk activate — entitlement gate', () => {
   function bulk(user: any, isActive = true) {
     const handler = handlerFor('post', '/bulk');
     const { res, status, json } = makeRes();
-    return handler({ __orgId: 'org-a', method: 'POST', body: { ruleIds: IDS, isActive }, user } as any, res)
+    return handler({ __orgId: 'org-a', method: 'POST', originalUrl: '/compliance/subscriptions', body: { ruleIds: IDS, isActive }, user } as any, res)
       .then(() => ({ status, json }));
   }
 
@@ -200,7 +205,7 @@ describe('POST /bulk activate — entitlement gate', () => {
   });
 
   it('does not gate bulk DEACTIVATE', async () => {
-    const { status } = await bulk({ sub: 'u-1', features: [] }, false);
+    const { status } = await bulk({ sub: 'u-1', permissions: ['compliance:write'], features: [] }, false);
     expect(status).toHaveBeenCalledWith(200);
     expect(findManyByIdsMock).not.toHaveBeenCalled();
   });
@@ -210,7 +215,7 @@ describe('POST /clone — entitlement gate on the source rule', () => {
   function clone(user: any) {
     const handler = handlerFor('post', '/clone');
     const { res, status, json } = makeRes();
-    return handler({ __orgId: 'org-a', method: 'POST', body: { ruleId: RULE_ID }, user } as any, res)
+    return handler({ __orgId: 'org-a', method: 'POST', originalUrl: '/compliance/subscriptions', body: { ruleId: RULE_ID }, user } as any, res)
       .then(() => ({ status, json }));
   }
 
@@ -239,7 +244,7 @@ describe('POST /preview/impact — entitlement gate', () => {
   function preview(user: any) {
     const handler = handlerFor('post', '/preview/impact');
     const { res, status, json } = makeRes();
-    return handler({ __orgId: 'org-a', method: 'POST', body: { ruleId: RULE_ID }, user } as any, res)
+    return handler({ __orgId: 'org-a', method: 'POST', originalUrl: '/compliance/subscriptions', body: { ruleId: RULE_ID }, user } as any, res)
       .then(() => ({ status, json }));
   }
 

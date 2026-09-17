@@ -43,7 +43,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.unstable_mockModule('../src/services/remote-audit-client.js', () => ({
+jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
   getAuditClient: () => ({ record: jest.fn() }),
 }));

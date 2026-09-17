@@ -10,9 +10,10 @@
  * (audit-read, data-export, etc.) slot in without new routes.
  */
 
+import { requireStepUp } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import { addUserGrant, removeUserGrant } from '../controllers/superadmin.js';
-import { requireAuth, requireSystemAdmin, requireStepUp } from '../middleware/index.js';
+import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
 
 const router: Router = Router({ mergeParams: true });
 

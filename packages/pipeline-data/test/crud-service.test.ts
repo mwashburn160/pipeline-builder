@@ -258,7 +258,7 @@ describe('CrudService', () => {
 
       mockInsert.mockReturnValue({
         values: jest.fn().mockReturnValue({
-          onConflictDoUpdate: jest.fn().mockReturnValue({
+          onConflictDoNothing: jest.fn().mockReturnValue({
             returning: jest.fn().mockResolvedValue([created]),
           }),
         }),
@@ -268,45 +268,23 @@ describe('CrudService', () => {
       expect(result).toEqual(created);
     });
 
-    it('should upsert on conflict', async () => {
-      const upserted: TestEntity = {
-        id: 'existing-id',
-        orgId: 'org1',
-        name: 'Updated',
-        isDefault: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        createdBy: 'original-user',
-        updatedBy: 'user1',
-      };
-
+    it('never overwrites: a conflicting create writes nothing and throws 409', async () => {
       const onConflictMock = jest.fn().mockReturnValue({
-        returning: jest.fn().mockResolvedValue([upserted]),
+        returning: jest.fn().mockResolvedValue([]),
       });
       mockInsert.mockReturnValue({
-        values: jest.fn().mockReturnValue({
-          onConflictDoUpdate: onConflictMock,
-        }),
+        values: jest.fn().mockReturnValue({ onConflictDoNothing: onConflictMock }),
       });
 
-      const result = await service.create({ name: 'Updated', orgId: 'org1' }, 'user1');
-      expect(result).toEqual(upserted);
-
-      // Verify onConflictDoUpdate was called with correct structure
-      const conflictArg = onConflictMock.mock.calls[0][0];
-      expect(conflictArg.target).toBe(mockConflictTarget);
-      expect(conflictArg.set).toMatchObject({
-        name: 'Updated',
-        orgId: 'org1',
-        updatedBy: 'user1',
-      });
-      expect(conflictArg.set.updatedAt).toBeInstanceOf(Date);
+      await expect(service.create({ name: 'Taken', orgId: 'org1' }, 'user1'))
+        .rejects.toMatchObject({ statusCode: 409 });
+      expect(onConflictMock).toHaveBeenCalledWith({ target: mockConflictTarget });
     });
 
     it('should propagate insert errors', async () => {
       mockInsert.mockReturnValue({
         values: jest.fn().mockReturnValue({
-          onConflictDoUpdate: jest.fn().mockReturnValue({
+          onConflictDoNothing: jest.fn().mockReturnValue({
             returning: jest.fn().mockRejectedValue(new Error('DB error')),
           }),
         }),
@@ -704,7 +682,7 @@ describe('CrudService', () => {
 
       mockInsert.mockReturnValue({
         values: jest.fn().mockReturnValue({
-          onConflictDoUpdate: jest.fn().mockReturnValue({
+          onConflictDoNothing: jest.fn().mockReturnValue({
             returning: jest.fn().mockResolvedValue([created]),
           }),
         }),
@@ -757,7 +735,7 @@ describe('CrudService', () => {
 
       mockInsert.mockReturnValue({
         values: jest.fn().mockReturnValue({
-          onConflictDoUpdate: jest.fn().mockReturnValue({
+          onConflictDoNothing: jest.fn().mockReturnValue({
             returning: jest.fn().mockResolvedValue([created]),
           }),
         }),
@@ -919,7 +897,7 @@ describe('CrudService', () => {
     /** Wire create()'s insert chain and return the spy on `.values()`. */
     function captureCreateValues() {
       const valuesSpy = jest.fn().mockReturnValue({
-        onConflictDoUpdate: jest.fn().mockReturnValue({
+        onConflictDoNothing: jest.fn().mockReturnValue({
           returning: jest.fn().mockResolvedValue([created]),
         }),
       });
@@ -1052,11 +1030,14 @@ describe('CrudService', () => {
 
     const render = (node: unknown) => dialect.sqlToQuery(node as SQL);
 
+    const A = '00000000-0000-4000-8000-00000000000a';
+    const B = '00000000-0000-4000-8000-00000000000b';
+    const C = '00000000-0000-4000-8000-00000000000c';
     const row = (id: string, sortText: string | null) => ({ id, pipelineName: `p-${id}`, __cursorSortKey: sortText });
 
     it('orders by (sort column, id) and emits a cursor only when there is a next page', async () => {
       const svc = new PipelineColsService();
-      const q = captureQuery([row('a', '2026-09-16 10:00:00.123456+00'), row('b', '2026-09-16 10:00:00.123456+00')]);
+      const q = captureQuery([row(A, '2026-09-16 10:00:00.123456+00'), row(B, '2026-09-16 10:00:00.123456+00')]);
 
       const page = await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', sortOrder: 'desc' });
 
@@ -1067,13 +1048,13 @@ describe('CrudService', () => {
       // The helper projection never leaks into the returned entities.
       expect(page.data[0]).not.toHaveProperty('__cursorSortKey');
       // Last page → no cursor.
-      captureQuery([row('c', null)]);
+      captureQuery([row(C, null)]);
       expect((await svc.findPaginated({}, 'org1', { limit: 5, sortBy: 'createdAt' })).nextCursor).toBeUndefined();
     });
 
     it('continues strictly after (sortValue, id) at FULL precision — ties are neither skipped nor repeated', async () => {
       const svc = new PipelineColsService();
-      captureQuery([row('a', '2026-09-16 10:00:00.123456+00'), row('b', '2026-09-16 10:00:00.123999+00')]);
+      captureQuery([row(A, '2026-09-16 10:00:00.123456+00'), row(B, '2026-09-16 10:00:00.123999+00')]);
       const first = await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', sortOrder: 'desc' });
 
       const q = captureQuery([]);
@@ -1083,31 +1064,31 @@ describe('CrudService', () => {
       expect(where.sql).toContain('"pipelines"."created_at" < $1');
       expect(where.sql).toContain('"pipelines"."created_at" = $2 AND "pipelines"."id" < $3');
       // Exact DB text (microseconds), not a millisecond-truncated JS Date.
-      expect(where.params).toEqual(['2026-09-16 10:00:00.123456+00', '2026-09-16 10:00:00.123456+00', 'a']);
+      expect(where.params).toEqual(['2026-09-16 10:00:00.123456+00', '2026-09-16 10:00:00.123456+00', A]);
       // Cursor wins over offset.
       expect(q.offset).toHaveBeenCalledWith(0);
     });
 
     it('asc keyset keeps NULL sort values (NULLS LAST) reachable', async () => {
       const svc = new PipelineColsService();
-      captureQuery([row('a', '2026-01-01 00:00:00+00'), row('b', null)]);
+      captureQuery([row(A, '2026-01-01 00:00:00+00'), row(B, null)]);
       const first = await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', sortOrder: 'asc' });
       let q = captureQuery([]);
       await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', sortOrder: 'asc', cursor: first.nextCursor });
       expect(render(q.where.mock.calls[0][0]).sql).toContain('OR "pipelines"."created_at" IS NULL');
 
-      captureQuery([row('b', null), row('c', null)]);
+      captureQuery([row(B, null), row(C, null)]);
       const nullPage = await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', sortOrder: 'asc' });
       q = captureQuery([]);
       await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', sortOrder: 'asc', cursor: nullPage.nextCursor });
       const where = render(q.where.mock.calls[0][0]);
       expect(where.sql).toContain('"pipelines"."created_at" IS NULL AND "pipelines"."id" > $1');
-      expect(where.params).toEqual(['b']);
+      expect(where.params).toEqual([B]);
     });
 
     it('an UNKNOWN sortBy orders by id and its cursor advances (no page-1 loop)', async () => {
       const svc = new PipelineColsService();
-      let q = captureQuery([row('a', 'a'), row('b', 'b')]);
+      let q = captureQuery([row(A, 'a'), row(B, 'b')]);
       const first = await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'noSuchColumn' });
       expect(q.orderBy.mock.calls[0].map((o) => render(o).sql)).toEqual(['"pipelines"."id" asc']);
       expect(first.nextCursor).toBeDefined();
@@ -1116,7 +1097,7 @@ describe('CrudService', () => {
       await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'noSuchColumn', cursor: first.nextCursor });
       const where = render(q.where.mock.calls[0][0]);
       expect(where.sql).toContain('"pipelines"."id" > $1');
-      expect(where.params).toEqual(['a']);
+      expect(where.params).toEqual([A]);
     });
 
     it('ignores a malformed cursor (reads from the given offset) instead of throwing', async () => {
@@ -1127,9 +1108,27 @@ describe('CrudService', () => {
       expect(q.offset).toHaveBeenCalledWith(3);
     });
 
+    it('ignores a well-formed cursor whose id is not a UUID (would fail the uuid cast in Postgres)', async () => {
+      const svc = new PipelineColsService();
+      const forged = Buffer.from(JSON.stringify(['2026-01-01 00:00:00+00', "x' OR 1=1"]), 'utf8').toString('base64url');
+      const q = captureQuery([]);
+      await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', cursor: forged, offset: 2 });
+      expect(q.where.mock.calls[0][0]).toBeUndefined();
+      expect(q.offset).toHaveBeenCalledWith(2);
+    });
+
+    it('ignores a cursor whose sort value cannot be cast to the sort column type', async () => {
+      const svc = new PipelineColsService();
+      const forged = Buffer.from(JSON.stringify(['not-a-timestamp', A]), 'utf8').toString('base64url');
+      const q = captureQuery([]);
+      await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', cursor: forged });
+      expect(q.where.mock.calls[0][0]).toBeUndefined();
+      expect(q.offset).toHaveBeenCalledWith(0);
+    });
+
     it('a sparse fieldset still carries id and the cursor sort key', async () => {
       const svc = new PipelineColsService();
-      captureQuery([row('a', 'x'), row('b', 'y')]);
+      captureQuery([row(A, 'x'), row(B, 'y')]);
       const page = await svc.findPaginated({}, 'org1', { limit: 1, sortBy: 'createdAt', fields: ['pipelineName'] });
       const spec = mockSelect.mock.calls[0][0] as Record<string, unknown>;
       expect(Object.keys(spec).sort()).toEqual(['__cursorSortKey', 'id', 'pipelineName']);

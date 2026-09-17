@@ -27,7 +27,6 @@ export const CS_SYSTEM_ORG = 'CS_SYSTEM_ORG';
  * bulk-reconcile method and the subscribe-gate agree on the exact set names.
  */
 export const KNOWN_CONTENT_SETS = ['standard', 'advanced'] as const;
-export type ContentSet = typeof KNOWN_CONTENT_SETS[number];
 
 const KNOWN_CONTENT_SET_NAMES: ReadonlySet<string> = new Set(KNOWN_CONTENT_SETS);
 

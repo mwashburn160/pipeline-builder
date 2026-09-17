@@ -10,6 +10,7 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { routeChain } from './helpers/route-chain.js';
 
 const mockSendError = jest.fn((_res: any, code: number, msg: string) => ({ error: msg, code }));
 const mockSendBadRequest = jest.fn((_res: any, msg: string, _code?: string) => msg);
@@ -50,7 +51,7 @@ const { createIncidentRoutes } = await import('../src/routes/incidents.js');
 describe('POST /reports/incidents', () => {
   let router: any;
   const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
-  const getHandler = () => router.stack.find((l: any) => l.route?.path === '/')?.route?.stack[0]?.handle;
+  const getHandler = () => routeChain(router, '/');
 
   const validBody = {
     incidentId: 'pd-123',
@@ -114,10 +115,8 @@ describe('POST /reports/incidents', () => {
 describe('POST /reports/incidents/alertmanager (native adapter)', () => {
   let router: any;
   const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
-  // The machine adapter route has no per-route guards, so its single stack layer
-  // is the withRoute handler.
-  const getHandler = (path: string, method = 'post') =>
-    router.stack.find((l: any) => l.route?.path === path && l.route?.methods?.[method])?.route?.stack.slice(-1)[0]?.handle;
+  // Run the full chain so the per-route requireIngestScope guard is exercised.
+  const getHandler = (path: string, method = 'post') => routeChain(router, path, method);
 
   const firingPayload = {
     status: 'firing',
@@ -252,6 +251,12 @@ describe('org-admin incident surfaces', () => {
     await getHandler('/test', 'post')({ body: { environment: 'production' }, user: {} }, res());
     expect(mockTestCorrelation).toHaveBeenCalledWith('acme', 'production');
     expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { test: expect.objectContaining({ correlated: true }) });
+  });
+
+  it('POST /test accepts a bodyless request (no JSON body parsed) and defaults to production', async () => {
+    await getHandler('/test', 'post')({ body: undefined, user: {} }, res());
+    expect(mockSendBadRequest).not.toHaveBeenCalled();
+    expect(mockTestCorrelation).toHaveBeenCalledWith('acme', 'production');
   });
 
   it('POST /test defaults to production when no environment is supplied', async () => {

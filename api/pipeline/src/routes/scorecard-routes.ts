@@ -81,9 +81,9 @@ async function computeScorecard(
 export function createScorecardRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
-  // Mounted behind createProtectedRoute (auth + org + apiCalls quota), so this
-  // heavy endpoint (compliance dry-run + DORA scan) is metered like other reads
-  // rather than being a free cost-amplification path.
+  // Mounted behind the shared auth chain + the apiCalls quota check (see
+  // src/index.ts), so this heavy endpoint (compliance dry-run + DORA scan) is
+  // metered like other reads rather than being a free cost-amplification path.
   router.get('/:id/scorecard', requireFeature('advanced_reporting'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -103,7 +103,7 @@ export function createScorecardRoutes(quotaService: QuotaService): Router {
 
     const scorecard = await computeScorecard(pipeline as ScorablePipeline, orgId, from, to, incidentWindowHours, (msg, meta) => ctx.log('WARN', msg, meta));
     ctx.log('COMPLETED', 'Computed pipeline scorecard', { id, score: scorecard.score, grade: scorecard.grade });
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
     return sendSuccess(res, 200, { scorecard });
   }));
 
@@ -111,9 +111,11 @@ export function createScorecardRoutes(quotaService: QuotaService): Router {
   // pipeline in the org, plus aggregate stats. Turns the per-pipeline widget into
   // a platform-team view. Bounded (ORG_SCORECARD_MAX pipelines, ORG_SCORECARD_CONCURRENCY
   // parallelism) so it can't become a cost-amplification path; metered like other
-  // reads. `/scorecard` is a single path segment so it never collides with the
-  // two-segment `/:id/scorecard` above.
-  router.get('/scorecard', requireFeature('advanced_reporting'), withRoute(async ({ req, res, ctx, orgId }) => {
+  // reads. `/scorecard` doesn't collide with the two-segment `/:id/scorecard`
+  // above, but it DOES match the read router's single-segment `GET /:id` — so
+  // src/index.ts must mount this router BEFORE the read router (else the roll-up
+  // is looked up as a pipeline with id "scorecard" and 404s).
+  router.get('/scorecard', requireFeature('advanced_reporting'), withRoute(async ({ res, ctx, orgId }) => {
     const to = new Date();
     const from = new Date(to.getTime() - SCORECARD_WINDOW_MS);
     const { incidentWindowHours } = await reportingService.getIncidentSettings(orgId);
@@ -159,7 +161,7 @@ export function createScorecardRoutes(quotaService: QuotaService): Router {
     ctx.log('COMPLETED', 'Computed org-wide scorecard roll-up', {
       pipelineCount: scored.length, averageScore, truncated, failed,
     });
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
     return sendSuccess(res, 200, {
       rollup: {
         orgId,

@@ -16,14 +16,14 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockGetIncidentSettings = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
-// helpers.ts (transitively imported for MAX_REPORT_RANGE_DAYS) links against
+// helpers/report-helpers.ts (transitively imported for MAX_REPORT_RANGE_DAYS) links against
 // `userHasPermission`, which the base mock omits — provide a stub so the module
 // graph resolves.
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   userHasPermission: jest.fn(() => false),
 }));
 
-// helpers.ts (imported transitively by retention-cap.ts for MAX_REPORT_RANGE_DAYS)
+// helpers/report-helpers.ts (imported transitively by retention-cap.ts for MAX_REPORT_RANGE_DAYS)
 // pulls `Config` from pipeline-core — stub it so the full config graph
 // (aws-cdk-lib, etc.) stays out of this suite.
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({

@@ -24,19 +24,13 @@ import { withRoute, incCounter, observe } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
+import { clientAbortSignal } from '../client-abort.js';
 import { AskBodySchema } from '../request-schema.js';
 import { getAuditClient } from '../services/audit.js';
 import { getDocsIndex } from '../services/docs-index.js';
 import { resolveAskModel } from '../services/model.js';
 
 const logger = createLogger('ask');
-
-/** An AbortSignal that fires when the client disconnects — cancels the provider call. */
-function requestAbortSignal(req: { on(event: 'close', cb: () => void): void }): AbortSignal {
-  const controller = new AbortController();
-  req.on('close', () => controller.abort());
-  return controller.signal;
-}
 
 /**
  * Fire-and-forget audit of a read-only how-to turn — SAFE METADATA ONLY (query length,
@@ -75,9 +69,10 @@ function recordAi(route: string, provider: string | undefined, outcome: 'success
  *
  * Gated with `requireFeature('ai_generation')` (reused for v1 — same entitlement as
  * pipeline/plugin AI). Each turn reserves one `aiCalls` slot via a service-minted
- * auth header (the quota `/increment` endpoint rejects user principals); an aborted
- * stream refunds it, a completed one keeps it (the provider round-trip's $ cost was
- * already incurred). No writes — nothing is mutated here.
+ * auth header (the quota `/increment` endpoint rejects user principals). The slot is
+ * KEPT once the provider has responded (its $ cost was incurred — even if the client
+ * then aborts or a later step fails) and REFUNDED only when the provider was never
+ * reached. No writes — nothing is mutated here.
  *
  * @param quotaService - Shared quota service
  * @returns Express Router with the ask endpoints
@@ -104,12 +99,17 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       return sendQuotaReserveDenied(res, 'aiCalls', reservation);
     }
 
+    // True once the provider returned an answer. A failure after that (metrics,
+    // audit, response write) keeps the slot; only a pre-answer failure refunds.
+    let providerContacted = false;
+
     const startedAt = Date.now();
     try {
       ctx.log('INFO', 'Ask how-to requested', { queryLength: query.length, provider, model });
       const index = await getDocsIndex();
       const aiModel = resolveAskModel(provider, model, apiKey);
-      const result = await answerHowTo({ model: aiModel, query, index, history, abortSignal: requestAbortSignal(req) });
+      const result = await answerHowTo({ model: aiModel, query, index, history, abortSignal: clientAbortSignal(res) });
+      providerContacted = true;
       ctx.log('COMPLETED', 'Ask how-to answered', { sources: result.sources.length });
       recordAi('howto', provider, 'success', startedAt);
       auditAskQuery(req, orgId, { queryLength: query.length, sources: result.sources.length, streamed: false, outcome: 'success' });
@@ -119,7 +119,9 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       logger.error('Ask how-to failed', { requestId: ctx.requestId, error: message });
       recordAi('howto', provider, 'error', startedAt);
       auditAskQuery(req, orgId, { queryLength: query.length, streamed: false, outcome: 'failure' });
-      decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+      if (!providerContacted) {
+        decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+      }
       return handleAIError(res, message, 'Failed to answer the question');
     }
   }));
@@ -138,8 +140,8 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       return sendQuotaReserveDenied(res, 'aiCalls', reservation);
     }
     let reserved = true;
-    // See agent.ts: true once the provider has actually streamed something, so
-    // a post-response failure doesn't refund a call we already paid for.
+    // True once the provider has started responding (a paid call), so a later
+    // failure or abort keeps the slot; a failure before that refunds it.
     let providerContacted = false;
 
     const startedAt = Date.now();
@@ -148,19 +150,24 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       const index = await getDocsIndex();
       const aiModel = resolveAskModel(provider, model, apiKey);
 
-      const sse = initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
-      const { sources, textStream } = streamHowTo({ model: aiModel, query, index, history, abortSignal: requestAbortSignal(req) });
+      initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
+      const abortSignal = clientAbortSignal(res);
+      const { sources, events } = streamHowTo({ model: aiModel, query, index, history, abortSignal });
 
       // Emit the grounded sources up-front so the UI can show them while tokens arrive.
-      if (!sse.aborted()) res.write(`data: ${JSON.stringify({ type: 'sources', data: sources })}\n\n`);
+      if (!abortSignal.aborted) res.write(`data: ${JSON.stringify({ type: 'sources', data: sources })}\n\n`);
 
-      for await (const token of textStream) {
-        providerContacted = true;
-        if (sse.aborted()) break;
-        res.write(`data: ${JSON.stringify({ type: 'token', data: token })}\n\n`);
+      // A provider error throws out of `events` into the catch below.
+      for await (const event of events) {
+        if (event.type === 'provider-responded') {
+          providerContacted = true;
+          continue;
+        }
+        if (abortSignal.aborted) break;
+        res.write(`data: ${JSON.stringify({ type: 'token', data: event.text })}\n\n`);
       }
 
-      if (!sse.aborted()) {
+      if (!abortSignal.aborted) {
         res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
         res.write('data: [DONE]\n\n');
         // Completed stream keeps the reserved slot (provider round-trip incurred).

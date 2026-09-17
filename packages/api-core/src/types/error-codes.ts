@@ -62,6 +62,9 @@ export enum ErrorCode {
   INTERNAL_ERROR = 'INTERNAL_ERROR',
   DATABASE_ERROR = 'DATABASE_ERROR',
 
+  // Not implemented (501) — the configured provider has no such capability
+  NOT_IMPLEMENTED = 'NOT_IMPLEMENTED',
+
   // Service unavailable (503)
   SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
   COMPLIANCE_SERVICE_UNAVAILABLE = 'COMPLIANCE_SERVICE_UNAVAILABLE',
@@ -105,6 +108,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.ADDON_OVER_CAP]: 409,
   [ErrorCode.INTERNAL_ERROR]: 500,
   [ErrorCode.DATABASE_ERROR]: 500,
+  [ErrorCode.NOT_IMPLEMENTED]: 501,
   [ErrorCode.SERVICE_UNAVAILABLE]: 503,
   [ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE]: 503,
 };

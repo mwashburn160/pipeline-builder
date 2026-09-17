@@ -8,22 +8,12 @@ import { formatUserResponse, toOverridesRecord, toUserResponseInput } from './us
 import type { OrgSummary, OrgMembership } from './user-profile.js';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
-import { requireAdminContext, withController } from '../helpers/controller-helper.js';
+import { canManageOrgScope, isOrgAdmin, requireMemberManagementScope, withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { Organization } from '../models/index.js';
-import {
-  userAdminService,
-  UA_USER_NOT_FOUND,
-  UA_USERNAME_TAKEN,
-  UA_EMAIL_TAKEN,
-  UA_OWNER_HAS_ORGS,
-  UA_LAST_PRIVILEGED_MEMBER,
-  UA_ORG_NOT_FOUND,
-  UA_SEAT_LIMIT,
-  UA_CANNOT_CHANGE_OWNER,
-  UA_ROLES_NEED_ORG,
-  RL_ROLE_NOT_FOUND,
-} from '../services/index.js';
+import { userAdminService } from '../services/index.js';
+import { RL_ASSIGN_EXCEEDS_CEILING, RL_LAST_PRIVILEGED_MEMBER, RL_ROLE_NOT_FOUND } from '../services/roles-errors.js';
+import { UA_USER_NOT_FOUND, UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_ORG_NOT_FOUND, UA_SEAT_LIMIT, UA_CANNOT_CHANGE_OWNER, UA_ROLES_NEED_ORG, USER_OWNER_HAS_ORGS } from '../services/user-errors.js';
 import { adminCreateUserSchema, adminUpdateUserSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('user-admin-controller');
@@ -62,19 +52,24 @@ const adminErrorMap = {
   [UA_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
   [UA_USERNAME_TAKEN]: { status: 409, message: 'Username already in use' },
   [UA_EMAIL_TAKEN]: { status: 409, message: 'Email already in use' },
-  [UA_OWNER_HAS_ORGS]: { status: 400, message: 'Cannot delete user who is an organization owner. Transfer ownership first.' },
-  [UA_LAST_PRIVILEGED_MEMBER]: { status: 409, message: 'Cannot delete the last member of an admin or super-admin role. Assign another member first.' },
+  [USER_OWNER_HAS_ORGS]: { status: 400, message: 'Cannot delete user who is an organization owner. Transfer ownership first.' },
+  [RL_LAST_PRIVILEGED_MEMBER]: { status: 409, message: 'Cannot delete the last member of an admin or super-admin role. Assign another member first.' },
   [UA_ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
   [UA_SEAT_LIMIT]: { status: 403, message: 'Seat limit reached for the target organization — upgrade the plan or remove a member' },
   [UA_CANNOT_CHANGE_OWNER]: { status: 403, message: 'Cannot change the role of an organization owner. Transfer ownership first.' },
+  [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot grant or revoke the Admin role without holding its permissions yourself.' },
 };
+
+/** Log label for the caller's scope. */
+const adminType = (admin: { isSuperAdmin: boolean }) => (admin.isSuperAdmin ? 'system admin' : 'org-scoped');
 
 /**
  * GET /users — list users.
- * System admin: all users (or scoped to a query org). Org admin: own org only.
+ * System admin: all users (or scoped to a query org). Anyone else holding
+ * `members:manage`: their active org, or one of its descendant teams.
  */
 export const listAllUsers = withController('List users', async (req, res) => {
-  const admin = requireAdminContext(req, res);
+  const admin = requireMemberManagementScope(req, res);
   if (!admin) return;
 
   const { organizationId, role, search } = req.query;
@@ -83,13 +78,13 @@ export const listAllUsers = withController('List users', async (req, res) => {
   let scopedUserIds: Types.ObjectId[] | null = null;
   let effectiveScopeOrgId: string | undefined;
 
-  if (admin.isOrgAdmin) {
-    const reqOrgId = req.user!.organizationId!;
-    if (organizationId && organizationId !== reqOrgId) {
+  if (!admin.isSuperAdmin) {
+    const requestedOrgId = typeof organizationId === 'string' && organizationId ? organizationId : admin.orgId!;
+    if (!(await canManageOrgScope(req, requestedOrgId))) {
       return sendError(res, 403, 'Forbidden: Can only view users in your organization');
     }
-    effectiveScopeOrgId = reqOrgId;
-    scopedUserIds = await userAdminService.getUserIdsInOrg(reqOrgId);
+    effectiveScopeOrgId = requestedOrgId;
+    scopedUserIds = await userAdminService.getUserIdsInOrg(requestedOrgId);
   } else if (organizationId) {
     effectiveScopeOrgId = organizationId as string;
     scopedUserIds = await userAdminService.getUserIdsInOrg(effectiveScopeOrgId);
@@ -132,26 +127,26 @@ export const listAllUsers = withController('List users', async (req, res) => {
   });
 });
 
-/** GET /users/:id — single user (sysadmin or org-admin within their org). */
+/** GET /users/:id — single user (sysadmin, or a member of the caller's org). */
 export const getUserById = withController('Get user', async (req, res) => {
-  const admin = requireAdminContext(req, res);
+  const admin = requireMemberManagementScope(req, res);
   if (!admin) return;
 
   const { id } = req.params;
   const { user, memberships, orgMap } = await userAdminService.getByIdWithOrgs(id as string);
 
-  // Org-admin authz: target must be a member of the admin's org.
-  if (admin.isOrgAdmin) {
-    const allowed = await userAdminService.hasMembershipInOrg(user._id, req.user!.organizationId!);
+  // Org-scoped authz: target must be a member of the caller's org.
+  if (!admin.isSuperAdmin) {
+    const allowed = await userAdminService.hasMembershipInOrg(user._id, admin.orgId!);
     if (!allowed) return sendError(res, 403, 'Forbidden: Can only view users in your organization');
   }
 
   // A non-sysadmin org-admin must not learn the target's memberships in OTHER orgs
   // — scope the list to the admin's own org (authz above already confirmed the
   // target is a member of it). Sysadmins see the full cross-org list.
-  const visibleMemberships = admin.isOrgAdmin
-    ? memberships.filter(m => m.organizationId.toString() === req.user!.organizationId)
-    : memberships;
+  const visibleMemberships = admin.isSuperAdmin
+    ? memberships
+    : memberships.filter(m => m.organizationId.toString() === admin.orgId);
   const organizations: OrgMembership[] = visibleMemberships.map(m => {
     const org = orgMap.get(m.organizationId.toString());
     return { id: m.organizationId.toString(), name: org?.name || 'Unknown', role: m.role };
@@ -161,7 +156,7 @@ export const getUserById = withController('Get user', async (req, res) => {
   // resolved features) STRICTLY as they exist in the ADMIN's own org — never the
   // member's (possibly foreign) lastActiveOrg — so no other org's details leak. The
   // target is guaranteed a member of the admin's org by the authz check above.
-  const activeOrgId = admin.isOrgAdmin ? req.user!.organizationId : user.lastActiveOrgId?.toString();
+  const activeOrgId = admin.isSuperAdmin ? user.lastActiveOrgId?.toString() : admin.orgId;
   let organizationName: string | null = null;
   let organization: OrgSummary | undefined;
   let activeOrgRole: string | undefined;
@@ -203,7 +198,7 @@ export const getUserById = withController('Get user', async (req, res) => {
  * schema and again by the User model pre-save hook.
  */
 export const createUserByAdmin = withController('Create user', async (req, res) => {
-  const admin = requireAdminContext(req, res);
+  const admin = requireMemberManagementScope(req, res);
   if (!admin) return;
   if (!admin.isSuperAdmin) return sendError(res, 403, 'Forbidden: system admin required to create users');
 
@@ -223,9 +218,9 @@ export const createUserByAdmin = withController('Create user', async (req, res) 
   [RL_ROLE_NOT_FOUND]: { status: 404, message: 'One or more selected roles were not found' },
 });
 
-/** PUT /users/:id — admin update. Org-admin restricted to own-org members. */
+/** PUT /users/:id — admin update. An org-scoped caller is restricted to own-org members. */
 export const updateUserById = withController('Update user', async (req, res) => {
-  const admin = requireAdminContext(req, res);
+  const admin = requireMemberManagementScope(req, res);
   if (!admin) return;
 
   const id = req.params.id as string;
@@ -247,8 +242,8 @@ export const updateUserById = withController('Update user', async (req, res) => 
   // Org-admin authz pre-check (separate from the update so we can 403 early
   // without touching the DB record). System-admin can change org assignment;
   // org-admin can't.
-  if (admin.isOrgAdmin) {
-    const allowed = await userAdminService.hasMembershipInOrg(id, req.user!.organizationId!);
+  if (!admin.isSuperAdmin) {
+    const allowed = await userAdminService.hasMembershipInOrg(id, admin.orgId!);
     if (!allowed) return sendError(res, 403, 'Forbidden: Can only update users in your organization');
     if (body.organizationId !== undefined) {
       return sendError(res, 403, 'Forbidden: Only system admins can change user organization');
@@ -265,13 +260,13 @@ export const updateUserById = withController('Update user', async (req, res) => 
     id,
     body,
     {
-      isOrgAdmin: admin.isOrgAdmin,
-      adminOrgId: admin.isOrgAdmin ? req.user!.organizationId : undefined,
+      scopeOrgId: admin.orgId,
+      actor: { isSuperAdmin: admin.isSuperAdmin, isOrgAdmin: isOrgAdmin(req), permissions: req.user!.permissions ?? [] },
       passwordMinLength: config.auth.passwordMinLength,
     },
   );
 
-  logger.info('Update user by id', { id, admin: admin.adminType, by: req.user!.sub, changes });
+  logger.info('Update user by id', { id, admin: adminType(admin), by: req.user!.sub, changes });
 
   // Audit privileged admin edits of ANOTHER user (role/email/password/org).
   // Only emit when something actually changed. `details.changes` is the field
@@ -279,9 +274,8 @@ export const updateUserById = withController('Update user', async (req, res) => 
   // sysadmin acting cross-tenant, `affectedOrgId` records which org was hit:
   // the new org when the admin reassigned org, else the target's primary org.
   if (changes.length > 0) {
-    const affectedOrgId = admin.isOrgAdmin
-      ? req.user!.organizationId!
-      : body.organizationId ?? await userAdminService.lookupPrimaryOrgId(id).catch(() => undefined);
+    const affectedOrgId = admin.orgId
+      ?? body.organizationId ?? await userAdminService.lookupPrimaryOrgId(id).catch(() => undefined);
     audit(req, 'admin.user.update', { targetType: 'user', targetId: id, affectedOrgId, details: { changes } });
   }
 
@@ -294,7 +288,7 @@ export const updateUserById = withController('Update user', async (req, res) => 
 
 /** DELETE /users/:id — admin delete with self-delete + owner protection. */
 export const deleteUserById = withController('Delete user', async (req, res) => {
-  const admin = requireAdminContext(req, res);
+  const admin = requireMemberManagementScope(req, res);
   if (!admin) return;
 
   // Deleting removes the whole ACCOUNT from every organization it belongs to, so
@@ -317,7 +311,7 @@ export const deleteUserById = withController('Delete user', async (req, res) => 
 
   await userAdminService.deleteUserById(id as string);
 
-  logger.info('Delete user by id', { id, admin: admin.adminType, by: req.user!.sub });
+  logger.info('Delete user by id', { id, admin: adminType(admin), by: req.user!.sub });
   audit(req, 'admin.user.delete', { targetType: 'user', targetId: String(id), affectedOrgId });
   sendSuccess(res, 200, undefined, 'User deleted successfully');
 }, adminErrorMap);
@@ -334,9 +328,9 @@ export const deleteUserById = withController('Delete user', async (req, res) => 
  * batch destructive ops on members is a sysadmin-only concern.
  */
 export const bulkDeleteUsers = withController('Bulk delete users', async (req, res) => {
-  const admin = requireAdminContext(req, res);
+  const admin = requireMemberManagementScope(req, res);
   if (!admin) return;
-  if (admin.isOrgAdmin) {
+  if (!admin.isSuperAdmin) {
     return sendError(res, 403, 'Forbidden: Bulk delete is sysadmin-only');
   }
 
@@ -381,7 +375,7 @@ export const bulkDeleteUsers = withController('Bulk delete users', async (req, r
 
 /** PUT /users/:id/features — admin set feature-flag overrides on a user. */
 export const updateUserFeatures = withController('Update user features', async (req, res) => {
-  const admin = requireAdminContext(req, res);
+  const admin = requireMemberManagementScope(req, res);
   if (!admin) return;
 
   const { id } = req.params;
@@ -403,8 +397,8 @@ export const updateUserFeatures = withController('Update user features', async (
     return sendError(res, 400, `Override values must be booleans. Invalid: ${nonBooleanKeys.join(', ')}`, 'VALIDATION_ERROR');
   }
 
-  if (admin.isOrgAdmin) {
-    const allowed = await userAdminService.hasMembershipInOrg(id as string, req.user!.organizationId!);
+  if (!admin.isSuperAdmin) {
+    const allowed = await userAdminService.hasMembershipInOrg(id as string, admin.orgId!);
     if (!allowed) return sendError(res, 403, 'Forbidden: Can only update users in your organization');
 
     // SECURITY: an org admin may only override-ENABLE features already covered by
@@ -414,7 +408,7 @@ export const updateUserFeatures = withController('Update user features', async (
     // User field — leak the grant into the target's OTHER orgs (cross-tenant).
     // Only a system admin may override-enable a gated feature. Disabling (`false`)
     // is always allowed (removing a feature is never an escalation).
-    const entitled = await orgEntitledFeatures(req.user!.organizationId!);
+    const entitled = await orgEntitledFeatures(admin.orgId!);
     const forbidden = Object.entries(overrides as Record<string, unknown>)
       .filter(([k, v]) => v === true && !entitled.has(k))
       .map(([k]) => k);
@@ -446,16 +440,15 @@ export const updateUserFeatures = withController('Update user features', async (
     },
   );
 
-  logger.info('Update user features', { id, admin: admin.adminType, by: req.user!.sub });
+  logger.info('Update user features', { id, admin: adminType(admin), by: req.user!.sub });
 
   // Audit the sysadmin/org-admin feature-override edit AFTER it succeeds. This is
   // a privileged capability grant/revoke on another user, so it must leave a
   // trail. `details.features` is the field NAMES touched only (no values needed —
   // they're booleans, but names are the forensic signal). `affectedOrgId` is the
   // admin's org for an org-admin, else the target user's active org.
-  const featuresAffectedOrgId = admin.isOrgAdmin
-    ? req.user!.organizationId!
-    : (user as { lastActiveOrgId?: { toString(): string } }).lastActiveOrgId?.toString();
+  const featuresAffectedOrgId = admin.orgId
+    ?? (user as { lastActiveOrgId?: { toString(): string } }).lastActiveOrgId?.toString();
   audit(req, 'admin.user.features.update', {
     targetType: 'user',
     targetId: id as string,

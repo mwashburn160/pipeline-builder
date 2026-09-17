@@ -8,9 +8,9 @@ import { CopyButton } from '@/components/ui/CopyButton';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
-import { useToast } from '@/components/ui/Toast';
 import { api, ApiError, ConflictError } from '@/lib/api';
 import { invalidateImageTags } from '@/hooks/useImageTags';
+import { useCopyToClipboard, type CopyState } from '@/hooks/useCopyToClipboard';
 
 interface CopyTagModalProps {
   sourceRepo: string;
@@ -29,6 +29,13 @@ const REPO_REF_REGEX = /^[a-z0-9][a-z0-9._/-]*:[A-Za-z0-9_.-]+$/;
 // enough to type but specific enough to break muscle memory on "click
 // through everything." Case-insensitive to keep it friendly.
 const PROMOTE_CONFIRM_PHRASE = 'PROMOTE';
+
+/** "Copy share link" button text per clipboard-write outcome. */
+const SHARE_COPY_LABEL: Record<CopyState, string> = {
+  idle: 'Copy share link',
+  copied: 'Share link copied',
+  failed: 'Clipboard unavailable in this browser',
+};
 
 /**
  * Modal for copying a tag to another (or the same) repo.
@@ -60,7 +67,6 @@ export function CopyTagModal({
     return '';
   }, [sourceRepo]);
 
-  const toast = useToast();
   const [targetRepo, setTargetRepo] = useState(defaultTargetRepo);
   const [targetRef, setTargetRef] = useState(sourceRef);
   const [confirmPhrase, setConfirmPhrase] = useState('');
@@ -95,14 +101,9 @@ export function CopyTagModal({
     return url.toString();
   }, [source, sourceRepo]);
 
-  const copyShareLink = async () => {
-    try {
-      await navigator.clipboard.writeText(shareLink);
-      toast.success('Share link copied — paste it anywhere to re-open this copy modal.');
-    } catch {
-      toast.error('Clipboard unavailable in this browser — select and copy the URL manually.');
-    }
-  };
+  // Inline feedback on the button itself (the hook resets it), so a second
+  // copy re-confirms instead of stacking toasts.
+  const { state: shareCopyState, copy: copyShareLink } = useCopyToClipboard();
 
   // Autocomplete suggestions: dedup namespaces from loaded repos to help
   // operators type a common target prefix like `system/foo`.
@@ -243,8 +244,8 @@ export function CopyTagModal({
           <LinkIcon className="w-3.5 h-3.5 flex-shrink-0" />
           <span className="flex-1">Need someone else to do this? Copy a share link.</span>
           <CopyButton text={shareLink} />
-          <Button variant="link" onClick={copyShareLink}>
-            Copy share link
+          <Button variant="link" onClick={() => { void copyShareLink(shareLink); }}>
+            {SHARE_COPY_LABEL[shareCopyState]}
           </Button>
         </div>
 

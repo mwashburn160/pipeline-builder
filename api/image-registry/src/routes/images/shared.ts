@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, type Logger } from '@pipeline-builder/api-core';
 
-export const logger = createLogger('image-routes');
+export const logger: Logger = createLogger('image-routes');
 
 /** Symbolic metric names so all incCounter call-sites stay in sync. */
 export const RegistryMetrics = {

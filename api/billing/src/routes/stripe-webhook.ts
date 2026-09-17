@@ -8,45 +8,32 @@ import {
   createLogger,
   errorMessage,
 } from '@pipeline-builder/api-core';
-import type { QuotaTier } from '@pipeline-builder/api-core';
-import { incCounter } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response } from 'express';
 import type Stripe from 'stripe';
-import { config } from '../config.js';
-import { applyPlanTierChange, applyTierIncludedAddonPrune } from '../helpers/addon-prune.js';
-import { billingServiceAuth, createBillingEvent, calculatePeriodEnd, syncEntitlements, recordReactivatePlanMissing, MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/billing-helpers.js';
-import type { PrunedAddon } from '../helpers/billing-helpers.js';
-import { ingestStripeInvoice } from '../helpers/billing-ledger.js';
-import { clearDiscountsOnCancel, reconcileDiscountsOnInvoice } from '../helpers/discount-helpers.js';
-import { evaluatePromotions, grantRecurringPromotions, processReferralSignup, qualifyReferral, recurringPeriodKey } from '../helpers/promotion-engine.js';
-import { findSubscriptionByStripeId, invoiceSubscriptionId, mapStripeStatus } from '../helpers/stripe-helpers.js';
+import { handleInvoiceUpcoming, handlePaymentFailed, handlePaymentSucceeded } from '../helpers/stripe-invoice-handlers.js';
 import { handleChargeRefunded, handleChargeDisputeCreated, handleInvoiceReversal } from '../helpers/stripe-reversals.js';
-import { Plan } from '../models/plan.js';
-import { Subscription, type SubscriptionDocument, type BillingInterval } from '../models/subscription.js';
+import { handleSubscriptionCreated, handleSubscriptionDeleted, handleSubscriptionUpdated } from '../helpers/stripe-subscription-handlers.js';
 import { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent } from '../models/webhook-dedupe.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 import { StripeProvider } from '../providers/stripe-provider.js';
 
 const logger = createLogger('billing-stripe-webhook');
 
-/**
- * Reverse the configured `{planId}_{interval}` → Stripe-price-id map to recover
- * the plan + interval a Stripe price belongs to. Used to detect a plan change
- * made directly in Stripe (dashboard/API) from a `customer.subscription.updated`
- * webhook. Returns null for an unknown price (e.g. a bundle price — bundles are
- * reconciled separately) or a malformed map key.
- */
-export function planFromStripePrice(priceId: string): { planId: string; interval: 'monthly' | 'annual' } | null {
-  for (const [key, id] of Object.entries(config.stripe?.priceToPlanMap ?? {})) {
-    if (id !== priceId) continue;
-    const idx = key.lastIndexOf('_');
-    if (idx <= 0) continue;
-    const planId = key.slice(0, idx);
-    const interval = key.slice(idx + 1);
-    if (interval === 'monthly' || interval === 'annual') return { planId, interval };
-  }
-  return null;
-}
+/** Stripe event type → handler dispatch map (built once at module load). */
+const STRIPE_EVENT_HANDLERS: Readonly<Record<string, (data: unknown) => Promise<void>>> = {
+  'customer.subscription.created': (data) => handleSubscriptionCreated(data as Stripe.Subscription),
+  'customer.subscription.updated': (data) => handleSubscriptionUpdated(data as Stripe.Subscription),
+  'customer.subscription.deleted': (data) => handleSubscriptionDeleted(data as Stripe.Subscription),
+  'invoice.payment_succeeded': (data) => handlePaymentSucceeded(data as Stripe.Invoice),
+  'invoice.payment_failed': (data) => handlePaymentFailed(data as Stripe.Invoice),
+  'invoice.upcoming': (data) => handleInvoiceUpcoming(data as Stripe.Invoice),
+  // Reversals: reverse the ledger row + claw back credits granted inside the
+  // clawback window (defuses subscribe-grab-refund/chargeback abuse).
+  'charge.refunded': (data) => handleChargeRefunded(data as Stripe.Charge),
+  'charge.dispute.created': (data) => handleChargeDisputeCreated(data as Stripe.Dispute),
+  'invoice.voided': (data) => handleInvoiceReversal(data as Stripe.Invoice, 'invoice_voided'),
+  'invoice.marked_uncollectible': (data) => handleInvoiceReversal(data as Stripe.Invoice, 'invoice_uncollectible'),
+};
 
 /**
  * Create the Stripe webhook router.
@@ -97,22 +84,6 @@ export function createStripeWebhookRoutes(): Router {
         return sendError(res, 400, 'Invalid webhook signature', ErrorCode.VALIDATION_ERROR);
       }
 
-      /** Stripe event type → handler dispatch map. */
-      const eventHandlers: Record<string, (data: unknown) => Promise<void>> = {
-        'customer.subscription.created': (data) => handleSubscriptionCreated(data as Stripe.Subscription),
-        'customer.subscription.updated': (data) => handleSubscriptionUpdated(data as Stripe.Subscription),
-        'customer.subscription.deleted': (data) => handleSubscriptionDeleted(data as Stripe.Subscription),
-        'invoice.payment_succeeded': (data) => handlePaymentSucceeded(data as Stripe.Invoice),
-        'invoice.payment_failed': (data) => handlePaymentFailed(data as Stripe.Invoice),
-        'invoice.upcoming': (data) => handleInvoiceUpcoming(data as Stripe.Invoice),
-        // Reversals: reverse the ledger row + claw back credits granted inside the
-        // clawback window (defuses subscribe-grab-refund/chargeback abuse).
-        'charge.refunded': (data) => handleChargeRefunded(data as Stripe.Charge),
-        'charge.dispute.created': (data) => handleChargeDisputeCreated(data as Stripe.Dispute),
-        'invoice.voided': (data) => handleInvoiceReversal(data as Stripe.Invoice, 'invoice_voided'),
-        'invoice.marked_uncollectible': (data) => handleInvoiceReversal(data as Stripe.Invoice, 'invoice_uncollectible'),
-      };
-
       // Two-phase idempotency guard (crash-durable): Stripe retries the same
       // event.id on transient failures. Take a SHORT-LIVED in-progress claim
       // before processing — a duplicate/concurrent delivery short-circuits with
@@ -120,14 +91,14 @@ export function createStripeWebhookRoutes(): Router {
       // done-marker is written only AFTER the handler succeeds, so a mid-process
       // crash lets the claim expire and Stripe's retry re-runs the event instead
       // of it being stranded as "processed" for 30d.
-      const isFirstDelivery = await claimWebhookEvent('stripe', event.id);
-      if (!isFirstDelivery) {
+      const claimToken = await claimWebhookEvent('stripe', event.id);
+      if (!claimToken) {
         logger.info('Skipping duplicate Stripe delivery', { eventId: event.id, type: event.type });
         return sendSuccess(res, 200, { received: true, duplicate: true });
       }
 
       try {
-        const handler = eventHandlers[event.type];
+        const handler = STRIPE_EVENT_HANDLERS[event.type];
         if (handler) {
           await handler(event.data.object);
         } else {
@@ -145,7 +116,7 @@ export function createStripeWebhookRoutes(): Router {
         // short-circuit as a duplicate and silently drop the event. Best-effort:
         // a failed release is logged but doesn't change the 500 we return.
         try {
-          await releaseWebhookEvent('stripe', event.id);
+          await releaseWebhookEvent('stripe', event.id, claimToken);
         } catch (releaseError) {
           logger.error('Failed to release Stripe webhook idempotency claim after processing error', {
             eventId: event.id,
@@ -163,539 +134,3 @@ export function createStripeWebhookRoutes(): Router {
 
   return router;
 }
-
-// Event Handlers
-
-/**
- * stripe 22 (API 2025+) removed the top-level Invoice.subscription field — the
- * subscription now lives under parent.subscription_details. Returns the
- * subscription id, or undefined for a non-subscription invoice.
- */
-/**
- * Handle a subscription created by Stripe — the self-serve **Checkout** flow
- * (`POST /subscriptions/checkout` → hosted Checkout → this event) or an
- * out-of-band create (Stripe dashboard / API). Without this the local DB drifts
- * from Stripe and the org has no Subscription row backing the Stripe customer.
- *
- * - Already have a row for this Stripe subscription ID → treat as an update
- *   (in-app create + webhook race, or a redelivered event).
- * - Metadata carries `orgId` + `planId` (Checkout stamps them via
- *   `subscription_data.metadata`) → **provision** the local row + grant
- *   entitlements. This is what makes Stripe self-serve actually reach an active,
- *   entitled subscription.
- * - `orgId` but no `planId` (a bare dashboard create) → can't resolve the plan;
- *   log + meter for operator follow-up. No `orgId` → unbound; meter + event.
- */
-// NOTE: every createBillingEvent below runs from Stripe's webhook (no request
-// user), so actorId is intentionally left undefined — we never fabricate an
-// actor for provider-driven events.
-export async function handleSubscriptionCreated(stripeSubscription: Stripe.Subscription): Promise<void> {
-  const externalId = stripeSubscription.id;
-  const existing = await findSubscriptionByStripeId(externalId);
-  if (existing) {
-    return handleSubscriptionUpdated(stripeSubscription);
-  }
-  const orgId = (stripeSubscription.metadata?.orgId || '').trim();
-  if (!orgId) {
-    logger.warn('Stripe subscription created without orgId metadata — cannot auto-provision', { externalId });
-    // Alertable: a Stripe sub exists that backs no org. Without a metric this is
-    // a silently-swallowed billing_events row no one watches.
-    incCounter('billing_unbound_stripe_subscription_total', { reason: 'no_org_metadata' });
-    await createBillingEvent('unknown', 'subscription_created', { unbound: true, externalId });
-    return;
-  }
-  const planId = (stripeSubscription.metadata?.planId || '').trim();
-  if (!planId) {
-    // A bare out-of-band create (no plan metadata) — we can't resolve the tier.
-    logger.warn('Stripe subscription created out-of-band — operator action required', { externalId, orgId });
-    incCounter('billing_unbound_stripe_subscription_total', { reason: 'out_of_band' });
-    await createBillingEvent(orgId, 'subscription_created', { unbound: true, externalId });
-    return;
-  }
-
-  // Checkout completion → provision the local subscription + entitlements.
-  const plan = await Plan.findOne({ _id: planId, isActive: true });
-  if (!plan) {
-    logger.warn('Stripe subscription references an unknown/inactive plan', { externalId, orgId, planId });
-    incCounter('billing_unbound_stripe_subscription_total', { reason: 'unknown_plan' });
-    await createBillingEvent(orgId, 'subscription_created', { unbound: true, externalId, planId });
-    return;
-  }
-
-  // Duplicate guard: the org already has a manageable subscription bound to a
-  // DIFFERENT Stripe sub (two checkouts completed, or checkout raced an in-app
-  // create). Cancel this incoming duplicate IMMEDIATELY so the customer isn't
-  // double-billed — the existing row is the keeper — and alert.
-  const existingForOrg = await Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } });
-  if (existingForOrg && existingForOrg.externalId !== externalId) {
-    await cancelDuplicateStripeSub(externalId, orgId);
-    return;
-  }
-
-  const interval = (stripeSubscription.metadata?.interval === 'annual' ? 'annual' : 'monthly') as BillingInterval;
-  const customerId = typeof stripeSubscription.customer === 'string' ? stripeSubscription.customer : stripeSubscription.customer?.id;
-  const status = mapStripeStatus(stripeSubscription.status);
-  // Prefer Stripe's real period (matters for trials / annual) when the SDK surfaces
-  // it; else wall-clock (corrected on the first invoice.payment_succeeded anyway).
-  const stripePeriod = stripeSubscription as unknown as { current_period_start?: number; current_period_end?: number };
-  const periodStart = stripePeriod.current_period_start ? new Date(stripePeriod.current_period_start * 1000) : new Date();
-  const periodEnd = stripePeriod.current_period_end
-    ? new Date(stripePeriod.current_period_end * 1000)
-    : calculatePeriodEnd(periodStart, interval);
-
-  let subscription: SubscriptionDocument;
-  try {
-    subscription = await Subscription.create({
-      orgId,
-      planId,
-      status,
-      interval,
-      currentPeriodStart: periodStart,
-      currentPeriodEnd: periodEnd,
-      cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end ?? false,
-      externalId,
-      externalCustomerId: customerId,
-      metadata: { provider: 'stripe' },
-    });
-  } catch (err) {
-    // Lost the per-org manageable-subscription uniqueness race — a concurrent
-    // provision won. This incoming Stripe sub is the DUPLICATE → cancel it (don't
-    // delegate to update, which would find no row for THIS externalId and no-op,
-    // orphaning a billing sub). The index now covers active/trialing/past_due, so
-    // this fires for a `trialing` collision too, not just `active`.
-    if ((err as { code?: number }).code === 11000) {
-      await cancelDuplicateStripeSub(externalId, orgId);
-      return;
-    }
-    throw err;
-  }
-
-  // Grant the paid tier only for an entitlement-worthy status (Checkout lands
-  // `active`; a card-decline would land `incomplete` and stay unprovisioned until
-  // a later `.updated`→active). Mirrors the in-app create's gating.
-  if (status === 'active' || status === 'trialing') {
-    await syncEntitlements(orgId, plan.tier, billingServiceAuth(orgId), subscription._id.toString());
-    // Promotions + referral signup — parity with the in-app create path, so a
-    // Checkout signup with a referral/promo code still earns its credit. Fail-soft.
-    const referralCode = (stripeSubscription.metadata?.referralCode || '').trim();
-    const promoCtx = { tier: plan.tier, interval, planPriceCents: plan.prices[interval] };
-    try {
-      const isFirstSubscription = (await Subscription.countDocuments({ orgId })) <= 1;
-      await evaluatePromotions(orgId, subscription, 'subscription_created', { ...promoCtx, isFirstSubscription });
-    } catch (e) {
-      logger.warn('Promotion eval failed on checkout provision', { orgId, err: (e as Error).message });
-    }
-    if (referralCode) {
-      try {
-        await processReferralSignup(orgId, referralCode, promoCtx);
-      } catch (e) {
-        logger.warn('Referral signup failed on checkout provision', { orgId, err: (e as Error).message });
-      }
-    }
-  }
-  await createBillingEvent(orgId, 'subscription_created', { planId, interval, tier: plan.tier, via: 'checkout' }, subscription._id.toString());
-  logger.info('Provisioned Stripe subscription from checkout', { orgId, externalId, planId, status });
-}
-
-/** Cancel a DUPLICATE Stripe subscription immediately (best-effort) + alert, so a
- *  concurrent second checkout can't double-bill the org. */
-async function cancelDuplicateStripeSub(externalId: string, orgId: string): Promise<void> {
-  logger.error('Duplicate Stripe subscription for org — canceling to prevent double-billing', { orgId, externalId });
-  incCounter('billing_duplicate_stripe_subscription_total', { reason: 'concurrent_checkout' });
-  const provider = getPaymentProvider();
-  if (provider.cancelSubscriptionNow) {
-    await provider.cancelSubscriptionNow(externalId).catch((e) => logger.error('Failed to cancel duplicate Stripe sub — operator refund may be needed', { externalId, err: (e as Error).message }));
-  }
-  await createBillingEvent(orgId, 'subscription_updated', { duplicate: true, canceledExternalId: externalId, reason: 'duplicate_checkout' });
-}
-
-/**
- * Handle the `invoice.upcoming` event Stripe sends ~7 days before renewal.
- * Logs a billing event so support staff can see renewal warnings without
- * waiting for the lifecycle cron to run a separate reminder.
- */
-async function handleInvoiceUpcoming(invoice: Stripe.Invoice): Promise<void> {
-  const stripeSubscriptionId = invoiceSubscriptionId(invoice);
-  if (!stripeSubscriptionId) return;
-
-  const subscription = await findSubscriptionByStripeId(stripeSubscriptionId);
-  if (!subscription) {
-    logger.warn('No subscription found for invoice.upcoming', { stripeSubscriptionId });
-    return;
-  }
-
-  await createBillingEvent(subscription.orgId, 'subscription_updated', {
-    provider: 'stripe',
-    eventKind: 'invoice_upcoming',
-    invoiceId: invoice.id,
-    nextRenewalAt: invoice.next_payment_attempt ? new Date(invoice.next_payment_attempt * 1000) : null,
-    amountDue: invoice.amount_due,
-    currency: invoice.currency,
-  }, subscription._id.toString());
-
-  logger.info('Stripe invoice.upcoming recorded', {
-    orgId: subscription.orgId,
-    stripeSubscriptionId,
-  });
-}
-
-/**
- * Handle subscription updates from Stripe.
- * Syncs status + cancellation state AND plan/interval changes made directly in
- * Stripe (dashboard/API) — the latter recovered by reversing the price map and
- * re-syncing tier entitlements (preserving purchased add-ons).
- */
-export async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subscription): Promise<void> {
-  const externalId = stripeSubscription.id;
-  const subscription = await findSubscriptionByStripeId(externalId);
-
-  if (!subscription) {
-    logger.warn('No subscription found for Stripe subscription', { externalId });
-    return;
-  }
-
-  const previousStatus = subscription.status;
-  const newStatus = mapStripeStatus(stripeSubscription.status);
-  const cancelAtPeriodEnd = stripeSubscription.cancel_at_period_end ?? false;
-
-  // A `.updated` that crosses OUT of an entitled status into a terminal one
-  // (e.g. dunning exhausted → `unpaid`→canceled, or a `.updated`→canceled whose
-  // trailing `.deleted` never arrives) must downgrade — otherwise the org keeps
-  // its paid tier/seats forever (no lifecycle cron catches a `canceled` row).
-  const MANAGEABLE = MANAGEABLE_SUBSCRIPTION_STATUSES as readonly string[];
-  const becameUnentitled = MANAGEABLE.includes(previousStatus) && !MANAGEABLE.includes(newStatus);
-
-  let dirty = false;
-  if (newStatus !== subscription.status) {
-    subscription.status = newStatus;
-    dirty = true;
-  }
-  if (cancelAtPeriodEnd !== subscription.cancelAtPeriodEnd) {
-    subscription.cancelAtPeriodEnd = cancelAtPeriodEnd;
-    dirty = true;
-  }
-  const statusChanged = dirty;
-
-  // Start the grace clock if Stripe moved us into past_due WITHOUT a preceding
-  // invoice.payment_failed (which is what normally stamps firstFailedAt).
-  // The lifecycle grace cron matches on `firstFailedAt: {$lte: cutoff}`, so a
-  // null firstFailedAt would leave the sub stuck in past_due forever and never
-  // get downgraded. Stamp `now` here so the clock actually starts. Leave an
-  // already-set firstFailedAt untouched (don't reset an in-progress grace
-  // window). Not counted in `statusChanged` — this is a clock start, not a
-  // customer-visible status transition — but it still marks the row dirty so
-  // the stamp persists.
-  if (newStatus === 'past_due' && !subscription.firstFailedAt) {
-    subscription.firstFailedAt = new Date();
-    dirty = true;
-  }
-
-  // Plan/interval change made directly in Stripe: the base line item (item[0])
-  // carries the plan price; reverse it to the local planId/interval and, if it
-  // moved, update the record + re-sync the tier's entitlements (with add-ons).
-  const basePriceId = stripeSubscription.items?.data?.[0]?.price?.id;
-  const mapped = basePriceId ? planFromStripePrice(basePriceId) : null;
-  const oldPlanId = subscription.planId;
-  const oldInterval = subscription.interval;
-  let syncedPlan: { tier: QuotaTier } | null = null;
-  // Whether the PLAN (tier) actually changed vs. ONLY the billing interval — an
-  // interval-only edit records interval_changed, not a plan_changed w/ equal ids.
-  let planChanged = false;
-  // Bundles dropped because the new tier now includes their feature; their
-  // provider line-item removal + audit run AFTER save (via applyPlanTierChange).
-  let prunedAddons: PrunedAddon[] = [];
-  if (mapped && (mapped.planId !== subscription.planId || mapped.interval !== subscription.interval)) {
-    const plan = await Plan.findOne({ _id: mapped.planId, isActive: true });
-    if (plan) {
-      planChanged = mapped.planId !== oldPlanId;
-      subscription.planId = mapped.planId;
-      subscription.interval = mapped.interval;
-      syncedPlan = plan;
-      dirty = true;
-
-      // Prune any PURE-FEATURE add-on the new tier now bundles in (double-billing
-      // fix) so a plan change made directly in Stripe also drops the redundant
-      // paid bundle. Mutates addons in memory (persisted by the `dirty` save
-      // below); hybrid bundles (e.g. `sso`→idpConfigs) are kept.
-      prunedAddons = applyTierIncludedAddonPrune(subscription, plan.tier, {
-        orgId: subscription.orgId, subscriptionId: subscription._id.toString(), source: 'stripe_plan_change',
-      });
-    } else {
-      logger.warn('Stripe price mapped to an unknown/inactive plan; tier not synced', {
-        externalId, mappedPlanId: mapped.planId,
-      });
-    }
-  }
-
-  // Terminal transition: forfeit the local credit mirror before the save (the
-  // entitlement downgrade runs post-save below, mirroring handleSubscriptionDeleted).
-  if (becameUnentitled) {
-    clearDiscountsOnCancel(subscription);
-    dirty = true;
-  }
-
-  if (dirty) await subscription.save();
-
-  if (becameUnentitled) {
-    await syncEntitlements(subscription.orgId, 'developer', '', subscription._id.toString());
-    logger.info('Stripe subscription moved to a terminal status via update — org downgraded', {
-      orgId: subscription.orgId, externalId, previousStatus, newStatus,
-    });
-  } else if (syncedPlan) {
-    // Shared post-save runner (service-token sync preserving add-ons → change
-    // event → pruned line-item removal + addon_pruned trail). System path
-    // (webhook) → no actorId. When ONLY the billing interval changed (same plan
-    // /tier), record interval_changed instead of a plan_changed with equal ids.
-    const runSideEffects = applyPlanTierChange(subscription, syncedPlan, {
-      oldPlanId,
-      newPlanId: subscription.planId,
-      pruned: prunedAddons,
-      source: 'stripe_plan_change',
-      eventDetails: { provider: 'stripe', source: 'stripe_webhook', interval: subscription.interval },
-      event: planChanged ? undefined : {
-        type: 'interval_changed',
-        details: { provider: 'stripe', source: 'stripe_webhook', oldInterval, newInterval: subscription.interval },
-      },
-    });
-    await runSideEffects();
-    logger.info('Stripe subscription plan synced', {
-      orgId: subscription.orgId, externalId, oldPlanId, newPlanId: subscription.planId, interval: subscription.interval,
-    });
-  }
-
-  if (statusChanged) {
-    await createBillingEvent(subscription.orgId, 'subscription_updated', {
-      provider: 'stripe',
-      previousStatus,
-      newStatus,
-      cancelAtPeriodEnd,
-      externalId,
-    }, subscription._id.toString());
-
-    logger.info('Stripe subscription status synced', {
-      orgId: subscription.orgId,
-      externalId,
-      previousStatus,
-      newStatus,
-      cancelAtPeriodEnd,
-    });
-  }
-}
-
-/**
- * Handle subscription deletion from Stripe.
- * Marks subscription as canceled and downgrades the org to developer tier.
- */
-async function handleSubscriptionDeleted(stripeSubscription: Stripe.Subscription): Promise<void> {
-  const externalId = stripeSubscription.id;
-  const subscription = await findSubscriptionByStripeId(externalId);
-
-  if (!subscription) {
-    logger.warn('No subscription found for deleted Stripe subscription', { externalId });
-    return;
-  }
-
-  const previousStatus = subscription.status;
-  subscription.status = 'canceled';
-  subscription.cancelAtPeriodEnd = false;
-  // Detach any coupon + forfeit the local usage-credit mirror (Stripe balance
-  // persists for a future reactivation). Price-only; entitlements handled below.
-  clearDiscountsOnCancel(subscription);
-  await subscription.save();
-
-  // Downgrade to developer tier
-  await syncEntitlements(subscription.orgId, 'developer', '', subscription._id.toString());
-
-  await createBillingEvent(subscription.orgId, 'subscription_canceled', {
-    provider: 'stripe',
-    previousStatus,
-    newStatus: 'canceled',
-    externalId,
-  }, subscription._id.toString());
-
-  logger.info('Stripe subscription deleted — org downgraded', {
-    orgId: subscription.orgId,
-    externalId,
-  });
-}
-
-/**
- * Handle successful invoice payment from Stripe.
- * Confirms the subscription is active, resets grace period state, and updates the billing period.
- */
-async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
-  const stripeSubscriptionId = invoiceSubscriptionId(invoice);
-  if (!stripeSubscriptionId) {
-    logger.debug('Invoice payment_succeeded has no subscription', { invoiceId: invoice.id });
-    return;
-  }
-
-  const subscription = await findSubscriptionByStripeId(stripeSubscriptionId);
-  if (!subscription) {
-    logger.warn('No subscription found for successful payment', { stripeSubscriptionId });
-    return;
-  }
-
-  const previousStatus = subscription.status;
-  const wasRecovery = previousStatus === 'past_due';
-
-  // Reset grace period state
-  subscription.failedPaymentAttempts = 0;
-  subscription.firstFailedAt = undefined;
-
-  // Advance billing period using the invoice line's period so our window
-  // tracks Stripe exactly (handles proration, mid-period plan changes,
-  // and timezone drift that wall-clock would lose).
-  const linePeriod = invoice.lines?.data?.[0]?.period;
-  if (linePeriod?.start && linePeriod?.end) {
-    subscription.currentPeriodStart = new Date(linePeriod.start * 1000);
-    subscription.currentPeriodEnd = new Date(linePeriod.end * 1000);
-  } else {
-    subscription.currentPeriodStart = new Date();
-    subscription.currentPeriodEnd = calculatePeriodEnd(subscription.currentPeriodStart, subscription.interval);
-  }
-
-  // Restore active status if recovering from past_due
-  if (wasRecovery) {
-    subscription.status = 'active';
-
-    // Clear the grace-period downgrade dedupe marker so a FUTURE lapse can
-    // re-downgrade (the lifecycle cron excludes rows that still carry it).
-    if (subscription.metadata?.gracePeriodDowngradedAt) {
-      const { gracePeriodDowngradedAt: _cleared, ...rest } = subscription.metadata;
-      subscription.metadata = rest;
-    }
-
-    // Re-upgrade to their plan's tier, preserving purchased add-on grants.
-    const plan = await Plan.findById(subscription.planId);
-    if (plan) {
-      await syncEntitlements(subscription.orgId, plan.tier, '', subscription._id.toString(), subscription.addons ?? []);
-    } else {
-      // planId points at a deleted/missing plan: the sub recovers to an entitled
-      // status but we can't resolve a tier to re-grant — without this branch the
-      // re-upgrade silently no-ops. Surface it (WARN + audit row + metric) so
-      // support can repair the dangling planId. The payment_succeeded row below
-      // still records the recovery; this adds the plan-missing signal.
-      logger.warn('Payment recovery could not re-upgrade — subscription plan not found', {
-        orgId: subscription.orgId, stripeSubscriptionId, planId: subscription.planId,
-      });
-      await recordReactivatePlanMissing(subscription.orgId, subscription._id.toString(), 'stripe_webhook', {
-        provider: 'stripe', planId: subscription.planId,
-      });
-    }
-  }
-
-  // Reconcile discounts against this settled invoice (Stripe = source of truth):
-  // draw the usage-credit mirror down from the customer balance and re-grant a
-  // recurring discount. Price-only; mutates the sub in place before the save below.
-  await reconcileDiscountsOnInvoice(subscription, invoice);
-
-  // Re-grant standing RECURRING promotions for the period this invoice opens
-  // (period-keyed on the invoice id; in-memory, persisted by the save below).
-  // Fail-soft — a promo error must never fail the payment webhook.
-  try {
-    // Atomic: persist promo credits with guarded $push/$inc, NOT via the full-doc
-    // save below — so a concurrent redemption's credit write on the same ledger
-    // isn't clobbered (M2). The reconcile above is atomic for the same reason.
-    await grantRecurringPromotions(subscription, recurringPeriodKey(subscription.interval), { atomic: true });
-  } catch (promoErr) {
-    logger.warn('Recurring promotion re-grant failed', { orgId: subscription.orgId, invoiceId: invoice.id, error: String(promoErr) });
-  }
-
-  // The credit reconciliation + promo re-grant above wrote atomically and did NOT
-  // touch the in-memory doc, so this save() persists only the lifecycle fields this
-  // handler set (status / period / grace / metadata) — it can't clobber a
-  // concurrent credit-ledger write.
-  await subscription.save();
-
-  // Mirror the settled invoice into the billing ledger (dashboard actuals).
-  // Idempotent + best-effort — a ledger hiccup must not fail the webhook.
-  await ingestStripeInvoice(subscription.orgId, invoice as unknown as Parameters<typeof ingestStripeInvoice>[1]).catch((err) => {
-    logger.warn('Billing ledger ingest failed', { orgId: subscription.orgId, invoiceId: invoice.id, error: String(err) });
-  });
-
-  await createBillingEvent(subscription.orgId, 'payment_succeeded', {
-    provider: 'stripe',
-    previousStatus,
-    newStatus: subscription.status,
-    invoiceId: invoice.id,
-    stripeSubscriptionId,
-    recovered: wasRecovery,
-  }, subscription._id.toString());
-
-  // Referral (phase 2c): a paid invoice is the QUALIFYING event — if this org was
-  // referred, credit the referrer now. Idempotent (flips pending→qualified) and
-  // fail-soft — never fails the payment webhook.
-  try {
-    await qualifyReferral(subscription.orgId);
-  } catch (refErr) {
-    logger.warn('Referral qualification failed', { orgId: subscription.orgId, error: String(refErr) });
-  }
-
-  logger.info('Stripe payment succeeded', {
-    orgId: subscription.orgId,
-    stripeSubscriptionId,
-    recovered: wasRecovery,
-    periodEnd: subscription.currentPeriodEnd.toISOString(),
-  });
-}
-
-/**
- * Handle failed invoice payment from Stripe.
- * Uses a grace period: the org keeps their tier for PAYMENT_GRACE_PERIOD_DAYS
- * after the first failure. Downgrade only happens when the grace period expires
- * (checked by the subscription lifecycle background job).
- */
-async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
-  const stripeSubscriptionId = invoiceSubscriptionId(invoice);
-  if (!stripeSubscriptionId) {
-    logger.debug('Invoice payment_failed has no subscription', { invoiceId: invoice.id });
-    return;
-  }
-
-  const subscription = await findSubscriptionByStripeId(stripeSubscriptionId);
-  if (!subscription) {
-    logger.warn('No subscription found for failed payment', { stripeSubscriptionId });
-    return;
-  }
-
-  const previousStatus = subscription.status;
-  subscription.status = 'past_due';
-  subscription.failedPaymentAttempts = (subscription.failedPaymentAttempts || 0) + 1;
-
-  // Record the first failure time (starts the grace period clock)
-  if (!subscription.firstFailedAt) {
-    subscription.firstFailedAt = new Date();
-  }
-
-  await subscription.save();
-
-  // Note: Tier downgrade is NOT immediate — it happens when the grace period
-  // expires, checked by startSubscriptionLifecycleChecker() in index.ts.
-
-  await createBillingEvent(subscription.orgId, 'payment_failed', {
-    provider: 'stripe',
-    previousStatus,
-    newStatus: 'past_due',
-    invoiceId: invoice.id,
-    stripeSubscriptionId,
-    failedAttempts: subscription.failedPaymentAttempts,
-    gracePeriodDays: config.paymentGracePeriodDays,
-  }, subscription._id.toString());
-
-  logger.info('Stripe payment failed — grace period active', {
-    orgId: subscription.orgId,
-    stripeSubscriptionId,
-    failedAttempts: subscription.failedPaymentAttempts,
-    firstFailedAt: subscription.firstFailedAt.toISOString(),
-    gracePeriodDays: config.paymentGracePeriodDays,
-  });
-}
-
-// Reversals (refund / dispute / void / uncollectible)
-
-/**
- * Recover the invoice/customer id from a Stripe object field that may be a bare
- * id string or an expanded object. Stripe delivers unexpanded ids on webhooks, but
- * a retrieved (expanded) object carries the nested resource.
- */

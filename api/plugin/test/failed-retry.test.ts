@@ -19,13 +19,17 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const findFailed = jest.fn();
 const retryHelper = jest.fn();
 
-jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
+jest.unstable_mockModule('../src/queue/connections.js', () => ({
   getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', add: jest.fn(), getJobs: jest.fn(), getJobCounts: jest.fn() } }],
   getDeadLetterQueue: () => ({ getJob: jest.fn(), add: jest.fn(), getJobs: jest.fn(), getJobCounts: jest.fn() }),
-  purgeDlq: jest.fn(),
-  replayDlqJob: jest.fn(),
   // findFailedJob(jobId) → the failed job (for the tenant-isolation check).
   findFailedJob: (id: string) => findFailed(id),
+}));
+jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
+  purgeDlq: jest.fn(),
+}));
+jest.unstable_mockModule('../src/queue/requeue.js', () => ({
+  replayDlqJob: jest.fn(),
   // retryFailedJob(jobId, quotaService); the test only cares about the id.
   retryFailedJob: (id: string, _qs: unknown) => retryHelper(id),
 }));

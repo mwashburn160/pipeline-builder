@@ -8,7 +8,7 @@ Core server-side utilities (auth middleware, response helpers, error codes, quot
 
 ## Responsibilities
 
-Provides the cross-cutting primitives every backend service depends on: JWT authentication and authorization middleware, inter-service token minting, standardized HTTP response and error helpers, request parameter/identity parsing, Zod validation schemas with an OpenAPI registry, a safe service-to-service HTTP client, quota enforcement types and client, structured Winston logging, an in-memory/Redis cache, domain event pub/sub, and the static AI provider catalog.
+Provides the cross-cutting primitives every backend service depends on: JWT authentication and authorization middleware, inter-service token minting, standardized HTTP response and error helpers, request parameter/identity parsing, Zod validation schemas with an OpenAPI registry, a safe service-to-service HTTP client, quota enforcement types and client, structured Winston logging, an in-memory cache with cross-replica invalidation, domain event pub/sub, and the static AI provider catalog.
 
 ## Key exports
 
@@ -29,7 +29,7 @@ Provides the cross-cutting primitives every backend service depends on: JWT auth
 | `sendPaginated`, `sendPaginatedNested`, `parsePaginationParams` | Paginated response helpers |
 | `extractDbError`, `errorMessage` | Safe DB-error and error-to-string extraction |
 | `ErrorCode`, `getStatusForErrorCode` | Standard error code enum and HTTP status mapping |
-| `AppError`, `NotFoundError`, `ForbiddenError`, `ValidationError`, `ConflictError`, `UnauthorizedError` | Typed HTTP error classes |
+| `AppError`, `NotFoundError`, `ForbiddenError`, `ValidationError`, `ConflictError` | Typed HTTP error classes |
 
 ### Request parsing (`./utils`)
 | Export | Purpose |
@@ -44,7 +44,7 @@ Provides the cross-cutting primitives every backend service depends on: JWT auth
 | `InternalHttpClient`, `createSafeClient` | Service-to-service HTTP client (`ServiceConfig`, `RequestOptions`) |
 | `createComplianceClient` / `ComplianceClient` | Typed compliance-service client built on the safe client |
 | `QuotaService`, `createQuotaService`, `QuotaType`, `QuotaCheckResult`, `QuotaTier`, `QUOTA_TIERS`, `getTierLimits` | Quota enforcement client and tier presets |
-| `CacheService`, `createCacheService` | In-memory TTL cache with optional Redis backend |
+| `CacheService`, `createCacheService` | In-memory LRU TTL cache with cross-replica invalidation over Redis pub/sub |
 | `entityEvents` | Process-local domain event pub/sub for entity changes |
 
 ### Logging, validation & OpenAPI

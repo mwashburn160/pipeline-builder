@@ -25,7 +25,7 @@ export {
   streamHowTo,
   buildGroundingContext,
 } from './ask-agent.js';
-export type { AskSource, AnswerHowToOptions } from './ask-agent.js';
+export type { AskSource, AnswerHowToOptions, AskStreamEvent } from './ask-agent.js';
 
 // Re-export AI SDK types consumers commonly need
 export type { LanguageModel, Tool, ToolSet } from 'ai';

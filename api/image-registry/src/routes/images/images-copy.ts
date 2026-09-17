@@ -7,27 +7,20 @@ import {
   sendError,
   sendEntityNotFound,
   ErrorCode,
-  runConcurrent,
   emitAudit,
   requireAllPermissions,
+  validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
 import { z } from 'zod';
-import { canReadRepo, canWriteRepo, repoTenant } from './repo-access.js';
-import {
-  logger,
-  RegistryMetrics,
-  COPY_PARALLEL_CHILDREN,
-  COPY_PARALLEL_BLOBS,
-} from './shared.js';
+import { copyManifestTree, InvalidManifestError, SourceIncompleteError } from './manifest-copy.js';
+import { canReadRepo, canWriteRepo, repoOwnerOrgId, repoTenant } from './repo-access.js';
+import { logger, RegistryMetrics } from './shared.js';
 import { emitImageRegistryAudit } from '../../services/audit.js';
-import { isIndex } from '../../services/manifest.js';
 import {
   getManifest,
-  putManifest,
   headManifest,
-  mountBlob,
   isNotFound,
 } from '../../services/registry-client.js';
 
@@ -60,12 +53,9 @@ function parseRepoRef(s: string): { repo: string; ref: string } {
 export function registerCopyRoutes(router: Router): void {
   // POST /api/images/copy — cross-repo tag-copy, multi-arch aware.
   router.post('/copy', requireAllPermissions('registry:read', 'registry:write') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
-    const parsed = CopyImageSchema.safeParse(req.body);
-    if (!parsed.success) {
-      const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
-      return sendBadRequest(res, msg, ErrorCode.VALIDATION_ERROR);
-    }
-    const { source, target, overwrite, allowCrossTenant } = parsed.data;
+    const validation = validateBody(req, CopyImageSchema);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    const { source, target, overwrite, allowCrossTenant } = validation.value;
 
     if (source === target) {
       return sendError(
@@ -208,18 +198,15 @@ export function registerCopyRoutes(router: Router): void {
     // Fire-and-forget; never blocks/throws. Records the tenant boundary crossing
     // (crossTenant) so cross-org promotions are auditable long after request logs
     // lapse. Details carry no secrets / AWS account ids.
-    //
-    // NB: the `registry.image.copy` action must be present in api-core's
-    // REMOTE_AUDIT_ACTIONS allow-list (packages/api-core/src/services/
-    // remote-audit-client.ts) — the ingest side rejects any action not on it,
-    // and RemoteAuditEvent.action is typed to that union. `registry.gc` and
-    // `registry.image.delete` are already registered; `registry.image.copy` is
-    // the one-line addition this call depends on.
+    const targetOwnerOrgId = repoOwnerOrgId(targetRepo);
     emitImageRegistryAudit({
       action: 'registry.image.copy',
       actorId: req.user?.sub ?? 'system',
       ...(req.user?.email && { actorEmail: req.user.email }),
       ...(req.user?.organizationId && { orgId: req.user.organizationId }),
+      // The org whose namespace was WRITTEN (so its admins see the copy even when
+      // a superadmin performed it). Absent for org-less namespaces (library/*).
+      ...(targetOwnerOrgId && { affectedOrgId: targetOwnerOrgId }),
       outcome: 'success',
       targetType: 'registry-image',
       targetId: target,
@@ -247,122 +234,4 @@ export function registerCopyRoutes(router: Router): void {
       mounted: { manifests: mountedManifests, blobs: mountedBlobs },
     });
   }));
-}
-
-/**
- * Thrown when a layer or child manifest referenced by the source manifest
- * has gone missing mid-copy. Surfaced to the caller as 409 source-incomplete.
- */
-class SourceIncompleteError extends Error {
-  constructor(public missingDigest: string) {
-    super(`Source manifest references digest ${missingDigest} which is no longer in the source repo.`);
-    this.name = 'SourceIncompleteError';
-  }
-}
-
-/**
- * Thrown when a manifest is missing the `config.digest` required by the
- * OCI v1 image spec. Pre-OCI / legacy formats sometimes omit it; this
- * registry no longer accepts them. Surface as 400 to the caller — the
- * push tooling needs to be upgraded to emit OCI-compliant manifests.
- */
-class InvalidManifestError extends Error {
-  constructor(reason: string) {
-    super(reason);
-    this.name = 'InvalidManifestError';
-  }
-}
-
-/**
- * Copy a manifest (single-arch or multi-arch index) from source to target.
- * Mounts every unique blob digest referenced by the manifest tree, then
- * PUTs the manifest(s) under the target ref. Idempotent: re-running with
- * the same args is a no-op.
- *
- * Assumption: every child manifest referenced by a multi-arch index lives
- * in the same `sourceRepo`. Cross-repo manifest references (which the OCI
- * spec permits in principle, but our push pipeline never emits) would
- * throw `SourceIncompleteError` when the child digest isn't resolvable
- * inside `sourceRepo`.
- */
-async function copyManifestTree(
-  sourceManifest: { body: unknown; digest: string; mediaType: string },
-  sourceRepo: string,
-  targetRepo: string,
-  targetRef: string,
-): Promise<{ manifests: number; blobs: number }> {
-  const body = sourceManifest.body as Record<string, unknown>;
-  // Detect multi-arch by media type OR body shape (shared with the GC path) so a
-  // mis-typed / Content-Type-less index isn't silently single-arch-copied,
-  // dropping its child manifests.
-  if (isIndex(sourceManifest.mediaType, body)) {
-    const children = (body.manifests as Array<{ digest: string }> | undefined) ?? [];
-    // Collect unique blob digests across all child manifests so duplicates
-    // (shared base layers across platforms) get mounted once.
-    const uniqueBlobs = new Set<string>();
-    const childManifestBodies: Array<{ digest: string; body: unknown; mediaType: string }> = [];
-
-    await runConcurrent(children, COPY_PARALLEL_CHILDREN, async (child) => {
-      let m;
-      try {
-        m = await getManifest(sourceRepo, child.digest);
-      } catch (err) {
-        if (isNotFound(err)) throw new SourceIncompleteError(child.digest);
-        throw err;
-      }
-      const cbody = m.body as Record<string, unknown>;
-      const configDigest = (cbody.config as { digest?: string } | undefined)?.digest;
-      const layerDigests = ((cbody.layers as Array<{ digest: string }> | undefined) ?? []).map((l) => l.digest);
-      if (!configDigest) {
-        throw new InvalidManifestError(`Child manifest ${child.digest} is missing config.digest (OCI v1 requires it).`);
-      }
-      uniqueBlobs.add(configDigest);
-      for (const d of layerDigests) uniqueBlobs.add(d);
-      childManifestBodies.push({ digest: child.digest, body: m.body, mediaType: m.mediaType });
-    });
-
-    // Mount unique blobs in parallel.
-    await runConcurrent([...uniqueBlobs], COPY_PARALLEL_BLOBS, async (digest) => {
-      try {
-        await mountBlob(sourceRepo, targetRepo, digest);
-      } catch (err) {
-        if (isNotFound(err)) throw new SourceIncompleteError(digest);
-        throw err;
-      }
-    });
-
-    // PUT each child manifest under its digest (no tag — addressable by digest from the index).
-    for (const child of childManifestBodies) {
-      await putManifest(targetRepo, child.digest, child.body, child.mediaType);
-    }
-
-    // PUT the index manifest at the target ref.
-    await putManifest(targetRepo, targetRef, sourceManifest.body, sourceManifest.mediaType);
-
-    return { manifests: 1 + childManifestBodies.length, blobs: uniqueBlobs.size };
-  }
-
-  // Single-arch.
-  const configDigest = ((body.config as { digest?: string } | undefined)?.digest);
-  const layerDigests = ((body.layers as Array<{ digest: string }> | undefined) ?? []).map((l) => l.digest);
-  // OCI v1 requires config.digest on every single-arch manifest. Reject
-  // manifests that omit it — accepting them silently was the legacy path
-  // that let pre-OCI tooling smuggle untracked content into the registry.
-  if (!configDigest) {
-    throw new InvalidManifestError(`Source manifest ${sourceManifest.digest ?? '<unknown>'} is missing config.digest (OCI v1 requires it).`);
-  }
-  const digests = [configDigest, ...layerDigests];
-
-  await runConcurrent(digests, COPY_PARALLEL_BLOBS, async (digest) => {
-    try {
-      await mountBlob(sourceRepo, targetRepo, digest);
-    } catch (err) {
-      if (isNotFound(err)) throw new SourceIncompleteError(digest);
-      throw err;
-    }
-  });
-
-  await putManifest(targetRepo, targetRef, sourceManifest.body, sourceManifest.mediaType);
-
-  return { manifests: 1, blobs: digests.length };
 }

@@ -131,7 +131,11 @@ const redactFormat = winston.format((info) => {
  * logger.error('Database error', { error: err.message });
  * ```
  */
-export function createLogger(serviceName: string): winston.Logger {
+/** The logger `createLogger` returns. Exported so consumers can annotate exported
+ *  loggers without depending on winston themselves. */
+export type Logger = winston.Logger;
+
+export function createLogger(serviceName: string): Logger {
   const logLevel = process.env.LOG_LEVEL || 'info';
   const logFormat = process.env.LOG_FORMAT || 'json';
   if (logFormat !== 'json' && logFormat !== 'text') {

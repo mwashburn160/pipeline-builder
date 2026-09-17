@@ -302,14 +302,14 @@ describe('POST /portal (billing portal session)', () => {
   it('404s when the account has no billing customer', async () => {
     mockSubscriptionFindOne.mockResolvedValue(makeSubscription({ externalCustomerId: undefined }));
     await handler(mockReq(), mockRes());
-    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 404, expect.any(String));
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 404, expect.any(String), 'NOT_FOUND');
   });
 
   it('501s when the provider has no hosted portal', async () => {
     mockSubscriptionFindOne.mockResolvedValue(makeSubscription({ externalCustomerId: 'cus-1' }));
     providerImpl = { syncAddons: mockSyncAddons }; // no createBillingPortalSession
     await handler(mockReq(), mockRes());
-    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 501, expect.any(String));
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 501, expect.any(String), 'NOT_IMPLEMENTED');
   });
 
   it('returns the portal URL, using the request Origin for the return URL', async () => {
@@ -332,13 +332,13 @@ describe('POST /subscriptions/:id/addons (add)', () => {
   it('404s when bundles are disabled', async () => {
     mockBundlesEnabled.mockReturnValue(false);
     await handler(mockReq({ body: { bundleId: 'seat_pack' } }), mockRes());
-    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 404, expect.any(String));
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 404, expect.any(String), 'NOT_FOUND');
   });
 
   it('403s for Marketplace-billed accounts', async () => {
     mockBundleSelfServiceAllowed.mockReturnValue(false);
     await handler(mockReq({ body: { bundleId: 'seat_pack' } }), mockRes());
-    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 403, expect.any(String));
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 403, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
   });
 
   it('400s when bundleId is missing', async () => {
@@ -349,19 +349,19 @@ describe('POST /subscriptions/:id/addons (add)', () => {
   it('404s when there is no active subscription', async () => {
     mockSubscriptionFindOne.mockResolvedValue(null);
     await handler(mockReq({ body: { bundleId: 'seat_pack' } }), mockRes());
-    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 404, 'No active subscription');
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 404, 'No active subscription', 'NOT_FOUND');
   });
 
   it('400s for an unknown bundle', async () => {
     withActiveSub();
     await handler(mockReq({ body: { bundleId: 'nope' } }), mockRes());
-    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.stringContaining('Unknown bundle'));
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.stringContaining('Unknown bundle'), 'VALIDATION_ERROR');
   });
 
   it('400s when the bundle is not available on the account tier', async () => {
     withActiveSub(); // pro tier
     await handler(mockReq({ body: { bundleId: 'audit_log' } }), mockRes()); // team+
-    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.stringContaining('not available'));
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.stringContaining('not available'), 'VALIDATION_ERROR');
   });
 
   it('409s with ADDON_OVER_CAP when the change exceeds current usage', async () => {
@@ -526,7 +526,7 @@ describe('DELETE /subscriptions/:id/addons/:bundleId (remove)', () => {
   it('403s for Marketplace-billed accounts', async () => {
     mockBundleSelfServiceAllowed.mockReturnValue(false);
     await handler(mockReq({ params: { bundleId: 'seat_pack' } }), mockRes());
-    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 403, expect.any(String));
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 403, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
   });
 
   it('409s with ADDON_OVER_CAP when removal would exceed usage', async () => {
@@ -535,6 +535,18 @@ describe('DELETE /subscriptions/:id/addons/:bundleId (remove)', () => {
     await handler(mockReq({ params: { bundleId: 'seat_pack' } }), mockRes());
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 409, expect.any(String), 'ADDON_OVER_CAP', expect.anything());
     expect(mockSyncEntitlements).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['POST', 'post', '/subscriptions/:id/addons', { body: { bundleId: 'seat_pack', quantity: 1 } }],
+    ['DELETE', 'delete', '/subscriptions/:id/addons/:bundleId', { params: { bundleId: 'seat_pack' } }],
+  ])('%s 409s with the standard CONFLICT code on a concurrent modification (no side effects)', async (_m, method, path, over) => {
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'seat_pack', quantity: 2 }] }));
+    mockSubscriptionFindOneAndUpdate.mockResolvedValueOnce(null); // __v miss
+    await getHandler(method, path)(mockReq(over), mockRes());
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 409, expect.stringContaining('concurrently'), 'CONFLICT');
+    expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    expect(mockSyncProviderAddons).not.toHaveBeenCalled();
   });
 
   it('removes the bundle, syncs, and returns 200', async () => {
@@ -628,7 +640,7 @@ describe('POST /subscriptions/:id/addons/preview', () => {
   it('403s for Marketplace-billed accounts', async () => {
     mockBundleSelfServiceAllowed.mockReturnValue(false);
     await handler(mockReq({ body: { bundleId: 'seat_pack' } }), mockRes());
-    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 403, expect.any(String));
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 403, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
   });
 
   it('returns effective limits + price breakdown without persisting', async () => {

@@ -60,7 +60,8 @@ export interface StripeConfig {
 }
 
 export interface DiscountConfig {
-  /** Feature flag — the discount surface 404s when off (default off, opt-in). */
+  /** Feature flag — the discount surface 404s when off (default ON; opt out with
+   *  `BILLING_DISCOUNTS_ENABLED=false`). */
   enabled: boolean;
   /** Mint-time ceiling on a percent discount (1-100). */
   maxPercent: number;

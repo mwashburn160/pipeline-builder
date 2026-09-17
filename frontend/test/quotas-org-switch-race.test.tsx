@@ -10,6 +10,7 @@
 
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import QuotasPage from '../pages/dashboard/quotas';
+import api from '@/lib/api';
 
 const authGuard = {
   isReady: true,
@@ -27,10 +28,7 @@ jest.mock('@/components/ui/Toast', () => ({
   __esModule: true,
   useToast: () => ({ success: jest.fn(), error: jest.fn() }),
 }));
-jest.mock('@/components/ui/DashboardLayout', () => ({
-  __esModule: true,
-  DashboardLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}));
+jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 
 // Deferred quota fetches, keyed by orgId, so the test controls resolution order.
 type Deferred = { promise: Promise<unknown>; resolve: (v: unknown) => void };
@@ -68,9 +66,6 @@ jest.mock('@/lib/api', () => ({
     getOrgQuotas: (orgId: string) => getDeferred(orgId).promise,
     getOwnQuotas: jest.fn(),
     getAllOrgQuotas: jest.fn(),
-    // The page fetches effective tier presets from /config on mount (pkg#9);
-    // return none so it keeps the hardcoded fallback and this race test is unaffected.
-    getConfig: jest.fn().mockResolvedValue({ success: true, data: {} }),
   },
 }));
 
@@ -97,5 +92,38 @@ describe('QuotasPage — org-switch race', () => {
     // The detail header carries the selected org's slug (unique to the header).
     await waitFor(() => expect(screen.getByText('beta-slug')).toBeInTheDocument());
     expect(screen.queryByText('alpha-slug')).not.toBeInTheDocument();
+  });
+});
+
+describe('QuotasPage — org search race', () => {
+  it('keeps the newest search results when an older search resolves last', async () => {
+    const searches: Record<string, Deferred> = {};
+    const searchDeferred = (term: string) => {
+      if (!searches[term]) {
+        let resolve!: (v: unknown) => void;
+        const promise = new Promise<unknown>((r) => { resolve = r; });
+        searches[term] = { promise, resolve };
+      }
+      return searches[term];
+    };
+    (api.listOrganizations as jest.Mock).mockImplementation((opts: { search?: string }) =>
+      (opts.search ? searchDeferred(opts.search).promise : Promise.resolve({
+        data: { organizations: [{ id: 'org-a', name: 'Alpha' }, { id: 'org-b', name: 'Beta' }] },
+      })));
+
+    render(<QuotasPage />);
+    const filter = await screen.findByPlaceholderText('Filter...');
+
+    fireEvent.change(filter, { target: { value: 'a' } });
+    await waitFor(() => expect(searches.a).toBeDefined());
+    fireEvent.change(filter, { target: { value: 'ab' } });
+    await waitFor(() => expect(searches.ab).toBeDefined());
+
+    // Newer search resolves first, the older one last.
+    await act(async () => { searchDeferred('ab').resolve({ data: { organizations: [{ id: 'fresh', name: 'Fresh ab org' }] } }); });
+    await act(async () => { searchDeferred('a').resolve({ data: { organizations: [{ id: 'stale', name: 'Stale ab org' }] } }); });
+
+    await waitFor(() => expect(screen.getByText('Fresh ab org')).toBeInTheDocument());
+    expect(screen.queryByText('Stale ab org')).not.toBeInTheDocument();
   });
 });

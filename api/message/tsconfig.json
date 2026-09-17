@@ -30,8 +30,7 @@
       "express",
       "multer",
       "node",
-      "pg",
-      "ws"
+      "pg"
     ],
     "skipLibCheck": true,
     "isolatedModules": true,

@@ -11,9 +11,11 @@ import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { LoadingSpinner } from '@/components/ui/Loading';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import api from '@/lib/api';
 import { useCrudResource } from '@/hooks/useCrudResource';
+import { useDelete } from '@/hooks/useDelete';
 import type { CompliancePolicy } from '@/types/compliance';
 import { formatDate } from '@/lib/format';
 
@@ -41,7 +43,7 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
     },
     delete: (id: string) => api.deleteCompliancePolicy(id),
   }), []);
-  const { items: policies, loading, error, total, fetch: fetchPolicies, create: createPolicy, update: updatePolicy, remove: deletePolicy } = useCrudResource<CompliancePolicy, PolicyCreate, PolicyUpdate, PolicyParams>(crudApi, 'compliance policies');
+  const { items: policies, loading, loadError, mutationError, clearError, total, fetch: fetchPolicies, create: createPolicy, update: updatePolicy, remove: deletePolicy } = useCrudResource<CompliancePolicy, PolicyCreate, PolicyUpdate, PolicyParams>(crudApi, 'compliance policies');
 
   // useCrudResource no longer auto-fetches; trigger the initial load.
   useEffect(() => {
@@ -51,9 +53,9 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', description: '', version: '1.0.0' });
-  // Deleting a policy was a single unguarded click on a trash icon.
-  const [pendingDelete, setPendingDelete] = useState<CompliancePolicy | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  // Deleting a policy is confirmed via a modal. `deletePolicy` never throws — a
+  // failure lands in `mutationError` and renders inline above the list.
+  const del = useDelete<CompliancePolicy>((policy) => deletePolicy(policy.id));
   // Create/update had no in-flight state — repeated clicks fired repeated writes.
   const [saving, setSaving] = useState(false);
 
@@ -86,18 +88,6 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
     setEditingId(null);
     setForm({ name: '', description: '', version: '1.0.0' });
   };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return <ErrorAlert message={error.message} />;
-  }
 
   const columns: Column<CompliancePolicy>[] = [
     {
@@ -139,7 +129,7 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
           <IconButton tone="primary" onClick={() => handleEdit(policy)} aria-label="Edit policy">
             <Pencil className="h-4 w-4" />
           </IconButton>
-          <IconButton tone="danger" onClick={() => setPendingDelete(policy)} aria-label="Delete policy">
+          <IconButton tone="danger" onClick={() => del.open(policy)} aria-label="Delete policy">
             <Trash2 className="h-4 w-4" />
           </IconButton>
         </div>
@@ -199,7 +189,16 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
         </div>
       )}
 
-      {policies.length === 0 ? (
+      {/* Errors render inline so the list (and the form's input) stay put. A
+          load failure offers Retry; a mutation failure is dismissible. */}
+      <ErrorAlert message={loadError?.message} onRetry={() => fetchPolicies()} onDismiss={clearError} />
+      <ErrorAlert message={mutationError?.message} onDismiss={clearError} />
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <LoadingSpinner label="Loading policies" />
+        </div>
+      ) : policies.length === 0 ? (
         <TextEmptyState>
           No compliance policies found. Create one to group and manage rules.
         </TextEmptyState>
@@ -217,18 +216,15 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
 
       {/* Recently deleted — restore soft-deleted policies within the retention
           window. Gated on write (restore is compliance:write + step-up gated). */}
-      {!readOnly && <RecentlyDeletedPanel resource="compliance-policy" onRestored={fetchPolicies} />}
+      {!readOnly && <RecentlyDeletedPanel resource="compliance-policy" onRestored={() => fetchPolicies()} />}
 
-      {pendingDelete && (
+      {del.target && (
         <DeleteConfirmModal
           title="Delete policy"
-          itemName={pendingDelete.name}
-          loading={deleting}
-          onCancel={() => setPendingDelete(null)}
-          onConfirm={async () => {
-            setDeleting(true);
-            try { await deletePolicy(pendingDelete.id); } finally { setDeleting(false); setPendingDelete(null); }
-          }}
+          itemName={del.target.name}
+          loading={del.loading}
+          onCancel={del.close}
+          onConfirm={del.confirm}
         />
       )}
     </div>

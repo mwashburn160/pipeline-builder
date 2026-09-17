@@ -71,27 +71,34 @@ app.use('/messages', createCreateMessageRoutes(sseManager));
 app.use('/messages', createUpdateMessageRoutes(sseManager));
 app.use('/messages', createDeleteMessageRoutes(sseManager));
 
-// -- Restore route — auth + orgId + messages:write + step-up ------------------
-// Undo a soft-delete within the retention window; step-up-gated because it
-// reverses a destructive action.
-app.use('/messages', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), requireStepUp, createRestoreMessageRoutes());
-
-// -- Purge route — auth + orgId + messages:write + step-up --------------------
-// Manual permanent hard-delete of an already-soft-deleted tombstone. Same
-// write authority as restore AND step-up-gated like restore: purge is a
-// destructive finalization, so it re-verifies the caller's password. The
-// frontend sends the step-up token in the same header restore uses.
-app.use('/messages', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), requireStepUp, createPurgeMessageRoutes());
-
 // Internal org-purge (service-to-service): the platform cascade calls
 // DELETE /messages/internal/org/:orgId/attachments to reclaim the org's MinIO
 // blobs. Its own requireAuth + requireServicePrincipal gate it — no user chain.
-app.use('/messages', createInternalOrgPurgeRoutes());
-
 // Internal notify (service-to-service): a trusted platform service posts a
 // SYSTEM-authored in-app message + SSE ping to a recipient org/user (domain-join
 // notifications). Its own requireAuth + requireServicePrincipal gate it.
+//
+// Both MUST be mounted BEFORE the step-up mount below. That mount applies its
+// chain as prefix middleware to every /messages request that reaches it, so an
+// internal route mounted after it inherited `requirePermission('messages:write')`
+// — which a service token (no permission claims) fails with 403 — plus a second
+// pass through the idempotency middleware.
+app.use('/messages', createInternalOrgPurgeRoutes());
 app.use('/messages', createInternalNotifyRoutes(sseManager));
+
+// -- Purge + Restore routes — auth + orgId + messages:write + step-up --------
+// Both are permanently-consequential soft-delete operations and BOTH require a
+// step-up (password re-verify) beyond messages:write:
+//   - Restore: undo a soft-delete within the retention window.
+//   - Purge:   permanent hard-delete of an already soft-deleted tombstone.
+// They share ONE mount so each request clears the chain exactly once.
+// `requireStepUp` consumes the step-up token's `jti` a single time, so two
+// separate step-up mounts made every request for the SECOND router fall through
+// the first mount's step-up (consuming the jti) and then 401 as STEP_UP_REPLAY
+// at its own. The same stacking ran the idempotency middleware twice with the
+// same key, 409'ing any request that sent an Idempotency-Key. Mounted LAST so
+// no other /messages route falls through this chain.
+app.use('/messages', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), requireStepUp, createRestoreMessageRoutes(), createPurgeMessageRoutes());
 
 logger.info('All /messages routes registered');
 

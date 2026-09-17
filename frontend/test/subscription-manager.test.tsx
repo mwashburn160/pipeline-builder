@@ -46,9 +46,11 @@ const getComplianceSubscriptions = jest.fn();
 const getPublishedRules = jest.fn();
 const subscribeToRule = jest.fn();
 const autoSubscribe = jest.fn();
+const unsubscribeFromRule = jest.fn();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
+    unsubscribeFromRule: (...a: unknown[]) => unsubscribeFromRule(...a),
     getComplianceSubscriptions: (...a: unknown[]) => getComplianceSubscriptions(...a),
     getPublishedRules: (...a: unknown[]) => getPublishedRules(...a),
     subscribeToRule: (...a: unknown[]) => subscribeToRule(...a),
@@ -136,5 +138,39 @@ describe('SubscriptionManager catalog set-gating', () => {
 
     await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
     expect(toastSuccess.mock.calls[0][0]).toMatch(/subscribed to 3 rules.*skipped 2/i);
+  });
+});
+
+describe('SubscriptionManager write gating (compliance:write)', () => {
+  // ComplianceDashboard passes readOnly={!canManage}, where canManage is
+  // can('compliance:write') — false without the permission and in a read-only
+  // impersonation session. Unsubscribe (DELETE /compliance/subscriptions/:ruleId)
+  // is server-gated on compliance:write, so it must be gated exactly like Deactivate.
+  const subscription = {
+    id: 's1', orgId: 'org-1', ruleId: 'rule-1', isActive: true, subscribedAt: '2026-01-01', subscribedBy: 'me',
+    rule: { id: 'rule-1', orgId: 'system', name: 'Pinned images', severity: 'warning', target: 'plugin', priority: 0,
+      tags: [], scope: 'published', suppressNotification: false, isActive: true, createdAt: '2026-01-01', updatedAt: '2026-01-01', createdBy: 'sys' },
+  };
+
+  beforeEach(() => {
+    getComplianceSubscriptions.mockResolvedValue({
+      success: true,
+      data: { subscriptions: [subscription], pagination: { total: 1, limit: 10, offset: 0, hasMore: false } },
+    });
+    unsubscribeFromRule.mockResolvedValue({ success: true });
+  });
+
+  it('offers no Unsubscribe (or Deactivate) without write access', async () => {
+    render(<SubscriptionManager readOnly />);
+    await screen.findByText('Pinned images');
+    expect(screen.queryByRole('button', { name: 'Unsubscribe' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Deactivate' })).not.toBeInTheDocument();
+  });
+
+  it('unsubscribes with write access', async () => {
+    render(<SubscriptionManager />);
+    expect(await screen.findByRole('button', { name: 'Deactivate' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Unsubscribe' }));
+    await waitFor(() => expect(unsubscribeFromRule).toHaveBeenCalledWith('rule-1'));
   });
 });

@@ -6,7 +6,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { config } from '../config/index.js';
 import { resolveIdentity } from '../services/auth-resolver.js';
-import { checkTokenRateLimit, rateLimitKey } from '../services/token-rate-limiter.js';
+import { checkTokenRateLimit } from '../services/token-rate-limiter.js';
 import { authorizeAndIssue, parseScope, type RequestedScope } from '../services/token-service.js';
 
 const logger = createLogger('token-route');
@@ -56,13 +56,13 @@ export function createTokenRoute(): Router {
       return;
     }
 
-    // Rate-limit on a COARSE (source-ip, username) key — never the password —
-    // so a credential-stuffing client that varies the password shares ONE
-    // bucket and the cap actually engages. `req.ip` may be undefined behind a
-    // misconfigured proxy; fall back to a constant so those requests still
-    // share a (username-scoped) bucket rather than each getting a fresh one.
+    // Rate-limit per source IP AND per (source-ip, username) — never the
+    // password — so neither credential stuffing (one user, many passwords) nor
+    // password spraying (many users, one password) escapes the cap. `req.ip` may
+    // be undefined behind a misconfigured proxy; fall back to a constant so those
+    // requests still share buckets rather than each getting a fresh one.
     const sourceIp = req.ip || 'unknown';
-    if (!(await checkTokenRateLimit(rateLimitKey(sourceIp, basic.username)))) {
+    if (!(await checkTokenRateLimit(sourceIp, basic.username))) {
       sendError(res, 429, 'Too many token requests; slow down.', ErrorCode.RATE_LIMIT_EXCEEDED);
       return;
     }

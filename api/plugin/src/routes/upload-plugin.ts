@@ -3,9 +3,9 @@
 
 import * as fs from 'fs';
 
-import { ErrorCode, createLogger, isSystemAdmin, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, reserveQuota, decrementQuota, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
+import { ErrorCode, createLogger, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, reserveQuota, decrementQuota, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { requireAuth, requireOrgId, withRoute, withTenantContext, rateLimitByOrg, type SSEManager } from '@pipeline-builder/api-server';
+import { requireOrgId, withRoute, withTenantContext, rateLimitByOrg, type SSEManager } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request, type Response, type RequestHandler, type ErrorRequestHandler } from 'express';
 import multer from 'multer';
@@ -13,7 +13,7 @@ import multer from 'multer';
 import { getBuildStrategy } from '../helpers/build-strategy.js';
 import { createBuildJobData } from '../helpers/plugin-helpers.js';
 import { parsePluginZip, validateBuildArgs } from '../helpers/plugin-spec.js';
-import { enqueueBuild, getOrgTier } from '../queue/plugin-build-queue.js';
+import { enqueueBuild, getOrgTier } from '../queue/connections.js';
 import { emitPluginAudit } from '../services/audit.js';
 import { deletePluginArtifact, pluginArtifactKey, putPluginArtifact } from '../services/plugin-artifact-storage.js';
 import { pluginService } from '../services/plugin-service.js';
@@ -48,18 +48,13 @@ const upload = multer({
 });
 
 /**
- * Register the upload route.
+ * Remove the multer temp ZIP for this request, if one was written.
  *
- * Applies its own auth + quota middleware (multer first, then auth,
- * then `plugins` quota check).
- */
-/**
- * Reclaim a temp upload that no handler will clean up.
- *
- * The happy path unlinks in the handler's `finally`, but a multipart parse
- * error short-circuits before the handler runs — and the stale-temp sweeper
+ * Called from the handler's `finally` (EVERY outcome, early returns included)
+ * and from the multipart error handler (a parse error short-circuits before the
+ * handler runs). Nothing else reclaims these files: the stale-temp sweeper
  * (`cleanupStaleTempDirs`) scans BUILD_TEMP_ROOT, not the multer upload
- * destination, so anything left here would never be reclaimed.
+ * destination.
  */
 function cleanupUploadFile(req: Request): void {
   const uploaded = (req as Request & { file?: { path?: string } }).file;
@@ -72,6 +67,13 @@ function cleanupUploadFile(req: Request): void {
   }
 }
 
+/**
+ * Register the upload route (`POST /plugins`).
+ *
+ * Hand-wires its own chain — auth, orgId, `plugins:write` and the per-org rate
+ * limit run BEFORE multer accepts the body; the `plugins` quota slot is reserved
+ * inside the handler (atomic check+increment).
+ */
 export function createUploadPluginRoutes( quotaService: QuotaService,
   sseManager: SSEManager,
 ): Router {
@@ -114,7 +116,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         logger.error('Multipart parse error', { error: err.message });
         // Reclaim a partially-written upload: multer may have created the temp
         // file before failing, and the handler's `finally` never runs.
-        void cleanupUploadFile(req as Request);
+        cleanupUploadFile(req as Request);
         sendError(res, 400, `File upload failed: ${err.message}`, ErrorCode.VALIDATION_ERROR);
         return;
       }
@@ -124,13 +126,13 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
     // against the FORCE-RLS plugins table see the caller's org — the factory routes get
     // this via createProtectedRoute, but this route hand-wires its chain.
     withTenantContext() as RequestHandler,
-    // Any authenticated org member may upload a plugin. The visibility is
-    // resolved by `resolveVisibility` below  only admins/owners can mark
-    // a plugin 'public'; member uploads are forced to 'private' (org-scoped).
-    // quota is reserved inside the handler (atomic check+increment)
-    // so two concurrent uploads at the limit can't both succeed. The slot is
-    // given back via `decrementQuota` on any failure path, including build
-    // worker permanent failures.
+    // `plugins:write` holders may upload (gated above). Visibility is resolved by
+    // `resolveVisibility` below: unspecified → `org`; `public` needs
+    // plugins:publish and is clamped to `org` otherwise. The `plugins` quota is
+    // reserved inside the handler (atomic check+increment) so two concurrent
+    // uploads at the limit can't both succeed. The slot is given back via
+    // `decrementQuota` on any failure path, including build worker permanent
+    // failures.
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const registry = Config.get('registry');
       // Service-minted auth for downstream calls (compliance, quota). The
@@ -138,7 +140,6 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
       // service-to-service authorization checks; mint a service token instead.
       const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
 
-      let zipPath: string | undefined;
       let reserved = false;
       let reservedResetAt: string | undefined; // resetAt observed at reserve time (for conditional rollback)
 
@@ -155,8 +156,8 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         const visibility = resolveVisibility(req, validation.value.visibility, 'plugins:publish', 'org');
 
         // Reserve the plugins quota slot. Done AFTER multer + body validation
-        // so a bad-request never consumes quota. Two concurrent uploads at the
-        // limit can't both pass  the MongoDB filter rejects the second one.
+        // so a bad-request never consumes quota. The quota service's atomic
+        // reserve means two concurrent uploads at the limit can't both pass.
         const reservation = await reserveQuota(quotaService, orgId, 'plugins', authHeader);
         if (reservation.exceeded) {
           ctx.log('WARN', reservation.unavailable ? 'Plugin quota unconfirmable (quota service unavailable)' : 'Plugin quota exceeded', { orgId, used: reservation.quota.used, limit: reservation.quota.limit });
@@ -166,7 +167,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         reserved = true;
         reservedResetAt = reservation.quota.resetAt;
 
-        zipPath = req.file.path;
+        const zipPath = req.file.path;
         ctx.log('INFO', 'Upload received', {
           originalName: req.file.originalname,
           sizeBytes: req.file.size,
@@ -397,10 +398,11 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         }
         throw err;
       } finally {
-        // Clean up uploaded zip (extract dir is cleaned up by the worker)
-        if (zipPath && fs.existsSync(zipPath)) {
-          try { fs.unlinkSync(zipPath); } catch (err) { logger.debug('Temp zip cleanup failed', { path: zipPath, error: String(err) }); }
-        }
+        // Remove the uploaded temp ZIP on EVERY outcome — early returns (bad
+        // body, quota denied, compliance block) included, not only once the
+        // handler got as far as parsing it. The extract dir belongs to the build
+        // worker, which cleans it up.
+        cleanupUploadFile(req);
       }
     }),
   );

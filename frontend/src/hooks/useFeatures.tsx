@@ -20,7 +20,12 @@ interface FeaturesContextType {
    *  | `minikube`) — lets UI gate target-specific content (e.g. the AWS-only
    *  onboarding CLI-setup section). Runtime value; defaults to `local`. */
   deployTarget: string;
+  /** Effective per-tier quota limits from `/config` (reflecting `QUOTA_TIER_*`
+   *  env overrides), or undefined until/unless the server reports them. */
+  tierPresets: ServerTierPresets | undefined;
 }
+
+type ServerTierPresets = Record<string, { plugins: number; pipelines: number; apiCalls: number; aiCalls: number }>;
 
 
 const FeaturesContext = createContext<FeaturesContextType>({
@@ -30,6 +35,7 @@ const FeaturesContext = createContext<FeaturesContextType>({
   supportAlias: DEFAULT_SUPPORT_ALIAS,
   supportAliases: [DEFAULT_SUPPORT_ALIAS],
   deployTarget: 'local',
+  tierPresets: undefined,
 });
 
 /**
@@ -45,6 +51,7 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
   const [supportAlias, setSupportAlias] = useState(DEFAULT_SUPPORT_ALIAS);
   const [supportAliases, setSupportAliases] = useState<string[]>([DEFAULT_SUPPORT_ALIAS]);
   const [deployTarget, setDeployTarget] = useState('local');
+  const [tierPresets, setTierPresets] = useState<ServerTierPresets | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +68,7 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
           if (res.data.supportAlias) setSupportAlias(res.data.supportAlias);
           if (res.data.supportAliases?.length) setSupportAliases(res.data.supportAliases);
           if (res.data.deployTarget) setDeployTarget(res.data.deployTarget);
+          if (res.data.tierPresets) setTierPresets(res.data.tierPresets);
           setIsLoaded(true);
         } else {
           // 200 but `success:false` (no data): still release the loading gate so
@@ -119,8 +127,9 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
       supportAlias,
       supportAliases,
       deployTarget,
+      tierPresets,
     };
-  }, [serviceFeatures, user, isLoaded, supportAlias, supportAliases, deployTarget]);
+  }, [serviceFeatures, user, isLoaded, supportAlias, supportAliases, deployTarget, tierPresets]);
 
   return (
     <FeaturesContext.Provider value={value}>

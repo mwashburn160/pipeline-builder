@@ -36,13 +36,6 @@ const logger = createLogger('billing-marketplace');
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
 
 /**
- * A resolved entitlement whose remaining term exceeds this horizon is treated as
- * an ANNUAL contract, otherwise monthly. At resolve time (immediately after the
- * customer subscribes) the entitlement's remaining term ≈ the full contract
- * term, so an annual offer's expiration is ~1 year out and a monthly offer's is
- * ~1 month out — well separated by a ~6-month threshold.
- */
-/**
  * Create the AWS Marketplace integration router.
  *
  * Registers:
@@ -189,7 +182,7 @@ export function createMarketplaceRoutes(): Router {
     '/marketplace/claim',
     requireAuth(AUTH_OPTS) as RequestHandler,
     requirePermission('billing:manage') as RequestHandler,
-    withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    withRoute(async ({ req, res, ctx, orgId }) => {
       const registrationRef = (req.body as { registrationRef?: unknown })?.registrationRef;
       if (typeof registrationRef !== 'string' || !registrationRef) {
         return sendError(res, 400, 'registrationRef is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -260,7 +253,9 @@ export function createMarketplaceRoutes(): Router {
       }
 
       // Sync tier to quota (no add-ons yet on a fresh bind) + record the event.
-      await syncEntitlements(orgId, plan.tier, userId ?? '', subscription._id.toString(), subscription.addons ?? []);
+      // `''` auth ⇒ syncEntitlements mints a billing SERVICE token for the org —
+      // never forward (or mis-pass a user id as) a caller credential.
+      await syncEntitlements(orgId, plan.tier, '', subscription._id.toString(), subscription.addons ?? []);
       await createBillingEvent(orgId, 'subscription_created', {
         planId: pending.planId,
         tier: plan.tier,
@@ -289,7 +284,7 @@ export function createMarketplaceRoutes(): Router {
     async (req: Request, res: Response) => {
       // Set once we hold the dedup claim; released in catch so a transient
       // processing failure doesn't permanently short-circuit SNS's retries.
-      let claimedMessageId: string | undefined;
+      let claim: { messageId: string; token: string } | undefined;
       try {
         // SNS may send text/plain — parse if needed
         const snsMessage: SNSMessage = typeof req.body === 'string'
@@ -329,12 +324,12 @@ export function createMarketplaceRoutes(): Router {
         // done-marker is written only AFTER processing succeeds (below), so a
         // mid-process crash lets the claim expire and SNS's retry re-runs the
         // event instead of it being stranded as "processed" for 30d.
-        const isFirstDelivery = await claimWebhookEvent('sns', snsMessage.MessageId);
-        if (!isFirstDelivery) {
+        const claimToken = await claimWebhookEvent('sns', snsMessage.MessageId);
+        if (!claimToken) {
           logger.info('Skipping duplicate SNS delivery', { messageId: snsMessage.MessageId, type: snsMessage.Type });
           return sendSuccess(res, 200, { message: 'Duplicate message acknowledged' });
         }
-        claimedMessageId = snsMessage.MessageId;
+        claim = { messageId: snsMessage.MessageId, token: claimToken };
 
         // Do the work, capturing the success message — the done-marker is written
         // after the switch so EVERY successful branch promotes the claim exactly
@@ -377,7 +372,7 @@ export function createMarketplaceRoutes(): Router {
         // Release the idempotency claim so SNS's retry of this MessageId
         // re-processes instead of being short-circuited as a duplicate (which
         // would silently drop the event on a transient failure).
-        if (claimedMessageId) await releaseWebhookEvent('sns', claimedMessageId).catch(() => {});
+        if (claim) await releaseWebhookEvent('sns', claim.messageId, claim.token).catch(() => {});
         return sendError(
           res, 500,
           'Failed to process notification',

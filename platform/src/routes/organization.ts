@@ -1,10 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, requirePermission, sendError } from '@pipeline-builder/api-core';
-import { createSharedRateLimitStore } from '@pipeline-builder/api-server';
+import { requirePermission, requireStepUp } from '@pipeline-builder/api-core';
 import { Router } from 'express';
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import {
   getMyOrganization,
   createOrganization,
@@ -59,25 +57,20 @@ import {
   getImpersonationPolicy,
   updateImpersonationPolicy,
 } from '../controllers/org-impersonation-policy.js';
-import { requireAuth, requireSystemAdmin, requireStepUp } from '../middleware/index.js';
+import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
+import { createLimiter, userOrIpKey } from '../middleware/rate-limiter.js';
 
 const router: Router = Router();
 
 /** Per-user limiter for domain verification — each call triggers an outbound DNS
  *  TXT lookup, so bound it tighter than the global limiter (keyed per-user;
  *  requireAuth runs first). */
-const domainVerifyLimiter = rateLimit({
-  // Shared across replicas (Redis); a store outage lets requests through.
-  store: createSharedRateLimitStore('platform:domain-verify'),
-  passOnStoreError: true,
+const domainVerifyLimiter = createLimiter({
+  name: 'domain-verify',
   windowMs: 60_000,
   max: 10,
-  keyGenerator: (req) => req.user?.sub ?? ipKeyGenerator(req.ip || 'anon', 64),
-  handler: (_req, res) => {
-    sendError(res, 429, 'Too many verification attempts. Please wait a minute and try again.', ErrorCode.RATE_LIMIT_EXCEEDED);
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
+  keyGenerator: userOrIpKey,
+  message: 'Too many verification attempts. Please wait a minute and try again.',
 });
 
 /*
@@ -130,8 +123,9 @@ router.get('/:id/parent', requireAuth, getOrganizationParent);
 
 /** PUT /organization/:id - Update organization (sysadmin only).
  *  `requireSystemAdmin` mirrors the controller's own check at the route layer
- *  so org admins/owners are rejected here, not deeper in. */
-router.put('/:id', requireAuth, requireSystemAdmin, updateOrganization);
+ *  so org admins/owners are rejected here, not deeper in. Step-up gated like the
+ *  sibling sysadmin mutations (`PATCH /:id/tier`, `DELETE /:id`). */
+router.put('/:id', requireAuth, requireSystemAdmin, requireStepUp, updateOrganization);
 
 /** PATCH /organization/:id/identity - Self-serve org identity edit (name/slug).
  *  Owner/admin reachable (NOT sysadmin-only): `requirePermission('org:settings')`

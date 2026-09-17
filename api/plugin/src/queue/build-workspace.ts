@@ -14,6 +14,7 @@
 import * as fs from 'fs';
 import path from 'path';
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { UnrecoverableError } from 'bullmq';
 import { v7 as uuid } from 'uuid';
 import { BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import type { BuildRequest } from '../helpers/docker-build.js';
@@ -45,24 +46,50 @@ export function cleanupBuildArtifacts(buildRequest: Pick<BuildRequest, 'contextD
 }
 
 /**
+ * The build context is gone for good: not on this replica's disk and not
+ * restorable from object storage. Retrying cannot bring it back, so this is an
+ * {@link UnrecoverableError} — BullMQ fails the job immediately instead of
+ * burning its retry budget, and the failure handlers treat it as terminal.
+ */
+export class BuildContextMissingError extends UnrecoverableError {
+  constructor(detail: string) {
+    super(`Build context missing: ${detail}`);
+  }
+}
+
+/** S3 / MinIO "object absent" — the staged context expired or was never written. */
+function isMissingObjectError(err: unknown): boolean {
+  const name = (err as { name?: string } | null)?.name;
+  return name === 'NoSuchKey' || name === 'NotFound';
+}
+
+/**
  * Ensure the build context exists on THIS replica's local disk, returning the
  * usable path. Fast path: the extractDir the uploader wrote is present (same
  * replica) — use it as-is. Cross-replica: the local dir is absent, so download
  * the staged ZIP from object storage and re-extract into a fresh local dir,
  * mutating `buildRequest.contextDir` so the rest of the pipeline (build +
- * cleanup) is oblivious to where it came from. Throws if the context is neither
- * local nor recoverable from S3 — the worker treats that as a build failure.
+ * cleanup) is oblivious to where it came from. Throws
+ * {@link BuildContextMissingError} when the context is neither local nor in
+ * object storage; a transient storage error propagates as-is (retryable).
  */
 export async function ensureLocalBuildContext(buildRequest: BuildRequest): Promise<void> {
   if (buildRequest.contextDir && fs.existsSync(buildRequest.contextDir)) return;
   if (!buildRequest.s3Key) {
-    throw new Error(`Build context missing: ${buildRequest.contextDir} (no S3 key to restore from)`);
+    throw new BuildContextMissingError(`${buildRequest.contextDir} (no S3 key to restore from)`);
   }
 
   const zipPath = path.join(BUILD_TEMP_ROOT, `${uuid()}.zip`);
   const extractDir = path.join(BUILD_TEMP_ROOT, uuid());
   try {
-    await getPluginArtifactToFile(buildRequest.s3Key, zipPath);
+    try {
+      await getPluginArtifactToFile(buildRequest.s3Key, zipPath);
+    } catch (err) {
+      if (isMissingObjectError(err)) {
+        throw new BuildContextMissingError(`${buildRequest.contextDir} (staged object ${buildRequest.s3Key} not found)`);
+      }
+      throw err;
+    }
     await extractZipToDir(zipPath, extractDir);
   } finally {
     // The downloaded ZIP is only needed for extraction — drop it either way.

@@ -20,6 +20,7 @@ const mockWithTenantTx = jest.fn(async (fn: (tx: unknown) => unknown) => fn({ se
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
+jest.unstable_mockModule('../src/config/index.js', () => ({ config: { observability: { alertDeliveryTimeoutMs: 5000 } } }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   softDeleteRetentionMs: () => 0,
   schema: {

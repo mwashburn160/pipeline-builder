@@ -84,6 +84,11 @@
       "type": "build"
     },
     {
+      "name": "jsonwebtoken",
+      "version": "9.0.3",
+      "type": "build"
+    },
+    {
       "name": "ts-jest",
       "version": "29.4.12",
       "type": "build"
@@ -161,16 +166,6 @@
     {
       "name": "helmet",
       "version": "8.3.0",
-      "type": "runtime"
-    },
-    {
-      "name": "ioredis",
-      "version": "6.0.0",
-      "type": "runtime"
-    },
-    {
-      "name": "jsonwebtoken",
-      "version": "9.0.3",
       "type": "runtime"
     },
     {

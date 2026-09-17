@@ -37,7 +37,7 @@ describe('POST /logs/ticket (app-factory)', () => {
   let base: string;
 
   beforeAll(async () => {
-    const { app } = createApp({ enableRateLimit: false, enableOpenApi: false, enableHelmet: false });
+    const { app } = createApp({ enableRateLimit: false, enableOpenApi: false, enableHelmet: false, logStream: true });
     await new Promise<void>((resolve) => {
       server = app.listen(0, () => resolve());
     });
@@ -120,5 +120,29 @@ describe('POST /logs/ticket (app-factory)', () => {
     const reqId = '22222222-2222-2222-2222-222222222222';
     const res = await fetch(`${base}/logs/${reqId}`);
     expect(res.status).toBe(401);
+  });
+});
+
+describe('createApp without logStream', () => {
+  it('serves no /logs routes and does not stream ctx.log frames', async () => {
+    const { app, sseManager } = createApp({ enableRateLimit: false, enableOpenApi: false, enableHelmet: false });
+    expect(sseManager.logStreamEnabled).toBe(false);
+    let server: Server | undefined;
+    await new Promise<void>((resolve) => { server = app.listen(0, () => resolve()); });
+    try {
+      const base = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`;
+      const token = signAccess({ organizationId: 'org-a' });
+      const mint = await fetch(`${base}/logs/ticket`, {
+        method: 'POST',
+        headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ requestId: '11111111-1111-1111-1111-111111111111' }),
+      });
+      expect(mint.status).toBe(404);
+      const stream = await fetch(`${base}/logs/11111111-1111-1111-1111-111111111111?ticket=x`);
+      expect(stream.status).toBe(404);
+    } finally {
+      await new Promise<void>((resolve) => server!.close(() => resolve()));
+      sseManager.shutdown();
+    }
   });
 });

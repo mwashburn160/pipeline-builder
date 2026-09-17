@@ -10,4 +10,3 @@ export * from './org-domain.js';
 export * from './organization-members.js';
 export * from './organization-roles.js';
 export * from './invitation.js';
-export * from './log.js';

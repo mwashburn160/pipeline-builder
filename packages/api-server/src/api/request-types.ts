@@ -33,7 +33,7 @@ export interface RequestContext {
   requestId: string;
   /** Identity from headers */
   identity: RequestIdentity;
-  /** Logging function that sends to console and SSE */
+  /** Logging function: logger always, plus the SSE log stream when the service enables it */
   log: RequestLogger;
 }
 
@@ -86,12 +86,17 @@ export function createRequestContext(
         logger.info(message, meta);
         break;
     }
+    // Only a service that serves a log stream (createApp `logStream: true`)
+    // pushes the line to SSE — otherwise every log line of every service would
+    // be serialized, written and relayed across Redis for no subscriber.
     // The Winston call above is redacted by the logger's `redactFormat`, but the
     // SSE frame bypasses the logger entirely — apply the SAME key-pattern
     // redaction to `data` before it's pushed to the client so a secret in the
     // log payload (e.g. an accidental `token`/`password` field) isn't streamed
     // out over the build-log SSE channel.
-    sseManager.send(requestId, type, message, redactSensitive(data));
+    if (sseManager.logStreamEnabled) {
+      sseManager.send(requestId, type, message, redactSensitive(data));
+    }
   };
 
   return {

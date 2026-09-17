@@ -4,10 +4,11 @@
 /**
  * Lazily-constructed Redis client accessor for the platform.
  *
- * Platform is otherwise fully Mongo-backed; the ONE thing it needs Redis for is
- * PUBLISHING revocation entries that the stateless services read (a user's
- * `tokenVersion`, and ended impersonation sessions — see
- * helpers/session-revocation.ts).
+ * Platform is Mongo-backed; it uses this Redis client to PUBLISH revocation
+ * entries the stateless services read (a user's `tokenVersion`, ended
+ * impersonation sessions — see helpers/session-revocation.ts). Other
+ * cross-replica state (rate-limit buckets, pending OAuth/SSO states, leader
+ * locks, step-up single-use) resolves Redis through the same env.
  *
  * The client is built with api-core's `createEnvRedisClient`, the same
  * resolution every reading service uses (`REDIS_URL` or `REDIS_SENTINELS`). A

@@ -329,7 +329,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
             : <ScanManager onViewScan={handleViewScan} readOnly={!canManage} />
         )}
         {tab === 'schedules' && <ScanScheduleManager readOnly={!canManage} />}
-        {tab === 'templates' && <TemplateOnboarding />}
+        {tab === 'templates' && <TemplateOnboarding readOnly={!canManage} />}
         {tab === 'notifications' && <NotificationPreferencesManager readOnly={!canManage} />}
       </Suspense>
     </div>

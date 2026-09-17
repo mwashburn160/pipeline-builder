@@ -12,10 +12,6 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 const { incrementQuotaFromCtx } = await import('../src/api/quota-helpers.js');
 
-function mockReq(authHeader?: string): any {
-  return { headers: authHeader !== undefined ? { authorization: authHeader } : {} };
-}
-
 function mockCtx(): any {
   return { log: jest.fn() };
 }
@@ -25,23 +21,20 @@ describe('incrementQuotaFromCtx', () => {
     mockIncrementQuota.mockReset();
   });
 
-  it('meters via incrementQuota WITHOUT forwarding the user authorization header', () => {
-    const req = mockReq('Bearer abc');
+  it('meters the org through incrementQuota (which authenticates as the service, never the user)', () => {
     const ctx = mockCtx();
-    incrementQuotaFromCtx({} as any, { req, ctx, orgId: 'org-1' }, 'apiCalls' as any);
+    incrementQuotaFromCtx({} as any, { ctx, orgId: 'org-1' }, 'apiCalls' as any);
     expect(mockIncrementQuota).toHaveBeenCalledWith(
       {},
       'org-1',
       'apiCalls',
       expect.any(Function),
     );
-    expect(mockIncrementQuota.mock.calls[0]).not.toContain('Bearer abc');
   });
 
   it('binds the log function as a WARN-level logger', () => {
-    const req = mockReq('tok');
     const ctx = mockCtx();
-    incrementQuotaFromCtx({} as any, { req, ctx, orgId: 'org-3' }, 'plugins' as any);
+    incrementQuotaFromCtx({} as any, { ctx, orgId: 'org-3' }, 'plugins' as any);
     const boundLogger = mockIncrementQuota.mock.calls[0][3] as (m: string, d: unknown) => void;
     boundLogger('quota close to limit', { used: 99 });
     expect(ctx.log).toHaveBeenCalledWith('WARN', 'quota close to limit', { used: 99 });

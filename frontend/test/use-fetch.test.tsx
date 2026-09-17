@@ -109,10 +109,11 @@ describe('useFetch', () => {
 
     // Resolve AFTER unmount — the hook should swallow the state write.
     // No throw, no warning is the success signal.
-    await resolveFetch({ ok: true });
-    await pending;
-    // Yield to the microtask queue so the .then/.finally handlers run
-    await new Promise(r => setTimeout(r, 0));
+    // `act` flushes the .then/.finally handlers queued by the resolution.
+    await act(async () => {
+      resolveFetch({ ok: true });
+      await pending;
+    });
 
     expect(errorSpy).not.toHaveBeenCalled();
     errorSpy.mockRestore();

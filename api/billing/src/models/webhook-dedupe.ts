@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { randomUUID } from 'node:crypto';
 import mongoose, { Schema, type Document } from 'mongoose';
 
 /**
@@ -33,6 +34,11 @@ export interface WebhookDedupeDocument extends Document {
   source: WebhookSource;
   eventId: string;
   status: WebhookStatus;
+  /**
+   * Opaque token identifying WHICH claim holds the in_progress lease. Re-minted on
+   * every (re-)claim so a release can compare-and-delete only its OWN claim.
+   */
+  claimToken?: string;
   /** Per-doc TTL anchor. Short for an in_progress lease, 30d for a done marker. */
   expireAt: Date;
   createdAt: Date;
@@ -53,6 +59,7 @@ const webhookDedupeSchema = new Schema<WebhookDedupeDocument>(
     source: { type: String, enum: ['sns', 'stripe'], required: true },
     eventId: { type: String, required: true },
     status: { type: String, enum: ['in_progress', 'done'], required: true, default: 'in_progress' },
+    claimToken: { type: String },
     // TTL anchor (see the {expireAt} index below). Set on claim (short lease) and
     // reset on the done-marker (30d) so a single index expires both phases.
     expireAt: { type: Date, required: true },
@@ -71,7 +78,7 @@ webhookDedupeSchema.index({ source: 1, eventId: 1 }, { unique: true });
 // done marker off one index.
 webhookDedupeSchema.index({ expireAt: 1 }, { expireAfterSeconds: 0 });
 
-export const WebhookDedupe =
+const WebhookDedupe =
   (mongoose.models.WebhookDedupe as mongoose.Model<WebhookDedupeDocument>) ||
   mongoose.model<WebhookDedupeDocument>('WebhookDedupe', webhookDedupeSchema);
 
@@ -83,28 +90,31 @@ export const WebhookDedupe =
  * `in_progress` claim whose lease has expired (a crashed prior attempt). A LIVE
  * in_progress claim (concurrent delivery) and a durable `done` marker both fail to
  * match, so the upsert falls through to an insert that trips the unique
- * (source, eventId) index → duplicate-key → `false`. On success the caller MUST
+ * (source, eventId) index → duplicate-key → `null`. On success the caller MUST
  * call {@link markWebhookEventDone} after its side-effects (or
- * {@link releaseWebhookEvent} on a handled failure).
+ * {@link releaseWebhookEvent} with the returned token on a handled failure).
+ *
+ * @returns the claim token (process the event) or `null` (duplicate — skip).
  */
-export async function claimWebhookEvent(source: WebhookSource, eventId: string): Promise<boolean> {
+export async function claimWebhookEvent(source: WebhookSource, eventId: string): Promise<string | null> {
   const now = new Date();
   const leaseExpiry = new Date(now.getTime() + IN_PROGRESS_TTL_SECONDS * 1000);
+  const claimToken = randomUUID();
   try {
     // Filter matches nothing (→ insert a fresh claim) or an EXPIRED in_progress
-    // lease (→ re-claim it with a new lease). `status` stays 'in_progress' via the
-    // query equality on both insert and update; only the lease is $set.
+    // lease (→ re-claim it with a new lease + a NEW token). `status` stays
+    // 'in_progress' via the query equality on both insert and update.
     await WebhookDedupe.findOneAndUpdate(
       { source, eventId, status: 'in_progress', expireAt: { $lte: now } },
-      { $set: { expireAt: leaseExpiry } },
+      { $set: { expireAt: leaseExpiry, claimToken } },
       { upsert: true },
     );
-    return true;
+    return claimToken;
   } catch (err) {
     // Mongoose `MongoServerError` code 11000 = duplicate key: a live in_progress
     // claim or a durable done marker already exists → this is a duplicate delivery.
     if ((err as { code?: number }).code === 11000) {
-      return false;
+      return null;
     }
     throw err;
   }
@@ -133,12 +143,17 @@ export async function markWebhookEventDone(source: WebhookSource, eventId: strin
 
 /**
  * Release a previously-claimed event so the provider's NEXT retry reprocesses it.
- * Call this on a HANDLED processing failure after {@link claimWebhookEvent}
- * returned `true` (an unhandled crash relies on the lease expiring instead). The
- * claim doubles as a concurrency lock, but a failed attempt must not leave a
- * marker behind — otherwise every retry short-circuits as a duplicate and the
- * event is lost.
+ * Call this on a HANDLED processing failure with the token {@link claimWebhookEvent}
+ * returned (an unhandled crash relies on the lease expiring instead). The claim
+ * doubles as a concurrency lock, but a failed attempt must not leave a marker
+ * behind — otherwise every retry short-circuits as a duplicate and the event is lost.
+ *
+ * COMPARE-AND-DELETE: only the caller's OWN still-in_progress claim is removed. A
+ * slow handler can outlive its lease; by the time it fails, a redelivery may have
+ * re-claimed the event (new token) or completed it (`done`). An unconditional
+ * delete would wipe that newer claim/marker and let a third delivery re-run the
+ * side-effects concurrently or after completion.
  */
-export async function releaseWebhookEvent(source: WebhookSource, eventId: string): Promise<void> {
-  await WebhookDedupe.deleteOne({ source, eventId });
+export async function releaseWebhookEvent(source: WebhookSource, eventId: string, claimToken: string): Promise<void> {
+  await WebhookDedupe.deleteOne({ source, eventId, status: 'in_progress', claimToken });
 }

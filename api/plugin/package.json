@@ -23,7 +23,6 @@
     "@jest/globals": "30.4.1",
     "@stylistic/eslint-plugin": "^2",
     "@types/adm-zip": "0.5.8",
-    "@types/cors": "2.8.19",
     "@types/express": "5.0.6",
     "@types/jsonwebtoken": "9.0.10",
     "@types/multer": "2.2.0",
@@ -38,6 +37,7 @@
     "eslint-plugin-import": "^2.32.0",
     "jest": "30.4.2",
     "jest-junit": "^17",
+    "jsonwebtoken": "9.0.3",
     "ts-jest": "29.4.12",
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
@@ -50,13 +50,9 @@
     "@pipeline-builder/pipeline-data": "workspace:*",
     "adm-zip": "0.6.0",
     "bullmq": "5.80.6",
-    "cors": "2.8.6",
     "drizzle-orm": "0.45.2",
     "express": "5.2.1",
-    "express-rate-limit": "8.6.1",
-    "helmet": "8.3.0",
     "ioredis": "6.0.0",
-    "jsonwebtoken": "9.0.3",
     "multer": "2.2.0",
     "pg": "8.22.0",
     "uuid": "14.0.1",
@@ -78,7 +74,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "4.1.4",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",

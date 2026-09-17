@@ -48,9 +48,16 @@ function req({ ip, headers = {} }: { ip?: string; headers?: Record<string, strin
   return { ip, headers } as unknown as express.Request;
 }
 
+/** An UNSIGNED token carrying `payload` — what a forger can send. */
 function bearer(payload: object): Record<string, string> {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return { authorization: `Bearer header.${body}.sig` };
+}
+
+/** A validly signed access token carrying `payload`. */
+function signed(payload: object): Record<string, string> {
+  const token = jwt.sign({ type: 'access', ...payload }, config.auth.jwt.secret, { algorithm: config.auth.jwt.algorithm });
+  return { authorization: `Bearer ${token}` };
 }
 
 describe('extractClientIp', () => {
@@ -90,8 +97,19 @@ describe('extractClientIp', () => {
 
 describe('rateLimitKey', () => {
   it('buckets an authenticated caller by org', () => {
-    expect(rateLimitKey(req({ ip: '203.0.113.7', headers: bearer({ organizationId: 'Acme' }) })))
+    expect(rateLimitKey(req({ ip: '203.0.113.7', headers: signed({ organizationId: 'Acme' }) })))
       .toBe('org:acme');
+  });
+
+  it('IGNORES an unverified organizationId — a random org per request must not mint fresh buckets', () => {
+    const keys = new Set(['org-a', 'org-b', 'org-c'].map((organizationId) =>
+      rateLimitKey(req({ ip: '203.0.113.7', headers: bearer({ type: 'access', organizationId }) }))));
+    expect(keys).toEqual(new Set(['ip:203.0.113.7']));
+  });
+
+  it('does not bucket by a signed non-access token', () => {
+    const token = jwt.sign({ type: 'step-up', organizationId: 'acme' }, config.auth.jwt.secret, { algorithm: config.auth.jwt.algorithm });
+    expect(rateLimitKey(req({ ip: '203.0.113.7', headers: { authorization: `Bearer ${token}` } }))).toBe('ip:203.0.113.7');
   });
 
   it('falls back to IP keying with no token', () => {
@@ -128,12 +146,8 @@ describe('peekJwtClaims', () => {
 });
 
 describe('verifiedIsSuperAdmin', () => {
-  const sign = (payload: object) =>
-    jwt.sign(payload, config.auth.jwt.secret, { algorithm: config.auth.jwt.algorithm });
-
   it('honours a properly signed sysadmin token', () => {
-    expect(verifiedIsSuperAdmin(req({ headers: { authorization: `Bearer ${sign({ isSuperAdmin: true })}` } })))
-      .toBe(true);
+    expect(verifiedIsSuperAdmin(req({ headers: signed({ isSuperAdmin: true }) }))).toBe(true);
   });
 
   it('REFUSES an unsigned isSuperAdmin claim — the bypass removes throttling entirely', () => {
@@ -146,7 +160,7 @@ describe('verifiedIsSuperAdmin', () => {
   });
 
   it('refuses a signed token without the flag, and unauthenticated requests', () => {
-    expect(verifiedIsSuperAdmin(req({ headers: { authorization: `Bearer ${sign({ sub: 'u1' })}` } }))).toBe(false);
+    expect(verifiedIsSuperAdmin(req({ headers: signed({ sub: 'u1' }) }))).toBe(false);
     expect(verifiedIsSuperAdmin(req({}))).toBe(false);
   });
 });
@@ -154,19 +168,24 @@ describe('verifiedIsSuperAdmin', () => {
 describe('tierLimitedMax', () => {
   it('scales the baseline by the tier multiplier', () => {
     const base = config.rateLimit.max;
-    expect(tierLimitedMax(req({ headers: bearer({ tier: 'developer' }) })))
+    expect(tierLimitedMax(req({ headers: signed({ tier: 'developer' }) })))
       .toBe(Math.max(1, Math.floor(base * config.rateLimit.tierMultipliers.developer)));
-    expect(tierLimitedMax(req({ headers: bearer({ tier: 'enterprise' }) })))
+    expect(tierLimitedMax(req({ headers: signed({ tier: 'enterprise' }) })))
       .toBe(Math.max(1, Math.floor(base * config.rateLimit.tierMultipliers.enterprise)));
+  });
+
+  it('IGNORES an unverified tier claim — a forged tier:"unlimited" gets the base budget', () => {
+    expect(tierLimitedMax(req({ headers: bearer({ type: 'access', tier: 'unlimited' }) })))
+      .toBe(Math.max(1, Math.floor(config.rateLimit.max)));
   });
 
   it('falls back to the developer baseline for an unknown or absent tier', () => {
     const fallback = Math.max(1, Math.floor(config.rateLimit.max * 1));
-    expect(tierLimitedMax(req({ headers: bearer({ tier: 'platinum' }) }))).toBe(fallback);
+    expect(tierLimitedMax(req({ headers: signed({ tier: 'platinum' }) }))).toBe(fallback);
     expect(tierLimitedMax(req({}))).toBe(fallback);
   });
 
   it('never returns less than 1', () => {
-    expect(tierLimitedMax(req({ headers: bearer({ tier: 'developer' }) }))).toBeGreaterThanOrEqual(1);
+    expect(tierLimitedMax(req({ headers: signed({ tier: 'developer' }) }))).toBeGreaterThanOrEqual(1);
   });
 });

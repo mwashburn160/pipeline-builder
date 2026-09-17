@@ -128,6 +128,10 @@ paths:
   /auth/refresh:
     post:
       summary: Exchange refresh token for new token pair
+      description: >-
+        Rotates the refresh token's session slot (one per signed-in device). Presenting a
+        refresh token that was already rotated revokes that device's session; other
+        devices stay signed in.
       operationId: refresh
       tags: [Authentication]
       security:
@@ -149,7 +153,10 @@ paths:
 
   /auth/logout:
     post:
-      summary: Invalidate current session
+      summary: Sign this device out
+      description: >-
+        Revokes the refresh session the access token belongs to. Other devices stay signed
+        in; POST /user/tokens/revoke-all signs out everywhere.
       operationId: logout
       tags: [Authentication]
       security:

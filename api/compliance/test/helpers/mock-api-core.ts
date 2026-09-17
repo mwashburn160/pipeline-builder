@@ -43,12 +43,31 @@ class NotFoundError extends Error {
   }
 }
 
+/** Mirrors api-core's ConflictError (statusCode 409 / code CONFLICT). */
+class ConflictError extends Error {
+  statusCode = 409;
+  code = 'CONFLICT';
+  constructor(message?: string) {
+    super(message);
+    this.name = 'ConflictError';
+  }
+}
+
+/**
+ * The REAL api-core exports, used as the base of every mock below. Suites stub
+ * only what they exercise; everything else is the genuine export, so adding an
+ * export to api-core can never again break a suite with "does not provide an
+ * export named X". (`requireActual` bypasses the module mock.)
+ */
+const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record<string, unknown>;
+
 /**
  * Default api-core namespace for `unstable_mockModule`. Spread `overrides` last
  * so a suite can replace any default (and add exports the default omits).
  */
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   const mock: Record<string, unknown> = {
+    ...actualApiCore,
     createLogger: loggerMock,
     MAX_PAGE_LIMIT: 1000,
     DEFAULT_PAGE_LIMIT: 100,
@@ -66,26 +85,23 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    // Module-load tunables (scan batch sizes, regex cap, …). Reads the env like
+    // the real helper so a suite can set e.g. COMPLIANCE_SCAN_ENTITY_PAGE_SIZE.
+    envInt: (name: string, def: number) => {
+      const n = Number.parseInt(process.env[name] ?? '', 10);
+      return Number.isFinite(n) ? n : def;
+    },
     // Default no-op so route modules importing `sendError` link under ESM. A
     // suite asserting on responses can override with its own res-writing spy.
     sendError: jest.fn(),
     // `requirePermission(...perms)` is a factory that RETURNS middleware, so
     // the stub is a function producing the pass-through guard.
     requirePermission: () => passThroughMiddleware,
-    // Inline permission check (e.g. the deactivate gate in subscriptions.ts).
-    // Defaults to "no permission" so route suites see plain-member behavior; a
-    // suite exercising the gate overrides this with its own permission logic.
-    userHasPermission: () => false,
-    // Audit wiring: `services/audit.ts` builds a client over
-    // `createRemoteAuditClient()`; boot registers an `authz.denied` auditor via
-    // `setAuthzDenialAuditor`. Stub both so suites loading `audit.js` link.
-    createRemoteAuditClient: () => ({ record: jest.fn() }),
-    createEnvRedisAuditSpool: () => null,
-    // Service audit factory — src/services/audit.ts now links against this. Returns
-    // the ServiceAuditClient shape: `emit` + a spool-backed `client` (RemoteAuditClient).
-    createServiceAuditClient: () => ({ emit: jest.fn(), client: { record: jest.fn() } }),
-    setAuthzDenialAuditor: () => {},
-    wireAuthzDenialAuditor: () => {},
+    requireFeature: () => passThroughMiddleware,
+    // Service audit accessor — src/services/audit.ts links against this. Returns
+    // the lazy accessor shape: `getAuditClient` (RemoteAuditClient) + `emit`.
+    // Suites asserting `authz.denied` wire api-core's real sink instead.
+    createRemoteAuditAccessor: () => ({ getAuditClient: () => ({ record: jest.fn() }), emit: jest.fn() }),
     wireServiceSecurity: () => {},
     // boot-time token-revocation reader registration (session-invalidation
     // option b) — stubbed so suites that transitively load the boot module link.
@@ -97,6 +113,12 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     createEnvRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
     createEnvRedisLock: () => null,
     NotFoundError,
+    ConflictError,
+    // Link-only defaults for modules that import these at load (webhook SSRF
+    // guard, compliance-attribute projection). Suites exercising them import the
+    // real implementations instead.
+    isPrivateAddress: () => false,
+    toComplianceAttributes: <T>(v: T): T => v,
     createCacheService: () => ({
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
       invalidatePattern: () => Promise.resolve(0),
@@ -104,20 +126,19 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     ...overrides,
   };
 
-  // `requireServicePrincipal` was promoted from identical local copies in the
-  // entity-events / subscriptions routes into api-core. Mirror the old local
-  // guard here: reject non-service callers by resolving `isServicePrincipal` and
-  // `sendBadRequest` from the merged mock so a suite's overrides still win. A
-  // suite may supply its own `requireServicePrincipal` to take precedence.
-  if (mock.requireServicePrincipal === undefined) {
+  // Mirror api-core's `requireServicePrincipal`: reject non-service callers with
+  // a 403 INSUFFICIENT_PERMISSIONS (an authorization refusal, not a 400),
+  // resolving `isServicePrincipal` and `sendError` from the merged mock so a
+  // suite's overrides still win. A suite may supply its own gate instead.
+  if (overrides.requireServicePrincipal === undefined) {
     mock.requireServicePrincipal = (req: unknown, res: unknown, next: () => void) => {
       const isSvc = mock.isServicePrincipal as ((r: unknown) => boolean) | undefined;
       if (isSvc?.(req)) {
         next();
         return;
       }
-      const badRequest = mock.sendBadRequest as ((res: unknown, msg: string, code: string) => unknown) | undefined;
-      badRequest?.(res, 'Internal service calls only', 'INSUFFICIENT_PERMISSIONS');
+      const sendError = mock.sendError as (res: unknown, status: number, msg: string, code: string) => unknown;
+      sendError(res, 403, 'Internal service calls only', 'INSUFFICIENT_PERMISSIONS');
     };
   }
 

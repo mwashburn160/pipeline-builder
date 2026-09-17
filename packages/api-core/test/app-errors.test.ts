@@ -9,7 +9,6 @@ import {
   ForbiddenError,
   ValidationError,
   ConflictError,
-  UnauthorizedError,
 } from '../src/errors/app-errors.js';
 import { ErrorCode } from '../src/types/error-codes.js';
 
@@ -69,11 +68,3 @@ describe('ConflictError', () => {
   });
 });
 
-describe('UnauthorizedError', () => {
-  it('returns status 401 and UNAUTHORIZED code', () => {
-    const err = new UnauthorizedError('token expired');
-    expect(err.statusCode).toBe(401);
-    expect(err.code).toBe(ErrorCode.UNAUTHORIZED);
-    expect(err.name).toBe('UnauthorizedError');
-  });
-});

@@ -9,7 +9,7 @@ import {
   resetSupportAliasesCache,
   DEFAULT_SUPPORT_ALIAS,
 } from '../src/utils/alias-resolver.js';
-import { envInt, envBool, envStr, envEnum } from '../src/utils/env.js';
+import { envInt, envBool, envStr } from '../src/utils/env.js';
 
 const ENV_KEYS = ['T_INT', 'T_BOOL', 'T_STR', 'T_ENUM', 'SUPPORT_ALIASES'];
 afterEach(() => {
@@ -35,11 +35,6 @@ describe('envBool', () => {
 describe('envStr', () => {
   it('returns the value', () => { process.env.T_STR = 'hi'; expect(envStr('T_STR', 'def')).toBe('hi'); });
   it('falls back on unset/empty', () => { expect(envStr('T_STR', 'def')).toBe('def'); });
-});
-
-describe('envEnum', () => {
-  it('accepts a member', () => { process.env.T_ENUM = 'b'; expect(envEnum('T_ENUM', ['a', 'b', 'c'] as const, 'a')).toBe('b'); });
-  it('falls back on non-member', () => { process.env.T_ENUM = 'z'; expect(envEnum('T_ENUM', ['a', 'b'] as const, 'a')).toBe('a'); });
 });
 
 describe('support alias resolver', () => {

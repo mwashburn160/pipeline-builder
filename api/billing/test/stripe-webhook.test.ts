@@ -157,8 +157,17 @@ jest.unstable_mockModule('../src/providers/stripe-provider.js', () => {
   return { StripeProvider: MockStripeProvider };
 });
 
+// Signup promotions/referral — the shared helper is spied so the settle-later
+// (incomplete→active) and Checkout paths can be asserted to invoke it.
+const mockRunSignupPromotions = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+jest.unstable_mockModule('../src/helpers/signup-promotions.js', () => ({
+  runSignupPromotions: (...a: unknown[]) => mockRunSignupPromotions(...a),
+}));
+
 const { sendError } = await import('@pipeline-builder/api-core');
-const { createStripeWebhookRoutes, planFromStripePrice, handleSubscriptionUpdated, handleSubscriptionCreated } = await import('../src/routes/stripe-webhook.js');
+const { createStripeWebhookRoutes } = await import('../src/routes/stripe-webhook.js');
+const { planFromStripePrice, handleSubscriptionUpdated, handleSubscriptionCreated } = await import('../src/helpers/stripe-subscription-handlers.js');
+const { handlePaymentFailed } = await import('../src/helpers/stripe-invoice-handlers.js');
 
 // Since we can't easily test instanceof with mocks, we test the handler logic directly.
 // Extract the route handler from the router.
@@ -457,12 +466,17 @@ describe('handleSubscriptionCreated (checkout provisioning)', () => {
     }));
     // Entitlements granted with a real service token + the new sub id.
     expect(mockSyncTier).toHaveBeenCalledWith('org-9', 'team', 'Bearer service-token', 'sub-new');
+    expect(mockRunSignupPromotions).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: expect.anything() }), expect.objectContaining({ tier: 'team' }),
+      expect.objectContaining({ source: 'stripe_checkout' }),
+    );
   });
 
   it('does NOT grant entitlements for a non-entitlement-worthy status (incomplete)', async () => {
     await handleSubscriptionCreated(created({ orgId: 'org-9', planId: 'team', interval: 'monthly' }, 'incomplete'));
     expect(mockSubscriptionCreate).toHaveBeenCalled();
     expect(mockSyncTier).not.toHaveBeenCalled();
+    expect(mockRunSignupPromotions).not.toHaveBeenCalled();
   });
 
   it('does NOT provision an out-of-band create with no planId metadata', async () => {
@@ -557,5 +571,134 @@ describe('handleSubscriptionUpdated interval-only change', () => {
     const types = mockCreateBillingEvent.mock.calls.map((c) => c[1]);
     expect(types).toContain('plan_changed');
     expect(types).not.toContain('interval_changed');
+  });
+});
+
+// ============================================
+// handleSubscriptionUpdated → incomplete settles to active (grant + signup credit)
+// ============================================
+
+describe('handleSubscriptionUpdated unentitled → entitled crossing', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPlanFindById.mockResolvedValue({ _id: 'team', tier: 'team', name: 'Team', prices: { monthly: 7900, annual: 79000 } });
+  });
+
+  function makeSub(overrides: Record<string, unknown> = {}) {
+    return {
+      _id: { toString: () => 'sub-inc' },
+      orgId: 'org-inc',
+      planId: 'team',
+      interval: 'monthly',
+      status: 'incomplete',
+      cancelAtPeriodEnd: false,
+      addons: [{ bundleId: 'seat_pack', quantity: 2 }],
+      metadata: { provider: 'stripe' } as Record<string, unknown>,
+      save: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      ...overrides,
+    };
+  }
+
+  const stripeSub = (status: string, metadata: Record<string, string> = {}) =>
+    ({ id: 'sub_ext', status, cancel_at_period_end: false, items: { data: [] }, metadata }) as any;
+
+  it('grants the plan tier (service token, with add-ons) + runs signup promotions when incomplete settles to active', async () => {
+    const sub = makeSub();
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated(stripeSub('active', { referralCode: 'org-referrer' }));
+
+    expect(sub.status).toBe('active');
+    expect(sub.save).toHaveBeenCalled();
+    expect(mockSyncTier).toHaveBeenCalledWith('org-inc', 'team', 'Bearer service-token', 'sub-inc', [{ bundleId: 'seat_pack', quantity: 2 }]);
+    expect(mockRunSignupPromotions).toHaveBeenCalledWith(sub, expect.objectContaining({ tier: 'team' }), {
+      source: 'stripe_settled', referralCode: 'org-referrer',
+    });
+  });
+
+  it('honors (and consumes) a referral code stashed by the in-app create', async () => {
+    const sub = makeSub({ metadata: { provider: 'stripe', pendingReferralCode: 'org-ref-2' } });
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated(stripeSub('trialing'));
+
+    expect(mockRunSignupPromotions).toHaveBeenCalledWith(sub, expect.anything(), expect.objectContaining({ referralCode: 'org-ref-2' }));
+    expect(sub.metadata.pendingReferralCode).toBeUndefined();
+  });
+
+  it('re-grants the tier but NOT signup promotions for a canceled(unpaid) → active recovery', async () => {
+    const sub = makeSub({ status: 'canceled' });
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated(stripeSub('active'));
+
+    expect(mockSyncTier).toHaveBeenCalledWith('org-inc', 'team', 'Bearer service-token', 'sub-inc', expect.any(Array));
+    expect(mockRunSignupPromotions).not.toHaveBeenCalled();
+  });
+
+  it('does nothing extra for an already-entitled sub (active → active)', async () => {
+    const sub = makeSub({ status: 'active' });
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated(stripeSub('active'));
+
+    expect(mockSyncTier).not.toHaveBeenCalled();
+    expect(mockRunSignupPromotions).not.toHaveBeenCalled();
+  });
+
+  it('does NOT grant while the sub is still incomplete', async () => {
+    const sub = makeSub();
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated(stripeSub('incomplete'));
+
+    expect(mockSyncTier).not.toHaveBeenCalled();
+    expect(mockRunSignupPromotions).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================
+// handlePaymentFailed → never revives a terminal subscription
+// ============================================
+
+describe('handlePaymentFailed terminal guard', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  const invoice = { id: 'in_late', parent: { subscription_details: { subscription: 'sub_ext' } } } as any;
+
+  function makeSub(status: string) {
+    return {
+      _id: { toString: () => 'sub-pf' },
+      orgId: 'org-pf',
+      status,
+      failedPaymentAttempts: 0,
+      firstFailedAt: undefined as Date | undefined,
+      save: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    };
+  }
+
+  it.each(['canceled', 'incomplete'])('leaves a %s subscription untouched on a late payment_failed', async (status) => {
+    const sub = makeSub(status);
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handlePaymentFailed(invoice);
+
+    expect(sub.status).toBe(status);
+    expect(sub.firstFailedAt).toBeUndefined();
+    expect(sub.save).not.toHaveBeenCalled();
+    expect(mockCreateBillingEvent).not.toHaveBeenCalled();
+  });
+
+  it('still moves an active subscription into past_due + starts the grace clock', async () => {
+    const sub = makeSub('active');
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handlePaymentFailed(invoice);
+
+    expect(sub.status).toBe('past_due');
+    expect(sub.failedPaymentAttempts).toBe(1);
+    expect(sub.firstFailedAt).toBeInstanceOf(Date);
+    expect(sub.save).toHaveBeenCalled();
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-pf', 'payment_failed', expect.objectContaining({ previousStatus: 'active', newStatus: 'past_due' }), 'sub-pf');
   });
 });

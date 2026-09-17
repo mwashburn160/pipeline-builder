@@ -18,9 +18,10 @@
  * boundary even when dashboards are user-editable.
  */
 
-import { createLogger, getParam, sendError, sendQuotaReserveDenied, sendSuccess, userHasPermission } from '@pipeline-builder/api-core';
+import { createLogger, getParam, sendError, sendQuotaReserveDenied, sendSuccess, userHasPermission, isSystemAdmin } from '@pipeline-builder/api-core';
+import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
-import { getAdminContext, isSystemAdmin, requireAuthContext, withController } from '../helpers/controller-helper.js';
+import { getAdminContext, requireAuthContext, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
 import { canQueryCatalogKey, type CatalogCaller, QUERIES } from '../observability/catalog.js';
 import { dashboardService, type PanelInput } from '../services/dashboard-service.js';
@@ -32,10 +33,12 @@ const logger = createLogger('dashboards-controller');
  *  pathological client payloads. Numbers picked to be generous for a
  *  realistic dashboard while still bounded enough to keep the JSONB column
  *  + payload size sane. */
-const MAX_NAME = parseInt(process.env.DASHBOARD_MAX_NAME || '150', 10);
-const MAX_DESCRIPTION = parseInt(process.env.DASHBOARD_MAX_DESCRIPTION || '1000', 10);
-const MAX_TITLE = parseInt(process.env.DASHBOARD_MAX_PANEL_TITLE || '200', 10);
-const MAX_PANELS = parseInt(process.env.DASHBOARD_MAX_PANELS || '50', 10);
+const {
+  dashboardMaxName: MAX_NAME,
+  dashboardMaxDescription: MAX_DESCRIPTION,
+  dashboardMaxPanelTitle: MAX_TITLE,
+  dashboardMaxPanels: MAX_PANELS,
+} = config.observability;
 
 
 /**

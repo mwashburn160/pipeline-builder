@@ -32,6 +32,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
     CoreConstants: { CACHE_TTL_ENTITY: 60 },
 
     buildPipelineConditions: jest.fn(() => []),
+
+    withViewerContext: <T>(filter: T): T => filter,
     getTenantContext: jest.fn(() => undefined),
     schema: {
       pipeline: {
@@ -75,6 +77,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     CoreConstants: { CACHE_TTL_ENTITY: 60 },
 
     buildPipelineConditions: jest.fn(() => []),
+
+    withViewerContext: <T>(filter: T): T => filter,
     getTenantContext: jest.fn(() => undefined),
     schema: {
       pipeline: {

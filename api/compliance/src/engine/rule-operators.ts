@@ -8,8 +8,8 @@
  * returning true if the condition is MET (no violation) or false if VIOLATED.
  */
 
+import { envInt } from '@pipeline-builder/api-core';
 import type { RuleOperator } from '@pipeline-builder/pipeline-data';
-import { parseIntEnv } from '../helpers/env.js';
 
 /**
  * Cap on user-supplied regex patterns in compliance rules — long patterns
@@ -25,7 +25,7 @@ import { parseIntEnv } from '../helpers/env.js';
  * build dependency. Until then, keeping the length cap small is the cheapest
  * mitigation we have.
  */
-const MAX_REGEX_LENGTH = parseIntEnv(process.env.COMPLIANCE_MAX_REGEX_LENGTH, 100);
+const MAX_REGEX_LENGTH = envInt('COMPLIANCE_MAX_REGEX_LENGTH', 100, { min: 1 });
 
 /**
  * Safely compile and test a regex pattern with length limits.

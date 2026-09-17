@@ -6,6 +6,7 @@ import { schema, withTenantTx, softDeleteRetentionMs } from '@pipeline-builder/p
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 
 import { getNotificationChannel, type NotificationMessage } from './notification-channels.js';
+import { config } from '../config/index.js';
 
 const logger = createLogger('alert-destination-service');
 
@@ -14,7 +15,7 @@ const logger = createLogger('alert-destination-service');
  * per-destination `ALERT_DELIVERY_TIMEOUT_MS` so a slow/unreachable target
  * fails fast with a clear error instead of hanging the request.
  */
-const TEST_DELIVERY_TIMEOUT_MS = parseInt(process.env.ALERT_DELIVERY_TIMEOUT_MS || '5000', 10);
+const TEST_DELIVERY_TIMEOUT_MS = config.observability.alertDeliveryTimeoutMs;
 
 /** Thrown when a test send targets a destination that doesn't exist in the
  *  caller's org. The controller maps this to a 404 (not a 500). */

@@ -23,7 +23,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
   config: { invitation: { expirationDays: 7, maxPendingPerOrg: 50 } },
 }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 
 const mockSeatCapacity = jest.fn(async () => true);
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({
@@ -63,7 +63,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   },
 }));
 
-const { invitationService, INV_MAX_REACHED } = await import('../src/services/invitation-service.js');
+const { invitationService } = await import('../src/services/invitation-service.js');
+const { INV_MAX_REACHED } = await import('../src/services/invitation-errors.js');
 
 const baseInput = {
   orgId: 'org-1',

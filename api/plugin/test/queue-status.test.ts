@@ -20,12 +20,16 @@ const mockDlqGetJobs = jest.fn();
 // single-tier handle so the existing single-mock assertions still hold.
 const mockTierQueue = { name: 'plugin-build', getJobCounts: mockGetJobCounts, getJobs: mockGetJobs };
 const mockPurgeDlq = jest.fn();
-jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
+jest.unstable_mockModule('../src/queue/connections.js', () => ({
   getAllTierQueues: () => [{ tier: 'developer', queue: mockTierQueue }],
   getDeadLetterQueue: () => ({ getJobCounts: mockDlqGetJobCounts, getJobs: mockDlqGetJobs }),
-  purgeDlq: mockPurgeDlq,
-  replayDlqJob: jest.fn(),
   findFailedJob: jest.fn(),
+}));
+jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
+  purgeDlq: mockPurgeDlq,
+}));
+jest.unstable_mockModule('../src/queue/requeue.js', () => ({
+  replayDlqJob: jest.fn(),
   retryFailedJob: jest.fn(),
 }));
 

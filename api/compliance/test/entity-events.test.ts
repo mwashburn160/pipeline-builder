@@ -117,7 +117,8 @@ describe('Entity Events Route', () => {
 
   it('rejects non-service-principal callers (e.g. user JWTs)', async () => {
     await runRoute(makeReq({}, { __notServicePrincipal: true }), res);
-    expect(sendBadRequest).toHaveBeenCalledWith(res, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
+    expect(sendError).toHaveBeenCalledWith(res, 403, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
+    expect(sendBadRequest).not.toHaveBeenCalled();
   });
 
   it('rejects requests with missing required fields', async () => {

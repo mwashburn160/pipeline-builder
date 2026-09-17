@@ -20,13 +20,12 @@ const mockUOFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const mockOrgFindById = jest.fn<(...a: unknown[]) => unknown>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  isServiceTokenDenied: () => false,
   sendError: (res: any, status: number, msg: string, code?: string) =>
     res.status(status).json({ success: false, message: msg, code }),
 }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  toOrgId: (v: unknown) => v,
-}));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stub: the auth middleware resolves impersonation sessions by jti.
@@ -43,7 +42,6 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 jest.unstable_mockModule('../src/utils/index.js', () => ({
   verifyAccessToken: (...a: unknown[]) => mockVerifyAccessToken(...a),
   verifyRefreshToken: jest.fn(),
-  hashRefreshToken: jest.fn(),
 }));
 
 const { requireAuth } = await import('../src/middleware/auth.js');

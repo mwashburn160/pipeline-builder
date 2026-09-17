@@ -26,7 +26,7 @@ jest.unstable_mockModule('mongoose', () => {
   return { ...api, default: api };
 });
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgScope: async (id: string) => [id] }));
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityAvailable: jest.fn(async () => true),

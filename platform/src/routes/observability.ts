@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requirePermission } from '@pipeline-builder/api-core';
+import { requirePermission, requireStepUp } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   listAlertDestinations,
@@ -21,7 +21,7 @@ import {
   restoreAlertRule,
   materializeAlertRules,
 } from '../controllers/alert-rules.js';
-import { requireAuth, requireStepUp } from '../middleware/index.js';
+import { requireAuth } from '../middleware/index.js';
 import {
   observabilityQuery,
   observabilityLogs,

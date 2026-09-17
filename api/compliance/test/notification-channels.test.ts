@@ -6,8 +6,14 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockLookup = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
+// The SSRF denylist is api-core's REAL `isPrivateAddress` (imported from its
+// module file, which the package-specifier mock below does not intercept), so
+// these tests exercise the actual guard, not a stub.
+const { isPrivateAddress } = await import('@pipeline-builder/api-core/lib/utils/ssrf.js');
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getServiceAuthHeader: () => 'Bearer test-service-token',
+  isPrivateAddress,
 }));
 
 // Control the up-front SSRF resolve independently from the send.
@@ -126,6 +132,16 @@ describe('webhookChannel SSRF / DNS-rebinding handling', () => {
     const result = await webhookChannel.deliver(notification, { url: 'https://sneaky.example.com/x' });
 
     expect(result.ok).toBe(false);
+    expect(mockHttpsRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects a hex-form IPv4-mapped IPv6 loopback resolution (::ffff:7f00:1 = 127.0.0.1)', async () => {
+    mockLookup.mockResolvedValue([{ address: '::ffff:7f00:1', family: 6 }]);
+
+    const result = await webhookChannel.deliver(notification, { url: 'https://rebind.example.com/x' });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/private address/);
     expect(mockHttpsRequest).not.toHaveBeenCalled();
   });
 

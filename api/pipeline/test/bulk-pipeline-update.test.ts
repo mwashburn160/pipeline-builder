@@ -17,6 +17,7 @@ const ID4 = '10000000-0000-4000-8000-000000000004';
 const mockUpdate = jest.fn<(...a: any[]) => Promise<any>>();
 const mockFindByIds = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue([]);
 const mockEmitAudit = jest.fn();
+const mockValidatePipeline = jest.fn<(...a: any[]) => Promise<any>>();
 
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
@@ -40,7 +41,9 @@ const mockSendSuccess = jest.fn((res: any, statusCode: number, data?: any) => {
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createComplianceClient: () => ({ validatePipeline: jest.fn() }),
+  // Bulk update now shares single update's compliance re-check
+  // (helpers/pipeline-update-compliance.ts, which builds its client from this).
+  createComplianceClient: () => ({ validatePipeline: mockValidatePipeline }),
   validateBulkArray: (val: unknown) => ({ value: val }),
   PipelineCreateSchema: { safeParse: (d: any) => ({ success: true, data: d }) },
   PipelineUpdateSchema: { safeParse: (d: any) => ({ success: true, data: d }) },
@@ -177,5 +180,63 @@ describe('bulk pipeline ids must be full UUIDs', () => {
     const res = mockRes();
     await getHandler('post', '/bulk/delete')(mockReq({ ids: [''] }), res);
     expect(res.status).toHaveBeenCalledWith(400);
+  });
+});
+
+// Single PUT re-checks compliance (fail-closed) when props/visibility change;
+// bulk update used to skip it, so a bulk edit could turn compliant pipelines
+// non-compliant. The route + shared helper run for real; only the compliance
+// transport and the DB service are stubbed.
+describe('PUT /pipelines/bulk/update — compliance re-check (shared with single update)', () => {
+  const handler = getHandler('put', '/bulk/update');
+  const row = (id: string) => ({ id, project: 'p', organization: 'o', pipelineName: `n-${id}`, props: { old: true }, visibility: 'org' });
+
+  beforeEach(() => {
+    mockUpdate.mockReset().mockImplementation(async (id: string) => ({ id }));
+    mockFindByIds.mockReset().mockResolvedValue([row(ID1), row(ID2)]);
+    mockValidatePipeline.mockReset();
+    mockEmitAudit.mockReset();
+    mockSendSuccess.mockClear();
+  });
+
+  it('does not update a row the new props would make non-compliant, and reports it', async () => {
+    mockValidatePipeline.mockImplementation(async (_org: string, _attrs: any, _auth: string, entityId: string) => (
+      entityId === ID2
+        ? { blocked: true, violations: [{ message: 'no public buckets' }] }
+        : { blocked: false, violations: [] }
+    ));
+
+    await handler(mockReq({ ids: [ID1, ID2], data: { props: { new: true } } }), mockRes());
+
+    // Each row evaluated AS IT WILL BE (new props over its existing state), as an update.
+    expect(mockValidatePipeline).toHaveBeenCalledTimes(2);
+    expect(mockValidatePipeline).toHaveBeenCalledWith(
+      'test-org',
+      expect.objectContaining({ project: 'p', organization: 'o', props: { new: true }, visibility: 'org' }),
+      expect.any(String), ID1, `n-${ID1}`, 'update',
+    );
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockUpdate.mock.calls[0][0]).toBe(ID1);
+    const [, , payload] = mockSendSuccess.mock.calls[0];
+    expect(payload.updated).toBe(1);
+    expect(payload.errors).toEqual([{ index: 1, error: 'Compliance blocked: no public buckets' }]);
+  });
+
+  it('fails closed: a compliance outage rejects the rows instead of writing them unchecked', async () => {
+    mockValidatePipeline.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    await handler(mockReq({ ids: [ID1, ID2], data: { visibility: 'public' } }), mockRes());
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+    const [, , payload] = mockSendSuccess.mock.calls[0];
+    expect(payload.updated).toBe(0);
+    expect(payload.failed).toBe(2);
+    expect(payload.errors[0].error).toMatch(/Compliance service unavailable/);
+  });
+
+  it('skips the compliance round-trip for a metadata-only edit', async () => {
+    await handler(mockReq({ ids: [ID1, ID2], data: { description: 'x' } }), mockRes());
+    expect(mockValidatePipeline).not.toHaveBeenCalled();
+    expect(mockUpdate).toHaveBeenCalledTimes(2);
   });
 });

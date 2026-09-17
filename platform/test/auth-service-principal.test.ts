@@ -15,14 +15,12 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockVerifyAccessToken = jest.fn<(...a: unknown[]) => unknown>();
 const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
+const mockIsServiceTokenDenied = jest.fn<(sub: string) => boolean>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string, code?: string) =>
     res.status(status).json({ success: false, message: msg, code }),
-}));
-
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  toOrgId: (v: unknown) => v,
+  isServiceTokenDenied: (sub: string) => mockIsServiceTokenDenied(sub),
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
@@ -39,10 +37,9 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 jest.unstable_mockModule('../src/utils/index.js', () => ({
   verifyAccessToken: (...a: unknown[]) => mockVerifyAccessToken(...a),
   verifyRefreshToken: jest.fn(),
-  hashRefreshToken: jest.fn(),
 }));
 
-const { requireAuth } = await import('../src/middleware/auth.js');
+const { requireAuth, requireServiceAuth } = await import('../src/middleware/auth.js');
 
 function makeRes() {
   const res: any = {};
@@ -63,6 +60,7 @@ const SERVICE_DECODED = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockIsServiceTokenDenied.mockReturnValue(false);
   mockUserFindById.mockImplementation(() => { throw new Error('CastError: not an ObjectId'); });
 });
 
@@ -101,6 +99,31 @@ describe('requireAuth — service principal branch', () => {
     await requireAuth({ headers: { authorization: 'Bearer user-token' } } as any, res, next);
 
     expect(mockUserFindById).toHaveBeenCalledTimes(1); // user path exercised
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('service-token kill-switch (SERVICE_TOKEN_DENYLIST)', () => {
+  it.each([
+    ['requireAuth', requireAuth],
+    ['requireServiceAuth', requireServiceAuth],
+  ])('%s rejects a denylisted service principal with 401 TOKEN_REVOKED', async (_name, mw) => {
+    mockVerifyAccessToken.mockReturnValue(SERVICE_DECODED);
+    mockIsServiceTokenDenied.mockImplementation((sub) => sub === 'service:message');
+    const next = jest.fn();
+    const res = makeRes();
+
+    await mw({ headers: { authorization: 'Bearer svc-token' } } as any, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect((res.json as jest.Mock).mock.calls[0][0]).toMatchObject({ code: 'TOKEN_REVOKED' });
+  });
+
+  it('requireServiceAuth still admits a service that is not denylisted', async () => {
+    mockVerifyAccessToken.mockReturnValue(SERVICE_DECODED);
+    const next = jest.fn();
+    await requireServiceAuth({ headers: { authorization: 'Bearer svc-token' } } as any, makeRes(), next);
     expect(next).toHaveBeenCalledTimes(1);
   });
 });

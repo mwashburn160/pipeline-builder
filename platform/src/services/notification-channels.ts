@@ -203,7 +203,7 @@ const inAppChannel: NotificationChannel = {
 
 /** At-least-once dedupe window for email. Alertmanager retries the webhook, so
  *  an identical (alert, recipient) email inside this window is suppressed. */
-const EMAIL_DEDUPE_TTL_MS = parseInt(process.env.ALERT_EMAIL_DEDUPE_TTL_MS || '600000', 10);
+const EMAIL_DEDUPE_TTL_MS = config.observability.alertEmailDedupeTtlMs;
 const recentEmails = new Map<string, number>(); // dedupe key -> expiry (epoch ms)
 
 function emailSeenRecently(key: string): boolean {

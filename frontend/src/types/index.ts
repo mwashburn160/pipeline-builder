@@ -566,26 +566,6 @@ export interface Invitation {
 }
 
 /**
- * Log entry from Loki
- */
-export interface LogEntry {
-  timestamp: string;
-  line: string;
-  labels: Record<string, string>;
-  parsed: Record<string, unknown>;
-}
-
-/**
- * Log query result from platform API
- */
-export interface LogQueryResult {
-  entries: LogEntry[];
-  /** `degraded` marks a Loki backend that was unreachable (e.g. a LEAN deploy) — an
-   *  empty, degraded result rather than a genuine "no logs". */
-  stats: { entriesReturned: number; query: string; degraded?: boolean };
-}
-
-/**
  * Billing interval for subscriptions
  */
 export type BillingInterval = 'monthly' | 'annual';

@@ -75,11 +75,20 @@ class ValidationError extends AppError {
 }
 
 /**
+ * The REAL api-core exports, used as the base of every mock below. Suites stub
+ * only what they exercise; everything else is the genuine export, so adding an
+ * export to api-core can never again break a suite with "does not provide an
+ * export named X". (`requireActual` bypasses the module mock.)
+ */
+const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record<string, unknown>;
+
+/**
  * Default api-core namespace for `unstable_mockModule`. Spread `overrides` last
  * so a suite can replace any default (and add exports the default omits).
  */
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
+    ...actualApiCore,
     createLogger: loggerMock,
     VisibilitySchema,
     MAX_PAGE_LIMIT: 1000,
@@ -92,7 +101,9 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // (full route graph) resolves them without re-stubbing each one. Suites that
     // assert on responses still override these (overrides spread last).
     /* eslint-disable @typescript-eslint/no-explicit-any */
-    requireVisibilityWriteAccess: () => passThroughMiddleware,
+    // Real signature: (req, res, resource, userId, perm) => boolean — true lets the
+    // write proceed, false means it already sent the 403. Default: allowed.
+    requireVisibilityWriteAccess: () => true,
     sendSuccess: (res: any, statusCode: number, data?: unknown) => res.status(statusCode).json({ success: true, statusCode, data }),
     sendBadRequest: (res: any, message: string) => res.status(400).json({ success: false, message }),
     sendError: (res: any, statusCode: number, message: string) => res.status(statusCode).json({ success: false, message }),

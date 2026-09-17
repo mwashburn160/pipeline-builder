@@ -2,83 +2,37 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Per-org plugin favorites. localStorage is the synchronous read cache; the
- * server (`/user/preferences`) is the source of truth so favorites follow the
- * user across devices. Reads/writes are localStorage-first for instant UX, with
- * best-effort write-through to the server and a hydrate on load.
+ * Plugin favorites, per user and org — a slice of the shared preferences store
+ * (lib/preferences-store), which owns caching, the single server load, the
+ * load-vs-toggle revision guard, and cross-tab sync.
  */
 
+import { useCallback, useMemo } from 'react';
 import api from '@/lib/api';
-
-const KEY_PREFIX = 'pb-plugin-favorites';
-
-function key(orgId: string): string {
-  return `${KEY_PREFIX}:${orgId}`;
-}
-
-function read(orgId: string): Set<string> {
-  if (typeof window === 'undefined' || !orgId) return new Set();
-  try {
-    const raw = window.localStorage.getItem(key(orgId));
-    if (!raw) return new Set();
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? new Set(arr) : new Set();
-  } catch {
-    return new Set();
-  }
-}
-
-function write(orgId: string, ids: Set<string>): void {
-  if (typeof window === 'undefined' || !orgId) return;
-  try {
-    window.localStorage.setItem(key(orgId), JSON.stringify(Array.from(ids)));
-  } catch {
-    // localStorage may be unavailable (Safari private mode, quota exceeded)
-  }
-}
-
-export function loadFavorites(orgId: string): Set<string> {
-  return read(orgId);
-}
-
-export function toggleFavorite(orgId: string, pluginId: string): boolean {
-  const current = read(orgId);
-  if (current.has(pluginId)) {
-    current.delete(pluginId);
-  } else {
-    current.add(pluginId);
-  }
-  write(orgId, current);
-  // Best-effort write-through to the server (source of truth). Failures are
-  // swallowed — the localStorage cache keeps the UI correct offline.
-  void api.updatePreferences({ favorites: Array.from(current) }).catch(() => { /* offline / unsupported */ });
-  return current.has(pluginId);
-}
+import { readPreferences, setPreference, usePreferences } from '@/lib/preferences-store';
 
 /**
- * Load favorites from the server and refresh the localStorage cache. Call on
- * mount so a user's favorites appear on a fresh device. Falls back to the cached
- * localStorage set when the server is unreachable or preferences are unset.
+ * Flip `pluginId` in the scope's favorites. Applies immediately, then writes
+ * through to the server best-effort (a failure keeps the local state — the next
+ * load reseeds an empty server from it). Returns whether it is now a favorite.
  */
-export async function hydrateFavoritesFromServer(orgId: string): Promise<Set<string>> {
-  if (!orgId) return read(orgId);
-  const local = read(orgId);
-  try {
-    const res = await api.getPreferences();
-    if (res.success && res.data) {
-      const server = new Set(res.data.preferences.favorites);
-      // Don't wipe a populated local cache with an empty server set (preferences
-      // never persisted, or a prior best-effort write-through failed) — seed the
-      // server from local instead so the two converge without data loss.
-      if (server.size === 0 && local.size > 0) {
-        void api.updatePreferences({ favorites: [...local] }).catch(() => { /* offline */ });
-        return local;
-      }
-      write(orgId, server);
-      return server;
-    }
-  } catch {
-    // offline / preferences endpoint unavailable — keep the localStorage cache
-  }
-  return local;
+export function toggleFavorite(userId: string | undefined, orgId: string | undefined, pluginId: string): boolean {
+  const next = new Set(readPreferences(userId, orgId).favorites);
+  if (next.has(pluginId)) next.delete(pluginId);
+  else next.add(pluginId);
+  const favorites = Array.from(next);
+  if (!setPreference(userId, orgId, 'favorites', favorites)) return false;
+  void api.updatePreferences({ favorites }).catch(() => { /* offline / unsupported */ });
+  return next.has(pluginId);
+}
+
+/** The scope's favorite plugin ids, plus a toggle bound to the scope. */
+export function useFavorites(userId: string | undefined, orgId: string | undefined): {
+  favorites: Set<string>;
+  toggle: (pluginId: string) => void;
+} {
+  const { favorites: list } = usePreferences(userId, orgId);
+  const favorites = useMemo(() => new Set(list), [list]);
+  const toggle = useCallback((pluginId: string) => { toggleFavorite(userId, orgId, pluginId); }, [userId, orgId]);
+  return { favorites, toggle };
 }

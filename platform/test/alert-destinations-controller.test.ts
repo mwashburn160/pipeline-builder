@@ -19,6 +19,7 @@ const mockIsSystemAdmin = jest.fn();
 const mockRunWithTenantContext = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  isSystemAdmin: (req: any) => mockIsSystemAdmin(req),
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
   sendQuotaReserveDenied: jest.fn(),
@@ -52,7 +53,6 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  isSystemAdmin: (req: any) => mockIsSystemAdmin(req),
   isOrgAdmin: jest.fn(),
   withController: (_label: string, fn: Function) =>
     async (req: any, res: any) => fn(req, res),
@@ -86,7 +86,7 @@ jest.unstable_mockModule('../src/middleware/quota.js', () => ({
   reserveFeatureQuota: jest.fn(),
   releaseFeatureQuota: jest.fn(),
 }));
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: {} }));
+jest.unstable_mockModule('../src/config/index.js', () => ({ config: { observability: { alertDestinationMaxLabel: 100, alertDestinationMaxTarget: 2048 } } }));
 
 const { listAllAlertDestinations } = await import('../src/controllers/alert-destinations.js');
 

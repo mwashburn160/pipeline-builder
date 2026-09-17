@@ -116,10 +116,13 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
     quota: { serviceHost: 'quota', servicePort: 3000 },
     billing: { serviceHost: 'billing', servicePort: 3000 },
+    message: { serviceHost: 'message', servicePort: 3000 },
+    organization: { cascadeHttpTimeoutMs: 5000 },
   },
 }));
 
-const { cascadeDeleteOrg, exportOrg, SYSTEM_ORG_DELETE_FORBIDDEN, CASCADE_TABLE_NAMES } = await import('../src/services/org-cascade-service.js');
+const { cascadeDeleteOrg, exportOrg, CASCADE_TABLE_NAMES } = await import('../src/services/org-cascade-service.js');
+const { SYSTEM_ORG_DELETE_FORBIDDEN } = await import('../src/services/org-errors.js');
 
 // The REAL drizzle schema (deep import — bypasses the barrel's DB pool, which is
 // mocked above). Used only by the drift-guard test below to reflect every table.
@@ -234,7 +237,7 @@ describe('cascadeDeleteOrg', () => {
     expect(mockDeleteChain.where).toHaveBeenCalledTimes(18);
   });
 
-  it('drops mongo invitations + audit events + idp configs but preserves the admin.org.delete event', async () => {
+  it('drops mongo invitations + audit events + idp configs', async () => {
     mockInvitationDeleteMany.mockResolvedValue({ deletedCount: 3 });
     mockAuditDeleteMany.mockResolvedValue({ deletedCount: 12 });
     mockIdpDeleteMany.mockResolvedValue({ deletedCount: 1 });
@@ -242,11 +245,13 @@ describe('cascadeDeleteOrg', () => {
     const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
 
     expect(report.mongo).toEqual({ invitations: 3, auditEvents: 12, idpConfigs: 1, orgDomains: 0, joinRequests: 0 });
-    // The deleteMany filter must exclude `admin.org.delete` so the audit
-    // trail of the very-just-fired delete event survives.
-    const auditCallArg = mockAuditDeleteMany.mock.calls[0][0];
-    expect(auditCallArg.action).toEqual({ $ne: 'admin.org.delete' });
-    expect(auditCallArg.$or).toEqual([{ orgId: 'org-acme' }, { affectedOrgId: 'org-acme' }]);
+    // The live delete is exactly this org's own hash chain (chain key =
+    // affectedOrgId). An event this org's members performed on ANOTHER org
+    // (orgId = org-acme, affectedOrgId = other) is a link in THAT org's chain;
+    // deleting it would break the other tenant's tamper-evidence.
+    expect(mockAuditDeleteMany).toHaveBeenCalledWith({ affectedOrgId: 'org-acme' });
+    // The archive still copies both sides.
+    expect(mockAuditFind).toHaveBeenCalledWith({ $or: [{ orgId: 'org-acme' }, { affectedOrgId: 'org-acme' }] });
 
     // IdP cleanup scoped to the deleted org's id — orphaned configs were
     // the bug this guards against.
@@ -444,6 +449,42 @@ describe('exportOrg', () => {
 
     expect(dump.truncated).toEqual({ auditEvents: { cap } });
     expect(dump.mongo.auditEvents).toHaveLength(cap);
+  });
+});
+
+describe('exportOrg — read failures', () => {
+  const emptyReads = () => {
+    mockInvitationFind.mockReturnValue({ lean: () => [] });
+    mockAuditFind.mockReturnValue(auditCapped([]));
+  };
+
+  it('lenient (portability export): names every store it could not read instead of passing it off as empty', async () => {
+    emptyReads();
+    mockSelectChain.where.mockRejectedValueOnce(new Error('relation down'));
+    mockInvitationFind.mockReturnValue({ lean: () => Promise.reject(new Error('mongo blip')) });
+
+    const dump = await exportOrg('org-acme', '000000000000000000000001');
+
+    expect(dump.failed).toEqual({ postgres: ['plugins'], mongo: ['invitations'] });
+    expect(dump.postgres.plugins).toEqual([]);
+  });
+
+  it('lenient: no `failed` marker when every store was read', async () => {
+    emptyReads();
+    const dump = await exportOrg('org-acme', '000000000000000000000001');
+    expect(dump.failed).toBeUndefined();
+  });
+
+  it('strict: rethrows a Postgres table failure', async () => {
+    emptyReads();
+    mockSelectChain.where.mockRejectedValueOnce(new Error('relation down'));
+    await expect(exportOrg('org-acme', '000000000000000000000001', { strict: true })).rejects.toThrow('relation down');
+  });
+
+  it('strict: rethrows a Mongo collection failure', async () => {
+    emptyReads();
+    mockAuditFind.mockImplementation(() => { throw new Error('audit read failed'); });
+    await expect(exportOrg('org-acme', '000000000000000000000001', { strict: true })).rejects.toThrow('audit read failed');
   });
 });
 

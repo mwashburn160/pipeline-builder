@@ -39,7 +39,7 @@ jest.unstable_mockModule('mongoose', () => {
   return { default: { Types: { ObjectId: class {} } }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
 });
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   expandOrgScope: (...a: unknown[]) => mockExpandOrgScope(...a),
   resolveOrgLineage: (...a: unknown[]) => Promise.resolve({ rootOrgId: a[0] }),
@@ -79,7 +79,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: {},
 }));
 
-const { orgMembersService, OM_USER_NOT_FOUND, OM_TARGETS_OUT_OF_SCOPE } = await import('../src/services/org-members-service.js');
+const { orgMembersService } = await import('../src/services/org-members-service.js');
+const { OM_USER_NOT_FOUND, OM_TARGETS_OUT_OF_SCOPE } = await import('../src/services/org-members-errors.js');
 
 
 /** Organization.find(...).select(...).lean() */

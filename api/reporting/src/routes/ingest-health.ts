@@ -1,14 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendError, ErrorCode, hasScope } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, validateBody } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
-
-/** The capability scope the AWS event-ingestion machine credential must carry. */
-const INGEST_SCOPE = 'reporting:ingest';
+import { requireIngestScope } from '../middleware/require-ingest-scope.js';
 
 /**
  * Per-org ingestion health (Phase 3). The AWS events Lambda periodically posts
@@ -32,19 +30,13 @@ const healthSchema = z.object({
 export function createIngestHealthRoutes(): Router {
   const router = Router();
 
-  router.post('/', withRoute(async ({ req, res, orgId }) => {
-    if (!hasScope(req, INGEST_SCOPE)) {
-      return sendError(res, 403, `Token must carry the '${INGEST_SCOPE}' scope`, ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
-    const parsed = healthSchema.safeParse(req.body);
-    if (!parsed.success) {
-      const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
-      return sendBadRequest(res, msg, ErrorCode.VALIDATION_ERROR);
-    }
+  router.post('/', requireIngestScope, withRoute(async ({ req, res, orgId }) => {
+    const parsed = validateBody(req, healthSchema);
+    if (!parsed.ok) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
 
     // Per-org (row keyed on org_id). A multi-tenant forwarder attributes to the
     // resolved org via body `orgId`; otherwise fall back to the token's own org.
-    const { orgId: bodyOrgId, ...health } = parsed.data;
+    const { orgId: bodyOrgId, ...health } = parsed.value;
     const targetOrgId = bodyOrgId ?? orgId;
     if (!targetOrgId) {
       return sendBadRequest(res, 'ingest-health requires an org-scoped token or a body orgId', ErrorCode.VALIDATION_ERROR);

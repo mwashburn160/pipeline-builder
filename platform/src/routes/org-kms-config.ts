@@ -10,7 +10,7 @@
  * without shelling into Mongo.
  */
 
-import { requirePermission } from '@pipeline-builder/api-core';
+import { requirePermission, requireStepUp } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   deleteOrgKmsConfig,
@@ -18,7 +18,7 @@ import {
   putOrgKmsConfig,
   testOrgKmsConfig,
 } from '../controllers/org-kms-config.js';
-import { requireAuth, requireStepUp } from '../middleware/index.js';
+import { requireAuth } from '../middleware/index.js';
 
 const router: Router = Router({ mergeParams: true });
 

@@ -78,7 +78,7 @@ export default function PlatformSettingsPage() {
   useEffect(() => {
     if (isReady && user) void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isReady, user]);
+  }, [isReady, user?.id]);
 
   if (!isReady || !user) return <LoadingPage />;
 

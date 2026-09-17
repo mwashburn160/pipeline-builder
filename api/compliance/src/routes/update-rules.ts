@@ -5,8 +5,8 @@ import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, v
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ComplianceRuleUpdateSchema } from './rule-schemas.js';
+import { emitComplianceAudit } from '../services/audit.js';
 import { complianceRuleService, InvalidRuleRegexError, InvalidSetTagError } from '../services/compliance-rule-service.js';
-import { emitComplianceAudit } from '../services/remote-audit-client.js';
 
 export function createUpdateRuleRoutes(): Router {
   const router = Router();

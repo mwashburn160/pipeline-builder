@@ -22,6 +22,7 @@ const mockGetAdminContext: jest.Mock = jest.fn(() => ({ isSuperAdmin: true, isOr
 const mockIsSystemAdmin: jest.Mock = jest.fn(() => true);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  isSystemAdmin: (req: unknown) => mockIsSystemAdmin(req),
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown, message?: string) => res.status(status).json({ success: true, statusCode: status, data, message }),
 }));
@@ -30,7 +31,6 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unkno
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   requireAuth: () => true,
-  isSystemAdmin: (req: unknown) => mockIsSystemAdmin(req),
   getAdminContext: (req: unknown) => mockGetAdminContext(req),
   // These tests stub the auth layer and assert audit emission; grant access so
   // the handlers proceed to the audit call.
@@ -52,18 +52,6 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
     activateMember: (...a: unknown[]) => mockActivateMember(...a),
     isOrgOwner: (...a: unknown[]) => mockIsOrgOwner(...a),
   },
-  OM_ORG_NOT_FOUND: 'OM_ORG_NOT_FOUND',
-  OM_USER_NOT_FOUND: 'OM_USER_NOT_FOUND',
-  OM_ALREADY_MEMBER: 'OM_ALREADY_MEMBER',
-  OM_NOT_A_MEMBER: 'OM_NOT_A_MEMBER',
-  OM_CANNOT_REMOVE_OWNER: 'OM_CANNOT_REMOVE_OWNER',
-  OM_OWNER_MEMBERSHIP_NOT_FOUND: 'OM_OWNER_MEMBERSHIP_NOT_FOUND',
-  OM_NEW_OWNER_MUST_BE_MEMBER: 'OM_NEW_OWNER_MUST_BE_MEMBER',
-  OM_MEMBERSHIP_NOT_FOUND: 'OM_MEMBERSHIP_NOT_FOUND',
-  OM_ALREADY_INACTIVE: 'OM_ALREADY_INACTIVE',
-  OM_ALREADY_ACTIVE: 'OM_ALREADY_ACTIVE',
-  OM_TARGETS_OUT_OF_SCOPE: 'OM_TARGETS_OUT_OF_SCOPE',
-  OM_SEAT_LIMIT: 'OM_SEAT_LIMIT',
 }));
 
 jest.unstable_mockModule('../src/utils/validation.js', () => ({

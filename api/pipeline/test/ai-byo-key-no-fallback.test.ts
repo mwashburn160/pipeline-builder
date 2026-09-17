@@ -61,7 +61,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   const tx = { select: jest.fn().mockReturnThis(), from: jest.fn().mockReturnThis(), where: jest.fn<(...a: any[]) => any>().mockResolvedValue([]) };
-  return { db: tx, schema: { plugin: {} }, withTenantTx: (fn: (t: typeof tx) => unknown) => fn(tx) };
+  return {
+    db: tx,
+    schema: { plugin: {} },
+    withTenantTx: (fn: (t: typeof tx) => unknown) => fn(tx),
+    // Visibility-ladder predicate pieces plugin-lookup-service links against.
+    buildPluginConditions: () => [],
+    withViewerContext: (f: unknown) => f,
+  };
 });
 
 const { generatePipelineConfig } = await import('../src/services/ai-generation-service.js');

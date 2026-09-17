@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, validateBody } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
@@ -47,11 +47,8 @@ export function createDeploymentOutcomeRoutes(): Router {
     const executionId = typeof req.params.executionId === 'string' ? req.params.executionId : '';
     if (!executionId) return sendBadRequest(res, 'executionId is required', ErrorCode.VALIDATION_ERROR);
 
-    const parsed = outcomeSchema.safeParse(req.body);
-    if (!parsed.success) {
-      const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
-      return sendBadRequest(res, msg, ErrorCode.VALIDATION_ERROR);
-    }
+    const parsed = validateBody(req, outcomeSchema);
+    if (!parsed.ok) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
 
     // Bound `at` to the readable DORA horizon so a marker can't be planted in the
     // future or before the org's retention (where no report would ever surface it,
@@ -59,7 +56,7 @@ export function createDeploymentOutcomeRoutes(): Router {
     const now = Date.now();
     const settings = await reportingService.getIncidentSettings(orgId);
     const win = orgRetentionWindowFromSettings(settings, 'dora', now);
-    const atMs = Date.parse(parsed.data.at);
+    const atMs = Date.parse(parsed.value.at);
     if (atMs > now + CLOCK_SKEW_MS) {
       return sendBadRequest(res, '`at` cannot be in the future', ErrorCode.VALIDATION_ERROR);
     }
@@ -69,22 +66,22 @@ export function createDeploymentOutcomeRoutes(): Router {
 
     // A supplied environment must be one the org has actually deployed to in the
     // retention window — otherwise the failed-outcome would mint a phantom env card.
-    if (parsed.data.environment) {
+    if (parsed.value.environment) {
       const fromMs = win.minFromMs > 0 ? win.minFromMs : now - win.maxRangeMs;
       const environments = await reportingService.getReportEnvironments(
         orgId, new Date(fromMs).toISOString(), new Date(now).toISOString(), [orgId],
       );
-      if (!environments.includes(parsed.data.environment)) {
+      if (!environments.includes(parsed.value.environment)) {
         return sendBadRequest(
           res,
-          `Unknown deploy environment "${parsed.data.environment}" — no deploy to it in the retention window`,
+          `Unknown deploy environment "${parsed.value.environment}" — no deploy to it in the retention window`,
           ErrorCode.VALIDATION_ERROR,
         );
       }
     }
 
-    await reportingService.recordDeploymentOutcome(orgId, executionId, parsed.data);
-    sendSuccess(res, 200, { executionId, outcome: parsed.data.outcome });
+    await reportingService.recordDeploymentOutcome(orgId, executionId, parsed.value);
+    sendSuccess(res, 200, { executionId, outcome: parsed.value.outcome });
   }));
 
   return router;

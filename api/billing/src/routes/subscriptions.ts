@@ -4,7 +4,6 @@
 import {
   requireAuth,
   requirePermission,
-  requireSystemAdmin,
   requireStepUp,
   sendSuccess,
   sendError,
@@ -16,7 +15,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import type { RequestHandler } from 'express';
+import type { Request, RequestHandler, Response } from 'express';
 import { config } from '../config.js';
 import { applyPlanTierChange, applyTierIncludedAddonPrune } from '../helpers/addon-prune.js';
 import {
@@ -30,9 +29,9 @@ import {
   syncProviderAddons,
 } from '../helpers/billing-helpers.js';
 import type { PrunedAddon } from '../helpers/billing-helpers.js';
-import { evaluatePromotions, clawbackRecentPromotions, processReferralSignup } from '../helpers/promotion-engine.js';
+import { evaluatePromotions, clawbackRecentPromotions } from '../helpers/promotion-engine.js';
+import { runSignupPromotions } from '../helpers/signup-promotions.js';
 import { mapStripeStatus } from '../helpers/stripe-helpers.js';
-import { BillingEvent } from '../models/billing-event.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
@@ -44,6 +43,50 @@ const logger = createLogger('billing-subscriptions');
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
 
 /**
+ * Shared preflight for BOTH subscription-create entry points (hosted Checkout and
+ * the direct create): validate the body, refuse Marketplace-billed deployments
+ * (entitlements come from AWS there — see /marketplace/register), resolve the
+ * active plan, and reject an org that already holds a manageable OR still-settling
+ * (`incomplete`) subscription — otherwise a second create/checkout mints another
+ * provider subscription while the first is still live at the provider (~23h).
+ *
+ * Sends the error response itself and returns `null` on any rejection.
+ */
+async function preflightCreate(req: Request, res: Response, orgId: string) {
+  const validation = validateBody(req, SubscriptionCreateSchema);
+  if (!validation.ok) {
+    sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    return null;
+  }
+  // AWS Marketplace entitlements are the source of truth — an org can't
+  // self-serve a subscription here (createCustomer would otherwise throw and
+  // surface as a 500). Point the caller at the Marketplace claim flow instead.
+  if (config.billingProvider === 'aws-marketplace') {
+    sendError(
+      res, 409,
+      'Subscriptions are provisioned through AWS Marketplace. Complete setup from your AWS Marketplace subscription (see /marketplace/register).',
+      ErrorCode.CONFLICT,
+    );
+    return null;
+  }
+  const plan = await Plan.findOne({ _id: validation.value.planId, isActive: true });
+  if (!plan) {
+    sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
+    return null;
+  }
+  const existing = await Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES, 'incomplete'] } });
+  if (existing) {
+    sendError(res, 409, 'Organization already has a subscription. Use PUT to change plans.', ErrorCode.DUPLICATE_ENTRY);
+    return null;
+  }
+  // Pass the user's email to the provider so dunning/receipt emails reach a real
+  // inbox (Stripe accepts undefined but then has no failed-payment contact).
+  const rawEmail = req.user?.email;
+  const customerEmail = typeof rawEmail === 'string' && rawEmail.length > 0 ? rawEmail : undefined;
+  return { ...validation.value, plan, customerEmail };
+}
+
+/**
  * Create the subscription management router (authenticated).
  *
  * Registers:
@@ -52,6 +95,8 @@ const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
  * - PUT /subscriptions/:id -- change plan or interval (admin)
  * - POST /subscriptions/:id/cancel -- cancel at period end (admin)
  * - POST /subscriptions/:id/reactivate -- undo pending cancellation (admin)
+ *
+ * The org-cascade DELETE /subscriptions/by-org/:orgId lives in the admin router.
  * @returns Express Router
  */
 export function createSubscriptionRoutes(): Router {
@@ -83,32 +128,20 @@ export function createSubscriptionRoutes(): Router {
   // `incomplete` orphan). Providers without Checkout (stub) fall back to the
   // direct create; Marketplace bills externally.
   router.post('/subscriptions/checkout', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
-    const validation = validateBody(req, SubscriptionCreateSchema);
-    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-    const { planId, interval } = validation.value;
+    const pre = await preflightCreate(req, res, orgId);
+    if (!pre) return;
+    const { planId, interval, plan, customerEmail } = pre;
 
-    if (config.billingProvider === 'aws-marketplace') {
-      return sendError(res, 409, 'Subscriptions are provisioned through AWS Marketplace (see /marketplace/register).', ErrorCode.CONFLICT);
-    }
     const provider = getPaymentProvider();
     if (!provider.createCheckoutSession) {
       // stub (no card needed) — the client should use the direct create instead.
-      return sendError(res, 501, 'The configured billing provider has no hosted checkout; use POST /subscriptions.');
+      return sendError(res, 501, 'The configured billing provider has no hosted checkout; use POST /subscriptions.', ErrorCode.NOT_IMPLEMENTED);
     }
-
-    const plan = await Plan.findOne({ _id: planId, isActive: true });
-    if (!plan) return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
     // A free plan needs no checkout — create it directly via POST /subscriptions.
     if (plan.prices.monthly === 0 && plan.prices.annual === 0) {
       return sendError(res, 400, 'This plan is free — use POST /subscriptions.', ErrorCode.VALIDATION_ERROR);
     }
-    const existing = await Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } });
-    if (existing) {
-      return sendError(res, 409, 'Organization already has a subscription. Use PUT to change plans.', ErrorCode.DUPLICATE_ENTRY);
-    }
 
-    const rawEmail = req.user?.email;
-    const customerEmail = typeof rawEmail === 'string' && rawEmail.length > 0 ? rawEmail : undefined;
     // Reuse the org's existing Stripe customer (from a prior/cancelled sub) so its
     // balance / usage-credit mirror carries over and we don't strand orphan
     // customers on abandoned checkouts; else mint one (idempotent per org).
@@ -123,7 +156,7 @@ export function createSubscriptionRoutes(): Router {
       orgId,
       successUrl: `${base}?checkout=success`,
       cancelUrl: `${base}?checkout=cancelled`,
-      ...(validation.value.referralCode ? { referralCode: validation.value.referralCode } : {}),
+      ...(pre.referralCode ? { referralCode: pre.referralCode } : {}),
     });
     logger.info('Created checkout session', { orgId, planId, interval });
     return sendSuccess(res, 200, { url });
@@ -132,47 +165,9 @@ export function createSubscriptionRoutes(): Router {
   // POST /billing/subscriptions  create a new subscription
 
   router.post('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
-    const validation = validateBody(req, SubscriptionCreateSchema);
-    if (!validation.ok) {
-      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-    }
-    const { planId, interval } = validation.value;
-
-    // AWS Marketplace entitlements are the source of truth — an org can't
-    // self-serve a subscription here. (createCustomer would otherwise throw and
-    // surface as a 500.) Point the caller at the Marketplace claim flow instead.
-    if (config.billingProvider === 'aws-marketplace') {
-      return sendError(
-        res, 409,
-        'Subscriptions are provisioned through AWS Marketplace. Complete setup from your AWS Marketplace subscription (see /marketplace/register).',
-        ErrorCode.CONFLICT,
-      );
-    }
-
-    // Verify plan exists
-    const plan = await Plan.findOne({ _id: planId, isActive: true });
-    if (!plan) {
-      return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
-    }
-
-    // Reject when a manageable OR still-settling (`incomplete`) subscription
-    // already exists — otherwise a second create mints another provider sub while
-    // the first `incomplete` one is still live at the provider (~23h).
-    const existing = await Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES, 'incomplete'] } });
-    if (existing) {
-      return sendError( res, 409,
-        'Organization already has a subscription. Use PUT to change plans.',
-        ErrorCode.DUPLICATE_ENTRY,
-      );
-    }
-
-    // Pass the user's email to the provider so dunning/receipt emails reach
-    // a real inbox. Stripe accepts undefined but then has no contact for
-    // failed-payment notifications.
-    // TODO: source email from JWT issuance or platform lookup once it's
-    // populated on req.user; current AUTH path leaves email unset.
-    const rawEmail = req.user?.email;
-    const customerEmail = typeof rawEmail === 'string' && rawEmail.length > 0 ? rawEmail : undefined;
+    const pre = await preflightCreate(req, res, orgId);
+    if (!pre) return;
+    const { planId, interval, plan, customerEmail, referralCode } = pre;
 
     // Reserve the local uniqueness slot BEFORE any external provider work.
     // Previously the provider's createCustomer/createSubscription ran first, so a
@@ -232,6 +227,12 @@ export function createSubscriptionRoutes(): Router {
       // normalizes the provider's status string (stub/marketplace return
       // `active`).
       subscription.status = mapStripeStatus(externalResult.status);
+      // A still-settling sub gets its signup credit on the later
+      // `customer.subscription.updated`→active webhook; stash the referral code so
+      // that path can honor it (Checkout carries it in Stripe metadata instead).
+      if (referralCode && subscription.status !== 'active' && subscription.status !== 'trialing') {
+        subscription.metadata = { ...subscription.metadata, pendingReferralCode: referralCode };
+      }
       await subscription.save();
     } catch (err) {
       await Subscription.deleteOne({ _id: subscription._id }).catch(() => { /* best-effort rollback */ });
@@ -262,36 +263,10 @@ export function createSubscriptionRoutes(): Router {
     // Promotions + referrals: only credit an ENTITLEMENT-WORTHY signup (active/
     // trialing). An `incomplete`/`past_due` sub hasn't paid and may be deleted by
     // Stripe without a clawback path, so banking a credit / reserving campaign
-    // budget for it is a leak. Post-save + fail-soft (atomic writes only, so no
-    // clobber of the just-saved subscription).
+    // budget for it is a leak (the settle webhook grants it later). Post-save +
+    // fail-soft (atomic writes only, so no clobber of the just-saved subscription).
     if (entitlementWorthy) {
-      try {
-        const isFirstSubscription = (await Subscription.countDocuments({ orgId })) <= 1;
-        await evaluatePromotions(orgId, subscription, 'subscription_created', {
-          tier: plan.tier,
-          interval: subscription.interval,
-          planPriceCents: plan.prices[subscription.interval],
-          isFirstSubscription,
-          actorId: req.user?.sub,
-        });
-      } catch (promoErr) {
-        logger.error('Promotion evaluation failed (subscription_created)', {
-          orgId, error: promoErr instanceof Error ? promoErr.message : String(promoErr),
-        });
-      }
-
-      // Referral (phase 2c): credit the referee now and record the pending referral.
-      if (validation.value.referralCode) {
-        try {
-          await processReferralSignup(orgId, validation.value.referralCode, {
-            tier: plan.tier, interval: subscription.interval, planPriceCents: plan.prices[subscription.interval],
-          });
-        } catch (refErr) {
-          logger.error('Referral processing failed (subscription_created)', {
-            orgId, error: refErr instanceof Error ? refErr.message : String(refErr),
-          });
-        }
-      }
+      await runSignupPromotions(subscription, plan, { source: 'subscription_create', referralCode, actorId: req.user?.sub });
     }
 
     logger.info('Subscription created', { orgId, planId, interval });
@@ -517,84 +492,6 @@ export function createSubscriptionRoutes(): Router {
       },
     });
   }));
-
-  // DELETE /billing/subscriptions/by-org/:orgId � cascade hook.
-  // Sysadmin / service-token only. Cancels and removes every subscription
-  // + event for the org. Idempotent: missing org → 200 with `deleted: 0`.
-  //
-  // The platform's org-cascade-service calls this with a service-minted
-  // token; user-initiated org deletes never reach this path (they go
-  // through admin.org.delete on platform, which fires us internally).
-  router.delete(
-    '/subscriptions/by-org/:orgId',
-    requireAuth(AUTH_OPTS) as RequestHandler,
-    requireSystemAdmin as RequestHandler,
-    withRoute(async ({ req, res }) => {
-      const targetOrgId = getParam(req.params, 'orgId');
-      if (!targetOrgId) return sendError(res, 400, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
-
-      // Cancel every still-billable subscription at the provider first so we
-      // don't leave billable state running after our local rows are gone.
-      // A trialing / past_due row carries a live externalId at the provider
-      // just like an active one; cancelling only status:'active' meant the
-      // deleteMany below wiped the local row while the provider kept billing,
-      // with nothing left to reconcile. Match the manageable (non-terminal)
-      // set so the provider-cancel covers what deleteMany removes. Fail-soft:
-      // a provider-cancel failure is logged but never blocks the local cascade.
-      // An org realistically holds a single active subscription; a hard cap
-      // keeps this cascade sweep bounded even against pathological data (the
-      // provider-cancel loop + audit mirror below iterate this set).
-      const billable = await Subscription.find({
-        orgId: targetOrgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
-      }).limit(1000);
-      for (const sub of billable) {
-        if (sub.externalId) {
-          try {
-            await getPaymentProvider().cancelSubscription(sub.externalId);
-          } catch (err) {
-            logger.warn('Provider cancel failed during cascade  continuing with local delete', {
-              orgId: targetOrgId,
-              subscriptionId: sub._id?.toString(),
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
-        }
-      }
-
-      const subDelete = await Subscription.deleteMany({ orgId: targetOrgId });
-
-      // Drop billing events too — they're scoped to the org and have no
-      // independent purpose once the subscription is gone. Audit retention
-      // lives in platform's audit_events collection, not here.
-      const eventDelete = await BillingEvent.deleteMany({ orgId: targetOrgId });
-
-      // Mirror each removed (billable) subscription to the CENTRAL audit trail,
-      // ALONGSIDE the local billing_events rows we just dropped. Fire-and-forget;
-      // details are an explicit id-only whitelist so no provider/card secret or
-      // AWS account id leaks. `billable` holds the org's live (non-terminal)
-      // subscription(s) loaded before deletion, each carrying its own id + plan.
-      for (const sub of billable) {
-        getAuditClient().record({
-          action: 'billing.subscription.delete',
-          actorId: req.user?.sub ?? 'system',
-          orgId: targetOrgId,
-          targetId: sub._id?.toString(),
-          details: { planId: sub.planId, orgId: targetOrgId },
-        }, 'billing');
-      }
-
-      logger.info('Subscription cascade complete', {
-        orgId: targetOrgId,
-        subscriptions: subDelete.deletedCount ?? 0,
-        events: eventDelete.deletedCount ?? 0,
-      });
-
-      return sendSuccess(res, 200, {
-        deleted: subDelete.deletedCount ?? 0,
-        events: eventDelete.deletedCount ?? 0,
-      });
-    }, { requireOrgId: false }),
-  );
 
   // POST /billing/subscriptions/:id/reactivate  undo cancellation
 

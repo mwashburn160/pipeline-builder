@@ -14,7 +14,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
-import { canWriteRepo } from './repo-access.js';
+import { canWriteRepo, repoOwnerOrgId } from './repo-access.js';
 import { logger, RegistryMetrics, COPY_PARALLEL_BLOBS } from './shared.js';
 import { emitImageRegistryAudit } from '../../services/audit.js';
 import {
@@ -63,11 +63,14 @@ export function registerDeleteRoutes(router: Router): void {
       });
       // Durable audit trail for the destructive delete, emitted only AFTER the
       // manifest DELETE lands. Fire-and-forget; never blocks/throws.
+      // `affectedOrgId` = the repo's owning org, so its admins see the delete.
+      const ownerOrgId = repoOwnerOrgId(name);
       emitImageRegistryAudit({
         action: 'registry.image.delete',
         actorId: req.user?.sub ?? 'system',
         ...(req.user?.email && { actorEmail: req.user.email }),
         ...(req.user?.organizationId && { orgId: req.user.organizationId }),
+        ...(ownerOrgId && { affectedOrgId: ownerOrgId }),
         outcome: 'success',
         targetType: 'registry-image',
         targetId: name,
@@ -148,11 +151,13 @@ export function registerDeleteRoutes(router: Router): void {
     });
     // Durable audit trail for the whole-repo prune, emitted only AFTER the
     // manifests are deleted. Fire-and-forget; never blocks/throws.
+    const ownerOrgId = repoOwnerOrgId(name);
     emitImageRegistryAudit({
       action: 'registry.image.delete',
       actorId: req.user?.sub ?? 'system',
       ...(req.user?.email && { actorEmail: req.user.email }),
       ...(req.user?.organizationId && { orgId: req.user.organizationId }),
+      ...(ownerOrgId && { affectedOrgId: ownerOrgId }),
       outcome: 'success',
       targetType: 'registry-image',
       targetId: name,

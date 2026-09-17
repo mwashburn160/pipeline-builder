@@ -52,7 +52,8 @@ This service loads its own config (`src/config`) rather than the shared server c
 | `PLATFORM_SERVICE_HOST` | In-cluster platform host for the `docker login` flow (password forwarded to `/auth/login`) | `platform` |
 | `PLATFORM_SERVICE_PORT` | In-cluster platform port | `3000` |
 | `REGISTRY_TOKEN_RATE_LIMIT_WINDOW_MS` | `/token` rate-limit window (ms) | `60000` |
-| `REGISTRY_TOKEN_RATE_LIMIT_MAX` | `/token` requests per window | `60` |
+| `REGISTRY_TOKEN_RATE_LIMIT_MAX` | `/token` requests per window per (source IP, username) | `60` |
+| `REGISTRY_TOKEN_RATE_LIMIT_IP_MAX` | `/token` requests per window per source IP, across all usernames (anti password-spraying) | `300` |
 | `REGISTRY_MAX_BLOB_PROXY_BYTES` | Max size of a proxied config blob (bytes) | `5242880` |
 | `REGISTRY_COPY_PARALLEL_CHILDREN` | Parallel child manifests during copy | `3` |
 | `REGISTRY_COPY_PARALLEL_BLOBS` | Parallel blob copies | `8` |

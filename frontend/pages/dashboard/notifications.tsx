@@ -27,12 +27,12 @@ export default function NotificationsPage() {
   const { isReady, user, isReadOnly } = useAuthGuard();
   const toast = useToast();
   const orgId = user?.organizationId;
-  const prefs = useNotificationPrefs(orgId);
+  const prefs = useNotificationPrefs(user?.id, orgId);
 
   const update = async (patch: Partial<NotificationPrefs>) => {
-    if (!orgId) return;
+    if (!user?.id || !orgId) return;
     try {
-      await saveNotificationPrefs(orgId, { ...prefs, ...patch });
+      await saveNotificationPrefs(user.id, orgId, { ...prefs, ...patch });
     } catch (err) {
       // The toggle has already been put back; say why.
       toast.error(formatError(err, 'Could not save your notification preferences'));

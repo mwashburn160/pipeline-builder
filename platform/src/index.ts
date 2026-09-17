@@ -3,10 +3,9 @@
 
 import crypto from 'crypto';
 import { createHealthRouter, createLogger, installCrashHandlers, mongoSanitize, resolveRedisConnection, sendError, verifyServicePrincipal } from '@pipeline-builder/api-core';
-import { createSharedRateLimitStore, withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck } from '@pipeline-builder/api-server';
+import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
-import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import mongoose from 'mongoose';
 import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client';
@@ -14,12 +13,13 @@ import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client
 import { config } from './config/index.js';
 import { notFoundHandler, errorHandler } from './middleware/index.js';
 import { extractClientIp, rateLimitKey, peekJwtClaims, verifiedIsSuperAdmin, tierLimitedMax } from './middleware/rate-limit-keys.js';
+import { createLimiter } from './middleware/rate-limiter.js';
 import {
   isWriteBlockedByImpersonation,
   IMPERSONATION_READ_ONLY_MESSAGE,
   IMPERSONATION_READ_ONLY_CODE,
 } from './middleware/require-write-access.js';
-import { authRoutes, oauthRoutes, ssoRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, logRoutes, auditRoutes, notifyEmailRoutes, configRoutes, observabilityRoutes, dashboardRoutes, orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminSummaryRoutes, impersonateRoutes } from './routes/index.js';
+import { authRoutes, oauthRoutes, ssoRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, auditRoutes, notifyEmailRoutes, configRoutes, observabilityRoutes, dashboardRoutes, orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminSummaryRoutes, impersonateRoutes } from './routes/index.js';
 
 const logger = createLogger('platform-api');
 
@@ -83,51 +83,33 @@ function isAlertWebhook(req: Request): boolean {
 }
 
 /** Generous, dedicated bucket for the alert relay — see `isAlertWebhook`. */
-const alertWebhookLimiter = rateLimit({
-  // Shared across replicas (Redis); a store outage lets requests through.
-  store: createSharedRateLimitStore('platform:alert-webhook'),
-  passOnStoreError: true,
+const alertWebhookLimiter = createLimiter({
+  name: 'alert-webhook',
   windowMs: config.rateLimit.alertWebhook.windowMs,
   max: config.rateLimit.alertWebhook.max,
   keyGenerator: extractClientIp,
-  message: { success: false, statusCode: 429, message: 'Alert webhook rate limit exceeded.' },
-  standardHeaders: true,
-  legacyHeaders: false,
+  message: 'Alert webhook rate limit exceeded.',
 });
 
-/** General rate limiter  per-tier max, keyed by org (or IP for anon callers). */
-const limiter = rateLimit({
-  // Shared across replicas (Redis); a store outage lets requests through.
-  store: createSharedRateLimitStore('platform:general'),
-  passOnStoreError: true,
+/** General rate limiter — per-tier max, keyed by org (or IP for anon callers). */
+const limiter = createLimiter({
+  name: 'general',
   windowMs: config.rateLimit.windowMs,
   max: tierLimitedMax,
   keyGenerator: rateLimitKey,
   // Sysadmins are internal operators who legitimately make burst calls
-  // (audit replays, fleet-wide scans). Bypass the limiter rather than
-  // size it for the worst case. Same JWT-peek pattern as the key generator
-  // so this works pre-`requireAuth`.
-  skip: (req: Request) => {
-    // The alert relay has its own generous bucket; it must not share the
-    // anonymous user budget.
-    if (isAlertWebhook(req)) return true;
-    // Sysadmin bypass — VERIFY the signature (not just peek): the bypass removes
-    // throttling entirely, so an unsigned/forged `isSuperAdmin:true` token must not
-    // grant it (that would let an unauthenticated caller strip rate limiting from
-    // every route — a DoS-relevant control). `requireAuth` still re-checks later for
-    // the actual authorization; here we gate only the throttle bypass.
-    return verifiedIsSuperAdmin(req);
-  },
-  message: { success: false, statusCode: 429, message: 'Too many requests. Please try again later.' },
-  standardHeaders: true,
-  legacyHeaders: false,
+  // (audit replays, fleet-wide scans). Bypass the limiter rather than size it
+  // for the worst case. The alert relay has its own generous bucket; it must
+  // not share the anonymous user budget. The sysadmin check VERIFIES the token:
+  // the bypass removes throttling entirely, so a forged `isSuperAdmin:true`
+  // must not grant it. `requireAuth` still authorizes the request later.
+  skip: (req: Request) => isAlertWebhook(req) || verifiedIsSuperAdmin(req),
+  message: 'Too many requests. Please try again later.',
 });
 
-/** Strict rate limiter for auth endpoints (login, register, OAuth)  IP-based since user is not yet authenticated. */
-const authLimiter = rateLimit({
-  // Shared across replicas (Redis); a store outage lets requests through.
-  store: createSharedRateLimitStore('platform:auth'),
-  passOnStoreError: true,
+/** Strict rate limiter for auth endpoints (login, register, OAuth) — IP-based since the user is not yet authenticated. */
+const authLimiter = createLimiter({
+  name: 'auth',
   windowMs: config.rateLimit.auth.windowMs,
   max: config.rateLimit.auth.max,
   keyGenerator: extractClientIp,
@@ -136,30 +118,24 @@ const authLimiter = rateLimit({
   // let one user's failures lock everyone out. That service limits per client
   // and username itself (image-registry token-rate-limiter).
   skip: (req: Request) => verifyServicePrincipal(req),
-  message: { success: false, statusCode: 429, message: 'Too many authentication attempts. Please try again later.' },
-  standardHeaders: true,
-  legacyHeaders: false,
+  message: 'Too many authentication attempts. Please try again later.',
 });
 
 /**
  * Per-org rate limiter for observability endpoints. Tighter than the general
- * limiter because every request fans out to Prometheus or Loki, and a noisy
- * tenant can degrade those upstreams for everyone else (dashboards across all
- * orgs go blank). Keys by JWT-claimed org when present, falls back to IP.
+ * limiter because every request fans out to Prometheus, and a noisy tenant can
+ * degrade that upstream for everyone else (dashboards across all orgs go blank).
+ * Keys by the verified token's org when present, falls back to IP.
  */
-const observabilityLimiter = rateLimit({
-  // Shared across replicas (Redis); a store outage lets requests through.
-  store: createSharedRateLimitStore('platform:observability'),
-  passOnStoreError: true,
+const observabilityLimiter = createLimiter({
+  name: 'observability',
   windowMs: config.rateLimit.observability.windowMs,
   max: config.rateLimit.observability.max,
   keyGenerator: rateLimitKey,
   // The alert relay is mounted under /observability but is not a tenant
   // dashboard query — it has its own bucket (see `isAlertWebhook`).
   skip: isAlertWebhook,
-  message: { success: false, statusCode: 429, message: 'Observability rate limit exceeded for your organization. Please slow down or batch your queries.' },
-  standardHeaders: true,
-  legacyHeaders: false,
+  message: 'Observability rate limit exceeded for your organization. Please slow down or batch your queries.',
 });
 
 /**
@@ -192,21 +168,6 @@ app.use(mongoSanitize());
 app.set('trust proxy', config.server.trustProxy);
 app.use(requestIdMiddleware);
 
-/**
- * Tenant-context middleware (RLS enforcement).
- *
- * Runs before any route handler so the JWT-claimed `organizationId` + role
- * are available in AsyncLocalStorage for every downstream `withTenantTx`
- * call. Same JWT-peek pattern as `peekJwtClaims`  we read the unverified
- * payload here because * 1. The signature gets checked later in `requireAuth` (route-level).
- * Route handlers never run if the JWT was tampered.
- * 2. The peeked context only matters at query time inside withTenantTx,
- * which only fires from authenticated route handlers  so a tampered
- * JWT can't bind a falsified `app.org_id` to a real query.
- * 3. Setting the context before requireAuth lets services that aren't
- * authenticated (e.g. the /alert-webhook shared-secret endpoint) still
- * get a sensible default (empty orgId, isSuperAdmin=false).
- */
 // Health + readiness, standardized on the shared router (replacing platform's
 // bespoke /health): GET /health = liveness (200 while the process answers),
 // GET /ready = readiness (503 while Mongo is disconnected). Mounted before the
@@ -221,12 +182,26 @@ app.use(createHealthRouter({
 // installed before any secret is served" invariant: `ready` is only set true
 // after that bootstrap, so no secret-touching request is served before it.
 //
-// Narrow allowlist (NOT the shared default): platform serves a tenant log
-// query API at `/logs`, which must be gated like any other Mongo-backed route.
-// The default bypass list includes `/logs` for api-server's SSE log relay,
-// which platform does not have.
+// Narrow allowlist (NOT the shared default): the default bypass list includes
+// `/logs` for api-server's SSE log relay, which platform does not have.
 app.use(readinessGuard(['/health', '/ready', '/metrics']));
 
+/**
+ * Tenant-context middleware (RLS enforcement).
+ *
+ * Runs before any route handler so the JWT-claimed `organizationId` + role
+ * are available in AsyncLocalStorage for every downstream `withTenantTx`
+ * call. Same JWT-peek pattern as `peekJwtClaims` — we read the unverified
+ * payload here because
+ * 1. The signature gets checked later in `requireAuth` (route-level).
+ * Route handlers never run if the JWT was tampered.
+ * 2. The peeked context only matters at query time inside withTenantTx,
+ * which only fires from authenticated route handlers  so a tampered
+ * JWT can't bind a falsified `app.org_id` to a real query.
+ * 3. Setting the context before requireAuth lets services that aren't
+ * authenticated (e.g. the /alert-webhook shared-secret endpoint) still
+ * get a sensible default (empty orgId, isSuperAdmin=false).
+ */
 // Reuses the shared `withTenantContext` helper with platform's own pre-auth resolver.
 app.use(withTenantContext((req: Request) => {
   // Use the JWT-stamped isSuperAdmin flag (post system-org cutover). The peek is
@@ -304,7 +279,6 @@ app.use('/users', usersRoutes);
 app.use('/organization', organizationRoutes);
 app.use('/organizations', organizationsRoutes);
 app.use('/invitation', invitationRoutes);
-app.use('/logs', logRoutes);
 app.use('/audit', auditRoutes);
 app.use('/internal/notify-email', notifyEmailRoutes);
 app.use('/config', configRoutes);
@@ -328,7 +302,6 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 
 const MONGO_RETRY_BASE_MS = 1000;
 const MONGO_RETRY_MAX_MS = 10000;
-const READINESS_MONITOR_INTERVAL_MS = parseInt(process.env.READINESS_MONITOR_INTERVAL_MS || '15000', 10);
 
 /**
  * Establish MongoDB + run the post-connect bootstraps in the BACKGROUND, then
@@ -347,11 +320,7 @@ const READINESS_MONITOR_INTERVAL_MS = parseInt(process.env.READINESS_MONITOR_INT
  * KMS misconfig forever instead of surfacing it.
  */
 async function initDependencies(): Promise<void> {
-  // Pool sizing via env (see api/billing/database.ts for rationale): bound the
-  // connection ceiling so multiple replicas don't exhaust Mongo's default cap.
-  const maxPoolSize = parseInt(process.env.MONGO_MAX_POOL || '20', 10);
-  const minPoolSize = parseInt(process.env.MONGO_MIN_POOL || '2', 10);
-  const serverSelectionTimeoutMS = parseInt(process.env.MONGO_SERVER_SELECTION_MS || '5000', 10);
+  const { maxPoolSize, minPoolSize, serverSelectionTimeoutMs: serverSelectionTimeoutMS } = config.mongodb;
 
   let delay = MONGO_RETRY_BASE_MS;
   for (;;) {
@@ -453,8 +422,7 @@ async function initDependencies(): Promise<void> {
   // stale domain can't keep admitting signups forever. Leader-locked (one
   // replica per window); intervals env-tunable, defaults 24h sweep / 7d staleness.
   {
-    const reverifyIntervalMs = Number(process.env.DOMAIN_REVERIFY_INTERVAL_MS) || 24 * 60 * 60 * 1000;
-    const reverifyStaleMs = Number(process.env.DOMAIN_REVERIFY_STALE_MS) || 7 * 24 * 60 * 60 * 1000;
+    const { domainReverifyIntervalMs: reverifyIntervalMs, domainReverifyStaleMs: reverifyStaleMs } = config.organization;
     if (reverifyIntervalMs > 0) {
       const { runWithLeaderLock } = await import('./utils/leader-lock.js');
       const lockTtlMs = Math.max(reverifyIntervalMs, 60_000);
@@ -521,7 +489,7 @@ async function initDependencies(): Promise<void> {
   // Keep readiness in sync with Mongo for the life of the process so a later
   // outage drains traffic (NotReady) and a recovery restores it — no restart.
   for (;;) {
-    await sleep(READINESS_MONITOR_INTERVAL_MS);
+    await sleep(config.server.readinessMonitorIntervalMs);
     const ok = mongoose.connection.readyState === 1;
     if (ok && !isReady()) {
       setReady(true);
@@ -593,11 +561,10 @@ async function startServer(): Promise<void> {
 
     // Force shutdown after timeout (unref'd so it never itself keeps the
     // process alive, matching api-server's startServer).
-    const shutdownTimeoutMs = parseInt(process.env.SHUTDOWN_TIMEOUT_MS || '15000', 10);
     setTimeout(() => {
       logger.error('Forced shutdown after timeout');
       process.exit(1);
-    }, shutdownTimeoutMs).unref();
+    }, config.server.shutdownTimeoutMs).unref();
   };
 
   process.on('SIGINT', () => void shutdown('SIGINT'));

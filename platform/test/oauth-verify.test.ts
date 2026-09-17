@@ -92,7 +92,6 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 
 jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { findOrCreateOAuthUser: (...a: unknown[]) => mockFindOrCreate(...a) },
-  ACCOUNT_EMAIL_UNVERIFIED: 'ACCOUNT_EMAIL_UNVERIFIED',
 }));
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
@@ -142,6 +141,10 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
 
 const { verifyOAuthCode, handleCallback, getAuthUrl, OAUTH_ERROR_MAP } =
   await import('../src/controllers/oauth.js');
+const {
+  OAUTH_EMAIL_UNVERIFIED, OAUTH_INVALID_STATE, OAUTH_NO_EMAIL, OAUTH_PROVIDER_DISABLED, OAUTH_TOKEN_EXCHANGE_FAILED,
+  OAUTH_UNSUPPORTED_PROVIDER, OAUTH_USERINFO_FAILED,
+} = await import('../src/services/auth-errors.js');
 
 function makeRes() {
   const res: any = {};
@@ -171,15 +174,15 @@ afterEach(() => { global.fetch = realFetch; });
 
 describe('verifyOAuthCode', () => {
   it('throws OAUTH_UNSUPPORTED_PROVIDER for an unknown provider', async () => {
-    await expect(verifyOAuthCode('twitter', 'c', 's')).rejects.toThrow('OAUTH_UNSUPPORTED_PROVIDER');
+    await expect(verifyOAuthCode('twitter', 'c', 's')).rejects.toThrow(OAUTH_UNSUPPORTED_PROVIDER);
   });
 
   it('throws OAUTH_PROVIDER_DISABLED for a configured-but-disabled provider', async () => {
-    await expect(verifyOAuthCode('github', 'c', 's')).rejects.toThrow('OAUTH_PROVIDER_DISABLED');
+    await expect(verifyOAuthCode('github', 'c', 's')).rejects.toThrow(OAUTH_PROVIDER_DISABLED);
   });
 
   it('throws OAUTH_INVALID_STATE for a state that was never minted', async () => {
-    await expect(verifyOAuthCode('google', 'c', 'never-seen-state')).rejects.toThrow('OAUTH_INVALID_STATE');
+    await expect(verifyOAuthCode('google', 'c', 'never-seen-state')).rejects.toThrow(OAUTH_INVALID_STATE);
   });
 
   it('returns the provider-verified identity on a valid state + code exchange', async () => {
@@ -199,14 +202,40 @@ describe('verifyOAuthCode', () => {
       .mockResolvedValueOnce(okJson({ id: 'g-1', email: 'a@x.com', email_verified: true })) as any;
 
     await verifyOAuthCode('google', 'code', state); // consumes it
-    await expect(verifyOAuthCode('google', 'code', state)).rejects.toThrow('OAUTH_INVALID_STATE');
+    await expect(verifyOAuthCode('google', 'code', state)).rejects.toThrow(OAUTH_INVALID_STATE);
   });
 
-  it('maps a failed code exchange to TOKEN_EXCHANGE_FAILED', async () => {
+  it('maps a failed code exchange to OAUTH_TOKEN_EXCHANGE_FAILED', async () => {
     const state = await mintState('google');
     global.fetch = jest.fn().mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'invalid_grant' }) }) as any;
 
-    await expect(verifyOAuthCode('google', 'bad-code', state)).rejects.toThrow('TOKEN_EXCHANGE_FAILED');
+    await expect(verifyOAuthCode('google', 'bad-code', state)).rejects.toThrow(OAUTH_TOKEN_EXCHANGE_FAILED);
+  });
+
+  it('maps a provider transport failure / unparseable body to a typed code, not a 500', async () => {
+    let state = await mintState('google');
+    global.fetch = jest.fn().mockRejectedValueOnce(new Error('ECONNRESET')) as any;
+    await expect(verifyOAuthCode('google', 'code', state)).rejects.toThrow(OAUTH_TOKEN_EXCHANGE_FAILED);
+
+    state = await mintState('google');
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockResolvedValueOnce({ ok: true, json: async () => { throw new SyntaxError('bad json'); } }) as any;
+    await expect(verifyOAuthCode('google', 'code', state)).rejects.toThrow(OAUTH_USERINFO_FAILED);
+  });
+
+  it('maps a missing email to OAUTH_NO_EMAIL and an unverified one to OAUTH_EMAIL_UNVERIFIED', async () => {
+    let state = await mintState('google');
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockResolvedValueOnce(okJson({ id: 'g-1', email_verified: true })) as any;
+    await expect(verifyOAuthCode('google', 'code', state)).rejects.toThrow(OAUTH_NO_EMAIL);
+
+    state = await mintState('google');
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockResolvedValueOnce(okJson({ id: 'g-1', email: 'a@x.com', email_verified: false })) as any;
+    await expect(verifyOAuthCode('google', 'code', state)).rejects.toThrow(OAUTH_EMAIL_UNVERIFIED);
   });
 
   it('returns the Microsoft identity from the OIDC userinfo email claim', async () => {
@@ -236,7 +265,7 @@ describe('verifyOAuthCode', () => {
       .mockResolvedValueOnce(okJson({ sub: 'gl-2', email: 'gl@x.com', email_verified: false })) as any;
 
     await expect(verifyOAuthCode('gitlab', 'auth-code', state))
-      .rejects.toThrow('GitLab did not return a verified email address');
+      .rejects.toThrow(OAUTH_EMAIL_UNVERIFIED);
   });
 
   it('returns the LinkedIn identity from the OIDC userinfo email claim', async () => {
@@ -254,8 +283,21 @@ describe('handleCallback (OAUTH_ERROR_MAP wiring)', () => {
   it('maps an invalid/expired state to 403', async () => {
     const res = makeRes();
     await (handleCallback as any)({ params: { provider: 'google' }, body: { code: 'c', state: 'forged' } }, res);
-    expect(res.status).toHaveBeenCalledWith(OAUTH_ERROR_MAP.OAUTH_INVALID_STATE.status);
+    expect(res.status).toHaveBeenCalledWith(OAUTH_ERROR_MAP[OAUTH_INVALID_STATE].status);
     expect(res.status).toHaveBeenCalledWith(403);
+  });
+
+  it.each([
+    ['an unverified provider email', { id: 'g-1', email: 'a@x.com', email_verified: false }, 403],
+    ['a missing provider email', { id: 'g-1', email_verified: true }, 400],
+  ])('maps %s to its status instead of 500', async (_label, claims, status) => {
+    const state = await mintState('google');
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockResolvedValueOnce(okJson(claims)) as any;
+    const res = makeRes();
+    await (handleCallback as any)({ params: { provider: 'google' }, body: { code: 'c', state } }, res);
+    expect(res.status).toHaveBeenCalledWith(status);
   });
 
   it('audits user.login.failed (outcome failure) on a rejected OAuth grant — no secret in details', async () => {

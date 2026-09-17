@@ -1,18 +1,34 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Sparkles, Check, Loader2 } from 'lucide-react';
+import { Sparkles, Check } from 'lucide-react';
 import api from '@/lib/api';
 import type { RuleTemplate } from '@/types/compliance';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Callout } from '@/components/ui/Callout';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { LoadingSpinner } from '@/components/ui/Loading';
 
-const CATEGORY_COLORS: Record<string, string> = {
-  security: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400',
-  quality: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400',
-  convention: 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400',
-  cost: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400',
+type BadgeColor = 'green' | 'red' | 'gray' | 'blue' | 'purple' | 'yellow' | 'indigo';
+
+const CATEGORY_COLORS: Record<string, BadgeColor> = {
+  security: 'red',
+  quality: 'blue',
+  convention: 'purple',
+  cost: 'green',
 };
 
-export default function TemplateOnboarding() {
+/** Tooltip on a disabled Apply. `readOnly` covers both a missing
+ *  `compliance:write` and a read-only impersonation session, so it names neither. */
+export const APPLY_BLOCKED_REASON = "You don't have permission to add compliance rules";
+
+interface TemplateOnboardingProps {
+  /** Disables Apply — the caller lacks `compliance:write` (or is in a read-only session). */
+  readOnly?: boolean;
+}
+
+export default function TemplateOnboarding({ readOnly = false }: TemplateOnboardingProps) {
   const [templates, setTemplates] = useState<RuleTemplate[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -43,7 +59,7 @@ export default function TemplateOnboarding() {
   };
 
   const handleApply = async () => {
-    if (selectedIds.size === 0) return;
+    if (readOnly || selectedIds.size === 0) return;
     setApplying(true);
     setError(null);
     try {
@@ -57,19 +73,15 @@ export default function TemplateOnboarding() {
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-blue-600" /></div>;
+    return <div className="flex items-center justify-center py-12"><LoadingSpinner label="Loading rule templates" /></div>;
   }
 
   if (result) {
     return (
-      <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 p-6 text-center">
-        <Check className="h-10 w-10 text-green-600 mx-auto mb-3" />
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Templates Applied</h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-          {result.created} rule{result.created !== 1 ? 's' : ''} created
-          {result.skipped > 0 && `, ${result.skipped} skipped (already exist)`}
-        </p>
-      </div>
+      <Callout variant="success" icon={Check} title="Templates Applied">
+        {result.created} rule{result.created !== 1 ? 's' : ''} created
+        {result.skipped > 0 && `, ${result.skipped} skipped (already exist)`}
+      </Callout>
     );
   }
 
@@ -80,19 +92,19 @@ export default function TemplateOnboarding() {
           <Sparkles className="h-5 w-5 text-amber-500" />
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Starter Rule Templates</h2>
         </div>
-        <button
+        <Button
           onClick={handleApply}
-          disabled={applying || selectedIds.size === 0}
-          className="flex items-center gap-1.5 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          loading={applying}
+          disabled={readOnly || selectedIds.size === 0}
+          title={readOnly ? APPLY_BLOCKED_REASON : undefined}
+          className="gap-1.5"
         >
-          {applying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          {!applying && <Sparkles className="h-4 w-4" />}
           Apply {selectedIds.size} Template{selectedIds.size !== 1 ? 's' : ''}
-        </button>
+        </Button>
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-2 text-sm text-red-700 dark:text-red-300">{error}</div>
-      )}
+      <ErrorAlert message={error} onDismiss={() => setError(null)} />
 
       <p className="text-sm text-gray-500 dark:text-gray-400">
         Select starter rules to add to your organization. These create org-scoped rules you can customize.
@@ -104,6 +116,8 @@ export default function TemplateOnboarding() {
           return (
             <button
               key={t.id}
+              type="button"
+              aria-pressed={selected}
               onClick={() => toggleTemplate(t.id)}
               className={`text-left p-4 rounded-lg border-2 transition-colors ${
                 selected
@@ -115,14 +129,12 @@ export default function TemplateOnboarding() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-sm font-medium text-gray-900 dark:text-white">{t.name}</span>
-                    <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${CATEGORY_COLORS[t.category] || 'bg-gray-100 text-gray-600'}`}>
-                      {t.category}
-                    </span>
+                    <Badge color={CATEGORY_COLORS[t.category] ?? 'gray'}>{t.category}</Badge>
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">{t.description}</p>
                   <div className="flex gap-2 mt-2">
-                    <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded px-1.5 py-0.5">{t.target}</span>
-                    <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded px-1.5 py-0.5">{t.severity}</span>
+                    <Badge color="gray">{t.target}</Badge>
+                    <Badge color="gray">{t.severity}</Badge>
                   </div>
                 </div>
                 <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${selected ? 'bg-blue-600 border-blue-600' : 'border-gray-300 dark:border-gray-600'}`}>

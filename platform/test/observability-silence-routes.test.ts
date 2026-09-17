@@ -18,14 +18,12 @@ import { jest, describe, it, expect } from '@jest/globals';
 const requireAuthStub: any = (_req: unknown, _res: unknown, next: () => void) => next();
 requireAuthStub.__mw = 'requireAuth';
 
-// requireStepUp stub — the observability router's restore routes import it; the
-// silence-route assertions below don't inspect it, so a tagged pass-through is enough.
-const requireStepUpStub: any = (_req: unknown, _res: unknown, next: () => void) => next();
-requireStepUpStub.__mw = 'requireStepUp';
 
 // requirePermission stub — returns a middleware tagged with the perms it gates,
 // so the stack assertion can identify the write-gate on a route.
 jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+  // The restore routes import it; the silence-route assertions don't inspect it.
+  requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
   requirePermission: (...perms: string[]) => {
     const mw: any = (req: any, res: any, next: () => void) => {
       const has = req?.user?.isSuperAdmin === true
@@ -39,7 +37,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
   },
 }));
 
-jest.unstable_mockModule('../src/middleware/index.js', () => ({ requireAuth: requireAuthStub, requireStepUp: requireStepUpStub }));
+jest.unstable_mockModule('../src/middleware/index.js', () => ({ requireAuth: requireAuthStub }));
 
 // Handler stubs — the router only needs referenceable functions.
 const handler = (name: string) => Object.assign((_req: unknown, res: any) => res?.end?.(), { __handler: name });

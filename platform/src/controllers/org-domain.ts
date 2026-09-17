@@ -5,11 +5,8 @@ import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builde
 import { audit } from '../helpers/audit.js';
 import { withController, canAdministerOrg, requireAuth } from '../helpers/controller-helper.js';
 import { incCounter } from '../observability/metrics.js';
-import {
-  orgDomainService, VERIFY_RECORD_HOST, VERIFY_RECORD_VALUE,
-  DOMAIN_TAKEN, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_VERIFY_FAILED,
-  DOMAIN_NOT_ENTITLED, DOMAIN_LIMIT, DOMAIN_PUBLIC, JOIN_NOT_ELIGIBLE, JOIN_REQUEST_NOT_FOUND, JOIN_SEAT_LIMIT,
-} from '../services/org-domain-service.js';
+import { DOMAIN_TAKEN, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_VERIFY_FAILED, DOMAIN_NOT_ENTITLED, DOMAIN_LIMIT, DOMAIN_PUBLIC, JOIN_NOT_ELIGIBLE, JOIN_REQUEST_NOT_FOUND, JOIN_REQUESTER_GONE, JOIN_SEAT_LIMIT } from '../services/org-domain-errors.js';
+import { orgDomainService, VERIFY_RECORD_HOST, VERIFY_RECORD_VALUE } from '../services/org-domain-service.js';
 import { validateBody, addDomainSchema, setDomainModeSchema } from '../utils/validation.js';
 
 const logger = createLogger('org-domain-controller');
@@ -25,6 +22,7 @@ const DOMAIN_ERROR_MAP = {
   [DOMAIN_PUBLIC]: { status: 400, message: 'Public email providers (e.g. gmail.com) cannot be used for domain-based join' },
   [JOIN_NOT_ELIGIBLE]: { status: 409, message: 'This domain is no longer configured for join — the request can’t be approved' },
   [JOIN_REQUEST_NOT_FOUND]: { status: 404, message: 'Join request not found' },
+  [JOIN_REQUESTER_GONE]: { status: 410, message: 'The requesting user no longer exists' },
   [JOIN_SEAT_LIMIT]: { status: 409, message: 'Approving this request would exceed your seat limit' },
 } as const;
 

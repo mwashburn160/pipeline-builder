@@ -7,6 +7,7 @@ import type { SSEManager } from '@pipeline-builder/api-server';
 import { runWithTenantContext, type MessageInsert } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
+import { notifyNewMessage } from '../helpers/new-message.js';
 import { messageService } from '../services/message-service.js';
 
 const logger = createLogger('internal-notify');
@@ -76,19 +77,16 @@ export function createInternalNotifyRoutes(sseManager: SSEManager): Router {
       );
       incCounter('message_events_total', { action: 'created' });
 
-      // Real-time ping (org-scoped fan-out). Redact the subject for a targeted DM
-      // so it doesn't leak to org members who can't read it — mirrors create-message.
-      try {
-        sseManager.send(recipient, 'MESSAGE', 'New message', {
-          action: 'NEW_MESSAGE',
-          messageId: message.id,
-          subject: recipientUserId ? undefined : subject,
-          senderOrgId: SYSTEM_ORG_ID,
-          messageType: 'conversation',
-        });
-      } catch (err) {
-        logger.warn('SSE push failed', { error: errorMessage(err) });
-      }
+      // Real-time ping (org-scoped fan-out; subject redacted for a targeted DM) —
+      // the same notifier create-message uses.
+      notifyNewMessage(sseManager, {
+        recipientOrgId: recipient,
+        messageId: message.id,
+        subject,
+        targeted: !!recipientUserId,
+        senderOrgId: SYSTEM_ORG_ID,
+        messageType: 'conversation',
+      }, (err) => logger.warn('SSE push failed', { error: errorMessage(err) }));
 
       logger.info('Internal notification sent', { recipientOrgId: recipient, id: message.id, targeted: !!recipientUserId });
       return sendSuccess(res, 201, { id: message.id });

@@ -252,8 +252,8 @@ export default function MessagesPage() {
               <Button
                 size="sm"
                 onClick={() => setShowCompose(true)}
-                disabled={isReadOnly}
-                title={isReadOnly ? 'Read-only session' : (canWrite ? 'New Message' : 'Contact Support')}
+                readOnly={isReadOnly}
+                title={canWrite ? 'New Message' : 'Contact Support'}
                 aria-label={canWrite ? 'New Message' : 'Contact Support'}
               >
                 <Plus className="w-4 h-4" />

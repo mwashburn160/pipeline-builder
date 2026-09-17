@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, requireAuth, requirePermission, sendSuccess, sendError, ErrorCode, parseQueryString } from '@pipeline-builder/api-core';
+import { createLogger, requireAuth, requirePermission, sendSuccess, sendError, ErrorCode } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/billing-helpers.js';
+import { parseOptionalDate } from '../helpers/query-dates.js';
 import { buildUsageRollupFor } from '../helpers/usage-helpers.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
@@ -13,15 +14,6 @@ import { Subscription } from '../models/subscription.js';
 const logger = createLogger('billing-usage');
 
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
-
-/** Parse an optional ISO date query param; `undefined` if absent, `null` if malformed
- *  (mirrors billing-summary's parser so the two routes validate dates identically). */
-function parseOptionalDate(raw: unknown): Date | undefined | null {
-  const s = parseQueryString(raw);
-  if (!s) return undefined;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
 
 /**
  * Cost-and-usage rollup for the active org.

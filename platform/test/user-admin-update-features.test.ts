@@ -29,7 +29,8 @@ jest.unstable_mockModule('mongoose', () => {
 });
 
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
-  RL_ROLE_NOT_FOUND: 'RL_ROLE_NOT_FOUND',
+  assertActorMayAssignBuiltinAdmin: jest.fn(),
+  assertNotLastPrivilegedMember: jest.fn(),
   assignBuiltinAdminRole: jest.fn(async () => true),
   ensureBaselineRole: jest.fn(async () => undefined),
   recomputeUserOrgRole: jest.fn(async () => undefined),
@@ -38,7 +39,7 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
 jest.unstable_mockModule('../src/helpers/active-org-info.js', () => ({
   loadActiveOrgInfo: (...a: unknown[]) => mockLoadActiveOrgInfo(...a),
 }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({ seatCapacityAvailable: jest.fn(async () => true), seatCapacityStillWithinCap: jest.fn(async () => true), userHasSeatInAccount: jest.fn(async () => false) }));
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
   publishUserRevocation: (...a: unknown[]) => mockPublishUser(...a),
@@ -49,6 +50,7 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
 }));
 jest.unstable_mockModule('../src/utils/regex.js', () => ({ escapeRegex: (s: string) => s }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  JoinRequest: {},
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},

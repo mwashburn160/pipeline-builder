@@ -20,6 +20,7 @@ let existingRule: Record<string, unknown> | undefined;
 class StubCrudService {
   find(): unknown { return undefined; }
   async findById(): Promise<unknown> { return existingRule; }
+  protected enforceOrgId<T>(data: T): T { return data; }
   async create(data: Record<string, unknown>): Promise<unknown> { return { ...data, id: 'new-id' }; }
   async update(id: string, data: Record<string, unknown>): Promise<unknown> {
     return { ...data, id, name: data.name ?? 'r', target: 'plugin', scope: existingRule?.scope };
@@ -27,8 +28,17 @@ class StubCrudService {
   delete(): unknown { return undefined; }
 }
 
-const dbInsertValues = jest.fn().mockResolvedValue(undefined);
-const dbInsert = jest.fn(() => ({ values: dbInsertValues }));
+// History writes are a plain awaited `values` insert (rule create itself goes
+// through the stubbed base CrudService.create above).
+const dbInsert = jest.fn(() => {
+  let row: Record<string, unknown> = {};
+  const chain: Record<string, unknown> = {
+    values: (v: Record<string, unknown>) => { row = v; return chain; },
+    returning: async () => [{ ...row, id: 'new-id' }],
+    then: (resolve: (v: unknown) => unknown) => Promise.resolve(undefined).then(resolve),
+  };
+  return chain;
+});
 function makeSelectChain(): Record<string, unknown> {
   const chain: Record<string, unknown> = {};
   for (const name of ['from', 'innerJoin', 'leftJoin', 'where', 'orderBy', 'limit', 'offset']) chain[name] = jest.fn(() => chain);

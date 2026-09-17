@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { incrementQuota, type QuotaService, type QuotaType } from '@pipeline-builder/api-core';
-import type { Request } from 'express';
 import type { RequestContext } from './request-types.js';
 
 /**
@@ -15,15 +14,15 @@ import type { RequestContext } from './request-types.js';
  *
  * @example
  * ```typescript
- * router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
+ * router.get('/', withRoute(async ({ res, ctx, orgId }) => {
  *   // ...
- *   incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+ *   incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
  * }));
  * ```
  */
 export function incrementQuotaFromCtx(
   quotaService: QuotaService,
-  rc: { req: Request; ctx: RequestContext; orgId: string },
+  rc: { ctx: RequestContext; orgId: string },
   type: QuotaType,
 ): void {
   incrementQuota(

@@ -22,27 +22,28 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 const releasePluginQuota = jest.fn();
 const cleanupBuildArtifacts = jest.fn();
 
-// plugin-build-dlq links against most of the queue toolkit, so the mock has to
-// provide every name it imports — not just the two we assert on. The build
-// context/artifact and build-event helpers now live in their own modules
-// (build-workspace / build-failures), so they are mocked at those specifiers:
-// mocking them on plugin-build-queue would no longer intercept the real call.
-jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
-  releasePluginQuota,
+// plugin-build-dlq links against the queue toolkit, so the mocks have to provide
+// every name it imports — not just the ones we assert on. Queue handles +
+// connections live in connections.js, slot release in build-quota.js, and the
+// build context/artifact and build-event helpers in build-workspace.js /
+// build-failures.js, so each is mocked at its own specifier.
+const dlqQueue = { getJobs: jest.fn<(states: string[]) => Promise<unknown[]>>(), getJobCounts: jest.fn<(...s: string[]) => Promise<Record<string, number>>>(), add: jest.fn() };
+jest.unstable_mockModule('../src/queue/connections.js', () => ({
+  DLQ_NAME: 'plugin-build-dlq',
   getBuildCfg: () => ({ dlqMaxSize: 3, dlqMaxAttempts: 3, dlqBackoffBaseMs: 1000, maxAttempts: 2 }),
   getConnectionForDb: () => ({}),
+  getDeadLetterQueue: () => dlqQueue,
   totalAttemptBudget: () => 8,
   getTierQueue: jest.fn(),
   getOrgTier: jest.fn(),
-  reserveReplaySlot: jest.fn(),
 }));
-jest.unstable_mockModule('../src/queue/build-workspace.js', () => ({ cleanupBuildArtifacts }));
-jest.unstable_mockModule('../src/queue/build-failures.js', () => ({ recordTerminalFailedBuildEvent: jest.fn() }));
+jest.unstable_mockModule('../src/queue/build-quota.js', () => ({ releasePluginQuota }));
+jest.unstable_mockModule('../src/queue/build-workspace.js', () => ({ cleanupBuildArtifacts, BuildContextMissingError: class extends Error {} }));
+jest.unstable_mockModule('../src/queue/build-failures.js', () => ({ recordTerminalFailedBuildEvent: jest.fn(), isFinalAttempt: jest.fn() }));
 
-const getJobs = jest.fn<(states: string[]) => Promise<unknown[]>>();
-const getJobCounts = jest.fn<(...s: string[]) => Promise<Record<string, number>>>();
+const getJobs = dlqQueue.getJobs;
+const getJobCounts = dlqQueue.getJobCounts;
 jest.unstable_mockModule('bullmq', () => ({
-  Queue: jest.fn(() => ({ getJobs, getJobCounts, add: jest.fn() })),
   Worker: jest.fn(),
 }));
 const { enforceDlqMaxSize } = await import('../src/queue/plugin-build-dlq.js');

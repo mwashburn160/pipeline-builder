@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { Shield, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, History, Search } from 'lucide-react';
 import api from '@/lib/api';
 import { useCrudResource } from '@/hooks/useCrudResource';
+import { useDelete } from '@/hooks/useDelete';
 import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleTarget, RuleSeverity, RuleScope } from '@/types/compliance';
 import { SEVERITY_CONFIG } from '@/lib/compliance-styles';
 import { StatusPill } from '@/components/ui/StatusPill';
@@ -15,6 +16,7 @@ import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { LoadingSpinner } from '@/components/ui/Loading';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 
 interface RuleListProps {
@@ -36,9 +38,6 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
   const [nameSearch, setNameSearch] = useState('');
   const [sortBy, setSortBy] = useState<'priority' | 'name' | 'severity'>('priority');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  // Deleting a rule was a single unguarded click on a trash icon.
-  const [pendingDelete, setPendingDelete] = useState<ComplianceRule | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   const crudApi = useMemo(() => ({
     list: async (params?: RuleParams) => {
@@ -62,7 +61,11 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
     },
     delete: (id: string) => api.deleteComplianceRule(id),
   }), [targetFilter, severityFilter]);
-  const { items: rules, loading, error, fetch: fetchRules, remove: deleteRule, update: updateRule } = useCrudResource<ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleParams>(crudApi, 'compliance rules');
+  const { items: rules, loading, loadError, mutationError, clearError, fetch: fetchRules, remove: deleteRule, update: updateRule } = useCrudResource<ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleParams>(crudApi, 'compliance rules');
+
+  // Deleting a rule is confirmed via a modal. `deleteRule` never throws — a
+  // failure lands in `mutationError` and renders inline above the list.
+  const del = useDelete<ComplianceRule>((rule) => deleteRule(rule.id));
 
   // useCrudResource no longer auto-fetches on mount; trigger the initial
   // load and refetch when the server-forwarded filters change.
@@ -88,18 +91,6 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
     });
     return result;
   }, [rules, scopeFilter, nameSearch, sortBy, sortOrder]);
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return <ErrorAlert message={error.message} />;
-  }
 
   const columns: Column<ComplianceRule>[] = [
     {
@@ -194,7 +185,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
             </IconButton>
           )}
           {onEdit && (
-            <IconButton tone="danger" onClick={() => setPendingDelete(rule)} title="Delete" aria-label="Delete rule">
+            <IconButton tone="danger" onClick={() => del.open(rule)} title="Delete" aria-label="Delete rule">
               <Trash2 className="h-4 w-4" />
             </IconButton>
           )}
@@ -257,8 +248,17 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
         </FilterSelect>
       </div>
 
+      {/* Errors and the loading spinner render inline so the filter bar and the
+          recently-deleted panel stay mounted across a filter-driven refetch. */}
+      <ErrorAlert message={loadError?.message} onRetry={() => fetchRules()} onDismiss={clearError} />
+      <ErrorAlert message={mutationError?.message} onDismiss={clearError} />
+
       {/* Rule Table */}
-      {filteredRules.length === 0 ? (
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <LoadingSpinner label="Loading rules" />
+        </div>
+      ) : filteredRules.length === 0 ? (
         <TextEmptyState>
           {nameSearch || targetFilter || severityFilter || scopeFilter ? 'No rules match your filters.' : 'No compliance rules found. Create one to get started.'}
         </TextEmptyState>
@@ -277,18 +277,15 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       {/* Recently deleted — restore soft-deleted rules within the retention
           window. Gated on write (restore is compliance:write + step-up gated);
           `onEdit` is passed only for managers, so it mirrors that gate. */}
-      {onEdit && <RecentlyDeletedPanel resource="compliance-rule" onRestored={fetchRules} />}
+      {onEdit && <RecentlyDeletedPanel resource="compliance-rule" onRestored={() => fetchRules()} />}
 
-      {pendingDelete && (
+      {del.target && (
         <DeleteConfirmModal
           title="Delete rule"
-          itemName={pendingDelete.name}
-          loading={deleting}
-          onCancel={() => setPendingDelete(null)}
-          onConfirm={async () => {
-            setDeleting(true);
-            try { await deleteRule(pendingDelete.id); } finally { setDeleting(false); setPendingDelete(null); }
-          }}
+          itemName={del.target.name}
+          loading={del.loading}
+          onCancel={del.close}
+          onConfirm={del.confirm}
         />
       )}
     </div>

@@ -16,8 +16,11 @@ import { useListPage, type FilterField } from '../src/hooks/useListPage';
 // `urlSync`, so the sync effects stay inert (guarded on `urlSync` + `isReady`);
 // stub the router so the unconditional `useRouter()` call doesn't throw
 // "NextRouter was not mounted" outside a <RouterContext>.
+// `mockRouter` is reassignable so the urlSync test can flip `isReady` on.
+let mockRouter: { query: Record<string, string>; isReady: boolean; pathname: string; replace: jest.Mock } =
+  { query: {}, isReady: false, pathname: '/', replace: jest.fn() };
 jest.mock('next/router', () => ({
-  useRouter: () => ({ query: {}, isReady: false, pathname: '/', replace: jest.fn() }),
+  useRouter: () => mockRouter,
 }));
 
 interface Row { id: string; }
@@ -119,5 +122,40 @@ describe('useListPage', () => {
 
     expect(fetcher).not.toHaveBeenCalled();
     expect(result.current.data).toEqual([]);
+  });
+
+  it('urlSync write-back keeps a fixed-size dep array when the select fields change', async () => {
+    mockRouter = { query: {}, isReady: true, pathname: '/list', replace: jest.fn().mockResolvedValue(true) };
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const fetcher = jest.fn().mockResolvedValue({ items: [], pagination: { total: 0, offset: 0 } });
+      const twoSelects: FilterField[] = [...fields];
+      const threeSelects: FilterField[] = [...fields, { key: 'kind', type: 'select', defaultValue: 'any' }];
+
+      const { result, rerender } = renderHook(
+        ({ f }: { f: FilterField[] }) => useListPage<Row>({ fields: f, fetcher, urlSync: true }),
+        { initialProps: { f: twoSelects } },
+      );
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      // A conditionally-added select filter must not change the effect's dep-array size.
+      rerender({ f: threeSelects });
+      act(() => result.current.updateFilter('kind', 'custom'));
+      await waitFor(() => expect(mockRouter.replace).toHaveBeenLastCalledWith(
+        { pathname: '/list', query: { kind: 'custom' } }, undefined, { shallow: true },
+      ));
+
+      // Write-back still tracks select changes on the original field too.
+      act(() => result.current.updateFilter('status', 'active'));
+      await waitFor(() => expect(mockRouter.replace).toHaveBeenLastCalledWith(
+        { pathname: '/list', query: { kind: 'custom', status: 'active' } }, undefined, { shallow: true },
+      ));
+
+      const sizeWarnings = errorSpy.mock.calls.filter((c) => c.some((arg) => String(arg).includes('changed size between renders')));
+      expect(sizeWarnings).toEqual([]);
+    } finally {
+      errorSpy.mockRestore();
+      mockRouter = { query: {}, isReady: false, pathname: '/', replace: jest.fn() };
+    }
   });
 });

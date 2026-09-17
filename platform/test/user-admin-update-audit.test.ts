@@ -14,7 +14,7 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockAudit = jest.fn();
-const mockRequireAdminContext = jest.fn<(...a: unknown[]) => unknown>();
+const mockRequireScope = jest.fn<(...a: unknown[]) => unknown>();
 const mockUpdateUserById = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockHasMembershipInOrg = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockLookupPrimaryOrgId = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -30,7 +30,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAdminContext: (...a: unknown[]) => mockRequireAdminContext(...a),
+  requireMemberManagementScope: (...a: unknown[]) => mockRequireScope(...a),
+  canManageOrgScope: async () => true,
+  isOrgAdmin: () => false,
   // Pass-through wrapper — just run the handler (errorMap arg ignored).
   withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
 }));
@@ -60,16 +62,6 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
     hasMembershipInOrg: (...a: unknown[]) => mockHasMembershipInOrg(...a),
     lookupPrimaryOrgId: (...a: unknown[]) => mockLookupPrimaryOrgId(...a),
   },
-  UA_USER_NOT_FOUND: 'UA_USER_NOT_FOUND',
-  UA_USERNAME_TAKEN: 'UA_USERNAME_TAKEN',
-  UA_EMAIL_TAKEN: 'UA_EMAIL_TAKEN',
-  UA_OWNER_HAS_ORGS: 'UA_OWNER_HAS_ORGS',
-  UA_ORG_NOT_FOUND: 'UA_ORG_NOT_FOUND',
-  UA_SEAT_LIMIT: 'UA_SEAT_LIMIT',
-  UA_CANNOT_CHANGE_OWNER: 'UA_CANNOT_CHANGE_OWNER',
-  UA_ROLES_NEED_ORG: 'UA_ROLES_NEED_ORG',
-  UA_LAST_PRIVILEGED_MEMBER: 'UA_LAST_PRIVILEGED_MEMBER',
-  RL_ROLE_NOT_FOUND: 'RL_ROLE_NOT_FOUND',
 }));
 
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
@@ -99,7 +91,7 @@ beforeEach(() => {
 describe('updateUserById — sign-in details are platform-admin only', () => {
   for (const [field, value] of [['password', 'Sup3rSecret!'], ['email', 'attacker@evil.com'], ['username', 'hijacked']] as const) {
     it(`refuses an org admin changing ${field} — before touching the account`, async () => {
-      mockRequireAdminContext.mockReturnValue({ isOrgAdmin: true, isSuperAdmin: false, adminType: 'org' });
+      mockRequireScope.mockReturnValue({ isSuperAdmin: false, orgId: 'org-1' });
       const res = mockRes();
       await run({ user: { sub: 'org-admin', organizationId: 'org-1' }, params: { id: 'victim' }, body: { [field]: value } }, res);
 
@@ -109,7 +101,7 @@ describe('updateUserById — sign-in details are platform-admin only', () => {
   }
 
   it('still lets an org admin change a member\'s role in their organization', async () => {
-    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: true, isSuperAdmin: false, adminType: 'org' });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: false, orgId: 'org-1' });
     mockUpdateUserById.mockResolvedValue({ user: { _id: 'm' }, changes: ['role'], organizationName: 'Acme', activeOrgRole: 'admin' });
     const res = mockRes();
     await run({ user: { sub: 'org-admin', organizationId: 'org-1' }, params: { id: 'm' }, body: { role: 'admin' } }, res);
@@ -120,7 +112,7 @@ describe('updateUserById — sign-in details are platform-admin only', () => {
 
 describe('updateUserById audit — admin.user.update', () => {
   it('records admin.user.update with the changed field names (sysadmin cross-tenant)', async () => {
-    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: false, isSuperAdmin: true, adminType: 'system' });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     mockUpdateUserById.mockResolvedValue({
       user: { _id: 'victim' }, changes: ['email', 'role', 'password'], organizationName: 'Acme', activeOrgRole: 'admin',
     });
@@ -143,7 +135,7 @@ describe('updateUserById audit — admin.user.update', () => {
   });
 
   it('NEVER puts the new password (or any secret) value in details — only field names', async () => {
-    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: false, isSuperAdmin: true, adminType: 'system' });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     mockUpdateUserById.mockResolvedValue({
       user: { _id: 'victim' }, changes: ['password'], organizationName: null, activeOrgRole: 'member',
     });
@@ -161,7 +153,7 @@ describe('updateUserById audit — admin.user.update', () => {
   });
 
   it('uses the org-admin caller org as affectedOrgId', async () => {
-    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: true, isSuperAdmin: false, adminType: 'org' });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: false, orgId: 'org-1' });
     mockUpdateUserById.mockResolvedValue({
       user: { _id: 'victim' }, changes: ['role'], organizationName: 'Acme', activeOrgRole: 'admin',
     });
@@ -182,7 +174,7 @@ describe('updateUserById audit — admin.user.update', () => {
   });
 
   it('does NOT emit an audit event when nothing changed (empty changes)', async () => {
-    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: true, isSuperAdmin: false, adminType: 'org' });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: false, orgId: 'org-1' });
     mockUpdateUserById.mockResolvedValue({
       user: { _id: 'victim' }, changes: [], organizationName: 'Acme', activeOrgRole: 'member',
     });

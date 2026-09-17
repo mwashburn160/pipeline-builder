@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { requireStepUp } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   changePassword,
@@ -17,7 +18,7 @@ import {
   updatePreferences,
   updateUser,
 } from '../controllers/index.js';
-import { requireAuth, requireStepUp } from '../middleware/index.js';
+import { requireAuth } from '../middleware/index.js';
 
 const router: Router = Router();
 
@@ -40,7 +41,10 @@ router.post('/change-password', requireAuth, requireStepUp, changePassword);
 /** GET /user/organizations - List all organizations the user belongs to */
 router.get('/organizations', requireAuth, listUserOrganizations);
 
-/** POST /user/generate-token - Generate API token for current user */
+/** POST /user/generate-token - Re-issue the caller's own token pair (optionally
+ *  longer-lived or scoped). NOT step-up gated: the unattended token-renewal Lambda
+ *  and `pipeline-manager infra store-token` call it with no password. A scoped
+ *  caller can only re-mint its own scope. */
 router.post('/generate-token', requireAuth, generateToken);
 
 /** GET /user/tokens - List the user's recent token-issuance history (with computed status). */

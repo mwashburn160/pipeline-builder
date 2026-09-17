@@ -221,7 +221,7 @@ describe('CacheService (in-memory)', () => {
     });
   });
 
-  describe('mutation isolation (memory ⇄ redis parity)', () => {
+  describe('mutation isolation', () => {
     it('returns an independent deep copy — mutating a result cannot corrupt the cache', async () => {
       await cache.set('obj', { nested: { count: 1 }, list: [1, 2] });
 

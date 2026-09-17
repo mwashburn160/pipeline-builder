@@ -6,21 +6,15 @@ import { createLogger } from '@pipeline-builder/api-core';
 import type { TokenScope } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { authService } from './auth-service.js';
+import { deleteUserCascade } from './user-cascade.js';
+import { PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_INVALID_CREDENTIALS, PROFILE_PAT_LIMIT } from './user-errors.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
-import { User, Organization, UserOrganization, Role, RoleAssignment, PersonalAccessToken, type NotificationPreferences, type PersonalAccessTokenDocument, UserPreferences } from '../models/index.js';
+import { User, Organization, UserOrganization, PersonalAccessToken, type NotificationPreferences, type PersonalAccessTokenDocument, UserPreferences } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { signPersonalAccessToken } from '../utils/token.js';
 
 const logger = createLogger('user-profile-service');
-
-/** Domain error codes thrown by service methods. */
-export const PROFILE_USER_NOT_FOUND = 'PROFILE_USER_NOT_FOUND';
-export const PROFILE_EMAIL_TAKEN = 'PROFILE_EMAIL_TAKEN';
-export const PROFILE_INVALID_CREDENTIALS = 'PROFILE_INVALID_CREDENTIALS';
-export const PROFILE_OWNER_HAS_ORGS = 'PROFILE_OWNER_HAS_ORGS';
-export const PROFILE_LAST_PRIVILEGED_MEMBER = 'PROFILE_LAST_PRIVILEGED_MEMBER';
-export const PROFILE_PAT_LIMIT = 'PROFILE_PAT_LIMIT';
 
 /** A user's per-org preferences as the API returns them (defaults filled in). */
 export interface UserPreferencesView {
@@ -171,48 +165,15 @@ class UserProfileService {
   }
 
   /**
-   * Delete the user account + all their UserOrganization rows.
-   * Refuses if the user owns any orgs (transfer ownership first); throws
-   * PROFILE_OWNER_HAS_ORGS in that case, PROFILE_USER_NOT_FOUND if the user is already gone.
+   * Delete the caller's own account and everything keyed to it (see
+   * {@link deleteUserCascade}). Throws USER_OWNER_HAS_ORGS,
+   * RL_LAST_PRIVILEGED_MEMBER, or PROFILE_USER_NOT_FOUND if the user is already gone.
    */
   async deleteAccount(userId: string): Promise<void> {
-    const uid = new Types.ObjectId(userId);
-    let capturedTokenVersion = 0;
-    // Membership + role assignments + user deleted atomically (mirrors admin
-    // deleteUserById) — otherwise a partial failure orphans RoleAssignment rows,
-    // which the last-privileged-member guard counts and would then wrongly block
-    // removing the last real member of a privileged role. The owner and
-    // last-privileged-member guard READS also run inside the tx (was a
-    // check-then-act TOCTOU when read before it), so they see a snapshot
-    // consistent with the delete.
-    const existed = await withMongoTransaction(async (session) => {
-      const ownerCount = await UserOrganization.countDocuments({ userId: uid, role: 'owner' }).session(session);
-      if (ownerCount > 0) throw new Error(PROFILE_OWNER_HAS_ORGS);
-
-      // Don't let self-delete empty an admin/superadmin-granting Role (last member).
-      const assignments = await RoleAssignment.find({ userId: uid }).select('roleId').session(session).lean();
-      for (const a of assignments) {
-        const role = await Role.findById(a.roleId).select('grantsRole').session(session).lean();
-        if (role && role.grantsRole !== 'member' && (await RoleAssignment.countDocuments({ roleId: a.roleId }).session(session)) <= 1) {
-          throw new Error(PROFILE_LAST_PRIVILEGED_MEMBER);
-        }
-      }
-
-      // Capture tokenVersion from the deleted doc to revoke outstanding tokens.
-      const result = await User.findByIdAndDelete(userId, { session }).select('+tokenVersion');
-      if (!result) return false;
-      capturedTokenVersion = result.tokenVersion ?? 0;
-      await UserOrganization.deleteMany({ userId: uid }, { session });
-      await RoleAssignment.deleteMany({ userId: uid }, { session });
-      // Clean up the user's PATs and personalization so nothing is orphaned
-      // (PATs are dead-safe once the User is gone, but leave no storage leak).
-      await PersonalAccessToken.deleteMany({ userId: uid }, { session });
-      await UserPreferences.deleteMany({ userId: uid }, { session });
-      return true;
-    });
-    if (!existed) throw new Error(PROFILE_USER_NOT_FOUND);
+    const deleted = await withMongoTransaction((session) => deleteUserCascade(session, userId));
+    if (!deleted) throw new Error(PROFILE_USER_NOT_FOUND);
     // Revoke the deleted user's outstanding tokens on the stateless services.
-    await publishUserDeletionRevocation(userId, capturedTokenVersion);
+    await publishUserDeletionRevocation(userId, deleted.tokenVersion);
     logger.info('Account deleted', { userId });
   }
 
@@ -297,6 +258,9 @@ class UserProfileService {
     };
   }
 
+  /** Max active (non-revoked, non-expired) PATs a single user may hold. */
+  private readonly MAX_ACTIVE_PATS = 50;
+
   /**
    * Mint a named Personal Access Token: sign a jti-stamped JWT and persist its
    * revocation record. The raw token is returned ONCE (never stored).
@@ -312,9 +276,6 @@ class UserProfileService {
    * would require it to consult the PersonalAccessToken record, and is deliberately
    * out of scope. Individual PAT revocation (revokePat) works everywhere.
    */
-  /** Max active (non-revoked, non-expired) PATs a single user may hold. */
-  private readonly MAX_ACTIVE_PATS = 50;
-
   async createPat(userId: string, name: string, expiresInSeconds: number, scope?: TokenScope) {
     const user = await this.findForTokenIssue(userId);
     // Cap active PATs per user so a compromised session can't mint thousands of
@@ -393,7 +354,7 @@ class UserProfileService {
   /**
    * "Sign out everywhere" — routes through `authService.invalidateAllSessions`,
    * the SAME path auth logout uses, so the profile "revoke all" behaves
-   * identically: bump `tokenVersion`, CLEAR the stored `refreshToken` hash, AND
+   * identically: bump `tokenVersion`, CLEAR every refresh-session slot, AND
    * publish the revocation to the stateless services. Also revokes the user's
    * PATs (which are decoupled from `tokenVersion`, so a durable credential must
    * be killed explicitly). Returns the user with `tokenVersion` selected so the
@@ -409,7 +370,7 @@ class UserProfileService {
       { userId: new Types.ObjectId(String(userId)), revoked: false },
       { $set: { revoked: true, revokedAt: new Date() } },
     );
-    // Authoritative session revocation: $inc tokenVersion + $unset refreshToken
+    // Authoritative session revocation: $inc tokenVersion + clear refresh-session slots
     // in the DB and publish the revocation (best-effort) — all inside the service.
     await authService.invalidateAllSessions(String(userId));
     // The service bumped tokenVersion via $inc in the DB; mirror that on the doc

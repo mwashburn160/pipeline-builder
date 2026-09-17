@@ -203,6 +203,9 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
       visibility: 'visibility',
     },
   },
+  // Visibility-ladder predicate pieces plugin-lookup-service links against.
+  buildPluginConditions: () => [],
+  withViewerContext: (f: unknown) => f,
 }));;
 
 jest.unstable_mockModule('../src/services/git-analysis-service.js', () => ({

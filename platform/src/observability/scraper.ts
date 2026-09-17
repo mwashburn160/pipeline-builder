@@ -8,21 +8,20 @@
  *
  * Sampled every 60s — these counts change slowly (new signups, org
  * lifecycle), so polling more often costs Mongo round-trips for no signal.
+ *
+ * Runs on EVERY replica, deliberately without a leader lock: gauges are per-pod
+ * series, and a pod that is not the lock holder would otherwise keep exporting
+ * whatever it last sampled (or nothing) forever. The counts are a handful of
+ * cheap `countDocuments`, so N replicas cost N× a trivial read; the catalog
+ * collapses the per-pod series with `max(...)`.
  */
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { setGauge } from './metrics.js';
+import { config } from '../config/index.js';
 import { User, Organization, UserOrganization } from '../models/index.js';
-import { runWithLeaderLock } from '../utils/leader-lock.js';
 
 const logger = createLogger('platform-scraper');
-/** How often to scrape org/user counts for the Prom gauges. Sized for the Prom
- *  scrape budget — anything under 30s isn't useful since Prom polls every 15s. */
-const INTERVAL_MS = parseInt(process.env.PLATFORM_SCRAPER_INTERVAL_MS || '60000', 10);
-
-/** Cross-pod leader-lock key so only ONE replica pays the Mongo count round-trips
- *  per window; the gauges are fleet-wide totals, so a single scraper suffices. */
-const LOCK_KEY = 'platform:leader:metrics-scraper';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -69,14 +68,13 @@ async function scrapeOnce(): Promise<void> {
  * Start the scraper. Idempotent — safe to call multiple times. Returns a
  * stop function; also wire SIGTERM to stop in index.ts.
  */
-export function startPlatformMetricsScraper(intervalMs: number = INTERVAL_MS): () => void {
+export function startPlatformMetricsScraper(intervalMs: number = config.observability.scraperIntervalMs): () => void {
   if (timer) return stopPlatformMetricsScraper;
-  const lockTtlMs = Math.max(intervalMs, 60_000);
-  const runLocked = () => void runWithLeaderLock(LOCK_KEY, lockTtlMs, async () => { await scrapeOnce(); });
+  const run = () => void scrapeOnce();
   // .unref() so the interval never keeps Node alive on its own — matching the
   // invitation-reaper / org-purge / billing-reconcile sweeps.
-  timer = setInterval(runLocked, intervalMs).unref();
-  runLocked(); // immediate first sample (leader-locked)
+  timer = setInterval(run, intervalMs).unref();
+  run(); // immediate first sample
   logger.info('Platform metrics scraper started', { intervalMs });
   return stopPlatformMetricsScraper;
 }

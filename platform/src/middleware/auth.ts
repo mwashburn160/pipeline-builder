@@ -1,17 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, ErrorCode, isSystemAdmin, resolveUserPermissions, sendError } from '@pipeline-builder/api-core';
+import { createLogger, ErrorCode, isServiceTokenDenied, isSystemAdmin, resolveUserPermissions, sendError } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
-import { toOrgId } from '../helpers/controller-helper.js';
+import { toOrgId } from '../helpers/org-id.js';
 import { User, Organization, UserOrganization, PersonalAccessToken, ImpersonationRequest } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
 import type { AccessTokenPayload } from '../types/index.js';
-import {
-  verifyAccessToken,
-  verifyRefreshToken,
-  hashRefreshToken,
-} from '../utils/index.js';
+import { verifyAccessToken, verifyRefreshToken } from '../utils/index.js';
 
 const logger = createLogger('auth-middleware');
 
@@ -109,6 +105,18 @@ async function populateRequestUser(req: Request, user: UserLike, activeOrgId?: s
 }
 
 /**
+ * Service-token kill-switch (api-core `SERVICE_TOKEN_DENYLIST`): answer 401 for a
+ * denylisted `service:<name>` principal, exactly as api-core's `requireAuth`
+ * does. Returns true when the response was sent.
+ */
+function rejectDeniedService(sub: string, res: Response): boolean {
+  if (!isServiceTokenDenied(sub)) return false;
+  logger.warn('Rejected denylisted service token', { sub });
+  sendError(res, 401, 'Service token revoked', ErrorCode.TOKEN_REVOKED);
+  return true;
+}
+
+/**
  * Middleware to authenticate requests using JWT access tokens.
  * Validates the Bearer token from the Authorization header and populates req.user.
  *
@@ -158,6 +166,7 @@ export async function requireAuth(
     // authority is gated by `isServicePrincipal`; accept it here and skip the
     // user/tokenVersion checks (there is no user/session to invalidate).
     if (decoded.sub?.startsWith('service:')) {
+      if (rejectDeniedService(decoded.sub, res)) return;
       req.user = decoded;
       return next();
     }
@@ -306,6 +315,7 @@ export async function requireServiceAuth(
     if (!decoded.sub?.startsWith('service:')) {
       return sendError(res, 403, 'Service auth required');
     }
+    if (rejectDeniedService(decoded.sub, res)) return;
     // Hydrate req.user enough that downstream handlers can read sub /
     // organizationId without re-decoding the token.
     req.user = decoded;
@@ -317,12 +327,17 @@ export async function requireServiceAuth(
 
 /**
  * Middleware to validate refresh tokens from request body.
- * Used for token refresh endpoints to issue new access tokens.
+ *
+ * Checks the signature, that the user's tokenVersion is unchanged, and that the
+ * token's refresh-session slot (`sid`) still exists. It does NOT compare the
+ * slot's hash: a live slot holding a different hash means this token was already
+ * rotated away, and the refresh handler's atomic rotation both detects that and
+ * revokes the slot. The slot id is passed on as `res.locals.refreshSessionId`.
  *
  * @param req - Express request object (expects refreshToken in body)
  * @param res - Express response object
  * @param next - Express next function
- * @returns 401 if refresh token is missing, invalid, or session is invalidated
+ * @returns 401 if refresh token is missing, invalid, or its session is gone
  *
  * @example
  * router.post('/refresh', isValidRefreshToken, refreshHandler);
@@ -341,18 +356,22 @@ export async function isValidRefreshToken(
   try {
     const decoded = verifyRefreshToken(refreshToken);
 
-    if (!decoded?.sub || decoded.tokenVersion === undefined) {
+    if (!decoded?.sub || decoded.tokenVersion === undefined || !decoded.sid) {
       return sendError(res, 401, 'Token invalid');
     }
 
-    const hash = hashRefreshToken(refreshToken);
-    const user = await User.findById(decoded.sub).select('+refreshToken +tokenVersion');
+    const user = await User.findById(decoded.sub).select('+refreshSessions +tokenVersion +isSuperAdmin');
 
-    if (!user || user.refreshToken !== hash || user.tokenVersion !== decoded.tokenVersion) {
+    if (
+      !user
+      || user.tokenVersion !== decoded.tokenVersion
+      || !user.refreshSessions?.some((slot) => slot.id === decoded.sid)
+    ) {
       return sendError(res, 401, 'Session invalid');
     }
 
     await populateRequestUser(req, user);
+    res.locals.refreshSessionId = decoded.sid;
     next();
   } catch {
     // Token verification failed - return unauthorized without exposing error details

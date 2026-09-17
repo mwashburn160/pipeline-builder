@@ -14,7 +14,7 @@ import { createWriteStream } from 'fs';
 import * as fs from 'fs/promises';
 import path from 'path';
 
-import { ValidationError } from '@pipeline-builder/api-core';
+import { envInt, ValidationError } from '@pipeline-builder/api-core';
 import yauzl from 'yauzl';
 
 /**
@@ -28,16 +28,15 @@ import yauzl from 'yauzl';
  *   PLUGIN_MAX_EXTRACT_ENTRIES max number of ZIP entries (default 10000)
  *
  * Read from env at call time (not module load) so operators — and tests — can
- * tune the ceiling without reloading the module.
+ * tune the ceiling without reloading the module. Every value goes through the
+ * validated `envInt` parse (min 1): a bare `parseInt` turned a typo'd value into
+ * `NaN`, and since `x > NaN` is always false that silently DISABLED the cap.
  */
-function extractionLimits(): { maxBytes: number; maxEntries: number } {
-  const maxUploadMb = parseInt(process.env.PLUGIN_MAX_UPLOAD_MB || '4096', 10);
-  const maxRatio = parseInt(process.env.PLUGIN_MAX_EXTRACT_RATIO || '50', 10);
-  const maxBytes = parseInt(
-    process.env.PLUGIN_MAX_EXTRACT_BYTES || String(maxUploadMb * 1024 * 1024 * maxRatio),
-    10,
-  );
-  const maxEntries = parseInt(process.env.PLUGIN_MAX_EXTRACT_ENTRIES || '10000', 10);
+export function extractionLimits(): { maxBytes: number; maxEntries: number } {
+  const maxUploadMb = envInt('PLUGIN_MAX_UPLOAD_MB', 4096, { min: 1 });
+  const maxRatio = envInt('PLUGIN_MAX_EXTRACT_RATIO', 50, { min: 1 });
+  const maxBytes = envInt('PLUGIN_MAX_EXTRACT_BYTES', maxUploadMb * 1024 * 1024 * maxRatio, { min: 1 });
+  const maxEntries = envInt('PLUGIN_MAX_EXTRACT_ENTRIES', 10000, { min: 1 });
   return { maxBytes, maxEntries };
 }
 

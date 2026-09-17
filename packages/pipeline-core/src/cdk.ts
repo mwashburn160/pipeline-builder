@@ -27,7 +27,7 @@
  * - NetworkTypes — VPC/subnet/security-group configuration
  *
  * **Config adapters**
- * - lambdaRuntime, lambdaTimeout, logRetention, ... — `AWSConfig` → CDK values
+ * - lambdaRuntime, lambdaTimeout, lambdaArchitecture — `AWSConfig` → CDK values
  */
 
 // Config adapters (plain AWSConfig data → CDK value objects)

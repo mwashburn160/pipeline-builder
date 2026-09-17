@@ -104,9 +104,10 @@ export function registerListRoutes(router: Router): void {
     }
 
     try {
-      const result = await getManifest(name, reference);
-      ctx.log('COMPLETED', 'Fetched manifest', { name, reference, digest: result.digest });
-      return sendSuccess(res, 200, result);
+      const { body, digest, mediaType } = await getManifest(name, reference);
+      ctx.log('COMPLETED', 'Fetched manifest', { name, reference, digest });
+      // `raw` (the manifest bytes) is internal to tag-copy — not part of the API shape.
+      return sendSuccess(res, 200, { body, digest, mediaType });
     } catch (err) {
       if (isNotFound(err)) return sendEntityNotFound(res, 'Manifest');
       throw err;

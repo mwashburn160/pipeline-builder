@@ -42,8 +42,8 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
   return { headers: {}, ...overrides };
 }
 
-function fakeSse(): any {
-  return { send: jest.fn() };
+function fakeSse(logStreamEnabled = true): any {
+  return { send: jest.fn(), logStreamEnabled };
 }
 
 describe('createRequestContext', () => {
@@ -113,5 +113,15 @@ describe('createRequestContext', () => {
       token: '[REDACTED]',
       user: 'alice',
     });
+  });
+
+  it('does not push log lines to SSE when the service has no log stream', () => {
+    mockGetIdentity.mockReturnValue({});
+    const sse = fakeSse(false);
+    const ctx = createRequestContext(mockReq(), sse);
+    ctx.log('INFO', 'hello', { a: 1 });
+    ctx.log('ERROR', 'boom');
+    expect(mockLoggerInfo).toHaveBeenCalledWith('hello', expect.any(Object));
+    expect(sse.send).not.toHaveBeenCalled();
   });
 });

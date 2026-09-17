@@ -6,17 +6,12 @@ import type { TokenScope, FeatureFlag, QuotaTier } from '@pipeline-builder/api-c
 import { Types } from 'mongoose';
 import { audit } from '../helpers/audit.js';
 import { requireAuthUserId, withController } from '../helpers/controller-helper.js';
-import {
-  userProfileService,
-  PROFILE_USER_NOT_FOUND,
-  PROFILE_EMAIL_TAKEN,
-  PROFILE_INVALID_CREDENTIALS,
-  PROFILE_OWNER_HAS_ORGS,
-  PROFILE_LAST_PRIVILEGED_MEMBER,
-  PROFILE_PAT_LIMIT,
-  type PreferencesPatch,
-} from '../services/index.js';
-import { issueTokens } from '../utils/token.js';
+import { TOKEN_SCOPE_ESCALATION } from '../services/auth-errors.js';
+import { userProfileService, type PreferencesPatch } from '../services/index.js';
+import { RL_LAST_PRIVILEGED_MEMBER } from '../services/roles-errors.js';
+import { PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_INVALID_CREDENTIALS, PROFILE_PAT_LIMIT, USER_OWNER_HAS_ORGS } from '../services/user-errors.js';
+import type { AccessTokenPayload } from '../types/index.js';
+import { issueTokens, renewSessionTokens } from '../utils/token.js';
 import { validateBody, updateProfileSchema, changePasswordSchema } from '../utils/validation.js';
 
 const logger = createLogger('user-profile-controller');
@@ -24,12 +19,29 @@ const logger = createLogger('user-profile-controller');
 /** Notification preferences a client may set; anything else is rejected. */
 const NOTIFICATION_PREFERENCE_KEYS: ReadonlySet<string> = new Set(['muteQuotaWarnings']);
 
+/**
+ * The scope a new credential may carry, given the caller's own token.
+ *
+ * A scoped token is a narrow machine credential. Anything it mints must carry
+ * the SAME scope — otherwise a `reporting:ingest` token could trade itself for a
+ * full-privilege one. An unscoped caller may request any allowed scope.
+ * Returns the effective scope, or `undefined` for "no scope", or `false` when
+ * the request would widen or swap the caller's scope.
+ */
+function scopeForCaller(req: Parameters<Parameters<typeof withController>[1]>[0], requested: TokenScope | undefined): TokenScope | undefined | false {
+  const callerScope = (req.user as { scope?: TokenScope } | undefined)?.scope;
+  if (!callerScope) return requested;
+  if (requested !== undefined && requested !== callerScope) return false;
+  return callerScope;
+}
+
 const profileErrorMap = {
+  [TOKEN_SCOPE_ESCALATION]: { status: 403, message: 'A scoped token can only mint credentials with the same scope' },
   [PROFILE_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
   [PROFILE_EMAIL_TAKEN]: { status: 409, message: 'Email already in use' },
   [PROFILE_INVALID_CREDENTIALS]: { status: 401, message: 'Current password incorrect' },
-  [PROFILE_OWNER_HAS_ORGS]: { status: 400, message: 'Cannot delete account while you own an organization. Transfer ownership first.' },
-  [PROFILE_LAST_PRIVILEGED_MEMBER]: { status: 409, message: 'Cannot delete your account while you are the last member of an admin or super-admin role.' },
+  [USER_OWNER_HAS_ORGS]: { status: 400, message: 'Cannot delete account while you own an organization. Transfer ownership first.' },
+  [RL_LAST_PRIVILEGED_MEMBER]: { status: 409, message: 'Cannot delete your account while you are the last member of an admin or super-admin role.' },
   [PROFILE_PAT_LIMIT]: { status: 409, message: 'You have reached the maximum number of active personal access tokens. Revoke one first.' },
 };
 
@@ -235,6 +247,11 @@ const ALLOWED_TOKEN_SCOPES = new Set(['reporting:ingest']);
  * Body: { expiresIn?: number, scope?: string } — token lifetime in seconds
  * (max 365 days); optional narrow capability scope (e.g. 'reporting:ingest' for
  * the AWS event-ingestion machine credential).
+ *
+ * Re-mints for the CALLING device: a caller whose token belongs to a
+ * refresh-session slot gets the new pair in that same slot (so a daily renewal,
+ * or the dashboard re-minting its own session, never consumes another device's
+ * slot). A caller without a slot (a PAT) opens a new one.
  */
 export const generateToken = withController('Generate token', async (req, res) => {
   const userId = requireAuthUserId(req, res);
@@ -261,11 +278,20 @@ export const generateToken = withController('Generate token', async (req, res) =
     // Validated against ALLOWED_TOKEN_SCOPES (⊆ TokenScope), so the cast is sound.
     scope = req.body.scope as TokenScope;
   }
+  const effectiveScope = scopeForCaller(req, scope);
+  if (effectiveScope === false) {
+    return sendError(res, 403, 'A scoped token can only mint credentials with the same scope', TOKEN_SCOPE_ESCALATION);
+  }
+  scope = effectiveScope;
 
   const user = await userProfileService.findForTokenIssue(userId);
-  const { accessToken, refreshToken, expiresIn: actual } = await issueTokens(
-    user, user.lastActiveOrgId?.toString(), expiresIn, scope,
-  );
+  const sessionId = (req.user as AccessTokenPayload).sid;
+  const activeOrgId = user.lastActiveOrgId?.toString();
+  const issued = sessionId
+    ? await renewSessionTokens(user, activeOrgId, { sessionId }, { expiresIn, scope })
+    : await issueTokens(user, activeOrgId, expiresIn, scope);
+  if (!issued) return sendError(res, 401, 'Session invalid');
+  const { accessToken, refreshToken, expiresIn: actual } = issued;
   // Bearer-token issuance is sensitive: long-lived tokens (up to 365 days)
   // become a credential. Recording the requested lifetime lets reviewers
   // spot anomalous issuance (e.g. max-life tokens from unexpected sessions).
@@ -318,6 +344,11 @@ export const createPat = withController('Create personal access token', async (r
     }
     scope = req.body.scope as TokenScope;
   }
+  const effectiveScope = scopeForCaller(req, scope);
+  if (effectiveScope === false) {
+    return sendError(res, 403, 'A scoped token can only mint credentials with the same scope', TOKEN_SCOPE_ESCALATION);
+  }
+  scope = effectiveScope;
 
   const { token, pat } = await userProfileService.createPat(userId, name, expiresIn, scope);
   audit(req, 'user.pat.create', {

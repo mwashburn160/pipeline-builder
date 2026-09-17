@@ -6,26 +6,17 @@
  * rather than silently rendering the empty ("No data yet") state. Regression
  * for Promise.allSettled swallowing rejected results.
  *
- * Deterministic by construction: every mocked fetch settles on the microtask
- * queue, so {@link settle} drains it (a macrotask boundary inside `act`) and the
- * assertions run synchronously. The previous `findBy*`/`waitFor` polling raced a
- * 1s wall-clock timeout, which the first (cold) render blew under full-gate CPU
- * load; tests also ended with fetches still in flight, leaking updates past
- * unmount.
+ * Every test waits for a SETTLED outcome — the error text, or the loaded empty
+ * state — never merely "not loading", so no assertion passes vacuously while
+ * requests are in flight, and no test ends with a fetch still pending. The
+ * waits get a generous timeout ({@link SETTLE}): the first (cold) render of
+ * this page can take well over the default 1s under full-gate CPU load.
  */
 
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import ReportsPage from '../pages/dashboard/reports';
 
-jest.mock('@/hooks/useAuthGuard', () => ({
-  __esModule: true,
-  useAuthGuard: () => ({
-    isReady: true,
-    isAuthenticated: true,
-    user: { id: 'u1', organizationId: 'org-1', role: 'member' },
-    can: () => false,
-  }),
-}));
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 
 // DORA fetches only fire (and can raise the banner) when advanced_reporting is on.
 jest.mock('@/hooks/useFeatures', () => ({
@@ -46,12 +37,7 @@ jest.mock('next/router', () => ({
 // ReportTabs is loaded via next/dynamic — stub it out.
 jest.mock('next/dynamic', () => ({ __esModule: true, default: () => () => null }));
 
-jest.mock('@/components/ui/DashboardLayout', () => ({
-  __esModule: true,
-  DashboardLayout: ({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) => (
-    <div>{actions}{children}</div>
-  ),
-}));
+jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 
 const getExecutionCount = jest.fn();
 const getSuccessRate = jest.fn();
@@ -69,16 +55,12 @@ jest.mock('@/lib/api', () => ({
   },
 }));
 
-/**
- * Let every in-flight (mocked, microtask-only) fetch settle and React flush the
- * resulting state + effects. Twice: a flush can mount a tab whose effect starts
- * the next fetch.
- */
-async function settle() {
-  for (let i = 0; i < 2; i++) {
-    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
-  }
-}
+/** Wait options for settled outcomes — see the file comment. */
+const SETTLE = { timeout: 15_000 };
+jest.setTimeout(30_000);
+
+/** The pipelines tab after its fetches settled successfully (not merely loading). */
+const loadedEmptyState = () => screen.findByText('No pipeline data yet', {}, SETTLE);
 
 beforeEach(() => {
   getExecutionCount.mockReset().mockResolvedValue({ data: { pipelines: [] } });
@@ -91,22 +73,21 @@ describe('ReportsPage — fetch error banner', () => {
     getExecutionCount.mockRejectedValue(new Error('Server exploded'));
 
     render(<ReportsPage />);
-    await settle();
 
-    expect(screen.getByText('Server exploded')).toBeInTheDocument();
+    expect(await screen.findByText('Server exploded', {}, SETTLE)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
   });
 
   it('clears the banner and refetches on Retry', async () => {
     getExecutionCount.mockRejectedValueOnce(new Error('Server exploded'));
     render(<ReportsPage />);
-    await settle();
-    expect(screen.getByText('Server exploded')).toBeInTheDocument();
+    expect(await screen.findByText('Server exploded', {}, SETTLE)).toBeInTheDocument();
 
     // Next attempt succeeds.
     getExecutionCount.mockResolvedValue({ data: { pipelines: [] } });
     fireEvent.click(screen.getByRole('button', { name: /retry/i }));
-    await settle();
+    await waitFor(() => expect(getExecutionCount).toHaveBeenCalledTimes(2), SETTLE);
+    await loadedEmptyState();
 
     // Settled (not merely "loading", which also hides the banner): the retry
     // really succeeded.
@@ -119,21 +100,20 @@ describe('ReportsPage — fetch error banner', () => {
     getDoraTrend.mockRejectedValue(new Error('Trend service down'));
 
     render(<ReportsPage />);
-    await settle();
+    await loadedEmptyState();
 
     // DORA fetches now live on the dedicated, feature-gated DORA tab (not the
     // default pipelines/overview view) — navigate there to trigger the trend fetch.
     fireEvent.click(screen.getByRole('button', { name: /dora/i }));
-    await settle();
 
-    expect(screen.getByText('Trend service down')).toBeInTheDocument();
+    expect(await screen.findByText('Trend service down', {}, SETTLE)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
   });
 
   it('does not show the banner when all fetches succeed', async () => {
     getExecutionCount.mockResolvedValue({ data: { pipelines: [] } });
     render(<ReportsPage />);
-    await settle();
+    await loadedEmptyState();
 
     // Asserted AFTER the fetches settle — before, this passed vacuously while
     // the requests were still in flight.

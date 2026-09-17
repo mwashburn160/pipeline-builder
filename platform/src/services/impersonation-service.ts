@@ -17,11 +17,11 @@
  */
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { IMPERSONATION_SESSION_TTL_MS } from '../constants/impersonation.js';
+import { IMP_NOT_APPROVED, IMP_EXPIRED, IMP_NOT_FOUND, IMP_ALREADY_DECIDED, IMP_NOT_LIVE } from './impersonation-errors.js';
+import { IMPERSONATION_REQUEST_TTL_MS, IMPERSONATION_SESSION_TTL_MS } from '../constants/impersonation.js';
 import {
   ImpersonationRequest,
   User,
-  IMPERSONATION_REQUEST_TTL_MS,
   IMPERSONATION_REASON_MAX,
   type ImpersonationRequestDocument,
   type ImpersonationApprovalReason,
@@ -29,17 +29,6 @@ import {
 } from '../models/index.js';
 
 const logger = createLogger('impersonation-service');
-
-/** The request is not in a state that can be redeemed for a token. */
-export const IMP_NOT_APPROVED = 'IMP_NOT_APPROVED';
-/** The approval window elapsed before the request was redeemed. */
-export const IMP_EXPIRED = 'IMP_EXPIRED';
-/** No such request. */
-export const IMP_NOT_FOUND = 'IMP_NOT_FOUND';
-/** Someone already approved or denied this request. */
-export const IMP_ALREADY_DECIDED = 'IMP_ALREADY_DECIDED';
-/** There is no live session to end — never redeemed, or already revoked. */
-export const IMP_NOT_LIVE = 'IMP_NOT_LIVE';
 
 /**
  * Break-glass rate limit: emergency accesses per sysadmin, per rolling window.

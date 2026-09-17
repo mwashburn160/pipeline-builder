@@ -159,13 +159,12 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
   // Fetch data when debounced filters, pagination, or fetchKey change. Shares
   // the cancellable-fetch core with useFetch/useServerPagination so the
   // "drop stale state writes on deps-change/unmount" semantics live in one place.
-  // Fold the dynamic select-filter values into ONE string dep.
-  //
-  // The dep array previously SPREAD them (`...selectFieldKeys.map(...)`), so its
-  // LENGTH tracked the number of configured filters. Every current caller passes
-  // a fixed `fields` config, but a conditionally-rendered filter would change
-  // the array size between renders and React throws outright ("The final
-  // argument passed to useEffect changed size between renders").
+  // Fold the dynamic select-filter values into ONE string dep (used by both the
+  // fetch and the URL write-back effects). Spreading them into a dep array
+  // (`...selectFieldKeys.map(...)`) would make its LENGTH track the number of
+  // configured filters, so a conditionally-added filter changes the array size
+  // between renders — which React forbids ("The final argument passed to
+  // useEffect changed size between renders").
   const selectFilterKey = selectFieldKeys.map((k) => String(filters[k] ?? '')).join('\u0000');
 
   useEffect(() => {
@@ -252,8 +251,8 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     if (sortState.sortOrder) query.sortOrder = sortState.sortOrder;
     if (pageState.offset > 0) query.offset = String(pageState.offset);
     void router.replace({ pathname: router.pathname, query }, undefined, { shallow: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys static; settled values spread individually.
-  }, [urlSync, debouncedTextValues, ...selectFieldKeys.map(k => filters[k]), sortState.sortBy, sortState.sortOrder, pageState.offset]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- select values are folded into selectFilterKey (fixed-size deps, same as the fetch effect).
+  }, [urlSync, debouncedTextValues, selectFilterKey, sortState.sortBy, sortState.sortOrder, pageState.offset]);
 
   // A changed filter/sort returns to page 1 (offset 0) — the no-op guard keeps
   // an already-first-page change from causing an extra render.

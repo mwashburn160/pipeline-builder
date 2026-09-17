@@ -37,14 +37,14 @@ const logger = createLogger('audit-chain');
  * - `prevHash` = the `hash` of the most recent PRIOR event in the same chain, or
  *   `null` for the first (genesis) event.
  *
- * Single-writer-per-process
- * --------------------------
- * Appends are serialized PER CHAIN by an in-process async queue (see
- * {@link withChainLock}) so two concurrent appends can't read the same tail and
- * fork the chain. This is only correct for a SINGLE writer process. A
- * multi-replica deployment would need a stronger, cross-process lock (an atomic
- * compare-and-set on the tail, an advisory DB lock, or a leader) — OUT OF SCOPE
- * here. Tamper-evidence is a DETECTION aid, not a write gate: a hashing/chain
+ * Concurrent writers
+ * ------------------
+ * Within a process, appends are serialized PER CHAIN by an async queue (see
+ * {@link withChainLock}) so two concurrent appends can't read the same tail.
+ * ACROSS replicas, the unique `(affectedOrgId, prevHash)` chain-link index is the
+ * compare-and-set: a writer that loses the race for a link slot re-reads the
+ * advanced tail and retries (see {@link appendAuditEvent}), so the chain never
+ * forks. Tamper-evidence is a DETECTION aid, not a write gate: a hashing/chain
  * error must never drop the event or fail the originating request, so the append
  * path is best-effort (see {@link appendAuditEvent}).
  */

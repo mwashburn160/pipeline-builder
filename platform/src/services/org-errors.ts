@@ -33,3 +33,6 @@ export const ORG_ALREADY_DELETED = 'ORG_ALREADY_DELETED';
 
 /** The pre-delete snapshot could not be written, so the delete was refused. → 500 */
 export const ORG_SNAPSHOT_FAILED = 'ORG_SNAPSHOT_FAILED';
+
+/** An AI provider key value exceeded the accepted length (see organization-ai-secrets). → 400 */
+export const ORG_AI_KEY_TOO_LONG = 'ORG_AI_KEY_TOO_LONG';

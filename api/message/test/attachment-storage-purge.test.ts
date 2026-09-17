@@ -12,6 +12,7 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 
 const mockSend = jest.fn<(cmd: unknown) => Promise<unknown>>();
+const mockEmitCounter = jest.fn<(...args: unknown[]) => void>();
 
 // Mock the AWS SDK: S3Client.send is our spy; the command classes just capture
 // their input so assertions can read Bucket/Prefix/ContinuationToken/Delete.
@@ -29,12 +30,13 @@ jest.unstable_mockModule('@aws-sdk/client-s3', () => ({
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+  emitCounter: (...args: unknown[]) => mockEmitCounter(...args),
   envStr: (_k: string, d: string) => d,
   envBool: (_k: string, d: boolean) => d,
   envInt: (_k: string, d: number) => d,
 }));
 
-const { deleteAttachmentsByOrgPrefix, generateThumbnail, thumbnailKeyFor, thumbnailContentType } = await import('../src/services/attachment-storage.js');
+const { deleteAttachments, deleteAttachmentsByOrgPrefix, DELETE_OBJECTS_MAX_KEYS, generateThumbnail, thumbnailKeyFor, thumbnailContentType } = await import('../src/services/attachment-storage.js');
 const { Jimp } = await import('jimp');
 
 const isList = (cmd: unknown) => cmd?.constructor?.name === 'ListObjectsV2Command';
@@ -97,6 +99,82 @@ describe('deleteAttachmentsByOrgPrefix', () => {
     });
 
     await expect(deleteAttachmentsByOrgPrefix('org-1')).rejects.toThrow('S3 unavailable');
+  });
+});
+
+describe('deleteAttachmentsByOrgPrefix — per-key Errors', () => {
+  beforeEach(() => { mockSend.mockReset(); });
+
+  it('THROWS when DeleteObjects answers 200 but reports per-key Errors', async () => {
+    mockSend.mockImplementation(async (cmd: unknown) => {
+      if (isList(cmd)) return { Contents: [{ Key: 'org-1/a/1' }, { Key: 'org-1/b/2' }], IsTruncated: false };
+      return { Errors: [{ Key: 'org-1/b/2', Code: 'AccessDenied' }] };
+    });
+
+    await expect(deleteAttachmentsByOrgPrefix('org-1')).rejects.toThrow(/Failed to delete 1 of 2/);
+  });
+});
+
+const deleteKeysOf = (cmd: unknown): string[] =>
+  ((cmd as { input: { Delete: { Objects: Array<{ Key: string }> } } }).input.Delete.Objects).map((o) => o.Key);
+
+describe('deleteAttachments (bulk purge cleanup)', () => {
+  beforeEach(() => { mockSend.mockReset(); mockEmitCounter.mockReset(); });
+
+  it('chunks to the 1000-key DeleteObjects cap (keys + thumbnail siblings)', async () => {
+    mockSend.mockResolvedValue({});
+    const keys = Array.from({ length: 1500 }, (_, i) => `org-1/att-${i}/f.png`);
+
+    const failed = await deleteAttachments(keys, { retryDelayMs: 0 });
+
+    expect(failed).toEqual([]);
+    const batches = mockSend.mock.calls.filter((c) => isDelete(c[0])).map((c) => deleteKeysOf(c[0]));
+    expect(batches.length).toBe(3); // 3000 keys (1500 + 1500 thumbs)
+    for (const b of batches) expect(b.length).toBeLessThanOrEqual(DELETE_OBJECTS_MAX_KEYS);
+    const all = batches.flat();
+    expect(new Set(all).size).toBe(3000);
+    expect(all).toContain('org-1/att-0/f.png');
+    expect(all).toContain('org-1/att-0/thumb');
+  });
+
+  it('retries ONLY the keys DeleteObjects reported in Errors', async () => {
+    let call = 0;
+    mockSend.mockImplementation(async () => {
+      call += 1;
+      return call === 1 ? { Errors: [{ Key: 'org-1/a/x.pdf', Code: 'SlowDown' }] } : {};
+    });
+
+    const failed = await deleteAttachments(['org-1/a/x.pdf', 'org-1/b/y.pdf'], { retryDelayMs: 0 });
+
+    expect(failed).toEqual([]);
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(deleteKeysOf(mockSend.mock.calls[1][0])).toEqual(['org-1/a/x.pdf']);
+    expect(mockEmitCounter).not.toHaveBeenCalled();
+  });
+
+  it('retries a thrown batch, then reports persistently-failing keys as orphans (never throws)', async () => {
+    mockSend.mockRejectedValue(new Error('S3 unavailable'));
+
+    const failed = await deleteAttachments(['org-1/a/x.pdf'], { attempts: 3, retryDelayMs: 0 });
+
+    expect(mockSend).toHaveBeenCalledTimes(3);
+    expect([...failed].sort()).toEqual(['org-1/a/thumb', 'org-1/a/x.pdf']);
+    expect(mockEmitCounter).toHaveBeenCalledWith('message_attachment_blob_orphans_total', {}, 2);
+  });
+
+  it('treats an Errors entry without a Key as a whole-batch failure', async () => {
+    mockSend.mockResolvedValueOnce({ Errors: [{ Code: 'InternalError' }] }).mockResolvedValue({});
+
+    const failed = await deleteAttachments(['org-1/a/x.pdf'], { retryDelayMs: 0 });
+
+    expect(failed).toEqual([]);
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(deleteKeysOf(mockSend.mock.calls[1][0]).sort()).toEqual(['org-1/a/thumb', 'org-1/a/x.pdf']);
+  });
+
+  it('is a no-op for an empty key list', async () => {
+    expect(await deleteAttachments([])).toEqual([]);
+    expect(mockSend).not.toHaveBeenCalled();
   });
 });
 

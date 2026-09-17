@@ -1,10 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, AlertOctagon, Info, X } from 'lucide-react';
 import api from '@/lib/api';
+import { useAuth } from '@/hooks/useAuth';
+import { usePolling } from '@/hooks/usePolling';
 import { useNotificationPrefs } from '@/lib/notification-prefs';
 import { highestPressure, type QuotaPressure, type QuotaPressureLevel } from '@/lib/quota-pressure';
 import type { OrgQuotaResponse } from '@/types';
@@ -66,33 +68,32 @@ export function QuotaBanner({ className = '' }: QuotaBannerProps = {}) {
   const [quota, setQuota] = useState<OrgQuotaResponse | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
+  // Ignore a response that lands after unmount.
+  const mountedRef = useRef(true);
   useEffect(() => {
-    let mounted = true;
-    const fetch = async () => {
-      // Background tabs throttle timers and quota data is stale anyway — skip
-      // the poll until the tab is visible again (mirrors useObservabilityResource).
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-      try {
-        const result = await api.getOwnQuotas();
-        if (!mounted) return;
-        const q = result.data?.quota ?? null;
-        setQuota(q);
-        if (q) {
-          try { setDismissed(sessionStorage.getItem(dismissKey(q)) === '1'); } catch { /* sessionStorage may be unavailable */ }
-        }
-      } catch {
-        // Quota service unavailable — render nothing.
-      }
-    };
-    fetch();
-    const interval = setInterval(fetch, REFRESH_MS);
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
   }, []);
 
-  const { muteQuotaWarnings } = useNotificationPrefs(quota?.orgId);
+  const refresh = useCallback(async () => {
+    try {
+      const result = await api.getOwnQuotas();
+      if (!mountedRef.current) return;
+      const q = result.data?.quota ?? null;
+      setQuota(q);
+      if (q) {
+        try { setDismissed(sessionStorage.getItem(dismissKey(q)) === '1'); } catch { /* sessionStorage may be unavailable */ }
+      }
+    } catch {
+      // Quota service unavailable — render nothing.
+    }
+  }, []);
+  // Background tabs skip the poll (the data would be stale anyway) and catch up
+  // as soon as the tab is visible again.
+  usePolling(refresh, REFRESH_MS, { pauseWhenHidden: true });
+
+  const { user } = useAuth();
+  const { muteQuotaWarnings } = useNotificationPrefs(user?.id, user?.organizationId);
 
   const pressure = highestPressure(quota);
   if (pressure.level === 'none' || dismissed || !quota) return null;

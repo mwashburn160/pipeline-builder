@@ -21,11 +21,6 @@
       "type": "build"
     },
     {
-      "name": "@types/pg",
-      "version": "8.20.3",
-      "type": "build"
-    },
-    {
       "name": "@typescript-eslint/eslint-plugin",
       "version": "^8",
       "type": "build"
@@ -94,18 +89,8 @@
       "type": "runtime"
     },
     {
-      "name": "drizzle-orm",
-      "version": "0.45.2",
-      "type": "runtime"
-    },
-    {
       "name": "express",
       "version": "5.2.1",
-      "type": "runtime"
-    },
-    {
-      "name": "pg",
-      "version": "8.22.0",
       "type": "runtime"
     },
     {

@@ -25,6 +25,7 @@ const mockGmUpdateOne = jest.fn();
 const mockGmDeleteOne = jest.fn();
 const mockGmExists = jest.fn();
 const mockGmCount = jest.fn();
+const mockGmAggregate = jest.fn();
 const mockUoFindOne = jest.fn();
 const mockUserUpdateOne = jest.fn();
 const mockUserUpdateMany = jest.fn();
@@ -39,7 +40,7 @@ jest.unstable_mockModule('mongoose', () => ({
 }));
 
 // toOrgId is identity in tests — we assert on the raw orgId strings.
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 
 // Run the transaction body inline with a fake session — unit tests have no
 // live Mongo connection, so we bypass startSession/withTransaction and just
@@ -65,6 +66,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     deleteOne: (...a: unknown[]) => mockGmDeleteOne(...a),
     exists: (...a: unknown[]) => mockGmExists(...a),
     countDocuments: (...a: unknown[]) => mockGmCount(...a),
+    aggregate: (...a: unknown[]) => mockGmAggregate(...a),
   },
   User: {
     updateOne: (...a: unknown[]) => mockUserUpdateOne(...a),
@@ -75,14 +77,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: { findOne: (...a: unknown[]) => mockUoFindOne(...a) },
 }));
 
-const {
-  seedDefaultRoles, recomputeUserOrgRole, ensureBaselineRole, getUserRolePermissions,
-  addUserToRole, removeUserFromRole, updateRole,
-  grantPlatformAdmin, revokePlatformAdmin,
-  RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER,
-  RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN,
-  RL_SUPERADMIN_ROLE_MISSING, RL_ASSIGN_EXCEEDS_CEILING,
-} = await import('../src/services/roles-service.js');
+const { seedDefaultRoles, recomputeUserOrgRole, ensureBaselineRole, getUserRolePermissions, addUserToRole, removeUserFromRole, updateRole, grantPlatformAdmin, revokePlatformAdmin, assertActorMayAssignBuiltinAdmin } = await import('../src/services/roles-service.js');
+const { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SUPERADMIN_ROLE_MISSING, RL_ASSIGN_EXCEEDS_CEILING } = await import('../src/services/roles-errors.js');
 
 // Actor contexts for Role ASSIGNMENT (add/remove member). The 4th arg to
 // addUserToRole is now the actor context, not a bare boolean: superadmin and
@@ -105,6 +101,23 @@ const echoCreate = () => mockGroupCreate.mockImplementation((docs: Array<{ name:
 // find(...).session(...).select(...).lean()
 const findReturns = (mock: jest.Mock, rows: unknown[]) =>
   mock.mockReturnValue({ session: () => ({ select: () => ({ lean: () => Promise.resolve(rows) }) }) });
+/** Query chain resolving to `rows` whatever order `.select()` / `.session()` come in. */
+const anyOrderQuery = (rows: unknown) => {
+  const q: Record<string, unknown> = {};
+  q.select = () => q;
+  q.session = () => q;
+  q.lean = () => Promise.resolve(rows);
+  q.then = (ok: (v: unknown) => unknown, ko: (e: unknown) => unknown) => Promise.resolve(rows).then(ok, ko);
+  return q;
+};
+/** The last-privileged-member guard's reads: the user's assignment to the Role,
+ *  the Role being privileged, and its member count. */
+const guardSees = (roleId: string, members: number) => {
+  mockGmExists.mockReturnValue(anyOrderQuery({ _id: 'm1' }));
+  mockGmFind.mockReturnValueOnce(anyOrderQuery([{ roleId }]));
+  mockGroupFind.mockReturnValueOnce(anyOrderQuery([{ _id: roleId }]));
+  mockGmAggregate.mockReturnValueOnce(anyOrderQuery([{ _id: roleId, members }]));
+};
 // Role.exists(...).session(...) resolves to a truthy/null sentinel.
 const orgHasSuperadminRole = (has: boolean) =>
   mockGroupExists.mockReturnValue({ session: () => Promise.resolve(has ? { _id: 'sa' } : null) });
@@ -519,7 +532,7 @@ describe('removeUserFromRole', () => {
 
   it('G2: blocks removing yourself from a privilege-granting Role', async () => {
     mockGroupFindOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'gA', grantsRole: 'admin', name: 'Admin' }) });
-    mockGmExists.mockResolvedValue({ _id: 'm1' }); // the actor IS a member
+    mockGmExists.mockReturnValue(anyOrderQuery({ _id: 'm1' })); // the actor IS a member
 
     await expect(removeUserFromRole('org-1', 'gA', 'u1', { actorUserId: 'u1' }))
       .rejects.toThrow(RL_CANNOT_REMOVE_SELF);
@@ -528,8 +541,7 @@ describe('removeUserFromRole', () => {
 
   it('G3: blocks removing the last member of a privilege-granting Role', async () => {
     mockGroupFindOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'gA', grantsRole: 'admin', name: 'Admin' }) });
-    mockGmExists.mockResolvedValue({ _id: 'm1' });
-    mockGmCount.mockResolvedValue(1); // this user is the only one
+    guardSees('gA', 1); // this user is the only one
 
     await expect(removeUserFromRole('org-1', 'gA', 'victim', { actorUserId: 'owner-not-in-role' }))
       .rejects.toThrow(RL_LAST_PRIVILEGED_MEMBER);
@@ -538,9 +550,9 @@ describe('removeUserFromRole', () => {
 
   it('allows removing a non-last member of a privilege-granting Role', async () => {
     mockGroupFindOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'gA', grantsRole: 'admin', name: 'Admin' }) });
-    mockGmExists.mockResolvedValue({ _id: 'm1' });
-    mockGmCount.mockResolvedValue(2); // another admin remains
     findReturns(mockGmFind, []);
+    findReturns(mockGroupFind, []);
+    guardSees('gA', 2); // another admin remains
     mockUoFindOne.mockReturnValue({ session: () => ({ role: 'admin', save: jest.fn().mockResolvedValue(undefined) }) });
 
     await removeUserFromRole('org-1', 'gA', 'victim', { actorUserId: 'other-admin' });
@@ -585,9 +597,9 @@ describe('removeUserFromRole', () => {
         permissions: ['members:manage', 'org:settings'],
       }),
     });
-    mockGmExists.mockResolvedValue({ _id: 'm1' });
-    mockGmCount.mockResolvedValue(2); // not the last member
     findReturns(mockGmFind, []);
+    findReturns(mockGroupFind, []);
+    guardSees('gAdmin', 2); // not the last member
     mockUoFindOne.mockReturnValue({ session: () => ({ role: 'admin', save: jest.fn().mockResolvedValue(undefined) }) });
 
     await removeUserFromRole('org-1', 'gAdmin', 'victim', {
@@ -735,8 +747,8 @@ describe('grantPlatformAdmin / revokePlatformAdmin (single-source: Super Admin R
     // recompute flips isSuperAdmin false→true and bumps tokenVersion
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { isSuperAdmin: true } }, expect.anything());
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { tokenVersion: 1 } }, expect.anything());
-    // a real change drops the refresh token
-    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $unset: { refreshToken: '' } }, expect.anything());
+    // a real change clears the refresh-session slots
+    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { refreshSessions: [] } }, expect.anything());
     expect(result).toEqual({ changed: true });
   });
 
@@ -754,7 +766,7 @@ describe('grantPlatformAdmin / revokePlatformAdmin (single-source: Super Admin R
 
     expect(result).toEqual({ changed: false });
     // no flip (current already true) → no tokenVersion bump, no refresh drop
-    expect(mockUserUpdateOne).not.toHaveBeenCalledWith({ _id: 'u1' }, { $unset: { refreshToken: '' } }, expect.anything());
+    expect(mockUserUpdateOne).not.toHaveBeenCalledWith({ _id: 'u1' }, { $set: { refreshSessions: [] } }, expect.anything());
     expect(mockUserUpdateOne).not.toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { tokenVersion: 1 } }, expect.anything());
   });
 
@@ -772,12 +784,31 @@ describe('grantPlatformAdmin / revokePlatformAdmin (single-source: Super Admin R
 
     expect(mockGmDeleteOne).toHaveBeenCalledWith({ userId: 'u1', roleId: 'sa-role' }, expect.objectContaining({ session: expect.anything() }));
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { isSuperAdmin: false } }, expect.anything());
-    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $unset: { refreshToken: '' } }, expect.anything());
+    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { refreshSessions: [] } }, expect.anything());
     expect(result).toEqual({ changed: true });
   });
 
   it('throws RL_SUPERADMIN_ROLE_MISSING when the system org has no Super Admin Role', async () => {
     superAdminRoleFound(null);
     await expect(grantPlatformAdmin('u1')).rejects.toThrow(RL_SUPERADMIN_ROLE_MISSING);
+  });
+});
+
+describe('assertActorMayAssignBuiltinAdmin — Admin-role grant ceiling outside the Role API', () => {
+  const adminRole = (permissions: string[]) => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve({ permissions }) }) }) });
+
+  it('refuses a members:manage delegate who lacks the Admin Role\'s permissions', async () => {
+    mockGroupFindOne.mockReturnValue(adminRole(['members:manage', 'org:settings']));
+    await expect(assertActorMayAssignBuiltinAdmin('org-1', delegateActor(['members:manage'])))
+      .rejects.toThrow(RL_ASSIGN_EXCEEDS_CEILING);
+  });
+
+  it('admits a delegate holding every Admin permission, and org admins / superadmins without a lookup', async () => {
+    mockGroupFindOne.mockReturnValue(adminRole(['members:manage']));
+    await expect(assertActorMayAssignBuiltinAdmin('org-1', delegateActor(['members:manage', 'x']))).resolves.toBeUndefined();
+    mockGroupFindOne.mockClear();
+    await assertActorMayAssignBuiltinAdmin('org-1', orgAdminActor);
+    await assertActorMayAssignBuiltinAdmin('org-1', superAdminActor);
+    expect(mockGroupFindOne).not.toHaveBeenCalled();
   });
 });

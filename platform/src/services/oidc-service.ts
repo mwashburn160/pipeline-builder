@@ -34,9 +34,8 @@ import { config } from '../config/index.js';
 
 const logger = createLogger('oidc-service');
 
-/** Discovery/JWKS cache TTL. Kept short so IdP key rotation is picked up
- *  quickly; a `kid` miss also forces a live JWKS refetch regardless. */
-const DOC_CACHE_TTL_MS = parseInt(process.env.OIDC_DOC_CACHE_TTL_MS || '3600000', 10); // 1h
+/** Discovery/JWKS cache TTL (see config.oauth.oidcDocCacheTtlMs). */
+const DOC_CACHE_TTL_MS = config.oauth.oidcDocCacheTtlMs;
 
 /** Signature algorithms we accept on an `id_token`. Asymmetric only — an HMAC
  *  alg (`HS*`) would let anyone holding the (public) client-id-shaped secret

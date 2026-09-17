@@ -1,0 +1,50 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * Unit tests for `requireIngestScope` — the single per-route guard shared by every
+ * reporting machine write (events, ingest-health, incident webhooks). Router
+ * suites cover that each route mounts it (their 403 cases run the full chain).
+ */
+
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
+const mockSendError = jest.fn();
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  sendError: mockSendError,
+  hasScope: (req: any, scope: string) => req?.user?.scope === scope,
+}));
+
+const { requireIngestScope, INGEST_SCOPE } = await import('../src/middleware/require-ingest-scope.js');
+
+describe('requireIngestScope', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  const run = (user: unknown) => {
+    const next = jest.fn();
+    requireIngestScope({ user } as any, {} as any, next);
+    return next;
+  };
+
+  it('guards the reporting:ingest scope', () => {
+    expect(INGEST_SCOPE).toBe('reporting:ingest');
+  });
+
+  it('calls next() for a reporting:ingest-scoped token', () => {
+    const next = run({ sub: 'svc', scope: 'reporting:ingest' });
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(mockSendError).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a token with a different scope', { sub: 'svc', scope: 'reporting:read' }],
+    ['a plain user token (no scope)', { sub: 'u-1', isSuperAdmin: true }],
+    ['no user at all', undefined],
+  ])('403s %s without calling next()', (_label, user) => {
+    const next = run(user);
+    expect(next).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith(
+      expect.anything(), 403, expect.stringContaining('reporting:ingest'), 'INSUFFICIENT_PERMISSIONS');
+  });
+});

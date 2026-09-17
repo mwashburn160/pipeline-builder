@@ -202,14 +202,12 @@ export interface AWSConfig {
     /** Function timeout in seconds (env: `LAMBDA_TIMEOUT`). */
     readonly timeoutSeconds: number;
     readonly memorySize: number;
+    /** Lambda CPU architecture (env: `LAMBDA_ARCHITECTURE`, `ARM_64` or `x86_64`). */
     readonly architecture: 'arm64' | 'x86_64';
     readonly reservedConcurrentExecutions?: number;
   };
   readonly logging: {
     readonly groupName: string;
-    /** CloudWatch retention in days; `0` means never expire (env: `LOG_RETENTION`). */
-    readonly retentionDays: number;
-    readonly removalPolicy: 'retain' | 'destroy';
   };
   readonly codeBuild: {
     /** CodeBuild compute type name, e.g. `'SMALL'` (env: `CODEBUILD_COMPUTE_TYPE`). */

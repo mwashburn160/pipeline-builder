@@ -280,10 +280,11 @@ export function adminApi(core: ApiCore) {
     /** Sysadmin (or org-admin scoped to their own org) feature-flag overrides
      *  for a user. Backend validates that every key is in ALL_FEATURE_FLAGS
      *  and every value is a boolean. */
-    updateUserFeatures: async (userId: string, overrides: Record<string, boolean>) => {
+    /** Replace a user's feature overrides; requires a fresh password check (step-up). */
+    updateUserFeatures: async (userId: string, overrides: Record<string, boolean>, stepUpToken: string) => {
       return core.request<ApiResponse<{ user: User }>>(
         `/api/users/${userId}/features`,
-        { method: 'PUT', body: JSON.stringify({ overrides }) },
+        { method: 'PUT', body: JSON.stringify({ overrides }), headers: core.stepUpHeader(stepUpToken) },
       );
     },
 

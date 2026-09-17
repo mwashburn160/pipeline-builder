@@ -57,7 +57,6 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 
 jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { findOrCreateOAuthUser: jest.fn() },
-  ACCOUNT_EMAIL_UNVERIFIED: 'ACCOUNT_EMAIL_UNVERIFIED',
 }));
 // oauth.ts now imports rejectIfSsoEnforced (social-OAuth honors per-org SSO
 // enforcement); mock it so the real sso-enforcement→models→audit-event chain
@@ -65,7 +64,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ rejectIfSsoEnforced: async () => false }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn() }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn(), renewSessionTokens: jest.fn() }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({ oauthCallbackSchema: {}, validateBody: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   withController: (_label: string, fn: Function, errorMap?: Record<string, { status: number; message: string }>) =>
@@ -79,6 +78,7 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
 }));
 
 const { verifyOAuthCode, getAuthUrl } = await import('../src/controllers/oauth.js');
+const { OAUTH_MICROSOFT_TENANT_NOT_PINNED } = await import('../src/services/auth-errors.js');
 
 function makeRes() {
   const res: any = {};
@@ -104,7 +104,7 @@ describe('Microsoft OAuth nOAuth mitigation', () => {
       .mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: 'tok' }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ sub: 'ms-1', email: 'victim@company.com' }) }) as any;
 
-    await expect(verifyOAuthCode('microsoft', 'code', state)).rejects.toThrow(/pinned OAUTH_MICROSOFT_TENANT/);
+    await expect(verifyOAuthCode('microsoft', 'code', state)).rejects.toThrow(OAUTH_MICROSOFT_TENANT_NOT_PINNED);
     global.fetch = realFetch;
   });
 });

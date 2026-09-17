@@ -39,6 +39,13 @@ jest.unstable_mockModule('../src/services/registry-client.js', () => ({
   isNotFound,
 }));
 
+// --- durable-audit mock (assert the registry.image.delete event shape) ------
+const emitImageRegistryAudit = jest.fn();
+jest.unstable_mockModule('../src/services/audit.js', () => ({
+  emitImageRegistryAudit,
+  getAuditClient: () => ({ record: jest.fn() }),
+}));
+
 // --- api-server mock: withRoute passthrough + metric counter ---------------
 const incCounter = jest.fn();
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
@@ -155,6 +162,14 @@ describe('DELETE /api/images/:name', () => {
         deletedTags: 3,
       }),
     );
+    // Durable trail: the actor is the (system-org) superadmin, but the AFFECTED
+    // org is the repo's owner — so acme's admins can see their repo was pruned.
+    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'registry.image.delete',
+      orgId: '000000000000000000000001',
+      affectedOrgId: 'acme',
+      details: expect.objectContaining({ scope: 'repo' }),
+    }));
   });
 
   it('returns 404 when the repo itself does not exist (listTags 404)', async () => {

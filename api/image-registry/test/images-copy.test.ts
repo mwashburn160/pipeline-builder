@@ -23,10 +23,10 @@ import { jest, describe, it, expect, beforeEach, beforeAll, afterAll } from '@je
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // --- registry-client mock ---------------------------------------------------
-const getManifest = jest.fn<(name: string, ref: string) => Promise<{ body: unknown; digest: string; mediaType: string }>>();
+const getManifest = jest.fn<(name: string, ref: string) => Promise<{ body: unknown; raw: Buffer; digest: string; mediaType: string }>>();
 const headManifest = jest.fn<(name: string, ref: string) => Promise<{ digest: string } | null>>();
 const mountBlob = jest.fn<(src: string, tgt: string, digest: string) => Promise<void>>();
-const putManifest = jest.fn<(name: string, ref: string, body: unknown, mediaType: string) => Promise<void>>();
+const putManifest = jest.fn<(name: string, ref: string, raw: Buffer, mediaType: string) => Promise<void>>();
 const isNotFound = (e: unknown): boolean => (e as { statusCode?: number })?.statusCode === 404;
 
 jest.unstable_mockModule('../src/services/registry-client.js', () => ({
@@ -115,6 +115,9 @@ afterAll(async () => {
 });
 
 const MANIFEST_MT = 'application/vnd.oci.image.manifest.v1+json';
+/** A fetched manifest as registry-client returns it: parsed body + its raw bytes. */
+const manifest = (body: unknown, digest: string, mediaType: string) =>
+  ({ body, raw: Buffer.from(JSON.stringify(body)), digest, mediaType });
 const INDEX_MT = 'application/vnd.oci.image.index.v1+json';
 
 beforeEach(() => {
@@ -122,11 +125,8 @@ beforeEach(() => {
   mountBlob.mockResolvedValue(undefined);
   putManifest.mockResolvedValue(undefined);
   // Default: single-arch source manifest.
-  getManifest.mockImplementation(async () => ({
-    body: { config: { digest: 'sha256:cfg' }, layers: [{ digest: 'sha256:l1' }] },
-    digest: 'sha256:src',
-    mediaType: MANIFEST_MT,
-  }));
+  getManifest.mockImplementation(async () =>
+    manifest({ config: { digest: 'sha256:cfg' }, layers: [{ digest: 'sha256:l1' }] }, 'sha256:src', MANIFEST_MT));
 });
 
 const copy = async (who: string | undefined, body: unknown) => {
@@ -176,7 +176,27 @@ describe('POST /api/images/copy — cross-tenant guard', () => {
       action: 'registry.image.copy',
       targetType: 'registry-image',
       details: expect.objectContaining({ crossTenant: true }),
+      // The WRITTEN (target) org is the affected org, not the superadmin's own.
+      affectedOrgId: 'beta',
     }));
+  });
+
+  it('omits affectedOrgId when the target namespace has no owning org (library/*)', async () => {
+    const { status } = await copy('super', { source: 'library/foo:1.0', target: 'library/bar:9.9' });
+    expect(status).toBe(200);
+    const event = emitImageRegistryAudit.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(event.action).toBe('registry.image.copy');
+    expect(event).not.toHaveProperty('affectedOrgId');
+  });
+});
+
+describe('POST /api/images/copy — body validation', () => {
+  it('400s a malformed body with VALIDATION_ERROR naming the offending field', async () => {
+    const { status, body } = await copy('super', { source: 'no-colon', target: 'library/bar:1.0' });
+    expect(status).toBe(400);
+    expect(body.code).toBe('VALIDATION_ERROR');
+    expect(body.message).toMatch(/^source: /);
+    expect(getManifest).not.toHaveBeenCalled();
   });
 });
 
@@ -192,9 +212,9 @@ describe('POST /api/images/copy — happy paths', () => {
 
   it('copies a multi-arch index (fetches each child, mounts unique blobs, PUTs children + index)', async () => {
     getManifest.mockImplementation(async (_name, ref) => {
-      if (ref === '1.0') return { body: { manifests: [{ digest: 'sha256:c1' }, { digest: 'sha256:c2' }] }, digest: 'sha256:idx', mediaType: INDEX_MT };
-      if (ref === 'sha256:c1') return { body: { config: { digest: 'sha256:cfg1' }, layers: [{ digest: 'sha256:shared' }] }, digest: ref, mediaType: MANIFEST_MT };
-      if (ref === 'sha256:c2') return { body: { config: { digest: 'sha256:cfg2' }, layers: [{ digest: 'sha256:shared' }] }, digest: ref, mediaType: MANIFEST_MT };
+      if (ref === '1.0') return manifest({ manifests: [{ digest: 'sha256:c1' }, { digest: 'sha256:c2' }] }, 'sha256:idx', INDEX_MT);
+      if (ref === 'sha256:c1') return manifest({ config: { digest: 'sha256:cfg1' }, layers: [{ digest: 'sha256:shared' }] }, ref, MANIFEST_MT);
+      if (ref === 'sha256:c2') return manifest({ config: { digest: 'sha256:cfg2' }, layers: [{ digest: 'sha256:shared' }] }, ref, MANIFEST_MT);
       throw { statusCode: 404 };
     });
 

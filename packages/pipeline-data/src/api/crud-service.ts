@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { NotFoundError, createLogger, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '@pipeline-builder/api-core';
+import { ConflictError, NotFoundError, createLogger, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '@pipeline-builder/api-core';
 import { SQL, eq, and, or, asc, desc, sql, inArray, getTableColumns } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -156,6 +156,28 @@ function decodeCursor(cursor: string): { sortText: string | null; id: string } |
   return null;
 }
 
+const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Postgres `timestamp[tz]::text` / `date::text` (also accepts ISO-8601). */
+const TIMESTAMP_TEXT = /^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?)?$/;
+const NUMERIC_TEXT = /^-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?$/;
+
+/**
+ * Whether `text` can be cast to `column`'s type. A decoded cursor is still
+ * client input: a value Postgres can't cast (a non-UUID id, a garbage
+ * timestamp) fails the whole query with a 500. Column types this doesn't know
+ * (text, varchar, …) accept any string.
+ */
+function isCastableTo(column: AnyColumn, text: string): boolean {
+  const { columnType, dataType } = column;
+  const enumValues = (column as { enumValues?: readonly string[] }).enumValues;
+  if (columnType === 'PgUUID') return UUID_TEXT.test(text);
+  if ((columnType === 'PgEnumColumn' || columnType === 'PgEnumObjectColumn') && enumValues?.length) return enumValues.includes(text);
+  if (dataType === 'date' || columnType === 'PgTimestampString' || columnType === 'PgDateString') return TIMESTAMP_TEXT.test(text);
+  if (dataType === 'boolean') return text === 'true' || text === 'false';
+  if (dataType === 'number' || dataType === 'bigint') return NUMERIC_TEXT.test(text);
+  return true;
+}
+
 /**
  * Keyset predicate "strictly after (sortText, id)" for `ORDER BY sort <dir>, id <dir>`
  * under Postgres' default null placement (ASC → NULLS LAST, DESC → NULLS FIRST).
@@ -238,7 +260,7 @@ export abstract class CrudService<
    */
   protected abstract getOrgColumn(): AnyColumn;
 
-  /** Get the unique constraint columns for onConflictDoUpdate */
+  /** The unique-constraint columns a create must not conflict on (see {@link create}). */
   protected abstract get conflictTarget(): AnyColumn[];
 
   private readonly _logger = createLogger('crud-service');
@@ -420,8 +442,16 @@ export abstract class CrudService<
     const orderBy = sortColumn === idColumn ? [direction(idColumn)] : [direction(sortColumn), direction(idColumn)];
 
     // Cursor and offset are mutually exclusive — a valid cursor takes precedence.
-    // A malformed/tampered cursor is ignored (reads from the start).
-    const decodedCursor = cursor ? decodeCursor(cursor) : null;
+    // A malformed/tampered cursor — including well-formed JSON whose values
+    // can't be cast to the id / sort column types — is ignored (reads from the
+    // start) instead of reaching Postgres and failing the query.
+    const rawCursor = cursor ? decodeCursor(cursor) : null;
+    const decodedCursor = rawCursor
+      && isCastableTo(idColumn, rawCursor.id)
+      // (an id-only order never binds the sort value — see keysetAfter)
+      && (sortColumn === idColumn || rawCursor.sortText === null || isCastableTo(sortColumn, rawCursor.sortText))
+      ? rawCursor
+      : null;
     if (cursor && !decodedCursor) {
       this._logger.warn('Ignoring malformed pagination cursor', { entity: this.constructor.name });
     }
@@ -609,6 +639,10 @@ export abstract class CrudService<
    */
   async create(data: TInsert, userId: string): Promise<TEntity> {
     const safeData = this.enforceOrgId(data, /* isCreate */ true);
+    // Create never overwrites. The conflict key can match a LIVE row (another
+    // author's, or one the caller couldn't edit through update) or a soft-deleted
+    // TOMBSTONE; replacing either would bypass update's access checks or restore's
+    // step-up. On any conflict nothing is written and the caller gets a 409.
     const [created] = await withTenantTx(async (tx) => tx
       .insert(this.schema)
       .values({
@@ -616,23 +650,12 @@ export abstract class CrudService<
         createdBy: userId || 'system',
         updatedBy: userId || 'system',
       } as any)
-      .onConflictDoUpdate({
-        target: this.conflictTarget as any,
-        set: {
-          ...safeData,
-          // RESURRECT on re-create: `delete` soft-deletes (isActive=false + deletedAt/
-          // deletedBy set), but the unique constraint keeps the tombstoned row, so a
-          // re-create with the same conflict key lands here. Without resetting these,
-          // the row's body updates but it stays soft-deleted and never reappears
-          // (reads default to isActive=true). Matches the pipeline/plugin overrides.
-          isActive: true,
-          deletedAt: null,
-          deletedBy: null,
-          updatedAt: new Date(),
-          updatedBy: userId || 'system',
-        } as any,
-      })
+      .onConflictDoNothing({ target: this.conflictTarget as any })
       .returning().then(r => drizzleRows<TEntity>(r)));
+
+    if (!created) {
+      throw new ConflictError('A record with the same identity already exists. If it was deleted, restore it instead.');
+    }
 
     // Awaited intentionally: cache invalidation happens in the hook, and a
     // fire-and-forget pattern lets a subsequent read inside the same request
@@ -826,85 +849,6 @@ export abstract class CrudService<
       .returning().then(r => drizzleRows<TEntity>(r)));
   }
 
-  /**
-   * Create multiple entities in a single batch insert.
-   * Uses upsert (onConflictDoUpdate) — all rows are inserted in one query per chunk.
-   * Chunks of 100 to stay within PostgreSQL parameter limits.
-   */
-  /**
-   * Build the `onConflictDoUpdate` SET for a bulk upsert. Unlike a single-row
-   * create (which can spread the one row's data), a batched insert has many rows,
-   * so each updatable column is written from `excluded.*` (the would-be-inserted
-   * value) — otherwise an existing row's fields are silently discarded and only
-   * timestamps bump. Skips identity/immutable (`id`, `createdAt`, `createdBy`)
-   * and the conflict-target columns; `updatedAt`/`updatedBy` get the fresh values.
-   */
-  private buildBulkUpsertSet(now: Date, user: string): Record<string, unknown> {
-    const conflictNames = new Set(this.conflictTarget.map((c) => (c as unknown as { name: string }).name));
-    const set: Record<string, unknown> = {};
-    for (const [key, col] of Object.entries(getTableColumns(this.schema))) {
-      const name = (col as unknown as { name: string }).name;
-      if (key === 'id' || key === 'createdAt' || key === 'createdBy' || conflictNames.has(name)) continue;
-      if (key === 'updatedAt') { set[key] = now; continue; }
-      if (key === 'updatedBy') { set[key] = user; continue; }
-      set[key] = sql`excluded.${sql.identifier(name)}`;
-    }
-    // RESURRECT on bulk re-create (matches the single-row create): reset the
-    // soft-delete columns explicitly rather than rely on `excluded.*` + column
-    // defaults, so a re-created same-key row is always reactivated, not left
-    // tombstoned. All CrudService entities carry these (delete() sets all three).
-    set.isActive = true;
-    set.deletedAt = null;
-    set.deletedBy = null;
-    return set;
-  }
-
-  async bulkCreate(items: TInsert[], userId: string): Promise<TEntity[]> {
-    if (items.length === 0) return [];
-
-    const CHUNK_SIZE = 100;
-    const now = new Date();
-    const user = userId || 'system';
-    const conflictSet = this.buildBulkUpsertSet(now, user);
-
-    const results = await withTenantTx(async (tx) => {
-      const allCreated: TEntity[] = [];
-
-      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
-        const chunk = items.slice(i, i + CHUNK_SIZE);
-        const values = chunk.map(data => ({
-          ...this.enforceOrgId(data),
-          createdBy: user,
-          updatedBy: user,
-        } as any));
-
-        const created = await tx
-          .insert(this.schema)
-          .values(values)
-          .onConflictDoUpdate({
-            target: this.conflictTarget as any,
-            set: conflictSet as any,
-          })
-          .returning().then(r => drizzleRows<TEntity>(r));
-
-        allCreated.push(...created);
-      }
-
-      return allCreated;
-    });
-
-    // Run hooks in parallel but await all before returning so a subsequent
-    // read in the same request sees a coherent post-write view.
-    await Promise.all(
-      results.map(entity =>
-        this.onAfterCreate(entity, userId).catch(err =>
-          this._logger.warn('Lifecycle hook failed', { error: String(err) }),
-        ),
-      ),
-    );
-
-    return results;
-  }
 
   /**
    * The `visibility` predicate for a bulk soft-delete, mirroring

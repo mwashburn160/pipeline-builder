@@ -1,15 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendError, ErrorCode, hasScope } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, validateBody } from '@pipeline-builder/api-core';
 import { withRoute, incCounter, type SSEManager } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { runWithTenantContext, reportingService, type IngestMetric } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
-
-/** The capability scope the AWS event-ingestion machine credential must carry. */
-const INGEST_SCOPE = 'reporting:ingest';
+import { requireIngestScope } from '../middleware/require-ingest-scope.js';
 
 /**
  * Status values accepted per-eventSource. AWS pipelines use uppercase
@@ -78,22 +76,13 @@ const ingestBatchSchema = z.object({
 export function createEventIngestRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
-  router.post('/', withRoute(async ({ req, res, ctx }) => {
-    // Ingest is a machine endpoint: only a token carrying the `reporting:ingest`
-    // scope may write events (a scoped credential the AWS ingestion Lambda holds).
-    // Without this, any authenticated user JWT could forge events for any org,
-    // since the org is resolved from the pipeline registry, not the caller.
-    if (!hasScope(req, INGEST_SCOPE)) {
-      return sendError(res, 403, `Token must carry the '${INGEST_SCOPE}' scope`, ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
+  // Machine endpoint: only a `reporting:ingest`-scoped token (the AWS ingestion
+  // Lambda's credential) may write events — see requireIngestScope.
+  router.post('/', requireIngestScope, withRoute(async ({ req, res, ctx }) => {
+    const parsed = validateBody(req, ingestBatchSchema);
+    if (!parsed.ok) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
 
-    const parsed = ingestBatchSchema.safeParse(req.body);
-    if (!parsed.success) {
-      const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
-      return sendBadRequest(res, msg, ErrorCode.VALIDATION_ERROR);
-    }
-
-    const { events } = parsed.data;
+    const { events } = parsed.value;
     if (events.length > CoreConstants.MAX_EVENTS_PER_BATCH) {
       return sendBadRequest(res, `Maximum ${CoreConstants.MAX_EVENTS_PER_BATCH} events per batch`, ErrorCode.VALIDATION_ERROR);
     }

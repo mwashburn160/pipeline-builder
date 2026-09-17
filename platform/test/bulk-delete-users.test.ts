@@ -16,7 +16,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockDeleteUserById = jest.fn();
 const mockLookupPrimaryOrgId = jest.fn();
 const mockAudit = jest.fn();
-const mockRequireAdminContext = jest.fn();
+const mockRequireScope = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
@@ -67,7 +67,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 
 // user-admin transitively imports utils/token via user-profile; mock so we
 // don't pull in the real JWT signing path (which would demand env vars).
-jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn() }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn(), renewSessionTokens: jest.fn() }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: jest.fn(),
   updateProfileSchema: {},
@@ -77,7 +77,9 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAdminContext: (req: any, res: any) => mockRequireAdminContext(req, res),
+  requireMemberManagementScope: (req: any, res: any) => mockRequireScope(req, res),
+  canManageOrgScope: async () => true,
+  isOrgAdmin: () => false,
   // Consumed transitively via user-admin.js -> user-profile.js.
   requireAuthUserId: jest.fn(),
   withController: (_label: string, fn: Function) =>
@@ -91,23 +93,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   },
   // Consumed transitively via user-admin.js -> user-profile.js.
   userProfileService: {},
-  UA_USER_NOT_FOUND: 'UA_USER_NOT_FOUND',
-  UA_USERNAME_TAKEN: 'UA_USERNAME_TAKEN',
-  UA_EMAIL_TAKEN: 'UA_EMAIL_TAKEN',
-  UA_OWNER_HAS_ORGS: 'UA_OWNER_HAS_ORGS',
-  UA_ORG_NOT_FOUND: 'UA_ORG_NOT_FOUND',
-  UA_SEAT_LIMIT: 'UA_SEAT_LIMIT',
-  UA_CANNOT_CHANGE_OWNER: 'UA_CANNOT_CHANGE_OWNER',
-  UA_ROLES_NEED_ORG: 'UA_ROLES_NEED_ORG',
-  UA_LAST_PRIVILEGED_MEMBER: 'UA_LAST_PRIVILEGED_MEMBER',
-  RL_ROLE_NOT_FOUND: 'RL_ROLE_NOT_FOUND',
   // Consumed transitively via user-admin.js -> user-profile.js.
-  PROFILE_EMAIL_TAKEN: 'PROFILE_EMAIL_TAKEN',
-  PROFILE_INVALID_CREDENTIALS: 'PROFILE_INVALID_CREDENTIALS',
-  PROFILE_OWNER_HAS_ORGS: 'PROFILE_OWNER_HAS_ORGS',
-  PROFILE_USER_NOT_FOUND: 'PROFILE_USER_NOT_FOUND',
-  PROFILE_LAST_PRIVILEGED_MEMBER: 'PROFILE_LAST_PRIVILEGED_MEMBER',
-  PROFILE_PAT_LIMIT: 'PROFILE_PAT_LIMIT',
 }));
 
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: {} }));
@@ -126,12 +112,12 @@ beforeEach(() => {
   mockDeleteUserById.mockReset();
   mockLookupPrimaryOrgId.mockReset();
   mockAudit.mockReset();
-  mockRequireAdminContext.mockReset();
+  mockRequireScope.mockReset();
 });
 
 describe('bulkDeleteUsers', () => {
   it('rejects org admins (sysadmin-only)', async () => {
-    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: true, isSuperAdmin: false });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: false, orgId: 'org-1' });
     const req: any = { user: { sub: 'u1' }, body: { ids: ['a'] } };
     const res = mockRes();
     await (bulkDeleteUsers as unknown as (req: any, res: any) => Promise<void>)(req, res);
@@ -140,7 +126,7 @@ describe('bulkDeleteUsers', () => {
   });
 
   it('rejects empty / missing ids array', async () => {
-    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: false, isSuperAdmin: true });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     const res = mockRes();
     await (bulkDeleteUsers as unknown as (req: any, res: any) => Promise<void>)(
       { user: { sub: 'u1' }, body: {} },
@@ -150,7 +136,7 @@ describe('bulkDeleteUsers', () => {
   });
 
   it('rejects batches over 100 ids', async () => {
-    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: false, isSuperAdmin: true });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     const ids = Array.from({ length: 101 }, (_, i) => `u${i}`);
     const res = mockRes();
     await (bulkDeleteUsers as unknown as (req: any, res: any) => Promise<void>)(
@@ -161,7 +147,7 @@ describe('bulkDeleteUsers', () => {
   });
 
   it('rejects non-string ids', async () => {
-    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: false, isSuperAdmin: true });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     const res = mockRes();
     await (bulkDeleteUsers as unknown as (req: any, res: any) => Promise<void>)(
       { user: { sub: 'sysadmin' }, body: { ids: ['ok', 42 as unknown as string] } },
@@ -171,7 +157,7 @@ describe('bulkDeleteUsers', () => {
   });
 
   it('refuses to self-delete and continues with the rest', async () => {
-    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: false, isSuperAdmin: true });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     mockLookupPrimaryOrgId.mockResolvedValue('org-1');
     mockDeleteUserById.mockResolvedValue(undefined);
 
@@ -191,7 +177,7 @@ describe('bulkDeleteUsers', () => {
   });
 
   it('audits each successful delete with bulk=true marker', async () => {
-    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: false, isSuperAdmin: true });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     mockLookupPrimaryOrgId.mockResolvedValue('org-9');
     mockDeleteUserById.mockResolvedValue(undefined);
 
@@ -210,11 +196,11 @@ describe('bulkDeleteUsers', () => {
   });
 
   it('records mapped error messages for known service errors', async () => {
-    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: false, isSuperAdmin: true });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     mockLookupPrimaryOrgId.mockResolvedValue(undefined);
     mockDeleteUserById
       .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error('UA_OWNER_HAS_ORGS'));
+      .mockRejectedValueOnce(new Error('USER_OWNER_HAS_ORGS'));
 
     const res = mockRes();
     await (bulkDeleteUsers as unknown as (req: any, res: any) => Promise<void>)(
@@ -229,7 +215,7 @@ describe('bulkDeleteUsers', () => {
   });
 
   it('falls through to raw error text on unknown errors', async () => {
-    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: false, isSuperAdmin: true });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     mockLookupPrimaryOrgId.mockResolvedValue(undefined);
     mockDeleteUserById.mockRejectedValue(new Error('mongo timeout'));
 
@@ -246,7 +232,7 @@ describe('bulkDeleteUsers', () => {
 
 describe('deleteUserById — deleting an account is platform-admin only', () => {
   it('refuses an org admin, even for a member of their own organization', async () => {
-    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: true, isSuperAdmin: false });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: false, orgId: 'org-1' });
     const res = mockRes();
     await (deleteUserById as unknown as (req: any, res: any) => Promise<void>)(
       { user: { sub: 'org-admin', organizationId: 'org-1' }, params: { id: 'member' } }, res,
@@ -256,7 +242,7 @@ describe('deleteUserById — deleting an account is platform-admin only', () => 
   });
 
   it('lets a platform admin delete an account', async () => {
-    mockRequireAdminContext.mockReturnValue({ isOrgAdmin: false, isSuperAdmin: true });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     mockLookupPrimaryOrgId.mockResolvedValue('org-9');
     mockDeleteUserById.mockResolvedValue(undefined);
     const res = mockRes();

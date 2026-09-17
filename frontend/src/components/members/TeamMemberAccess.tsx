@@ -131,7 +131,7 @@ export function TeamMemberAccess({ teams, currentUserId, readOnly }: TeamMemberA
                 <p className="truncate text-xs text-[var(--pb-text-muted)]">{m.email}</p>
               </div>
               {m.id !== currentUserId && (
-                <Button type="button" variant="secondary" disabled={readOnly} onClick={() => setViewing(m)}>
+                <Button type="button" variant="secondary" readOnly={readOnly} onClick={() => setViewing(m)}>
                   View as user
                 </Button>
               )}

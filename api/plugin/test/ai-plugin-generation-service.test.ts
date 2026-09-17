@@ -144,6 +144,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 const {
   getAvailableProviders,
   getProviderModels,
+  AIEmptyOutputError,
   generatePluginConfig,
 } = await import('../src/services/ai-plugin-generation-service.js');
 type PluginGenerationRequest = import('../src/services/ai-plugin-generation-service.js').PluginGenerationRequest;
@@ -235,12 +236,13 @@ describe('ai-plugin-generation-service', () => {
       expect(call.prompt).toBe('Create a Node.js build plugin');
     });
 
-    it('throws when AI returns null output', async () => {
+    it('throws a typed AIEmptyOutputError (provider WAS contacted) when AI returns null output', async () => {
       mockGenerateText.mockResolvedValue({ output: null });
 
-      await expect(generatePluginConfig(baseRequest)).rejects.toThrow(
-        'AI did not produce a plugin configuration',
-      );
+      // Typed so the route keeps the aiCalls slot (keep-on-provider-contact).
+      const err = await generatePluginConfig(baseRequest).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(AIEmptyOutputError);
+      expect(err).toMatchObject({ message: 'AI did not produce a plugin configuration', providerContacted: true });
     });
 
     it('handles optional fields (description, primaryOutputDirectory, env)', async () => {

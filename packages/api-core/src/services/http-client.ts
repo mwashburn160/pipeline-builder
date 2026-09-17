@@ -93,26 +93,53 @@ export interface HttpClientResponse<T = unknown> {
  */
 export interface HttpClientOptions {
   /**
-   * A shared `http.Agent` to reuse across clients (pools sockets to the same
-   * host). When supplied, the client does NOT own it — {@link InternalHttpClient.destroy}
-   * leaves a borrowed agent untouched so other clients keep working.
+   * A caller-owned `http.Agent` to use instead of the process-wide shared one.
+   * The client never destroys it.
    */
   agent?: http.Agent;
-  /** Cap on concurrent keep-alive sockets when minting an agent (default 64). */
+  /** Cap on concurrent keep-alive sockets for the shared agent (default 64). */
   maxSockets?: number;
+}
+
+/**
+ * Process-wide keep-alive agents, one per `host:port` (and socket cap) —
+ * mirroring the per-target circuit-breaker registry. Clients are cheap and often
+ * built per call (an org-hierarchy walk builds one per hop), so a per-client
+ * agent threw away its pooled sockets every time and the socket cap bounded
+ * nothing. Sharing the agent pools connections to a downstream across every
+ * client that targets it.
+ */
+const sharedAgents = new Map<string, http.Agent>();
+
+function getSharedAgent(host: string, port: number, maxSockets: number): http.Agent {
+  const key = `${host}:${port}:${maxSockets}`;
+  let agent = sharedAgents.get(key);
+  if (!agent) {
+    agent = new http.Agent({ keepAlive: true, maxSockets });
+    sharedAgents.set(key, agent);
+  }
+  return agent;
+}
+
+/**
+ * Close every shared keep-alive agent (idle sockets are released; in-flight
+ * requests finish). For process shutdown and tests — a later request simply
+ * builds a fresh agent.
+ */
+export function destroySharedHttpAgents(): void {
+  for (const agent of sharedAgents.values()) agent.destroy();
+  sharedAgents.clear();
 }
 
 export class InternalHttpClient {
   private config: Required<ServiceConfig>;
   private agent: http.Agent;
-  /** True only when this client MINTED its agent (so destroy() may tear it down). */
-  private readonly ownsAgent: boolean;
 
   /**
    * Create a new HTTP client instance.
    *
    * @param config - Service configuration
-   * @param options - Optional connection-pool controls (shared agent / socket cap)
+   * @param options - Optional connection-pool controls (own agent / socket cap)
    */
   constructor(config: ServiceConfig, options?: HttpClientOptions) {
     this.config = {
@@ -120,24 +147,8 @@ export class InternalHttpClient {
       port: config.port,
       timeout: config.timeout ?? DEFAULT_TIMEOUT,
     };
-    if (options?.agent) {
-      // Borrowed, caller-owned agent — pooled across clients, not ours to destroy.
-      this.agent = options.agent;
-      this.ownsAgent = false;
-    } else {
-      // Own a keep-alive agent with a BOUNDED socket pool (no more Infinity).
-      this.agent = new http.Agent({ keepAlive: true, maxSockets: options?.maxSockets ?? DEFAULT_MAX_SOCKETS });
-      this.ownsAgent = true;
-    }
-  }
-
-  /**
-   * Release the keep-alive socket pool. Idempotent and safe to call on shutdown.
-   * A borrowed (caller-supplied) agent is left intact — only an agent this client
-   * created is destroyed, so tearing down one client can't sever another's pool.
-   */
-  destroy(): void {
-    if (this.ownsAgent) this.agent.destroy();
+    this.agent = options?.agent
+      ?? getSharedAgent(this.config.host, this.config.port, options?.maxSockets ?? DEFAULT_MAX_SOCKETS);
   }
 
   /**
@@ -403,11 +414,6 @@ export function createSafeClient(config: ServiceConfig, options?: HttpClientOpti
   const client = new InternalHttpClient(config, options);
 
   return {
-    /** Release the underlying keep-alive socket pool (no-op on a borrowed agent). */
-    destroy(): void {
-      client.destroy();
-    },
-
     /**
      * Safe GET request - returns null on error.
      */

@@ -2,16 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  sendSuccess, sendBadRequest, sendError, sendPaginatedNested, ErrorCode, hasScope,
-  requirePermission, requireFeature, parsePaginationParams,
+  sendSuccess, sendBadRequest, sendPaginatedNested, ErrorCode,
+  requirePermission, requireFeature, parsePaginationParams, validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute, requireOrgId, withTenantContext } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
-
-/** The capability scope the incident-webhook machine credential must carry. */
-const INGEST_SCOPE = 'reporting:ingest';
+import { requireIngestScope } from '../middleware/require-ingest-scope.js';
 
 /** Default Alertmanager label read for the deploy environment (configurable via `?environmentLabel=`). */
 const DEFAULT_ENV_LABEL = 'environment';
@@ -77,10 +75,10 @@ function isRealInstant(v: string | undefined): v is string {
   return typeof v === 'string' && !v.startsWith('0001-01-01') && Number.isFinite(Date.parse(v));
 }
 
-/** The synthetic-incident wiring test only needs an optional environment. */
+/** The synthetic-incident wiring test only needs an optional environment (a bodyless POST is fine). */
 const testSchema = z.object({
   environment: z.string().min(1).max(255).optional(),
-});
+}).default({});
 
 /** The per-route guards for the org-admin surfaces (mount is the bare machine requireAuth). */
 const adminGuards = [
@@ -94,26 +92,20 @@ export function createIncidentRoutes(): Router {
   const router = Router();
 
   // ── Machine write: generic incident upsert ──────────────────────────────
-  router.post('/', withRoute(async ({ req, res, orgId }) => {
-    // Machine endpoint — only a token carrying `reporting:ingest` may write an
-    // incident (the org-scoped credential the user's incident tool holds). The
-    // org is taken from the token identity below, never from the body, so a
-    // token can't file an incident against a foreign org.
-    if (!hasScope(req, INGEST_SCOPE)) {
-      return sendError(res, 403, `Token must carry the '${INGEST_SCOPE}' scope`, ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
+  // Machine endpoint — only a `reporting:ingest`-scoped token (the org-scoped
+  // credential the user's incident tool holds) may write an incident. The org is
+  // taken from the token identity below, never from the body, so a token can't
+  // file an incident against a foreign org.
+  router.post('/', requireIngestScope, withRoute(async ({ req, res, orgId }) => {
     if (!orgId) {
       return sendBadRequest(res, 'incident ingest requires an org-scoped token', ErrorCode.VALIDATION_ERROR);
     }
 
-    const parsed = incidentSchema.safeParse(req.body);
-    if (!parsed.success) {
-      const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
-      return sendBadRequest(res, msg, ErrorCode.VALIDATION_ERROR);
-    }
+    const parsed = validateBody(req, incidentSchema);
+    if (!parsed.ok) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
 
-    await reportingService.recordIncident(orgId, parsed.data);
-    sendSuccess(res, 200, { incidentId: parsed.data.incidentId, ok: true });
+    await reportingService.recordIncident(orgId, parsed.value);
+    sendSuccess(res, 200, { incidentId: parsed.value.incidentId, ok: true });
   }, { requireOrgId: false }));
 
   // ── Machine write: native Alertmanager adapter ──────────────────────────
@@ -122,25 +114,19 @@ export function createIncidentRoutes(): Router {
   // (`?environmentLabel=`, default `environment`), severity = the `severity`
   // label, openedAt = startsAt, resolvedAt = endsAt when the alert is resolved.
   // Same `reporting:ingest` auth + idempotent (org, incidentId) upsert as `/`.
-  router.post('/alertmanager', withRoute(async ({ req, res, orgId }) => {
-    if (!hasScope(req, INGEST_SCOPE)) {
-      return sendError(res, 403, `Token must carry the '${INGEST_SCOPE}' scope`, ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
+  router.post('/alertmanager', requireIngestScope, withRoute(async ({ req, res, orgId }) => {
     if (!orgId) {
       return sendBadRequest(res, 'incident ingest requires an org-scoped token', ErrorCode.VALIDATION_ERROR);
     }
 
-    const parsed = alertmanagerSchema.safeParse(req.body);
-    if (!parsed.success) {
-      const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
-      return sendBadRequest(res, msg, ErrorCode.VALIDATION_ERROR);
-    }
+    const parsed = validateBody(req, alertmanagerSchema);
+    if (!parsed.ok) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
 
     const envLabel = typeof req.query.environmentLabel === 'string' && req.query.environmentLabel.length > 0
       ? req.query.environmentLabel
       : DEFAULT_ENV_LABEL;
 
-    const { alerts, groupKey, status: groupStatus } = parsed.data;
+    const { alerts, groupKey, status: groupStatus } = parsed.value;
     // Cap the batch: an unbounded alert array is a per-alert-upsert amplification
     // vector. Reject (don't truncate) so the sender re-batches without losing any.
     if (alerts.length > MAX_ALERTMANAGER_ALERTS) {
@@ -195,12 +181,9 @@ export function createIncidentRoutes(): Router {
 
   // ── Org-admin: wiring-test dry-run (non-persisting correlation check) ────
   router.post('/test', ...adminGuards, withRoute(async ({ req, res, orgId }) => {
-    const parsed = testSchema.safeParse(req.body ?? {});
-    if (!parsed.success) {
-      const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
-      return sendBadRequest(res, msg, ErrorCode.VALIDATION_ERROR);
-    }
-    const environment = parsed.data.environment || 'production';
+    const parsed = validateBody(req, testSchema);
+    if (!parsed.ok) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
+    const environment = parsed.value.environment || 'production';
     const result = await reportingService.testIncidentCorrelation(orgId, environment);
     return sendSuccess(res, 200, { test: result });
   }));

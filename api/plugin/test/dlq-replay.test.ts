@@ -20,15 +20,19 @@ const dlqAdd = jest.fn();
 const queueAdd = jest.fn();
 const replayHelper = jest.fn();
 
-jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
+jest.unstable_mockModule('../src/queue/connections.js', () => ({
   // route uses getAllTierQueues; expose one entry for the single-tier
   // assertions to remain valid.
   getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', add: queueAdd, getJobs: jest.fn(), getJobCounts: jest.fn() } }],
   getDeadLetterQueue: () => ({ getJob: dlqGetJob, add: dlqAdd, getJobs: jest.fn(), getJobCounts: jest.fn() }),
+  findFailedJob: jest.fn(),
+}));
+jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
   purgeDlq: jest.fn(),
+}));
+jest.unstable_mockModule('../src/queue/requeue.js', () => ({
   // replayDlqJob now takes (jobId, quotaService); the test only cares about the id.
   replayDlqJob: (id: string, _qs: unknown) => replayHelper(id),
-  findFailedJob: jest.fn(),
   retryFailedJob: jest.fn(),
 }));
 

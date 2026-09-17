@@ -17,6 +17,13 @@ const findPublishedByIdMock = jest.fn<(id: string) => Promise<unknown>>(async ()
 const emitComplianceAuditMock = jest.fn();
 const recordMock = jest.fn();
 
+// api-core's REAL authorization gates and `authz.denied` sink, imported from
+// their module files (the package-specifier mock below does not intercept these
+// paths), so the route's inline gates and denial audit are exercised for real.
+const { requireFeature, requirePermission } = await import('@pipeline-builder/api-core/lib/middleware/auth.js');
+const { wireAuthzDenialAuditor } = await import('@pipeline-builder/api-core/lib/services/remote-audit-client.js');
+wireAuthzDenialAuditor('compliance', () => ({ record: recordMock }) as any);
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (p: any, k: string) => p[k],
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),
@@ -27,12 +34,12 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       return { ok: false, error: err.message ?? 'invalid' };
     }
   },
-  userHasPermission: () => false,
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendError: jest.fn((res: any, status: number, msg: string, code: string) => res.status(status).json({ message: msg, code })),
   sendSuccess: jest.fn((res: any, status: number, data: any) => res.status(status).json({ success: true, statusCode: status, data })),
   sendPaginatedNested: jest.fn(),
-  requirePermission: () => (_req: any, _res: any, next: any) => next(),
+  requirePermission,
+  requireFeature,
   isServicePrincipal: () => true,
 }));
 
@@ -59,9 +66,8 @@ jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: { findPublishedById: (...a: unknown[]) => findPublishedByIdMock(...(a as [string])) },
 }));
 
-jest.unstable_mockModule('../src/services/remote-audit-client.js', () => ({
+jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-  getAuditClient: () => ({ record: recordMock }),
 }));
 
 jest.unstable_mockModule('../src/services/subscription-service.js', () => ({
@@ -89,10 +95,10 @@ function makeRes() {
 
 const RULE_ID = '11111111-1111-4111-8111-111111111111';
 
-function call(user: any) {
+function call(user: any, originalUrl = '/compliance/subscriptions') {
   const handler = getPostRoot();
   const { res, status, json } = makeRes();
-  return handler({ __orgId: 'org-a', method: 'POST', body: { ruleId: RULE_ID }, user } as any, res)
+  return handler({ __orgId: 'org-a', method: 'POST', originalUrl, body: { ruleId: RULE_ID }, user } as any, res)
     .then(() => ({ status, json }));
 }
 
@@ -113,6 +119,22 @@ describe('POST / subscribe — entitlement gate', () => {
       expect.objectContaining({ action: 'authz.denied', details: expect.objectContaining({ required: 'feature:compliance_standard' }) }),
       'compliance',
     );
+  });
+
+  it('audits the denial through the shared api-core sink with the query string stripped', async () => {
+    findPublishedByIdMock.mockResolvedValue({ id: RULE_ID, tags: ['set:standard'] });
+    await call({ sub: 'u-1', email: 'u1@x.com', organizationId: 'org-a', features: [] }, '/compliance/subscriptions?token=s3cr3t');
+    expect(recordMock).toHaveBeenCalledTimes(1);
+    const [event, service] = recordMock.mock.calls[0] as [any, string];
+    expect(service).toBe('compliance');
+    expect(event).toEqual(expect.objectContaining({
+      action: 'authz.denied',
+      actorId: 'u-1',
+      orgId: 'org-a',
+      outcome: 'failure',
+      details: { method: 'POST', path: '/compliance/subscriptions', required: 'feature:compliance_standard' },
+    }));
+    expect(JSON.stringify(event)).not.toContain('s3cr3t');
   });
 
   it('allows a set:standard subscribe WITH compliance_standard', async () => {

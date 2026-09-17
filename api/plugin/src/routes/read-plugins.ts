@@ -89,7 +89,7 @@ export function createReadPluginRoutes(
     );
 
     ctx.log('COMPLETED', 'Listed plugins', { count: result.data.length, ...(result.total !== undefined && { total: result.total }) });
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
 
@@ -114,7 +114,7 @@ export function createReadPluginRoutes(
     const result = await pluginService.findFirst(filter, orgId, parentOrgId);
     if (!result) return sendEntityNotFound(res, 'Plugin');
     ctx.log('COMPLETED', 'Plugin lookup', { id: result.id, name: result.name });
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
     if (setCacheHeader) res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
     return sendSuccess(res, 200, { plugin: shapePlugin(result) });
   };
@@ -142,7 +142,7 @@ export function createReadPluginRoutes(
     const deleted = await pluginService.findDeleted(orgId, { limit, offset });
 
     ctx.log('COMPLETED', 'Listed deleted plugins', { count: deleted.length });
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     return sendSuccess(res, 200, { plugins: deleted.map(shapePlugin) });
   }));
@@ -161,7 +161,7 @@ export function createReadPluginRoutes(
     if (!result) return sendEntityNotFound(res, 'Plugin');
 
     ctx.log('COMPLETED', 'Retrieved plugin', { id: result.id, name: result.name });
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_DETAIL);
 

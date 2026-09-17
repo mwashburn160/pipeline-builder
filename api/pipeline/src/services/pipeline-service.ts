@@ -3,7 +3,7 @@
 
 import { ConflictError, ForbiddenError, entityEvents, createCacheService, toComplianceAttributes } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
-import { CrudService, buildPipelineConditions, getTenantContext, schema, withTenantTx, type PipelineFilter } from '@pipeline-builder/pipeline-data';
+import { CrudService, buildPipelineConditions, getTenantContext, schema, withTenantTx, withViewerContext, type PipelineFilter } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, sql, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -73,7 +73,11 @@ export class PipelineService extends CrudService<
     // find/findPaginated/findById calls silently lost the widening (and a read
     // passed parentOrgId flipped to sysadmin RLS bypass while the WHERE ignored
     // the widen). No-op for root orgs (claim absent).
-    return buildPipelineConditions(filter, orgId, parentOrgId);
+    //
+    // `withViewerContext` stamps the caller so the `private` rung matches the
+    // author's own rows. Without it the private branch fails closed for EVERY
+    // caller, and an author can't read, update or delete their own pipeline.
+    return buildPipelineConditions(withViewerContext(filter), orgId, parentOrgId);
   }
 
   protected getSortColumn(sortBy: string): AnyColumn | null {

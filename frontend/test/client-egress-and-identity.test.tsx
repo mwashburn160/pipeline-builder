@@ -29,6 +29,7 @@ jest.mock('@/lib/api', () => ({
 describe('error-reporter egress', () => {
   let sent: Array<{ url: string; init: RequestInit }>;
   let relayState: 'on' | 'off';
+  let relayStateReads: number;
   const realFetch = global.fetch;
 
   afterEach(() => {
@@ -39,12 +40,22 @@ describe('error-reporter egress', () => {
     jest.resetModules();
     sent = [];
     relayState = 'on';
+    relayStateReads = 0;
     // The reporter posts to the same-origin relay; capture each request and
     // answer with the relay's on/off header.
     global.fetch = jest.fn(async (url: string | URL | Request, init?: RequestInit) => {
       sent.push({ url: String(url), init: init ?? {} });
       // jsdom has no `Response`; the reporter only reads this one header.
-      return { status: 204, headers: { get: (h: string) => (h === 'X-Error-Reporting' ? relayState : null) } };
+      return {
+        status: 204,
+        headers: {
+          get: (h: string) => {
+            if (h !== 'X-Error-Reporting') return null;
+            relayStateReads += 1;
+            return relayState;
+          },
+        },
+      };
     }) as unknown as typeof fetch;
   });
 
@@ -99,8 +110,8 @@ describe('error-reporter egress', () => {
     const { reportClientError } = await import('../src/lib/error-reporter');
     reportClientError(new Error('first'), { source: 'react' });
     expect(sent).toHaveLength(1);
-    // Drain the microtask queue so the relay response (and its off-latch) settles.
-    await new Promise((r) => setTimeout(r, 0));
+    // Wait until the reporter has read the relay's answer (which latches "off").
+    await waitFor(() => expect(relayStateReads).toBe(1));
     reportClientError(new Error('second'), { source: 'react' });
     expect(sent).toHaveLength(1);
   });

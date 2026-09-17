@@ -13,15 +13,7 @@ import type { DoraMetrics } from '../src/lib/api/domains/reporting';
 import { fmtWindow, doraLevelBadge } from '../src/components/reports/DoraParts';
 import ReportsPage from '../pages/dashboard/reports';
 
-jest.mock('@/hooks/useAuthGuard', () => ({
-  __esModule: true,
-  useAuthGuard: () => ({
-    isReady: true,
-    isAuthenticated: true,
-    user: { id: 'u1', organizationId: 'org-1', role: 'member' },
-    can: () => false,
-  }),
-}));
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 
 // Toggle for the `advanced_reporting` entitlement — flipped per-test.
 let mockDoraEnabled = true;
@@ -42,12 +34,7 @@ jest.mock('next/router', () => ({
 
 jest.mock('next/dynamic', () => ({ __esModule: true, default: () => () => null }));
 
-jest.mock('@/components/ui/DashboardLayout', () => ({
-  __esModule: true,
-  DashboardLayout: ({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) => (
-    <div>{actions}{children}</div>
-  ),
-}));
+jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 
 const getDora = jest.fn();
 const getDoraTrend = jest.fn();

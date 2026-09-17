@@ -1,95 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, useEffect, useCallback, useRef, type DependencyList } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatError } from '@/lib/constants';
-
-/**
- * Return type for `useAsync()`.
- */
-export interface UseAsyncResult<T> {
-  /** Resolved data, or null while loading or on error. */
-  data: T | null;
-  /** Whether the async operation is in progress. */
-  loading: boolean;
-  /** Error message, or null when successful. */
-  error: string | null;
-  /** Manually re-run the async function. */
-  refresh: () => void;
-}
-
-/**
- * Auto-fetch data on mount (or when deps change).
- *
- * Handles loading state, error capture, and stale-request cancellation.
- * The async function runs immediately on mount and re-runs whenever
- * the dependency list changes.
- *
- * **useAsync vs {@link useFetch}:** reach for useAsync ONLY when the fetcher
- * uses the provided `AbortSignal` to truly abort the request; it returns
- * `error: string` + `refresh()` and needs a stable `fn`. For the common
- * fetch-on-mount/deps case (no memoized fn, `error: Error`, `refetch()`),
- * prefer {@link useFetch}.
- *
- * @param fn - Async function that returns the data. Receives an optional AbortSignal
- *   that is aborted when deps change or the component unmounts.
- * @param deps - React dependency list (re-fetches when deps change)
- * @returns Data, loading, error, and a refresh callback
- *
- * @example
- * ```tsx
- * const { data: pipelines, loading, error } = useAsync(
- *   () => api.listPipelines({ isActive: 'true' }),
- *   [],
- * );
- * ```
- */
-export function useAsync<T>(
-  fn: (signal?: AbortSignal) => Promise<T>,
-  deps: DependencyList = [],
-): UseAsyncResult<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
-  // Fold the caller's deps into ONE stable dep.
-  //
-  // The effect previously SPREAD them (`[...deps, refreshKey]`), so its length
-  // tracked `deps.length`. Every current caller passes a fixed-length list, but
-  // a conditional dep (`[a, b, cond && c].filter(Boolean)`) would change the
-  // array size between renders and React throws outright. Serializing keeps the
-  // dep array a constant size regardless of what the caller passes.
-  const depsKey = JSON.stringify(deps, (_k, v) => (typeof v === 'function' ? undefined : v));
-
-  const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    setError(null);
-
-    fn(controller.signal)
-      .then((result) => {
-        if (!controller.signal.aborted) {
-          setData(result);
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (!controller.signal.aborted) {
-          setError(formatError(err));
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      controller.abort();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- caller deps are folded into depsKey; static analysis cannot track them
-  }, [depsKey, refreshKey]);
-
-  return { data, loading, error, refresh };
-}
 
 /**
  * Return type for `useAsyncCallback()`.
@@ -108,8 +21,8 @@ export interface UseAsyncCallbackResult<T, A extends unknown[]> {
 /**
  * Wrap an async action with loading/error state management.
  *
- * Unlike `useAsync()`, this does NOT auto-execute. Call `execute()`
- * to trigger the action (e.g., on button click, form submit).
+ * Does NOT auto-execute — call `execute()` to trigger the action (e.g., on
+ * button click, form submit). For fetch-on-mount/deps-change use `useFetch`.
  *
  * @param fn - Async function to wrap
  * @returns Execute callback, loading, error, and clearError

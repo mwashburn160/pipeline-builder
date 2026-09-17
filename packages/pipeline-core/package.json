@@ -47,8 +47,7 @@
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/pipeline-data": "workspace:*",
     "axios": "1.19.0",
-    "jsonwebtoken": "9.0.3",
-    "uuid": "14.0.1"
+    "jsonwebtoken": "9.0.3"
   },
   "keywords": [
     "ci-cd",
@@ -104,7 +103,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "4.1.4",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },

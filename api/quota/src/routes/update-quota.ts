@@ -1,25 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import {
-  requireAuth,
-  isSystemAdmin,
-  isServicePrincipal,
-  requireStepUp,
-  NotFoundError,
-  sendSuccess,
-  sendError,
-  sendBadRequest,
-  sendQuotaExceeded,
-  ErrorCode,
-  getParam,
-  validateBody,
-} from '@pipeline-builder/api-core';
+import { requireAuth, isSystemAdmin, isServicePrincipal, requireStepUp, NotFoundError, sendSuccess, sendError, sendBadRequest, sendQuotaExceeded, ErrorCode, getParam, validateBody, recordAuthzDenial } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import { authorizeOrg, INTERNAL_AUTH_OPTS } from '../middleware/authorize-org.js';
+import { authorizeOrg } from '../middleware/authorize-org.js';
 import { emitQuotaAudit } from '../services/audit.js';
 import { QuotaService, quotaService as defaultQuotaService, OrgNotFoundError } from '../services/quota-service.js';
 import { UpdateQuotaSchema, IncrementQuotaSchema, DecrementQuotaSchema, ResetQuotaSchema } from '../validation/schemas.js';
@@ -148,13 +135,14 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
   // not be exposed directly to end users.
 
   router.post( '/:orgId/increment',
-    requireAuth(INTERNAL_AUTH_OPTS) as RequestHandler,
+    requireAuth as RequestHandler,
     authorizeOrg() as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
       // Internal service-to-service only: authorizeOrg() admits any same-org
       // member, which would let a member inflate their own usage counters and
       // defeat caps. Require a signed service principal or a system admin.
       if (!isServicePrincipal(req) && !isSystemAdmin(req)) {
+        recordAuthzDenial(req, 'service-principal or system-admin');
         return sendError(res, 403, 'This endpoint is restricted to internal service callers.', ErrorCode.INSUFFICIENT_PERMISSIONS);
       }
 
@@ -203,13 +191,14 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
   // capacity from the new period.
 
   router.post( '/:orgId/decrement',
-    requireAuth(INTERNAL_AUTH_OPTS) as RequestHandler,
+    requireAuth as RequestHandler,
     authorizeOrg() as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
       // Internal service-to-service only: authorizeOrg() admits any same-org
       // member, which would let a member roll back their own usage counters and
       // defeat caps. Require a signed service principal or a system admin.
       if (!isServicePrincipal(req) && !isSystemAdmin(req)) {
+        recordAuthzDenial(req, 'service-principal or system-admin');
         return sendError(res, 403, 'This endpoint is restricted to internal service callers.', ErrorCode.INSUFFICIENT_PERMISSIONS);
       }
 

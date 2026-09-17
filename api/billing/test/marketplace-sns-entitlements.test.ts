@@ -104,7 +104,7 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: { findOne: (...a: unknown[]) => mockSubscriptionFindOne(...a) },
 }));
 
-const mockClaimWebhookEvent = jest.fn<(...a: unknown[]) => Promise<boolean>>();
+const mockClaimWebhookEvent = jest.fn<(...a: unknown[]) => Promise<string | null>>();
 const mockMarkWebhookEventDone = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockReleaseWebhookEvent = jest.fn<(...a: unknown[]) => Promise<void>>();
 jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({
@@ -230,7 +230,7 @@ beforeEach(() => {
   mockGetPaymentProvider.mockReturnValue(new FakeAWSMarketplaceProvider());
   mockVerifySNSSignature.mockResolvedValue(true);
   mockConfirmSNSSubscription.mockResolvedValue(undefined);
-  mockClaimWebhookEvent.mockResolvedValue(true); // first delivery by default
+  mockClaimWebhookEvent.mockResolvedValue('claim-tok'); // first delivery by default (claim token)
   mockMarkWebhookEventDone.mockResolvedValue(undefined);
   mockReleaseWebhookEvent.mockResolvedValue(undefined);
   mockSubscriptionFindOne.mockReturnValue(query(subDoc()));
@@ -320,7 +320,7 @@ describe('POST /marketplace/sns — idempotency', () => {
   const handler = getHandler('post', '/marketplace/sns');
 
   it('short-circuits a duplicate delivery with 200 and skips all side-effects', async () => {
-    mockClaimWebhookEvent.mockResolvedValue(false); // already processed
+    mockClaimWebhookEvent.mockResolvedValue(null); // already processed
     const res = mockRes();
     await handler({ body: snsEnvelope({ Type: 'Notification', Message: notification('unsubscribe-success') }) }, res);
 
@@ -354,7 +354,7 @@ describe('POST /marketplace/sns — idempotency', () => {
     // The claim is released so SNS's retry re-processes rather than being
     // dropped as a duplicate — and the done-marker is NOT written on failure
     // (a mid-process crash instead relies on the in-progress lease expiring).
-    expect(mockReleaseWebhookEvent).toHaveBeenCalledWith('sns', 'msg-1');
+    expect(mockReleaseWebhookEvent).toHaveBeenCalledWith('sns', 'msg-1', 'claim-tok');
     expect(mockMarkWebhookEventDone).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(500);
   });

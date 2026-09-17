@@ -22,7 +22,6 @@ export {
   IMPERSONATION_REQUEST_STATUSES,
   IMPERSONATION_APPROVAL_REASONS,
   IMPERSONATION_APPROVER_MODES,
-  IMPERSONATION_REQUEST_TTL_MS,
   IMPERSONATION_REASON_MAX,
 } from './impersonation-request.js';
 export { default as AuditEvent } from './audit-event.js';

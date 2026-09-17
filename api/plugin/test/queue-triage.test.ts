@@ -15,13 +15,17 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const queueGetJobs = jest.fn();
 const dlqGetJobs = jest.fn();
 
-jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
+jest.unstable_mockModule('../src/queue/connections.js', () => ({
   // route uses getAllTierQueues; one entry is enough for the existing assertions.
   getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', getJobs: queueGetJobs, getJobCounts: jest.fn() } }],
   getDeadLetterQueue: () => ({ getJobs: dlqGetJobs, getJobCounts: jest.fn() }),
-  purgeDlq: jest.fn(),
-  replayDlqJob: jest.fn(),
   findFailedJob: jest.fn(),
+}));
+jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
+  purgeDlq: jest.fn(),
+}));
+jest.unstable_mockModule('../src/queue/requeue.js', () => ({
+  replayDlqJob: jest.fn(),
   retryFailedJob: jest.fn(),
 }));
 

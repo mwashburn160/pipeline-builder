@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { ConflictError, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildComplianceRuleConditions, buildPublishedRuleCatalogConditions, runWithTenantContext, schema, withTenantTx, type ComplianceRuleFilter, type RuleTarget, type RuleScope } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, desc, inArray, isNull } from 'drizzle-orm';
@@ -76,11 +76,9 @@ export type ComplianceRuleUpdate = Partial<Omit<ComplianceRule, 'id' | 'createdA
  * Build a `ComplianceRuleInsert` copying the evaluable body of a source rule
  * (priority/target/severity/tags/scope/field/operator/value/conditions/…), with
  * `overrides` for the per-clone bits (orgId, name, policyId, forkedFromRuleId,
- * createdBy/updatedBy). Shared by `cloneRule` (fork a published rule) and
- * `cloneTemplate` (materialize a policy template) — was hand-built in both, the
- * policy copy via an `as unknown as` double-cast this removes.
+ * createdBy/updatedBy). Used by `cloneRule` (copy a published rule into an org).
  */
-export function ruleInsertFromSource(source: ComplianceRule, overrides: Partial<ComplianceRuleInsert>): ComplianceRuleInsert {
+function ruleInsertFromSource(source: ComplianceRule, overrides: Partial<ComplianceRuleInsert>): ComplianceRuleInsert {
   return {
     name: source.name,
     description: source.description ?? undefined,
@@ -97,6 +95,25 @@ export function ruleInsertFromSource(source: ComplianceRule, overrides: Partial<
     conditionMode: source.conditionMode ?? undefined,
     ...overrides,
   } as ComplianceRuleInsert;
+}
+
+/** Timestamp columns of a rule row. A pinned snapshot is stored as jsonb, so
+ *  these come back as ISO strings and must be revived before evaluation. */
+const RULE_TIMESTAMP_FIELDS = ['effectiveFrom', 'effectiveUntil', 'createdAt', 'updatedAt', 'deletedAt'] as const;
+
+/**
+ * Revive a subscription's `pinnedVersion` jsonb snapshot into rule-row shape.
+ * JSON round-trips `Date` columns to strings, and the rule engine compares
+ * `effectiveFrom`/`effectiveUntil` against a `Date` — a string compares as NaN
+ * (always false), so a pinned rule's effective window was silently ignored.
+ */
+function hydratePinnedSnapshot(pinned: Record<string, unknown>): Partial<ComplianceRule> {
+  const out: Record<string, unknown> = { ...pinned };
+  for (const field of RULE_TIMESTAMP_FIELDS) {
+    const v = out[field];
+    if (typeof v === 'string') out[field] = new Date(v);
+  }
+  return out as Partial<ComplianceRule>;
 }
 
 export class ComplianceRuleService extends CrudService<
@@ -158,8 +175,13 @@ export class ComplianceRuleService extends CrudService<
     // pick up the change immediately, not at TTL.
     const cacheKey = `${orgId}:${target}:${parentOrgId ?? ''}`;
     return rulesCache.getOrSet(cacheKey, async () => {
-      // Single query: org's own rules UNION subscribed published rules (via LEFT JOIN)
-      const orgRules = await this.find({ target, isActive: true } as Partial<ComplianceRuleFilter>, orgId);
+      // The org's OWN rules only. `scope: 'org'` is load-bearing: the shared
+      // query builder's org predicate is `orgId = <org> OR (orgId = system AND
+      // scope = 'published')` (catalog visibility for reads), so without it every
+      // published system rule would be enforced for every org — bypassing
+      // subscription, activation and the curated-set paywall. Published rules
+      // reach enforcement ONLY through the subscription join below.
+      const orgRules = await this.find({ target, isActive: true, scope: 'org' } as Partial<ComplianceRuleFilter>, orgId);
 
       // Fetch subscribed published rules + the subscription row itself so we
       // can honor a `pinnedVersion` snapshot when present.
@@ -213,8 +235,8 @@ export class ComplianceRuleService extends CrudService<
       }
       for (const { rule, subscription } of publishedRows) {
         if (seenIds.has(rule.id)) continue;
-        const pinned = (subscription as { pinnedVersion?: unknown }).pinnedVersion as Partial<ComplianceRule> | null | undefined;
-        const effective = pinned ? { ...rule, ...pinned } as ComplianceRule : (rule as ComplianceRule);
+        const pinned = (subscription as { pinnedVersion?: unknown }).pinnedVersion as Record<string, unknown> | null | undefined;
+        const effective = pinned ? { ...rule, ...hydratePinnedSnapshot(pinned) } as ComplianceRule : (rule as ComplianceRule);
         merged.push(effective);
         seenIds.add(rule.id);
       }
@@ -434,7 +456,11 @@ export class ComplianceRuleService extends CrudService<
   /**
    * Fetch the caller's active plugins or pipelines for impact-preview
    * evaluation. Each row is normalized to `{ id, name, raw }` so the rule
-   * engine can run against the raw record without target-specific code paths.
+   * engine can run against the record without target-specific code paths.
+   * `raw` is projected through api-core's `toComplianceAttributes` — the same
+   * secret-VALUE redaction (env/buildArgs maps, token/password scalars) the live
+   * entity-event path applies — so a preview evaluates exactly what enforcement
+   * evaluates and plaintext secrets never enter the evaluation/sample path.
    */
   async findOrgEntitiesForTarget(
     target: 'plugin' | 'pipeline',
@@ -447,14 +473,14 @@ export class ComplianceRuleService extends CrudService<
         .from(schema.plugin)
         .where(and(eq(schema.plugin.isActive, true), eq(schema.plugin.orgId, orgId)))
         .limit(limit));
-      return rows.map((r: typeof schema.plugin.$inferSelect) => ({ id: r.id, name: r.name, raw: r as unknown as Record<string, unknown> }));
+      return rows.map((r: typeof schema.plugin.$inferSelect) => ({ id: r.id, name: r.name, raw: toComplianceAttributes(r) as Record<string, unknown> }));
     }
     const rows = await withTenantTx(async (tx) => tx
       .select()
       .from(schema.pipeline)
       .where(and(eq(schema.pipeline.isActive, true), eq(schema.pipeline.orgId, orgId)))
       .limit(limit));
-    return rows.map((r: typeof schema.pipeline.$inferSelect) => ({ id: r.id, name: r.pipelineName, raw: r as unknown as Record<string, unknown> }));
+    return rows.map((r: typeof schema.pipeline.$inferSelect) => ({ id: r.id, name: r.pipelineName, raw: toComplianceAttributes(r) as Record<string, unknown> }));
   }
 
   /**
@@ -491,7 +517,14 @@ export class ComplianceRuleService extends CrudService<
       const setTagError = invalidSetTagMessage((data as { tags?: unknown }).tags);
       if (setTagError) throw new InvalidSetTagError(setTagError);
     }
-    const created = await super.create(data, userId);
+    // Never overwrites: a live same-name rule, or a deleted one (which comes back
+    // through restore, behind step-up), is a 409 — see CrudService.create.
+    const created = await super.create(data, userId).catch((err: unknown) => {
+      if (err instanceof ConflictError) {
+        throw new ConflictError(`A compliance rule named "${data.name}" already exists. If it was deleted, restore it instead.`);
+      }
+      throw err;
+    });
     this.recordHistory(created.id, created.orgId, 'created', null, userId).catch(warnNonFatal);
     this.invalidateRulesCache(created.orgId).catch(warnNonFatal);
     this.triggerRuleChangeScan(created.orgId, created.target, userId).catch(warnNonFatal);

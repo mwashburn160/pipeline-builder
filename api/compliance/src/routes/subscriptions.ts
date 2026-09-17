@@ -11,16 +11,16 @@ import {
   getParam,
   parsePaginationParams,
   validateBody,
+  requireFeature,
   requirePermission,
-  userHasPermission,
   requireServicePrincipal,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { Router, type Request, type Response } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { evaluateRules } from '../engine/rule-engine.js';
+import { emitComplianceAudit } from '../services/audit.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
-import { emitComplianceAudit, getAuditClient } from '../services/remote-audit-client.js';
 import {
   subscriptionService,
   CS_RULE_NOT_FOUND,
@@ -54,36 +54,26 @@ function handleSubError(res: Response, err: unknown): boolean {
   return true;
 }
 
-/**
- * Best-effort `authz.denied` audit for the two INLINE `compliance:write`
- * deactivate denials (PATCH /:ruleId, POST /bulk). Gate-based denials
- * (`requirePermission`) already record this via the shared middleware; these
- * inline branches send their own 403, so without this they'd be invisible to a
- * reviewer. Fire-and-forget — `record` never throws and is not awaited — so it
- * can never delay or fail the 403 it precedes.
- */
-function auditComplianceWriteDenied(req: Request): void {
-  getAuditClient().record({
-    action: 'authz.denied',
-    actorId: req.user?.sub ?? 'system',
-    actorEmail: req.user?.email,
-    orgId: req.user?.organizationId,
-    outcome: 'failure',
-    details: { method: req.method, path: req.originalUrl ?? req.url, required: 'compliance:write' },
-  }, 'compliance');
-}
+/** Compliance-write gate, built once. */
+const requireComplianceWrite = requirePermission('compliance:write');
 
 /**
- * Whether the caller's JWT carries a plan feature. Mirrors api-core's
- * `requireFeature` middleware (sysadmins bypass; otherwise the `features[]`
- * claim must contain the flag) — inlined here because the gate is data-driven
- * (which feature is required depends on the target rule's `set:` tag, only known
- * after the rule is looked up), so a static route-level `requireFeature` mount
- * can't express it.
+ * Run an api-core authorization gate (`requirePermission` / `requireFeature`)
+ * INLINE, for the data-driven checks whose requirement is only known inside the
+ * handler (deactivate vs activate; a rule's `set:` tag). Returns true when the
+ * gate passed. On denial the gate itself has already sent the canonical 403 and
+ * recorded the shared `authz.denied` audit (query string stripped) — the caller
+ * must just stop. Both gates are synchronous (call `next` or send), so the
+ * result is known on return.
  */
-function callerHasFeature(req: Request, feature: string): boolean {
-  if (req.user?.isSuperAdmin === true) return true;
-  return req.user?.features?.includes(feature) === true;
+function passesGate(
+  gate: (req: Request, res: Response, next: NextFunction) => void,
+  req: Request,
+  res: Response,
+): boolean {
+  let passed = false;
+  gate(req, res, () => { passed = true; });
+  return passed;
 }
 
 /**
@@ -100,42 +90,22 @@ function requiredFeatureForTags(tags: unknown): 'compliance_standard' | 'complia
   return null;
 }
 
-/** Best-effort `authz.denied` audit for a curated-set subscribe blocked by a
- *  missing plan feature — the entitlement counterpart of the write-denied audit
- *  above. Fire-and-forget. */
-function auditFeatureDenied(req: Request, orgId: string, ruleId: string, feature: string): void {
-  getAuditClient().record({
-    action: 'authz.denied',
-    actorId: req.user?.sub ?? 'system',
-    actorEmail: req.user?.email,
-    orgId,
-    outcome: 'failure',
-    details: { method: req.method, path: req.originalUrl ?? req.url, required: `feature:${feature}`, ruleId },
-  }, 'compliance');
-}
-
 /**
  * The curated-set entitlement paywall applied identically by every enforcement-
  * path route (subscribe / activate / bulk-activate / clone / impact-preview):
- * when `requiredFeature` is set and the caller's JWT lacks it, record the denial
- * audit, send the canonical 403, and return `true` (caller must stop). Returns
- * `false` for a baseline/un-tagged rule (`requiredFeature === null`) or an
- * entitled caller. `requiredFeature` is passed in (not re-derived) because the
- * subscribe route reuses it after the gate to tag its audit event.
+ * when `requiredFeature` is set, run api-core's `requireFeature` gate (sysadmin
+ * bypass; 403 + `authz.denied` audit on denial) and return `true` when it denied
+ * (caller must stop). Returns `false` for a baseline/un-tagged rule
+ * (`requiredFeature === null`) or an entitled caller. `requiredFeature` is passed
+ * in (not re-derived) because the subscribe route reuses it after the gate to
+ * tag its audit event.
  */
 function denyIfUnentitled(
   req: Request,
   res: Response,
-  orgId: string,
-  ruleId: string,
   requiredFeature: 'compliance_standard' | 'compliance_advanced' | null,
 ): boolean {
-  if (requiredFeature && !callerHasFeature(req, requiredFeature)) {
-    auditFeatureDenied(req, orgId, ruleId, requiredFeature);
-    sendError(res, 403, `This feature requires a higher plan (${requiredFeature})`, ErrorCode.INSUFFICIENT_PERMISSIONS);
-    return true;
-  }
-  return false;
+  return requiredFeature !== null && !passesGate(requireFeature(requiredFeature), req, res);
 }
 
 const SubscribeSchema = z.object({
@@ -244,10 +214,7 @@ export function createSubscriptionRoutes(): Router {
     // that's governance, not opt-in — so it requires `compliance:write` (same
     // gate as rule authoring / exemption approval / clone). See the mount in
     // index.ts: subscriptions run at member level, so this is enforced inline.
-    if (!validation.value.isActive && !userHasPermission(req, 'compliance:write')) {
-      auditComplianceWriteDenied(req);
-      return sendError(res, 403, 'Missing required permission: compliance:write', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
+    if (!validation.value.isActive && !passesGate(requireComplianceWrite, req, res)) return;
 
     // Entitlement gate: ACTIVATING a curated-library rule (tagged `set:*`) is a
     // path to enforcement — same paywall as POST /subscriptions. Deactivating
@@ -255,7 +222,7 @@ export function createSubscriptionRoutes(): Router {
     // isn't a published set-tagged rule (miss / baseline) falls through ungated.
     if (validation.value.isActive) {
       const rule = await complianceRuleService.findPublishedById(ruleId);
-      if (denyIfUnentitled(req, res, orgId, ruleId, requiredFeatureForTags(rule?.tags))) return;
+      if (denyIfUnentitled(req, res, requiredFeatureForTags(rule?.tags))) return;
     }
 
     try {
@@ -296,7 +263,7 @@ export function createSubscriptionRoutes(): Router {
     // `subscribe`, which returns the canonical CS_RULE_NOT_FOUND response.
     const publishedRule = await complianceRuleService.findPublishedById(ruleId);
     const requiredFeature = requiredFeatureForTags(publishedRule?.tags);
-    if (denyIfUnentitled(req, res, orgId, ruleId, requiredFeature)) return;
+    if (denyIfUnentitled(req, res, requiredFeature)) return;
 
     try {
       const subscription = await subscriptionService.subscribe(orgId, ruleId, userId);
@@ -334,10 +301,7 @@ export function createSubscriptionRoutes(): Router {
     // Bulk deactivate carries the same governance weight as the single-rule
     // PATCH above — reject the whole batch unless the caller holds
     // `compliance:write`. Bulk activate stays member-level (opt-in).
-    if (!isActive && !userHasPermission(req, 'compliance:write')) {
-      auditComplianceWriteDenied(req);
-      return sendError(res, 403, 'Missing required permission: compliance:write', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
+    if (!isActive && !passesGate(requireComplianceWrite, req, res)) return;
 
     // Entitlement gate on bulk ACTIVATE: reject the whole batch if it would
     // activate ANY curated-library rule (`set:*`) the caller isn't entitled to —
@@ -347,7 +311,7 @@ export function createSubscriptionRoutes(): Router {
     if (isActive) {
       const rules = await complianceRuleService.findManyByIds(ruleIds);
       for (const rule of rules) {
-        if (denyIfUnentitled(req, res, orgId, rule.id, requiredFeatureForTags(rule.tags))) return;
+        if (denyIfUnentitled(req, res, requiredFeatureForTags(rule.tags))) return;
       }
     }
 
@@ -380,7 +344,7 @@ export function createSubscriptionRoutes(): Router {
   // Cloning authors a new org-scoped rule (same write as POST /compliance/rules),
   // so it requires `compliance:write`. Subscribe/toggle/delete below stay at
   // member level — those are per-org opt-in, not rule authoring.
-  router.post('/clone', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/clone', requireComplianceWrite, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, SubscribeSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -391,7 +355,7 @@ export function createSubscriptionRoutes(): Router {
     // subscribing. Gate on the SOURCE published rule's `set:` tag (compliance:
     // write above authorizes AUTHORING; it does not grant the curated content).
     const source = await complianceRuleService.findPublishedById(validation.value.ruleId);
-    if (denyIfUnentitled(req, res, orgId, validation.value.ruleId, requiredFeatureForTags(source?.tags))) return;
+    if (denyIfUnentitled(req, res, requiredFeatureForTags(source?.tags))) return;
 
     try {
       const rule = await complianceRuleService.cloneRule(validation.value.ruleId, orgId, userId);
@@ -438,7 +402,7 @@ export function createSubscriptionRoutes(): Router {
     // entities is a preview of the paid content — gate it the same as subscribe
     // so a non-entitled org can't dry-run the paywalled ruleset. Baseline/
     // un-tagged published rules stay open.
-    if (denyIfUnentitled(req, res, orgId, rule.id, requiredFeatureForTags(rule.tags))) return;
+    if (denyIfUnentitled(req, res, requiredFeatureForTags(rule.tags))) return;
 
     const target = rule.target as 'plugin' | 'pipeline';
     const SAMPLE_CAP = 10;
@@ -527,8 +491,12 @@ export function createSubscriptionRoutes(): Router {
     }
   }));
 
-  // DELETE /:ruleId — unsubscribe from a published rule
-  router.delete('/:ruleId', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  // DELETE /:ruleId — unsubscribe from a published rule. Requires
+  // `compliance:write`: removing a subscription drops the rule from enforcement
+  // exactly like DEACTIVATING it (PATCH isActive:false / bulk deactivate, both
+  // governance-gated), so leaving unsubscribe at member level bypassed that
+  // gate. Same route-level gate as POST /clone.
+  router.delete('/:ruleId', requireComplianceWrite, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const ruleId = getParam(req.params, 'ruleId');
     if (!ruleId) {
       return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);

@@ -4,6 +4,7 @@
 // Must run before any z.* schema creation — Zod 4 requires eager extension
 import '../openapi/extend-zod.js';
 import { z } from 'zod';
+import { CRITICALITY_LEVELS, LIFECYCLE_STAGES, OWNER_TYPES } from '../types/catalog-metadata.js';
 import { VISIBILITIES } from '../types/visibility.js';
 import { envInt } from '../utils/env.js';
 
@@ -15,9 +16,9 @@ export const VisibilitySchema = z.enum(VISIBILITIES);
  * create/update bodies (and the filter schema below). Mirror the shared types
  * in `types/catalog-metadata.ts`.
  */
-export const LifecycleSchema = z.enum(['experimental', 'production', 'deprecated']);
-export const CriticalitySchema = z.enum(['low', 'medium', 'high', 'critical']);
-export const OwnerTypeSchema = z.enum(['user', 'team']);
+export const LifecycleSchema = z.enum(LIFECYCLE_STAGES);
+export const CriticalitySchema = z.enum(CRITICALITY_LEVELS);
+export const OwnerTypeSchema = z.enum(OWNER_TYPES);
 
 export const EntityLinkSchema = z.object({
   title: z.string().min(1).max(120),

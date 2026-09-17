@@ -10,15 +10,14 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
 import { FeatureDisabledCard } from '@/components/ui/FeatureDisabledCard';
 import { Button } from '@/components/ui/Button';
-import { DataTable, type Column } from '@/components/ui/DataTable';
 import ReportTabs from '@/components/reports/ReportTabs';
 import { LoadingPage } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
-import { Receipt, CreditCard } from 'lucide-react';
+import { CreditCard } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
-import type { Plan, Subscription, Bundle, ComboDiscount, AddonResult, BillingInterval, UsageRollup } from '@/types';
-import type { MarketplaceEntitlements, MarketplaceEntitlement } from '@/lib/api/domains/billing';
-import api, { ApiError } from '@/lib/api';
+import type { Plan, Subscription, Bundle, ComboDiscount, BillingInterval, UsageRollup } from '@/types';
+import api from '@/lib/api';
+import { useUrlTab } from '@/hooks/useUrlTab';
 import { SubscriptionStatusCard } from '@/components/billing/SubscriptionStatusCard';
 import { UsageCard } from '@/components/billing/UsageCard';
 import { BillingDashboard } from '@/components/billing/BillingDashboard';
@@ -30,7 +29,9 @@ import { DiscountRedeem } from '@/components/billing/DiscountRedeem';
 import { AddonPreviewModal } from '@/components/billing/AddonPreviewModal';
 import { PlanChangeModal } from '@/components/billing/PlanChangeModal';
 import { BillingHistory } from '@/components/billing/BillingHistory';
-import { formatDate } from '@/lib/format';
+import { MarketplaceEntitlementsPanel } from '@/components/billing/MarketplaceEntitlementsPanel';
+import { useAddonChange } from '@/components/billing/useAddonChange';
+import { useCheckoutReturn } from '@/components/billing/useCheckoutReturn';
 
 // Plan hierarchy (low → high). Used to detect a downgrade so the confirm dialog
 // can warn that caps/features may drop.
@@ -51,7 +52,7 @@ type BillingTab = (typeof BILLING_TABS)[number]['id'];
  *  plan-selection detour (including the hosted-Checkout redirect). */
 const ADDON_INTENT_KEY = 'pb.billing.addonIntent';
 
-const BILLING_TAB_IDS = BILLING_TABS.map((t) => t.id) as readonly string[];
+const BILLING_TAB_IDS: readonly BillingTab[] = BILLING_TABS.map((t) => t.id);
 
 /** True only when BOTH plans are ranked and the target ranks below the current.
  *  An unknown plan id (custom/enterprise → rank -1) is never treated as a
@@ -109,29 +110,24 @@ export default function BillingPage() {
   const usagePeriodRef = useRef(usagePeriod);
   usagePeriodRef.current = usagePeriod;
   const [loading, setLoading] = useState(true);
+  // Set after the first successful load. Later reloads (after a plan/add-on
+  // change) refresh in place instead of swapping the page for a spinner, which
+  // would unmount open dialogs and reset the tab's scroll.
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [billingInterval, setBillingInterval] = useState<BillingInterval>('monthly');
   const [billingEvents, setBillingEvents] = useState<Array<{ id: string; type: string; orgId: string; createdAt: string; detail?: Record<string, unknown> }>>([]);
   const [showEvents, setShowEvents] = useState(false);
 
-  // Active tab, hydrated from `?tab=` and kept in sync (shallow) so tab state is
-  // shareable/back-forward-friendly — same pattern as the Reports page.
-  const [activeTab, setActiveTab] = useState<BillingTab>('overview');
+  // Active tab lives in `?tab=` (shareable, back/forward-friendly). Tab changes
+  // keep the rest of the query, so a `?highlight=` deep-link survives them.
+  const [activeTab, selectTab] = useUrlTab<BillingTab>('tab', BILLING_TAB_IDS, 'overview');
+  const changeTab = (id: string) => selectTab(id as BillingTab);
+  // A `?highlight=<feature>` upsell link with no explicit tab targets an add-on,
+  // which lives on the Add-ons tab — land there.
   useEffect(() => {
-    const raw = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
-    if (raw && BILLING_TAB_IDS.includes(raw)) {
-      if (raw !== activeTab) setActiveTab(raw as BillingTab);
-      return;
-    }
-    // A `?highlight=<feature>` upsell link (no explicit tab) targets an add-on,
-    // which lives on the Add-ons tab — land there.
-    if (router.query.highlight && activeTab !== 'addons') setActiveTab('addons');
-  }, [router.query.tab, router.query.highlight]); // eslint-disable-line react-hooks/exhaustive-deps
-  const changeTab = (id: string) => {
-    setActiveTab(id as BillingTab);
-    // A DORA upsell deep-link (`?highlight=`) lands on the Add-ons tab; preserve it.
-    void router.replace({ query: { ...router.query, tab: id } }, undefined, { shallow: true });
-  };
+    if (router.isReady && !router.query.tab && router.query.highlight) selectTab('addons');
+  }, [router.isReady, router.query.tab, router.query.highlight]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Deep-link: `?highlight=<feature>` (e.g. from the Reports DORA upsell CTA)
   // emphasizes + scrolls to the add-on bundle that grants that feature.
@@ -167,7 +163,7 @@ export default function BillingPage() {
     try { id = id ?? sessionStorage.getItem(ADDON_INTENT_KEY); } catch { /* not fatal */ }
     if (!id) return;
     clearAddonIntent();
-    setActiveTab('addons');
+    // useUrlTab follows the URL to the Add-ons tab.
     void router.replace({ query: { ...router.query, tab: 'addons', highlight: id } }, undefined, { shallow: true });
   };
 
@@ -211,6 +207,7 @@ export default function BillingPage() {
       if (usageRes?.success && usageRes.data) {
         setUsage(usageRes.data);
       }
+      setHasLoaded(true);
     } catch (err) {
       setLoadError(formatError(err, 'Failed to load billing data'));
     } finally {
@@ -246,37 +243,14 @@ export default function BillingPage() {
     // `checkout` param reads as undefined and this fetch would fire anyway,
     // racing the polling effect it exists to defer to.
     if (user && router.isReady && router.query.checkout !== 'success') fetchData();
-  }, [user, router.isReady, fetchData]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user?.id, user?.organizationId, router.isReady, fetchData]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Returning from hosted Stripe Checkout: acknowledge the outcome. The
-  // subscription is provisioned ASYNCHRONOUSLY by the webhook, so poll a few times
-  // (with backoff) until it appears rather than a single immediate refetch that
-  // usually races the webhook and shows the user as un-subscribed. Strip the query
-  // param so a reload won't re-toast.
-  useEffect(() => {
-    const outcome = Array.isArray(router.query.checkout) ? router.query.checkout[0] : router.query.checkout;
-    if (!outcome) return;
-    let cancelled = false;
-    if (outcome === 'success') {
-      toast.success('Checkout complete — activating your subscription…');
-      void (async () => {
-        for (let i = 0; i < 6 && !cancelled; i++) {
-          const res = await api.getSubscription().catch(() => null);
-          if (res?.success && res.data?.subscription) break;
-          await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
-        }
-        if (!cancelled) {
-          await fetchData();
-          finishAddonIntent();
-        }
-      })();
-    } else if (outcome === 'cancelled') {
-      toast.info('Checkout cancelled — no changes were made.');
-    }
-    const { checkout: _omit, ...rest } = router.query;
-    void router.replace({ query: rest }, undefined, { shallow: true });
-    return () => { cancelled = true; };
-  }, [router.query.checkout]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Returning from hosted Checkout: poll until the webhook provisions the
+  // subscription, then reload and resume any add-on the buyer came for.
+  useCheckoutReturn(async () => {
+    await fetchData();
+    finishAddonIntent();
+  });
 
   // A proposed plan switch, held while the user confirms. Unlike add-ons there's
   // no proration-preview endpoint, so this is a plain confirm (with a downgrade
@@ -347,62 +321,11 @@ export default function BillingPage() {
   const addonQty = (bundleId: string): number =>
     subscription?.addons?.find((a) => a.bundleId === bundleId)?.quantity ?? 0;
 
-  // A proposed add-on change, held while the user confirms the previewed price.
-  const [pendingAddon, setPendingAddon] = useState<{ bundleId: string; name: string; quantity: number } | null>(null);
-  const [addonPreview, setAddonPreview] = useState<AddonResult | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  // Set when a purchase is blocked by a 402 PAYMENT_METHOD_REQUIRED — swaps the
-  // confirm modal for an "Add a payment method" CTA.
-  const [paymentRequired, setPaymentRequired] = useState(false);
+  // Add-on change: preview the price, then confirm (see useAddonChange).
+  const addon = useAddonChange(subscription, fetchData);
   const [portalLoading, setPortalLoading] = useState(false);
-
-  /** Step 1: dry-run the change so the user sees the new price + effective limits
-   *  before committing. Opens the confirm modal on success. */
-  const requestAddonChange = async (bundleId: string, name: string, quantity: number) => {
-    if (!subscription) return;
-    setPendingAddon({ bundleId, name, quantity });
-    setAddonPreview(null);
-    setPaymentRequired(false);
-    setPreviewLoading(true);
-    try {
-      const res = await api.previewAddon(subscription.id, bundleId, quantity);
-      if (res.success && res.data) setAddonPreview(res.data);
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to price this change'));
-      setPendingAddon(null);
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
-
-  /** Step 2: commit the previewed change. The server re-checks the over-cap gate;
-   *  its 409 message is surfaced verbatim. */
-  const confirmAddonChange = async () => {
-    if (!subscription || !pendingAddon) return;
-    const { bundleId, quantity } = pendingAddon;
-    setActionLoading(true);
-    try {
-      const res = quantity <= 0
-        ? await api.removeAddon(subscription.id, bundleId)
-        : await api.addAddon(subscription.id, bundleId, quantity);
-      if (res.success) {
-        toast.success('Add-ons updated');
-        setPendingAddon(null);
-        setAddonPreview(null);
-        await fetchData();
-      }
-    } catch (err) {
-      // A paid purchase with no card on file → show the "add a payment method"
-      // CTA in place of a dead-end error toast.
-      if (err instanceof ApiError && (err.code === 'PAYMENT_METHOD_REQUIRED' || err.statusCode === 402)) {
-        setPaymentRequired(true);
-      } else {
-        toast.error(formatError(err, 'Failed to update add-on'));
-      }
-    } finally {
-      setActionLoading(false);
-    }
-  };
+  // Any billing mutation in flight disables the other purchase controls.
+  const busy = actionLoading || addon.committing;
 
   /** Redirect to the provider's hosted portal to add/update a payment method,
    *  returning to this page afterward. */
@@ -470,7 +393,7 @@ export default function BillingPage() {
     );
   }
 
-  if (loading) return <LoadingPage />;
+  if (loading && !hasLoaded) return <LoadingPage />;
 
   // Primary billing fetch failed → error + retry, so a paying customer isn't shown
   // an empty "no subscription" page that looks like a downgrade to free.
@@ -555,7 +478,7 @@ export default function BillingPage() {
               <SubscriptionStatusCard
                 subscription={subscription}
                 canChangePlan={canChangePlan}
-                actionLoading={actionLoading}
+                actionLoading={busy}
                 portalLoading={portalLoading}
                 onReactivate={handleReactivate}
                 onCancel={handleCancel}
@@ -604,7 +527,7 @@ export default function BillingPage() {
               plans={plans}
               subscription={subscription}
               billingInterval={billingInterval}
-              actionLoading={actionLoading}
+              actionLoading={busy}
               canChangePlan={canChangePlan}
               selfService={billingProvider !== 'aws-marketplace'}
               onSubscribe={requestPlanChange}
@@ -634,11 +557,11 @@ export default function BillingPage() {
                 billingInterval={billingInterval}
                 bundleSelfService={bundleSelfService}
                 subscribed={!!subscription}
-                actionLoading={actionLoading}
-                previewLoading={previewLoading}
-                changePending={!!pendingAddon}
+                actionLoading={busy}
+                previewLoading={addon.previewLoading}
+                changePending={!!addon.pendingAddon}
                 addonQty={addonQty}
-                requestAddonChange={requestAddonChange}
+                requestAddonChange={addon.requestAddonChange}
                 highlightFeature={highlightFeature}
                 comboDiscounts={comboDiscounts}
                 onSubscribeIntent={startAddonIntent}
@@ -693,84 +616,28 @@ export default function BillingPage() {
             currentPlanName={subscription.planName || subscription.planId}
             interval={billingInterval}
             isDowngrade={isPlanDowngrade(subscription.planId, pendingPlan.id)}
-            loading={actionLoading}
+            loading={busy}
             onConfirm={() => void doSubscribe(pendingPlan.id)}
             onClose={() => { if (!actionLoading) setPendingPlan(null); }}
           />
         )}
 
-        {pendingAddon && (
+        {addon.pendingAddon && (
           <AddonPreviewModal
-            pendingAddon={pendingAddon}
-            addonPreview={addonPreview}
-            previewLoading={previewLoading}
-            paymentRequired={paymentRequired}
-            actionLoading={actionLoading}
+            pendingAddon={addon.pendingAddon}
+            addonPreview={addon.addonPreview}
+            previewLoading={addon.previewLoading}
+            paymentRequired={addon.paymentRequired}
+            actionLoading={busy}
             portalLoading={portalLoading}
-            onClose={() => { if (!actionLoading) { setPendingAddon(null); setAddonPreview(null); setPaymentRequired(false); } }}
-            onCancel={() => { setPendingAddon(null); setAddonPreview(null); setPaymentRequired(false); }}
-            onConfirmAddonChange={confirmAddonChange}
+            onClose={addon.closeAddonChange}
+            onCancel={addon.cancelAddonChange}
+            onConfirmAddonChange={addon.confirmAddonChange}
             onOpenBillingPortal={openBillingPortal}
           />
         )}
       </div>
 
     </DashboardLayout>
-  );
-}
-
-/**
- * Read-only panel listing the org's current AWS Marketplace entitlements. Only
- * meaningful for Marketplace-billed accounts — self-fetches and fails soft: a
- * 400 (provider isn't marketplace) or 404 (no marketplace subscription) simply
- * renders nothing, so non-Marketplace deployments never see it.
- */
-const ENTITLEMENT_COLUMNS: Column<MarketplaceEntitlement>[] = [
-  { id: 'plan', header: 'Plan', cellClassName: 'font-mono text-gray-800 dark:text-gray-200', render: (e) => e.planId },
-  { id: 'dimension', header: 'Dimension', cellClassName: 'text-gray-600 dark:text-gray-400', render: (e) => e.dimension },
-  {
-    id: 'status',
-    header: 'Status',
-    render: (e) => (e.isEntitled
-      ? <span className="text-green-600 dark:text-green-400 font-medium">Entitled</span>
-      : <span className="text-gray-400 dark:text-gray-500">Not entitled</span>),
-  },
-  { id: 'expires', header: 'Expires', cellClassName: 'text-gray-600 dark:text-gray-400', render: (e) => formatDate(e.expirationDate) },
-];
-
-function MarketplaceEntitlementsPanel() {
-  const [data, setData] = useState<MarketplaceEntitlements | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    api.getMarketplaceEntitlements()
-      .then((res) => { if (!cancelled && res.success && res.data) setData(res.data); })
-      .catch(() => { /* fail-soft: not a marketplace account, or none found */ });
-    return () => { cancelled = true; };
-  }, []);
-
-  if (!data || data.entitlements.length === 0) return null;
-
-  return (
-    <Card>
-      <div className="flex items-center justify-between">
-        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">AWS Marketplace Entitlements</h3>
-        <span className="text-xs text-gray-400 dark:text-gray-500">Managed in AWS</span>
-      </div>
-      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-        Current plan <code className="font-mono">{data.currentPlanId}</code> · customer{' '}
-        <code className="font-mono break-all">{data.customerIdentifier}</code>
-      </p>
-      <div className="mt-4 overflow-x-auto">
-        <DataTable
-          data={data.entitlements}
-          columns={ENTITLEMENT_COLUMNS}
-          isLoading={false}
-          animated={false}
-          getRowKey={(e, i) => `${e.planId}-${e.dimension}-${i}`}
-          emptyState={{ icon: Receipt, title: 'No entitlements', description: 'No AWS Marketplace entitlements found.' }}
-        />
-      </div>
-    </Card>
   );
 }

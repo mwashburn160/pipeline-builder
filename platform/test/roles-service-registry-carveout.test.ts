@@ -21,7 +21,7 @@ jest.unstable_mockModule('mongoose', () => {
   const api = { Types: { ObjectId: class {} } };
   return { ...api, default: api };
 });
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
   publishUserRevocation: jest.fn(async () => undefined),
   publishUsersRevocation: jest.fn(async () => undefined),
@@ -42,8 +42,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: {},
 }));
 
-const { createRole, RL_PERMISSION_NOT_ASSIGNABLE, RL_INVALID_PERMISSION, RL_PERMISSION_EXCEEDS_CEILING } =
-  await import('../src/services/roles-service.js');
+const { createRole } = await import('../src/services/roles-service.js');
+const { RL_PERMISSION_NOT_ASSIGNABLE, RL_INVALID_PERMISSION, RL_PERMISSION_EXCEEDS_CEILING } = await import('../src/services/roles-errors.js');
 
 // These tests exercise the invalid / not-assignable gates, which fire
 // regardless of the actor's ceiling. A superadmin actor bypasses the ceiling so

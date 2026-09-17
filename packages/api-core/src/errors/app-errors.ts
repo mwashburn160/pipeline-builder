@@ -49,11 +49,3 @@ export class ConflictError extends AppError {
     this.name = 'ConflictError';
   }
 }
-
-/** 401 — Unauthorized / authentication required. */
-export class UnauthorizedError extends AppError {
-  constructor(message: string) {
-    super(getStatusForErrorCode(ErrorCode.UNAUTHORIZED), ErrorCode.UNAUTHORIZED, message);
-    this.name = 'UnauthorizedError';
-  }
-}

@@ -8,11 +8,6 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { Modal } from '@/components/ui/Modal';
-import { ModalFooter } from '@/components/ui/ModalFooter';
-import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
-import { Input } from '@/components/ui/Input';
-import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
 import { RepositoryList, type RepositoryListHandle } from '@/components/registry/RepositoryList';
 import { TagTable } from '@/components/registry/TagTable';
@@ -23,13 +18,14 @@ import { DeleteRepoConfirm } from '@/components/registry/DeleteRepoConfirm';
 import { BulkDeleteConfirm } from '@/components/registry/BulkDeleteConfirm';
 import { RecentActionsPanel, type RecentAction } from '@/components/registry/RecentActionsPanel';
 import { KeyboardShortcutsModal } from '@/components/registry/KeyboardShortcutsModal';
+import { RegistryGcModal } from '@/components/registry/RegistryGcModal';
+import { StorageUsageModal } from '@/components/registry/StorageUsageModal';
 import { useRepositoryList } from '@/hooks/useRepositoryList';
 import { useImageTags, invalidateImageTags } from '@/hooks/useImageTags';
 import { useImageDetail } from '@/hooks/useImageDetail';
+import { usePolling } from '@/hooks/usePolling';
 import { useTagsWithMetadata } from '@/hooks/useTagsWithMetadata';
 import { api, ApiError } from '@/lib/api';
-import type { RegistryStorageUsage } from '@/lib/api/domains/registry';
-import { fmtNum, formatBytes, formatDateTime } from '@/lib/format';
 
 type HealthState = 'checking' | 'ok' | 'error';
 
@@ -107,113 +103,35 @@ export default function RegistryPage() {
   const mobilePane: 'repo' | 'tag' | 'manifest' = tag ? 'manifest' : repo ? 'tag' : 'repo';
   const repoListRef = useRef<RepositoryListHandle>(null);
 
-  // Manual registry GC (sysadmin ops). Defaults to dry-run so an operator
-  // validates the candidate set before issuing real DELETEs.
+  // Manual registry GC + storage-usage inspector (sysadmin ops). Open state lives
+  // here so the keyboard-shortcut guard can see them; form state lives in the modals.
   const [gcOpen, setGcOpen] = useState(false);
-  const [gcPrefix, setGcPrefix] = useState('');
-  const [gcDryRun, setGcDryRun] = useState(true);
-  const [gcRunning, setGcRunning] = useState(false);
-  // Real-run confirmation (in-app modal, replacing the native confirm()).
-  const [confirmGc, setConfirmGc] = useState(false);
-
-  const executeGc = useCallback(async () => {
-    const prefix = gcPrefix.trim();
-    if (!prefix) return;
-    setConfirmGc(false);
-    setGcRunning(true);
-    try {
-      const res = await api.runRegistryGc({ prefix, dryRun: gcDryRun });
-      const r = res.data;
-      if (r) {
-        toast.success(
-          gcDryRun
-            ? `Dry-run: ${r.candidates} candidate${r.candidates === 1 ? '' : 's'} across ${r.reposScanned} repo${r.reposScanned === 1 ? '' : 's'} (nothing deleted)`
-            : `GC complete: deleted ${r.deleted} of ${r.candidates} candidate${r.candidates === 1 ? '' : 's'} across ${r.reposScanned} repo${r.reposScanned === 1 ? '' : 's'}`,
-        );
-      }
-      // Close + refresh the repo list only after a real run may have emptied repos.
-      if (!gcDryRun) {
-        setGcOpen(false);
-        refresh();
-      }
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Registry GC failed');
-    } finally {
-      setGcRunning(false);
-    }
-  }, [gcPrefix, gcDryRun, toast, refresh]);
-
-  // Real runs delete manifests — gate behind an explicit in-app confirm. Dry-runs
-  // only walk + count, so they run immediately without the confirm step.
-  const handleRunGc = useCallback(() => {
-    if (!gcPrefix.trim()) return;
-    if (gcDryRun) void executeGc();
-    else setConfirmGc(true);
-  }, [gcPrefix, gcDryRun, executeGc]);
-
-  // Storage-usage inspector (sysadmin ops). Rolls up per-namespace byte
-  // consumption to inform GC decisions — which prefix is heavy enough to be
-  // worth pruning. Read-only; fail-soft when the endpoint isn't deployed (404).
   const [storageOpen, setStorageOpen] = useState(false);
-  const [storagePrefix, setStoragePrefix] = useState('');
-  const [storageLoading, setStorageLoading] = useState(false);
-  const [storageResult, setStorageResult] = useState<RegistryStorageUsage | null>(null);
-  const [storageError, setStorageError] = useState<string | null>(null);
-
-  const handleStorageUsage = useCallback(async (opts?: { force?: boolean }) => {
-    const prefix = storagePrefix.trim();
-    if (!prefix) return;
-    setStorageLoading(true);
-    setStorageError(null);
-    try {
-      const res = await api.getRegistryStorageUsage(prefix, opts);
-      setStorageResult(res.data ?? null);
-    } catch (err) {
-      setStorageResult(null);
-      // Fail-soft: a 404 means the rollup endpoint isn't available in this
-      // deployment — surface that plainly rather than as a hard error.
-      if (err instanceof ApiError && err.statusCode === 404) {
-        setStorageError('Storage rollup is not available in this deployment.');
-      } else {
-        setStorageError(err instanceof ApiError ? err.message : 'Failed to compute storage usage');
-      }
-    } finally {
-      setStorageLoading(false);
-    }
-  }, [storagePrefix]);
+  const closeGc = useCallback(() => setGcOpen(false), []);
+  const closeStorage = useCallback(() => setStorageOpen(false), []);
 
   /** Push a new entry to the recent-actions ring buffer (most-recent first, capped). */
   const recordAction = useCallback((a: RecentAction) => {
     setRecentActions((prev) => [a, ...prev].slice(0, RECENT_ACTIONS_MAX));
   }, []);
 
-  // Health badge: ping on mount + every 60s while the tab is visible. Pause
-  // when hidden to avoid background traffic; re-ping on visibility regain so
-  // the badge reflects truth shortly after the operator refocuses.
+  // Health badge: ping on mount + every 60s while the tab is visible. usePolling
+  // pauses when hidden and re-pings on visibility regain so the badge reflects
+  // truth shortly after the operator refocuses. `mountedRef` drops results that
+  // land after unmount.
+  const mountedRef = useRef(true);
   useEffect(() => {
-    let cancelled = false;
-
-    const ping = async () => {
-      if (document.visibilityState !== 'visible') return;
-      try {
-        await api.listImages({ limit: 1 });
-        if (!cancelled) setHealth('ok');
-      } catch {
-        if (!cancelled) setHealth('error');
-      }
-    };
-
-    void ping();
-    const timer = setInterval(() => { void ping(); }, 60_000);
-    const onVisibility = () => { if (document.visibilityState === 'visible') void ping(); };
-    document.addEventListener('visibilitychange', onVisibility);
-
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
   }, []);
+  usePolling(async () => {
+    try {
+      await api.listImages({ limit: 1 });
+      if (mountedRef.current) setHealth('ok');
+    } catch {
+      if (mountedRef.current) setHealth('error');
+    }
+  }, 60_000);
 
   /**
    * 403 mid-session handler. If any registry call returns 403 (sysadmin demoted
@@ -551,150 +469,9 @@ export default function RegistryPage() {
         />
       )}
 
-      {gcOpen && (
-        <Modal
-          title="Run registry garbage collection"
-          onClose={() => !gcRunning && setGcOpen(false)}
-          footer={
-            <ModalFooter
-              onCancel={() => setGcOpen(false)}
-              onConfirm={handleRunGc}
-              confirmLabel={gcDryRun ? 'Run dry-run' : 'Run GC'}
-              confirmVariant={gcDryRun ? 'primary' : 'danger'}
-              loading={gcRunning}
-              confirmDisabled={!gcPrefix.trim()}
-            />
-          }
-        >
-          <div className="space-y-3">
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Prunes manifests older than the retention window under a single repo
-              namespace prefix (e.g. <code className="font-mono">org-acme/</code>). The
-              trailing slash is added automatically.
-            </p>
-            <div className="space-y-1">
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Namespace prefix</label>
-              <Input
-                type="text"
-                placeholder="org-acme/"
-                value={gcPrefix}
-                onChange={(e) => setGcPrefix(e.target.value)}
-                className="text-sm"
-                autoFocus
-                disabled={gcRunning}
-              />
-            </div>
-            <label className="flex items-start gap-2 text-sm cursor-pointer">
-              <Checkbox
-                checked={gcDryRun}
-                onChange={() => setGcDryRun((v) => !v)}
-                disabled={gcRunning}
-                className="mt-0.5"
-              />
-              <span className="min-w-0">
-                <span className="font-medium text-gray-800 dark:text-gray-200">Dry run</span>
-                <span className="block text-gray-400 dark:text-gray-500">
-                  Walk the namespace and count deletion candidates without deleting anything.
-                </span>
-              </span>
-            </label>
-          </div>
-        </Modal>
-      )}
+      <RegistryGcModal open={gcOpen} onClose={closeGc} onRealRunComplete={refresh} />
 
-      {confirmGc && (
-        <DeleteConfirmModal
-          title="Run registry garbage collection"
-          itemName={`manifests older than the retention window under "${gcPrefix.trim()}"`}
-          loading={gcRunning}
-          onConfirm={() => void executeGc()}
-          onCancel={() => setConfirmGc(false)}
-        />
-      )}
-
-      {storageOpen && (
-        <Modal
-          title="Namespace storage usage"
-          onClose={() => setStorageOpen(false)}
-          footer={
-            <ModalFooter
-              onCancel={() => setStorageOpen(false)}
-              onConfirm={() => handleStorageUsage()}
-              confirmLabel="Compute"
-              confirmVariant="primary"
-              loading={storageLoading}
-              confirmDisabled={!storagePrefix.trim()}
-            />
-          }
-        >
-          <div className="space-y-3">
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Rolls up total unique blob bytes under a single repo namespace prefix
-              (e.g. <code className="font-mono">org-acme/</code>) so you can see which
-              namespaces are heavy before running GC. The trailing slash is added
-              automatically. Results are cached ~60s server-side.
-            </p>
-            <div className="space-y-1">
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Namespace prefix</label>
-              <Input
-                type="text"
-                placeholder="org-acme/"
-                value={storagePrefix}
-                onChange={(e) => setStoragePrefix(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && storagePrefix.trim() && !storageLoading) void handleStorageUsage(); }}
-                className="text-sm"
-                autoFocus
-                disabled={storageLoading}
-              />
-            </div>
-
-            {storageError && (
-              <div className="rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-                {storageError}
-              </div>
-            )}
-
-            {storageResult && !storageError && (
-              <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3">
-                <div className="flex items-baseline justify-between mb-3">
-                  <code className="font-mono text-sm text-gray-800 dark:text-gray-200">{storageResult.prefix}</code>
-                  <button
-                    type="button"
-                    onClick={() => void handleStorageUsage({ force: true })}
-                    disabled={storageLoading}
-                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
-                    title="Bypass the server cache and recompute"
-                  >
-                    Recompute
-                  </button>
-                </div>
-                <div className="grid grid-cols-3 gap-3 text-center">
-                  <div>
-                    <div className="text-lg font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{formatBytes(storageResult.bytes)}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">total</div>
-                  </div>
-                  <div>
-                    <div className="text-lg font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{fmtNum(storageResult.repos)}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">repos</div>
-                  </div>
-                  <div>
-                    <div className="text-lg font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{fmtNum(storageResult.blobs)}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">unique blobs</div>
-                  </div>
-                </div>
-                {storageResult.incomplete && (
-                  <div className="mt-3 rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-2 py-1.5 text-xs text-amber-800 dark:text-amber-200">
-                    Scan was incomplete — a repo, manifest, or blob could not be read, so this total UNDER-counts actual usage.
-                  </div>
-                )}
-                <div className="mt-3 text-xs text-gray-400 dark:text-gray-500">
-                  Computed {formatDateTime(storageResult.computedAt)}
-                </div>
-              </div>
-            )}
-          </div>
-        </Modal>
-      )}
+      <StorageUsageModal open={storageOpen} onClose={closeStorage} />
 
       {shortcutsOpen && (
         <KeyboardShortcutsModal onClose={() => setShortcutsOpen(false)} />

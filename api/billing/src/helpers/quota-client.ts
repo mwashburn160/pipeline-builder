@@ -11,12 +11,13 @@
  * Wave-2 `body.used` vs `body.data.used` parse bugs slip in. Callers still own
  * their auth minting and their own field/validation policy on top of these.
  *
- * All fetchers are fail-soft: they return `null` on any transport / non-2xx /
- * throw, and never raise — a store outage must never surface as an exception to
- * the billing flows that read enforcement state opportunistically.
+ * All fetchers are fail-soft: they return `null` on any transport failure (the
+ * safe client resolves `null` rather than throwing) or non-2xx — a store outage
+ * must never surface as an exception to the billing flows that read enforcement
+ * state opportunistically. Each call's client is destroyed after use.
  */
 
-import { createLogger, createSafeClient, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, createSafeClient } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { getBillingTimeout } from './billing-helpers.js';
@@ -59,20 +60,11 @@ export interface SeatUsageSnapshot {
   used: number | null;
 }
 
-function quotaClient() {
-  return createSafeClient({
-    host: config.quotaService.host,
-    port: config.quotaService.port,
-    timeout: getBillingTimeout(),
-  });
-}
+type SafeClient = ReturnType<typeof createSafeClient>;
 
-function platformClient() {
-  return createSafeClient({
-    host: config.platformService.host,
-    port: config.platformService.port,
-    timeout: getBillingTimeout(),
-  });
+/** Run `fn` against a safe client for `service` (keep-alive agents are shared per target). */
+function withClient<T>(service: { host: string; port: number }, fn: (client: SafeClient) => Promise<T>): Promise<T> {
+  return fn(createSafeClient({ host: service.host, port: service.port, timeout: getBillingTimeout() }));
 }
 
 function tenantHeaders(orgId: string, auth: string): Record<string, string> {
@@ -83,24 +75,19 @@ const asNumber = (v: unknown): number | null => (typeof v === 'number' ? v : nul
 
 /**
  * Fetch the org's full quota snapshot (`data.quota`) from GET /quotas/:orgId.
- * Returns `null` on transport / non-2xx / throw. `auth` is used as-is (the
+ * Returns `null` on transport failure / non-2xx. `auth` is used as-is (the
  * caller mints/threads it); a 2xx with no `data.quota` also yields `null`.
  */
 export async function fetchQuotaSnapshot(orgId: string, auth: string): Promise<QuotaSnapshot | null> {
-  try {
-    const resp = await quotaClient().get<{ success?: boolean; data?: { quota?: QuotaSnapshot } }>(
-      `/quotas/${encodeURIComponent(orgId)}`,
-      { headers: tenantHeaders(orgId, auth) },
-    );
-    if (!resp || resp.statusCode >= 400) {
-      logger.warn('Quota snapshot fetch failed', { orgId, statusCode: resp?.statusCode });
-      return null;
-    }
-    return resp.body?.data?.quota ?? null;
-  } catch (err) {
-    logger.warn('Quota snapshot fetch threw', { orgId, error: errorMessage(err) });
+  const resp = await withClient(config.quotaService, (client) => client.get<{ success?: boolean; data?: { quota?: QuotaSnapshot } }>(
+    `/quotas/${encodeURIComponent(orgId)}`,
+    { headers: tenantHeaders(orgId, auth) },
+  ));
+  if (!resp || resp.statusCode >= 400) {
+    logger.warn('Quota snapshot fetch failed', { orgId, statusCode: resp?.statusCode });
     return null;
   }
+  return resp.body?.data?.quota ?? null;
 }
 
 /**
@@ -109,37 +96,31 @@ export async function fetchQuotaSnapshot(orgId: string, auth: string): Promise<Q
  * missing/non-numeric value.
  */
 export async function fetchQuotaTypeUsage(orgId: string, quotaType: string, auth: string): Promise<number | null> {
-  try {
-    const resp = await quotaClient().get<{ data?: { status?: { used?: number } } }>(
-      `/quotas/${encodeURIComponent(orgId)}/${encodeURIComponent(quotaType)}`,
-      { headers: tenantHeaders(orgId, auth) },
-    );
-    if (resp && resp.statusCode < 400) return resp.body?.data?.status?.used ?? null;
-  } catch (err) {
-    logger.warn('Quota type usage fetch threw', { orgId, quotaType, error: errorMessage(err) });
+  const resp = await withClient(config.quotaService, (client) => client.get<{ data?: { status?: { used?: number } } }>(
+    `/quotas/${encodeURIComponent(orgId)}/${encodeURIComponent(quotaType)}`,
+    { headers: tenantHeaders(orgId, auth) },
+  ));
+  if (!resp || resp.statusCode >= 400) {
+    logger.warn('Quota type usage fetch failed', { orgId, quotaType, statusCode: resp?.statusCode });
+    return null;
   }
-  return null;
+  return asNumber(resp.body?.data?.status?.used);
 }
 
 /**
  * Fetch enforced seat figures from platform's GET /organization/:orgId/seat-usage.
- * Returns `null` on transport / non-2xx / throw; individual fields are `null`
- * when absent or non-numeric (`data.limit` / `data.used`).
+ * Returns `null` on transport / non-2xx; individual fields are `null` when absent
+ * or non-numeric (`data.limit` / `data.used`).
  */
 export async function fetchSeatUsage(orgId: string, auth: string): Promise<SeatUsageSnapshot | null> {
-  try {
-    const resp = await platformClient().get<{ success?: boolean; data?: { limit?: number; used?: number } }>(
-      `/organization/${encodeURIComponent(orgId)}/seat-usage`,
-      { headers: tenantHeaders(orgId, auth) },
-    );
-    if (!resp || resp.statusCode >= 400) {
-      logger.warn('Seat usage fetch failed', { orgId, statusCode: resp?.statusCode });
-      return null;
-    }
-    const data = resp.body?.data;
-    return { limit: asNumber(data?.limit), used: asNumber(data?.used) };
-  } catch (err) {
-    logger.warn('Seat usage fetch threw', { orgId, error: errorMessage(err) });
+  const resp = await withClient(config.platformService, (client) => client.get<{ success?: boolean; data?: { limit?: number; used?: number } }>(
+    `/organization/${encodeURIComponent(orgId)}/seat-usage`,
+    { headers: tenantHeaders(orgId, auth) },
+  ));
+  if (!resp || resp.statusCode >= 400) {
+    logger.warn('Seat usage fetch failed', { orgId, statusCode: resp?.statusCode });
     return null;
   }
+  const data = resp.body?.data;
+  return { limit: asNumber(data?.limit), used: asNumber(data?.used) };
 }

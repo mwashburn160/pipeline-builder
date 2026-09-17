@@ -1,20 +1,24 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createEnvRedisClient } from '@pipeline-builder/api-core';
+import { createLogger, createEnvRedisClient, incrWindow, type RedisEvalClient } from '@pipeline-builder/api-core';
 
 const logger = createLogger('token-rate-limit');
 
 /**
- * Rate limit on the public, unauth'd `/token` endpoint.
+ * Rate limit on the public, unauth'd `/token` endpoint. Every request must pass
+ * TWO fixed-window buckets:
  *
- * The bucket key is deliberately COARSE — `(source-ip, username)`, never the
- * password. Keying on the password (the old behaviour) meant a credential-
- * stuffing client that varied the password on every attempt minted a FRESH
- * bucket each time, so the cap never engaged and `/token` became an
- * amplifier for guessing against platform's `/auth/login` (auth-resolver
- * Path 2). Folding varied passwords into ONE bucket per (ip, username) is what
- * makes the cap actually bind on a stuffing run.
+ * 1. **(source-ip, username)** — never the password. Keying on the password (the
+ *    old behaviour) meant a credential-stuffing client that varied the password on
+ *    every attempt minted a FRESH bucket each time, so the cap never engaged and
+ *    `/token` became an amplifier for guessing against platform's `/auth/login`
+ *    (auth-resolver Path 2). Folding varied passwords into ONE bucket per
+ *    (ip, username) makes the cap bind on a stuffing run against one account.
+ * 2. **source-ip alone** — without it, password SPRAYING (one common password
+ *    tried against many usernames) gets a fresh (ip, username) bucket per
+ *    username and is never capped. The per-IP cap is higher than the per-user
+ *    cap so a NAT'd CI fleet pulling as many distinct accounts still fits.
  *
  * Backing store:
  * - **Redis** (shared env wiring, same as the idempotency / SSE stores) when
@@ -25,39 +29,38 @@ const logger = createLogger('token-rate-limit');
  *   The memory map sweeps ALL expired buckets on window rollover and is hard-
  *   capped so short-lived identities can't grow it unbounded.
  *
- * Defaults: 60 requests / 60s. Override via env.
+ * Defaults: 60 requests / 60s per (ip, username); 300 / 60s per ip. Override via env.
  */
 const RATE_LIMIT_WINDOW_MS = parseInt(process.env.REGISTRY_TOKEN_RATE_LIMIT_WINDOW_MS || '60000', 10);
 const RATE_LIMIT_MAX = parseInt(process.env.REGISTRY_TOKEN_RATE_LIMIT_MAX || '60', 10);
+const RATE_LIMIT_IP_MAX = parseInt(process.env.REGISTRY_TOKEN_RATE_LIMIT_IP_MAX || '300', 10);
 /** Hard cap on distinct in-memory buckets (fallback path only). */
 const MAX_MEMORY_BUCKETS = parseInt(process.env.REGISTRY_TOKEN_RATE_LIMIT_MAX_BUCKETS || '10000', 10);
 
 const REDIS_KEY_PREFIX = 'reg:tokrl:';
 
-/** Minimal ioredis surface the fixed-window counter needs. */
-interface RedisRateClient {
-  incr(key: string): Promise<number>;
-  pexpire(key: string, ms: number): Promise<number>;
-}
-
 // Constructed once from the shared env Redis. Null when Redis isn't configured
 // → the memory fallback owns enforcement (per-pod, still bounded).
-const redis = createEnvRedisClient<RedisRateClient>('token-rate-limit');
+const redis = createEnvRedisClient<RedisEvalClient>('token-rate-limit');
 if (redis) logger.info('Redis-backed /token rate limiter initialized');
 
 const memBuckets = new Map<string, { count: number; resetAt: number }>();
 
 /**
- * Build the coarse bucket key. Password is intentionally EXCLUDED so varying it
- * can't spawn a fresh bucket per attempt. Both components are folded in so a
- * shared-NAT source or a reused username each get their own bucket.
+ * Build the per-(ip, username) bucket key. Password is intentionally EXCLUDED so
+ * varying it can't spawn a fresh bucket per attempt.
  */
-export function rateLimitKey(sourceIp: string, username: string): string {
-  return `${sourceIp}|${username}`;
+function userBucketKey(sourceIp: string, username: string): string {
+  return `u:${sourceIp}|${username}`;
+}
+
+/** Build the per-source-ip bucket key (distinct `ip:` namespace from the user buckets). */
+function ipBucketKey(sourceIp: string): string {
+  return `ip:${sourceIp}`;
 }
 
 /** In-memory fixed-window check. Returns true when the request is allowed. */
-function checkMemory(key: string): boolean {
+function checkMemory(key: string, max: number): boolean {
   const now = Date.now();
   const bucket = memBuckets.get(key);
   if (!bucket || bucket.resetAt <= now) {
@@ -75,31 +78,39 @@ function checkMemory(key: string): boolean {
     memBuckets.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
     return true;
   }
-  if (bucket.count >= RATE_LIMIT_MAX) return false;
+  if (bucket.count >= max) return false;
   bucket.count++;
   return true;
 }
 
 /**
- * Returns true when the request is allowed; false when over the cap. Prefers
- * the shared Redis counter (cross-pod) and falls back to the in-memory counter
- * on a missing/erroring Redis so an outage degrades to per-pod protection
- * rather than removing the cap entirely.
+ * One fixed-window bucket check. Prefers the shared Redis counter (cross-pod) and
+ * falls back to the in-memory counter on a missing/erroring Redis so an outage
+ * degrades to per-pod protection rather than removing the cap entirely.
  */
-export async function checkTokenRateLimit(key: string): Promise<boolean> {
+async function checkBucket(key: string, max: number): Promise<boolean> {
   if (redis) {
     try {
-      const redisKey = `${REDIS_KEY_PREFIX}${key}`;
-      const count = await redis.incr(redisKey);
-      // Set the window TTL only on the first increment; subsequent hits ride the
-      // existing expiry so the window is fixed, not sliding-per-request.
-      if (count === 1) await redis.pexpire(redisKey, RATE_LIMIT_WINDOW_MS);
-      return count <= RATE_LIMIT_MAX;
+      // Atomic INCR + window TTL: a separate INCR then PEXPIRE could lose the
+      // expiry and leave the bucket over its cap forever.
+      const count = await incrWindow(redis, `${REDIS_KEY_PREFIX}${key}`, RATE_LIMIT_WINDOW_MS);
+      return count <= max;
     } catch (err) {
       logger.warn('Redis /token rate-limit check failed; falling back to in-memory', {
         error: err instanceof Error ? err.message : String(err),
       });
     }
   }
-  return checkMemory(key);
+  return checkMemory(key, max);
+}
+
+/**
+ * Returns true when a `/token` request from `sourceIp` for `username` is allowed:
+ * BOTH the per-IP bucket (anti-spraying) and the per-(ip, username) bucket
+ * (anti-stuffing) must be under their caps. The IP bucket is checked first; a
+ * request it rejects does not also consume the user bucket.
+ */
+export async function checkTokenRateLimit(sourceIp: string, username: string): Promise<boolean> {
+  if (!(await checkBucket(ipBucketKey(sourceIp), RATE_LIMIT_IP_MAX))) return false;
+  return checkBucket(userBucketKey(sourceIp, username), RATE_LIMIT_MAX);
 }

@@ -337,6 +337,34 @@ groups:
           summary: "Durable audit spool is overflowing (oldest events dropped)"
           description: "{{ $value | humanize }} spooled audit events/sec trimmed over 5m — the platform has been unreachable long enough that buffered audit events are aging out. Restore audit ingest; the spool is shedding the oldest security records."
 
+      # ---- Storage & event delivery leftovers ----
+      # message_attachment_blob_orphans_total: a purge deleted message rows but
+      # could not delete some attachment blobs (orphans in object storage).
+      # event_bus_dead_lettered_total: a durable event exhausted its deliveries
+      # and moved to the `evt:<topic>:dlq` stream (e.g. an entitlement sync that
+      # kept failing). Neither loses user data; both need an operator.
+      - alert: MessageAttachmentBlobOrphans
+        expr: sum(increase(message_attachment_blob_orphans_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: message
+          tenancy: platform
+        annotations:
+          summary: "Message attachment blobs were orphaned by a purge"
+          description: "{{ $value | humanize }} attachment blobs could not be deleted in the last hour — they remain in object storage with no row pointing at them. Check the message service logs for the failed keys and object-storage errors."
+
+      - alert: EventBusDeadLettered
+        expr: sum by (topic) (increase(event_bus_dead_lettered_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: event-bus
+          tenancy: platform
+        annotations:
+          summary: "Durable events moved to the dead-letter stream"
+          description: "{{ $value | humanize }} events on topic {{ $labels.topic }} exhausted their deliveries in the last hour and were dead-lettered to evt:{{ $labels.topic }}:dlq. The consumer kept failing — investigate, then replay or discard them."
+
       # ---- Billing → entitlement/quota sync ----
       # billing_quota_sync_failed_total: a subscription/entitlement change failed
       # to propagate to the quota service (the org's effective limits now lag its

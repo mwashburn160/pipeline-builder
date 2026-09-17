@@ -19,9 +19,27 @@ jest.mock('../src/lib/api', () => ({
   default: { updateUserFeatures: (...args: unknown[]) => updateUserFeatures(...args) },
 }));
 
+// Minimal StepUpModal: one button that "confirms the password" with a fixed token.
+jest.mock('../src/components/admin/StepUpModal', () => ({
+  __esModule: true,
+  StepUpModal: ({ onConfirmed }: { onConfirmed: (t: string) => void }) => (
+    <button type="button" onClick={() => onConfirmed('step-up-token')}>Confirm password</button>
+  ),
+}));
+
 beforeEach(() => {
   updateUserFeatures.mockReset();
 });
+
+/** Click Save, then confirm the password check. */
+async function saveWithStepUp() {
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /save overrides/i }));
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /confirm password/i }));
+  });
+}
 
 describe('FeatureOverridesEditor', () => {
   it('renders one row per feature flag', () => {
@@ -67,14 +85,19 @@ describe('FeatureOverridesEditor', () => {
     fireEvent.change(screen.getByLabelText(/Override Audit Log/i), { target: { value: 'off' } });
     // Priority Support stays at inherit — must not appear in the payload.
 
+    // Nothing is sent until the password check is confirmed.
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /save overrides/i }));
+    });
+    expect(updateUserFeatures).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /confirm password/i }));
     });
 
     expect(updateUserFeatures).toHaveBeenCalledWith('user-42', {
       ai_generation: true,
       audit_log: false,
-    });
+    }, 'step-up-token');
     expect(onSaved).toHaveBeenCalled();
   });
 
@@ -83,12 +106,10 @@ describe('FeatureOverridesEditor', () => {
     render(<FeatureOverridesEditor userId="u1" initial={{ ai_generation: true }} onSaved={jest.fn()} />);
 
     fireEvent.change(screen.getByLabelText(/Override AI Generation/i), { target: { value: 'inherit' } });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /save overrides/i }));
-    });
+    await saveWithStepUp();
 
     // The inherit transition produces an empty payload — the key is dropped.
-    expect(updateUserFeatures).toHaveBeenCalledWith('u1', {});
+    expect(updateUserFeatures).toHaveBeenCalledWith('u1', {}, 'step-up-token');
   });
 
   it('shows the backend error message on a failed save', async () => {
@@ -96,9 +117,7 @@ describe('FeatureOverridesEditor', () => {
     render(<FeatureOverridesEditor userId="u1" initial={{}} onSaved={jest.fn()} />);
 
     fireEvent.change(screen.getByLabelText(/Override Bulk Operations/i), { target: { value: 'on' } });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /save overrides/i }));
-    });
+    await saveWithStepUp();
 
     await waitFor(() => {
       expect(screen.getByText('Invalid override')).toBeInTheDocument();

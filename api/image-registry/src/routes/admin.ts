@@ -8,6 +8,7 @@ import {
   getParam,
   requirePermission,
   createLogger,
+  validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type RequestHandler } from 'express';
@@ -65,12 +66,9 @@ export function createAdminRoutes(): Router {
   // POST /api/admin/gc — prune old manifests under a repo namespace.
   // Body: { prefix: 'org-acme/', maxAgeDays: 30, dryRun: false }
   router.post('/gc', requirePermission('registry:write') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
-    const parsed = GcSchema.safeParse(req.body);
-    if (!parsed.success) {
-      const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
-      return sendBadRequest(res, msg, ErrorCode.VALIDATION_ERROR);
-    }
-    const { prefix, maxAgeDays, dryRun } = parsed.data;
+    const validation = validateBody(req, GcSchema);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    const { prefix, maxAgeDays, dryRun } = validation.value;
 
     const result = await runRegistryGc({
       prefix: normalizePrefix(prefix),

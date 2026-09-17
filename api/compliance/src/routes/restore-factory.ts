@@ -4,7 +4,7 @@
 import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, requireStepUp } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { emitComplianceAudit } from '../services/remote-audit-client.js';
+import { emitComplianceAudit } from '../services/audit.js';
 
 /** Minimal surface a restorable compliance entity's service must expose. */
 interface RestorableService {

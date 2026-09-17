@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requirePermission } from '@pipeline-builder/api-core';
+import { requirePermission, requireStepUp } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   listAllUsers,
@@ -12,7 +12,7 @@ import {
   bulkDeleteUsers,
   updateUserFeatures,
 } from '../controllers/index.js';
-import { requireAuth, requireStepUp } from '../middleware/index.js';
+import { requireAuth } from '../middleware/index.js';
 
 const router: Router = Router();
 
@@ -32,8 +32,8 @@ router.get('/:id', requireAuth, requirePermission('members:manage'), getUserById
 /** PUT /users/:id - Update a user (members:manage; org-admin scoped to a shared org). */
 router.put('/:id', requireAuth, requirePermission('members:manage'), requireStepUp, updateUserById);
 
-/** PUT /users/:id/features - Update user feature overrides (admin only) */
-router.put('/:id/features', requireAuth, requirePermission('members:manage'), updateUserFeatures);
+/** PUT /users/:id/features - Update user feature overrides (members:manage; step-up gated — a capability grant). */
+router.put('/:id/features', requireAuth, requirePermission('members:manage'), requireStepUp, updateUserFeatures);
 
 /** DELETE /users/:id - Delete user by ID (system admin only) */
 router.delete('/:id', requireAuth, requirePermission('members:manage'), requireStepUp, deleteUserById);

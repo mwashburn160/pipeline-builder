@@ -93,7 +93,6 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 
 jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { findOrCreateOAuthUser: (...a: unknown[]) => mockFindOrCreate(...a) },
-  ACCOUNT_EMAIL_UNVERIFIED: 'ACCOUNT_EMAIL_UNVERIFIED',
 }));
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
@@ -136,6 +135,7 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
 
 const { verifyOAuthCode, handleCallback, getAuthUrl } =
   await import('../src/controllers/oauth.js');
+const { OAUTH_EMAIL_UNVERIFIED } = await import('../src/services/auth-errors.js');
 
 function makeRes() {
   const res: any = {};
@@ -231,7 +231,7 @@ describe('GitHub verifyOAuthCode verified-email resolution', () => {
     );
 
     await expect(verifyOAuthCode('github', 'auth-code', state))
-      .rejects.toThrow('GitHub did not return a verified email address');
+      .rejects.toThrow(OAUTH_EMAIL_UNVERIFIED);
     expect(mockFindOrCreate).not.toHaveBeenCalled();
   });
 

@@ -18,9 +18,12 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => {
   const actual = jest.requireActual('@pipeline-builder/api-core');
   return {
     ...actual,
+    isSystemAdmin: (req: unknown) => mockIsSystemAdmin(req),
     // sendError + sendSuccess are real (so res.json shape matches prod)
   };
 });
+
+jest.unstable_mockModule('../src/config/index.js', () => ({ config: { observability: { alertmanagerTimeoutMs: 5000 } } }));
 
 // Mocks for the upstream clients
 const mockPromQuery = jest.fn();
@@ -45,7 +48,6 @@ const mockIsOrgAdmin = jest.fn<(req?: unknown) => boolean>();
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   withController: (_desc: string, fn: any) => fn,
   requireAuth: jest.fn(),
-  isSystemAdmin: (req: unknown) => mockIsSystemAdmin(req),
   getAdminContext: (req: unknown) => ({
     isSuperAdmin: mockIsSystemAdmin(req),
     isOrgAdmin: mockIsOrgAdmin(req),
@@ -200,7 +202,7 @@ describe('fleet-wide (non-orgScoped) catalog keys require system admin', () => {
     const res = makeRes();
     await observabilityQuery(makeReq({ key: 'platform_orgs_total' }), res);
     expect(res._status).toBe(200);
-    expect(mockPromQuery).toHaveBeenCalledWith('platform_orgs_total');
+    expect(mockPromQuery).toHaveBeenCalledWith('max(platform_orgs_total)');
   });
 
   it('scopes an orgScoped PromQL query to the caller\'s org', async () => {

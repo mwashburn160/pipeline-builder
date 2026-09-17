@@ -24,13 +24,14 @@ jest.unstable_mockModule('../src/helpers/active-org-info.js', () => ({ loadActiv
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
   publishUserRevocation: jest.fn(), publishUsersRevocation: jest.fn(), publishUserDeletionRevocation: jest.fn(),
 }));
-jest.unstable_mockModule('../src/services/roles-service.js', () => ({ seedDefaultRoles: jest.fn() }));
+jest.unstable_mockModule('../src/services/roles-service.js', () => ({ seedDefaultRoles: jest.fn(), assertNotLastPrivilegedMember: jest.fn() }));
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: {} } }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({ withMongoTransaction: (fn: (s: unknown) => unknown) => fn({}) }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), hashRefreshToken: (t: string) => t, issueTokens: jest.fn() }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn(), renewSessionTokens: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  JoinRequest: {},
   PersonalAccessToken: {},
   UserPreferences: {
     findOne: (...a: unknown[]) => mockFindOne(...a),
@@ -48,12 +49,6 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 const mockUpdatePreferences = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/services/index.js', () => ({
   userProfileService: { updatePreferences: (...a: unknown[]) => mockUpdatePreferences(...a) },
-  PROFILE_USER_NOT_FOUND: 'PROFILE_USER_NOT_FOUND',
-  PROFILE_EMAIL_TAKEN: 'PROFILE_EMAIL_TAKEN',
-  PROFILE_INVALID_CREDENTIALS: 'PROFILE_INVALID_CREDENTIALS',
-  PROFILE_OWNER_HAS_ORGS: 'PROFILE_OWNER_HAS_ORGS',
-  PROFILE_LAST_PRIVILEGED_MEMBER: 'PROFILE_LAST_PRIVILEGED_MEMBER',
-  PROFILE_PAT_LIMIT: 'PROFILE_PAT_LIMIT',
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({ validateBody: jest.fn(), updateProfileSchema: {}, changePasswordSchema: {} }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({

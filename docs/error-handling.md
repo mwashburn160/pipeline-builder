@@ -25,7 +25,6 @@ a response with no per-call mapping:
 | `ForbiddenError` | 403 | `INSUFFICIENT_PERMISSIONS` |
 | `ValidationError` | 400 | `VALIDATION_ERROR` |
 | `ConflictError` | 409 | `CONFLICT` |
-| `UnauthorizedError` | 401 | `UNAUTHORIZED` |
 | `AppError` (base) | *explicit* | *explicit* | — for a one-off `(status, code, message)`. |
 
 ```ts

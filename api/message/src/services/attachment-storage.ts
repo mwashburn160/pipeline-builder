@@ -29,7 +29,7 @@ import {
   HeadBucketCommand,
   CreateBucketCommand,
 } from '@aws-sdk/client-s3';
-import { createLogger, envStr, envBool, envInt } from '@pipeline-builder/api-core';
+import { createLogger, emitCounter, envStr, envBool, envInt } from '@pipeline-builder/api-core';
 import { Jimp } from 'jimp';
 
 const logger = createLogger('attachment-storage');
@@ -174,20 +174,69 @@ export async function deleteAttachment(key: string): Promise<void> {
   }
 }
 
-/** Best-effort bulk delete for cascade cleanup — never throws. Each key's
- *  thumbnail sibling is deleted alongside it (deleting an absent thumb key is a
- *  no-op in S3/MinIO), so image thumbnails never orphan on a purge. */
-export async function deleteAttachments(keys: string[]): Promise<void> {
-  if (keys.length === 0) return;
-  const withThumbs = keys.flatMap((k) => [k, thumbnailSiblingOf(k)]);
-  try {
-    await s3().send(new DeleteObjectsCommand({
-      Bucket: ATTACHMENT_BUCKET,
-      Delete: { Objects: withThumbs.map((Key) => ({ Key })), Quiet: true },
-    }));
-  } catch (err) {
-    logger.warn('Attachment bulk blob delete failed (leaving orphans)', { count: keys.length, error: String(err) });
+/** S3 `DeleteObjects` accepts at most 1000 keys per request; a larger request is
+ *  rejected WHOLESALE (MalformedXML), so every bulk delete must be chunked. */
+export const DELETE_OBJECTS_MAX_KEYS = 1000;
+
+/**
+ * Delete `keys` in ≤{@link DELETE_OBJECTS_MAX_KEYS} batches and return the keys
+ * that were NOT deleted. `DeleteObjects` reports per-key failures in `Errors`
+ * while still answering 200, so the response must be inspected — a resolved
+ * send is not success. A thrown batch, or an `Errors` entry that names no key,
+ * marks the whole batch failed (re-deleting an already-deleted key is a no-op,
+ * so over-reporting only costs a redundant retry). Never throws.
+ */
+async function deleteKeysOnce(keys: string[]): Promise<string[]> {
+  const failed: string[] = [];
+  for (let i = 0; i < keys.length; i += DELETE_OBJECTS_MAX_KEYS) {
+    const batch = keys.slice(i, i + DELETE_OBJECTS_MAX_KEYS);
+    try {
+      const out = await s3().send(new DeleteObjectsCommand({
+        Bucket: ATTACHMENT_BUCKET,
+        Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+      }));
+      const errors = out?.Errors ?? [];
+      if (errors.some((e) => !e.Key)) failed.push(...batch);
+      else for (const e of errors) failed.push(e.Key as string);
+    } catch (err) {
+      logger.warn('Attachment bulk delete batch failed', { count: batch.length, error: String(err) });
+      failed.push(...batch);
+    }
   }
+  return failed;
+}
+
+export interface DeleteAttachmentsOptions {
+  /** Total attempts for keys that failed to delete (default 3). */
+  attempts?: number;
+  /** Linear backoff base between attempts, in ms (default 250). */
+  retryDelayMs?: number;
+}
+
+/**
+ * Bulk blob delete for cascade cleanup. Each key's thumbnail sibling is deleted
+ * alongside it (deleting an absent thumb key is a no-op in S3/MinIO), so image
+ * thumbnails never orphan on a purge. Batched to the DeleteObjects cap, per-key
+ * `Errors` honoured, and failed keys retried with backoff. Never throws —
+ * callers invoke this only AFTER the metadata rows are committed gone (see
+ * MessageService.onAfterPurge / AttachmentService.purgePending), so a blob that
+ * still fails is an orphan (storage leak, logged + counted), never a dangling
+ * row pointing at a missing blob. Returns the keys that could not be deleted.
+ */
+export async function deleteAttachments(keys: string[], opts: DeleteAttachmentsOptions = {}): Promise<string[]> {
+  if (keys.length === 0) return [];
+  const attempts = Math.max(1, opts.attempts ?? 3);
+  const retryDelayMs = Math.max(0, opts.retryDelayMs ?? 250);
+  let pending = [...new Set(keys.flatMap((k) => [k, thumbnailSiblingOf(k)]))];
+  for (let attempt = 1; attempt <= attempts && pending.length > 0; attempt += 1) {
+    if (attempt > 1 && retryDelayMs > 0) await new Promise((r) => setTimeout(r, retryDelayMs * (attempt - 1)));
+    pending = await deleteKeysOnce(pending);
+  }
+  if (pending.length > 0) {
+    logger.warn('Attachment blobs left orphaned after retries', { count: pending.length, sample: pending.slice(0, 5) });
+    emitCounter('message_attachment_blob_orphans_total', {}, pending.length);
+  }
+  return pending;
 }
 
 /**
@@ -218,10 +267,16 @@ export async function deleteAttachmentsByOrgPrefix(orgId: string): Promise<numbe
       .map((o) => o.Key)
       .filter((k): k is string => typeof k === 'string');
     if (objects.length > 0) {
-      await s3().send(new DeleteObjectsCommand({
+      // ListObjectsV2 pages are ≤1000 keys, but DeleteObjects still reports
+      // per-key failures in `Errors` on a 200 — count those as a failed page.
+      const out = await s3().send(new DeleteObjectsCommand({
         Bucket: ATTACHMENT_BUCKET,
         Delete: { Objects: objects.map((Key) => ({ Key })), Quiet: true },
       }));
+      const errors = out?.Errors ?? [];
+      if (errors.length > 0) {
+        throw new Error(`Failed to delete ${errors.length} of ${objects.length} attachment blobs under ${prefix}`);
+      }
       deleted += objects.length;
     }
     // IsTruncated ⇒ more pages; carry the token forward.

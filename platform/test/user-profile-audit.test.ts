@@ -16,6 +16,7 @@ const mockUpdateProfile = jest.fn();
 const mockChangePassword = jest.fn();
 const mockFindForTokenIssue = jest.fn();
 const mockIssueTokens = jest.fn();
+const mockRenewSessionTokens = jest.fn();
 const mockValidateBody = jest.fn((_schema: unknown, body: unknown) => body);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -48,12 +49,6 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/services/index.js', () => ({
-  PROFILE_USER_NOT_FOUND: 'PROFILE_USER_NOT_FOUND',
-  PROFILE_EMAIL_TAKEN: 'PROFILE_EMAIL_TAKEN',
-  PROFILE_INVALID_CREDENTIALS: 'PROFILE_INVALID_CREDENTIALS',
-  PROFILE_OWNER_HAS_ORGS: 'PROFILE_OWNER_HAS_ORGS',
-  PROFILE_LAST_PRIVILEGED_MEMBER: 'PROFILE_LAST_PRIVILEGED_MEMBER',
-  PROFILE_PAT_LIMIT: 'PROFILE_PAT_LIMIT',
   userProfileService: {
     updateProfile: (...a: unknown[]) => mockUpdateProfile(...a),
     changePassword: (...a: unknown[]) => mockChangePassword(...a),
@@ -70,7 +65,10 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: {},
 }));
 
-jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: (...a: unknown[]) => mockIssueTokens(...a) }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({
+  issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
+  renewSessionTokens: (...a: unknown[]) => mockRenewSessionTokens(...a),
+}));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: (schema: unknown, body: unknown, _res: unknown) => mockValidateBody(schema, body),
   updateProfileSchema: {},
@@ -93,6 +91,7 @@ beforeEach(() => {
   mockChangePassword.mockReset();
   mockFindForTokenIssue.mockReset();
   mockIssueTokens.mockReset();
+  mockRenewSessionTokens.mockReset();
   mockValidateBody.mockImplementation((_s: unknown, body: unknown) => body);
 });
 
@@ -155,5 +154,30 @@ describe('generateToken audit', () => {
       targetId: 'u1',
       details: { expiresIn: 86400 },
     }));
+  });
+});
+
+describe('generateToken — refresh-session slot', () => {
+  const user = { _id: 'u1', lastActiveOrgId: 'org-1' };
+  const run = (req: any) => (generateToken as unknown as (req: any, res: any) => Promise<void>)(req, mockRes());
+
+  it('re-mints within the caller\'s slot, carrying the lifetime and scope overrides', async () => {
+    mockFindForTokenIssue.mockResolvedValue(user);
+    mockRenewSessionTokens.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresIn: 3600 });
+
+    await run({ user: { sub: 'u1', sid: 's1' }, body: { expiresIn: '3600', scope: 'reporting:ingest' } });
+
+    expect(mockRenewSessionTokens).toHaveBeenCalledWith(user, 'org-1', { sessionId: 's1' }, { expiresIn: 3600, scope: 'reporting:ingest' });
+    expect(mockIssueTokens).not.toHaveBeenCalled();
+  });
+
+  it('opens a new slot for a caller without one (a PAT)', async () => {
+    mockFindForTokenIssue.mockResolvedValue(user);
+    mockIssueTokens.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresIn: 900 });
+
+    await run({ user: { sub: 'u1', jti: 'pat-1' }, body: {} });
+
+    expect(mockIssueTokens).toHaveBeenCalledWith(user, 'org-1', undefined, undefined);
+    expect(mockRenewSessionTokens).not.toHaveBeenCalled();
   });
 });

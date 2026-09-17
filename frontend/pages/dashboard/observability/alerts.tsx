@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { AlertTriangle, BellOff, RefreshCw, Volume2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { usePolling } from '@/hooks/usePolling';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { useToast } from '@/components/ui/Toast';
@@ -86,16 +87,11 @@ export default function AlertsPage() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!isReady || !isAuthenticated) return;
-    void refresh();
-    // Poll every 30 s — Alertmanager itself evaluates rules every 15 s, so this
-    // keeps the UI ~half a cycle behind which is fine for an operator
-    // dashboard. Drop to 5 s if pager-level urgency is needed; bump to 60 s+
-    // if Prom/AM start to feel the load.
-    const t = setInterval(refresh, 30_000);
-    return () => clearInterval(t);
-  }, [isReady, isAuthenticated, refresh]);
+  // Poll every 30 s while the tab is visible — Alertmanager itself evaluates
+  // rules every 15 s, so this keeps the UI ~half a cycle behind which is fine
+  // for an operator dashboard. Drop to 5 s if pager-level urgency is needed;
+  // bump to 60 s+ if Prom/AM start to feel the load.
+  usePolling(refresh, 30_000, { enabled: isReady && isAuthenticated });
 
   if (!isReady || !isAuthenticated) return <LoadingPage />;
 

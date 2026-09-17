@@ -44,6 +44,9 @@ jest.unstable_mockModule('../src/services/storage-usage.js', () => ({
   computeStorageUsage: jest.fn(),
 }));
 
+const emitImageRegistryAudit = jest.fn();
+jest.unstable_mockModule('../src/services/audit.js', () => ({ emitImageRegistryAudit }));
+
 const incCounter = jest.fn();
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter }));
 
@@ -99,6 +102,12 @@ describe('runRegistryGc', () => {
     expect(result.perRepo).toEqual([{ repo: 'org-acme/app', scanned: 2, deleted: 1 }]);
     // A real deletion invalidates the storage rollup cache.
     expect(invalidateStorageCache).toHaveBeenCalledWith('org-acme/');
+    // The durable audit names the pruned namespace's org as the affected org.
+    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'registry.gc',
+      targetId: 'org-acme/',
+      affectedOrgId: 'acme',
+    }));
   });
 
   it('does not delete anything when every tag is within the retention window', async () => {

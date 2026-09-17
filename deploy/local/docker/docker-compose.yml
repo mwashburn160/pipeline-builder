@@ -527,8 +527,6 @@ services:
       OAUTH_LINKEDIN_CLIENT_SECRET: ${OAUTH_LINKEDIN_CLIENT_SECRET:-}
       OAUTH_CALLBACK_BASE_URL: ${OAUTH_CALLBACK_BASE_URL:-https://localhost:8443}
       SERVICE_TIMEOUT: ${SERVICE_TIMEOUT:-30000}
-      # Loki
-      LOKI_URL: ${LOKI_URL:-http://loki:3100}
       # Native observability: queries go to the Thanos querier (recent + archived
       # blocks), alerts to Alertmanager.
       PROMETHEUS_URL: ${PROMETHEUS_URL:-http://thanos-query:9090}

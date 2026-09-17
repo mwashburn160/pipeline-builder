@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
@@ -19,8 +19,9 @@ import { AuthErrorBanner } from './AuthErrorBanner';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { AskPanel } from '@/components/ask/AskPanel';
-import api from '@/lib/api';
 import { POLL_INTERVAL } from '@/hooks/useMessages';
+import { usePolling } from '@/hooks/usePolling';
+import { pollUnreadCount, useUnreadCount } from '@/lib/unread-count-store';
 
 interface DashboardLayoutProps {
   title: string;
@@ -54,7 +55,9 @@ export function DashboardLayout({
   const { isDark, toggle } = useDarkMode();
   const { mobileOpen, toggleMobile, closeMobile, collapsed, toggleCollapsed } = useSidebarState();
   const router = useRouter();
-  const [unreadCount, setUnreadCount] = useState(0);
+  // Shared with useMessages: on the messages page the count arrives over SSE and
+  // the badge follows it directly; elsewhere the layout polls for it.
+  const { unreadCount, hasLiveSource } = useUnreadCount();
   const [askOpen, setAskOpen] = useState(false);
   const cmdkRef = useRef<() => void>(null);
   const mobileDrawerRef = useRef<HTMLDivElement>(null);
@@ -76,21 +79,7 @@ export function DashboardLayout({
     return () => window.removeEventListener('step-up-required', handler);
   }, []);
 
-  const fetchUnreadCount = useCallback(async () => {
-    if (document.visibilityState !== 'visible') return;
-    try {
-      const result = await api.getUnreadCount();
-      setUnreadCount(result.data?.count || 0);
-    } catch {
-      // Silently fail — message service may not be running
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchUnreadCount();
-    const interval = setInterval(fetchUnreadCount, POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [fetchUnreadCount]);
+  usePolling(pollUnreadCount, POLL_INTERVAL, { enabled: !hasLiveSource });
 
   // Mobile drawer focus management: when the drawer opens, move focus into it,
   // keep Tab cycling within it, close on Escape, lock background scroll, and

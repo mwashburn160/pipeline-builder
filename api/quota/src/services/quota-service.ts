@@ -59,7 +59,7 @@ export class OrgNotFoundError extends Error {
 // Result types
 
 /** Data accepted by the update method. */
-export interface UpdateOrgData {
+interface UpdateOrgData {
   name?: string;
   slug?: string;
   tier?: string;
@@ -67,7 +67,7 @@ export interface UpdateOrgData {
 }
 
 /** Pagination options for list endpoints. */
-export interface ListOrgsOptions {
+interface ListOrgsOptions {
   limit?: number;
   offset?: number;
 }
@@ -77,16 +77,16 @@ export interface ListOrgsOptions {
  * omits `limit` (or passes something larger) is clamped to this so an unbounded
  * `Organization.find()` can never pull the entire collection into memory.
  */
-export const FIND_ALL_MAX_LIMIT = 1000;
+const FIND_ALL_MAX_LIMIT = 1000;
 
 /** Options for the increment flow. */
-export interface IncrementOptions {
+interface IncrementOptions {
   /** When true, skip the limit check (system-admin override). */
   bypassLimit?: boolean;
 }
 
 /** Options for the decrement flow. */
-export interface DecrementOptions {
+interface DecrementOptions {
   /**
    * The `resetAt` timestamp the caller observed at reserve time. When set,
    * the decrement is only applied if the current `resetAt` still matches —

@@ -8,6 +8,7 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { routeChain } from './helpers/route-chain.js';
 
 const mockSendError = jest.fn((_res: any, code: number, msg: string) => ({ error: msg, code }));
 const mockSendBadRequest = jest.fn((_res: any, msg: string, _code?: string) => msg);
@@ -39,7 +40,7 @@ const { createIngestHealthRoutes } = await import('../src/routes/ingest-health.j
 describe('POST /reports/ingest-health', () => {
   let router: any;
   const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
-  const getHandler = () => router.stack.find((l: any) => l.route?.path === '/')?.route?.stack[0]?.handle;
+  const getHandler = () => routeChain(router, '/');
 
   beforeEach(() => {
     jest.clearAllMocks();

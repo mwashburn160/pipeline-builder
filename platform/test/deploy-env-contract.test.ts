@@ -7,8 +7,7 @@
  * `config/index.ts` keys its production guards off `NODE_ENV`: without
  * `production`, a missing `JWT_SECRET` is silently replaced with the literal
  * `'dev-only-insecure-secret'`, a missing `SECRET_ENCRYPTION_KEY` wraps AI
- * provider keys and IdP client secrets under an all-zeros key, and
- * `auth.cookie.secure` resolves false. None of the service images set
+ * provider keys and IdP client secrets under an all-zeros key. None of the service images set
  * `NODE_ENV`, so the ONLY thing standing between a deploy and those fallbacks
  * is each target's `.env.example`. That made the guards dead code in every
  * target until 2026-09-12.

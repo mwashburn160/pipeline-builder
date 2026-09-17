@@ -6,11 +6,16 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 // Mock external dependencies — must be set up before importing the service
 const mockFind = jest.fn();
 const mockSetDefault = jest.fn();
+// Base CrudService.update / updateMany — what the PluginService overrides delegate to.
+const mockSuperUpdate = jest.fn<(...a: any[]) => Promise<any>>();
+const mockSuperUpdateMany = jest.fn<(...a: any[]) => Promise<any[]>>();
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
   class MockCrudService {
     find = mockFind;
     setDefault = mockSetDefault;
+    update(...a: any[]) { return mockSuperUpdate(...a); }
+    updateMany(...a: any[]) { return mockSuperUpdateMany(...a); }
   }
 
   return {
@@ -19,6 +24,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
     CrudService: MockCrudService,
     CoreConstants: { CACHE_TTL_ENTITY: 60 },
     buildPluginConditions: jest.fn(() => []),
+    withViewerContext: <T>(filter: T): T => filter,
     getTenantContext: jest.fn(() => undefined),
     withTenantTx: jest.fn(),
     ComputeType: {},
@@ -43,6 +49,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   class MockCrudService {
     find = mockFind;
     setDefault = mockSetDefault;
+    update(...a: any[]) { return mockSuperUpdate(...a); }
+    updateMany(...a: any[]) { return mockSuperUpdateMany(...a); }
   }
 
   return {
@@ -51,6 +59,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     CrudService: MockCrudService,
     CoreConstants: { CACHE_TTL_ENTITY: 60 },
     buildPluginConditions: jest.fn(() => []),
+    withViewerContext: <T>(filter: T): T => filter,
     getTenantContext: jest.fn(() => undefined),
     withTenantTx: jest.fn(),
     ComputeType: {},
@@ -80,6 +89,7 @@ jest.unstable_mockModule('drizzle-orm', () => ({
   ilike: jest.fn((col: any, val: any) => ({ col, val, op: 'ilike' })),
   eq: jest.fn((col: any, val: any) => ({ col, val, op: 'eq' })),
   isNull: jest.fn((col: any) => ({ col, op: 'isNull' })),
+  ne: jest.fn((col: any, val: any) => ({ col, val, op: 'ne' })),
   inArray: jest.fn((col: any, vals: any[]) => ({ col, vals, op: 'inArray' })),
 }));
 
@@ -201,6 +211,132 @@ describe('PluginService', () => {
       existingRows = [];
       await expect(service.assertDeployable('org-1', 'my-plugin', '1.0.0', 'user-B', member)).resolves.toBeUndefined();
       expect(mockFor).not.toHaveBeenCalled();
+    });
+  });
+
+  // Promoting a version to default used to be a plain column write, leaving the
+  // previous default set too (several "defaults" for one plugin name).
+  describe('update — promoting a default (isDefault: true)', () => {
+    type Op = { op: string; set?: any; where?: any };
+    let ops: Op[];
+    let txCount: number;
+    let currentDefaults: Array<Record<string, unknown>>;
+    const target = { name: 'my-plugin', orgId: 'org-1' };
+    const promoted = { id: 'p-2', orgId: 'org-1', name: 'my-plugin', version: '2.0.0', isDefault: true };
+    const member = { isSystemAdmin: false, canPublish: false };
+
+    beforeEach(() => {
+      ops = [];
+      txCount = 0;
+      currentDefaults = [{ visibility: 'org', createdBy: 'user-A', deletedAt: null }];
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => {
+        txCount++;
+        let selects = 0;
+        return cb({
+          execute: jest.fn(async () => { ops.push({ op: 'lock' }); return []; }),
+          select: jest.fn(() => ({
+            from: () => ({
+              where: () => {
+                const first = selects++ === 0;
+                const rows = first ? [target] : currentDefaults;
+                return Object.assign(Promise.resolve(rows), {
+                  for: async (mode: string) => { ops.push({ op: `select-defaults-for-${mode}` }); return rows; },
+                });
+              },
+            }),
+          })),
+          update: jest.fn(() => ({
+            set: (set: any) => ({
+              where: (where: any) => {
+                ops.push({ op: 'update', set, where });
+                return Object.assign(Promise.resolve([]), { returning: async () => [promoted] });
+              },
+            }),
+          })),
+        });
+      });
+    });
+
+    it('clears the other defaults of the same (org, name) and promotes the row in ONE transaction', async () => {
+      const result = await service.update('P-2', { isDefault: true, description: 'd' }, 'org-1', 'user-1', member);
+
+      expect(result).toEqual(promoted);
+      expect(txCount).toBe(1);
+      expect(mockSuperUpdate).not.toHaveBeenCalled();
+      const updates = ops.filter((o) => o.op === 'update');
+      expect(updates).toHaveLength(2);
+      // 1st: demote every OTHER live default of this name in the org …
+      expect(updates[0].set).toMatchObject({ isDefault: false, updatedBy: 'user-1' });
+      expect(updates[0].where).toEqual(expect.arrayContaining([
+        { col: 'name', val: 'my-plugin', op: 'eq' },
+        { col: 'orgId', val: 'org-1', op: 'eq' },
+        { col: 'isDefault', val: true, op: 'eq' },
+        { col: 'id', val: 'p-2', op: 'ne' },
+      ]));
+      // … 2nd: then write the promoted row itself.
+      expect(updates[1].set).toMatchObject({ isDefault: true, description: 'd', updatedBy: 'user-1' });
+      // Serialized with deployVersion on the same (org, name) advisory lock, before any write.
+      expect(ops[0].op).toBe('lock');
+    });
+
+    it("refuses to demote another author's PRIVATE default (409) and writes nothing", async () => {
+      currentDefaults = [{ visibility: 'private', createdBy: 'user-A', deletedAt: null }];
+      await expect(service.update('p-2', { isDefault: true }, 'org-1', 'user-B', member))
+        .rejects.toMatchObject({ statusCode: 409 });
+      expect(ops.filter((o) => o.op === 'update')).toHaveLength(0);
+    });
+
+    it('defaults the caller authority to least privilege (a PUBLIC default needs plugins:publish)', async () => {
+      currentDefaults = [{ visibility: 'public', createdBy: 'user-A', deletedAt: null }];
+      await expect(service.update('p-2', { isDefault: true }, 'org-1', 'user-A'))
+        .rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('returns null (no writes) when the target is not visible/own-org', async () => {
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({
+        execute: jest.fn(),
+        select: jest.fn(() => ({ from: () => ({ where: () => Promise.resolve([]) }) })),
+        update: jest.fn(() => { throw new Error('must not write'); }),
+      }));
+      await expect(service.update('p-9', { isDefault: true }, 'org-1', 'user-1', member)).resolves.toBeNull();
+    });
+
+    it('delegates a non-promoting update to the base CrudService.update', async () => {
+      mockSuperUpdate.mockResolvedValue({ id: 'p-2' });
+      await service.update('p-2', { description: 'x', isDefault: false }, 'org-1', 'user-1', member);
+      expect(mockSuperUpdate).toHaveBeenCalledWith('p-2', { description: 'x', isDefault: false }, 'org-1', 'user-1');
+      expect(txCount).toBe(0);
+    });
+  });
+
+  // The base CrudService.updateMany fires no lifecycle hooks, so bulk update
+  // skipped the cache invalidation + compliance event a single update gets.
+  describe('updateMany — per-row post-update lifecycle', () => {
+    const secretPluginBase = { orgId: 'org-1', name: 'my-plugin', version: '1.0.0', visibility: 'org', env: {}, buildArgs: {} };
+    it("emits an 'updated' entity event for every changed row", async () => {
+      const rows = [
+        { ...secretPluginBase, id: 'p-1' },
+        { ...secretPluginBase, id: 'p-2' },
+      ];
+      mockSuperUpdateMany.mockResolvedValue(rows);
+      const captured: any[] = [];
+      const subscriber = { onEntityEvent: async (e: any) => { captured.push(e); } };
+      entityEvents.subscribe(subscriber);
+      try {
+        const result = await service.updateMany({ id: ['p-1', 'p-2'] } as any, { isActive: false }, 'org-1', 'user-1');
+        expect(result).toBe(rows);
+      } finally {
+        entityEvents.unsubscribe(subscriber);
+      }
+      expect(mockSuperUpdateMany).toHaveBeenCalledWith({ id: ['p-1', 'p-2'] }, { isActive: false }, 'org-1', 'user-1');
+      expect(captured.map((e) => [e.eventType, e.entityId])).toEqual([['updated', 'p-1'], ['updated', 'p-2']]);
+    });
+
+    it('invalidates the org plugin cache (via the shared update hook)', async () => {
+      mockSuperUpdateMany.mockResolvedValue([{ ...secretPluginBase, id: 'p-1' }]);
+      const spy = jest.spyOn(service as any, 'onAfterUpdate');
+      await service.updateMany({ id: ['p-1'] } as any, { isActive: false }, 'org-1', 'user-1');
+      expect(spy).toHaveBeenCalledWith('p-1', expect.objectContaining({ id: 'p-1' }), 'user-1');
     });
   });
 

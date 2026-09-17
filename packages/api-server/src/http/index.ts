@@ -3,5 +3,4 @@
 
 export * from './sse-connection-manager.js';
 export * from './sse-ticket-channel.js';
-export * from './sse-ticket-store.js';
 export * from './sse-relay.js';

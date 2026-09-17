@@ -19,7 +19,7 @@ import { SourceBuilder } from './source-builder.js';
 import { StageBuilder } from './stage-builder.js';
 import type { StageOptions, SynthOptions } from './step-types.js';
 import { Config, CoreConstants } from '../config/app-config.js';
-import { lambdaRuntime, lambdaTimeout } from '../config/aws-config-cdk.js';
+import { lambdaArchitecture, lambdaRuntime, lambdaTimeout } from '../config/aws-config-cdk.js';
 import type { RegistryConfig } from '../config/config-types.js';
 import { ArtifactManager } from '../core/artifact-manager.js';
 import { UniqueId } from '../core/id-generator.js';
@@ -320,6 +320,7 @@ export class PipelineBuilder extends Construct {
           orgId: props.orgId,
           runtime: lambdaRuntime(awsConfig.lambda.runtime),
           timeout: lambdaTimeout(awsConfig.lambda.timeoutSeconds),
+          architecture: lambdaArchitecture(awsConfig.lambda.architecture),
           reservedConcurrentExecutions: awsConfig.lambda.reservedConcurrentExecutions,
           resolvedPlugins: props.resolvedPlugins,
         },

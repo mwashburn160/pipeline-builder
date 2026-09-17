@@ -14,16 +14,17 @@
  */
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 import AccessRequestsPage from '../pages/dashboard/access-requests';
 import { ApiError } from '../src/lib/api/errors';
+import { mockAuthGuard, pageToast } from './helpers/pageMocks';
 
-const authGuard = { isReady: true, user: { id: 'me', organizationId: 'org-1' }, isReadOnly: false };
-jest.mock('@/hooks/useAuthGuard', () => ({ __esModule: true, useAuthGuard: () => authGuard }));
+const authGuard = mockAuthGuard({ user: { id: 'me', organizationId: 'org-1' } });
+const toast = pageToast;
 
-jest.mock('@/components/ui/DashboardLayout', () => ({
-  __esModule: true,
-  DashboardLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}));
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
+
+jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 
 // A minimal ConfirmDialog: renders its body and the two actions inline, so the
 // test reads what the real dialog would say without the portal machinery.
@@ -40,8 +41,7 @@ jest.mock('@/components/ui/ConfirmDialog', () => ({
   ),
 }));
 
-const toast = { success: jest.fn(), info: jest.fn(), error: jest.fn(), warning: jest.fn() };
-jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
@@ -215,7 +215,10 @@ describe('AccessRequestsPage — read-only impersonation', () => {
     expect(await screen.findByRole('button', { name: 'Approve' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Deny' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'End session' })).toBeDisabled();
-    expect(screen.getByText(/stop impersonating to take action/i)).toBeInTheDocument();
+    for (const name of ['Approve', 'Deny', 'End session']) {
+      expect(screen.getByRole('button', { name })).toHaveAttribute('title', READ_ONLY_REASON);
+    }
+    expect(screen.getByText('Read-only session')).toBeInTheDocument();
   });
 });
 

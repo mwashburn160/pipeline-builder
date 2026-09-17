@@ -147,8 +147,6 @@ export function loadDockerConfig(): BuildConfig {
  * - `LAMBDA_MEMORY_SIZE` — Lambda memory in MB (default: `512`)
  * - `LAMBDA_ARCHITECTURE` — `'x86_64'` or ARM (default: ARM_64)
  * - `LOG_GROUP_NAME` — CloudWatch log group (default: `'/pipeline-builder/logs'`)
- * - `LOG_RETENTION` — Log retention in days (default: `7`)
- * - `LOG_REMOVAL_POLICY` — `'RETAIN'` or destroy (default: DESTROY)
  * - `CODEBUILD_COMPUTE_TYPE` — CodeBuild compute type (default: `'SMALL'`)
  *
  * @returns AWS infrastructure configuration
@@ -167,8 +165,6 @@ export function loadAWSConfig(): AWSConfig {
 
     logging: {
       groupName: process.env.LOG_GROUP_NAME || '/pipeline-builder/logs',
-      retentionDays: parseRetentionDays(process.env.LOG_RETENTION || '7'),
-      removalPolicy: process.env.LOG_REMOVAL_POLICY === 'RETAIN' ? 'retain' : 'destroy',
     },
 
     codeBuild: {
@@ -176,26 +172,4 @@ export function loadAWSConfig(): AWSConfig {
       defaultImage: process.env.CODEBUILD_DEFAULT_IMAGE || 'pipeline-bootstrap:1.0',
     },
   };
-}
-
-/**
- * Valid CloudWatch Logs retention periods, in days. Mirrors the day counts of
- * CDK's `RetentionDays` enum (whose members ARE the day counts), but written out
- * so this module stays free of `aws-cdk-lib`  see the note on {@link AWSConfig}.
- * `0` is CDK's `INFINITE` (never expire).
- */
-const VALID_RETENTION_DAYS = new Set([
-  0, 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731,
-  1096, 1827, 2192, 2557, 2922, 3288, 3653,
-]);
-
-/**
- * Parse a log-retention string into a valid CloudWatch retention day count.
- *
- * @param days - Retention period in days as a string (e.g. `'30'`)
- * @returns the day count; falls back to 1 day for unknown/invalid values
- */
-function parseRetentionDays(days: string): number {
-  const parsed = parseInt(days, 10);
-  return VALID_RETENTION_DAYS.has(parsed) ? parsed : 1;
 }

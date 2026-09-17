@@ -54,16 +54,23 @@ export interface RedisPubSubClient {
   publish(channel: string, message: string): Promise<number>;
   subscribe(...channels: string[]): Promise<unknown>;
   on(event: 'message', cb: (channel: string, message: string) => void): void;
+  on(event: 'error', cb: (err: unknown) => void): void;
   duplicate(): RedisPubSubClient;
   quit(): Promise<unknown>;
 }
 
 /**
- * Single channel carrying every relayed frame. `requestId` rides in the message
- * body rather than the channel name so each pod SUBSCRIBES exactly once on
- * startup — no per-subject subscribe/unsubscribe churn as clients come and go.
+ * The relay channel for one service. Every replica of a service shares it, and
+ * no other service does: an SSE subject (an org id, a build requestId) only has
+ * meaning inside the service whose clients subscribed to it, so a shared channel
+ * made every service's pods parse — and re-emit to same-named subjects — every
+ * other service's frames. `requestId` rides in the message body rather than the
+ * channel name so each pod SUBSCRIBES exactly once on startup — no per-subject
+ * subscribe/unsubscribe churn as clients come and go.
  */
-const RELAY_CHANNEL = 'sse:relay';
+export function sseRelayChannel(serviceName: string): string {
+  return `sse:relay:${serviceName}`;
+}
 
 /** Backoff bounds for the startup SUBSCRIBE retry. */
 const SUBSCRIBE_RETRY_MIN_MS = 500;
@@ -75,21 +82,26 @@ const SUBSCRIBE_RETRY_MAX_MS = 30_000;
  * connection). Publish is fire-and-forget with a swallowed rejection; a subscribe
  * handler that throws is isolated so one bad frame can't kill the subscriber.
  */
-export function createRedisSSERelay(publisher: RedisPubSubClient): SSERelay {
+export function createRedisSSERelay(publisher: RedisPubSubClient, channel: string): SSERelay {
   const subscriber = publisher.duplicate();
+  // A duplicated ioredis connection doesn't inherit the publisher's listeners;
+  // without its own, a dropped connection is an unhandled 'error' that crashes Node.
+  subscriber.on('error', (err) => {
+    logger.warn('SSE relay subscriber connection error', { channel, error: err instanceof Error ? err.message : String(err) });
+  });
   let closed = false;
 
   return {
     publish(msg) {
       if (closed) return;
       // Fire-and-forget: never await, never surface a rejection to the caller.
-      void Promise.resolve(publisher.publish(RELAY_CHANNEL, JSON.stringify(msg))).catch((err) => {
+      void Promise.resolve(publisher.publish(channel, JSON.stringify(msg))).catch((err) => {
         logger.warn('SSE relay publish failed', { error: err instanceof Error ? err.message : String(err) });
       });
     },
     subscribe(handler) {
-      subscriber.on('message', (channel, message) => {
-        if (channel !== RELAY_CHANNEL) return;
+      subscriber.on('message', (received, message) => {
+        if (received !== channel) return;
         let parsed: SSERelayMessage;
         try {
           parsed = JSON.parse(message) as SSERelayMessage;
@@ -109,8 +121,8 @@ export function createRedisSSERelay(publisher: RedisPubSubClient): SSERelay {
       let delayMs = SUBSCRIBE_RETRY_MIN_MS;
       const attempt = (): void => {
         if (closed) return;
-        void Promise.resolve(subscriber.subscribe(RELAY_CHANNEL)).then(
-          () => logger.info('SSE relay subscribed'),
+        void Promise.resolve(subscriber.subscribe(channel)).then(
+          () => logger.info('SSE relay subscribed', { channel }),
           (err) => {
             logger.warn('SSE relay subscribe failed; retrying (local-only delivery meanwhile)', {
               retryInMs: delayMs, error: err instanceof Error ? err.message : String(err),
@@ -130,13 +142,14 @@ export function createRedisSSERelay(publisher: RedisPubSubClient): SSERelay {
 }
 
 /**
- * Build a Redis-backed SSE relay from the shared env Redis (same wiring as the
- * SSE ticket store / rate-limiter / audit-spool). Returns null when Redis isn't
- * configured so the caller keeps local-only delivery.
+ * Build a Redis-backed SSE relay from the shared env Redis, on this service's
+ * own channel (`SERVICE_NAME`). Returns null when Redis isn't configured so the
+ * caller keeps local-only delivery.
  */
-export function createEnvRedisSSERelay(): SSERelay | null {
+export function createEnvRedisSSERelay(serviceName: string = process.env.SERVICE_NAME || 'api'): SSERelay | null {
   const client = createEnvRedisClient<RedisPubSubClient>('sse-relay');
   if (!client) return null;
-  logger.info('Redis SSE relay initialized (cross-pod fan-out enabled)');
-  return createRedisSSERelay(client);
+  const channel = sseRelayChannel(serviceName);
+  logger.info('Redis SSE relay initialized (cross-pod fan-out enabled)', { channel });
+  return createRedisSSERelay(client, channel);
 }

@@ -59,7 +59,7 @@ export default function OnboardingPage() {
   // Already onboarded (e.g. navigated here directly) — nothing to do.
   useEffect(() => {
     if (isReady && user && !user.needsOnboarding) router.replace('/dashboard');
-  }, [isReady, user, router]);
+  }, [isReady, user?.id, user?.needsOnboarding, router]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Discover orgs the user could join by their verified email domain.
   useEffect(() => {

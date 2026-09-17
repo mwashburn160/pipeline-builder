@@ -1,7 +1,8 @@
-import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef, ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import { User, UserOrgMembership } from '@/types';
 import api, { ApiError } from '@/lib/api';
+import { clearAttachmentImageCache } from '@/lib/attachment-image-cache';
 import { clearPluginCache } from './usePlugins';
 
 /**
@@ -63,6 +64,23 @@ interface RawUserData {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/**
+ * Keep the previous value when the new one is structurally identical.
+ *
+ * The profile is re-fetched on every tab refocus. Handing consumers a NEW but
+ * equal object would re-run every effect keyed on it — resetting forms the user
+ * is typing in and reloading whole pages — for a profile that didn't change.
+ */
+function keepIfUnchanged<T>(prev: T, next: T): T {
+  return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+}
+
+/** Drop per-session client caches so nothing leaks into the next session/org. */
+function clearSessionCaches(): void {
+  clearPluginCache();
+  clearAttachmentImageCache();
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [organizations, setOrganizations] = useState<UserOrgMembership[]>([]);
@@ -120,7 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             updatedAt: rawUser.updatedAt,
           };
           
-          setUser(userData);
+          setUser((prev) => keepIfUnchanged(prev, userData));
           setAuthError(null);
           // Set organization ID for API requests
           if (userData.organizationId) {
@@ -137,9 +155,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               parentOrgId: o.parentOrgId,
               tier: o.tier as UserOrgMembership['tier'],
             }));
-            setOrganizations(orgs);
+            setOrganizations((prev) => keepIfUnchanged(prev, orgs));
           } catch {
-            setOrganizations([]);
+            setOrganizations((prev) => (prev.length === 0 ? prev : []));
           }
           return;
         }
@@ -208,7 +226,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    */
   useEffect(() => {
     return api.onSessionExpired(() => {
-      clearPluginCache();
+      clearSessionCaches();
       setUser(null);
       router.push('/?expired=1');
     });
@@ -276,10 +294,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    */
   const switchOrganization = useCallback(async (orgId: string) => {
     await api.switchOrganization(orgId);
-    // Drop the previous org's cached plugins before loading the new org's
-    // profile — the module-level plugin cache would otherwise leak Org A's
-    // plugins into the Org B session.
-    clearPluginCache();
+    // Drop the previous org's cached plugins/attachments before loading the new
+    // org's profile — the module-level caches would otherwise leak Org A's data
+    // into the Org B session.
+    clearSessionCaches();
     // Force a fresh, non-coalesced refresh under the NEW org's token — a refresh
     // already in flight under the previous token must not satisfy this reload.
     await refreshUser({ force: true });
@@ -298,7 +316,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await api.logout();
     } finally {
-      clearPluginCache();
+      clearSessionCaches();
       setUser(null);
       setIsLoading(false);
       // Navigate to landing page
@@ -306,30 +324,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [router]);
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        organizations,
-        isLoading,
-        isAuthenticated: !!user,
-        isInitialized,
-        // Derived from the current access token's `impersonationReadOnly` claim.
-        // Impersonation start/stop performs a full page reload, so reading it at
-        // render time is stable for the session.
-        isReadOnly: api.isImpersonating(),
-        authError,
-        login,
-        register,
-        logout,
-        refreshUser,
-        switchOrganization,
-        markOnboardingComplete,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
+  // Derived from the current access token's `impersonationReadOnly` claim.
+  // Impersonation start/stop performs a full page reload, so reading it at
+  // render time is stable for the session.
+  const isReadOnly = api.isImpersonating();
+
+  // Memoized so a provider re-render with nothing changed doesn't hand every
+  // consumer a new context object (and re-run their effects).
+  const value = useMemo<AuthContextType>(() => ({
+    user,
+    organizations,
+    isLoading,
+    isAuthenticated: !!user,
+    isInitialized,
+    isReadOnly,
+    authError,
+    login,
+    register,
+    logout,
+    refreshUser,
+    switchOrganization,
+    markOnboardingComplete,
+  }), [user, organizations, isLoading, isInitialized, isReadOnly, authError, login, register, logout, refreshUser, switchOrganization, markOnboardingComplete]);
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 /**

@@ -61,8 +61,8 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-// helpers.js now imports `Config` from pipeline-core (to resolve the platform
-// host/port for the shared org-descendants client). requireActual('../src/helpers.js')
+// helpers/report-helpers.js now imports `Config` from pipeline-core (to resolve the platform
+// host/port for the shared org-descendants client). requireActual('../src/helpers/report-helpers.js')
 // below loads that module, so stub pipeline-core here to keep its full config
 // graph (aws-cdk-lib, etc.) out of this api-core-mocking suite. resolveOrgRollup
 // itself is mocked, so Config.get is never actually invoked.
@@ -72,13 +72,13 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   },
 }));
 
-// `rollupIds` now lives in helpers.js (shared by both report routers). Because it
+// `rollupIds` now lives in helpers/report-helpers.js (shared by both report routers). Because it
 // calls `resolveOrgRollup` intra-module, overriding only the resolveOrgRollup
 // export can't intercept it, so override `rollupIds` too — reproducing its gate
 // (reports:rollup + ?includeDescendants) against the mocked resolveOrgRollup, so
 // the existing mockResolveOrgRollup assertions still hold.
-jest.unstable_mockModule('../src/helpers.js', () => {
-  const actual = jest.requireActual('../src/helpers.js') as Record<string, unknown>;
+jest.unstable_mockModule('../src/helpers/report-helpers.js', () => {
+  const actual = jest.requireActual('../src/helpers/report-helpers.js') as Record<string, unknown>;
   return {
     ...actual,
     resolveOrgRollup: (...a: unknown[]) => mockResolveOrgRollup(...a),

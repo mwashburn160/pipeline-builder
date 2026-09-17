@@ -26,7 +26,7 @@ jest.unstable_mockModule('mongoose', () => ({
   default: { Types: { ObjectId: class {} } },
   Types: { ObjectId: class {} },
 }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (cb: (s: unknown) => unknown) => cb({ id: 'test-session' }),
 }));

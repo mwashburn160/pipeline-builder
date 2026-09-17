@@ -90,7 +90,6 @@ function getHandler(method: string, path: string) {
 function mockReq(body: unknown): any {
   return {
     body,
-    on: jest.fn(),
     headers: { authorization: 'Bearer USER-BEARER-tok' },
     context: { identity: { orgId: 'ORG-1', userId: 'user-9' }, log: jest.fn(), requestId: 'req-1' },
   };
@@ -102,6 +101,8 @@ function mockRes(): any {
   res.json = jest.fn().mockReturnValue(res);
   res.write = jest.fn().mockReturnValue(true);
   res.end = jest.fn().mockReturnValue(res);
+  res.on = jest.fn().mockReturnValue(res);
+  res.writableFinished = false;
   return res;
 }
 
@@ -176,6 +177,14 @@ describe('POST /ask', () => {
     expect(mockAnswerHowTo).not.toHaveBeenCalled();
   });
 
+  it('keeps the slot when a failure happens AFTER the provider answered', async () => {
+    mockAnswerHowTo.mockResolvedValue({ text: 'answer', sources: [] });
+    // The success audit throws after the (paid) provider round-trip completed.
+    auditRecord.mockImplementationOnce(() => { throw new Error('audit sink exploded'); });
+    await handler(mockReq({ query: 'how do I deploy' }), mockRes());
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+  });
+
   it('refunds the slot when answering throws', async () => {
     mockAnswerHowTo.mockRejectedValue(new Error('LLM down'));
     await handler(mockReq({ query: 'how do I deploy', provider: 'anthropic', model: 'claude-sonnet-5' }), mockRes());
@@ -191,7 +200,11 @@ describe('POST /ask/stream', () => {
   it('emits sources, then tokens, then done — and keeps the reserved slot', async () => {
     mockStreamHowTo.mockReturnValue({
       sources: [{ id: 'deployment.md#alertmanager', title: 'Alertmanager' }],
-      textStream: (async function* () { yield 'grounded '; yield 'answer'; })(),
+      events: (async function* () {
+        yield { type: 'provider-responded' };
+        yield { type: 'text', text: 'grounded ' };
+        yield { type: 'text', text: 'answer' };
+      })(),
     });
 
     const res = mockRes();
@@ -205,5 +218,32 @@ describe('POST /ask/stream', () => {
     // Completed stream keeps the slot (provider round-trip already incurred).
     expect(mockDecrementQuota).not.toHaveBeenCalled();
     expect(res.end).toHaveBeenCalled();
+  });
+
+  it('refunds + reports an error when the provider fails before it responds', async () => {
+    mockStreamHowTo.mockReturnValue({
+      sources: [],
+      events: (async function* () { throw new Error('invalid api key'); })(),
+    });
+    const res = mockRes();
+    await handler(mockReq({ query: 'wire alertmanager for incidents' }), res);
+
+    const frames = res.write.mock.calls.map((c: any[]) => String(c[0]));
+    expect(frames.some((f: string) => f.includes('[DONE]'))).toBe(false);
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+    expect(auditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'ask.query', outcome: 'failure' }), 'ask');
+  });
+
+  it('keeps the slot when the stream fails AFTER the first token', async () => {
+    mockStreamHowTo.mockReturnValue({
+      sources: [],
+      events: (async function* () {
+        yield { type: 'provider-responded' };
+        yield { type: 'text', text: 'partial' };
+        throw new Error('socket hang up');
+      })(),
+    });
+    await handler(mockReq({ query: 'wire alertmanager for incidents' }), mockRes());
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
   });
 });

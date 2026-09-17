@@ -46,6 +46,8 @@ const mockRmSync = jest.fn();
 const mockUtimesSync = jest.fn();
 
 const mockBuildAndPush = jest.fn<(...args: any[]) => any>();
+// S3 build-context download (cross-replica rehydrate). Default: succeeds.
+const mockGetPluginArtifactToFile = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
 
 /** Mirror of the real docker-build BuildProcessError (carries the masked tail +
  *  exit reason) so the failed-handler summary logic can be exercised. */
@@ -110,7 +112,9 @@ function registerMocks() {
         capturedProcessors[name] = processor;
       }
     }
-    return { Queue: MockQueue, Worker: MockWorker };
+    // Mirrors bullmq's UnrecoverableError (fail now, skip remaining attempts).
+    class MockUnrecoverableError extends Error {}
+    return { Queue: MockQueue, Worker: MockWorker, UnrecoverableError: MockUnrecoverableError };
   });
 
   jest.unstable_mockModule('ioredis', () => {
@@ -146,7 +150,7 @@ function registerMocks() {
     readAndExtractZip: jest.fn(),
   }));
   jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
-    getPluginArtifactToFile: jest.fn(),
+    getPluginArtifactToFile: mockGetPluginArtifactToFile,
     deletePluginArtifact: jest.fn(),
     putPluginArtifact: jest.fn(),
     pluginArtifactKey: jest.fn(() => 'org/req.zip'),
@@ -375,6 +379,9 @@ function makeDlqJob(dataOverrides: Partial<PluginBuildJobData> = {}, jobOverride
 
 describe('plugin-build-queue', () => {
   let queueModule: typeof import('../src/queue/plugin-build-queue.js');
+  let connectionsModule: typeof import('../src/queue/connections.js');
+  let requeueModule: typeof import('../src/queue/requeue.js');
+  let buildQuotaModule: typeof import('../src/queue/build-quota.js');
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -387,24 +394,27 @@ describe('plugin-build-queue', () => {
     registerMocks();
 
     queueModule = await import('../src/queue/plugin-build-queue.js');
+    connectionsModule = await import('../src/queue/connections.js');
+    requeueModule = await import('../src/queue/requeue.js');
+    buildQuotaModule = await import('../src/queue/build-quota.js');
   });
 
   describe('getTierQueue()', () => {
     it('returns a BullMQ Queue instance for the default tier', () => {
-      const q = queueModule.getTierQueue('developer');
+      const q = connectionsModule.getTierQueue('developer');
       expect(q).toBeDefined();
       expect(q.add).toBeDefined();
     });
 
     it('returns the same instance on subsequent calls (per-tier singleton)', () => {
-      const q1 = queueModule.getTierQueue('developer');
-      const q2 = queueModule.getTierQueue('developer');
+      const q1 = connectionsModule.getTierQueue('developer');
+      const q2 = connectionsModule.getTierQueue('developer');
       expect(q1).toBe(q2);
     });
 
     it('returns distinct instances for distinct tiers', () => {
-      const dev = queueModule.getTierQueue('developer');
-      const pro = queueModule.getTierQueue('pro');
+      const dev = connectionsModule.getTierQueue('developer');
+      const pro = connectionsModule.getTierQueue('pro');
       expect(dev).not.toBe(pro);
     });
   });
@@ -636,14 +646,15 @@ describe('plugin-build-queue', () => {
       // undefined so the manual retry isn't refused.
       mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
       // Slot successfully reserved for the new job (quotaReleased === false).
-      mockReserveQuota.mockResolvedValueOnce({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99 } });
+      mockReserveQuota.mockResolvedValueOnce({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99, resetAt: 'RESERVED-PERIOD' } });
       mockQueueAdd.mockRejectedValueOnce(new Error('redis add failed'));
 
-      await expect(queueModule.retryFailedJob('failed-1', quota)).rejects.toThrow('redis add failed');
+      await expect(requeueModule.retryFailedJob('failed-1', quota)).rejects.toThrow('redis add failed');
 
-      // decrementQuota (aliased to mockIncrementQuota) must release the reserved slot.
+      // decrementQuota (aliased to mockIncrementQuota) must release the reserved
+      // slot — period-safely, with the resetAt snapshot of that reservation.
       expect(mockIncrementQuota).toHaveBeenCalledWith(
-        quota, 'org-1', 'plugins', expect.any(String), expect.any(Function),
+        quota, 'org-1', 'plugins', expect.any(String), expect.any(Function), 1, 'RESERVED-PERIOD',
       );
       // The original failed entry must NOT be removed — the retry did not succeed.
       expect(failedJob.remove).not.toHaveBeenCalled();
@@ -660,7 +671,7 @@ describe('plugin-build-queue', () => {
       mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'plugins', limit: 1, used: 1, remaining: 0 } });
       mockQueueAdd.mockRejectedValueOnce(new Error('redis add failed'));
 
-      await expect(queueModule.retryFailedJob('failed-1', quota)).rejects.toThrow('redis add failed');
+      await expect(requeueModule.retryFailedJob('failed-1', quota)).rejects.toThrow('redis add failed');
 
       // Nothing was reserved, so nothing must be released (no over-decrement).
       expect(mockIncrementQuota).not.toHaveBeenCalled();
@@ -680,7 +691,7 @@ describe('plugin-build-queue', () => {
       mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-1' });
 
-      const newId = await queueModule.retryFailedJob('failed-1', quota);
+      const newId = await requeueModule.retryFailedJob('failed-1', quota);
 
       // Op succeeds (does NOT throw) — the build is already enqueued exactly once.
       expect(newId).toBe('new-job-1');
@@ -703,7 +714,7 @@ describe('plugin-build-queue', () => {
       mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-2' });
 
-      const newId = await queueModule.retryFailedJob('failed-1', quota);
+      const newId = await requeueModule.retryFailedJob('failed-1', quota);
 
       expect(newId).toBe('new-job-2');
       expect(mockQueueAdd).toHaveBeenCalledTimes(1);
@@ -718,7 +729,7 @@ describe('plugin-build-queue', () => {
       mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-3' });
 
-      const newId = await queueModule.retryFailedJob('failed-1', quota);
+      const newId = await requeueModule.retryFailedJob('failed-1', quota);
 
       expect(newId).toBe('new-job-3');
       expect(mockQueueAdd).toHaveBeenCalledTimes(1);
@@ -731,7 +742,7 @@ describe('plugin-build-queue', () => {
       const quota = makeQuotaService();
       mockQueueGetJob.mockResolvedValue(undefined);
 
-      const result = await queueModule.retryFailedJob('missing', quota);
+      const result = await requeueModule.retryFailedJob('missing', quota);
 
       expect(result).toBeNull();
       expect(mockQueueAdd).not.toHaveBeenCalled();
@@ -751,7 +762,7 @@ describe('plugin-build-queue', () => {
       const quota = makeQuotaService();
       const job = makeJob(makeJobData({ reservedResetAt: '2026-02-01T00:00:00.000Z' }));
 
-      queueModule.releasePluginQuota(job, quota);
+      buildQuotaModule.releasePluginQuota(job, quota);
 
       // decrementQuota (aliased to mockIncrementQuota) is called with amount=1
       // and the reservedResetAt snapshot as the 7th arg.
@@ -764,7 +775,7 @@ describe('plugin-build-queue', () => {
       const quota = makeQuotaService();
       const job = makeJob(makeJobData({ reservedResetAt: '2026-02-01T00:00:00.000Z', quotaReleased: true }));
 
-      queueModule.releasePluginQuota(job, quota);
+      buildQuotaModule.releasePluginQuota(job, quota);
 
       expect(mockIncrementQuota).not.toHaveBeenCalled();
     });
@@ -784,7 +795,7 @@ describe('plugin-build-queue', () => {
       mockReserveQuota.mockResolvedValueOnce({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99, resetAt: 'NEW-PERIOD' } });
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job' });
 
-      await queueModule.retryFailedJob('failed-1', quota);
+      await requeueModule.retryFailedJob('failed-1', quota);
 
       const enqueuedData = mockQueueAdd.mock.calls[0][1] as PluginBuildJobData;
       expect(enqueuedData.reservedResetAt).toBe('NEW-PERIOD');
@@ -805,7 +816,7 @@ describe('plugin-build-queue', () => {
       mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'plugins', limit: 1, used: 1, remaining: 0 } });
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-2' });
 
-      await queueModule.retryFailedJob('failed-2', quota);
+      await requeueModule.retryFailedJob('failed-2', quota);
 
       const enqueuedData = mockQueueAdd.mock.calls[0][1] as PluginBuildJobData;
       expect(enqueuedData.reservedResetAt).toBeUndefined();
@@ -841,7 +852,7 @@ describe('plugin-build-queue', () => {
       process.env.PLUGIN_TIER_CACHE_TTL_MS = 'garbage';
       jest.resetModules();
       registerMocks();
-      const mod = await import('../src/queue/plugin-build-queue.js');
+      const mod = await import('../src/queue/connections.js');
       expect(Number.isFinite(mod.TIER_CACHE_TTL_MS)).toBe(true);
       expect(mod.TIER_CACHE_TTL_MS).toBe(300000);
       delete process.env.PLUGIN_TIER_CACHE_TTL_MS;
@@ -853,7 +864,7 @@ describe('plugin-build-queue', () => {
       const sse = makeSseManager();
       const quota = makeQuotaService();
 
-      queueModule.getTierQueue('developer');
+      connectionsModule.getTierQueue('developer');
       queueModule.startWorker(sse, quota);
 
       await queueModule.shutdownQueue();
@@ -1074,6 +1085,140 @@ describe('plugin-build-queue', () => {
 
       expect(terminalFailedEmits()).toEqual(['plugin.build.failed']);
       expect(auditActions()).not.toContain('plugin.build.completed');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // DLQ replay shares the failed-retry requeue implementation
+  // ---------------------------------------------------------------------------
+  describe('replayDlqJob()', () => {
+    function makeReplayableDlqJob(overrides: Record<string, any> = {}) {
+      return { ...makeDlqJob(), remove: jest.fn<() => Promise<void>>().mockResolvedValue(undefined), ...overrides };
+    }
+
+    it('releases the reserved slot period-safely and rethrows when add() throws', async () => {
+      const quota = makeQuotaService();
+      const dlqJob = makeReplayableDlqJob();
+      mockQueueGetJob.mockResolvedValue(dlqJob);
+      mockReserveQuota.mockResolvedValueOnce({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99, resetAt: 'RESERVED-PERIOD' } });
+      mockQueueAdd.mockRejectedValueOnce(new Error('redis add failed'));
+
+      await expect(requeueModule.replayDlqJob('dlq-job-1', quota)).rejects.toThrow('redis add failed');
+
+      expect(mockIncrementQuota).toHaveBeenCalledWith(
+        quota, 'org-1', 'plugins', expect.any(String), expect.any(Function), 1, 'RESERVED-PERIOD',
+      );
+      expect(dlqJob.remove).not.toHaveBeenCalled();
+    });
+
+    it('re-enqueues with a fresh budget + fresh period snapshot and removes the DLQ entry', async () => {
+      const quota = makeQuotaService();
+      const dlqJob = makeReplayableDlqJob({ data: makeJobData({ totalAttempts: 8, lastError: 'boom', failureCategory: 'retryable', reservedResetAt: 'OLD' }) });
+      mockQueueGetJob.mockResolvedValue(dlqJob);
+      mockReserveQuota.mockResolvedValueOnce({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99, resetAt: 'NEW' } });
+      mockQueueAdd.mockResolvedValueOnce({ id: 'replayed-1' });
+
+      await expect(requeueModule.replayDlqJob('dlq-job-1', quota)).resolves.toBe('replayed-1');
+
+      const [name, data] = mockQueueAdd.mock.calls[0] as [string, PluginBuildJobData];
+      expect(name).toBe('replay-dlq-my-plugin');
+      expect(data).toMatchObject({ totalAttempts: 0, quotaReleased: false, reservedResetAt: 'NEW' });
+      expect(data).not.toHaveProperty('lastError');
+      expect(data).not.toHaveProperty('failureCategory');
+      expect(dlqJob.remove).toHaveBeenCalledTimes(1);
+    });
+
+    it('a remove() failure after a successful enqueue is non-fatal (no second enqueue on operator retry)', async () => {
+      const quota = makeQuotaService();
+      const dlqJob = makeReplayableDlqJob({ remove: jest.fn<() => Promise<void>>().mockRejectedValue(new Error('remove failed')) });
+      mockQueueGetJob.mockResolvedValue(dlqJob);
+      mockQueueAdd.mockResolvedValueOnce({ id: 'replayed-2' });
+
+      await expect(requeueModule.replayDlqJob('dlq-job-1', quota)).resolves.toBe('replayed-2');
+      expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns null when the DLQ job no longer exists', async () => {
+      mockQueueGetJob.mockResolvedValue(undefined);
+      await expect(requeueModule.replayDlqJob('gone', makeQuotaService())).resolves.toBeNull();
+      expect(mockReserveQuota).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // A vanished build context is UNRECOVERABLE
+  // ---------------------------------------------------------------------------
+  //
+  // Retrying can't bring back a context that is neither on this replica nor in
+  // object storage, so BullMQ must fail the job immediately (UnrecoverableError)
+  // — and since BullMQ then skips the remaining attempts, the failure handlers
+  // must treat it as terminal or the quota slot and artifacts leak.
+  describe('missing build context', () => {
+    it('the processor throws an UnrecoverableError when the context is absent and has no S3 key', async () => {
+      const { UnrecoverableError } = await import('bullmq') as any;
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      const data = makeJobData();
+      delete (data.buildRequest as { s3Key?: string }).s3Key;
+
+      const err = await getMainProcessor()(makeJob(data)).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(UnrecoverableError);
+      expect(String((err as Error).message)).toContain('Build context missing');
+      expect(mockBuildAndPush).not.toHaveBeenCalled();
+    });
+
+    it('treats a staged object that no longer exists (NoSuchKey) as unrecoverable', async () => {
+      const { UnrecoverableError } = await import('bullmq') as any;
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockGetPluginArtifactToFile.mockRejectedValueOnce(Object.assign(new Error('The specified key does not exist.'), { name: 'NoSuchKey' }));
+
+      const err = await getMainProcessor()(makeJob(makeJobData())).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(UnrecoverableError);
+    });
+
+    it('keeps a transient object-storage error retryable', async () => {
+      const { UnrecoverableError } = await import('bullmq') as any;
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockGetPluginArtifactToFile.mockRejectedValueOnce(Object.assign(new Error('socket hang up'), { name: 'TimeoutError' }));
+
+      const err = await getMainProcessor()(makeJob(makeJobData())).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(Error);
+      expect(err).not.toBeInstanceOf(UnrecoverableError);
+    });
+
+    it('the tier failed handler finalizes it on a NON-final attempt: releases quota, records one terminal event, no DLQ', async () => {
+      const { BuildContextMissingError } = await import('../src/queue/build-workspace.js');
+      const quota = makeQuotaService();
+      queueModule.startWorker(makeSseManager(), quota);
+
+      // attemptsMade 1 of 2 — BullMQ will NOT run attempt 2 for an UnrecoverableError.
+      await getTierFailedHandler()(
+        makeJob(makeJobData({ reservedResetAt: 'P1' }), { attemptsMade: 1 }),
+        new BuildContextMissingError('/tmp/build-ctx (no S3 key to restore from)'),
+      );
+      await flush();
+
+      expect(mockIncrementQuota).toHaveBeenCalledWith(
+        quota, 'org-1', 'plugins', expect.any(String), expect.any(Function), 1, 'P1',
+      );
+      expect(terminalFailedEmits()).toEqual(['plugin.build.failed']);
+      expect(mockQueueAdd).not.toHaveBeenCalledWith(expect.stringMatching(/^dlq-/), expect.anything(), expect.anything());
+    });
+
+    it('the DLQ failed handler finalizes it on a NON-final DLQ attempt', async () => {
+      const { BuildContextMissingError } = await import('../src/queue/build-workspace.js');
+      const quota = makeQuotaService();
+      queueModule.startWorker(makeSseManager(), quota);
+
+      await getDlqFailedHandler()(
+        makeDlqJob({ lastError: 'Docker build failed' }, { attemptsMade: 1, opts: { attempts: 3 } }),
+        new BuildContextMissingError('/tmp/build-ctx (no S3 key to restore from)'),
+      );
+
+      expect(mockIncrementQuota).toHaveBeenCalled();
+      expect(terminalFailedEmits()).toEqual(['plugin.build.failed']);
     });
   });
 });

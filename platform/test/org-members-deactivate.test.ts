@@ -27,7 +27,7 @@ jest.unstable_mockModule('mongoose', () => {
   return { ...api, default: api };
 });
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgScope: async (id: string) => [id] }));
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityAvailable: jest.fn(async () => true),
@@ -53,8 +53,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: {},
 }));
 
-const { orgMembersService, OM_MEMBERSHIP_NOT_FOUND, OM_CANNOT_REMOVE_OWNER, OM_ALREADY_INACTIVE } =
-  await import('../src/services/org-members-service.js');
+const { orgMembersService } = await import('../src/services/org-members-service.js');
+const { OM_MEMBERSHIP_NOT_FOUND, OM_CANNOT_REMOVE_OWNER, OM_ALREADY_INACTIVE } = await import('../src/services/org-members-errors.js');
 
 /** `UserOrganization.findOne(...)` returns a query whose `.session()` resolves to `doc`. */
 const findOneResolving = (doc: unknown) => ({ session: () => Promise.resolve(doc) });
@@ -76,14 +76,14 @@ describe('OrgMembersService.deactivateMember', () => {
     expect(membership.isActive).toBe(false);
     expect(mockMembershipSave).toHaveBeenCalled();
 
-    // The token-invalidation write: $inc tokenVersion + $unset refreshToken,
+    // The token-invalidation write: $inc tokenVersion + clear refresh-session slots,
     // targeted at the user (no lastActiveOrgId filter on this write).
     const invalidation = mockUserUpdateOne.mock.calls.find(
       (c) => (c[1] as any)?.$inc?.tokenVersion === 1,
     );
     expect(invalidation).toBeDefined();
     expect((invalidation![0] as any)).toEqual({ _id: 'user-1' });
-    expect((invalidation![1] as any).$unset).toHaveProperty('refreshToken');
+    expect((invalidation![1] as any).$set).toEqual({ refreshSessions: [] });
   });
 
   it('clears lastActiveOrgId when it pointed at the deactivated org', async () => {

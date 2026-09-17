@@ -1,11 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { ORG_AI_KEY_TOO_LONG } from './org-errors.js';
 import { wrapEncrypted } from '../utils/secret-blob.js';
 import { isReasonableString } from '../utils/string-guards.js';
-
-/** An AI provider key value exceeded {@link AI_PROVIDER_KEY_MAX_LEN} characters. */
-export const ORG_AI_KEY_TOO_LONG = 'ORG_AI_KEY_TOO_LONG';
 
 /** Supported AI provider identifiers. */
 const AI_PROVIDERS = ['anthropic', 'openai', 'google', 'xai', 'amazon-bedrock'] as const;

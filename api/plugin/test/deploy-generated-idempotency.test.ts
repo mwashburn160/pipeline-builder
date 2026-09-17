@@ -36,11 +36,32 @@ const mockEmitPluginAudit = jest.fn();
 // F3: the route binds the build-log stream's owner at enqueue so a cross-org
 // ticket mint for this requestId is refused.
 const mockBindStreamOwner = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
+const mockRmSync = jest.fn();
 
 jest.unstable_mockModule('fs', () => ({
   mkdirSync: jest.fn(),
   writeFileSync: jest.fn(),
+  rmSync: mockRmSync,
 }));
+
+// Object storage (MinIO/S3) for the staged build context.
+const mockPutPluginArtifact = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
+const mockDeletePluginArtifact = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
+jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
+  putPluginArtifact: mockPutPluginArtifact,
+  deletePluginArtifact: mockDeletePluginArtifact,
+  pluginArtifactKey: (orgId: string, requestId: string) => `${orgId}/${requestId}.zip`,
+}));
+
+// A REAL quota client whose quota service is unreachable (nothing listens on
+// port 1) — used to drive the route with what an outage actually looks like:
+// the safe HTTP client returns null, so reserve RESOLVES `unavailable` rather
+// than throwing. Loaded by file path, not through the mocked api-core entry.
+const realQuota = await import('@pipeline-builder/api-core/lib/services/quota.js') as {
+  createQuotaService: (cfg: { host: string; port: number; timeout: number }) => any;
+  reserveQuota: (...args: any[]) => Promise<any>;
+};
+const unreachableQuotaService = realQuota.createQuotaService({ host: '127.0.0.1', port: 1, timeout: 500 });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   reserveQuota: mockReserveQuota,
@@ -91,7 +112,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
 jest.unstable_mockModule('../src/helpers/docker-build.js', () => ({ BUILD_TEMP_ROOT: '/tmp/builds' }));
 jest.unstable_mockModule('../src/helpers/plugin-helpers.js', () => ({ createBuildJobData: mockCreateBuildJobData }));
 jest.unstable_mockModule('../src/helpers/plugin-spec.js', () => ({ validateBuildArgs: jest.fn() }));
-jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({ enqueueBuild: mockEnqueueBuild, getOrgTier: mockGetOrgTier }));
+jest.unstable_mockModule('../src/queue/connections.js', () => ({ enqueueBuild: mockEnqueueBuild, getOrgTier: mockGetOrgTier }));
 jest.unstable_mockModule('../src/services/audit.js', () => ({ emitPluginAudit: mockEmitPluginAudit }));
 // Overwrite gate pre-check (throws a typed 403/409 for a non-writable / tombstoned
 // (name, version)); default: deployable.
@@ -142,6 +163,7 @@ describe('POST /deploy-generated — Idempotency-Key guard', () => {
     mockEnqueueBuild.mockResolvedValue(undefined);
     mockReserveQuota.mockResolvedValue({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99, resetAt: '2026-08-01T00:00:00Z' } });
     mockValidatePlugin.mockResolvedValue({ blocked: false, violations: [], warnings: [] });
+    mockPutPluginArtifact.mockResolvedValue(undefined);
   });
 
   it('claims the key BEFORE reserving quota and queues the build on first request', async () => {
@@ -234,16 +256,17 @@ describe('POST /deploy-generated — Idempotency-Key guard', () => {
     expect(res.status).toHaveBeenCalledWith(403);
   });
 
-  it('releases the key when reserveQuota throws (quota service down)', async () => {
-    // The reserveQuota await is the one post-claim await that used to sit outside
-    // any releaseIdem path: a throw left the claim to persist for its TTL and
-    // wrongly suppressed a legit retry. It must now release before rethrowing.
-    mockReserveQuota.mockRejectedValueOnce(new Error('quota service unavailable'));
+  it('quota service down: releases the key and answers 503 (reserve resolves `unavailable`, never throws)', async () => {
+    // Drive the route through the REAL quota client against an unreachable
+    // quota service — the realistic outage shape.
+    mockReserveQuota.mockImplementationOnce((_qs: any, ...rest: any[]) => realQuota.reserveQuota(unreachableQuotaService, ...rest));
     const res = mockRes();
-    await expect(handler(mockReq('req-1:my-plugin'), res)).rejects.toThrow('quota service unavailable');
+    await handler(mockReq('req-1:my-plugin'), res);
 
+    expect(res.status).toHaveBeenCalledWith(503);
     expect(mockIdemDelete).toHaveBeenCalledWith('plugin:deploy-generated:org-1:req-1:my-plugin');
     expect(mockEnqueueBuild).not.toHaveBeenCalled();
+    expect(mockDecrementQuota).not.toHaveBeenCalled(); // nothing was reserved
   });
 
   it('releases the key when compliance is unreachable (503 fail-closed)', async () => {
@@ -263,9 +286,47 @@ describe('POST /deploy-generated — Idempotency-Key guard', () => {
     const res = mockRes();
     await expect(handler(mockReq('req-1:my-plugin'), res)).rejects.toThrow('queue down');
 
-    // Rollback try releases the idem key AND refunds the reserved slot.
+    // Rollback try releases the idem key AND refunds the reserved slot, and the
+    // staged context + local scratch dir don't orphan.
     expect(mockIdemDelete).toHaveBeenCalledWith('plugin:deploy-generated:org-1:req-1:my-plugin');
     expect(mockDecrementQuota).toHaveBeenCalled();
+    expect(mockDeletePluginArtifact).toHaveBeenCalledWith('org-1/req-1.zip');
+    expect(mockRmSync).toHaveBeenCalledWith(expect.stringMatching(/^\/tmp\/builds\//), { recursive: true, force: true });
+  });
+
+  // The build worker runs on every replica; a context written only to THIS
+  // pod's scratch dir failed every build BullMQ handed to another replica.
+  it('stages the build context (a ZIP holding the Dockerfile) in object storage and hands the worker its key', async () => {
+    const res = mockRes();
+    await handler(mockReq(), res);
+
+    expect(mockPutPluginArtifact).toHaveBeenCalledTimes(1);
+    const [key, body] = mockPutPluginArtifact.mock.calls[0] as [string, Buffer];
+    expect(key).toBe('org-1/req-1.zip');
+    // A real ZIP the worker's extractor can re-materialize.
+    const { default: AdmZip } = await import('adm-zip');
+    const entries = new AdmZip(body).getEntries().map((e) => [e.entryName, e.getData().toString('utf-8')]);
+    expect(entries).toEqual([['Dockerfile', 'FROM node']]);
+
+    // Staged BEFORE the build is queued, and the job carries the key.
+    expect(mockPutPluginArtifact.mock.invocationCallOrder[0]).toBeLessThan(mockEnqueueBuild.mock.invocationCallOrder[0]);
+    expect(mockCreateBuildJobData).toHaveBeenCalledWith(expect.objectContaining({
+      buildRequest: expect.objectContaining({ s3Key: 'org-1/req-1.zip', dockerfile: 'Dockerfile' }),
+    }));
+    expect(res.status).toHaveBeenCalledWith(202);
+  });
+
+  it('never queues a build whose context could not be staged: 503, slot refunded, key released', async () => {
+    mockPutPluginArtifact.mockRejectedValueOnce(new Error('minio down'));
+    const res = mockRes();
+    await handler(mockReq('req-1:my-plugin'), res);
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(mockEnqueueBuild).not.toHaveBeenCalled();
+    expect(mockDecrementQuota).toHaveBeenCalledWith(
+      mockQuotaService, 'org-1', 'plugins', 'Bearer service-token', expect.any(Function), 1, '2026-08-01T00:00:00Z',
+    );
+    expect(mockIdemDelete).toHaveBeenCalledWith('plugin:deploy-generated:org-1:req-1:my-plugin');
   });
 
   it('is a no-op guard when no Idempotency-Key header is present', async () => {

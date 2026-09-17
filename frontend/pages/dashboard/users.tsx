@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { formatError } from '@/lib/constants';
 import { Users, Trash2, UserPlus } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -93,6 +93,15 @@ export default function UsersPage() {
   );
 
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
+  // Delayed auto-close after a successful create/edit (so the success message is
+  // readable). Tracked so it can't fire after unmount, and so a close scheduled
+  // for one user's editor never closes a different user's editor opened since.
+  const editCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const createCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (editCloseTimer.current) clearTimeout(editCloseTimer.current);
+    if (createCloseTimer.current) clearTimeout(createCloseTimer.current);
+  }, []);
   const [editUsername, setEditUsername] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editOrgId, setEditOrgId] = useState('');
@@ -146,6 +155,7 @@ export default function UsersPage() {
   }, []);
 
   const openCreate = useCallback(() => {
+    if (createCloseTimer.current) { clearTimeout(createCloseTimer.current); createCloseTimer.current = null; }
     setNewUser({ username: '', email: '', password: '', organizationId: '', role: 'member', isSuperAdmin: false });
     setOrgRoles([]);
     setSelectedRoleIds(new Set());
@@ -176,7 +186,8 @@ export default function UsersPage() {
 
     if (result !== null) {
       list.refresh();
-      setTimeout(() => setShowCreate(false), 1200);
+      if (createCloseTimer.current) clearTimeout(createCloseTimer.current);
+      createCloseTimer.current = setTimeout(() => setShowCreate(false), 1200);
     }
   };
 
@@ -287,6 +298,7 @@ export default function UsersPage() {
   }, [selectedIds, list]);
 
   const handleEditUser = (userItem: UserListItem) => {
+    if (editCloseTimer.current) { clearTimeout(editCloseTimer.current); editCloseTimer.current = null; }
     setEditingUser(userItem);
     setEditUsername(userItem.username);
     setEditEmail(userItem.email);
@@ -352,7 +364,12 @@ export default function UsersPage() {
     if (result !== null) {
       list.refresh();
       setNewPassword('');
-      setTimeout(() => setEditingUser(null), 1500);
+      const savedId = editingUser.id;
+      if (editCloseTimer.current) clearTimeout(editCloseTimer.current);
+      editCloseTimer.current = setTimeout(() => {
+        editCloseTimer.current = null;
+        setEditingUser((current) => (current?.id === savedId ? null : current));
+      }, 1500);
     }
   };
 

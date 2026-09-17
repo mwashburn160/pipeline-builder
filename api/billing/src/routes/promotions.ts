@@ -64,9 +64,11 @@ function toPromotionResponse(p: PromotionDocument): Record<string, unknown> {
 export function createPromotionRoutes(): Router {
   const router: Router = Router();
 
-  // Gate every route once (was an inline `if (!promotionsEnabled())` per handler).
-  router.use((_req, res, next) => {
-    if (!promotionsEnabled()) return sendError(res, 404, 'Promotions are not enabled');
+  // Gate every promotion route once. SCOPED to `/admin/promotions`: this router is
+  // mounted at `/billing` ahead of later billing routers, so a path-less
+  // `router.use` would 404 all of them whenever promotions are off.
+  router.use('/admin/promotions', (_req, res, next) => {
+    if (!promotionsEnabled()) return sendError(res, 404, 'Promotions are not enabled', ErrorCode.NOT_FOUND);
     next();
   });
 
@@ -124,7 +126,7 @@ export function createPromotionRoutes(): Router {
   router.get('/admin/promotions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findById(id);
-    if (!promo) return sendError(res, 404, 'Promotion not found');
+    if (!promo) return sendError(res, 404, 'Promotion not found', ErrorCode.NOT_FOUND);
     return sendSuccess(res, 200, { promotion: toPromotionResponse(promo) });
   }));
 
@@ -143,7 +145,7 @@ export function createPromotionRoutes(): Router {
     if (body.maxGrants !== undefined) update.maxGrants = body.maxGrants;
 
     const promo = await Promotion.findByIdAndUpdate(id, { $set: update }, { new: true });
-    if (!promo) return sendError(res, 404, 'Promotion not found');
+    if (!promo) return sendError(res, 404, 'Promotion not found', ErrorCode.NOT_FOUND);
 
     getAuditClient().record({
       action: 'billing.promotion.update',
@@ -160,7 +162,7 @@ export function createPromotionRoutes(): Router {
   router.delete('/admin/promotions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findByIdAndUpdate(id, { $set: { isActive: false } }, { new: true });
-    if (!promo) return sendError(res, 404, 'Promotion not found');
+    if (!promo) return sendError(res, 404, 'Promotion not found', ErrorCode.NOT_FOUND);
     getAuditClient().record({
       action: 'billing.promotion.revoke',
       actorId: req.user?.sub ?? 'system',
@@ -181,13 +183,13 @@ export function createPromotionRoutes(): Router {
     const { targetOrgId } = validation.value;
 
     const promo = await Promotion.findById(id);
-    if (!promo) return sendError(res, 404, 'Promotion not found');
-    if (!promo.isActive) return sendError(res, 409, 'Promotion is not active');
+    if (!promo) return sendError(res, 404, 'Promotion not found', ErrorCode.NOT_FOUND);
+    if (!promo.isActive) return sendError(res, 409, 'Promotion is not active', ErrorCode.CONFLICT);
 
     const subscription = await loadManageableSubscription(targetOrgId);
-    if (!subscription) return sendError(res, 404, 'Target org has no active subscription');
+    if (!subscription) return sendError(res, 404, 'Target org has no active subscription', ErrorCode.NOT_FOUND);
     const plan = await Plan.findById(subscription.planId).lean();
-    if (!plan) return sendError(res, 404, 'Subscription plan not found');
+    if (!plan) return sendError(res, 404, 'Subscription plan not found', ErrorCode.NOT_FOUND);
 
     const interval: 'monthly' | 'annual' = subscription.interval === 'annual' ? 'annual' : 'monthly';
     const ctx: PromotionContext = { tier: plan.tier, interval, planPriceCents: plan.prices[interval], actorId: req.user?.sub };
@@ -210,8 +212,8 @@ export function createPromotionRoutes(): Router {
   router.post('/admin/promotions/:id/activate', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findById(id);
-    if (!promo) return sendError(res, 404, 'Promotion not found');
-    if (!promo.isActive) return sendError(res, 409, 'Promotion is not active');
+    if (!promo) return sendError(res, 404, 'Promotion not found', ErrorCode.NOT_FOUND);
+    if (!promo.isActive) return sendError(res, 409, 'Promotion is not active', ErrorCode.CONFLICT);
 
     const result = await batchEvaluatePromotion(promo);
     getAuditClient().record({
@@ -230,7 +232,7 @@ export function createPromotionRoutes(): Router {
   router.post('/admin/promotions/:id/preview', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findById(id);
-    if (!promo) return sendError(res, 404, 'Promotion not found');
+    if (!promo) return sendError(res, 404, 'Promotion not found', ErrorCode.NOT_FOUND);
     const projection = await previewPromotion(promo);
     return sendSuccess(res, 200, { projection });
   }));
@@ -240,7 +242,7 @@ export function createPromotionRoutes(): Router {
   router.get('/admin/promotions/:id/spend', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findById(id);
-    if (!promo) return sendError(res, 404, 'Promotion not found');
+    if (!promo) return sendError(res, 404, 'Promotion not found', ErrorCode.NOT_FOUND);
 
     const { cents: ledgerCents, grants: ledgerGrants } = await aggregatePromotionLedgerSpend(String(promo._id));
 

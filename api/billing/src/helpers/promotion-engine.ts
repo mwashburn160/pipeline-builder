@@ -42,7 +42,7 @@ import { getPaymentProvider } from '../providers/provider-factory.js';
 
 const logger = createLogger('promotion-engine');
 
-/** Feature flag — promotions are off unless BILLING_PROMOTIONS_ENABLED=true (and discounts on). */
+/** Feature flag — promotions are ON unless BILLING_PROMOTIONS_ENABLED=false (and require discounts on). */
 export function promotionsEnabled(): boolean {
   return config.promotions.enabled;
 }
@@ -92,7 +92,7 @@ export { loadManageableSubscription };
 
 /** Resolve a promo's grant magnitude to cents, clamped by any per-org cap. `dollar`
  *  = the value in cents; `percent` = that percent of the current plan price. */
-export function promotionCreditCents(
+function promotionCreditCents(
   promo: Pick<PromotionDocument, 'unit' | 'value' | 'perOrgCapCents'>,
   planPriceCents: number,
 ): number {
@@ -101,21 +101,12 @@ export function promotionCreditCents(
 }
 
 /** Whether `ctx` satisfies every present eligibility predicate. */
-export function matchesConditions(conditions: PromotionConditions | undefined, ctx: PromotionContext): boolean {
+function matchesConditions(conditions: PromotionConditions | undefined, ctx: PromotionContext): boolean {
   if (!conditions) return true;
   if (conditions.tiers?.length && !conditions.tiers.includes(ctx.tier)) return false;
   if (conditions.intervals?.length && !conditions.intervals.includes(ctx.interval)) return false;
   if (conditions.firstSubscriptionOnly && ctx.isFirstSubscription !== true) return false;
   return true;
-}
-
-/** Calendar period key for a recurring re-grant — `YYYY` (annual) / `YYYY-MM`
- *  (monthly). Deterministic + idempotent PER PERIOD; keying on this (not a Stripe
- *  invoice id) means a proration / one-off invoice in the same period can't inject a
- *  second grant, and it matches the Marketplace metering path's key format. */
-export function recurringPeriodKey(interval: string, now: Date = new Date()): string {
-  const y = now.getUTCFullYear();
-  return interval === 'annual' ? String(y) : `${y}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 /** Active window check (absent bound = open-ended that side). */

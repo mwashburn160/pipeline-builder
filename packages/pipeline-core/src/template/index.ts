@@ -42,17 +42,10 @@ export {
   type ValidationResult,
 } from './validate.js';
 
-export {
-  recordResolution,
-  templateResolutionsTotal,
-  templateResolutionDurationMs,
-} from './metrics.js';
-
 // -- Convenience: high-level resolve() that walks + resolves + measures
 
 import { ErrorCode } from '@pipeline-builder/api-core';
 import { resolve as evaluatorResolve, type Scope } from './evaluator.js';
-import { recordResolution } from './metrics.js';
 import { topoSort } from './topo-sort.js';
 import { walkAndBind, type FieldPredicate } from './walker.js';
 
@@ -64,27 +57,21 @@ export interface ResolveResult {
  * Resolve all templates inside `doc` by mutating string fields in place.
  * `doc` is treated as opaque — only string fields that match `isTemplatable`
  * are rewritten. Returns collected errors (empty array on success).
- *
- * `docType` is used for metrics; pass 'pipeline' or 'plugin'.
  */
 export function resolveTemplates<T extends object>(
   doc: T,
   scope: Scope,
   isTemplatable: FieldPredicate,
-  docType: 'pipeline' | 'plugin' = 'plugin',
 ): ResolveResult {
-  const start = Date.now();
   const errors: ResolveResult['errors'] = [];
   // includeLiteralOnly: literal-only fields (a bare `{{{{` escape) still need
   // rewriting so the tokenizer's `{{{{` → `{{` unescape lands in the document.
   const entries = walkAndBind(doc, isTemplatable, true);
-  let success = true;
   for (const entry of entries) {
     try {
       const value = evaluatorResolve(entry.tokens, scope, entry.field);
       entry.set(value);
     } catch (err) {
-      success = false;
       const e = err as Error & { code?: ErrorCode; path?: string };
       errors.push({
         code: e.code ?? ErrorCode.TEMPLATE_PARSE_ERROR,
@@ -94,7 +81,6 @@ export function resolveTemplates<T extends object>(
       });
     }
   }
-  recordResolution(docType, Date.now() - start, success);
   return { errors };
 }
 
@@ -111,9 +97,7 @@ export function resolveSelfReferencing<T extends object>(
   scope: Scope,
   isTemplatable: FieldPredicate,
   fieldToScopePath: (field: string) => string | null,
-  docType: 'pipeline' | 'plugin' = 'pipeline',
 ): ResolveResult {
-  const start = Date.now();
   // includeLiteralOnly: a self-referencing field that is only a `{{{{` escape
   // still needs its unescape written back (same rationale as resolveTemplates).
   const entries = walkAndBind(doc, isTemplatable, true);
@@ -138,7 +122,6 @@ export function resolveSelfReferencing<T extends object>(
         path: c.join(' -> '),
       });
     }
-    recordResolution(docType, Date.now() - start, false);
     return { errors };
   }
 
@@ -152,14 +135,12 @@ export function resolveSelfReferencing<T extends object>(
     byKey.set(n.key, list);
   }
 
-  let success = true;
   for (const key of ordered) {
     for (const n of byKey.get(key) ?? []) {
       try {
         const value = evaluatorResolve(n.entry.tokens, scope, n.entry.field);
         n.entry.set(value);
       } catch (err) {
-        success = false;
         const e = err as Error & { code?: ErrorCode; path?: string };
         errors.push({
           code: e.code ?? ErrorCode.TEMPLATE_PARSE_ERROR,
@@ -170,7 +151,6 @@ export function resolveSelfReferencing<T extends object>(
       }
     }
   }
-  recordResolution(docType, Date.now() - start, success);
   return { errors };
 }
 

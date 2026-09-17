@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, setCounterEmitter, requireAuth, safeEqual } from '@pipeline-builder/api-core';
+import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, setCounterEmitter, requireAuth, safeEqual, createEnvSseTicketStore, SSE_TICKET_TTL_MS } from '@pipeline-builder/api-core';
 import type { OpenApiSpecOptions } from '@pipeline-builder/api-core';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { getConnection } from '@pipeline-builder/pipeline-data';
@@ -19,7 +19,6 @@ import { createSharedRateLimitStore } from './rate-limit-store.js';
 import { readinessGuard } from './readiness.js';
 import { SSEManager, SSE_REQUEST_ID_RE } from '../http/sse-connection-manager.js';
 import { createEnvRedisSSERelay } from '../http/sse-relay.js';
-import { createEnvRedisTicketStore } from '../http/sse-ticket-store.js';
 
 // Wire api-core's counter shim to the real prom-client registry. This is
 // a no-op until incCounter is called for the first time (lazy registration
@@ -54,6 +53,13 @@ export interface CreateAppOptions {
   urlEncodedLimit?: string;
   /** Custom SSE manager instance */
   sseManager?: SSEManager;
+  /**
+   * Serve the per-request build-log stream: `POST /logs/ticket` +
+   * `GET /logs/:requestId`, a log ticket store, the cross-pod relay, and
+   * `ctx.log` frames pushed to SSE. Default false — a service without it has no
+   * `/logs` routes and `ctx.log` only writes to the logger.
+   */
+  logStream?: boolean;
   /** Health check dependency checker — if provided, /health reports dependency status */
   checkDependencies?: () => Promise<Record<string, 'connected' | 'disconnected' | 'unknown'>>;
   /** Enable OpenAPI spec at /docs/openapi.json and Swagger UI at /docs (default: true) */
@@ -110,7 +116,7 @@ export interface CreateAppResult {
  * - Trust proxy settings
  * - Health check endpoint (/health)
  * - Metrics endpoint (/metrics)
- * - SSE logs endpoint (/logs/:requestId)
+ * - SSE logs endpoint (/logs/:requestId) — only with `logStream: true`
  *
  * @param options - Configuration options
  * @returns Configured Express app and SSE manager
@@ -135,14 +141,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     jsonLimit = '1mb',
     enableUrlEncoded = true,
     urlEncodedLimit = '1mb',
-    // Default SSE manager wired to the shared env Redis ticket/ownership store
-    // when Redis is configured (multi-pod correctness + cross-service stream
-    // ownership), else the in-memory default. A caller-supplied `sseManager`
-    // skips this entirely.
-    sseManager = new SSEManager({
-      ticketStore: createEnvRedisTicketStore() ?? undefined,
-      relay: createEnvRedisSSERelay() ?? undefined,
-    }),
+    logStream = false,
     checkDependencies,
     enableOpenApi = process.env.NODE_ENV !== 'production',
     openApiOptions,
@@ -155,6 +154,27 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   if (!process.env.JWT_SECRET) {
     throw new Error('JWT_SECRET environment variable is required. Set it before starting the server.');
   }
+
+  const serviceName = process.env.SERVICE_NAME || 'api';
+
+  // Default SSE manager. The relay (this service's own Redis channel) is built
+  // only when something streams: the log stream turns it on here, and an
+  // org-keyed channel turns it on when registered (registerSseTicketChannel).
+  // The log ticket store exists only with the log stream. A caller-supplied
+  // `sseManager` skips this entirely.
+  const sseManager = options.sseManager ?? new SSEManager({
+    logStream,
+    relayFactory: () => createEnvRedisSSERelay(serviceName),
+    ...(logStream && {
+      ticketStore: createEnvSseTicketStore({
+        ttlMs: SSE_TICKET_TTL_MS,
+        maxTotal: parseInt(process.env.SSE_MAX_TOTAL_TICKETS || '1000', 10),
+        maxPerOrg: parseInt(process.env.SSE_MAX_TICKETS_PER_ORG || '10', 10),
+        keyPrefix: `logs:${serviceName}`,
+      }),
+    }),
+  });
+  if (logStream) sseManager.enableRelay();
 
   // Wire the idempotency replay-cache backend used by the post-auth route
   // factories (createProtectedRoute / createAuthenticatedWithOrgRoute). Prefer
@@ -258,7 +278,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
 
   // Health check registered before rate limiter so it is never throttled
   app.use(createHealthRouter({
-    serviceName: process.env.SERVICE_NAME || 'api',
+    serviceName,
     checkDependencies,
   }));
 
@@ -367,7 +387,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     // Namespaced per SERVICE: every service shares one Redis, and the old
     // unprefixed `rl:<ip>` key let one client's traffic to ANY service drain its
     // budget on EVERY service.
-    rateLimitOptions.store = createSharedRateLimitStore(`${process.env.SERVICE_NAME || 'api'}:global`);
+    rateLimitOptions.store = createSharedRateLimitStore(`${serviceName}:global`);
 
     app.use(rateLimit(rateLimitOptions));
   }
@@ -412,48 +432,50 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   // into the post-auth route chains — see `createProtectedRoute` /
   // `createAuthenticatedWithOrgRoute` in middleware-factory.ts.
 
-  // SSE logs endpoint — ticket-gated (Wave 2b).
-  // The stream carries per-org build logs, so it must not be world-readable.
-  // Clients first POST /logs/ticket (JWT-authenticated) to mint a short-lived,
-  // single-use ticket bound to their org AND to the specific `requestId` stream
-  // they intend to open, then open the EventSource with ?ticket=<t>. This keeps
-  // the JWT out of query strings / access logs while enforcing org ownership,
-  // per-subject authorization, and the per-org connection cap on the stream.
-  // Mirrors the message-service notifications SSE ticket exchange.
-  app.post('/logs/ticket', requireAuth, async (req: Request, res: Response) => {
-    const orgId = req.user?.organizationId?.toLowerCase();
-    if (!orgId) {
-      sendError(res, 400, 'Token missing organization', ErrorCode.VALIDATION_ERROR);
-      return;
-    }
-    // The caller must name the stream subject up front so the ticket is bound to
-    // it. Without this, a ticket could be replayed against ANY requestId the
-    // org could guess, letting it attach to another org's log stream. Strictly
-    // format-validated so it can't carry an injection payload into the subject.
-    const requestId = (req.body as { requestId?: unknown } | undefined)?.requestId;
-    if (typeof requestId !== 'string' || !SSE_REQUEST_ID_RE.test(requestId)) {
-      sendError(res, 400, 'Missing or invalid requestId', ErrorCode.VALIDATION_ERROR);
-      return;
-    }
-    const result = await sseManager.createTicket(orgId, requestId);
-    if (!result.ok) {
-      if (result.reason === 'forbidden') {
-        // The subject is owned by another org — do not confirm it exists; a plain
-        // 403 is enough and leaks nothing about which requestIds are live.
-        sendError(res, 403, 'Not authorized for this log stream', ErrorCode.INSUFFICIENT_PERMISSIONS);
-      } else if (result.reason === 'org-limit') {
-        sendError(res, 429, 'Too many log stream tickets issued', ErrorCode.QUOTA_EXCEEDED);
-      } else {
-        sendError(res, 503, 'Log streaming subsystem at capacity', ErrorCode.QUOTA_EXCEEDED);
+  if (logStream) {
+    // SSE logs endpoint — ticket-gated (Wave 2b).
+    // The stream carries per-org build logs, so it must not be world-readable.
+    // Clients first POST /logs/ticket (JWT-authenticated) to mint a short-lived,
+    // single-use ticket bound to their org AND to the specific `requestId` stream
+    // they intend to open, then open the EventSource with ?ticket=<t>. This keeps
+    // the JWT out of query strings / access logs while enforcing org ownership,
+    // per-subject authorization, and the per-org connection cap on the stream.
+    // Mirrors the message-service notifications SSE ticket exchange.
+    app.post('/logs/ticket', requireAuth, async (req: Request, res: Response) => {
+      const orgId = req.user?.organizationId?.toLowerCase();
+      if (!orgId) {
+        sendError(res, 400, 'Token missing organization', ErrorCode.VALIDATION_ERROR);
+        return;
       }
-      return;
-    }
-    sendSuccess(res, 200, { ticket: result.ticket });
-  });
+      // The caller must name the stream subject up front so the ticket is bound to
+      // it. Without this, a ticket could be replayed against ANY requestId the
+      // org could guess, letting it attach to another org's log stream. Strictly
+      // format-validated so it can't carry an injection payload into the subject.
+      const requestId = (req.body as { requestId?: unknown } | undefined)?.requestId;
+      if (typeof requestId !== 'string' || !SSE_REQUEST_ID_RE.test(requestId)) {
+        sendError(res, 400, 'Missing or invalid requestId', ErrorCode.VALIDATION_ERROR);
+        return;
+      }
+      const result = await sseManager.createTicket(orgId, requestId);
+      if (!result.ok) {
+        if (result.reason === 'forbidden') {
+          // The subject is owned by another org — do not confirm it exists; a plain
+          // 403 is enough and leaks nothing about which requestIds are live.
+          sendError(res, 403, 'Not authorized for this log stream', ErrorCode.INSUFFICIENT_PERMISSIONS);
+        } else if (result.reason === 'org-limit') {
+          sendError(res, 429, 'Too many log stream tickets issued', ErrorCode.QUOTA_EXCEEDED);
+        } else {
+          sendError(res, 503, 'Log streaming subsystem at capacity', ErrorCode.QUOTA_EXCEEDED);
+        }
+        return;
+      }
+      sendSuccess(res, 200, { ticket: result.ticket });
+    });
 
-  // The stream itself resolves + consumes the ticket inside middleware() and
-  // rejects any anonymous / invalid / expired / already-used ticket with 401.
-  app.get('/logs/:requestId', sseManager.middleware());
+    // The stream itself resolves + consumes the ticket inside middleware() and
+    // rejects any anonymous / invalid / expired / already-used ticket with 401.
+    app.get('/logs/:requestId', sseManager.middleware());
+  }
 
   return { app, sseManager };
 }

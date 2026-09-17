@@ -19,6 +19,7 @@ import { Card } from '@/components/ui/Card';
 import { Callout } from '@/components/ui/Callout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { DataTable } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { Button } from '@/components/ui/Button';
@@ -606,13 +607,19 @@ export default function MembersPage() {
 
       {/* Deactivate confirmation — deactivation revokes access, so confirm it. */}
       {deactivateTarget && (
-        <DeleteConfirmModal
-          title="Deactivate Member"
-          itemName={deactivateTarget.username}
+        <ConfirmDialog
+          title="Deactivate member?"
+          confirmLabel="Deactivate"
+          tone="danger"
           loading={deactivateLoading}
           onConfirm={confirmDeactivate}
           onCancel={() => setDeactivateTarget(null)}
-        />
+        >
+          <p>
+            <span className="font-medium">{deactivateTarget.username}</span> will lose access to this organization until
+            reactivated.
+          </p>
+        </ConfirmDialog>
       )}
     </DashboardLayout>
   );

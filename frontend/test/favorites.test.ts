@@ -1,76 +1,149 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
- * @jest-environment node
+ * Plugin favorites ride the shared per-(user, org) preferences store.
  *
- * Copyright 2026 Pipeline Builder Contributors
- * SPDX-License-Identifier: Apache-2.0
- *
- * Pinned to the `node` environment (project default is jsdom) so the
- * `globalThis.window` / `globalThis.localStorage` stubs below actually own
- * the bindings the source module sees. Under jsdom they'd shadow nothing,
- * and jsdom's real localStorage would leak state across tests.
+ *   - Toggling applies immediately and writes through to the server.
+ *   - State is scoped to the user AND the org: two people sharing a browser
+ *     never see each other's favorites.
+ *   - A server load that resolves after a toggle does not revert it.
+ *   - An empty server is seeded from a populated local cache.
+ *   - Favorites and notification prefs share ONE server read per scope.
+ *   - Another tab's change shows up via the `storage` event.
  */
 
-// Stub localStorage in node test environment.
-const store = new Map<string, string>();
-(globalThis as unknown as { window: typeof globalThis }).window = globalThis as never;
-(globalThis as unknown as { localStorage: Storage }).localStorage = {
-  getItem: (k: string) => store.get(k) ?? null,
-  setItem: (k: string, v: string) => { store.set(k, v); },
-  removeItem: (k: string) => { store.delete(k); },
-  clear: () => store.clear(),
-  key: (i: number) => Array.from(store.keys())[i] ?? null,
-  get length() { return store.size; },
-} as Storage;
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { toggleFavorite, useFavorites } from '../src/lib/favorites';
+import { useNotificationPrefs } from '../src/lib/notification-prefs';
+import { __resetPreferencesStoreForTests, preferencesStorageKey, readPreferences } from '../src/lib/preferences-store';
 
-import { loadFavorites, toggleFavorite } from '../src/lib/favorites';
+const getPreferences = jest.fn();
+const updatePreferences = jest.fn();
+jest.mock('@/lib/api', () => ({
+  __esModule: true,
+  default: {
+    getPreferences: (...a: unknown[]) => getPreferences(...a),
+    updatePreferences: (...a: unknown[]) => updatePreferences(...a),
+  },
+}));
 
-/** Local helper (the module no longer exports `isFavorite` — it was app-dead). */
-const isFavorite = (orgId: string, pluginId: string) => loadFavorites(orgId).has(pluginId);
-
-beforeEach(() => {
-  store.clear();
+const serverPrefs = (favorites: string[], muteQuotaWarnings = false) => ({
+  success: true,
+  data: { preferences: { favorites, recents: [], notifications: { muteQuotaWarnings } } },
 });
 
-describe('plugin favorites', () => {
-  it('starts empty', () => {
-    expect(loadFavorites('org-a').size).toBe(0);
-    expect(isFavorite('org-a', 'plugin-1')).toBe(false);
+/** A getPreferences response the test resolves by hand. */
+function deferredLoad() {
+  let resolve!: (v: unknown) => void;
+  getPreferences.mockReturnValue(new Promise((r) => { resolve = r; }));
+  return (v: unknown) => act(async () => { resolve(v); await Promise.resolve(); await Promise.resolve(); });
+}
+
+const favs = (userId: string, orgId: string) => new Set(readPreferences(userId, orgId).favorites);
+
+beforeEach(() => {
+  window.localStorage.clear();
+  __resetPreferencesStoreForTests();
+  jest.clearAllMocks();
+  getPreferences.mockResolvedValue(serverPrefs([]));
+  updatePreferences.mockResolvedValue({ success: true });
+});
+
+describe('toggleFavorite', () => {
+  it('adds then removes, and writes through to the server', () => {
+    expect(toggleFavorite('alice', 'org-a', 'plugin-1')).toBe(true);
+    expect(favs('alice', 'org-a').has('plugin-1')).toBe(true);
+    expect(updatePreferences).toHaveBeenLastCalledWith({ favorites: ['plugin-1'] });
+
+    expect(toggleFavorite('alice', 'org-a', 'plugin-1')).toBe(false);
+    expect(favs('alice', 'org-a').size).toBe(0);
+    expect(updatePreferences).toHaveBeenLastCalledWith({ favorites: [] });
   });
 
-  it('toggleFavorite adds then removes', () => {
-    expect(toggleFavorite('org-a', 'plugin-1')).toBe(true);
-    expect(isFavorite('org-a', 'plugin-1')).toBe(true);
-    expect(toggleFavorite('org-a', 'plugin-1')).toBe(false);
-    expect(isFavorite('org-a', 'plugin-1')).toBe(false);
+  it("is scoped to the user: alice's favorites don't appear for bob in the same org", () => {
+    toggleFavorite('alice', 'org-a', 'plugin-1');
+    expect(favs('alice', 'org-a').has('plugin-1')).toBe(true);
+    expect(favs('bob', 'org-a').size).toBe(0);
   });
 
-  it('persists across calls (read-back from localStorage)', () => {
-    toggleFavorite('org-a', 'plugin-1');
-    toggleFavorite('org-a', 'plugin-2');
-    const favs = loadFavorites('org-a');
-    expect(favs.has('plugin-1')).toBe(true);
-    expect(favs.has('plugin-2')).toBe(true);
-    expect(favs.size).toBe(2);
+  it('is scoped to the org', () => {
+    toggleFavorite('alice', 'org-a', 'plugin-1');
+    expect(favs('alice', 'org-b').size).toBe(0);
   });
 
-  it('is org-scoped', () => {
-    toggleFavorite('org-a', 'plugin-1');
-    expect(isFavorite('org-a', 'plugin-1')).toBe(true);
-    expect(isFavorite('org-b', 'plugin-1')).toBe(false);
+  it('does nothing without a user or org', () => {
+    expect(toggleFavorite(undefined, 'org-a', 'plugin-1')).toBe(false);
+    expect(toggleFavorite('alice', '', 'plugin-1')).toBe(false);
+    expect(updatePreferences).not.toHaveBeenCalled();
   });
 
-  it('handles missing orgId without throwing', () => {
-    expect(() => toggleFavorite('', 'plugin-1')).not.toThrow();
-    expect(loadFavorites('').size).toBe(0);
+  it('survives a corrupted cache entry', () => {
+    window.localStorage.setItem(preferencesStorageKey('alice', 'org-a')!, '{not json');
+    expect(favs('alice', 'org-a').size).toBe(0);
+  });
+});
+
+describe('useFavorites', () => {
+  it('picks favorites up from the server', async () => {
+    getPreferences.mockResolvedValue(serverPrefs(['plugin-9']));
+    const { result } = renderHook(() => useFavorites('alice', 'org-a'));
+    await waitFor(() => expect(result.current.favorites.has('plugin-9')).toBe(true));
   });
 
-  it('survives corrupted localStorage value', () => {
-    window.localStorage.setItem('pb-plugin-favorites:org-a', '{not json');
-    expect(loadFavorites('org-a').size).toBe(0);
+  it("does not show alice's favorites to bob (same browser, same org)", async () => {
+    toggleFavorite('alice', 'org-a', 'plugin-1');
+    const { result } = renderHook(() => useFavorites('bob', 'org-a'));
+    await waitFor(() => expect(getPreferences).toHaveBeenCalled());
+    expect(result.current.favorites.size).toBe(0);
   });
 
-  it('survives non-array JSON value', () => {
-    window.localStorage.setItem('pb-plugin-favorites:org-a', '{"a":1}');
-    expect(loadFavorites('org-a').size).toBe(0);
+  it('a server load that resolves AFTER a toggle does not revert it', async () => {
+    const resolveLoad = deferredLoad();
+    const { result } = renderHook(() => useFavorites('alice', 'org-a'));
+
+    act(() => result.current.toggle('plugin-1'));
+    expect(result.current.favorites.has('plugin-1')).toBe(true);
+
+    await resolveLoad(serverPrefs(['stale-server-favorite']));
+
+    expect(result.current.favorites.has('plugin-1')).toBe(true);
+    expect(result.current.favorites.has('stale-server-favorite')).toBe(false);
+    expect(favs('alice', 'org-a')).toEqual(new Set(['plugin-1']));
+  });
+
+  it('seeds an empty server from the local cache instead of wiping it', async () => {
+    toggleFavorite('alice', 'org-a', 'plugin-1');
+    updatePreferences.mockClear();
+    getPreferences.mockResolvedValue(serverPrefs([]));
+
+    const { result } = renderHook(() => useFavorites('alice', 'org-a'));
+
+    await waitFor(() => expect(updatePreferences).toHaveBeenCalledWith({ favorites: ['plugin-1'] }));
+    expect(result.current.favorites.has('plugin-1')).toBe(true);
+  });
+
+  it('shares one server read per (user, org) with notification prefs', async () => {
+    renderHook(() => {
+      useFavorites('alice', 'org-a');
+      useNotificationPrefs('alice', 'org-a');
+      return useFavorites('alice', 'org-a');
+    });
+    await waitFor(() => expect(getPreferences).toHaveBeenCalled());
+    expect(getPreferences).toHaveBeenCalledTimes(1);
+  });
+
+  it("follows another tab's change via the storage event", async () => {
+    const { result } = renderHook(() => useFavorites('alice', 'org-a'));
+    await waitFor(() => expect(getPreferences).toHaveBeenCalled());
+
+    const key = preferencesStorageKey('alice', 'org-a')!;
+    const otherTab = { prefs: { favorites: ['from-other-tab'], notifications: { muteQuotaWarnings: false } }, rev: { favorites: 5, notifications: 0 } };
+    act(() => {
+      window.localStorage.setItem(key, JSON.stringify(otherTab));
+      window.dispatchEvent(new StorageEvent('storage', { key }));
+    });
+
+    expect(result.current.favorites.has('from-other-tab')).toBe(true);
   });
 });

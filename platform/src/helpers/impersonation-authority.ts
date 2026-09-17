@@ -22,8 +22,9 @@
  * Members get nothing in either direction.
  */
 
+import { isSystemAdmin } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
-import { isOrgAdmin, isSystemAdmin } from './controller-helper.js';
+import { isOrgAdmin } from './controller-helper.js';
 import { isAncestorOrg } from './org-hierarchy.js';
 
 export type ImpersonationAuthority =

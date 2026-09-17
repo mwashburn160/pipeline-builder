@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getTierLimits } from '@pipeline-builder/api-core';
+import { envInt, getTierLimits } from '@pipeline-builder/api-core';
 
 // Unprovisioned-org fallback = the developer-tier preset, sourced from api-core
 // so it can't drift (the previous hardcoded copy had gone stale — notably
@@ -9,7 +9,7 @@ import { getTierLimits } from '@pipeline-builder/api-core';
 // restructure closed). Env vars still override per field.
 const DEV = getTierLimits('developer');
 
-export interface QuotaDefaults {
+interface QuotaDefaults {
   plugins: number;
   pipelines: number;
   apiCalls: number;
@@ -24,7 +24,7 @@ export interface QuotaDefaults {
   idpConfigs: number;
 }
 
-export interface AppConfig {
+interface AppConfig {
   port: number;
   mongodb: {
     uri: string;
@@ -42,7 +42,7 @@ if (!process.env.MONGODB_URI) {
 }
 
 export const config: AppConfig = {
-  port: parseInt(process.env.PORT || '3000', 10),
+  port: envInt('PORT', 3000, { min: 1 }),
   mongodb: {
     uri: process.env.MONGODB_URI,
   },
@@ -54,21 +54,23 @@ export const config: AppConfig = {
     // those STORED limits, so changing these does NOT change the cap an existing
     // org is held to; it only changes what a not-yet-provisioned org reads back.
     defaults: {
-      plugins: parseInt(process.env.QUOTA_DEFAULT_PLUGINS || `${DEV.plugins}`, 10),
-      pipelines: parseInt(process.env.QUOTA_DEFAULT_PIPELINES || `${DEV.pipelines}`, 10),
-      apiCalls: parseInt(process.env.QUOTA_DEFAULT_API_CALLS || `${DEV.apiCalls}`, 10),
-      aiCalls: parseInt(process.env.QUOTA_DEFAULT_AI_CALLS || `${DEV.aiCalls}`, 10),
+      plugins: envInt('QUOTA_DEFAULT_PLUGINS', DEV.plugins),
+      pipelines: envInt('QUOTA_DEFAULT_PIPELINES', DEV.pipelines),
+      apiCalls: envInt('QUOTA_DEFAULT_API_CALLS', DEV.apiCalls),
+      aiCalls: envInt('QUOTA_DEFAULT_AI_CALLS', DEV.aiCalls),
       // Aggregate registry storage cap (bytes). Override via
       // QUOTA_DEFAULT_STORAGE_BYTES for orgs that need a different baseline.
-      storageBytes: parseInt(process.env.QUOTA_DEFAULT_STORAGE_BYTES || `${DEV.storageBytes}`, 10),
+      storageBytes: envInt('QUOTA_DEFAULT_STORAGE_BYTES', DEV.storageBytes),
       // Count caps on user-editable feature tables. Operators can override
       // per-org via the existing PUT /quotas CRUD endpoint.
-      dashboards: parseInt(process.env.QUOTA_DEFAULT_DASHBOARDS || `${DEV.dashboards}`, 10),
-      alertRules: parseInt(process.env.QUOTA_DEFAULT_ALERT_RULES || `${DEV.alertRules}`, 10),
-      alertDestinations: parseInt(process.env.QUOTA_DEFAULT_ALERT_DESTINATIONS || `${DEV.alertDestinations}`, 10),
-      idpConfigs: parseInt(process.env.QUOTA_DEFAULT_IDP_CONFIGS || `${DEV.idpConfigs}`, 10),
+      dashboards: envInt('QUOTA_DEFAULT_DASHBOARDS', DEV.dashboards),
+      alertRules: envInt('QUOTA_DEFAULT_ALERT_RULES', DEV.alertRules),
+      alertDestinations: envInt('QUOTA_DEFAULT_ALERT_DESTINATIONS', DEV.alertDestinations),
+      idpConfigs: envInt('QUOTA_DEFAULT_IDP_CONFIGS', DEV.idpConfigs),
     },
-    resetDays: parseInt(process.env.QUOTA_RESET_DAYS || '3', 10),
-    atRiskCacheTtlMs: parseInt(process.env.QUOTA_AT_RISK_CACHE_TTL_MS || '60000', 10),
+    // Guarded: a raw parseInt turned a typo'd QUOTA_RESET_DAYS into NaN, which
+    // made every getNextResetDate() an Invalid Date. Clamp to >= 1 day.
+    resetDays: envInt('QUOTA_RESET_DAYS', 3, { min: 1 }),
+    atRiskCacheTtlMs: envInt('QUOTA_AT_RISK_CACHE_TTL_MS', 60000, { min: 0 }),
   },
 };

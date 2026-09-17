@@ -4,7 +4,7 @@
 import { DEFAULT_TIER, QUOTA_TIERS, SYSTEM_ORG_ID, tierAllowsTeams } from '@pipeline-builder/api-core';
 import type { Types } from 'mongoose';
 import { ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN } from './org-errors.js';
-import { applyAIProviderKeyUpdates, buildProvidersMap, changedAiProviderFields, ORG_AI_KEY_TOO_LONG } from './organization-ai-secrets.js';
+import { applyAIProviderKeyUpdates, buildProvidersMap } from './organization-ai-secrets.js';
 import {
   checkTierOvercap,
   getQuotas,
@@ -17,19 +17,12 @@ import {
   type QuotaTypeKey,
 } from './organization-quota.js';
 import { seedDefaultRoles } from './roles-service.js';
-import { toOrgId } from '../helpers/controller-helper.js';
+import { toOrgId } from '../helpers/org-id.js';
 import { publishUsersRevocation } from '../helpers/session-revocation.js';
 import { Role, RoleAssignment, Organization, OrgIdpConfig, User, UserOrganization } from '../models/index.js';
 import type { QuotaTier } from '../models/organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
-
-// Typed error codes thrown by service methods → mapped to HTTP status in
-// withController. Declared once in `org-errors.ts` and re-exported here so the
-// existing import sites (and the services barrel) keep working.
-export { ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN };
-// Re-exported from organization-ai-secrets.js to preserve the module's public API.
-export { ORG_AI_KEY_TOO_LONG, changedAiProviderFields };
 
 /** Default / hard cap on the member roster returned by {@link OrganizationService.getById}
  *  so a large org doesn't return its full membership on this hot read. */

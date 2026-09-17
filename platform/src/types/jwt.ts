@@ -33,6 +33,9 @@ export type AccessTokenPayload = JwtPayload & {
   tokenVersion?: number;
   /** JWT ID (unique identifier). */
   jti?: string;
+  /** Refresh-session slot (signed-in device) this session token belongs to.
+   *  Absent on PATs and impersonation tokens. */
+  sid?: string;
 };
 
 /**
@@ -46,6 +49,10 @@ export interface RefreshTokenPayload {
   sub: string;
   /** Token version for session invalidation */
   tokenVersion: number;
+  /** Refresh-session slot (one per signed-in device) this token rotates. */
+  sid: string;
+  /** Per-issue nonce so every rotation yields a distinct token. */
+  jti: string;
   /** Issued at timestamp */
   iat?: number;
   /** Expiration timestamp */

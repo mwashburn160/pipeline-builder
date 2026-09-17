@@ -1,11 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { requireAuth } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaService } from '@pipeline-builder/api-core';
 import type { RequestHandler } from 'express';
 import { checkQuota } from './check-quota.js';
 import { idempotencyMiddleware } from './idempotency-middleware.js';
-import { requireAuth } from './middleware.js';
 import { requireOrgId } from './require-org-id.js';
 import { withTenantContext } from './tenant-context.js';
 

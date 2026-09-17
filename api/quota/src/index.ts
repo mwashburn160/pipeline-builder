@@ -65,5 +65,3 @@ runServer(app, {
   testDatabase: async () => mongoose.connection.readyState === 1,
   closeDatabase: async () => { await mongoose.connection.close(false); },
 });
-
-export { app };

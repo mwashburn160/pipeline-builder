@@ -5,89 +5,43 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 
 // Stub the base CrudService so we can test only the subclass-specific methods.
 class StubCrudService {
-  // Subclasses provide getters/protected methods we don't need at runtime here.
-  find = jest.fn();
-  findById = jest.fn();
-  create = jest.fn();
-  update = jest.fn();
-  delete = jest.fn();
+  protected enforceOrgId<T>(data: T): T { return data; }
 }
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
-  CrudService: StubCrudService,
-  buildCompliancePolicyConditions: jest.fn(() => []),
-  buildComplianceRuleConditions: jest.fn(() => []),
-  buildPublishedRuleCatalogConditions: jest.fn(() => []),
-  drizzleCount: (r: unknown) => r,
-  runWithTenantContext: <T>(_ctx: unknown, fn: () => T): T => fn(),
-  // tx supports the chain shape used by policy-service.cloneTemplate
-  // (`tx.select().from(...).where(...)`) — returns no template-rules by default.
-  withTenantTx: <T>(fn: (tx: unknown) => T): T => fn({
-    select: () => ({
-      from: () => ({
-        where: () => Promise.resolve([]),
-      }),
-    }),
-  }),
-  // Transitive import (policy-service → compliance-rule-service) reads
-  // CoreConstants.CACHE_TTL_COMPLIANCE_RULES at module load. Provide a stub.
-  CoreConstants: { CACHE_TTL_COMPLIANCE_RULES: 60_000 },
-  // Transitive import chain (policy-service → compliance-rule-service →
-  // rule-change-notifier → message-client) builds its client via createServiceClient.
-  createServiceClient: () => ({ post: jest.fn(), get: jest.fn() }),
-  Config: {
-    getAny: (key: string) => key === 'server'
-      ? { services: { messageHost: 'localhost', messagePort: 0 } }
-      : undefined,
-    get: (key: string) => key === 'server'
-      ? { services: { messageHost: 'localhost', messagePort: 0 } }
-      : undefined,
-  },
-  schema: {
-    compliancePolicy: {
-      name: 'col_name',
-      createdAt: 'col_createdAt',
-      updatedAt: 'col_updatedAt',
-      orgId: 'col_orgId',
-      version: 'col_version',
+// Every statement records which transaction it ran on, so a test can prove the
+// policy insert and the rule-link update share ONE transaction.
+let txLog: string[] = [];
+let updateSets: Record<string, unknown>[] = [];
+let txCounter = 0;
+/** What the policy INSERT returns: the row, or [] when ON CONFLICT DO NOTHING hit an existing one. */
+let insertReturnsRow = true;
+const withTenantTxMock = jest.fn(async (fn: (tx: unknown) => unknown) => {
+  const txId = `tx#${++txCounter}`;
+  const tx = {
+    insert: () => {
+      txLog.push(`insert:${txId}`);
+      let row: Record<string, unknown> = {};
+      const chain: Record<string, unknown> = {
+        values: (v: Record<string, unknown>) => { row = v; return chain; },
+        onConflictDoNothing: () => chain,
+        returning: async () => (insertReturnsRow ? [{ ...row, id: 'pol-1' }] : []),
+      };
+      return chain;
     },
-    complianceRule: {
-      policyId: 'col_policyId',
-      isActive: 'col_isActive',
-      deletedAt: 'col_deletedAt',
+    update: () => {
+      txLog.push(`update:${txId}`);
+      return {
+        set: (v: Record<string, unknown>) => { updateSets.push(v); return { where: async () => undefined }; },
+      };
     },
-  },
-}));
+  };
+  return fn(tx);
+});
+
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   CrudService: StubCrudService,
   buildCompliancePolicyConditions: jest.fn(() => []),
-  buildComplianceRuleConditions: jest.fn(() => []),
-  buildPublishedRuleCatalogConditions: jest.fn(() => []),
-  drizzleCount: (r: unknown) => r,
-  runWithTenantContext: <T>(_ctx: unknown, fn: () => T): T => fn(),
-  // tx supports the chain shape used by policy-service.cloneTemplate
-  // (`tx.select().from(...).where(...)`) — returns no template-rules by default.
-  withTenantTx: <T>(fn: (tx: unknown) => T): T => fn({
-    select: () => ({
-      from: () => ({
-        where: () => Promise.resolve([]),
-      }),
-    }),
-  }),
-  // Transitive import (policy-service → compliance-rule-service) reads
-  // CoreConstants.CACHE_TTL_COMPLIANCE_RULES at module load. Provide a stub.
-  CoreConstants: { CACHE_TTL_COMPLIANCE_RULES: 60_000 },
-  // Transitive import chain (policy-service → compliance-rule-service →
-  // rule-change-notifier → message-client) builds its client via createServiceClient.
-  createServiceClient: () => ({ post: jest.fn(), get: jest.fn() }),
-  Config: {
-    getAny: (key: string) => key === 'server'
-      ? { services: { messageHost: 'localhost', messagePort: 0 } }
-      : undefined,
-    get: (key: string) => key === 'server'
-      ? { services: { messageHost: 'localhost', messagePort: 0 } }
-      : undefined,
-  },
+  withTenantTx: (fn: (tx: unknown) => unknown) => withTenantTxMock(fn),
   schema: {
     compliancePolicy: {
       name: 'col_name',
@@ -97,12 +51,12 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
       version: 'col_version',
     },
     complianceRule: {
+      orgId: 'col_rorgId',
+      name: 'col_rname',
       policyId: 'col_policyId',
-      isActive: 'col_isActive',
-      deletedAt: 'col_deletedAt',
     },
   },
-}));;
+}));
 
 const { CompliancePolicyService } = await import('../src/services/policy-service.js');
 
@@ -111,57 +65,44 @@ describe('CompliancePolicyService', () => {
 
   beforeEach(() => {
     svc = new CompliancePolicyService();
+    txLog = [];
+    updateSets = [];
+    txCounter = 0;
+    insertReturnsRow = true;
+    withTenantTxMock.mockClear();
   });
 
-  describe('findTemplates', () => {
-    it('calls find with isTemplate=true and "system" org', async () => {
-      const findSpy = jest.spyOn(svc, 'find').mockResolvedValue([{ id: 'p1' } as never]);
+  describe('createWithRules', () => {
+    it('inserts the policy AND links the rules on ONE transaction', async () => {
+      const policyRow = { id: 'pol-1', orgId: 'org-a', name: 'Baseline', version: '1.0.0' };
+      const created = await svc.createWithRules(
+        { orgId: 'org-a', name: 'Baseline', version: '1.0.0' } as never,
+        ['rule-a', 'rule-b'],
+        'user-1',
+      );
 
-      const result = await svc.findTemplates();
-
-      expect(findSpy).toHaveBeenCalledWith({ isTemplate: true }, '000000000000000000000001');
-      expect(result).toEqual([{ id: 'p1' }]);
+      expect((created as { id: string }).id).toBe(policyRow.id);
+      // Exactly one transaction, and both statements ran on that same tx —
+      // a failed rule-link rolls back the policy insert.
+      expect(withTenantTxMock).toHaveBeenCalledTimes(1);
+      expect(txLog).toEqual(['insert:tx#1', 'update:tx#1']);
+      expect(updateSets[0]).toEqual(expect.objectContaining({ policyId: 'pol-1', updatedBy: 'user-1' }));
     });
 
-    it('returns empty list when no templates exist', async () => {
-      jest.spyOn(svc, 'find').mockResolvedValue([]);
-      const result = await svc.findTemplates();
-      expect(result).toEqual([]);
-    });
-  });
-
-  describe('cloneTemplate', () => {
-    const fakeTemplate = {
-      id: 'tpl-1',
-      name: 'tpl-name',
-      description: 'desc',
-      version: '1.0.0',
-    };
-
-    it('throws when template not found', async () => {
-      jest.spyOn(svc, 'findById').mockResolvedValue(null as never);
-
-      await expect(svc.cloneTemplate('tpl-x', 'org-1', 'user-1'))
-        .rejects.toThrow('Template not found');
+    it('409s instead of overwriting an existing policy — and links no rules', async () => {
+      insertReturnsRow = false;
+      await expect(svc.createWithRules(
+        { orgId: 'org-a', name: 'Baseline', version: '1.0.0' } as never,
+        ['rule-a'],
+        'user-1',
+      )).rejects.toMatchObject({ statusCode: 409 });
+      expect(txLog).toEqual(['insert:tx#1']);
     });
 
-    it('clones template into target org with isTemplate=false', async () => {
-      jest.spyOn(svc, 'findById').mockResolvedValue(fakeTemplate as never);
-      const createSpy = jest.spyOn(svc, 'create').mockImplementation(async (data: any) => ({ ...(data as Record<string, unknown>), id: 'new-id' } as never));
-
-      const result = await svc.cloneTemplate('tpl-1', 'org-target', 'user-1');
-
-      expect(svc.findById).toHaveBeenCalledWith('tpl-1', '000000000000000000000001');
-      expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({
-        orgId: 'org-target',
-        name: 'tpl-name',
-        description: 'desc',
-        version: '1.0.0',
-        isTemplate: false,
-        createdBy: 'user-1',
-        updatedBy: 'user-1',
-      }), 'user-1');
-      expect((result as { id: string }).id).toBe('new-id');
+    it('skips the rule-link UPDATE when no rule names are given', async () => {
+      await svc.createWithRules({ orgId: 'org-a', name: 'Baseline', version: '1.0.0' } as never, undefined, 'user-1');
+      expect(withTenantTxMock).toHaveBeenCalledTimes(1);
+      expect(txLog).toEqual(['insert:tx#1']);
     });
   });
 });

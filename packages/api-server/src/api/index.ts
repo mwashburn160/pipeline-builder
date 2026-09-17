@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Middleware
-export * from './middleware.js';
 export * from './middleware-factory.js';
 export * from './context-middleware.js';
 export * from './check-quota.js';

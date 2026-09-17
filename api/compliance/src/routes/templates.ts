@@ -6,8 +6,8 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { RULE_TEMPLATES } from '../data/rule-templates.js';
+import { emitComplianceAudit } from '../services/audit.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
-import { emitComplianceAudit } from '../services/remote-audit-client.js';
 
 const logger = createLogger('compliance-templates');
 

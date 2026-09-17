@@ -23,11 +23,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findById: (...a: unknown[]) => mockUserFindById(...a) },
 }));
 
-const {
-  resolveChallengeRoute,
-  sendImpersonationChallenge,
-  CHALLENGE_SELF_APPROVAL_FORBIDDEN,
-} = await import('../src/helpers/impersonation-challenge.js');
+const { resolveChallengeRoute, sendImpersonationChallenge } = await import('../src/helpers/impersonation-challenge.js');
+const { CHALLENGE_SELF_APPROVAL_FORBIDDEN } = await import('../src/services/impersonation-errors.js');
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const selectLean = (doc: unknown) => ({ select: () => ({ lean: () => Promise.resolve(doc) }) });

@@ -4,8 +4,8 @@
 import { createLogger, getServiceAuthHeader, QUOTA_TIERS, TIER_FEATURES, VALID_TIERS, tierAllowsTeams } from '@pipeline-builder/api-core';
 import type { ClientSession, Types } from 'mongoose';
 import { config } from '../config/index.js';
-import { toOrgId } from '../helpers/controller-helper.js';
 import { expandOrgScope, resolveOrgLineage } from '../helpers/org-hierarchy.js';
+import { toOrgId } from '../helpers/org-id.js';
 import { pooledSeatUsage } from '../helpers/seats.js';
 import { publishUsersRevocation } from '../helpers/session-revocation.js';
 import {

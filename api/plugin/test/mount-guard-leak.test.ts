@@ -51,7 +51,6 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, statusCode: number, data?: any) => res.status(statusCode).json({ success: true, statusCode, data }),
   sendBadRequest: (res: any, msg: string) => res.status(400).json({ success: false, statusCode: 400, message: msg }),
   sendQuotaReserveDenied: (res: any) => res.status(429).json({ success: false, statusCode: 429 }),
-  sendQuotaReserveDenied: (res: any) => res.status(429).json({ success: false, statusCode: 429 }),
   AIGenerateBodySchema: {},
 }));
 
@@ -62,8 +61,8 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   postgresHealthCheck: () => async () => ({ ok: true }),
   redisHealthCheck: () => async () => ({ ok: true }),
   combineHealthChecks: (...fns: unknown[]) => fns,
-  createProtectedRoute: () => [],
-  createAuthenticatedWithOrgRoute: () => [],
+  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
+  createAuthenticatedWithOrgRoute: () => [(_req: any, _res: any, next: () => void) => next()],
   attachRequestContext: () => (req: any, _res: any, next: () => void) => {
     const list = (h: unknown) => (typeof h === 'string' && h ? h.split(',') : []);
     const orgId = (req.headers['x-org-id'] as string) || 'acme';
@@ -100,14 +99,15 @@ jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
   startWorker: jest.fn(),
   waitForWorkerReady: jest.fn(async () => undefined),
   shutdownQueue: jest.fn(async () => undefined),
-  getHealthRedisConnection: jest.fn(),
 }));
+jest.unstable_mockModule('../src/queue/connections.js', () => ({ getHealthRedisConnection: jest.fn() }));
 
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   getAuditClient: () => ({ record: jest.fn() }),
   emitPluginAudit: jest.fn(),
 }));
 jest.unstable_mockModule('../src/services/ai-plugin-generation-service.js', () => ({
+  AIEmptyOutputError: class extends Error {},
   getAvailableProviders: jest.fn(() => []),
   generatePluginConfig: jest.fn(),
   streamPluginConfig: jest.fn(),
@@ -128,6 +128,7 @@ jest.unstable_mockModule('../src/routes/update-plugin.js', () => ({ createUpdate
 jest.unstable_mockModule('../src/routes/delete-plugin.js', () => ({ createDeletePluginRoutes: () => Router() }));
 jest.unstable_mockModule('../src/routes/bulk-plugin.js', () => ({ createBulkPluginRoutes: () => Router() }));
 jest.unstable_mockModule('../src/routes/restore-plugin.js', () => ({ createRestorePluginRoutes: () => Router() }));
+jest.unstable_mockModule('../src/routes/purge-plugin.js', () => ({ createPurgePluginRoutes: () => Router() }));
 // Purge-scheduler deps the index now imports — mock so the real pipeline-data
 // barrel / pluginService aren't pulled into this route-mount test.
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService: {} }));

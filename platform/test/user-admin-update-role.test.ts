@@ -30,7 +30,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 jest.unstable_mockModule('../src/helpers/active-org-info.js', () => ({
   loadActiveOrgInfo: jest.fn(async () => ({ organizationName: 'Acme', activeOrgRole: 'admin', tier: 'developer' })),
 }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (v: unknown) => v }));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({ seatCapacityAvailable: jest.fn(async () => true), seatCapacityStillWithinCap: jest.fn(async () => true), userHasSeatInAccount: jest.fn(async () => false) }));
 jest.unstable_mockModule('../src/utils/regex.js', () => ({ escapeRegex: (s: string) => s }));
 
@@ -38,9 +38,9 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => Promise<unknown>) => fn({ id: 'sess' }),
 }));
 
-const RL_ROLE_NOT_FOUND = 'RL_ROLE_NOT_FOUND';
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
-  RL_ROLE_NOT_FOUND,
+  assertActorMayAssignBuiltinAdmin: jest.fn(async () => undefined),
+  assertNotLastPrivilegedMember: jest.fn(async () => undefined),
   recomputeUserOrgRole: (...a: unknown[]) => mockRecomputeUserOrgRole(...a),
   ensureBaselineRole: (...a: unknown[]) => mockEnsureBaselineRole(...a),
   assignBuiltinAdminRole: (...a: unknown[]) => mockAssignBuiltinAdminRole(...a),
@@ -48,6 +48,7 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  JoinRequest: {},
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},
@@ -58,14 +59,15 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { updateOne: jest.fn(), deleteMany: jest.fn() },
 }));
 
-const { userAdminService, UA_CANNOT_CHANGE_OWNER } = await import('../src/services/user-admin-service.js');
+const { userAdminService } = await import('../src/services/user-admin-service.js');
+const { UA_CANNOT_CHANGE_OWNER } = await import('../src/services/user-errors.js');
 
 /** `User.findById(...)` → `.select(...).session(...)` resolving to `doc`. */
 const userFindByIdResolving = (doc: unknown) => ({ select: () => ({ session: () => Promise.resolve(doc) }) });
 /** `UserOrganization.findOne(...)` → `.session(...)` resolving to `doc`. */
 const uoFindOneResolving = (doc: unknown) => ({ session: () => Promise.resolve(doc) });
 
-const orgAdminOpts = { isOrgAdmin: true, adminOrgId: 'org-1', passwordMinLength: 8 };
+const orgAdminOpts = { scopeOrgId: 'org-1', actor: { isSuperAdmin: false, isOrgAdmin: true, permissions: [] }, passwordMinLength: 8 };
 
 beforeEach(() => {
   jest.clearAllMocks();

@@ -30,7 +30,6 @@ function fakeRedis(overrides: Record<string, unknown> = {}) {
     get: jest.fn<(k: string) => Promise<string | null>>(async () => null),
     set: jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => 'OK'),
     del: jest.fn(async () => 1),
-    keys: jest.fn(async () => []),
     ...overrides,
   } as any;
 }

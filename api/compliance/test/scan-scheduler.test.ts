@@ -9,8 +9,12 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 // `createEnvRedisLock` returns null (no Redis in tests) so the scheduler is built
 // lock-free; `createScheduler` is stubbed to a no-op start/stop so the lifecycle
 // wrappers are safe + idempotent to call.
+// The sweep the scheduler would run each tick — captured so a test can drive it.
+let sweep: (() => Promise<void>) | undefined;
+const callOrder: string[] = [];
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createScheduler: () => ({ start: jest.fn(), stop: jest.fn() }),
+  createScheduler: (opts: { run: () => Promise<void> }) => { sweep = opts.run; return { start: jest.fn(), stop: jest.fn() }; },
   createEnvRedisLock: () => null,
 }));
 
@@ -72,6 +76,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
 
 jest.unstable_mockModule('../src/helpers/scan-executor.js', () => ({
   executeScan: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
+  recoverStaleScans: jest.fn(async () => { callOrder.push('recoverStaleScans'); return 0; }),
 }));
 
 const { calculateNextRun, isValidCronExpression, startScanScheduler, stopScanScheduler } = await import('../src/helpers/scan-scheduler.js');
@@ -120,6 +125,15 @@ describe('calculateNextRun', () => {
 
   it('returns a Date object', () => {
     expect(calculateNextRun('0 0 * * *')).toBeInstanceOf(Date);
+  });
+});
+
+describe('scheduler sweep', () => {
+  it('recovers stale running scans at the start of every sweep', async () => {
+    callOrder.length = 0;
+    expect(sweep).toBeDefined();
+    await sweep!();
+    expect(callOrder).toEqual(['recoverStaleScans']);
   });
 });
 

@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { RefreshCw, Download, Timer, Lock } from 'lucide-react';
+import { usePolling } from '@/hooks/usePolling';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Card } from '@/components/ui/Card';
@@ -197,15 +198,9 @@ interface AutoRefreshProps {
 
 export function AutoRefresh({ onRefresh, loading }: AutoRefreshProps) {
   const [interval, setInterval_] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (interval > 0) {
-      timerRef.current = setInterval(onRefresh, interval);
-    }
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [interval, onRefresh]);
+  // Off (0) disables polling; ticks skip while the tab is hidden. The first
+  // refresh comes one interval after picking a cadence, as before.
+  usePolling(onRefresh, interval, { immediate: false });
 
   return (
     <div className="flex items-center gap-2">

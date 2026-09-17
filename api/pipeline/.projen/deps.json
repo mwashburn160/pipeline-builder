@@ -11,18 +11,8 @@
       "type": "build"
     },
     {
-      "name": "@types/cors",
-      "version": "2.8.19",
-      "type": "build"
-    },
-    {
       "name": "@types/express",
       "version": "5.0.6",
-      "type": "build"
-    },
-    {
-      "name": "@types/jsonwebtoken",
-      "version": "9.0.10",
       "type": "build"
     },
     {
@@ -114,18 +104,8 @@
       "type": "runtime"
     },
     {
-      "name": "cors",
-      "version": "2.8.6",
-      "type": "runtime"
-    },
-    {
       "name": "drizzle-orm",
       "version": "0.45.2",
-      "type": "runtime"
-    },
-    {
-      "name": "express-rate-limit",
-      "version": "8.6.1",
       "type": "runtime"
     },
     {
@@ -134,28 +114,8 @@
       "type": "runtime"
     },
     {
-      "name": "helmet",
-      "version": "8.3.0",
-      "type": "runtime"
-    },
-    {
-      "name": "jsonwebtoken",
-      "version": "9.0.3",
-      "type": "runtime"
-    },
-    {
       "name": "pg",
       "version": "8.22.0",
-      "type": "runtime"
-    },
-    {
-      "name": "uuid",
-      "version": "14.0.1",
-      "type": "runtime"
-    },
-    {
-      "name": "yaml",
-      "version": "2.9.0",
       "type": "runtime"
     },
     {

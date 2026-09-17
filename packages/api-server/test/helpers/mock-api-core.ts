@@ -60,11 +60,20 @@ class NotFoundError extends Error {
 }
 
 /**
+ * The REAL api-core exports, used as the base of every mock below. Suites stub
+ * only what they exercise; everything else is the genuine export, so adding an
+ * export to api-core can never again break a suite with "does not provide an
+ * export named X". (`requireActual` bypasses the module mock.)
+ */
+const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record<string, unknown>;
+
+/**
  * Default api-core namespace for `unstable_mockModule`. Spread `overrides` last
  * so a suite can replace any default (and add exports the default omits).
  */
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
+    ...actualApiCore,
     createLogger: loggerMock,
     // Fail-open paths emit `quota_fail_open_total` so an outage is alertable;
     // a no-op here keeps the counter out of the assertions that don't care.
@@ -91,6 +100,10 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // needs it or ESM linking against the mock throws "does not provide an
     // export named SSE_TICKET_TTL_MS".
     SSE_TICKET_TTL_MS: 30_000,
+    // sse-connection-manager builds its default log ticket store with this, and
+    // app-factory the env-backed one; link-time stubs for the transitive graph.
+    createMemorySseTicketStore: () => ({}),
+    createEnvSseTicketStore: () => ({}),
     // pipeline-core's billing-config imports QUOTA_TIERS at module load (derives
     // marketing copy from each tier's limits), so the transitively-loaded graph
     // needs an entry for EVERY tier. Built from the shared fixture over the real

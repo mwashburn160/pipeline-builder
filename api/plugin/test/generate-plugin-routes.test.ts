@@ -24,7 +24,13 @@ const mockDecrementQuota = jest.fn();
 const mockGeneratePluginConfig = jest.fn<(...args: any[]) => any>();
 const mockStreamPluginConfig = jest.fn<(...args: any[]) => any>();
 
+/** Stand-in for the service's typed "provider answered, output empty" error. */
+class MockAIEmptyOutputError extends Error {
+  readonly providerContacted = true;
+}
+
 jest.unstable_mockModule('../src/services/ai-plugin-generation-service.js', () => ({
+  AIEmptyOutputError: MockAIEmptyOutputError,
   getAvailableProviders: jest.fn(() => []),
   generatePluginConfig: mockGeneratePluginConfig,
   streamPluginConfig: mockStreamPluginConfig,
@@ -129,6 +135,18 @@ describe('POST /generate — quota reserve auth', () => {
     );
   });
 
+  // Keep-on-provider-contact (pipeline's rule): the provider round-trip completed
+  // and its cost was incurred, so an empty output KEEPS the slot.
+  it('keeps the aiCalls slot when the provider answered with empty output', async () => {
+    mockGeneratePluginConfig.mockRejectedValue(new MockAIEmptyOutputError('AI did not produce a plugin configuration'));
+
+    const res = mockRes();
+    await handler(mockReq(), res);
+
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(502);
+  });
+
   it('returns 429 (not 403) when the org is at its aiCalls cap', async () => {
     mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'aiCalls', limit: 1, used: 1, remaining: 0, resetAt: '2026-08-01T00:00:00Z' } });
 
@@ -191,6 +209,35 @@ describe('POST /generate/stream — quota reserve auth', () => {
     expect(mockDecrementQuota).not.toHaveBeenCalled();
     expect(res.write).toHaveBeenCalledWith('data: [DONE]\n\n');
     expect(res.end).toHaveBeenCalled();
+  });
+
+  // Keep-on-provider-contact: once a partial has streamed the provider was
+  // reached, so a later failure keeps the slot …
+  it('keeps the aiCalls slot when the stream fails AFTER the provider responded', async () => {
+    (initSSEStream as jest.Mock).mockReturnValue({ aborted: () => false });
+    mockStreamPluginConfig.mockReturnValue({
+      partialOutputStream: (async function* () {
+        yield { name: 'x' };
+        throw new Error('stream reset mid-flight');
+      })(),
+      output: Promise.resolve(null),
+    });
+
+    await handler(mockReq(), mockRes());
+
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+  });
+
+  // … while a failure before the provider was ever reached refunds it.
+  it('refunds the aiCalls slot when the stream fails BEFORE the provider responded', async () => {
+    (initSSEStream as jest.Mock).mockReturnValue({ aborted: () => false });
+    mockStreamPluginConfig.mockImplementation(() => { throw new Error('unknown model'); });
+
+    await handler(mockReq(), mockRes());
+
+    expect(mockDecrementQuota).toHaveBeenCalledWith(
+      mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, expect.any(Function), 1, '2026-08-01T00:00:00Z',
+    );
   });
 
   // The ABORT (client disconnect) refund path stays intact — the caller never

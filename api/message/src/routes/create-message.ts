@@ -22,6 +22,7 @@ import { withRoute, createAuthenticatedWithOrgRoute, incCounter, rateLimitByOrg 
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { schema } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
+import { notifyNewMessage, validateRecipient } from '../helpers/new-message.js';
 import { enrichOneWithOrgNames } from '../helpers/org-names.js';
 import { isRecipientReachable, isTargetUserReachable } from '../helpers/org-reachability.js';
 import { attachmentService } from '../services/attachment-service.js';
@@ -68,41 +69,18 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       ctx.log('INFO', 'Resolved recipient alias', { alias: originalValue, resolvedTo: recipientOrgId });
     }
 
-    // Announcements are sysadmin broadcasts; only Pipeline Builder
-    // operators may send them, regardless of which org they're currently
-    // scoped to.
-    if (messageType === 'announcement' && !isSystemAdmin(req)) {
-      return sendError(res, 403, 'Only sysadmins can create announcements', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
-
-    // Broadcast announcements must use '*' as recipient
-    if (messageType === 'announcement' && recipientOrgId !== '*') {
-      return sendBadRequest(res, 'Announcements must use "*" as recipientOrgId for broadcast', ErrorCode.VALIDATION_ERROR);
-    }
-
-    // Conversations: a concrete recipient is required.
-    if (messageType === 'conversation' && !recipientOrgId) {
-      return sendBadRequest(res, 'recipientOrgId is required for conversations', ErrorCode.VALIDATION_ERROR);
-    }
-
-    // Converse of the announcement guard: '*' is a BROADCAST recipient and is
-    // reserved for announcements. A conversation must never target '*' — for
-    // ALL callers, including sysadmins/service-principals (who bypass the
-    // reachability gate below). Without this, a '*'-recipient conversation would
-    // land in every org's inbox (buildMessageConditions surfaces recipient='*'
-    // to everyone) — an un-audited broadcast masquerading as a 1:1 message. The
-    // reachability gate never catches it because '*' short-circuits reachability
-    // and sysadmins/service-principals skip the gate entirely.
-    if (messageType === 'conversation' && recipientOrgId === '*') {
-      return sendBadRequest(res, 'Conversations cannot use "*" as recipientOrgId; "*" is reserved for announcement broadcasts', ErrorCode.VALIDATION_ERROR);
-    }
-
-    // Per-user targeting is a CONVERSATION-only, concrete-recipient feature.
-    // It is meaningless on an announcement (an org-wide '*' broadcast), so reject
-    // rather than silently drop it — a mis-built client must not believe it sent
-    // a private, single-user message when it actually broadcast org-wide.
-    if (recipientUserId && (messageType === 'announcement' || recipientOrgId === '*')) {
-      return sendBadRequest(res, 'recipientUserId is only valid on a conversation to a specific organization', ErrorCode.VALIDATION_ERROR);
+    // Synchronous recipient-shape rules (announcement authority + '*' broadcast
+    // reservation + per-user targeting) — see validateRecipient for each rule.
+    const rejection = validateRecipient({
+      messageType,
+      recipientOrgId,
+      recipientUserId,
+      isSysadmin: isSystemAdmin(req),
+    });
+    if (rejection) {
+      return rejection.status === 403
+        ? sendError(res, 403, rejection.message, rejection.code)
+        : sendBadRequest(res, rejection.message, rejection.code);
     }
 
     // Cross-tenant send gate. A non-sysadmin member may only start a
@@ -177,35 +155,14 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
     // label cardinality bounded (no orgId/messageId).
     incCounter('message_events_total', { action: 'created' });
 
-    // Push SSE notification to recipient
-    try {
-      // The SSE fan-out is ORG-scoped (no per-user channel), so every member of
-      // the recipient org receives this event. For a per-user targeted message
-      // that means the `subject` would leak to members who cannot read the
-      // message — so redact it (and mark the target) when targeted. The client
-      // shows a generic "new message" ping and refetches; server-side visibility
-      // (findVisibleById / viewer-scoped inbox) still gates the actual content.
-      const notificationData = {
-        action: 'NEW_MESSAGE' as const,
-        messageId: message.id,
-        // Redact the subject for a targeted message — the SSE fan-out is
-        // org-wide, so members who can't read it must not see its subject. We
-        // also DON'T include recipientUserId: it would tell every org member
-        // WHICH user was targeted. The client just refetches; server-side
-        // visibility gates who actually sees the message.
-        subject: recipientUserId ? undefined : subject,
-        senderOrgId: orgId,
-        messageType,
-      };
-
-      if (recipientOrgId.toLowerCase() === '*') {
-        sseManager.broadcast('MESSAGE', 'New announcement', notificationData);
-      } else {
-        sseManager.send(recipientOrgId.toLowerCase(), 'MESSAGE', 'New message', notificationData);
-      }
-    } catch (err) {
-      ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
-    }
+    notifyNewMessage(sseManager, {
+      recipientOrgId,
+      messageId: message.id,
+      subject,
+      targeted: !!recipientUserId,
+      senderOrgId: orgId,
+      messageType,
+    }, (err) => ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) }));
 
     // Audit ONLY admin broadcasts. Announcements are sysadmin org-wide
     // broadcasts (gated above to messageType==='announcement' + recipient '*');
@@ -337,21 +294,15 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
     // Domain metric — a reply is a created message row too.
     incCounter('message_events_total', { action: 'created' });
 
-    // Push SSE notification to the reply recipient
-    try {
-      sseManager.send(replyRecipientOrgId.toLowerCase(), 'MESSAGE', 'New reply', {
-        action: 'NEW_MESSAGE' as const,
-        messageId: reply.id,
-        threadId: id,
-        // Same redaction as the create path: a targeted reply's subject must not
-        // reach the whole recipient org via the org-wide SSE fan-out.
-        subject: replyRecipientUserId ? undefined : rootMessage.subject,
-        senderOrgId: orgId,
-        messageType: replyMessageType,
-      });
-    } catch (err) {
-      ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
-    }
+    notifyNewMessage(sseManager, {
+      recipientOrgId: replyRecipientOrgId,
+      messageId: reply.id,
+      threadId: id,
+      subject: rootMessage.subject,
+      targeted: !!replyRecipientUserId,
+      senderOrgId: orgId,
+      messageType: replyMessageType,
+    }, (err) => ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) }));
 
     return sendSuccess(res, 201, await enrichOneWithOrgNames(reply), 'Reply sent successfully');
   }));

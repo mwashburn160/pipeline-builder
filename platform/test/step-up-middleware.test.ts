@@ -2,90 +2,46 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for `requireStepUp` middleware + the step-up token utilities.
+ * Platform MINTS step-up tokens (`issueStepUpToken`); every step-up-gated route —
+ * platform's own included — enforces them with api-core's `requireStepUp`. This
+ * pins that the two agree: a platform-issued token passes the REAL api-core
+ * middleware (same secret, algorithm, issuer/audience and `type`/`jti` claims),
+ * and the security properties platform relies on hold end to end.
  *
- * These two pieces together enforce the security boundary we built for
- * destructive endpoints. The middleware must reject every variant of
- * "no token, wrong token, expired token, token for a different user"
- * with a stable error code the frontend can pattern-match on.
- *
- * Token round-trips are tested against the real `jsonwebtoken` library
- * — we want to catch signature / payload-shape regressions, not just
- * mock the verify call.
+ * Deep imports: the real api-core modules, not the mocked barrel.
  */
 
-import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 import jwt from 'jsonwebtoken';
-import { apiCoreMock } from './helpers/mock-api-core.js';
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  sendError: (res: any, status: number, msg: string, code?: string) => {
-    res.status(status).json({ success: false, statusCode: status, message: msg, code });
-  },
-  // Consumed transitively via token.js -> org-hierarchy.js.
-  resolveUserFeatures: jest.fn(() => ({})),
-  resolveUserPermissions: jest.fn(() => []),
-  resolveOrgLineageWith: jest.fn(),
-  isAncestorOrgWith: jest.fn(),
-  expandOrgScopeWith: jest.fn(),
-  toOrgIdString: (id: unknown) => String(id),
-}));
 
-// Pin the JWT secret so verify works without env wiring.
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    auth: {
-      jwt: { secret: 'test-step-up-secret', algorithm: 'HS256' },
-      refreshToken: { secret: 'test-refresh-secret', expiresIn: '7d' },
-    },
-  },
-}));
-
-// Token util imports `User` model transitively via the access-token issuer
-// path — stub it out so we don't need mongoose.
-jest.unstable_mockModule('mongoose', () => {
-  class Schema {
-    constructor() { /* no-op */ }
-    index() { /* no-op */ }
-    method() { /* no-op */ }
-    pre() { /* no-op */ }
-    post() { /* no-op */ }
-    virtual() { return this; }
-    set() { /* no-op */ }
-    static Types = { Mixed: class {}, ObjectId: class {} };
-  }
-  const Types = { ObjectId: class {} };
-  return { default: { Types, Schema, models: {}, model: jest.fn() }, Types, Schema, models: {}, model: jest.fn() };
-});
-
+const SECRET = 'test-step-up-secret';
+const jwtConfig: Record<string, unknown> = { secret: SECRET, algorithm: 'HS256' };
+jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { jwt: jwtConfig } } }));
+// token.ts pulls the models barrel; nothing here touches the database.
 jest.unstable_mockModule('../src/models/index.js', () => ({
-  // Linking stubs: user-profile/auth SUTs import these from the models barrel.
-  PersonalAccessToken: {},
-  UserPreferences: {},
-  User: {},
-  Organization: {},
-  UserOrganization: {},
-  Role: { find: () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) }) },
-  RoleAssignment: { find: () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) }) },
+  User: {}, Organization: {}, UserOrganization: {}, Role: {}, RoleAssignment: {},
 }));
 
-// consumed-jti reaches for Redis; force the in-memory fallback (Redis unset) so
-// these assertions exercise the process-local single-use path deterministically.
-jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
-  getRedisClient: jest.fn(async () => undefined),
-}));
+const ENV = ['JWT_SECRET', 'JWT_SECRET_PREVIOUS', 'JWT_ISSUER', 'JWT_AUDIENCE', 'JWT_ALGORITHM', 'REDIS_URL', 'REDIS_SENTINELS'] as const;
+const saved = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
+for (const k of ENV) delete process.env[k];
+process.env.JWT_SECRET = SECRET;
 
-const { _resetConsumedJtiForTests, consumeJti } = await import('../src/middleware/consumed-jti.js');
-const { requireStepUp } = await import('../src/middleware/step-up.js');
-const { issueStepUpToken, verifyStepUpToken } = await import('../src/utils/token.js');
+const apiCoreAuth = await import('@pipeline-builder/api-core/lib/middleware/auth.js');
+const { requireStepUp } = await import('@pipeline-builder/api-core/lib/middleware/step-up.js');
+const { issueStepUpToken } = await import('../src/utils/token.js');
 
-function mockReq(opts: { userId?: string; token?: string } = {}) {
+function configure(c: { issuer?: string; audience?: string } = {}) {
+  Object.assign(jwtConfig, { issuer: c.issuer, audience: c.audience });
+  if (c.issuer) process.env.JWT_ISSUER = c.issuer; else delete process.env.JWT_ISSUER;
+  if (c.audience) process.env.JWT_AUDIENCE = c.audience; else delete process.env.JWT_AUDIENCE;
+  apiCoreAuth._resetJwtSecretCacheForTests();
+}
+
+function mockReq(opts: { sub?: string; token?: string } = {}) {
   const headers: Record<string, string> = {};
   if (opts.token) headers['x-step-up-token'] = opts.token;
-  return {
-    user: opts.userId ? { sub: opts.userId } : undefined,
-    header: (name: string) => headers[name.toLowerCase()],
-    headers,
-  } as any;
+  return { user: opts.sub ? { sub: opts.sub } : undefined, headers } as any;
 }
 
 function mockRes() {
@@ -95,135 +51,72 @@ function mockRes() {
   return res;
 }
 
-beforeEach(() => {
-  _resetConsumedJtiForTests();
+async function run(req: any) {
+  const res = mockRes();
+  const next = jest.fn();
+  await requireStepUp(req, res, next);
+  const body = (res.json as jest.Mock).mock.calls[0]?.[0] as { code?: string; errorCode?: string } | undefined;
+  return { res, next, code: body?.code ?? body?.errorCode };
+}
+
+beforeEach(() => configure());
+afterAll(() => {
+  for (const k of ENV) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+  apiCoreAuth._resetJwtSecretCacheForTests();
 });
 
-describe('consumeJti', () => {
-  it('returns true on first use, false on replay', async () => {
-    const exp = Math.floor(Date.now() / 1000) + 60;
-    expect(await consumeJti('jti-1', exp)).toBe(true);
-    expect(await consumeJti('jti-1', exp)).toBe(false);
-  });
-
-  it('rejects already-expired tokens', async () => {
-    const expiredExp = Math.floor(Date.now() / 1000) - 1;
-    expect(await consumeJti('jti-stale', expiredExp)).toBe(false);
-  });
-
-  it('allows different jtis from the same user concurrently', async () => {
-    const exp = Math.floor(Date.now() / 1000) + 60;
-    expect(await consumeJti('jti-a', exp)).toBe(true);
-    expect(await consumeJti('jti-b', exp)).toBe(true);
-  });
-});
-
-describe('issueStepUpToken / verifyStepUpToken', () => {
-  it('round-trips a payload bound to the user', () => {
-    const { token, expiresAt } = issueStepUpToken('user-42');
-    const payload = verifyStepUpToken(token);
-    expect(payload.sub).toBe('user-42');
-    expect(payload.type).toBe('step-up');
-    expect(typeof payload.jti).toBe('string');
-    expect(payload.jti.length).toBeGreaterThan(0);
-    // expiresAt is "now + ttl seconds"; allow a 5s skew window.
-    const expected = Math.floor(Date.now() / 1000) + 60;
-    expect(Math.abs(expiresAt - expected)).toBeLessThanOrEqual(5);
-  });
-
-  it('honors a custom TTL in seconds', () => {
-    const { token } = issueStepUpToken('u1', 5);
-    const decoded = jwt.decode(token) as { exp: number; iat: number };
-    expect(decoded.exp - decoded.iat).toBe(5);
-  });
-
-  it('emits a new jti per call', () => {
-    const a = issueStepUpToken('u1');
-    const b = issueStepUpToken('u1');
-    expect(verifyStepUpToken(a.token).jti).not.toBe(verifyStepUpToken(b.token).jti);
-  });
-
-  it('verify rejects a token signed with a different secret', () => {
-    const bogus = jwt.sign({ type: 'step-up', sub: 'u1' }, 'wrong-secret', { algorithm: 'HS256', expiresIn: 60 });
-    expect(() => verifyStepUpToken(bogus)).toThrow();
+describe('issueStepUpToken', () => {
+  it('binds the token to the user with a fresh jti and the requested TTL', () => {
+    const a = jwt.decode(issueStepUpToken('u1', 5).token) as { type: string; sub: string; jti: string; exp: number; iat: number };
+    const b = jwt.decode(issueStepUpToken('u1').token) as { jti: string };
+    expect(a).toMatchObject({ type: 'step-up', sub: 'u1' });
+    expect(a.exp - a.iat).toBe(5);
+    expect(a.jti).not.toBe(b.jti);
   });
 });
 
-describe('requireStepUp middleware', () => {
-  it('rejects unauthenticated callers (no req.user)', async () => {
-    const res = mockRes();
-    const next = jest.fn();
-    await requireStepUp(mockReq({}), res, next);
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(next).not.toHaveBeenCalled();
-  });
-
-  it('rejects when the X-Step-Up-Token header is missing — code STEP_UP_REQUIRED', async () => {
-    const res = mockRes();
-    const next = jest.fn();
-    await requireStepUp(mockReq({ userId: 'u1' }), res, next);
-    expect(res.status).toHaveBeenCalledWith(401);
-    const body = (res.json as jest.Mock).mock.calls[0][0];
-    expect(body.code).toBe('STEP_UP_REQUIRED');
-    expect(next).not.toHaveBeenCalled();
-  });
-
-  it('rejects an invalid/expired token — code STEP_UP_INVALID', async () => {
-    const res = mockRes();
-    const next = jest.fn();
-    await requireStepUp(mockReq({ userId: 'u1', token: 'not.a.real.jwt' }), res, next);
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect((res.json as jest.Mock).mock.calls[0][0].code).toBe('STEP_UP_INVALID');
-    expect(next).not.toHaveBeenCalled();
-  });
-
-  it('rejects a token whose sub != req.user.sub — code STEP_UP_MISMATCH', async () => {
-    // Issued for u-other; replayed by u1's session.
-    const { token } = issueStepUpToken('u-other');
-    const res = mockRes();
-    const next = jest.fn();
-    await requireStepUp(mockReq({ userId: 'u1', token }), res, next);
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect((res.json as jest.Mock).mock.calls[0][0].code).toBe('STEP_UP_MISMATCH');
-    expect(next).not.toHaveBeenCalled();
-  });
-
-  it('calls next() when token is valid for the caller', async () => {
-    const { token } = issueStepUpToken('u1');
-    const res = mockRes();
-    const next = jest.fn();
-    await requireStepUp(mockReq({ userId: 'u1', token }), res, next);
+describe('platform step-up tokens under api-core requireStepUp', () => {
+  it('accepts a platform-issued token for the same caller', async () => {
+    const { next, res } = await run(mockReq({ sub: 'u1', token: issueStepUpToken('u1').token }));
     expect(next).toHaveBeenCalledTimes(1);
     expect(res.status).not.toHaveBeenCalled();
   });
 
-  it('rejects a second use of the same token — code STEP_UP_REPLAY', async () => {
-    const { token } = issueStepUpToken('u1');
-    const next1 = jest.fn();
-    const res1 = mockRes();
-    await requireStepUp(mockReq({ userId: 'u1', token }), res1, next1);
-    expect(next1).toHaveBeenCalled();
-
-    // Same token replayed → consumed-jti rejects.
-    const next2 = jest.fn();
-    const res2 = mockRes();
-    await requireStepUp(mockReq({ userId: 'u1', token }), res2, next2);
-    expect(res2.status).toHaveBeenCalledWith(401);
-    expect((res2.json as jest.Mock).mock.calls[0][0].code).toBe('STEP_UP_REPLAY');
-    expect(next2).not.toHaveBeenCalled();
+  it('accepts it with issuer/audience pinned on both sides', async () => {
+    configure({ issuer: 'pipeline-builder', audience: 'pb-api' });
+    const { next } = await run(mockReq({ sub: 'u1', token: issueStepUpToken('u1').token }));
+    expect(next).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects an expired token via the standard INVALID path', async () => {
-    // Sign a token with exp in the past so jwt.verify throws TokenExpiredError.
-    const expired = jwt.sign(
-      { type: 'step-up', sub: 'u1', jti: 'xx', iat: Math.floor(Date.now() / 1000) - 120 },
-      'test-step-up-secret',
-      { algorithm: 'HS256', expiresIn: -60 },
-    );
-    const res = mockRes();
-    const next = jest.fn();
-    await requireStepUp(mockReq({ userId: 'u1', token: expired }), res, next);
-    expect((res.json as jest.Mock).mock.calls[0][0].code).toBe('STEP_UP_INVALID');
+  it('requires the header', async () => {
+    const { next, code } = await run(mockReq({ sub: 'u1' }));
     expect(next).not.toHaveBeenCalled();
+    expect(code).toBe('STEP_UP_REQUIRED');
+  });
+
+  it('rejects a token issued to a different user', async () => {
+    const { next, code } = await run(mockReq({ sub: 'u1', token: issueStepUpToken('u-other').token }));
+    expect(next).not.toHaveBeenCalled();
+    expect(code).toBe('STEP_UP_MISMATCH');
+  });
+
+  it('rejects a replay of the same token', async () => {
+    const { token } = issueStepUpToken('u1');
+    expect((await run(mockReq({ sub: 'u1', token }))).next).toHaveBeenCalled();
+    const replay = await run(mockReq({ sub: 'u1', token }));
+    expect(replay.next).not.toHaveBeenCalled();
+    expect(replay.code).toBe('STEP_UP_REPLAY');
+  });
+
+  it('rejects a plain access token signed with the same secret', async () => {
+    const access = jwt.sign({ type: 'access', sub: 'u1', jti: 'x' }, SECRET, { algorithm: 'HS256', expiresIn: 60 });
+    const { next, code } = await run(mockReq({ sub: 'u1', token: access }));
+    expect(next).not.toHaveBeenCalled();
+    expect(code).toBe('STEP_UP_INVALID');
+  });
+
+  it('exempts a verified service principal', async () => {
+    const { next } = await run(mockReq({ sub: 'service:billing' }));
+    expect(next).toHaveBeenCalledTimes(1);
   });
 });

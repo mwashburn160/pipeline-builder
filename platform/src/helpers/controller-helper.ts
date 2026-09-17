@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, isSystemAdmin as apiCoreIsSystemAdmin, isSystemOrgId, sendError } from '@pipeline-builder/api-core';
+import { createLogger, isSystemAdmin, isSystemOrgId, sendError } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 
 const logger = createLogger('platform-api');
@@ -40,18 +40,6 @@ export function withController(
 }
 
 // Auth Helpers
-
-/**
- * Re-exports api-core's privilege gate. The previous local implementation
- * granted sysadmin authority based on org membership (`organizationId` or
- * `organizationName === 'system'`), but that path was a privilege-escalation
- * vector: any user whose active org was named "system" became a platform
- * sysadmin. Only the explicit `req.user.isSuperAdmin === true` claim should
- * confer platform-wide authority. Keeping this re-export so existing
- * `import { isSystemAdmin } from '../helpers/controller-helper.js'` callers
- * keep working.
- */
-export const isSystemAdmin = apiCoreIsSystemAdmin;
 
 /**
  * `isOrgAdmin` excludes sysadmins (who get separate handling) AND members
@@ -191,6 +179,41 @@ export function requireAdminContext(req: Request, res: Response): AdminContext |
   return ctx;
 }
 
+/**
+ * Who a `members:manage` caller on the `/users` admin routes may act on.
+ *
+ * The route's `requirePermission('members:manage')` is the capability gate — a
+ * custom Role delegating it works, not only the coarse admin/owner role. This
+ * adds the tenancy scope, the same rule as {@link canManageOrgScope}: a platform
+ * administrator acts fleet-wide; anyone else is confined to their active org
+ * (and, where the route looks at another org, its descendant teams).
+ */
+export interface MemberManagementScope {
+  /** Platform administrator — fleet-wide, and alone may change account-level
+   *  fields (sign-in details, account deletion, user creation). */
+  isSuperAdmin: boolean;
+  /** For everyone else: the active org their `members:manage` applies to. */
+  orgId?: string;
+}
+
+/**
+ * Resolve the caller's {@link MemberManagementScope}. Sends 401 (no user) or 403
+ * (a non-platform-admin with no active org) and returns null on failure.
+ */
+export function requireMemberManagementScope(req: Request, res: Response): MemberManagementScope | null {
+  if (!req.user) {
+    sendError(res, 401, 'Unauthorized');
+    return null;
+  }
+  if (isSystemAdmin(req)) return { isSuperAdmin: true };
+  const orgId = req.user.organizationId;
+  if (!orgId) {
+    sendError(res, 403, 'Forbidden: an active organization is required');
+    return null;
+  }
+  return { isSuperAdmin: false, orgId };
+}
+
 // Effective org access (org → team hierarchy)
 
 /**
@@ -200,11 +223,11 @@ export function requireAdminContext(req: Request, res: Response): AdminContext |
  * the model chain only loads on the cross-org authorization path.
  */
 async function targetIsDescendantOf(activeOrgId: string, targetOrgId: string): Promise<boolean> {
-  // Indirect specifier: the runtime import stays lazy (no model/config load at
-  // module init) while sidestepping the NodeNext literal-extension rule; the
-  // `typeof import(...)` annotation keeps it fully typed.
-  const modPath = './org-hierarchy';
-  const mod: typeof import('./org-hierarchy.js') = await import(modPath);
+  // Lazy (no model/config load at module init). The specifier MUST be a literal
+  // ending in `.js`: Node ESM does not add extensions, so an extensionless or
+  // computed './org-hierarchy' throws ERR_MODULE_NOT_FOUND in production while
+  // jest's moduleNameMapper hides it (test/esm-import-specifiers.test.ts).
+  const mod = await import('./org-hierarchy.js');
   return mod.isAncestorOrg(activeOrgId, targetOrgId);
 }
 
@@ -360,9 +383,3 @@ export function handleControllerError(
   logger.error(fallbackMessage, err);
   sendError(res, 500, fallbackMessage);
 }
-
-// ID Conversion
-// `toOrgId` now lives in the mongoose-only `./org-id.js` (no express/api-core
-// coupling) so hot paths + service modules can use it without dragging the
-// request layer. Re-exported here for the many existing controller-helper importers.
-export { toOrgId } from './org-id.js';

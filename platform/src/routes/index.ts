@@ -9,7 +9,6 @@ export { default as usersRoutes } from './users.js';
 export { default as organizationRoutes } from './organization.js';
 export { default as organizationsRoutes } from './organizations.js';
 export { default as invitationRoutes } from './invitation.js';
-export { default as logRoutes } from './log.js';
 export { default as auditRoutes } from './audit.js';
 export { default as notifyEmailRoutes } from './notify-email.js';
 export { default as configRoutes } from './config.js';

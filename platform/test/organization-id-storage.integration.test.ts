@@ -80,7 +80,7 @@ suite('organization id storage (real Mongo, #13)', () => {
     // Import the REAL models + caster AFTER connecting so they bind to the live
     // default connection. These are the exact schemas production uses.
     ({ Organization, UserOrganization } = await import('../src/models/index.js'));
-    ({ toOrgId } = await import('../src/helpers/controller-helper.js'));
+    ({ toOrgId } = await import('../src/helpers/org-id.js'));
     ({ SYSTEM_ORG_ID } = await import('@pipeline-builder/api-core'));
   }, 120_000); // first run downloads the mongod binary
 

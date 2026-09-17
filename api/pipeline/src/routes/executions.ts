@@ -89,7 +89,7 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
         incCounter('pipeline_executions_total', { outcome: 'started' });
 
         // Meter the successful trigger against the org's apiCalls budget.
-        incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+        incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
         // Best-effort attributed audit — the AWS CodePipeline start succeeded.
         emitPipelineAudit({

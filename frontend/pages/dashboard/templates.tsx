@@ -271,7 +271,7 @@ export default function TemplatesPage() {
             onRestored={fetchAll}
             // The tombstone list carries only the display `access` value, so the
             // private rung is gated by the backend's authorship check on restore.
-            canRestoreRow={(r) => (r.access === 'public' ? canPublish : canWrite)}
+            canRestoreRow={(r) => (r.visibility === 'public' ? canPublish : canWrite)}
           />
         ) : (
         <ResourceList<PipelineTemplate>

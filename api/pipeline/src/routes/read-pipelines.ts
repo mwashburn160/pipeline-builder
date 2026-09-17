@@ -51,7 +51,7 @@ export function createReadPipelineRoutes(
     );
 
     ctx.log('COMPLETED', 'Listed pipelines', { count: result.data.length, ...(result.total !== undefined && { total: result.total }) });
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
 
@@ -73,7 +73,7 @@ export function createReadPipelineRoutes(
     if (!result) return sendEntityNotFound(res, 'Pipeline');
 
     ctx.log('COMPLETED', 'Retrieved pipeline', { id: result.id, name: result.pipelineName });
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
 
@@ -88,7 +88,7 @@ export function createReadPipelineRoutes(
     const deleted = await pipelineService.findDeleted(orgId, { limit, offset });
 
     ctx.log('COMPLETED', 'Listed deleted pipelines', { count: deleted.length });
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     return sendSuccess(res, 200, { pipelines: deleted.map(r => normalizeArrayFields(r, ['keywords'])) });
   }));
@@ -112,7 +112,7 @@ export function createReadPipelineRoutes(
     if (!result) return sendEntityNotFound(res, 'Pipeline');
 
     ctx.log('COMPLETED', 'Retrieved pipeline', { id: result.id, name: result.pipelineName });
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_DETAIL);
 

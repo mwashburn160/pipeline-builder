@@ -36,8 +36,8 @@ app.use('/token', createTokenRoute());
 app.use('/api/images', requireAuth, createImageRoutes());
 
 // Admin endpoints  per-namespace storage rollup + manual GC. Same auth
-// + sysadmin gating as /api/images. Hit by the registry-gc CronJob daily
-// to prune stale tags under each org's `org-X/` namespace.
+// + permission gating as /api/images. Periodic pruning of each org's `org-X/`
+// namespace runs in-process (see startGcScheduler below), not through this route.
 app.use('/api/admin', requireAuth, createAdminRoutes());
 
 runServer(app, {

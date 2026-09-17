@@ -28,7 +28,6 @@
     "target": "ESNext",
     "types": [
       "adm-zip",
-      "cors",
       "express",
       "jsonwebtoken",
       "multer",

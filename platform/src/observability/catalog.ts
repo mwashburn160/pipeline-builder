@@ -71,13 +71,16 @@ export type QueryEntry = PrometheusQueryEntry | AuditStoreQueryEntry;
 
 export const QUERIES: Record<string, QueryEntry> = {
   // -- Platform Overview dashboard --------------------------------------------
+  // The count gauges are sampled by EVERY platform replica (observability/
+  // scraper.ts), so each exists once per pod with the same value; `max` collapses
+  // them to one series and ignores a pod that has not sampled yet.
   platform_orgs_total: {
     source: 'prometheus-instant',
-    query: 'platform_orgs_total',
+    query: 'max(platform_orgs_total)',
   },
   platform_users_total: {
     source: 'prometheus-instant',
-    query: 'platform_users_total',
+    query: 'max(platform_users_total)',
   },
   platform_logins_24h: {
     source: 'prometheus-instant',
@@ -89,7 +92,7 @@ export const QUERIES: Record<string, QueryEntry> = {
   },
   platform_memberships_active_total: {
     source: 'prometheus-instant',
-    query: 'platform_memberships_active_total',
+    query: 'max(platform_memberships_active_total)',
   },
 
   // -- Plugin Builds dashboard ------------------------------------------------

@@ -138,13 +138,9 @@ async function pushEntitlementLeg(opts: {
   subscriptionId?: string;
 }): Promise<boolean> {
   const { orgId, service, path, body, authHeader, failReason, logLabel, logFields, subscriptionId } = opts;
-  // Own the client so its keep-alive agent is released — this fans out 4 legs per
-  // sync, so a leaked agent per leg accumulates idle sockets under churn. Created
-  // INSIDE the try so a config-access error stays in the fail-open path, then
-  // destroyed in finally (guarded — it may be undefined if creation threw).
-  let client: ReturnType<typeof createSafeClient> | undefined;
   try {
-    client = createSafeClient({ host: service.host, port: service.port, timeout: getBillingTimeout() });
+    // Created INSIDE the try so a config-access error stays in the fail-open path.
+    const client = createSafeClient({ host: service.host, port: service.port, timeout: getBillingTimeout() });
     const effectiveAuth = authHeader || billingServiceAuth(orgId);
     const response = await client.put(path, body, {
       headers: { 'Authorization': effectiveAuth, 'x-org-id': orgId },
@@ -160,8 +156,6 @@ async function pushEntitlementLeg(opts: {
     logger.error(`Error syncing ${logLabel}`, { orgId, ...logFields, error });
     await createBillingEvent(orgId, 'subscription_updated', { reason: failReason, ...logFields, error: error instanceof Error ? error.message : String(error) }, subscriptionId);
     return false;
-  } finally {
-    client?.destroy();
   }
 }
 
@@ -578,6 +572,10 @@ interface EntitlementSyncEvent {
   tier: QuotaTier;
   subscriptionId?: string;
   addons: Array<{ bundleId: string; quantity: number }>;
+  /** When the entitlement change happened (ISO). A redelivered retry carries the
+   *  ORIGINAL moment, so compliance's watermark ignores it if a newer sync has
+   *  already been applied — a stale retry can't roll an org back. */
+  occurredAt: string;
 }
 
 /** Register (or clear) the durable bus used for entitlement-sync retries. */
@@ -598,9 +596,9 @@ export function startEntitlementSyncConsumer(bus: DurableEventBus): EventSubscri
     group: 'billing-entitlement-sync',
     consumer: `billing-${process.pid}`,
     handler: async (env) => {
-      const { orgId, tier, subscriptionId, addons } = env.payload;
+      const { orgId, tier, subscriptionId, addons, occurredAt } = env.payload;
       // Fresh service token (the producing request's bearer is long gone).
-      const ok = await applyEntitlements(orgId, tier, billingServiceAuth(orgId), subscriptionId, addons ?? []);
+      const ok = await applyEntitlements(orgId, tier, billingServiceAuth(orgId), subscriptionId, addons ?? [], occurredAt);
       if (!ok) throw new Error(`entitlement sync redelivery incomplete for org ${orgId}`);
     },
   });
@@ -626,6 +624,8 @@ async function applyEntitlements(
   authHeader: string,
   subscriptionId?: string,
   addons: ReadonlyArray<{ bundleId: string; quantity: number }> = [],
+  /** ISO moment of the entitlement change; see {@link EntitlementSyncEvent.occurredAt}. */
+  occurredAt: string = new Date().toISOString(),
 ): Promise<boolean> {
   const { limits, features } = effectiveEntitlements(tier, addons, getBundleCatalog());
   // The 9 tracked types go to quota; `seats` + purchased feature entitlements
@@ -648,7 +648,7 @@ async function applyEntitlements(
       authHeader,
       subscriptionId,
     ),
-    pushComplianceSetsToCompliance(orgId, effectiveFeatures, authHeader, subscriptionId),
+    pushComplianceSetsToCompliance(orgId, effectiveFeatures, authHeader, subscriptionId, occurredAt),
   ]);
 
   const ok = quotaOk && seatOk && retentionOk && complianceOk;
@@ -695,14 +695,15 @@ export async function syncEntitlements(
   subscriptionId?: string,
   addons: ReadonlyArray<{ bundleId: string; quantity: number }> = [],
 ): Promise<boolean> {
-  const ok = await applyEntitlements(orgId, tier, authHeader, subscriptionId, addons);
+  const occurredAt = new Date().toISOString();
+  const ok = await applyEntitlements(orgId, tier, authHeader, subscriptionId, addons, occurredAt);
   if (!ok && entitlementSyncBus) {
     // Fire the durable retry. The real bus.publish is fail-safe (drops-with-metric,
     // never throws), but guard anyway so NO bus implementation can break the
     // fail-open contract (syncEntitlements must never throw).
     try {
       await entitlementSyncBus.publish<EntitlementSyncEvent>(ENTITLEMENT_SYNC_TOPIC, {
-        orgId, tier, subscriptionId, addons: [...addons],
+        orgId, tier, subscriptionId, addons: [...addons], occurredAt,
       });
     } catch (err) {
       logger.warn('Failed to publish entitlement-sync retry event', { orgId, subscriptionId, error: errorMessage(err) });

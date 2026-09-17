@@ -39,12 +39,6 @@ export function envBool(name: string, def: boolean): boolean {
   return def;
 }
 
-/** Read an env var constrained to `allowed`; unset / not-in-set → `def`. */
-export function envEnum<T extends string>(name: string, allowed: readonly T[], def: T): T {
-  const raw = process.env[name]?.trim() as T | undefined;
-  return raw !== undefined && allowed.includes(raw) ? raw : def;
-}
-
 /** Read a string env var; unset / blank → `def`. */
 export function envStr(name: string, def: string): string {
   const raw = process.env[name];

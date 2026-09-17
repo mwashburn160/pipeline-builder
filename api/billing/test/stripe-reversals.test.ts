@@ -57,7 +57,6 @@ jest.unstable_mockModule('../src/helpers/promotion-engine.js', () => ({
   clawbackRecentPromotions: (...a: unknown[]) => mockClawback(...a),
   grantRecurringPromotions: jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined),
   qualifyReferral: jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined),
-  recurringPeriodKey: () => '2026-08',
   evaluatePromotions: jest.fn<(...a: unknown[]) => Promise<unknown[]>>().mockResolvedValue([]),
   processReferralSignup: jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined),
 }));

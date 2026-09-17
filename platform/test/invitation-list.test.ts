@@ -23,7 +23,7 @@ jest.unstable_mockModule('mongoose', () => {
 jest.unstable_mockModule('../src/config/index.js', () => ({
   config: { invitation: { expirationDays: 7, maxPendingPerOrg: 50 } },
 }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityAvailable: jest.fn(async () => true),
   seatCapacityStillWithinCap: jest.fn(async () => true),

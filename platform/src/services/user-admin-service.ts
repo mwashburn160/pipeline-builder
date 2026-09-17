@@ -3,33 +3,19 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
-import { RL_ROLE_NOT_FOUND, assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole, removeBuiltinAdminRole } from './roles-service.js';
+import { RL_ROLE_NOT_FOUND } from './roles-errors.js';
+import { assertActorMayAssignBuiltinAdmin, assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole, removeBuiltinAdminRole, type RoleAssignmentActor } from './roles-service.js';
+import { deleteUserCascade } from './user-cascade.js';
+import { UA_USER_NOT_FOUND, UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_ORG_NOT_FOUND, UA_CANNOT_CHANGE_OWNER, UA_SEAT_LIMIT, UA_ROLES_NEED_ORG } from './user-errors.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
-import { toOrgId } from '../helpers/controller-helper.js';
+import { toOrgId } from '../helpers/org-id.js';
 import { seatCapacityAvailable, seatCapacityStillWithinCap, userHasSeatInAccount } from '../helpers/seats.js';
 import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
-import { User, Organization, UserOrganization, Role, RoleAssignment, PersonalAccessToken, UserPreferences, type OrgMemberRole } from '../models/index.js';
+import { User, Organization, UserOrganization, Role, RoleAssignment, type OrgMemberRole } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
 
 const logger = createLogger('user-admin-service');
-
-export const UA_USER_NOT_FOUND = 'UA_USER_NOT_FOUND';
-export const UA_USERNAME_TAKEN = 'UA_USERNAME_TAKEN';
-export const UA_EMAIL_TAKEN = 'UA_EMAIL_TAKEN';
-export const UA_OWNER_HAS_ORGS = 'UA_OWNER_HAS_ORGS';
-export const UA_LAST_PRIVILEGED_MEMBER = 'UA_LAST_PRIVILEGED_MEMBER';
-export const UA_ORG_NOT_FOUND = 'UA_ORG_NOT_FOUND';
-/** Refused an attempt to change the role of an org OWNER's membership. The owner
- *  role can only move via `transferOwnership` (which atomically re-homes it);
- *  a plain role edit would demote/orphan the org. */
-export const UA_CANNOT_CHANGE_OWNER = 'UA_CANNOT_CHANGE_OWNER';
-/** Target org is at its seat cap (`org.quotas.seats`) — assigning this user
- *  would exceed it. Same limit the invite/add paths enforce. */
-export const UA_SEAT_LIMIT = 'UA_SEAT_LIMIT';
-/** Role assignment was requested without an organization. Roles are
- *  org-scoped, so `createUser` can't attach them to an org-less user. */
-export const UA_ROLES_NEED_ORG = 'UA_ROLES_NEED_ORG';
 
 interface ListFilter {
   /** Restrict to a specific org (system-admin only); narrows the userId set. */
@@ -301,8 +287,11 @@ class UserAdminService {
       password?: string;
     },
     options: {
-      isOrgAdmin: boolean;
-      adminOrgId?: string;
+      /** Set for a caller confined to one org (not a platform admin): role
+       *  changes apply to that org, and org reassignment is refused. */
+      scopeOrgId?: string;
+      /** The caller's authority, for the Admin-Role assignment ceiling. */
+      actor: RoleAssignmentActor;
       passwordMinLength: number;
     },
   ) {
@@ -337,13 +326,12 @@ class UserAdminService {
         changes.push('email');
       }
 
-      // Role applies to the user's membership in a specific org. Org-admins
-      // change the role in their own org; system-admins target the supplied
-      // organizationId or fall back to the user's last-active org.
+      // Role applies to the user's membership in a specific org. An org-scoped
+      // caller changes the role in their own org; a platform admin targets the
+      // supplied organizationId or falls back to the user's last-active org.
       if (body.role !== undefined && ['owner', 'admin', 'member'].includes(body.role)) {
-        const targetOrgId = options.isOrgAdmin
-          ? options.adminOrgId
-          : (body.organizationId || user.lastActiveOrgId?.toString());
+        const targetOrgId = options.scopeOrgId
+          ?? (body.organizationId || user.lastActiveOrgId?.toString());
         if (targetOrgId) {
           const oid = toOrgId(targetOrgId);
           const membership = await UserOrganization.findOne({
@@ -367,6 +355,9 @@ class UserAdminService {
               // role AND bumps tokenVersion on the privilege change — so we set
               // neither manually here (leaving user.tokenVersion untouched also
               // keeps user.save() from clobbering that $inc).
+              // Granting OR revoking Admin is bounded by the caller's own
+              // permissions (a members:manage delegate isn't an admin).
+              await assertActorMayAssignBuiltinAdmin(oid, options.actor, session);
               if (body.role === 'admin') {
                 await assignBuiltinAdminRole(user._id, oid, session);
               } else if (body.role === 'member') {
@@ -391,7 +382,7 @@ class UserAdminService {
       // Organization assignment is system-admin-only. Empty string or null
       // removes the user from every org; otherwise we ensure a membership
       // exists in the target org and update lastActiveOrgId.
-      if (!options.isOrgAdmin && body.organizationId !== undefined) {
+      if (!options.scopeOrgId && body.organizationId !== undefined) {
         if (body.organizationId === null || body.organizationId === '') {
           await UserOrganization.deleteMany({ userId: user._id }).session(session);
           // Removing the user from EVERY org also strips every RoleAssignment —
@@ -453,52 +444,16 @@ class UserAdminService {
   }
 
   /**
-   * Delete a user + their memberships. Refuses if the user is an org owner
-   * (transfer first). Throws UA_USER_NOT_FOUND or UA_OWNER_HAS_ORGS.
+   * Delete a user and everything keyed to them (see {@link deleteUserCascade}).
+   * Throws UA_USER_NOT_FOUND, USER_OWNER_HAS_ORGS or RL_LAST_PRIVILEGED_MEMBER.
    * Caller is responsible for the self-delete check.
    */
   async deleteUserById(id: string): Promise<void> {
-    const user = await User.findById(id).select('+tokenVersion');
-    if (!user) throw new Error(UA_USER_NOT_FOUND);
-    // Capture before deletion — the doc is gone after the tx, so we can't read
-    // tokenVersion back to revoke the deleted user's outstanding tokens.
-    const capturedTokenVersion = user.tokenVersion ?? 0;
-
-    // Delete memberships + role assignments + the user atomically so a partial
-    // failure can't leave orphaned RoleAssignment docs behind (which would
-    // corrupt the last-privileged-member guard). The guard READS also run inside
-    // the tx (was a check-then-act TOCTOU when read before it): the owner and
-    // last-privileged-member checks now see a snapshot consistent with the
-    // delete. (Residual: distinct-doc deletes don't write-conflict under
-    // WiredTiger, so a fully-concurrent double-delete of a 2-member privileged
-    // role can still slip through; the in-tx read closes the common window.)
-    await withMongoTransaction(async (session) => {
-      const ownerCount = await UserOrganization.countDocuments({ userId: user._id, role: 'owner' }).session(session);
-      if (ownerCount > 0) throw new Error(UA_OWNER_HAS_ORGS);
-
-      // Never delete the last member of an admin/superadmin-granting Role (mirrors
-      // removeUserFromRole's G3 guard) — otherwise deleting the sole Super Admin,
-      // or an org's last Admin, silently empties a privilege-granting Role → lockout.
-      const assignments = await RoleAssignment.find({ userId: user._id }).select('roleId').session(session).lean();
-      for (const a of assignments) {
-        const role = await Role.findById(a.roleId).select('grantsRole').session(session).lean();
-        if (role && role.grantsRole !== 'member') {
-          const memberCount = await RoleAssignment.countDocuments({ roleId: a.roleId }).session(session);
-          if (memberCount <= 1) throw new Error(UA_LAST_PRIVILEGED_MEMBER);
-        }
-      }
-
-      await UserOrganization.deleteMany({ userId: user._id }, { session });
-      await RoleAssignment.deleteMany({ userId: user._id }, { session });
-      // Clean up PATs + personalization (mirrors self-serve deleteAccount) so an
-      // admin delete leaves nothing orphaned.
-      await PersonalAccessToken.deleteMany({ userId: user._id }, { session });
-      await UserPreferences.deleteMany({ userId: user._id }, { session });
-      await User.findByIdAndDelete(id, { session });
-    });
+    const deleted = await withMongoTransaction((session) => deleteUserCascade(session, id));
+    if (!deleted) throw new Error(UA_USER_NOT_FOUND);
     // Revoke the deleted user's outstanding tokens on the stateless services
     // (platform's requireAuth already rejects the missing user). Best-effort.
-    await publishUserDeletionRevocation(id, capturedTokenVersion);
+    await publishUserDeletionRevocation(id, deleted.tokenVersion);
     logger.info('User deleted by admin', { userId: id });
   }
 

@@ -21,7 +21,7 @@ import { withRoute, rateLimitByOrg } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
-import { getAvailableProviders, generatePluginConfig, streamPluginConfig } from '../services/ai-plugin-generation-service.js';
+import { AIEmptyOutputError, getAvailableProviders, generatePluginConfig, streamPluginConfig } from '../services/ai-plugin-generation-service.js';
 
 const logger = createLogger('generate-plugin');
 
@@ -62,7 +62,8 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
     // principal → 403), so mint a service token instead (mirrors upload-plugin.ts).
     const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
 
-    // reserve the aiCalls slot atomically; roll back on LLM failure.
+    // Reserve the aiCalls slot atomically; refund it only if the provider was
+    // never reached (see the catch).
     const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', authHeader);
     if (reservation.exceeded) {
       return sendQuotaReserveDenied(res, 'aiCalls', reservation);
@@ -92,7 +93,13 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
     } catch (error) {
       const message = errorMessage(error);
       logger.error('AI plugin generation failed', { requestId: ctx.requestId, error: message });
-      decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+      // Keep-on-provider-contact (same rule as generate-pipeline.ts): an empty /
+      // unparseable output AFTER the provider round-trip still incurred its
+      // external cost, so the slot is KEPT. Only pre-provider failures (model
+      // resolution, connectivity) refund.
+      if (!(error instanceof AIEmptyOutputError)) {
+        decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+      }
       return handleAIError(res, message, 'Failed to generate plugin configuration');
     }
   }));
@@ -112,6 +119,10 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
       return sendQuotaReserveDenied(res, 'aiCalls', reservation);
     }
     let reserved = true;
+    // True once the FIRST partial flows — proof the provider responded (and its
+    // cost was incurred). A failure after this keeps the slot; a pre-provider
+    // failure refunds it.
+    let providerContacted = false;
 
     try {
       ctx.log('INFO', 'AI plugin streaming generation requested', {
@@ -131,6 +142,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
       });
 
       for await (const partialObject of result.partialOutputStream) {
+        providerContacted = true;
         if (sse.aborted()) break;
         try {
           res.write(`data: ${JSON.stringify({ type: 'partial', data: partialObject })}\n\n`);
@@ -160,7 +172,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
         res.write('data: [DONE]\n\n');
         // Quota policy: a COMPLETED stream keeps the reserved `aiCalls` slot even
         // when `finalOutput` is empty/unparseable — the provider round-trip (and
-        // its external $ cost) was already incurred. Only an ABORT (client
+        // its external $ cost) was already incurred. An ABORT (client
         // disconnect, below) refunds the slot. Mirrors generate-pipeline.ts.
       } else {
         decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
@@ -171,7 +183,9 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
     } catch (error) {
       const message = errorMessage(error);
       logger.error('AI plugin streaming generation failed', { requestId: ctx.requestId, error: message });
-      if (reserved) {
+      // Keep-on-provider-contact: refund only when the provider was NEVER reached
+      // (a mid-stream failure arrives after the round-trip's cost was incurred).
+      if (reserved && !providerContacted) {
         decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
       }
       handleAIError(res, message, 'Failed to stream plugin configuration');

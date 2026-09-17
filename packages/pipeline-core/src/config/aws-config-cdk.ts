@@ -12,9 +12,8 @@
  * actually synthesizes stacks pays for `aws-cdk-lib`.
  */
 
-import { Duration, RemovalPolicy } from 'aws-cdk-lib';
+import { Duration } from 'aws-cdk-lib';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
-import { RetentionDays } from 'aws-cdk-lib/aws-logs';
 import type { AWSConfig } from './config-types.js';
 
 /** Runtime identifiers this platform supports, mapped to their CDK enum member. */
@@ -42,32 +41,10 @@ export function lambdaTimeout(seconds: AWSConfig['lambda']['timeoutSeconds']): D
 }
 
 /**
- * Resolve a Lambda architecture name to a CDK `Architecture`.
+ * Resolve the configured Lambda architecture to a CDK `Architecture`.
  *
  * @param architecture - value from `Config.get('aws').lambda.architecture`
  */
 export function lambdaArchitecture(architecture: AWSConfig['lambda']['architecture']): Architecture {
   return architecture === 'x86_64' ? Architecture.X86_64 : Architecture.ARM_64;
-}
-
-/**
- * Convert a retention day count to CDK's `RetentionDays`.
- *
- * `RetentionDays` members are the day counts themselves, so the cast is exact —
- * `infrastructure-config.ts` has already validated the value against the same
- * set of allowed periods.
- *
- * @param days - value from `Config.get('aws').logging.retentionDays`
- */
-export function logRetention(days: AWSConfig['logging']['retentionDays']): RetentionDays {
-  return days as RetentionDays;
-}
-
-/**
- * Resolve a log-group removal policy name to a CDK `RemovalPolicy`.
- *
- * @param policy - value from `Config.get('aws').logging.removalPolicy`
- */
-export function logRemovalPolicy(policy: AWSConfig['logging']['removalPolicy']): RemovalPolicy {
-  return policy === 'retain' ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY;
 }

@@ -6,6 +6,18 @@ import type { Algorithm } from 'jsonwebtoken';
 
 const isDev = (process.env.NODE_ENV || 'development') === 'development';
 
+/**
+ * Integer env var with a default. Unlike `Number(env) || fallback`, an explicit
+ * `0` is honored (several knobs use 0 to disable a sweep).
+ * @internal
+ */
+function intEnv(envVar: string, fallback: number): number {
+  const raw = process.env[envVar];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const n = parseInt(raw, 10);
+  return Number.isNaN(n) ? fallback : n;
+}
+
 /** Default platform URL used as fallback for PLATFORM_BASE_URL, CORS, OAuth callbacks, and service URLs. */
 const DEFAULT_PLATFORM_URL = 'https://localhost:8443';
 
@@ -117,6 +129,10 @@ export const config = {
 
   server: {
     trustProxy: parseInt(process.env.TRUST_PROXY || '1', 10),
+    /** How often the readiness monitor re-checks Mongo after boot. */
+    readinessMonitorIntervalMs: intEnv('READINESS_MONITOR_INTERVAL_MS', 15_000),
+    /** Force-exit deadline for a graceful shutdown. */
+    shutdownTimeoutMs: intEnv('SHUTDOWN_TIMEOUT_MS', 15_000),
   },
 
   cors: {
@@ -243,10 +259,6 @@ export const config = {
       secret: requireSecret('REFRESH_TOKEN_SECRET', 'Refresh token secret'),
       expiresIn: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '2592000', 10), // 30 days
     },
-    cookie: {
-      sameSite: (process.env.COOKIE_SAME_SITE || 'lax') as 'lax' | 'strict' | 'none',
-      secure: process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production',
-    },
     /**
      * Email-verification token lifetime (ms). 24 h default; tokens are
      * single-use and tied to the user record so a short TTL is mostly a
@@ -274,6 +286,11 @@ export const config = {
       if (!uri) throw new Error('MONGODB_URI environment variable is required');
       return uri;
     })(),
+    // Pool sizing: bound the connection ceiling so multiple replicas don't
+    // exhaust Mongo's default cap.
+    maxPoolSize: intEnv('MONGO_MAX_POOL', 20),
+    minPoolSize: intEnv('MONGO_MIN_POOL', 2),
+    serverSelectionTimeoutMs: intEnv('MONGO_SERVER_SELECTION_MS', 5000),
   },
 
   email: {
@@ -322,6 +339,12 @@ export const config = {
     // fail-closed cascade. Default hourly; the sweep is idempotent and never
     // throws (log + continue), so a transient failure retries next tick.
     purgeSweepIntervalMs: parseInt(process.env.ORG_PURGE_SWEEP_INTERVAL_MS || '3600000', 10),
+    // Timeout for the purge cascade's HTTP DELETEs to quota/billing/message.
+    cascadeHttpTimeoutMs: intEnv('ORG_CASCADE_HTTP_TIMEOUT_MS', 5000),
+    // Domain-based join: how often the re-verification sweep runs (0 disables it)
+    // and how long since the last successful DNS check before a domain is re-checked.
+    domainReverifyIntervalMs: intEnv('DOMAIN_REVERIFY_INTERVAL_MS', 24 * 60 * 60 * 1000),
+    domainReverifyStaleMs: intEnv('DOMAIN_REVERIFY_STALE_MS', 7 * 24 * 60 * 60 * 1000),
   },
 
   oauth: {
@@ -329,6 +352,12 @@ export const config = {
     callbackBaseUrl: process.env.OAUTH_CALLBACK_BASE_URL || process.env.PLATFORM_FRONTEND_URL || DEFAULT_PLATFORM_URL,
     stateTtlMs: parseInt(process.env.OAUTH_STATE_TTL_MS || '600000', 10), // 10 min
     cleanupIntervalMs: parseInt(process.env.OAUTH_CLEANUP_INTERVAL_MS || '60000', 10), // 1 min
+    /** Cap on the in-memory pending-state fallback shared by the social OAuth
+     *  and SSO flows (used only when Redis is not configured). */
+    maxPendingStates: intEnv('OAUTH_MAX_PENDING_STATES', 1000),
+    /** OIDC discovery/JWKS cache TTL. Kept short so IdP key rotation is picked
+     *  up quickly; a `kid` miss also forces a live JWKS refetch regardless. */
+    oidcDocCacheTtlMs: intEnv('OIDC_DOC_CACHE_TTL_MS', 60 * 60 * 1000),
     google: {
       clientId: process.env.OAUTH_GOOGLE_CLIENT_ID || '',
       clientSecret: process.env.OAUTH_GOOGLE_CLIENT_SECRET || '',
@@ -390,6 +419,29 @@ export const config = {
       tokenUrl: process.env.LINKEDIN_TOKEN_URL || 'https://www.linkedin.com/oauth/v2/accessToken',
       userinfoUrl: process.env.LINKEDIN_USERINFO_URL || 'https://api.linkedin.com/v2/userinfo',
     },
+  },
+
+  observability: {
+    /** How often each replica samples the org/user count gauges. Anything under
+     *  30s isn't useful since Prometheus polls every 15s. */
+    scraperIntervalMs: intEnv('PLATFORM_SCRAPER_INTERVAL_MS', 60_000),
+    /** Default timeout for any single Alertmanager call. */
+    alertmanagerTimeoutMs: intEnv('ALERTMANAGER_TIMEOUT_MS', 5000),
+    /** Per-destination delivery timeout for the alert relay and test sends — a
+     *  slow Slack tenant shouldn't hold up the relay (Alertmanager retries). */
+    alertDeliveryTimeoutMs: intEnv('ALERT_DELIVERY_TIMEOUT_MS', 5000),
+    /** At-least-once dedupe window for alert email: an identical (alert,
+     *  recipient) email inside it is suppressed. */
+    alertEmailDedupeTtlMs: intEnv('ALERT_EMAIL_DEDUPE_TTL_MS', 10 * 60 * 1000),
+    /** Alert destination field caps. Slack hooks are ~85 chars, but enterprise
+     *  webhooks with long signed query params can be much longer. */
+    alertDestinationMaxLabel: intEnv('ALERT_DESTINATION_MAX_LABEL', 100),
+    alertDestinationMaxTarget: intEnv('ALERT_DESTINATION_MAX_TARGET', 2048),
+    /** Custom dashboard size caps (defend against pathological payloads). */
+    dashboardMaxName: intEnv('DASHBOARD_MAX_NAME', 150),
+    dashboardMaxDescription: intEnv('DASHBOARD_MAX_DESCRIPTION', 1000),
+    dashboardMaxPanelTitle: intEnv('DASHBOARD_MAX_PANEL_TITLE', 200),
+    dashboardMaxPanels: intEnv('DASHBOARD_MAX_PANELS', 50),
   },
 
   audit: {
@@ -468,22 +520,6 @@ export const config = {
     serviceHost: process.env.MESSAGE_SERVICE_HOST || 'message',
     servicePort: parseInt(process.env.MESSAGE_SERVICE_PORT || '3000', 10),
     serviceTimeout: parseInt(process.env.MESSAGE_SERVICE_TIMEOUT || '5000', 10), // 5s
-  },
-
-  loki: {
-    url: process.env.LOKI_URL || 'http://loki:3100',
-    timeout: parseInt(process.env.LOKI_TIMEOUT || '10000', 10), // 10s
-  },
-
-  logs: {
-    defaultLimit: parseInt(process.env.LOG_DEFAULT_LIMIT || '100', 10),
-    maxLimit: parseInt(process.env.LOG_MAX_LIMIT || '1000', 10),
-    defaultLookbackMs: parseInt(process.env.LOG_DEFAULT_LOOKBACK_MS || '3600000', 10), // 1 hr
-  },
-
-  pagination: {
-    defaultLimit: parseInt(process.env.PLATFORM_LIST_DEFAULT || '20', 10),
-    maxLimit: parseInt(process.env.PLATFORM_LIST_MAX || '100', 10),
   },
 } as const;
 

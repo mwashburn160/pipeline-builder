@@ -12,7 +12,7 @@
  * session is no less sensitive than a sysadmin's.
  *
  * Returns an access token that grants the
- * caller the target user's identity for the next 15 minutes. The token
+ * caller the target user's identity for `IMPERSONATION_SESSION_TTL_MS`. The token
  * carries `impersonationReadOnly: true` so the `requireWriteAccess`
  * middleware rejects any state-changing request — operators can
  * reproduce a tenant's view for support work without risk of acting
@@ -22,17 +22,17 @@
  * into the api client, and clears it on "Stop impersonating".
  *
  * Every session is recorded as an `ImpersonationRequest` and the token is
- * REDEEMED against it, even though nothing is asked to approve one today. There
- * is deliberately no path that issues a token without a record — a future
- * consent policy changes only why a request reaches `approved`, never whether
- * one exists. See `services/impersonation-service.ts`.
+ * REDEEMED against it — whether the org's policy approves it on creation, sends
+ * a consent challenge, or refuses it. There is deliberately no path that issues
+ * a token without a record: the policy changes only why a request reaches
+ * `approved`, never whether one exists. See `services/impersonation-service.ts`.
  */
 
 import crypto from 'crypto';
-import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
-import { canAdministerOrg, isOrgAdmin, isSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { canAdministerOrg, isOrgAdmin, withController } from '../helpers/controller-helper.js';
 import { isTenantAdminOf, resolveImpersonationAuthority } from '../helpers/impersonation-authority.js';
 import { resolveChallengeRoute, sendImpersonationChallenge } from '../helpers/impersonation-challenge.js';
 import { notifyOrgOfBreakglass, notifyRequesterOfDecision, notifyTeamOfAncestorImpersonation } from '../helpers/impersonation-notify.js';
@@ -79,11 +79,6 @@ export const impersonateUser = withController('Impersonate user', async (req, re
     return sendError(res, 400, 'Cannot impersonate another sysadmin');
   }
 
-  // The org this session is pinned to. Today that's the target's own active org
-  // — the same value the token used to derive internally. It is now passed
-  // explicitly because the org is a property of the REQUEST, not of the target's
-  // browsing history: a consent flow scopes the session to the org that approved
-  // it, which is not necessarily wherever the user happened to be last.
   // Which organization the session is for. The caller may NAME it — a parent
   // admin picks a member from one of their teams, and that team is the org the
   // session must be about. Otherwise it's the target's active org.
@@ -179,8 +174,8 @@ export const impersonateUser = withController('Impersonate user', async (req, re
       mode: route, orgId: sessionOrgIdStr, targetUserId, requesterId: impersonatorId, reason,
     });
     if (delivery.delivered === 0) {
-      // Nobody can see it. Say so now rather than leaving it pending for an hour
-      // and letting the silence read as a refusal.
+      // Nobody can see it. Say so now rather than leaving it pending until it
+      // expires and letting the silence read as a refusal.
       await impersonationService.markUndeliverable(request.id);
       return sendError(
         res, 409,
@@ -276,8 +271,8 @@ async function redeemAndIssue(
  * POST /admin/impersonate/requests/:id/decide — approve or deny a pending
  * challenge.
  *
- * Unreachable in practice until a consent policy can make a request `pending`;
- * built and tested now so the policy switch is the only thing phase 5 adds.
+ * Reached when a request waits: a `consent` policy challenge, or a break-glass
+ * request that needs a second sysadmin (four-eyes).
  *
  * Authorization is intentionally NOT the impersonation authority check: the
  * decider is the person being asked, not someone asking. Two callers qualify —
@@ -399,12 +394,16 @@ export const revokeImpersonationSession = withController('Revoke impersonation s
  * POST /admin/impersonate/requests/:id/redeem — exchange an approved request for
  * its session token.
  *
- * The second half of a consented session: once a challenge makes a request wait,
- * the requester comes back here after it is approved. Unreached while requests
- * are still approved on creation, which redeem inline.
+ * The second half of a consented session: when a request waited for approval
+ * (consent, or a four-eyes break-glass), the requester comes back here once it
+ * is approved. Requests approved on creation redeem inline instead.
  *
  * Only the REQUESTER may redeem. An approval grants a session to the person who
- * asked for it — not to whoever happens to learn the request id.
+ * asked for it — not to whoever happens to learn the request id. And the
+ * requester's AUTHORITY is re-resolved now, not trusted from request time: an
+ * approval can sit for up to `IMPERSONATION_REQUEST_TTL_MS`, during which the requester may have lost
+ * their sysadmin flag, their admin role, or the org relationship that entitled
+ * them to ask.
  */
 export const redeemImpersonationRequest = withController('Redeem impersonation request', async (req, res) => {
   if (!req.user) return sendError(res, 401, 'Authentication required');
@@ -428,6 +427,15 @@ export const redeemImpersonationRequest = withController('Redeem impersonation r
   }
 
   const orgId = request.orgId != null ? String(request.orgId) : undefined;
+  if (request.breakglass) {
+    // Emergency access is sysadmin-only to request; it stays sysadmin-only to redeem.
+    if (!isSystemAdmin(req)) {
+      return sendError(res, 403, 'Forbidden: emergency access is sysadmin only');
+    }
+  } else if ((await resolveImpersonationAuthority(req, orgId)).kind === 'none') {
+    return sendError(res, 403, 'Forbidden: you no longer have authority to impersonate this user');
+  }
+
   const issued = await redeemAndIssue(
     req,
     { id: requestId, approvalReason: request.approvalReason },

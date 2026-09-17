@@ -469,8 +469,12 @@ export function setAuthzDenialAuditor(fn: ((info: AuthzDenialInfo) => void) | un
  * Emit a denial event, best-effort. Only fires for state-changing (non-GET,
  * non-HEAD/OPTIONS) requests — a rejected GET is low-signal probing noise and
  * would amplify audit volume under a scan. Never throws.
+ *
+ * The permission gates here call it themselves. Export it for data-driven checks
+ * a route makes inline (cross-org access, service-only endpoints), so those 403s
+ * reach the same `authz.denied` trail. `required` names what was missing.
  */
-function auditAuthzDenial(req: Request, required: string): void {
+export function recordAuthzDenial(req: Request, required: string): void {
   const auditor = authzDenialAuditor;
   if (!auditor) return;
   const method = req.method.toUpperCase();
@@ -506,7 +510,7 @@ export function requirePermission(...permissions: Permission[]) {
     // permission, so this single check covers both the superadmin bypass and
     // the any-of membership test without re-inlining either.
     if (permissions.some((p) => userHasPermission(req, p))) return next();
-    auditAuthzDenial(req, permissions.join(' or '));
+    recordAuthzDenial(req, permissions.join(' or '));
     return sendError(
       res, HttpStatus.FORBIDDEN,
       `Missing required permission: ${permissions.join(' or ')}`,
@@ -530,7 +534,7 @@ export function requireAllPermissions(...permissions: Permission[]) {
     }
     const missing = permissions.filter((p) => !userHasPermission(req, p));
     if (missing.length === 0) return next();
-    auditAuthzDenial(req, permissions.join(' and '));
+    recordAuthzDenial(req, permissions.join(' and '));
     return sendError(
       res, HttpStatus.FORBIDDEN,
       `Missing required permission: ${missing.join(' and ')}`,
@@ -556,7 +560,7 @@ export function requirePermissionOrService(...permissions: Permission[]) {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
     }
     if (isServicePrincipal(req) || permissions.some((p) => userHasPermission(req, p))) return next();
-    auditAuthzDenial(req, permissions.join(' or '));
+    recordAuthzDenial(req, permissions.join(' or '));
     return sendError(
       res, HttpStatus.FORBIDDEN,
       `Missing required permission: ${permissions.join(' or ')}`,
@@ -635,7 +639,7 @@ export function requireSystemAdmin(
   next: NextFunction,
 ): void {
   if (!isSystemAdmin(req)) {
-    auditAuthzDenial(req, 'system-admin');
+    recordAuthzDenial(req, 'system-admin');
     return sendError(
       res, HttpStatus.FORBIDDEN,
       'Access denied. Only system administrators can perform this action.',
@@ -666,7 +670,7 @@ export function requireFeature(feature: string) {
       // Route feature-gate denials through the same audit sink as
       // requirePermission / requireSystemAdmin so a probe for an
       // unentitled capability leaves a trail (state-changing methods only).
-      auditAuthzDenial(req, `feature:${feature}`);
+      recordAuthzDenial(req, `feature:${feature}`);
       return sendError(
         res, HttpStatus.FORBIDDEN,
         `This feature requires a higher plan (${feature})`,
@@ -697,22 +701,17 @@ const DEFAULT_SERVICE_TOKEN_TTL_SECONDS = 300;
 
 /**
  * Denylist of service NAMES (the `<name>` in `sub: service:<name>`) whose tokens
- * `requireAuth` must reject. Seeded from `SERVICE_TOKEN_DENYLIST` (comma-separated)
- * at module load; a service can push live updates (e.g. from a Redis-subscribed
- * kill-switch) via {@link setServiceTokenDenylist} so a compromised service can be
- * cut off WITHOUT rotating the shared JWT secret (which invalidates all of them).
+ * `requireAuth` must reject. Read from `SERVICE_TOKEN_DENYLIST` (comma-separated)
+ * at process start, so arming it is a config change + rollout — it cuts off a
+ * compromised service WITHOUT rotating the shared JWT secret (which invalidates
+ * every service token).
  */
-let serviceTokenDenylist = new Set(
+const serviceTokenDenylist = new Set(
   (process.env.SERVICE_TOKEN_DENYLIST || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
 );
-
-/** Replace the service-token denylist (service names). Empty ⇒ kill-switch off. */
-export function setServiceTokenDenylist(names: Iterable<string>): void {
-  serviceTokenDenylist = new Set([...names].map((s) => s.trim()).filter(Boolean));
-}
 
 /** True when `sub` is `service:<name>` and `<name>` is on the denylist. */
 export function isServiceTokenDenied(sub: string): boolean {

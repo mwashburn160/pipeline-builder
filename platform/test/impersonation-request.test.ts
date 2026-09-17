@@ -32,13 +32,13 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     find: (...a: unknown[]) => mockFind(...a),
   },
   User: { find: (...a: unknown[]) => mockUserFind(...a) },
-  IMPERSONATION_REQUEST_TTL_MS: 60 * 60 * 1000,
   IMPERSONATION_REASON_MAX: 500,
 }));
 
-const { impersonationService, decideInitialApproval, effectiveStatus, IMP_NOT_APPROVED, IMP_EXPIRED, IMP_ALREADY_DECIDED, IMP_NOT_LIVE, BREAKGLASS_CAP } = await import(
+const { impersonationService, decideInitialApproval, effectiveStatus, BREAKGLASS_CAP } = await import(
   '../src/services/impersonation-service.js'
 );
+const { IMP_NOT_APPROVED, IMP_EXPIRED, IMP_ALREADY_DECIDED, IMP_NOT_LIVE } = await import('../src/services/impersonation-errors.js');
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const leanChain = (doc: unknown) => ({ lean: () => Promise.resolve(doc) });

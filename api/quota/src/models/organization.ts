@@ -8,7 +8,7 @@ import { getNextResetDate } from '../helpers/quota-helpers.js';
 
 // Types
 
-export interface QuotaUsage {
+interface QuotaUsage {
   used: number;
   resetAt: Date;
 }
@@ -33,13 +33,12 @@ export interface QuotaUsageTracking {
   apiCalls: QuotaUsage;
   aiCalls: QuotaUsage;
   /**
-   * Measured registry storage usage in bytes. Unlike the other usage
-   * fields (which `incrementUsage` bumps as actions land), this is set by
-   * the image-registry's GC scheduler / push path via the existing
-   * `incrementUsage` + `decrementUsage` flows  push reserves an increment,
-   * GC freeing bytes reduces it via resetUsage. The image-registry caches
-   * the rollup for 60s (see storage-usage.ts) so the value can lag the
-   * registry's true state briefly without causing oscillation.
+   * Present for schema parity with the other quota types, but NOT a live
+   * counter: nothing increments/decrements it. Registry storage is measured
+   * live by the image-registry (`computeStorageUsage` in its storage-usage.ts,
+   * cached ~60s) and compared at token-issuance time against the org's
+   * `quotas.storageBytes` LIMIT, which it reads via `GET /quotas/:orgId/storageBytes`.
+   * `pooledLimitAndUsage` likewise carves storageBytes out of pooling.
    */
   storageBytes: QuotaUsage;
   /** Per-feature-table counters — incremented on create, decremented on
@@ -49,8 +48,6 @@ export interface QuotaUsageTracking {
   alertDestinations: QuotaUsage;
   idpConfigs: QuotaUsage;
 }
-
-export type { QuotaTier };
 
 export interface OrganizationDocument extends Document {
   name: string;

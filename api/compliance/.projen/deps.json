@@ -94,11 +94,6 @@
       "type": "runtime"
     },
     {
-      "name": "bullmq",
-      "version": "5.80.6",
-      "type": "runtime"
-    },
-    {
       "name": "drizzle-orm",
       "version": "0.45.2",
       "type": "runtime"
@@ -111,11 +106,6 @@
     {
       "name": "pg",
       "version": "8.22.0",
-      "type": "runtime"
-    },
-    {
-      "name": "uuid",
-      "version": "14.0.1",
       "type": "runtime"
     },
     {

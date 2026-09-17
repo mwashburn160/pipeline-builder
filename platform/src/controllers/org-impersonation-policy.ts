@@ -7,9 +7,9 @@
  *   GET   /organization/:id/impersonation-policy
  *   PATCH /organization/:id/impersonation-policy
  *
- * The policy is not yet CONSULTED when a session is requested: sessions still
- * auto-approve. It can be set and read now so the switch is the only thing left
- * to land, and so an org's choice is already in place when it does.
+ * The effective policy (strictest across the org and its ancestors) is consulted
+ * on every impersonation request: `open` approves on creation, `consent` sends a
+ * challenge, `denied` refuses all but sysadmin break-glass.
  */
 
 import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';

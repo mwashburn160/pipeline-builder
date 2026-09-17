@@ -125,7 +125,7 @@ export class SourceBuilder {
     // template (a plain ARN, `secretsmanager:` ref, or plaintext resolves to itself).
     if (hasTemplate(token)) {
       const holder = { token };
-      const { errors } = resolveTemplates(holder, this.config.getPipelineScope(), (f) => f === 'token', 'pipeline');
+      const { errors } = resolveTemplates(holder, this.config.getPipelineScope(), (f) => f === 'token');
       if (errors.length > 0) {
         const e = errors[0]!;
         throw new Error(`GitHub source token template resolution failed at '${e.field ?? 'token'}': ${e.message}`);

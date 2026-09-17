@@ -6,7 +6,8 @@
  *
  * `claimWebhookEvent` is the gate every webhook handler runs before applying
  * side-effects; `markWebhookEventDone` promotes that claim to a durable marker
- * only after success; `releaseWebhookEvent` frees a handled failure for retry.
+ * only after success; `releaseWebhookEvent` compare-and-deletes the caller's own
+ * claim (by token) so a handled failure is retried without wiping a newer claim.
  * Correctness here = no duplicate billing mutations on SNS/Stripe redelivery AND
  * no permanently-stranded marker when a handler crashes mid-process (the
  * two-phase crash-durability property).
@@ -54,9 +55,14 @@ jest.unstable_mockModule('mongoose', () => {
       if (existing) Object.assign(existing, update.$set);
       return { matchedCount: existing ? 1 : 0 };
     },
+    // Honors EVERY filter field (not just the key) — a compare-and-delete whose
+    // status/claimToken no longer match must leave the row alone, like Mongo.
     deleteOne: async (filter: any) => {
-      store.delete(keyOf(filter));
-      return { deletedCount: 1 };
+      const key = keyOf(filter);
+      const existing = store.get(key);
+      const matches = existing && Object.entries(filter).every(([k, v]) => existing[k] === v);
+      if (matches) store.delete(key);
+      return { deletedCount: matches ? 1 : 0 };
     },
   });
   const models = {} as Record<string, unknown>;
@@ -75,26 +81,26 @@ beforeEach(() => store.clear());
 
 describe('claimWebhookEvent (phase 1)', () => {
   it('returns true on the first claim for a (source, eventId) pair', async () => {
-    expect(await claimWebhookEvent('sns', 'evt-1')).toBe(true);
+    expect(await claimWebhookEvent('sns', 'evt-1')).toEqual(expect.any(String));
     // A short-lived in_progress claim is written (NOT yet a durable marker).
     expect(store.get('sns:evt-1')).toMatchObject({ source: 'sns', eventId: 'evt-1', status: 'in_progress' });
   });
 
   it('returns false for a concurrent delivery while a live claim is in progress', async () => {
-    expect(await claimWebhookEvent('stripe', 'evt_1')).toBe(true);
+    expect(await claimWebhookEvent('stripe', 'evt_1')).toEqual(expect.any(String));
     // Second delivery arrives before the first finished — lease still live → skip.
-    expect(await claimWebhookEvent('stripe', 'evt_1')).toBe(false);
+    expect(await claimWebhookEvent('stripe', 'evt_1')).toBeNull();
   });
 
   it('returns false once a durable done-marker exists (true duplicate)', async () => {
-    expect(await claimWebhookEvent('stripe', 'evt_2')).toBe(true);
+    expect(await claimWebhookEvent('stripe', 'evt_2')).toEqual(expect.any(String));
     await markWebhookEventDone('stripe', 'evt_2');
-    expect(await claimWebhookEvent('stripe', 'evt_2')).toBe(false);
+    expect(await claimWebhookEvent('stripe', 'evt_2')).toBeNull();
   });
 
   it('treats different sources with the same eventId as independent', async () => {
-    expect(await claimWebhookEvent('sns', 'shared')).toBe(true);
-    expect(await claimWebhookEvent('stripe', 'shared')).toBe(true);
+    expect(await claimWebhookEvent('sns', 'shared')).toEqual(expect.any(String));
+    expect(await claimWebhookEvent('stripe', 'shared')).toEqual(expect.any(String));
   });
 
   it('rethrows non-duplicate errors so transport failures are visible', async () => {
@@ -119,31 +125,64 @@ describe('markWebhookEventDone (phase 2)', () => {
 describe('crash durability (two-phase)', () => {
   it('re-runs the event when the handler crashed before the done-marker', async () => {
     // Phase 1 claim succeeds...
-    expect(await claimWebhookEvent('stripe', 'evt_crash')).toBe(true);
+    expect(await claimWebhookEvent('stripe', 'evt_crash')).toEqual(expect.any(String));
     // ...then the process dies before markWebhookEventDone. Its lease expires.
     expireLease('stripe', 'evt_crash');
 
     // The provider's retry must be allowed to REPROCESS (not dropped as a dup),
     // and then it can complete the done-marker.
-    expect(await claimWebhookEvent('stripe', 'evt_crash')).toBe(true);
+    expect(await claimWebhookEvent('stripe', 'evt_crash')).toEqual(expect.any(String));
     await markWebhookEventDone('stripe', 'evt_crash');
 
     // Once done, further retries are correctly deduped.
-    expect(await claimWebhookEvent('stripe', 'evt_crash')).toBe(false);
+    expect(await claimWebhookEvent('stripe', 'evt_crash')).toBeNull();
   });
 
   it('does NOT re-run while the lease is still live (no double-processing)', async () => {
-    expect(await claimWebhookEvent('sns', 'evt_live')).toBe(true);
+    expect(await claimWebhookEvent('sns', 'evt_live')).toEqual(expect.any(String));
     // Lease not expired → a retry is skipped so two pods never both process it.
-    expect(await claimWebhookEvent('sns', 'evt_live')).toBe(false);
+    expect(await claimWebhookEvent('sns', 'evt_live')).toBeNull();
   });
 });
 
 describe('releaseWebhookEvent (handled failure)', () => {
   it('frees the claim so the next retry reprocesses', async () => {
-    expect(await claimWebhookEvent('sns', 'evt_rel')).toBe(true);
-    await releaseWebhookEvent('sns', 'evt_rel');
+    const token = await claimWebhookEvent('sns', 'evt_rel');
+    expect(token).toEqual(expect.any(String));
+    await releaseWebhookEvent('sns', 'evt_rel', token!);
     expect(store.has('sns:evt_rel')).toBe(false);
-    expect(await claimWebhookEvent('sns', 'evt_rel')).toBe(true);
+    expect(await claimWebhookEvent('sns', 'evt_rel')).toEqual(expect.any(String));
+  });
+
+  it('mints a NEW token when an expired lease is re-claimed', async () => {
+    const first = await claimWebhookEvent('stripe', 'evt_tok');
+    expireLease('stripe', 'evt_tok');
+    const second = await claimWebhookEvent('stripe', 'evt_tok');
+    expect(second).toEqual(expect.any(String));
+    expect(second).not.toBe(first);
+  });
+
+  it('does NOT delete a NEWER claim: a slow handler that outlived its lease releases only its own', async () => {
+    // Delivery A claims, then runs past its lease; delivery B re-claims.
+    const tokenA = await claimWebhookEvent('stripe', 'evt_slow');
+    expireLease('stripe', 'evt_slow');
+    const tokenB = await claimWebhookEvent('stripe', 'evt_slow');
+    expect(tokenB).toEqual(expect.any(String));
+
+    // A now fails and releases with its STALE token — B's live claim must survive,
+    // so a third concurrent delivery is still deduped.
+    await releaseWebhookEvent('stripe', 'evt_slow', tokenA!);
+    expect(store.get('stripe:evt_slow')).toMatchObject({ status: 'in_progress', claimToken: tokenB });
+    expect(await claimWebhookEvent('stripe', 'evt_slow')).toBeNull();
+  });
+
+  it('does NOT delete a done marker written by a newer delivery', async () => {
+    const tokenA = await claimWebhookEvent('sns', 'evt_done_race');
+    expireLease('sns', 'evt_done_race');
+    await claimWebhookEvent('sns', 'evt_done_race');
+    await markWebhookEventDone('sns', 'evt_done_race');
+
+    await releaseWebhookEvent('sns', 'evt_done_race', tokenA!);
+    expect(store.get('sns:evt_done_race')?.status).toBe('done');
   });
 });

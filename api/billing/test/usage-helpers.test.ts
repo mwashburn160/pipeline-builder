@@ -18,7 +18,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const clientGet = jest.fn<(path: string, opts?: unknown) => unknown>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createSafeClient: () => ({ get: clientGet, destroy: () => undefined }),
+  createSafeClient: () => ({ get: clientGet }),
   getServiceAuthHeader: () => 'Bearer test-service',
   // api-server's app-factory wires this at module load.
   setCounterEmitter: jest.fn(),
@@ -254,9 +254,9 @@ describe('buildUsageRollupFor', () => {
     expect(rollup.usage.pipelines).toMatchObject({ used: 3, limit: 10 });
   });
 
-  it('degrades gracefully when the platform call throws', async () => {
+  it('degrades gracefully when the platform call fails in transport (safe client resolves null)', async () => {
     clientGet.mockImplementation((path: string) => {
-      if (path.includes('/seat-usage')) throw new Error('connection refused');
+      if (path.includes('/seat-usage')) return null;
       return { statusCode: 200, body: SNAPSHOT_BODY };
     });
 

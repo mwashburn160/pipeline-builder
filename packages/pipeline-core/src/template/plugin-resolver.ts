@@ -45,7 +45,7 @@ export function resolvePluginTemplates(
     env: plugin.env ?? {},
   };
 
-  const { errors } = resolveTemplates(clone, scope, isPluginTemplatableField, 'plugin');
+  const { errors } = resolveTemplates(clone, scope, isPluginTemplatableField);
   if (errors.length > 0) {
     // First error wins — resolver errors should never be batched at synth time
     // because a broken template is a programmer error, not a validation step.

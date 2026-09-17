@@ -13,10 +13,7 @@ import { QuotasReadOnly } from '../src/components/quotas/QuotasReadOnly';
 
 // DashboardLayout drags in router/auth/features providers — mock it to a plain
 // wrapper so this stays a focused unit test of the footer's upgrade affordance.
-jest.mock('@/components/ui/DashboardLayout', () => ({
-  __esModule: true,
-  DashboardLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}));
+jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 
 const baseProps = { orgData: null, loading: false, activeOrgIsTeam: false };
 

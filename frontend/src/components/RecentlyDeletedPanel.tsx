@@ -22,8 +22,8 @@ interface DeletedRow {
   id: string;
   name: string;
   version?: string;
-  /** The row's sharing rung, rendered as the "Access" badge. */
-  access?: string;
+  /** The row's sharing rung, rendered as the "Visibility" badge. */
+  visibility?: string;
   /** Author — the restore gate needs it for the author-only `private` rung. */
   createdBy?: string;
   deletedAt?: string | null;
@@ -31,7 +31,7 @@ interface DeletedRow {
 }
 
 /** Badge tint per sharing level — widest reach is the most prominent. */
-const ACCESS_BADGE_COLOR: Record<string, 'blue' | 'green' | 'gray'> = {
+const VISIBILITY_BADGE_COLOR: Record<string, 'blue' | 'green' | 'gray'> = {
   public: 'blue',
   org: 'green',
   private: 'gray',
@@ -61,15 +61,15 @@ interface ResourceConfig {
 }
 
 function pipelineToRow(p: Pipeline): DeletedRow {
-  return { id: p.id, name: p.pipelineName || p.id, access: p.visibility, createdBy: p.createdBy, deletedAt: p.deletedAt, deletedBy: p.deletedBy };
+  return { id: p.id, name: p.pipelineName || p.id, visibility: p.visibility, createdBy: p.createdBy, deletedAt: p.deletedAt, deletedBy: p.deletedBy };
 }
 
 function pluginToRow(p: Plugin): DeletedRow {
-  return { id: p.id, name: p.name || p.id, version: p.version, access: p.visibility, createdBy: p.createdBy, deletedAt: p.deletedAt, deletedBy: p.deletedBy };
+  return { id: p.id, name: p.name || p.id, version: p.version, visibility: p.visibility, createdBy: p.createdBy, deletedAt: p.deletedAt, deletedBy: p.deletedBy };
 }
 
 function templateToRow(t: PipelineTemplate): DeletedRow {
-  return { id: t.id, name: t.name || t.id, access: t.visibility, createdBy: t.createdBy, deletedAt: t.deletedAt, deletedBy: t.deletedBy };
+  return { id: t.id, name: t.name || t.id, visibility: t.visibility, createdBy: t.createdBy, deletedAt: t.deletedAt, deletedBy: t.deletedBy };
 }
 
 function messageToRow(m: Message): DeletedRow {
@@ -238,9 +238,9 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
       ),
     },
     {
-      id: 'access',
-      header: 'Access',
-      render: (r) => (r.access ? <Badge color={ACCESS_BADGE_COLOR[r.access] ?? 'gray'}>{r.access}</Badge> : null),
+      id: 'visibility',
+      header: 'Visibility',
+      render: (r) => (r.visibility ? <Badge color={VISIBILITY_BADGE_COLOR[r.visibility] ?? 'gray'}>{r.visibility}</Badge> : null),
     },
     { id: 'deletedAt', header: 'Deleted', render: (r) => (r.deletedAt ? <RelativeTime value={r.deletedAt} /> : <span className="text-gray-400">—</span>) },
     { id: 'deletedBy', header: 'Deleted by', cellClassName: 'text-gray-600 dark:text-gray-400 text-sm', render: (r) => r.deletedBy || '—' },

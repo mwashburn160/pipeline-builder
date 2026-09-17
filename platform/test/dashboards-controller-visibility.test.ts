@@ -26,6 +26,7 @@ const mockClone = jest.fn<(source: any, caller: unknown) => Promise<unknown>>();
 const mockCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  isSystemAdmin: (req: unknown) => mockIsSystemAdmin(req),
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
   sendQuotaReserveDenied: jest.fn(),
@@ -33,9 +34,11 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
+jest.unstable_mockModule('../src/config/index.js', () => ({
+  config: { observability: { dashboardMaxName: 150, dashboardMaxDescription: 1000, dashboardMaxPanelTitle: 200, dashboardMaxPanels: 50 } },
+}));
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  isSystemAdmin: (req: unknown) => mockIsSystemAdmin(req),
   getAdminContext: (req: unknown) => ({ isSuperAdmin: mockIsSystemAdmin(req), isOrgAdmin: mockIsOrgAdmin(req), adminType: 'org admin' }),
   withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
   requireAuthContext: (req: any) => ({ userId: req.user.sub, orgId: req.user.organizationId }),

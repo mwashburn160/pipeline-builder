@@ -9,6 +9,8 @@
  *   - An exceeded limit is still shown when muted — requests are being rejected.
  *   - The setting is saved on the server for the active org, and a fresh
  *     browser (empty local copy) picks it up from there.
+ *   - It is scoped to the signed-in user, and a late server load never
+ *     reverts a newer toggle.
  *   - A save the server refuses puts the toggle back and says so.
  *   - During read-only impersonation the toggle is disabled.
  */
@@ -16,16 +18,19 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QuotaBanner } from '../src/components/ui/QuotaBanner';
 import NotificationsPage from '../pages/dashboard/notifications';
-import { __resetNotificationPrefsForTests, readCachedNotificationPrefs, saveNotificationPrefs } from '../src/lib/notification-prefs';
+import { saveNotificationPrefs } from '../src/lib/notification-prefs';
+import { __resetPreferencesStoreForTests, readPreferences } from '../src/lib/preferences-store';
+import { mockAuthGuard, pageToast } from './helpers/pageMocks';
 
-const authGuard = { isReady: true, isReadOnly: false, user: { id: 'me', organizationId: 'org-1', organizationName: 'Acme' } };
-jest.mock('@/hooks/useAuthGuard', () => ({ __esModule: true, useAuthGuard: () => authGuard }));
-jest.mock('@/components/ui/DashboardLayout', () => ({
-  __esModule: true,
-  DashboardLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}));
-const toast = { success: jest.fn(), error: jest.fn(), info: jest.fn(), warning: jest.fn() };
-jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
+const authGuard = mockAuthGuard({ user: { id: 'me', organizationId: 'org-1', organizationName: 'Acme' } });
+const toast = pageToast;
+
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
+jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => ({ user: authGuard.user }) }));
+
+const cachedMute = (userId = 'me', orgId = 'org-1') => readPreferences(userId, orgId).notifications;
+jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
 const getOwnQuotas = jest.fn();
 const getPreferences = jest.fn();
@@ -59,9 +64,10 @@ const serverPrefs = (muteQuotaWarnings: boolean) => ({
 beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
-  __resetNotificationPrefsForTests();
+  __resetPreferencesStoreForTests();
   jest.clearAllMocks();
   authGuard.isReadOnly = false;
+  authGuard.user = { id: 'me', organizationId: 'org-1', organizationName: 'Acme' };
   getPreferences.mockResolvedValue(serverPrefs(false));
   updatePreferences.mockImplementation(async (patch: { notifications: { muteQuotaWarnings: boolean } }) =>
     serverPrefs(patch.notifications.muteQuotaWarnings));
@@ -74,12 +80,31 @@ describe('quota banner', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/API calls usage at 95%/);
   });
 
+  it('refreshes the quota every 60s', async () => {
+    jest.useFakeTimers();
+    try {
+      getOwnQuotas.mockResolvedValue(quotaAt(10));
+      render(<QuotaBanner />);
+      await act(async () => { await Promise.resolve(); });
+      expect(getOwnQuotas).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+      getOwnQuotas.mockResolvedValue(quotaAt(95));
+      await act(async () => { jest.advanceTimersByTime(60_000); await Promise.resolve(); });
+
+      expect(getOwnQuotas).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole('alert')).toHaveTextContent(/API calls usage at 95%/);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('hides it once muted — immediately, without a reload', async () => {
     getOwnQuotas.mockResolvedValue(quotaAt(95));
     render(<QuotaBanner />);
     await screen.findByRole('alert');
 
-    await act(() => saveNotificationPrefs('org-1', { muteQuotaWarnings: true }));
+    await act(() => saveNotificationPrefs('me', 'org-1', { muteQuotaWarnings: true }));
 
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   });
@@ -91,7 +116,35 @@ describe('quota banner', () => {
 
     await waitFor(() => expect(getPreferences).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
-    expect(readCachedNotificationPrefs('org-1')).toEqual({ muteQuotaWarnings: true });
+    expect(cachedMute()).toEqual({ muteQuotaWarnings: true });
+  });
+
+  it("doesn't apply another user's mute (same browser, same org)", async () => {
+    getOwnQuotas.mockResolvedValue(quotaAt(95));
+    await act(() => saveNotificationPrefs('someone-else', 'org-1', { muteQuotaWarnings: true }));
+
+    render(<QuotaBanner />);
+
+    await waitFor(() => expect(getPreferences).toHaveBeenCalled());
+    expect(await screen.findByRole('alert')).toHaveTextContent(/API calls usage at 95%/);
+    expect(cachedMute('someone-else')).toEqual({ muteQuotaWarnings: true });
+    expect(cachedMute('me')).toEqual({ muteQuotaWarnings: false });
+  });
+
+  it('a server load that resolves AFTER muting does not unmute', async () => {
+    let resolveLoad!: (v: unknown) => void;
+    getPreferences.mockReturnValue(new Promise((r) => { resolveLoad = r; }));
+    getOwnQuotas.mockResolvedValue(quotaAt(95));
+    render(<QuotaBanner />);
+    await screen.findByRole('alert');
+
+    await act(() => saveNotificationPrefs('me', 'org-1', { muteQuotaWarnings: true }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+
+    await act(async () => { resolveLoad(serverPrefs(false)); await Promise.resolve(); await Promise.resolve(); });
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(cachedMute()).toEqual({ muteQuotaWarnings: true });
   });
 
   it('still shows an EXCEEDED limit when muted, because requests are being rejected', async () => {
@@ -125,7 +178,21 @@ describe('Notifications page', () => {
 
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(toggle).toHaveAttribute('aria-checked', 'false');
-    expect(readCachedNotificationPrefs('org-1')).toEqual({ muteQuotaWarnings: false });
+    expect(cachedMute()).toEqual({ muteQuotaWarnings: false });
+  });
+
+  it('a server load that resolves AFTER the toggle does not flip it back', async () => {
+    let resolveLoad!: (v: unknown) => void;
+    getPreferences.mockReturnValue(new Promise((r) => { resolveLoad = r; }));
+    render(<NotificationsPage />);
+    const toggle = await screen.findByRole('switch', { name: /mute quota warnings/i });
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'true'));
+
+    await act(async () => { resolveLoad(serverPrefs(false)); await Promise.resolve(); await Promise.resolve(); });
+
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
   });
 
   it('disables the toggle during read-only impersonation', async () => {

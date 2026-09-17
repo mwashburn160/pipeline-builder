@@ -1,28 +1,19 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, requireVisibilityWriteAccess, resolveVisibility, sendBadRequest, sendError, sendSuccess, validateBody, PluginUpdateSchema, pickDefined, sendEntityNotFound, createComplianceClient, getServiceAuthHeader, errorMessage } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, isSystemAdmin, requireVisibilityWriteAccess, resolveVisibility, sendBadRequest, sendError, sendSuccess, userHasPermission, validateBody, PluginUpdateSchema, pickDefined, sendEntityNotFound } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
+import { checkUpdateCompliance, needsComplianceRecheck } from '../helpers/update-compliance.js';
 import { emitPluginAudit } from '../services/audit.js';
 import { pluginService } from '../services/plugin-service.js';
-
-const complianceClient = createComplianceClient();
-
-// Execution/config fields whose change can alter a plugin's compliance posture.
-// A change to any of these on UPDATE triggers a fail-closed re-validation; a
-// catalog-metadata-only edit (description/labels/lifecycle) does not.
-const COMPLIANCE_RELEVANT_FIELDS = [
-  'pluginType', 'computeType', 'timeout', 'failureBehavior', 'env', 'buildArgs',
-  'installCommands', 'commands', 'visibility', 'secrets',
-] as const;
 
 /**
  * Register the UPDATE route on a router.
  *
- * Expects `requireAuth` and `requireOrgId` to have already been
- * applied as router-level middleware in the parent.
+ * Expects auth + orgId + tenant scope (the shared `/plugins` chain) and
+ * `requirePermission('plugins:write')` from the parent mount in index.ts.
  */
 export function createUpdatePluginRoutes(): Router {
   const router: Router = Router();
@@ -46,7 +37,7 @@ export function createUpdatePluginRoutes(): Router {
 
     if (!existing) return sendEntityNotFound(res, 'Plugin');
 
-    // Only system admins can edit non-private plugins
+    // Visibility ladder: `public` needs plugins:publish, `private` is author-only.
     if (!requireVisibilityWriteAccess(req, res, existing, userId, 'plugins:publish')) return;
 
     // Build update data from validated body
@@ -82,55 +73,36 @@ export function createUpdatePluginRoutes(): Router {
       ...((req.user?.isAdmin === true || req.user?.isSuperAdmin === true)
         ? pickDefined({ ownerId: body.ownerId, ownerType: body.ownerType })
         : {}),
-      // Access modifier requires special handling (admin-only public)
+      // `public` needs plugins:publish — resolveVisibility clamps it to `org` otherwise.
       ...(body.visibility !== undefined ? { visibility: resolveVisibility(req, body.visibility, 'plugins:publish') } : {}),
     };
 
     // -- Compliance re-check on UPDATE (fail-closed) ------------------------
     // A plugin is executable code, so an edit to its build/run config or
     // visibility must not be allowed to turn a compliant plugin non-compliant
-    // (upload already gates this). Re-validate only when an execution-relevant
-    // field changed — a catalog-metadata-only edit keeps the same posture and
-    // shouldn't pay a round-trip or be blocked by a compliance outage.
-    if (COMPLIANCE_RELEVANT_FIELDS.some((f) => f in updateData)) {
-      const serviceAuth = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
-      const val = <T>(k: string, fallback: T): T => (k in updateData ? updateData[k] as T : fallback);
-      try {
-        const complianceResult = await complianceClient.validatePlugin(orgId, {
-          // name/version are immutable on update — keyed to the pushed image.
-          name: existing.name,
-          version: existing.version,
-          pluginType: val('pluginType', existing.pluginType),
-          computeType: val('computeType', existing.computeType),
-          timeout: val('timeout', existing.timeout),
-          failureBehavior: val('failureBehavior', existing.failureBehavior),
-          env: val('env', existing.env),
-          buildArgs: val('buildArgs', existing.buildArgs),
-          installCommands: val('installCommands', existing.installCommands),
-          commands: val('commands', existing.commands),
-          visibility: val('visibility', existing.visibility),
-          secrets: val('secrets', existing.secrets),
-          metadata: val('metadata', existing.metadata),
-          keywords: val('keywords', existing.keywords),
-        }, serviceAuth, existing.id, existing.name, 'update');
-
-        if (complianceResult.blocked) {
-          ctx.log('WARN', 'Plugin update blocked by compliance', { id, violations: complianceResult.violations.length });
-          return sendError(res, 403, 'Plugin update blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
-            violations: complianceResult.violations,
-          });
-        }
-      } catch (err) {
-        ctx.log('ERROR', 'Compliance service unavailable — plugin update rejected', { error: errorMessage(err) });
+    // (upload already gates this). Only execution-relevant edits are re-checked.
+    if (needsComplianceRecheck(updateData)) {
+      const verdict = await checkUpdateCompliance(orgId, existing, updateData);
+      if (verdict.outcome === 'blocked') {
+        ctx.log('WARN', 'Plugin update blocked by compliance', { id, violations: verdict.violations.length });
+        return sendError(res, 403, 'Plugin update blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
+          violations: verdict.violations,
+        });
+      }
+      if (verdict.outcome === 'unavailable') {
+        ctx.log('ERROR', 'Compliance service unavailable — plugin update rejected', { error: verdict.error });
         return sendError(res, 503, 'Compliance service unavailable — plugin update rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
       }
     }
 
+    // Promoting to default demotes the current default in the same transaction,
+    // which needs write access to THAT row too — pass the caller's authority.
     const updated = await pluginService.update(
       id,
       updateData,
       orgId,
       userId || 'system',
+      { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'plugins:publish') },
     );
 
     if (!updated) return sendEntityNotFound(res, 'Plugin');

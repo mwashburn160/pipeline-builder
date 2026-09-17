@@ -206,6 +206,15 @@ export function getIdempotencyStore(): IdempotencyStore {
   return defaultStore;
 }
 
+/**
+ * Marks a request idempotency has already handled. Route chains are stacked —
+ * several `app.use(prefix, ...createAuthenticatedWithOrgRoute(), router)` mounts
+ * share a prefix, and a request that falls through the first router runs the
+ * next chain's idempotency middleware again. That second pass found its OWN
+ * pending reservation and answered 409.
+ */
+const IDEMPOTENCY_HANDLED = Symbol('pipeline-builder.idempotency.handled');
+
 export interface IdempotencyMiddlewareOptions {
   /** Custom store backend. Defaults to the process-wide store set via
    *  {@link setIdempotencyStore} (in-memory until `createApp` wires Redis). */
@@ -239,6 +248,10 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
     // Only apply to mutation methods
     if (!['POST', 'PUT', 'DELETE'].includes(req.method)) return next();
 
+    // One pass per request: a later stacked chain must not re-check the key.
+    const marked = req as Request & { [IDEMPOTENCY_HANDLED]?: true };
+    if (marked[IDEMPOTENCY_HANDLED]) return next();
+
     // Namespace by orgId to prevent cross-org cache collisions. Prefer the
     // VERIFIED auth org (`req.user`, populated by requireAuth after signature
     // verification) over `req.context.identity`, which some services populate
@@ -246,6 +259,7 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
     // cache on an unverified, caller-influenced org id would be unsafe.
     const orgId = req.user?.organizationId || req.context?.identity?.orgId;
     if (!orgId) return next(); // skip idempotency for unauthenticated requests
+    marked[IDEMPOTENCY_HANDLED] = true;
 
     // Namespace the stored key by (method, route, org, body) so an Idempotency-Key
     // is scoped to ONE specific endpoint+payload. Reusing a single key across two

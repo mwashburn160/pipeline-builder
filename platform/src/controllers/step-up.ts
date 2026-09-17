@@ -3,29 +3,22 @@
 
 /**
  * Step-up authentication: re-verify the current user's password before
- * destructive sysadmin actions (grant/revoke platform-admin, rotate KMS,
- * download namespace YAML, etc.).
+ * destructive or credential-minting actions (grant/revoke platform-admin, rotate
+ * KMS, download namespace YAML, create tokens, etc.).
  *
  *   POST /api/auth/step-up   body: { password: string }
  *
- * Returns 200 on success, 401 on bad password. Doesn't issue a new token —
- * the caller is already authenticated. The frontend pattern is:
+ * Returns 200 with a short-lived `stepUpToken` JWT (default 60s TTL) bound to
+ * `req.user.sub`, or 401 on a bad password. The frontend pattern is:
  *   1. User clicks a destructive action.
- *   2. UI prompts for password.
- *   3. UI calls POST /step-up. On success, immediately calls the
- *      destructive endpoint. On failure, shows "wrong password" and
- *      doesn't proceed.
+ *   2. UI prompts for password and calls POST /step-up.
+ *   3. UI sends the token as `X-Step-Up-Token` on the destructive request.
  *
- * Returns a short-lived `stepUpToken` JWT (default 60s TTL) bound to
- * `req.user.sub`. The frontend sends it back as the `X-Step-Up-Token`
- * header on the next destructive request; the `requireStepUp` middleware
- * enforces it. Single-use IS enforced via a process-local consumed-jti
- * set (`middleware/consumed-jti.ts`) — a replay against the same process
- * is rejected. Multi-instance deployments get best-effort single-use
- * within each process; swap the consumed-jti module for a Redis-backed
- * implementation when that gap matters.
+ * api-core's `requireStepUp` enforces it on every gated route (platform's
+ * included): caller-bound, single-use across replicas when Redis is configured
+ * (a Redis error fails closed), service principals exempt.
  *
- * Rate-limited (4 attempts per minute per user) to slow brute-force.
+ * Rate-limited (5 attempts per minute per user) to slow brute-force.
  * Failed attempts are recorded to the audit log so a compromised
  * session shows up.
  */

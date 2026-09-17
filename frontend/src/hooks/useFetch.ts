@@ -12,13 +12,9 @@ import { runCancellableFetch } from './internal/fetchCore';
  * directories. Cancels in-flight state writes when the consumer unmounts
  * or the deps change.
  *
- * **useFetch vs {@link useAsync} — pick by whether you need real cancellation:**
- * - Prefer **useFetch** for the common case: it stores the fetcher in a ref so
- *   callers DON'T need to memoize it, returns `error: Error | null` + `refetch()`,
- *   and drops stale state writes on unmount/deps-change.
- * - Use **useAsync** only when the fetcher needs an `AbortSignal` to actually
- *   abort the request (not just discard the result); it returns `error: string`
- *   + `refresh()` and requires a stable `fn` (memoize it yourself).
+ * It stores the fetcher in a ref so callers DON'T need to memoize it, returns
+ * `error: Error | null` + `refetch()`, and drops stale state writes on
+ * unmount/deps-change (the in-flight request itself is not aborted).
  *
  * @example
  * const { data, loading, error, refetch } = useFetch(

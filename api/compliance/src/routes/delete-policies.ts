@@ -4,8 +4,8 @@
 import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { emitComplianceAudit } from '../services/audit.js';
 import { compliancePolicyService } from '../services/policy-service.js';
-import { emitComplianceAudit } from '../services/remote-audit-client.js';
 
 export function createDeletePolicyRoutes(): Router {
   const router = Router();

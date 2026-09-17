@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Types, type ClientSession } from 'mongoose';
-import { toOrgId } from './controller-helper.js';
 import { expandOrgScope, resolveOrgLineage } from './org-hierarchy.js';
+import { toOrgId } from './org-id.js';
 import { Invitation, Organization, UserOrganization } from '../models/index.js';
 
 /**

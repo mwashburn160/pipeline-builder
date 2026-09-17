@@ -5,7 +5,6 @@ import {
   Shield,
   ShieldCheck,
   MessageSquare,
-  ScrollText,
   Container,
   FileBarChart,
   Users,
@@ -138,7 +137,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: 'Deployments', href: '/dashboard/deployments', icon: Rocket, requiredPermission: 'pipelines:read' },
       // Per-pipeline run health.
       { title: 'Executions', href: '/dashboard/executions', icon: Activity },
-      { title: 'Logs', href: '/dashboard/logs', icon: ScrollText },
       // Plugin-build queue + failed-build triage (sysadmin). An operate surface,
       // moved out of the Platform admin group to sit with the other run views.
       { title: 'Builds', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true, extraActivePaths: ['/dashboard/triage'] },

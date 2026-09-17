@@ -24,7 +24,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockGetByIdWithOrgs = jest.fn<(...a: unknown[]) => unknown>();
 const mockUpdateFeatures = jest.fn<(...a: unknown[]) => unknown>();
 const mockHasMembershipInOrg = jest.fn<(...a: unknown[]) => Promise<boolean>>();
-const mockRequireAdminContext = jest.fn();
+const mockRequireScope = jest.fn();
 const mockOrgFindById = jest.fn();
 
 // Faithful mini resolver: union tier-less start + account features, then apply
@@ -73,7 +73,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 
 // user-admin transitively imports utils/token via user-profile; mock so we
 // don't pull in the real JWT signing path (which would demand env vars).
-jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn() }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn(), renewSessionTokens: jest.fn() }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: jest.fn(),
   updateProfileSchema: {},
@@ -83,7 +83,9 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAdminContext: (req: any, res: any) => mockRequireAdminContext(req, res),
+  requireMemberManagementScope: (req: any, res: any) => mockRequireScope(req, res),
+  canManageOrgScope: async () => true,
+  isOrgAdmin: () => false,
   requireAuthUserId: jest.fn(),
   withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
 }));
@@ -95,22 +97,6 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
     hasMembershipInOrg: (...a: unknown[]) => mockHasMembershipInOrg(...a),
   },
   userProfileService: {},
-  UA_USER_NOT_FOUND: 'UA_USER_NOT_FOUND',
-  UA_USERNAME_TAKEN: 'UA_USERNAME_TAKEN',
-  UA_EMAIL_TAKEN: 'UA_EMAIL_TAKEN',
-  UA_OWNER_HAS_ORGS: 'UA_OWNER_HAS_ORGS',
-  UA_ORG_NOT_FOUND: 'UA_ORG_NOT_FOUND',
-  UA_SEAT_LIMIT: 'UA_SEAT_LIMIT',
-  UA_CANNOT_CHANGE_OWNER: 'UA_CANNOT_CHANGE_OWNER',
-  UA_ROLES_NEED_ORG: 'UA_ROLES_NEED_ORG',
-  UA_LAST_PRIVILEGED_MEMBER: 'UA_LAST_PRIVILEGED_MEMBER',
-  RL_ROLE_NOT_FOUND: 'RL_ROLE_NOT_FOUND',
-  PROFILE_EMAIL_TAKEN: 'PROFILE_EMAIL_TAKEN',
-  PROFILE_INVALID_CREDENTIALS: 'PROFILE_INVALID_CREDENTIALS',
-  PROFILE_OWNER_HAS_ORGS: 'PROFILE_OWNER_HAS_ORGS',
-  PROFILE_USER_NOT_FOUND: 'PROFILE_USER_NOT_FOUND',
-  PROFILE_LAST_PRIVILEGED_MEMBER: 'PROFILE_LAST_PRIVILEGED_MEMBER',
-  PROFILE_PAT_LIMIT: 'PROFILE_PAT_LIMIT',
 }));
 
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { passwordMinLength: 8 } } }));
@@ -131,7 +117,7 @@ function orgLean(value: unknown) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockRequireAdminContext.mockReturnValue({ isSuperAdmin: true, isOrgAdmin: false, adminType: 'system' });
+  mockRequireScope.mockReturnValue({ isSuperAdmin: true });
 });
 
 describe('getUserById — purchased account features', () => {
@@ -208,7 +194,7 @@ describe('updateUserFeatures — purchased account features', () => {
     // override-enable `sso` (a paid add-on) when the org's tier doesn't include it
     // and it hasn't been purchased — that bypasses billing AND (since
     // featureOverrides is a GLOBAL field) leaks into the target's other orgs.
-    mockRequireAdminContext.mockReturnValue({ isSuperAdmin: false, isOrgAdmin: true, adminType: 'org admin' });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: false, orgId: 'orgA' });
     mockHasMembershipInOrg.mockResolvedValue(true);
     // Admin's org: developer tier, no purchased entitlements → `sso` is gated.
     mockOrgFindById.mockReturnValue(orgLean({ tier: 'developer', featureEntitlements: [] }));
@@ -223,7 +209,7 @@ describe('updateUserFeatures — purchased account features', () => {
   });
 
   it('ALLOWS an org admin enabling a feature the org has purchased (in featureEntitlements)', async () => {
-    mockRequireAdminContext.mockReturnValue({ isSuperAdmin: false, isOrgAdmin: true, adminType: 'org admin' });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: false, orgId: 'orgA' });
     mockHasMembershipInOrg.mockResolvedValue(true);
     // Admin's org purchased the `sso` add-on → the override is permitted.
     mockOrgFindById.mockReturnValue(orgLean({ tier: 'developer', featureEntitlements: ['sso'] }));
@@ -243,7 +229,7 @@ describe('updateUserFeatures — purchased account features', () => {
   });
 
   it('ALLOWS a system admin to enable a gated feature (gate is org-admin-only)', async () => {
-    mockRequireAdminContext.mockReturnValue({ isSuperAdmin: true, isOrgAdmin: false, adminType: 'system' });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: true });
     mockOrgFindById.mockReturnValue(orgLean({ tier: 'developer', featureEntitlements: [] }));
     mockUpdateFeatures.mockResolvedValue({
       user: { _id: 'user1', username: 'alice', email: 'a@x.io', isSuperAdmin: false, isEmailVerified: true, lastActiveOrgId: 'orgA' },
@@ -261,7 +247,7 @@ describe('updateUserFeatures — purchased account features', () => {
   });
 
   it('ALLOWS an org admin to DISABLE a gated feature (removing is never an escalation)', async () => {
-    mockRequireAdminContext.mockReturnValue({ isSuperAdmin: false, isOrgAdmin: true, adminType: 'org admin' });
+    mockRequireScope.mockReturnValue({ isSuperAdmin: false, orgId: 'orgA' });
     mockHasMembershipInOrg.mockResolvedValue(true);
     mockOrgFindById.mockReturnValue(orgLean({ tier: 'developer', featureEntitlements: [] }));
     mockUpdateFeatures.mockResolvedValue({

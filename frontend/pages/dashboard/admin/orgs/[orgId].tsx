@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
+import { useUrlTab } from '@/hooks/useUrlTab';
 import Link from 'next/link';
 import { ArrowLeft, Building2, KeyRound, ShieldCheck, FileDown, Users, Trash2, Armchair, Sparkles, Download } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -52,7 +53,7 @@ const ORG_TABS = [
   { id: 'operations', label: 'Operations' },
 ] as const;
 type OrgTab = (typeof ORG_TABS)[number]['id'];
-const ORG_TAB_IDS = ORG_TABS.map((t) => t.id) as readonly string[];
+const ORG_TAB_IDS: readonly OrgTab[] = ORG_TABS.map((t) => t.id);
 
 export default function OrgDetailPage() {
   const router = useRouter();
@@ -63,15 +64,7 @@ export default function OrgDetailPage() {
   // The 7 cards are grouped into tabs (Configuration / Entitlements / Operations)
   // so the page isn't one long scroll. Deep-linkable via `?tab=` (separate from
   // the `?orgId` route param).
-  const [activeTab, setActiveTab] = useState<OrgTab>('configuration');
-  useEffect(() => {
-    const raw = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
-    if (raw && ORG_TAB_IDS.includes(raw) && raw !== activeTab) setActiveTab(raw as OrgTab);
-  }, [router.query.tab]); // eslint-disable-line react-hooks/exhaustive-deps
-  const changeTab = (tabId: string) => {
-    setActiveTab(tabId as OrgTab);
-    void router.replace({ query: { ...router.query, tab: tabId } }, undefined, { shallow: true });
-  };
+  const [activeTab, changeTab] = useUrlTab<OrgTab>('tab', ORG_TAB_IDS, 'configuration');
 
   const [org, setOrg] = useState<Organization | null>(null);
   const [kms, setKms] = useState<KmsStatus | null>(null);
@@ -325,7 +318,7 @@ export default function OrgDetailPage() {
 
       {org && (
         <>
-        <TabBar items={[...ORG_TABS]} activeId={activeTab} onSelect={changeTab} className="mb-4" />
+        <TabBar items={[...ORG_TABS]} activeId={activeTab} onSelect={(tabId) => changeTab(tabId as OrgTab)} className="mb-4" />
 
         {activeTab === 'configuration' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

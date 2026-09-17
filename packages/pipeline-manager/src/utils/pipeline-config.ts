@@ -66,7 +66,7 @@ export async function printResolvedOrExit(propsWithIds: Record<string, unknown>)
   const { resolveSelfReferencing } = await import('@pipeline-builder/pipeline-core');
   const scope = { metadata: propsWithIds.metadata ?? {}, vars: propsWithIds.vars ?? {} };
   const isTpl = (f: string) => f === 'projectName' || f.startsWith('metadata.') || f.startsWith('vars.');
-  const result = resolveSelfReferencing(propsWithIds, scope, isTpl, (f: string) => (isTpl(f) ? f : null), 'pipeline');
+  const result = resolveSelfReferencing(propsWithIds, scope, isTpl, (f: string) => (isTpl(f) ? f : null));
   if (result.errors.length) {
     console.error('Resolution errors:');
     for (const e of result.errors) console.error(`  [${e.field ?? '?'}] ${e.message}`);

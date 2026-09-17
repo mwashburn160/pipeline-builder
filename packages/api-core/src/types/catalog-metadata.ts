@@ -16,9 +16,6 @@
 export const LIFECYCLE_STAGES = ['experimental', 'production', 'deprecated'] as const;
 export type Lifecycle = (typeof LIFECYCLE_STAGES)[number];
 
-/** Default lifecycle applied when none is supplied (matches the DB column default). */
-export const DEFAULT_LIFECYCLE: Lifecycle = 'production';
-
 /** Operational criticality of a catalog entity (optional/unset by default). */
 export const CRITICALITY_LEVELS = ['low', 'medium', 'high', 'critical'] as const;
 export type Criticality = (typeof CRITICALITY_LEVELS)[number];

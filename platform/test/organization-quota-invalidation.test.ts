@@ -58,7 +58,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
   config: { quota: { tier: { developer: {}, pro: {}, team: {}, enterprise: {} } } },
 }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 
 const mockResolveOrgLineage = jest.fn<(...a: unknown[]) => Promise<{ rootOrgId: string }>>();
 const mockExpandOrgScope = jest.fn<(...a: unknown[]) => Promise<string[]>>();

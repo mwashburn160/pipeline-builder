@@ -38,6 +38,7 @@ const mockUOFindOne = jest.fn();
 const mockNotifyRequester = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  isSystemAdmin: (...a: unknown[]) => mockIsSystemAdmin(...a),
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
 }));
@@ -61,7 +62,6 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   withController: (_label: string, fn: Function) =>
     async (req: any, res: any) => fn(req, res),
   canAdministerOrg: (...a: unknown[]) => mockCanAdministerOrg(...a),
-  isSystemAdmin: (...a: unknown[]) => mockIsSystemAdmin(...a),
   isOrgAdmin: (...a: unknown[]) => mockIsOrgAdmin(...a),
 }));
 // Authority now depends on BOTH parties (is the caller an ancestor admin of the
@@ -121,8 +121,6 @@ jest.unstable_mockModule('../src/services/impersonation-service.js', () => ({
   // The decision itself is covered exhaustively in impersonation-request.test.ts;
   // here it's stubbed so each controller branch can be driven directly.
   decideInitialApproval: (...a: unknown[]) => mockDecideInitialApproval(...a),
-  IMP_NOT_APPROVED: 'IMP_NOT_APPROVED',
-  IMP_EXPIRED: 'IMP_EXPIRED',
 }));
 
 const {
@@ -348,6 +346,44 @@ describe('redeemImpersonationRequest', () => {
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockConsume).not.toHaveBeenCalled();
+  });
+
+  it('re-resolves the requester\'s authority at redemption — lost authority gets no token', async () => {
+    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'parent-admin', targetUserId: 'target', orgId: 'team-a' }));
+    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
+    // Approved while they administered the parent org; demoted since.
+    mockResolveAuthority.mockResolvedValue({ kind: 'none' });
+
+    const res = await call({ sub: 'parent-admin' });
+
+    expect(mockResolveAuthority).toHaveBeenCalledWith(expect.anything(), 'team-a');
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockConsume).not.toHaveBeenCalled();
+    expect(mockIssueImpersonation).not.toHaveBeenCalled();
+  });
+
+  it('break-glass: refuses a requester who is no longer a sysadmin', async () => {
+    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'ex-sysadmin', targetUserId: 'target', orgId: 'org-a', breakglass: true }));
+    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
+    mockIsSystemAdmin.mockReturnValue(false);
+    // Even if an ancestor-org path would admit them, break-glass is sysadmin-only.
+    mockResolveAuthority.mockResolvedValue({ kind: 'ancestor', viaOrgId: 'root' });
+
+    const res = await call({ sub: 'ex-sysadmin' });
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockConsume).not.toHaveBeenCalled();
+  });
+
+  it('break-glass: a sysadmin requester still redeems', async () => {
+    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'sysadmin', targetUserId: 'target', orgId: 'org-a', breakglass: true }));
+    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
+    mockIsSystemAdmin.mockReturnValue(true);
+    mockIssueImpersonation.mockResolvedValue({ accessToken: 'imp.jwt', expiresIn: 900 });
+
+    const res = await call({ sub: 'sysadmin' });
+
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 
   it('refuses redemption from inside an impersonation session', async () => {

@@ -1,27 +1,35 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
-import { and, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
+import { buildPluginConditions, schema, withTenantTx, withViewerContext, type PluginFilter } from '@pipeline-builder/pipeline-data';
+import { and, inArray, isNull, type SQL } from 'drizzle-orm';
 
 /**
- * Visibility predicate for active, public plugins owned by the caller's org
- * or by the system org. Shared by every read path in this service that
- * needs the "what plugins can this org see?" filter.
+ * Visibility predicate for the active plugins the CALLER can see — the shared
+ * three-rung `visibility` ladder (see `AccessControlQueryBuilder.buildAccessControl`),
+ * not a bespoke copy of it:
+ *
+ *   - own org: `org` + `public` rows, plus the caller's OWN `private` drafts
+ *     (another member's private plugin stays invisible);
+ *   - system org: `public` rows (the shared catalog every org sees).
+ *
+ * The viewer (user id / super-admin) is stamped from the request's tenant
+ * context by `withViewerContext`, so this must run inside the request scope;
+ * outside one the private rung fails closed (matches nothing).
+ *
+ * Shared by every read path in this service that needs the "what plugins can
+ * this caller see?" filter (AI generation context + auto-create existence check).
  */
 export function availablePluginConditions(orgId: string): SQL[] {
   return [
-    eq(schema.plugin.isActive, true),
+    ...buildPluginConditions(withViewerContext<PluginFilter>({}), orgId),
     isNull(schema.plugin.deletedAt),
-    eq(schema.plugin.visibility, 'public'),
-    or(eq(schema.plugin.orgId, orgId), eq(schema.plugin.orgId, SYSTEM_ORG_ID))!,
   ];
 }
 
 /**
- * Return the subset of `names` that already exist as active, public plugins
- * visible to the given org (own org or system). One round-trip instead of N.
+ * Return the subset of `names` that already exist as active plugins visible to
+ * the caller (see {@link availablePluginConditions}). One round-trip instead of N.
  */
 export async function findExistingPluginNames(names: string[], orgId: string): Promise<Set<string>> {
   if (names.length === 0) return new Set();

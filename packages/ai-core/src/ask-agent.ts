@@ -92,8 +92,41 @@ export async function answerHowTo(opts: AnswerHowToOptions): Promise<{ text: str
  * Streaming variant — returns the retrieved `sources` immediately (so the UI can show
  * them while tokens arrive) and the live `textStream`.
  */
-export function streamHowTo(opts: AnswerHowToOptions): { sources: AskSource[]; textStream: AsyncIterable<string> } {
+/** What a how-to stream yields. */
+export type AskStreamEvent =
+  /** The provider has started responding — a paid call has been made. */
+  | { type: 'provider-responded' }
+  /** A chunk of answer text. */
+  | { type: 'text'; text: string };
+
+/**
+ * Stream a grounded answer.
+ *
+ * Built on the SDK's full stream rather than `textStream`, which silently drops
+ * error parts (a failed provider call would look like an empty "answer") and
+ * gives no signal that the provider was reached. Here a provider error THROWS
+ * from the iterator, and `provider-responded` marks the moment a call was paid
+ * for — so callers can refund exactly when the provider was never reached.
+ */
+export function streamHowTo(opts: AnswerHowToOptions): { sources: AskSource[]; events: AsyncIterable<AskStreamEvent> } {
   const { messages, sources } = prepare(opts);
   const result = streamText({ model: opts.model, messages, abortSignal: opts.abortSignal });
-  return { sources, textStream: result.textStream };
+  return { sources, events: toAskEvents(result.fullStream) };
+}
+
+async function* toAskEvents(parts: AsyncIterable<{ type: string; delta?: string; error?: unknown }>): AsyncIterable<AskStreamEvent> {
+  for await (const part of parts) {
+    switch (part.type) {
+      case 'start-step':
+        yield { type: 'provider-responded' };
+        break;
+      case 'text-delta':
+        if (part.delta) yield { type: 'text', text: part.delta };
+        break;
+      case 'error':
+        throw part.error instanceof Error ? part.error : new Error(String(part.error));
+      default:
+        break;
+    }
+  }
 }

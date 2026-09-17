@@ -40,11 +40,20 @@ class NotFoundError extends Error {
 }
 
 /**
+ * The REAL api-core exports, used as the base of every mock below. Suites stub
+ * only what they exercise; everything else is the genuine export, so adding an
+ * export to api-core can never again break a suite with "does not provide an
+ * export named X". (`requireActual` bypasses the module mock.)
+ */
+const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record<string, unknown>;
+
+/**
  * Default api-core namespace for `unstable_mockModule`. Spread `overrides` last
  * so a suite can replace any default (and add exports the default omits).
  */
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
+    ...actualApiCore,
     createLogger: loggerMock,
     // Shared attachment bounds (used by attachment-routes' multer setup).
     MESSAGE_ATTACHMENT_MAX_BYTES: 10 * 1024 * 1024,

@@ -4,11 +4,9 @@
 /**
  * Lightweight caching service with TTL support.
  *
- * Two implementations:
- * - In-memory (default): true-LRU Map cache, no external dependencies
- * - Redis: When a Redis client is provided, uses Redis for cross-process caching
+ * Storage is a per-process true-LRU Map (no external dependencies).
  *
- * Cross-replica invalidation (in-memory backend): every service runs several
+ * Cross-replica invalidation: every service runs several
  * replicas (HPA), each with its OWN in-memory cache. An invalidation performed on
  * one pod (`del` / `invalidatePattern` / `clear`) is broadcast over Redis pub/sub
  * ({@link CacheInvalidationBus}, wired from the ambient Redis env by default) and
@@ -19,8 +17,8 @@
  *
  * Design:
  * - All operations are fail-safe: cache misses/errors return null, never throw
- * - JSON serialization for Redis; the in-memory backend deep-clones on read so
- *   both backends return an independent copy (mutating a result is always safe)
+ * - Reads deep-clone, so every caller gets an independent copy (mutating a
+ *   result is always safe)
  * - `getOrSet` is single-flight: concurrent misses share one factory() call
  * - Key namespace prefixing to avoid collisions between services
  */
@@ -42,11 +40,9 @@ interface CacheEntry<T> {
 }
 
 /**
- * Deep-clone a value so the in-memory backend hands back an INDEPENDENT copy on
- * every read — matching the Redis backend, which returns a fresh `JSON.parse`
- * clone each time. Without this the in-memory cache returns the same stored
- * object reference, so a consumer mutating a "cached" object silently corrupts
- * the shared cache (a footgun that only bites under the memory backend).
+ * Deep-clone a value so the cache hands back an INDEPENDENT copy on every read.
+ * Without this it returns the same stored object reference, so a consumer
+ * mutating a "cached" object silently corrupts the shared cache.
  *
  * Primitives are returned as-is. Prefers the structured-clone algorithm; falls
  * back to a JSON round-trip on older runtimes or exotic values.
@@ -61,16 +57,13 @@ function cloneValue<T>(value: T): T {
 }
 
 /**
- * Minimal Redis-like client interface (subset of ioredis).
- * Services pass their own Redis client instance.
+ * Minimal Redis key/value client surface (subset of ioredis) shared by the
+ * token-revocation publisher/reader and platform's Redis helpers.
  */
 export interface RedisCacheClient {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ...args: unknown[]): Promise<unknown>;
   del(...keys: string[]): Promise<number>;
-  keys(pattern: string): Promise<string[]>;
-  /** SCAN-based iteration (preferred over KEYS for production). */
-  scanStream?(options: { match: string; count?: number }): NodeJS.ReadableStream;
 }
 
 export interface CacheConfig {
@@ -78,15 +71,12 @@ export interface CacheConfig {
   prefix: string;
   /** Default TTL in seconds */
   defaultTtlSeconds: number;
-  /** Max entries for in-memory cache (default 1000) */
+  /** Max entries for the cache (default 1000) */
   maxEntries?: number;
-  /** Optional Redis client — uses in-memory cache if not provided */
-  redis?: RedisCacheClient;
   /**
-   * Cross-replica invalidation bus for the in-memory backend. Omit to use the
-   * shared env-Redis bus (null when Redis isn't configured → single-process
-   * semantics); pass `null` to disable explicitly. Ignored with `redis` (the
-   * store itself is shared, so there is nothing to fan out).
+   * Cross-replica invalidation bus. Omit to use the shared env-Redis bus (null
+   * when Redis isn't configured → single-process semantics); pass `null` to
+   * disable explicitly.
    */
   invalidationBus?: CacheInvalidationBus | null;
 }
@@ -234,7 +224,6 @@ export class CacheService {
   private readonly prefix: string;
   private readonly defaultTtlMs: number;
   private readonly maxEntries: number;
-  private readonly redis?: RedisCacheClient;
   private readonly bus: CacheInvalidationBus | null;
   private readonly instanceId = randomUUID();
   /**
@@ -251,8 +240,7 @@ export class CacheService {
     this.prefix = config.prefix;
     this.defaultTtlMs = config.defaultTtlSeconds * 1000;
     this.maxEntries = config.maxEntries ?? 1000;
-    this.redis = config.redis;
-    this.bus = this.redis ? null : (config.invalidationBus === undefined ? getEnvCacheInvalidationBus() : config.invalidationBus);
+    this.bus = config.invalidationBus === undefined ? getEnvCacheInvalidationBus() : config.invalidationBus;
     this.bus?.subscribe(
       (msg) => {
         if (msg.origin === this.instanceId || msg.prefix !== this.prefix) return;
@@ -262,7 +250,7 @@ export class CacheService {
     );
   }
 
-  /** Broadcast an invalidation to the other replicas (in-memory backend only). */
+  /** Broadcast an invalidation to the other replicas. */
   private broadcast(op: CacheInvalidationMessage['op'], key?: string): void {
     this.bus?.publish({ origin: this.instanceId, prefix: this.prefix, op, ...(key !== undefined && { key }) });
   }
@@ -301,22 +289,12 @@ export class CacheService {
    * Get a cached value. Returns null on miss or error.
    *
    * The returned value is an INDEPENDENT deep copy — mutating it never affects
-   * the cached entry (the in-memory backend clones on read for parity with
-   * Redis, which returns a fresh JSON clone). Callers may still treat results as
-   * immutable, but doing so is no longer load-bearing for cache integrity.
+   * the cached entry.
    */
   async get<T>(key: string): Promise<T | null> {
     const fk = this.fullKey(key);
 
     try {
-      if (this.redis) {
-        const raw = await this.redis.get(fk);
-        if (!raw) { this.metrics.misses++; return null; }
-        this.metrics.hits++;
-        return JSON.parse(raw) as T;
-      }
-
-      // In-memory
       const entry = this.memory.get(fk);
       if (!entry) { this.metrics.misses++; return null; }
       if (Date.now() > entry.expiresAt) {
@@ -342,7 +320,7 @@ export class CacheService {
    * Set a cached value with optional TTL override.
    *
    * @param key - Cache key (prefix is added automatically)
-   * @param value - Value to cache (must be JSON-serializable for Redis)
+   * @param value - Value to cache
    * @param ttlSeconds - TTL override (uses default if not provided)
    */
   async set<T>(key: string, value: T, ttlSeconds?: number): Promise<void> {
@@ -351,12 +329,7 @@ export class CacheService {
 
     try {
       this.metrics.sets++;
-      if (this.redis) {
-        await this.redis.set(fk, JSON.stringify(value), 'EX', ttl);
-        return;
-      }
-
-      // In-memory — a write counts as a use, so drop any existing entry first
+      // A write counts as a use, so drop any existing entry first
       // and re-insert below as the newest (Map preserves insertion order). This
       // keeps the Map ordered oldest-USED → newest-USED so the eviction below is
       // true LRU, and avoids evicting a victim when merely updating a key.
@@ -379,13 +352,7 @@ export class CacheService {
    * Delete a cached value.
    */
   async del(key: string): Promise<void> {
-    const fk = this.fullKey(key);
-
     try {
-      if (this.redis) {
-        await this.redis.del(fk);
-        return;
-      }
       this.applyLocalInvalidation('del', key);
       this.broadcast('del', key);
     } catch {
@@ -395,24 +362,11 @@ export class CacheService {
 
   /**
    * Invalidate all keys matching a pattern (e.g., 'org123:*').
-   * Uses SCAN for Redis (non-blocking) with KEYS fallback, or regex for in-memory.
+   * Only `*` is a wildcard.
    */
   async invalidatePattern(pattern: string): Promise<number> {
-    const fp = this.fullKey(pattern);
-
     try {
-      if (this.redis) {
-        const keys = this.redis.scanStream
-          ? await this.scanKeys(fp)
-          : await this.redis.keys(fp);
-        if (keys.length > 0) {
-          await this.redis.del(...keys);
-          this.metrics.invalidations += keys.length;
-        }
-        return keys.length;
-      }
-
-      // In-memory — apply locally, then fan out to the other replicas.
+      // Apply locally, then fan out to the other replicas.
       const deleted = this.applyLocalInvalidation('pattern', pattern);
       this.broadcast('pattern', pattern);
       this.metrics.invalidations += deleted;
@@ -420,17 +374,6 @@ export class CacheService {
     } catch {
       return 0;
     }
-  }
-
-  /** Collect keys via Redis SCAN (non-blocking alternative to KEYS). */
-  private scanKeys(pattern: string): Promise<string[]> {
-    return new Promise((resolve, reject) => {
-      const stream = this.redis!.scanStream!({ match: pattern, count: 100 });
-      const keys: string[] = [];
-      stream.on('data', (batch: string[]) => keys.push(...batch));
-      stream.once('end', () => resolve(keys));
-      stream.once('error', reject);
-    });
   }
 
   /**
@@ -458,7 +401,7 @@ export class CacheService {
     // Cloning inside the flight instead would hand one shared clone to all N
     // coalesced callers, so one caller mutating its "independent" result would
     // corrupt what the others read — the exact footgun get()'s clone-on-read
-    // prevents. (Redis backend is unaffected: set serializes, get JSON.parses.)
+    // prevents.
     const existing = this.inflight.get(fk) as Promise<T> | undefined;
     if (existing) return cloneValue(await existing);
 
@@ -482,12 +425,8 @@ export class CacheService {
    * Clear all entries (useful for testing).
    */
   async clear(): Promise<void> {
-    if (this.redis) {
-      await this.invalidatePattern('*');
-    } else {
-      this.applyLocalInvalidation('clear');
-      this.broadcast('clear');
-    }
+    this.applyLocalInvalidation('clear');
+    this.broadcast('clear');
   }
 
   /** Current in-memory cache size (for diagnostics). */
@@ -501,12 +440,7 @@ export class CacheService {
  *
  * @param prefix - Namespace prefix (e.g., 'compliance:', 'plugin:')
  * @param defaultTtlSeconds - Default TTL in seconds (default 300 = 5 min)
- * @param redis - Optional Redis client for cross-process caching
  */
-export function createCacheService(
-  prefix: string,
-  defaultTtlSeconds = 300,
-  redis?: RedisCacheClient,
-): CacheService {
-  return new CacheService({ prefix, defaultTtlSeconds, redis });
+export function createCacheService(prefix: string, defaultTtlSeconds = 300): CacheService {
+  return new CacheService({ prefix, defaultTtlSeconds });
 }

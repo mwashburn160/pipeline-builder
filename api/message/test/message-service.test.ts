@@ -21,9 +21,21 @@ const mockBuildMessageConditions = jest.fn((_filter: unknown, _orgId: string): u
 // underlying service methods (getOrSet invokes its loader) and invalidation is a no-op.
 // message-service imports deleteAttachments from attachment-storage (which pulls
 // in the S3 SDK + api-core env helpers). Stub it so the service loads cleanly.
+const mockDeleteAttachments = jest.fn<(keys: string[]) => Promise<string[]>>(async () => []);
 jest.unstable_mockModule('../src/services/attachment-storage.js', () => ({
-  deleteAttachments: jest.fn(async () => undefined),
+  deleteAttachments: mockDeleteAttachments,
 }));
+
+// Purge-transaction harness. `purgeById` on the mock base class below follows
+// the REAL CrudService.purgeById contract: onBeforePurge(ids, tx) and the parent
+// DELETE run inside one transaction; onAfterPurge(ids) runs ONLY after it
+// commits. `mockParentDelete` rejecting models a failed parent DELETE / commit,
+// i.e. a rollback that resurrects every row the hook deleted.
+const mockParentDelete = jest.fn<(ids: string[]) => Promise<void>>(async () => undefined);
+const mockAttachmentDeleteReturning = jest.fn<() => Promise<Array<{ messageId: string | null; storageKey: string }>>>(async () => []);
+const purgeTx = {
+  delete: jest.fn(() => ({ where: jest.fn(() => ({ returning: mockAttachmentDeleteReturning })) })),
+};
 
 // Spy on the cache KEY as well as passing through to the loader — the inbox
 // key carries the viewer segment, and a key collision between two users is a
@@ -98,6 +110,17 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     find = mockFind;
     findPaginated = mockFindPaginated;
     purgeAfterStamp() { return {}; }
+    protected async onBeforePurge(_ids: string[], _tx: unknown): Promise<void> {}
+    protected async onAfterPurge(_ids: string[]): Promise<void> {}
+    async purgeById(id: string): Promise<string | null> {
+      const purged = await (async () => {
+        await this.onBeforePurge([id], purgeTx);
+        await mockParentDelete([id]);
+        return id;
+      })();
+      await this.onAfterPurge([purged]);
+      return purged;
+    }
   }
 
   return {
@@ -119,6 +142,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
       select: mockDbSelect,
     }),
     schema: {
+      messageAttachment: { messageId: 'messageId', storageKey: 'storageKey' },
       message: {
         id: 'id',
         orgId: 'orgId',
@@ -526,4 +550,51 @@ describe('MessageService', () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // Hard-purge attachment teardown ordering
+  // -------------------------------------------------------------------------
+  describe('purge attachment teardown', () => {
+    beforeEach(() => {
+      mockParentDelete.mockReset().mockResolvedValue(undefined);
+      mockAttachmentDeleteReturning.mockReset().mockResolvedValue([
+        { messageId: 'msg-1', storageKey: 'org-1/att-1/a.png' },
+        { messageId: 'msg-1', storageKey: 'org-1/att-2/b.pdf' },
+      ]);
+    });
+
+    it('deletes blobs only AFTER the purge transaction commits', async () => {
+      const order: string[] = [];
+      mockParentDelete.mockImplementation(async () => { order.push('parent-delete'); });
+      mockDeleteAttachments.mockImplementation(async () => { order.push('blob-delete'); return []; });
+
+      await expect(service.purgeById('msg-1')).resolves.toBe('msg-1');
+
+      expect(order).toEqual(['parent-delete', 'blob-delete']);
+      expect(mockDeleteAttachments).toHaveBeenCalledTimes(1);
+      expect(mockDeleteAttachments).toHaveBeenCalledWith(expect.arrayContaining(['org-1/att-1/a.png', 'org-1/att-2/b.pdf']));
+    });
+
+    it('never touches blobs when the purge transaction rolls back (rows resurrect intact)', async () => {
+      mockParentDelete.mockRejectedValue(new Error('commit failed'));
+
+      await expect(service.purgeById('msg-1')).rejects.toThrow('commit failed');
+
+      expect(mockDeleteAttachments).not.toHaveBeenCalled();
+    });
+
+    it('a retry after a rollback still reclaims the blobs exactly once', async () => {
+      mockParentDelete.mockRejectedValueOnce(new Error('commit failed'));
+      await expect(service.purgeById('msg-1')).rejects.toThrow('commit failed');
+
+      await service.purgeById('msg-1');
+      expect(mockDeleteAttachments).toHaveBeenCalledTimes(1);
+      const keys = mockDeleteAttachments.mock.calls[0][0];
+      expect([...keys].sort()).toEqual(['org-1/att-1/a.png', 'org-1/att-2/b.pdf']);
+
+      // Consumed: a later purge of the same id has nothing stale to re-delete.
+      mockAttachmentDeleteReturning.mockResolvedValue([]);
+      await service.purgeById('msg-1');
+      expect(mockDeleteAttachments.mock.calls[1][0]).toEqual([]);
+    });
+  });
 });

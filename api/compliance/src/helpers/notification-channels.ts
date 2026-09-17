@@ -22,7 +22,7 @@ import { lookup } from 'dns/promises';
 import { request as httpsRequest, type RequestOptions } from 'https';
 import { isIP } from 'net';
 
-import { errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { errorMessage, getServiceAuthHeader, isPrivateAddress, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 
 import { emailClient } from './email-client.js';
 import { messageClient } from './message-client.js';
@@ -85,24 +85,6 @@ const inAppChannel: NotificationChannel = {
   },
 };
 
-/** True for loopback / private / link-local / CGNAT / cloud-metadata addresses. */
-function isPrivateAddress(ip: string): boolean {
-  const addr = ip.replace(/^\[|\]$/g, '').toLowerCase();
-  const v4 = addr.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (v4) {
-    const a = Number(v4[1]), b = Number(v4[2]);
-    return a === 0 || a === 10 || a === 127
-      || (a === 169 && b === 254) // link-local incl. 169.254.169.254 metadata
-      || (a === 172 && b >= 16 && b <= 31)
-      || (a === 192 && b === 168)
-      || (a === 100 && b >= 64 && b <= 127); // CGNAT
-  }
-  if (addr === '::1' || addr === '::') return true;
-  if (addr.startsWith('::ffff:')) return isPrivateAddress(addr.slice(7)); // v4-mapped v6
-  return addr.startsWith('fc') || addr.startsWith('fd') // unique-local
-    || addr.startsWith('fe80'); // link-local
-}
-
 /** A DNS-resolved, SSRF-vetted webhook target to connect to by pinned IP. */
 interface PinnedTarget {
   /** Original hostname — preserved for the Host header and TLS SNI. */
@@ -115,7 +97,9 @@ interface PinnedTarget {
 
 /**
  * SSRF guard for org-supplied webhook URLs: require https and reject any host
- * that is — or resolves to — a private/loopback/link-local/metadata address, so
+ * that is — or resolves to — a private/loopback/link-local/metadata address
+ * (api-core's shared `isPrivateAddress` denylist — the former local copy missed
+ * hex-form IPv4-mapped IPv6 such as `::ffff:7f00:1`), so
  * a tenant can't aim a webhook at the cloud metadata endpoint or internal
  * services. Returns the vetted IP so the delivery can PIN it into the socket:
  * validating the host here and then letting `fetch`/DNS re-resolve at send time

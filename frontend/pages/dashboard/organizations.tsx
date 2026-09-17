@@ -1,27 +1,19 @@
-import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
 import { triggerBlobDownload } from '@/lib/csv-export';
-import { Building2, KeyRound, FileDown, ShieldCheck, ExternalLink, Plus, Layers, RotateCcw, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Building2, ExternalLink, Plus, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
-import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { SegmentedFilter } from '@/components/ui/SegmentedFilter';
 import { Badge } from '@/components/ui/Badge';
-import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { IconButton } from '@/components/ui/IconButton';
-import { OrgSetupStep } from '@/components/onboarding/OrgSetupStep';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { InfoAlert } from '@/components/ui/InfoAlert';
 import { FilterSelect } from '@/components/ui/FilterSelect';
-import { ModalFooter } from '@/components/ui/ModalFooter';
 import { useToast } from '@/components/ui/Toast';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -33,6 +25,9 @@ import { OrgKmsConfigModal } from '@/components/admin/OrgKmsConfigModal';
 import { OrgIdpConfigModal } from '@/components/admin/OrgIdpConfigModal';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import { RowActionsMenu } from '@/components/organizations/RowActionsMenu';
+import { CreateOrganizationFlow } from '@/components/organizations/CreateOrganizationFlow';
+import { ChangeTierDialog, type OrgTier } from '@/components/organizations/ChangeTierDialog';
 import api from '@/lib/api';
 import { Organization } from '@/types';
 import type { OrganizationListItem } from '@/lib/api/domains/organizations';
@@ -52,134 +47,6 @@ const TRASH_RESOURCES = [
   { key: 'compliance-policy', label: 'Compliance policies' },
 ] as const;
 type TrashResource = (typeof TRASH_RESOURCES)[number]['key'];
-
-/**
- * Per-row overflow menu for the less-common admin actions (KMS, IdP, tier,
- * namespace) with Delete separated below as the destructive action. Rendered
- * with fixed positioning off the trigger's rect so the menu isn't clipped by
- * the table's `overflow-x-auto` scroll container.
- */
-function RowActionsMenu({
-  canKms, canIdp, onKms, onIdp, onTier, onNamespace, onDelete,
-}: {
-  canKms: boolean;
-  canIdp: boolean;
-  onKms: () => void;
-  onIdp: () => void;
-  onTier: () => void;
-  onNamespace: () => void;
-  onDelete: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [coords, setCoords] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (menuRef.current?.contains(e.target as Node) || btnRef.current?.contains(e.target as Node)) return;
-      setOpen(false);
-    };
-    // The menu is fixed-positioned off a rect snapshot; any scroll/resize would
-    // desync it, so just close on those rather than re-measuring.
-    const onMove = () => setOpen(false);
-    // Escape closes and returns focus to the trigger (menu keyboard contract).
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setOpen(false); btnRef.current?.focus(); }
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    window.addEventListener('scroll', onMove, true);
-    window.addEventListener('resize', onMove);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-      window.removeEventListener('scroll', onMove, true);
-      window.removeEventListener('resize', onMove);
-    };
-  }, [open]);
-
-  // Move focus to the first item when the menu opens (keyboard entry point).
-  useEffect(() => {
-    if (open) menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
-  }, [open]);
-
-  // Roving focus across items per the menu contract.
-  const onMenuKeyDown = (e: React.KeyboardEvent) => {
-    const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
-    if (items.length === 0) return;
-    const idx = items.indexOf(document.activeElement as HTMLButtonElement);
-    if (e.key === 'ArrowDown') { e.preventDefault(); items[(idx + 1) % items.length].focus(); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(idx - 1 + items.length) % items.length].focus(); }
-    else if (e.key === 'Home') { e.preventDefault(); items[0].focus(); }
-    else if (e.key === 'End') { e.preventDefault(); items[items.length - 1].focus(); }
-  };
-
-  const toggle = () => {
-    if (!open && btnRef.current) {
-      const r = btnRef.current.getBoundingClientRect();
-      setCoords({ top: r.bottom + 4, right: window.innerWidth - r.right });
-    }
-    setOpen((o) => !o);
-  };
-
-  const run = (fn: () => void) => () => { setOpen(false); fn(); };
-
-  const itemClass = 'w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/60 transition-colors';
-
-  return (
-    <>
-      <IconButton
-        ref={btnRef}
-        onClick={toggle}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label="More actions"
-      >
-        <MoreHorizontal className="w-4 h-4" />
-      </IconButton>
-      {open && (
-        <div
-          ref={menuRef}
-          role="menu"
-          onKeyDown={onMenuKeyDown}
-          style={{ position: 'fixed', top: coords.top, right: coords.right, zIndex: 50 }}
-          className="w-56 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl text-left"
-        >
-          {canKms && (
-            <button type="button" role="menuitem" onClick={run(onKms)} className={itemClass}>
-              <KeyRound className="w-3.5 h-3.5 text-gray-400" /> KMS config
-            </button>
-          )}
-          {canIdp && (
-            <button type="button" role="menuitem" onClick={run(onIdp)} className={itemClass}>
-              <ShieldCheck className="w-3.5 h-3.5 text-gray-400" /> SSO / IdP config
-            </button>
-          )}
-          <button type="button" role="menuitem" onClick={run(onTier)} className={itemClass}>
-            <Layers className="w-3.5 h-3.5 text-gray-400" /> Change tier
-          </button>
-          <button type="button" role="menuitem" onClick={run(onNamespace)} className={itemClass}>
-            <FileDown className="w-3.5 h-3.5 text-gray-400" /> Namespace YAML
-          </button>
-          <div className="my-1 border-t border-gray-100 dark:border-gray-700" />
-          <button
-            type="button"
-            role="menuitem"
-            onClick={run(onDelete)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-          >
-            <Trash2 className="w-3.5 h-3.5" /> Delete organization
-          </button>
-          <p className="px-3 pt-1 pb-1.5 text-[11px] leading-snug text-gray-400 dark:text-gray-500">
-            Removes all members from the org (users aren&apos;t deleted). Cannot be undone.
-          </p>
-        </div>
-      )}
-    </>
-  );
-}
 
 /** Organization management page (system admin only). Lists all organizations with delete capability. */
 export default function OrganizationsPage() {
@@ -281,82 +148,14 @@ export default function OrganizationsPage() {
   const [pendingYamlOrg, setPendingYamlOrg] = useState<Organization | null>(null);
 
   // Inline per-row tier change. Two-phase like delete: pick the new tier in a
-  // small modal, then re-verify via StepUpModal (the backend PATCH is step-up
+  // small dialog, then re-verify via StepUpModal (the backend PATCH is step-up
   // gated because a tier change reseeds quota limits / affects billing).
   const [tierOrg, setTierOrg] = useState<Organization | null>(null);
-  const [newTier, setNewTier] = useState<'developer' | 'pro' | 'team' | 'enterprise'>('developer');
-  const [pendingTierChange, setPendingTierChange] = useState<{ org: Organization; tier: 'developer' | 'pro' | 'team' | 'enterprise' } | null>(null);
+  const [pendingTierChange, setPendingTierChange] = useState<{ org: Organization; tier: OrgTier } | null>(null);
 
-  const openTier = useCallback((org: Organization) => {
-    setTierOrg(org);
-    setNewTier((org.tier as 'developer' | 'pro' | 'team' | 'enterprise') ?? 'developer');
-  }, []);
-
-  // Advance from tier-picker to the step-up prompt (no-op if unchanged).
-  const confirmTierSelection = useCallback(() => {
-    if (!tierOrg) return;
-    if (newTier !== tierOrg.tier) setPendingTierChange({ org: tierOrg, tier: newTier });
-    setTierOrg(null);
-  }, [tierOrg, newTier]);
-
-  // Create a new top-level organization (sysadmin). The creator becomes the
-  // initial owner; ownership can be transferred from the org's detail page.
+  // Create a new top-level organization or team (sysadmin).
   const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
-  const [newOrgName, setNewOrgName] = useState('');
-  const [newOrgTier, setNewOrgTier] = useState<'developer' | 'pro' | 'team' | 'enterprise'>('developer');
-  // The "New Organization" button defaults to a top-level org (matching its
-  // label); check the Team box to instead nest under a parent. Parent
-  // candidates are the existing root orgs.
-  const [createAsSubOrg, setCreateAsSubOrg] = useState(false);
-  const [parentOrgId, setParentOrgId] = useState('');
-  const [parentOptions, setParentOptions] = useState<Organization[]>([]);
-  // After creating a TOP-LEVEL org, offer the CLI/setup step (teams/sub-orgs share
-  // the parent's deployment + token, so they skip it).
-  const [setupTier, setSetupTier] = useState<string | undefined>(undefined);
-  const [setupOpen, setSetupOpen] = useState(false);
-  const createForm = useFormState();
-
-  // Open the create modal, resetting state and loading the root orgs that can
-  // act as a parent for a team.
-  const openCreate = async () => {
-    setNewOrgName('');
-    setNewOrgTier('developer');
-    setCreateAsSubOrg(false);
-    setParentOrgId('');
-    setParentOptions([]);
-    createForm.reset();
-    setCreateOpen(true);
-    try {
-      const res = await api.listOrganizations({ limit: 200 });
-      setParentOptions((res.data?.organizations ?? []).filter((o) => !o.parentOrgId));
-    } catch { /* best-effort — the team option simply won't have parents to pick */ }
-  };
-
-  const handleCreateOrg = async () => {
-    const name = newOrgName.trim();
-    if (!name) return;
-    if (createAsSubOrg && !parentOrgId) {
-      createForm.setError('Choose a parent organization for the team (or uncheck to create a top-level org).');
-      return;
-    }
-    const result = await createForm.run(() => api.createOrganization({
-      name,
-      tier: newOrgTier,
-      ...(createAsSubOrg && parentOrgId ? { parentOrgId } : {}),
-    }));
-    if (result !== null) {
-      setCreateOpen(false);
-      list.refresh();
-      toast.success(`${createAsSubOrg ? 'Team' : 'Organization'} "${name}" created`);
-      // Top-level org → show the final install/setup step (CLI + optional per-org
-      // event metrics). Teams/sub-orgs share the parent's setup, so they skip it.
-      if (!createAsSubOrg) {
-        setSetupTier(newOrgTier);
-        setSetupOpen(true);
-      }
-    }
-  };
 
   const downloadNamespaceYaml = useCallback(async (org: Organization, stepUpToken: string) => {
     try {
@@ -454,7 +253,7 @@ export default function OrganizationsPage() {
               canIdp={can('org:idp')}
               onKms={() => setKmsOrg(org)}
               onIdp={() => setIdpOrg(org)}
-              onTier={() => openTier(org)}
+              onTier={() => setTierOrg(org)}
               onNamespace={() => setPendingYamlOrg(org)}
               onDelete={() => del.open(org)}
             />
@@ -462,7 +261,7 @@ export default function OrganizationsPage() {
         )
       ),
     },
-  ], [del, openTier]);
+  ], [del]);
 
   if (!isReady || !user) return <LoadingPage />;
 
@@ -472,7 +271,7 @@ export default function OrganizationsPage() {
       subtitle="Manage organizations and access"
       titleExtra={<Badge color="red">System Admin</Badge>}
       actions={
-        <Button onClick={openCreate}>
+        <Button onClick={() => setCreateOpen(true)}>
           <Plus className="w-4 h-4 mr-1.5" /> New Organization
         </Button>
       }
@@ -591,95 +390,11 @@ export default function OrganizationsPage() {
       </>
       )}
 
-      {createOpen && (
-        <Modal
-          title={createAsSubOrg ? 'Create Team' : 'Create Organization'}
-          onClose={() => setCreateOpen(false)}
-          footer={
-            <ModalFooter
-              onCancel={() => setCreateOpen(false)}
-              onConfirm={handleCreateOrg}
-              confirmLabel={createAsSubOrg ? 'Create Team' : 'Create Organization'}
-              loading={createForm.loading}
-              confirmDisabled={!newOrgName.trim() || (createAsSubOrg && !parentOrgId)}
-            />
-          }
-        >
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            {createAsSubOrg
-              ? 'Create a team nested under a parent organization. You become its initial owner; transfer ownership from the org’s detail page afterward.'
-              : 'Create a top-level organization. You become its initial owner; transfer ownership from the org’s detail page afterward.'}
-          </p>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                {createAsSubOrg ? 'Team name' : 'Organization name'}
-              </label>
-              <Input
-                type="text"
-                placeholder="e.g. acme-platform"
-                value={newOrgName}
-                onChange={(e) => setNewOrgName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreateOrg()}
-                className="text-sm"
-                autoFocus
-                disabled={createForm.loading}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Tier</label>
-              <Select
-                value={newOrgTier}
-                onChange={(e) => setNewOrgTier(e.target.value as 'developer' | 'pro' | 'team' | 'enterprise')}
-                className="text-sm"
-                disabled={createForm.loading}
-              >
-                <option value="developer">Developer</option>
-                <option value="pro">Pro</option>
-                <option value="team">Team</option>
-                <option value="enterprise">Enterprise</option>
-              </Select>
-            </div>
-
-            {/* Team toggle — defaults OFF (top-level org). When on, pick the parent. */}
-            <label className="flex items-start gap-2 text-xs text-gray-700 dark:text-gray-300 pt-1">
-              <Checkbox
-                checked={createAsSubOrg}
-                onChange={(e) => setCreateAsSubOrg(e.target.checked)}
-                disabled={createForm.loading}
-                className="mt-0.5"
-              />
-              <span>
-                <strong>Team</strong> — nest this organization under a parent org.
-                Uncheck to create a standalone top-level organization.
-              </span>
-            </label>
-
-            {createAsSubOrg && (
-              <div className="space-y-1">
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Parent organization</label>
-                <Select
-                  value={parentOrgId}
-                  onChange={(e) => setParentOrgId(e.target.value)}
-                  className="text-sm"
-                  disabled={createForm.loading}
-                >
-                  <option value="">Select a parent organization…</option>
-                  {parentOptions.map((o) => (
-                    <option key={o.id} value={o.id}>{o.name}</option>
-                  ))}
-                </Select>
-                {parentOptions.length === 0 && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400">
-                    No top-level organizations available to nest under — uncheck above to create one.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-          {createForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{createForm.error}</p>}
-        </Modal>
-      )}
+      <CreateOrganizationFlow
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={list.refresh}
+      />
 
       {del.target && (
         <DeleteConfirmModal
@@ -689,12 +404,6 @@ export default function OrganizationsPage() {
           onConfirm={del.confirm}
           onCancel={del.close}
         />
-      )}
-
-      {setupOpen && (
-        <Modal title="Finish setting up your organization" onClose={() => setSetupOpen(false)} maxWidth="lg">
-          <OrgSetupStep planTier={setupTier} variant="modal" doneLabel="Done" onDone={() => setSetupOpen(false)} />
-        </Modal>
       )}
 
       {kmsOrg && (
@@ -748,36 +457,12 @@ export default function OrganizationsPage() {
       )}
 
       {tierOrg && (
-        <Modal
-          title={`Change tier — ${tierOrg.name}`}
+        <ChangeTierDialog
+          key={tierOrg.id}
+          org={tierOrg}
           onClose={() => setTierOrg(null)}
-          footer={
-            <ModalFooter
-              onCancel={() => setTierOrg(null)}
-              onConfirm={confirmTierSelection}
-              confirmLabel="Continue"
-              confirmDisabled={newTier === tierOrg.tier}
-            />
-          }
-        >
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            Changing the tier reseeds this organization’s quota limits and affects billing.
-            You’ll be asked to re-verify before the change is applied.
-          </p>
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Tier</label>
-            <Select
-              value={newTier}
-              onChange={(e) => setNewTier(e.target.value as 'developer' | 'pro' | 'team' | 'enterprise')}
-              className="text-sm"
-            >
-              <option value="developer">Developer</option>
-              <option value="pro">Pro</option>
-              <option value="team">Team</option>
-              <option value="enterprise">Enterprise</option>
-            </Select>
-          </div>
-        </Modal>
+          onSelect={(tier) => setPendingTierChange({ org: tierOrg, tier })}
+        />
       )}
 
       {pendingTierChange && (

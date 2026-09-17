@@ -31,7 +31,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: mockSendSuccess,
   sendBadRequest: mockSendBadRequest,
   sendError: mockSendError,
-  // helpers.ts (transitively pulled via retention-cap.ts) links userHasPermission.
+  // helpers/report-helpers.ts (transitively pulled via retention-cap.ts) links userHasPermission.
   userHasPermission: jest.fn(() => false),
 }));
 
@@ -43,7 +43,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   },
 }));
 
-// deployment-outcomes.ts → retention-cap.ts → helpers.ts imports `Config` from
+// deployment-outcomes.ts → retention-cap.ts → helpers/report-helpers.ts imports `Config` from
 // pipeline-core; stub it so the full config graph (aws-cdk-lib, etc.) stays out.
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   Config: { get: () => ({ services: { platformHost: 'platform', platformPort: 3000 } }) },

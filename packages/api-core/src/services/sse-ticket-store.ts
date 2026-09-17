@@ -3,15 +3,17 @@
 
 import crypto from 'crypto';
 
-import { createEnvRedisClient } from './env-redis.js';
+import { createEnvRedisClient, createRedisReadyGate, type ReadyAwareRedis } from './env-redis.js';
 import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('sse-ticket-store');
 
-/** Redis key namespaces. Ticket → orgId; windowed issue counters bound abuse. */
-const TICKET_KEY_PREFIX = 'sse:tk:';
-const ORG_COUNT_PREFIX = 'sse:tkc:';
-const TOTAL_COUNT_KEY = 'sse:tkc:__all__';
+/** What a ticket authorizes: the owning org and, for subject-bound channels, the stream subject. */
+export interface SseTicketRecord {
+  orgId: string;
+  /** Stream subject the ticket is bound to (e.g. a build-log requestId). Absent for org-keyed channels. */
+  subject?: string;
+}
 
 /** Result of {@link SseTicketStore.issue}. */
 export type SseTicketIssueResult =
@@ -19,19 +21,31 @@ export type SseTicketIssueResult =
   | { ok: false; reason: 'total' | 'org' };
 
 /**
- * Store for short-lived, single-use SSE auth tickets. A client exchanges its JWT
- * for a ticket (so the token never lands in an EventSource query string / access
- * log), then redeems it on the SSE `GET`.
+ * The ONE store for short-lived, single-use SSE auth tickets, plus the
+ * stream-ownership bindings subject-bound channels need.
  *
- * The store is the multi-replica correctness boundary: a ticket minted on pod A
- * MUST be redeemable on pod B. The Redis backend makes that true; the in-memory
- * backend is a single-process fallback for dev / single-replica installs.
+ * A client exchanges its JWT for a ticket (so the token never lands in an
+ * EventSource query string / access log), then redeems it on the SSE `GET`.
+ *
+ * - **Tickets** are single-use across pods: the Redis backend redeems with
+ *   `GETDEL`, so two pods can never both spend one ticket.
+ * - **Caps count LIVE tickets** (issued, not yet redeemed, not expired) — per org
+ *   and in total. A redeemed or expired ticket frees its slot immediately.
+ * - **Ownership** records which org owns a stream subject, so a subject-bound
+ *   channel can refuse to mint a ticket for another org's stream.
+ *
+ * Both backends share these semantics; the in-memory one is correct for a
+ * single process only.
  */
 export interface SseTicketStore {
-  /** Mint a ticket for `orgId`, or reject when a rate window is saturated. */
-  issue(orgId: string): Promise<SseTicketIssueResult>;
-  /** Atomically redeem a ticket exactly once; returns its org or null if invalid/expired/spent. */
-  consume(ticketId: string): Promise<{ orgId: string } | null>;
+  /** Mint a ticket for `orgId` (optionally bound to `subject`), or reject when a live-ticket cap is reached. */
+  issue(orgId: string, subject?: string): Promise<SseTicketIssueResult>;
+  /** Redeem a ticket exactly once; null when unknown, expired or already spent. */
+  consume(ticketId: string): Promise<SseTicketRecord | null>;
+  /** Record the org that owns `subject` for `ttlMs`. */
+  bindOwner(subject: string, orgId: string, ttlMs: number): Promise<void>;
+  /** The org that owns `subject`, or null when none is bound. Throws when the backend can't answer. */
+  getOwner(subject: string): Promise<string | null>;
   /** Release timers/resources. In-memory clears its sweep interval; Redis is a no-op. */
   stop(): void;
 }
@@ -40,140 +54,184 @@ export interface SseTicketStore {
 export interface SseTicketStoreConfig {
   /** Ticket lifetime — long enough for the client to open the EventSource. */
   ttlMs: number;
-  /** Hard cap on tickets minted per TTL window across all orgs (abuse bound). */
+  /** Cap on LIVE tickets across all orgs (abuse / memory bound). */
   maxTotal: number;
-  /** Per-org cap on tickets minted per TTL window (single-tenant abuse bound). */
+  /** Cap on LIVE tickets per org (single-tenant fairness bound). */
   maxPerOrg: number;
   /**
-   * Optional Redis key namespace so independent channels (e.g. message
-   * notifications vs. reporting execution-status) don't share one ticket
-   * keyspace — a ticket minted for one channel must not be redeemable on
-   * another. Omit for the default (shared) namespace.
+   * Key namespace so independent channels (message notifications, reporting
+   * execution-status, a service's build-log stream) never share tickets, caps
+   * or ownership bindings — a ticket minted for one channel must not be
+   * redeemable on another. Omit for the default namespace.
    */
   keyPrefix?: string;
-}
-
-/** Minimal ioredis surface this store needs (GETDEL requires Redis ≥ 6.2). */
-interface SseRedis {
-  incr(key: string): Promise<number>;
-  expire(key: string, seconds: number): Promise<unknown>;
-  set(key: string, value: string, ...args: unknown[]): Promise<unknown>;
-  getdel(key: string): Promise<string | null>;
 }
 
 function newTicketId(): string {
   return crypto.randomBytes(24).toString('base64url');
 }
 
-/**
- * In-memory backend — the original single-process behaviour. Counts LIVE
- * (unexpired) tickets per org and evicts expired entries on a timer. Correct
- * only within one process, so it is the fallback used when Redis isn't configured.
- */
-function createInMemorySseTicketStore(config: SseTicketStoreConfig): SseTicketStore {
-  interface Entry { orgId: string; expiresAt: number }
-  const store = new Map<string, Entry>();
+function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
-  const cleanup = setInterval(() => {
+/** In-memory backend — single-process fallback when Redis isn't configured. */
+export function createMemorySseTicketStore(config: SseTicketStoreConfig): SseTicketStore {
+  interface Entry extends SseTicketRecord { expiresAt: number }
+  const tickets = new Map<string, Entry>();
+  const owners = new Map<string, { orgId: string; expiresAt: number }>();
+
+  const sweep = (): void => {
     const now = Date.now();
-    for (const [id, t] of store) if (now > t.expiresAt) store.delete(id);
-  }, config.ttlMs);
-  cleanup.unref();
-
-  function countLiveForOrg(orgId: string, now: number): number {
-    let count = 0;
-    for (const t of store.values()) if (t.orgId === orgId && t.expiresAt > now) count++;
-    return count;
-  }
+    for (const [id, t] of tickets) if (now >= t.expiresAt) tickets.delete(id);
+    for (const [id, o] of owners) if (now >= o.expiresAt) owners.delete(id);
+  };
+  const timer = setInterval(sweep, Math.max(1_000, config.ttlMs));
+  timer.unref();
 
   return {
-    async issue(orgId: string): Promise<SseTicketIssueResult> {
-      const now = Date.now();
-      if (store.size >= config.maxTotal) return { ok: false, reason: 'total' };
-      if (countLiveForOrg(orgId, now) >= config.maxPerOrg) return { ok: false, reason: 'org' };
+    async issue(orgId, subject) {
+      sweep();
+      if (tickets.size >= config.maxTotal) return { ok: false, reason: 'total' };
+      let forOrg = 0;
+      for (const t of tickets.values()) if (t.orgId === orgId) forOrg++;
+      if (forOrg >= config.maxPerOrg) return { ok: false, reason: 'org' };
       const ticket = newTicketId();
-      store.set(ticket, { orgId, expiresAt: now + config.ttlMs });
+      tickets.set(ticket, { orgId, ...(subject !== undefined && { subject }), expiresAt: Date.now() + config.ttlMs });
       return { ok: true, ticket };
     },
-    async consume(ticketId: string): Promise<{ orgId: string } | null> {
-      const t = store.get(ticketId);
-      store.delete(ticketId); // single-use — consume immediately
-      if (!t || Date.now() > t.expiresAt) return null;
-      return { orgId: t.orgId };
+    async consume(ticketId) {
+      const t = tickets.get(ticketId);
+      tickets.delete(ticketId); // single-use — gone whether or not it was valid
+      if (!t || Date.now() >= t.expiresAt) return null;
+      return { orgId: t.orgId, ...(t.subject !== undefined && { subject: t.subject }) };
     },
-    stop(): void { clearInterval(cleanup); },
+    async bindOwner(subject, orgId, ttlMs) {
+      owners.set(subject, { orgId, expiresAt: Date.now() + ttlMs });
+    },
+    async getOwner(subject) {
+      const o = owners.get(subject);
+      if (!o) return null;
+      if (Date.now() >= o.expiresAt) { owners.delete(subject); return null; }
+      return o.orgId;
+    },
+    stop() { clearInterval(timer); },
   };
 }
 
-/**
- * Redis backend — multi-replica safe. Tickets live under a TTL'd key so any pod
- * can redeem one; {@link SseTicketStore.consume} uses GETDEL so redemption is
- * atomic (two pods can't both spend the same ticket). The per-org / global caps
- * become windowed rate limits (max mints per TTL window) via INCR + first-hit
- * EXPIRE — equivalent abuse bounding to the in-memory live-count, and it also
- * caps churn.
- *
- * Fail-CLOSED by design (unlike the fail-open token-revocation reader): if Redis
- * errors, `issue` returns a cap rejection and `consume` returns null, so a Redis
- * outage degrades to "no live notifications" rather than handing out or
- * accepting unvalidated tickets. SSE notifications are non-critical, so failing
- * closed here costs only real-time delivery, never correctness.
- */
-function createRedisSseTicketStore(redis: SseRedis, config: SseTicketStoreConfig): SseTicketStore {
-  const ttlSec = Math.max(1, Math.ceil(config.ttlMs / 1000));
-  // Per-channel namespace so two services' ticket stores don't share keys.
-  const ns = config.keyPrefix ? `${config.keyPrefix}:` : '';
-  const ticketKey = (t: string) => `${ns}${TICKET_KEY_PREFIX}${t}`;
-  const orgCountKey = (o: string) => `${ns}${ORG_COUNT_PREFIX}${o}`;
-  const totalCountKey = `${ns}${TOTAL_COUNT_KEY}`;
+/** Minimal ioredis surface the Redis backend needs (GETDEL requires Redis ≥ 6.2). */
+export interface SseTicketRedis extends ReadyAwareRedis {
+  eval(script: string, numKeys: number, ...args: (string | number)[]): Promise<unknown>;
+  getdel(key: string): Promise<string | null>;
+  zrem(key: string, ...members: string[]): Promise<number>;
+  set(key: string, value: string, ...args: (string | number)[]): Promise<unknown>;
+  get(key: string): Promise<string | null>;
+}
 
-  // Windowed counter: INCR, and on the first hit of a window set the TTL so it
-  // auto-resets. Returns true while still within `limit` for this window.
-  async function withinWindow(key: string, limit: number): Promise<boolean> {
-    const n = await redis.incr(key);
-    if (n === 1) await redis.expire(key, ttlSec);
-    return n <= limit;
-  }
+/**
+ * Atomic live-count issue. Prunes expired members from both cap sets, checks the
+ * total then the per-org cap, and only then stores the ticket and records it in
+ * both sets — so concurrent mints can't overshoot a cap and a cap can never
+ * stick (every member carries its own expiry score and every key a TTL).
+ *
+ * KEYS: total zset, org zset, ticket key.
+ * ARGV: ttlMs, maxTotal, maxPerOrg, ticketId, record JSON.
+ * Uses the server clock so every pod agrees on "expired".
+ */
+const ISSUE_SCRIPT = `
+local t = redis.call('TIME')
+local now = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+local ttl = tonumber(ARGV[1])
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
+redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now)
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[2]) then return 'total' end
+if redis.call('ZCARD', KEYS[2]) >= tonumber(ARGV[3]) then return 'org' end
+redis.call('SET', KEYS[3], ARGV[5], 'PX', ttl)
+redis.call('ZADD', KEYS[1], now + ttl, ARGV[4])
+redis.call('ZADD', KEYS[2], now + ttl, ARGV[4])
+redis.call('PEXPIRE', KEYS[1], ttl)
+redis.call('PEXPIRE', KEYS[2], ttl)
+return 'ok'`;
+
+/**
+ * Redis backend — multi-replica safe.
+ *
+ * Fail-CLOSED: a Redis error makes `issue` reject (`total`), `consume` return
+ * null and `getOwner` throw, so an outage degrades to "no live stream" rather
+ * than handing out or accepting unvalidated tickets. `bindOwner` is best-effort.
+ */
+export function createRedisSseTicketStore(redis: SseTicketRedis, config: SseTicketStoreConfig): SseTicketStore {
+  const ns = config.keyPrefix ? `${config.keyPrefix}:` : '';
+  const ticketKey = (t: string) => `${ns}sse:tk:${t}`;
+  const orgSetKey = (o: string) => `${ns}sse:tkz:org:${o}`;
+  const totalSetKey = `${ns}sse:tkz:all`;
+  const ownerKey = (s: string) => `${ns}sse:owner:${s}`;
+  const ttlMs = Math.max(1, Math.ceil(config.ttlMs));
+  // The env client has no offline queue: wait (bounded) for the first connection
+  // so the first mint/redeem after boot isn't rejected outright.
+  const ready = createRedisReadyGate(redis);
 
   return {
-    async issue(orgId: string): Promise<SseTicketIssueResult> {
+    async issue(orgId, subject) {
       try {
-        if (!(await withinWindow(totalCountKey, config.maxTotal))) return { ok: false, reason: 'total' };
-        if (!(await withinWindow(orgCountKey(orgId), config.maxPerOrg))) return { ok: false, reason: 'org' };
+        await ready();
         const ticket = newTicketId();
-        await redis.set(ticketKey(ticket), orgId, 'EX', ttlSec);
-        return { ok: true, ticket };
+        const record: SseTicketRecord = { orgId, ...(subject !== undefined && { subject }) };
+        const outcome = await redis.eval(
+          ISSUE_SCRIPT, 3, totalSetKey, orgSetKey(orgId), ticketKey(ticket),
+          ttlMs, config.maxTotal, config.maxPerOrg, ticket, JSON.stringify(record),
+        );
+        if (outcome === 'ok') return { ok: true, ticket };
+        return { ok: false, reason: outcome === 'org' ? 'org' : 'total' };
       } catch (err) {
-        logger.warn('SSE ticket issue failed (fail-closed)', { error: err instanceof Error ? err.message : String(err) });
+        logger.warn('SSE ticket issue failed (fail-closed)', { error: errMsg(err) });
         return { ok: false, reason: 'total' };
       }
     },
-    async consume(ticketId: string): Promise<{ orgId: string } | null> {
+    async consume(ticketId) {
       try {
-        const orgId = await redis.getdel(ticketKey(ticketId));
-        return orgId ? { orgId } : null;
+        await ready();
+        const raw = await redis.getdel(ticketKey(ticketId));
+        if (!raw) return null;
+        const rec = JSON.parse(raw) as SseTicketRecord;
+        if (typeof rec?.orgId !== 'string') return null;
+        // Free the live-count slots now rather than at expiry. Best-effort: a
+        // failure here only delays the slot until the member's expiry score.
+        await Promise.all([redis.zrem(orgSetKey(rec.orgId), ticketId), redis.zrem(totalSetKey, ticketId)])
+          .catch((err: unknown) => logger.debug('SSE ticket slot release failed', { error: errMsg(err) }));
+        return rec;
       } catch (err) {
-        logger.warn('SSE ticket consume failed (fail-closed)', { error: err instanceof Error ? err.message : String(err) });
+        logger.warn('SSE ticket consume failed (fail-closed)', { error: errMsg(err) });
         return null;
       }
     },
-    stop(): void { /* Redis keys expire on their own TTL — nothing to release. */ },
+    async bindOwner(subject, orgId, ownerTtlMs) {
+      try {
+        await ready();
+        await redis.set(ownerKey(subject), orgId, 'PX', Math.max(1, Math.ceil(ownerTtlMs)));
+      } catch (err) {
+        logger.warn('SSE stream-owner bind failed', { error: errMsg(err) });
+      }
+    },
+    async getOwner(subject) {
+      await ready();
+      return redis.get(ownerKey(subject));
+    },
+    stop() { /* keys expire on their own TTL */ },
   };
 }
 
 /**
  * Build an {@link SseTicketStore} from the standard Redis env (`REDIS_URL` or
- * `REDIS_SENTINELS`). Uses the Redis backend when configured
- * (multi-replica safe), otherwise falls back to the in-memory single-process
- * backend. A service opts in with one boot line:
- *   `const tickets = createEnvSseTicketStore({ ttlMs, maxTotal, maxPerOrg });`
+ * `REDIS_SENTINELS`): the Redis backend when configured (multi-replica safe),
+ * otherwise the in-memory single-process backend.
  */
 export function createEnvSseTicketStore(config: SseTicketStoreConfig): SseTicketStore {
-  const redis = createEnvRedisClient<SseRedis>('sse-ticket');
+  const redis = createEnvRedisClient<SseTicketRedis>('sse-ticket');
   if (redis) {
-    logger.info('SSE ticket store: Redis backend (multi-replica)');
+    logger.info('SSE ticket store: Redis backend (multi-replica)', { keyPrefix: config.keyPrefix });
     return createRedisSseTicketStore(redis, config);
   }
-  logger.info('SSE ticket store: in-memory backend (single-process fallback)');
-  return createInMemorySseTicketStore(config);
+  logger.info('SSE ticket store: in-memory backend (single-process fallback)', { keyPrefix: config.keyPrefix });
+  return createMemorySseTicketStore(config);
 }

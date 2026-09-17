@@ -12,9 +12,17 @@ import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { sendError, sendQuotaExceeded } from '../utils/response.js';
 
-/** Retry options for quota calls — fail fast (a slow quota service must not stall the request). */
+/**
+ * Retry options for quota calls — fail fast (a slow quota service must not stall the request).
+ *
+ * NEVER retry a 429. The quota service answers an over-limit org with 429
+ * QUOTA_EXCEEDED and `Retry-After` = seconds until the period resets; the HTTP
+ * client honors that (capped at 60s), so a single rate-limit retry stalled the
+ * request well past the handler timeout, which then answered 503 and the real
+ * 429 was lost. A 429 is a final answer here.
+ */
 const QUOTA_REQUEST_OPTIONS: Pick<RequestOptions, 'maxRateLimitRetries' | 'maxRetries'> = {
-  maxRateLimitRetries: 1,
+  maxRateLimitRetries: 0,
   maxRetries: 1,
 };
 
@@ -259,7 +267,8 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
         success: boolean;
         data?: { quota?: QuotaReserveResult['quota'] };
         details?: { quota?: QuotaReserveResult['quota'] };
-        errorCode?: string;
+        /** `sendError`'s error-code field. */
+        code?: string;
       }>(path, { quotaType, amount }, { headers: buildHeaders(orgId, authHeader, requestId), ...QUOTA_REQUEST_OPTIONS });
 
       if (!response) return unconfirmedReserve(orgId, quotaType, 'unreachable');
@@ -269,7 +278,7 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
         // Only a GENUINE quota-exceeded 429 means "over quota". A generic 429 —
         // an intervening gateway or rate limiter — did not confirm anything, so
         // it goes through the same unconfirmed-reservation policy as an outage.
-        if (response.body.errorCode === 'QUOTA_EXCEEDED' || q) {
+        if (response.body.code === ErrorCode.QUOTA_EXCEEDED || q) {
           return {
             exceeded: true,
             quota: q ?? { type: quotaType, limit: 0, used: 0, remaining: 0 },

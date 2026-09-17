@@ -66,27 +66,37 @@ const mockReadFeatures = jest.fn<() => Promise<unknown>>().mockImplementation(()
 // matching the default expected sets ([] from mockEffectiveFeatureSet) ⇒ no drift.
 const mockReadCompliance = jest.fn<() => Promise<unknown>>().mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { sets: [] } } }));
 
+// Message-service POST (renewal reminders). The REAL safe client resolves `null` on
+// a transport failure and a response object (possibly 4xx/5xx) otherwise.
+const mockMessagePost = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ statusCode: 201 });
+// Counts safe-client creations (each drift read builds its own).
+let safeClientsCreated = 0;
+// Scheduler factory spy — the module builds exactly ONE scheduler at import.
+const mockCreateScheduler = jest.fn((opts: { run: () => Promise<void> }) => ({
+  start: () => { void opts.run(); },
+  stop: () => undefined,
+}));
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createSafeClient: () => ({
-    post: jest.fn().mockResolvedValue({ statusCode: 201 }),
-    get: jest.fn((path: string) => {
-      if (path.includes('/api/compliance/entitlements/')) return mockReadCompliance();
-      if (path.includes('/feature-entitlements')) return mockReadFeatures();
-      if (path.includes('/seat-usage')) return mockReadSeat();
-      if (path.startsWith('/quotas/')) return mockReadQuota();
-      return Promise.resolve(null);
-    }),
-    destroy: () => undefined,
-  }),
+  createSafeClient: () => {
+    safeClientsCreated++;
+    return {
+      post: (...a: unknown[]) => mockMessagePost(...a),
+      get: jest.fn((path: string) => {
+        if (path.includes('/api/compliance/entitlements/')) return mockReadCompliance();
+        if (path.includes('/feature-entitlements')) return mockReadFeatures();
+        if (path.includes('/seat-usage')) return mockReadSeat();
+        if (path.startsWith('/quotas/')) return mockReadQuota();
+        return Promise.resolve(null);
+      }),
+    };
+  },
   getServiceAuthHeader: () => 'Bearer test-service-token',
   // Stub the scheduler but preserve run-on-start: these tests call
   // startSubscriptionLifecycleChecker() and assert the cycle's effects, so
   // start() must invoke the configured run() (the interval itself is api-core's
   // concern, tested there).
-  createScheduler: (opts: { run: () => Promise<void> }) => ({
-    start: () => { void opts.run(); },
-    stop: () => undefined,
-  }),
+  createScheduler: (opts: { run: () => Promise<void> }) => mockCreateScheduler(opts),
 }));
 
 // Pass-through tenant-context wrapper. Real runWithTenantContext lives in
@@ -170,6 +180,8 @@ const {
   startSubscriptionLifecycleChecker,
   stopSubscriptionLifecycleChecker,
 } = await import('../src/helpers/subscription-lifecycle.js');
+// Captured before any beforeEach clearAllMocks wipes the import-time call.
+const schedulersCreatedAtImport = mockCreateScheduler.mock.calls.length;
 
 describe('Subscription Lifecycle Checker', () => {
   beforeEach(() => {
@@ -190,6 +202,8 @@ describe('Subscription Lifecycle Checker', () => {
     mockEffectiveFeatureSet.mockReturnValue([]);
     mockReadCompliance.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { sets: [] } } }));
     mockPushComplianceSets.mockResolvedValue(true);
+    mockMessagePost.mockResolvedValue({ statusCode: 201 });
+    safeClientsCreated = 0;
   });
 
   afterAll(() => {
@@ -201,10 +215,14 @@ describe('Subscription Lifecycle Checker', () => {
       expect(() => startSubscriptionLifecycleChecker()).not.toThrow();
     });
 
-    it('does not create duplicate timers on repeated calls', () => {
+    it('does not create duplicate schedulers/timers on repeated calls', () => {
+      // One module-level scheduler; start() only delegates to it (api-core's
+      // scheduler.start is itself idempotent), so repeated starts build nothing new.
+      expect(schedulersCreatedAtImport).toBe(1);
+      expect(mockCreateScheduler.mock.calls.length).toBe(0); // cleared after import
       startSubscriptionLifecycleChecker();
       startSubscriptionLifecycleChecker();
-      // Should not throw or create multiple timers
+      expect(mockCreateScheduler).not.toHaveBeenCalled();
       stopSubscriptionLifecycleChecker();
     });
   });
@@ -528,7 +546,38 @@ describe('Subscription Lifecycle Checker', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       // Should have saved the subscription with lastRenewalReminder metadata
+      expect(mockMessagePost).toHaveBeenCalledWith('/messages', expect.objectContaining({ recipientOrgId: 'org-3' }), expect.anything());
       expect(upcomingSub.save).toHaveBeenCalled();
+      expect(upcomingSub.metadata).toHaveProperty('lastRenewalReminder');
+    });
+
+    it.each([
+      ['a transport failure (safe client resolves null)', null],
+      ['a message-service rejection (5xx)', { statusCode: 503 }],
+    ])('does NOT mark the reminder sent on %s — retried next tick', async (_label, response) => {
+      const upcomingSub = {
+        _id: { toString: () => 'sub-4' },
+        orgId: 'org-4',
+        planId: 'pro-plan',
+        status: 'active',
+        interval: 'monthly',
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+        metadata: {} as Record<string, unknown>,
+        save: jest.fn().mockResolvedValue(undefined),
+      };
+      mockMessagePost.mockResolvedValue(response);
+      mockFind
+        .mockResolvedValueOnce([]) // grace period query
+        .mockResolvedValueOnce([]) // expired subscriptions query
+        .mockResolvedValueOnce([upcomingSub]); // renewal reminders query
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockMessagePost).toHaveBeenCalled();
+      expect(upcomingSub.save).not.toHaveBeenCalled();
+      expect(upcomingSub.metadata.lastRenewalReminder).toBeUndefined();
     });
   });
 
@@ -606,6 +655,27 @@ describe('Subscription Lifecycle Checker', () => {
         null,
         { limit: 100 },
       );
+    });
+
+    it('EXCLUDES grace-period-downgraded rows (still past_due) so drift never re-grants the paid tier', async () => {
+      mockFind.mockResolvedValue([]);
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const driftQuery = mockFind.mock.calls.map((c) => c[0] as Record<string, unknown>).find((q) => Array.isArray(q?.$or));
+      expect(driftQuery).toMatchObject({ 'metadata.gracePeriodDowngradedAt': { $exists: false } });
+    });
+
+    it('releases every per-call safe client the drift reads create', async () => {
+      onlyDriftReturns(driftSub());
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // quota + seat + features + compliance reads all ran …
+      expect(mockReadCompliance).toHaveBeenCalled();
+      expect(safeClientsCreated).toBeGreaterThanOrEqual(4);
     });
 
     it('MATCH: enforced state equals expected → no re-sync, lastReconciledAt stamped', async () => {

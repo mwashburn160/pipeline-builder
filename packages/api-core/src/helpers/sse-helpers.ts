@@ -20,13 +20,20 @@ export function writeSseHeaders(res: Response): void {
 /**
  * Set SSE response headers and flush.
  * Returns an `aborted()` function to check if the client disconnected.
+ *
+ * Disconnect is detected on the RESPONSE: `res` emits 'close' when the
+ * underlying connection goes away, and `writableFinished` tells an early close
+ * (client gone) from the normal close after `res.end()`. The request's own
+ * 'close' is not a disconnect signal — on current Node it fires once the request
+ * BODY has been consumed, which for a POST stream happens before this listener
+ * is attached, so a disconnect was never observed.
  */
-export function initSSEStream(req: Request, res: Response, timeoutMs: number): { aborted: () => boolean } {
+export function initSSEStream(_req: Request, res: Response, timeoutMs: number): { aborted: () => boolean } {
   writeSseHeaders(res);
   res.setTimeout(timeoutMs);
   res.flushHeaders();
   let _aborted = false;
-  req.on('close', () => { _aborted = true; });
+  res.on('close', () => { if (!res.writableFinished) _aborted = true; });
   return { aborted: () => _aborted };
 }
 

@@ -7,10 +7,9 @@ import { createLogger } from '../utils/logger.js';
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** Optional cross-pod single-runner lock for a scheduler's cycle. The redis
- *  client is resolved per cycle (it may be an async getter, e.g. a BullMQ
- *  `queue.client` promise). */
+ *  client is resolved per cycle. */
 export interface SchedulerLock {
-  redis: () => LockRedis | Promise<LockRedis>;
+  redis: () => LockRedis;
   key: string;
   ttlMs: number;
 }
@@ -68,7 +67,7 @@ export function createScheduler(opts: SchedulerOptions): Scheduler {
     running = true;
     try {
       if (opts.lock) {
-        const redis = await opts.lock.redis();
+        const redis = opts.lock.redis();
         const ran = await withLeaderLock(redis, opts.lock.key, opts.lock.ttlMs, opts.run);
         if (!ran) log.debug('Cycle skipped — another pod holds the lock');
       } else {

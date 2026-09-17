@@ -5,6 +5,7 @@ import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { schema } from '@pipeline-builder/pipeline-data';
 import { alertDestinationService } from './alert-destination-service.js';
 import { getNotificationChannel, type NotificationMessage, type Severity } from './notification-channels.js';
+import { config } from '../config/index.js';
 import { incCounter } from '../observability/metrics.js';
 
 type OrgAlertDestination = typeof schema.orgAlertDestination.$inferSelect;
@@ -33,12 +34,8 @@ export interface AlertmanagerWebhook {
   }>;
 }
 
-/**
- * Fan-out timeout for a single destination POST. Tight on purpose  a slow
- * Slack tenant shouldn't hold up the whole relay (Alertmanager retries the
- * webhook anyway). Override via `ALERT_DELIVERY_TIMEOUT_MS`.
- */
-const DELIVERY_TIMEOUT_MS = parseInt(process.env.ALERT_DELIVERY_TIMEOUT_MS || '5000', 10);
+/** Fan-out timeout for a single destination POST (see config.observability). */
+const DELIVERY_TIMEOUT_MS = config.observability.alertDeliveryTimeoutMs;
 
 /**
  * Receive an Alertmanager webhook and forward each alert to every matching

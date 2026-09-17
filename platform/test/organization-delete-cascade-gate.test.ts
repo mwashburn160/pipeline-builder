@@ -59,18 +59,12 @@ jest.unstable_mockModule('../src/helpers/seats.js', () => ({ pooledSeatUsage: je
 
 jest.unstable_mockModule('../src/services/index.js', () => ({
   organizationService: { delete: (...a: unknown[]) => mockDelete(...a), restore: (...a: unknown[]) => mockRestore(...a) },
-  ORG_NOT_FOUND: 'ORG_NOT_FOUND',
-  SYSTEM_ORG_DELETE_FORBIDDEN: 'SYSTEM_ORG_DELETE_FORBIDDEN',
-  ORG_SLUG_TAKEN: 'ORG_SLUG_TAKEN',
-  ORG_AI_KEY_TOO_LONG: 'ORG_AI_KEY_TOO_LONG',
   changedAiProviderFields: () => [],
 }));
 
 jest.unstable_mockModule('../src/services/org-cascade-service.js', () => ({
   softDeleteOrg: (...a: unknown[]) => mockSoftDelete(...a),
   exportOrg: jest.fn(),
-  ORG_ALREADY_DELETED: 'ORG_ALREADY_DELETED',
-  ORG_SNAPSHOT_FAILED: 'ORG_SNAPSHOT_FAILED',
 }));
 
 jest.unstable_mockModule('../src/utils/validation.js', () => ({

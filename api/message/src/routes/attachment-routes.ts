@@ -1,6 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { randomUUID } from 'node:crypto';
+import type { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import {
   ErrorCode,
   createLogger,
@@ -24,7 +27,6 @@ import {
 } from '@pipeline-builder/api-server';
 import { Router, type Request, type RequestHandler, type ErrorRequestHandler } from 'express';
 import multer from 'multer';
-import { v4 as uuidv4 } from 'uuid';
 import { attachmentService } from '../services/attachment-service.js';
 import { deleteAttachment, getAttachmentStream, getAttachmentStreamOrNull, putAttachment, generateThumbnail, thumbnailKeyFor, thumbnailContentType } from '../services/attachment-storage.js';
 import { messageService } from '../services/message-service.js';
@@ -100,7 +102,7 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
         return sendBadRequest(res, `Unsupported file type: ${file.mimetype}`, ErrorCode.VALIDATION_ERROR);
       }
 
-      const id = uuidv4();
+      const id = randomUUID();
       const storageKey = `${orgId.toLowerCase()}/${id}/${safeName(file.originalname)}`;
 
       try {
@@ -140,7 +142,7 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
       }
 
       incCounter('message_attachments_total', { action: 'uploaded' });
-      incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+      incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
       ctx.log('COMPLETED', 'Attachment uploaded', { id: attachment.id, size: file.size });
 
       // Return metadata only — never the storage key (internal) or a blob URL.
@@ -186,7 +188,7 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
       // else transparently fall back to the original blob.
       const wantThumb = isImage && (req.query?.thumb === '1' || req.query?.thumb === 'true');
 
-      let stream: NodeJS.ReadableStream | null = null;
+      let stream: Readable | null = null;
       let servedThumb = false;
       let contentType = att.contentType;
       if (wantThumb) {
@@ -202,7 +204,7 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
         }
       }
 
-      incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+      incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
       res.setHeader('Content-Type', contentType);
       // Content-Length is only known for the original (thumbnail size isn't
       // persisted); omit it for a thumbnail and let the stream close the response.
@@ -216,12 +218,24 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
       // Never let a proxy/CDN share a tenant's private blob across users.
       res.setHeader('Cache-Control', 'private, no-store');
 
-      stream.on('error', (err: unknown) => {
-        logger.error('Attachment stream error', { id, error: String(err) });
-        if (!res.headersSent) res.status(502).end();
-        else res.destroy();
-      });
-      (stream as NodeJS.ReadableStream).pipe(res as unknown as NodeJS.WritableStream);
+      // `pipeline` (not `.pipe`) so the S3 body is destroyed when EITHER side
+      // fails: a client disconnect closes `res`, and with `.pipe` the source
+      // was merely unpiped — the S3 socket stayed open until the object was
+      // fully drained or timed out. A blob read error likewise tears down the
+      // response. Neither is a server fault worth a 500 from withRoute, so the
+      // rejection is handled here.
+      try {
+        await pipeline(stream, res);
+      } catch (err) {
+        const clientGone = (err as NodeJS.ErrnoException)?.code === 'ERR_STREAM_PREMATURE_CLOSE';
+        if (clientGone) {
+          logger.debug('Attachment download aborted by client', { id });
+        } else {
+          logger.error('Attachment stream error', { id, error: errorMessage(err) });
+        }
+        if (!res.headersSent && !res.destroyed) res.status(502).end();
+        else if (!res.destroyed) res.destroy();
+      }
       return undefined;
     }),
   );

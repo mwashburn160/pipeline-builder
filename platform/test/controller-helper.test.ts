@@ -6,8 +6,8 @@ import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn(),
-  // `isSystemAdmin` is re-exported from api-core into the platform helper;
-  // mock it to match the production semantics (sysadmin iff JWT claim).
+  // The helpers gate on api-core's `isSystemAdmin`; mock it to match the
+  // production semantics (sysadmin iff JWT claim).
   isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
   // `isOrgAdmin` uses `isSystemOrgId(orgId, orgName)` to exclude the system
   // content-holder org from being treated as a real tenant. The org's id is
@@ -50,8 +50,8 @@ const {
   getAdminContext,
   requireAdminContext,
   handleControllerError,
-  toOrgId,
 } = await import('../src/helpers/controller-helper.js');
+const { toOrgId } = await import('../src/helpers/org-id.js');
 
 const mockSendError = sendError as jest.MockedFunction<typeof sendError>;
 

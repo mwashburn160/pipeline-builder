@@ -3,8 +3,8 @@
 
 import { ConflictError, ForbiddenError, entityEvents, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
 import { CoreConstants, ComputeType, PluginType } from '@pipeline-builder/pipeline-core';
-import { CrudService, buildPluginConditions, getTenantContext, schema, withTenantTx, type PluginFilter } from '@pipeline-builder/pipeline-data';
-import { and, eq, inArray, isNull, sql, SQL } from 'drizzle-orm';
+import { CrudService, buildPluginConditions, getTenantContext, schema, withTenantTx, withViewerContext, type PluginFilter } from '@pipeline-builder/pipeline-data';
+import { and, eq, inArray, isNull, ne, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 
@@ -76,7 +76,10 @@ export class PluginService extends CrudService<
   }
 
   protected buildConditions(filter: Partial<PluginFilter>, orgId?: string, parentOrgId?: string): SQL[] {
-    return buildPluginConditions(filter, orgId, parentOrgId);
+    // Stamp the caller so the `private` rung matches the author's own rows (see
+    // pipeline-data viewer-context). Without it the author can't see their own
+    // private plugin.
+    return buildPluginConditions(withViewerContext(filter), orgId, parentOrgId);
   }
 
   protected getSortColumn(sortBy: string): AnyColumn | null {
@@ -180,6 +183,103 @@ export class PluginService extends CrudService<
   }
 
   /**
+   * Update a plugin. Promoting it to the default (`isDefault: true`) is not a
+   * plain column write: a default is singular per (org, name), so the other
+   * versions' default flag is cleared IN THE SAME transaction — serialized on
+   * the same (org, name) advisory lock {@link deployVersion} takes, so a
+   * concurrent promote/deploy can't leave two defaults. Demoting the current
+   * default is a change to that row, so the caller needs write access to it on
+   * the visibility ladder (`access`, defaulting to the least privilege).
+   */
+  async update(
+    id: string,
+    data: PluginUpdate,
+    orgId: string,
+    userId: string,
+    access: WriteAccess = { isSystemAdmin: false, canPublish: false },
+  ): Promise<Plugin | null> {
+    if (data.isDefault !== true) return super.update(id, data, orgId, userId);
+
+    // Same target predicate as CrudService.update (read access + own-org pin +
+    // exact id); `orgId` is never writable.
+    const conditions = [
+      ...this.buildConditions({ id } as Partial<PluginFilter>, orgId),
+      ...(orgId ? [eq(schema.plugin.orgId, orgId)] : []),
+      eq(schema.plugin.id, String(id).toLowerCase()),
+    ];
+    const { orgId: _ignoredOrgId, ...safeData } = data;
+    const now = new Date();
+    const actor = userId || 'system';
+
+    const updated = await withTenantTx(async (tx) => {
+      const [target] = await tx
+        .select({ name: schema.plugin.name, orgId: schema.plugin.orgId })
+        .from(schema.plugin)
+        .where(and(...conditions));
+      if (!target) return null;
+
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${target.orgId} || ':' || ${target.name}))`,
+      );
+
+      const currentDefaults = await this.selectLiveDefaults(tx, target.orgId, target.name, id).for('update');
+      for (const current of currentDefaults) assertMayOverwritePlugin(current, actor, access, 'default');
+
+      await tx
+        .update(schema.plugin)
+        .set({ isDefault: false, updatedAt: now, updatedBy: actor })
+        .where(and(
+          eq(schema.plugin.name, target.name),
+          eq(schema.plugin.orgId, target.orgId),
+          eq(schema.plugin.isDefault, true),
+          ne(schema.plugin.id, String(id).toLowerCase()),
+        ));
+
+      const [row] = await tx
+        .update(schema.plugin)
+        .set({ ...safeData, updatedAt: now, updatedBy: actor })
+        .where(and(...conditions))
+        .returning();
+      return (row as Plugin | undefined) ?? null;
+    });
+
+    if (updated) {
+      try {
+        // The demoted siblings changed too — the org-wide invalidation in the
+        // hook covers their cached copies.
+        await this.onAfterUpdate(id, updated, userId);
+      } catch (err) {
+        logger.warn('Lifecycle hook failed', { error: errorMessage(err) });
+      }
+    }
+    return updated;
+  }
+
+  /**
+   * Bulk update. Runs the SAME post-update lifecycle as a single-row
+   * {@link update} for every row that changed — cache invalidation (so reads
+   * don't serve the pre-update row until the TTL lapses) and the `updated`
+   * entity event the compliance subscriber re-evaluates. The base
+   * `CrudService.updateMany` fires no hooks.
+   */
+  async updateMany(
+    filter: Partial<PluginFilter>,
+    data: PluginUpdate,
+    orgId: string,
+    userId: string,
+  ): Promise<Plugin[]> {
+    const updated = await super.updateMany(filter, data, orgId, userId);
+    for (const row of updated) {
+      try {
+        await this.onAfterUpdate(row.id, row, userId);
+      } catch (err) {
+        logger.warn('Lifecycle hook failed', { error: errorMessage(err) });
+      }
+    }
+    return updated;
+  }
+
+  /**
    * The `(name, version, org_id)` row a deploy would overwrite, IGNORING the
    * visibility ladder and soft-delete state (the unique index ignores both).
    */
@@ -209,8 +309,9 @@ export class PluginService extends CrudService<
     for (const current of currentDefaults) assertMayOverwritePlugin(current, userId, access, 'default');
   }
 
-  /** The live default version(s) of `name` — the rows a deploy would demote. */
-  private selectLiveDefaults(tx: TenantTx, orgId: string, name: string) {
+  /** The live default version(s) of `name` — the rows a deploy (or a promote
+   *  of `exceptId`) would demote. */
+  private selectLiveDefaults(tx: TenantTx, orgId: string, name: string, exceptId?: string) {
     return tx
       .select({
         visibility: schema.plugin.visibility,
@@ -223,6 +324,7 @@ export class PluginService extends CrudService<
         eq(schema.plugin.orgId, orgId),
         eq(schema.plugin.isDefault, true),
         isNull(schema.plugin.deletedAt),
+        ...(exceptId ? [ne(schema.plugin.id, String(exceptId).toLowerCase())] : []),
       ));
   }
 

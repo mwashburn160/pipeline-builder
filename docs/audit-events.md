@@ -136,7 +136,7 @@ org's own admins can see them.
 | Pipeline templates | `pipeline_template.create`, `pipeline_template.update`, `pipeline_template.delete`, `pipeline_template.restore`, `pipeline_template.purge` (own action family, gated by `templates:*` rather than `pipelines:*`; `create`/`update` `details` carry the template's `visibility` rung) |
 | Quota | `quota.reset`, `quota.limit.update`, `quota.delete` |
 | Compliance | `compliance.exemption.approve`, `compliance.exemption.revoke`, `compliance.rule.toggle`, `compliance.rule.create/update/delete`, `compliance.policy.create/update/delete`, `compliance.scan-schedule.create/update/delete`, `compliance.template.apply`, `compliance.scan.cancel` |
-| Image registry | `registry.gc`, `registry.image.delete` |
+| Image registry | `registry.gc`, `registry.image.delete`, `registry.image.copy` (all carry `affectedOrgId` = the org owning the repository — `org-<id>/…`, or the system org for `system/…` — so that org's admins see changes an operator made to their images) |
 | Message | `message.announcement.create`, `message.delete` (admin broadcasts + deletes only — 1:1 messages are not audited, and no message body reaches `details`) |
 | Billing | `billing.subscription.cancel`, `billing.subscription.delete`, `billing.tier.override`, `billing.addon.add`, `billing.addon.remove`, `billing.addon.prune`, `billing.discount.generate`, `billing.discount.issue`, `billing.discount.apply`, `billing.discount.remove`, `billing.discount.revoke`, `billing.credit.consumed`, `billing.credit.exhausted`, `billing.combo.expired` (mirrored to the central trail alongside the service-local `billing_events`; `details` carry plan/tier/addon/discount/combo ids + cents only — never payment secrets, coupon tokens, or signing keys) |
 | Ask (assistant) | `ask.query` (read-only how-to turn), `ask.agent.turn` (tool-calling turn) — one per turn on `POST /ask`, `/ask/stream`, `/ask/agent/stream` respectively; both carry an `outcome` (success/failure, incl. client-abort) and `details` with SAFE METADATA ONLY (tools used, proposal kinds, source count, query *length*) — never the raw query text. Confirmed drafts commit through the normal create routes, so the resource itself is audited as `pipeline.create` / `pipeline_template.create` / `plugin.deploy` |
@@ -177,7 +177,7 @@ org; plain members see neither.
 
 The cross-service `emitAudit` lines described above also land in Loki with
 `service_name`, `eventCategory`, `event`, `actor`, and `pluginName` promoted to
-labels, searchable from the Logs page. They carry no org label, so they are not
+labels, searchable in Grafana (Explore → Loki). They carry no org label, so they are not
 a tenant-scoped surface. Deep-link to a filtered Audit Activity view via the registry's
 `buildAuditLogLink` helper
 ([frontend/src/lib/registry-audit-link.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/frontend/src/lib/registry-audit-link.ts)).

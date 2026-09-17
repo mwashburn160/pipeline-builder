@@ -3,9 +3,8 @@
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 
+import { getAllTierQueues, getConnectionForDb, getDeadLetterQueue } from './connections.js';
 import { intFromEnv } from './env-int.js';
-import { getDeadLetterQueue } from './plugin-build-dlq.js';
-import { getConnectionForDb, getAllTierQueues } from './plugin-build-queue.js';
 
 const logger = createLogger('plugin-build-queue');
 
@@ -42,6 +41,12 @@ const orgSlotOwnersKey = 'pb:org-build-owners';
  * rolls back.
  */
 const ACQUIRE_SLOT_LUA = `
+-- Re-entrant per job: a job that already owns a slot (a stalled job re-run by
+-- BullMQ under the same id) must not take a second one — release is keyed on
+-- the owner record, so a second INCR could never be given back.
+if redis.call('HEXISTS', KEYS[2], ARGV[3]) == 1 then
+  return 1
+end
 local count = redis.call('INCR', KEYS[1])
 -- Refresh the TTL on EVERY acquire, not just the 0->1 transition. Setting it
 -- only once meant a continuously-busy org's key could expire mid-flight
@@ -61,13 +66,32 @@ redis.call('HSET', KEYS[2], ARGV[3], ARGV[4])
 return 1
 `;
 
+/**
+ * Atomic, IDEMPOTENT release: the counter is decremented only when THIS call
+ * removed the job's owner record. The processor's `finally` and the scrubber
+ * can both try to release the same job (the scrubber snapshots the owner hash,
+ * then the job finishes and releases before the scrubber reaches it); gating the
+ * DECR on the HDEL means only one of them gives the slot back. Never lets the
+ * counter go negative. Returns 1 when a slot was released, 0 when it was not held.
+ */
+const RELEASE_SLOT_LUA = `
+if redis.call('HDEL', KEYS[2], ARGV[1]) == 0 then
+  return 0
+end
+local count = redis.call('DECR', KEYS[1])
+if count < 0 then
+  redis.call('SET', KEYS[1], '0', 'EX', ARGV[2])
+end
+return 1
+`;
+
 /** Try to acquire an in-flight build slot for `orgId`. Returns true on success;
  *  false if the org is already at its cap (caller should re-enqueue). Records
  *  `jobId -> orgId` so the scrubber can reclaim a slot whose job vanished. */
 export async function tryAcquireOrgSlot(orgId: string, jobId: string): Promise<boolean> {
   const redis = getConnectionForDb(0);
-  // TWO keys now: the org counter and the owner hash — the owner record is
-  // written atomically with the INCR (see ACQUIRE_SLOT_LUA).
+  // TWO keys: the org counter and the owner hash — the owner record is written
+  // atomically with the INCR (see ACQUIRE_SLOT_LUA).
   const result = await redis.eval(
     ACQUIRE_SLOT_LUA, 2, orgSlotKey(orgId), orgSlotOwnersKey,
     String(MAX_BUILDS_PER_ORG), String(ORG_SLOT_TTL_SEC), jobId, orgId,
@@ -75,12 +99,14 @@ export async function tryAcquireOrgSlot(orgId: string, jobId: string): Promise<b
   return result === 1;
 }
 
-/** Release the org's slot. Defensive: never let the counter go negative. */
-export async function releaseOrgSlot(orgId: string, jobId: string): Promise<void> {
+/** Release `jobId`'s slot for `orgId`. Idempotent per job (see RELEASE_SLOT_LUA);
+ *  resolves true when this call gave a held slot back. */
+export async function releaseOrgSlot(orgId: string, jobId: string): Promise<boolean> {
   const redis = getConnectionForDb(0);
-  const count = await redis.decr(orgSlotKey(orgId));
-  if (count < 0) await redis.set(orgSlotKey(orgId), '0', 'EX', ORG_SLOT_TTL_SEC);
-  await redis.hdel(orgSlotOwnersKey, jobId);
+  const released = await redis.eval(
+    RELEASE_SLOT_LUA, 2, orgSlotKey(orgId), orgSlotOwnersKey, jobId, String(ORG_SLOT_TTL_SEC),
+  );
+  return released === 1;
 }
 
 /**
@@ -111,10 +137,11 @@ export async function scrubOrgSlots(): Promise<void> {
 
     for (const [jobId, orgId] of ownerEntries) {
       if (liveJobIds.has(jobId)) continue;
-      const count = await redis.decr(orgSlotKey(orgId));
-      if (count < 0) await redis.set(orgSlotKey(orgId), '0', 'EX', ORG_SLOT_TTL_SEC);
-      await redis.hdel(orgSlotOwnersKey, jobId);
-      logger.warn('Reclaimed leaked org build slot', { jobId, orgId });
+      // Same idempotent release as the processor: if the job released its own
+      // slot after the snapshot above, this is a no-op rather than a second DECR.
+      if (await releaseOrgSlot(orgId, jobId)) {
+        logger.warn('Reclaimed leaked org build slot', { jobId, orgId });
+      }
     }
   } catch (err) {
     logger.debug('Org slot scrub failed', { error: errorMessage(err) });

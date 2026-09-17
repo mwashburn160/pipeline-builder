@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, envInt, errorMessage } from '@pipeline-builder/api-core';
 import {
   getNotificationChannel,
   type ChannelTarget,
@@ -18,8 +18,10 @@ import {
 const logger = createLogger('compliance-notifier');
 
 /** Per-channel delivery timeout. Tight on purpose — a slow webhook receiver
- *  shouldn't hold up the (fire-and-forget) notification. */
-const DELIVERY_TIMEOUT_MS = parseInt(process.env.COMPLIANCE_NOTIFY_TIMEOUT_MS || '5000', 10);
+ *  shouldn't hold up the (fire-and-forget) notification. Guarded parse: a
+ *  non-numeric override used to yield NaN, which `setTimeout` treats as ~1ms, so
+ *  every delivery aborted immediately. */
+const DELIVERY_TIMEOUT_MS = envInt('COMPLIANCE_NOTIFY_TIMEOUT_MS', 5000, { min: 1 });
 
 type NotificationKind = 'block' | 'warning';
 

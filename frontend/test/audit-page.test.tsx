@@ -10,13 +10,12 @@
 
 import { render, screen, fireEvent } from '@testing-library/react';
 import AuditPage from '../pages/dashboard/audit';
+import { mockAuthGuard } from './helpers/pageMocks';
+
+const authGuard = mockAuthGuard();
 
 // useAuthGuard is swapped per-test to flip the sysadmin flag.
-const authGuard = { isReady: true, user: { id: 'u1', organizationId: 'org-1' }, isSuperAdmin: false };
-jest.mock('@/hooks/useAuthGuard', () => ({
-  __esModule: true,
-  useAuthGuard: () => authGuard,
-}));
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 
 // The page reads router.query for deep-link hydration only.
 jest.mock('next/router', () => ({
@@ -25,10 +24,7 @@ jest.mock('next/router', () => ({
 }));
 
 // DashboardLayout drags in providers — reduce it to a passthrough wrapper.
-jest.mock('@/components/ui/DashboardLayout', () => ({
-  __esModule: true,
-  DashboardLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}));
+jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 
 const listAuditEvents = jest.fn();
 const verifyAuditChain = jest.fn();

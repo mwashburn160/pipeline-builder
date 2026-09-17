@@ -18,8 +18,9 @@ import { verifyPlatformJwt } from '../utils/jwt-options.js';
  * (see `extractClientIp`).
  *
  * All of these run BEFORE `requireAuth`, so every one must tolerate a
- * missing/malformed token. Only `verifiedIsSuperAdmin` verifies a signature,
- * because only it grants an actual privilege (the throttle bypass).
+ * missing/malformed token. Everything that selects a bucket or a limit uses
+ * VERIFIED claims (`verifiedAccessClaims`); `peekJwtClaims` is for hints that
+ * grant nothing.
  */
 
 /**
@@ -48,106 +49,99 @@ export function extractClientIp(req: express.Request): string {
   return ipKeyGenerator(req.ip || 'unknown', 64);
 }
 
-/**
- * Best-effort organizationId extraction for rate-limit bucketing.
- *
- * Runs BEFORE auth middleware, so this peeks at the Bearer token without
- * verifying the signature. Used only as a rate-limit key; real authorization
- * still happens in requireAuth. Falls back to IP-based keying when
- * - no Bearer token,
- * - the token is malformed,
- * - the payload doesn't include organizationId.
- *
- * Net effect: a single noisy authenticated org consumes its own quota window
- * instead of degrading every other tenant sharing an IP (NAT / corp gateway).
- *
- * Forging an `organizationId` here only moves the forger into that org's
- * bucket — it cannot raise a limit, so an unverified peek is safe.
- */
-export function rateLimitKey(req: express.Request): string {
-  const auth = req.headers.authorization;
-  if (auth?.startsWith('Bearer ')) {
-    const token = auth.slice(7);
-    const parts = token.split('.');
-    if (parts.length === 3 && parts[1]) {
-      try {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8')) as { organizationId?: string };
-        if (typeof payload.organizationId === 'string' && payload.organizationId.length > 0) {
-          return `org:${payload.organizationId.toLowerCase()}`;
-        }
-      } catch {
-        // Malformed JWT — fall through to IP keying.
-      }
-    }
-  }
-  return `ip:${extractClientIp(req)}`;
-}
-
-/**
- * Peek at the JWT payload (unverified — signature checked later in `requireAuth`)
- * to extract the issuer-stamped tier + role for rate-limit dispatching.
- * Same caveat as `rateLimitKey`: this runs BEFORE auth middleware, so it must
- * tolerate missing / malformed tokens; the limit decision falls back to the
- * developer tier when no signal is available.
- */
-export function peekJwtClaims(req: express.Request): {
+/** Claims read from a token for peeking (unverified) or bucketing (verified). */
+export interface TokenClaims {
+  type?: string;
   tier?: string;
   role?: string;
   organizationId?: string;
   organizationName?: string;
   isSuperAdmin?: boolean;
   impersonationReadOnly?: boolean;
-} {
+}
+
+/**
+ * Peek at the JWT payload WITHOUT verifying it. Only for pre-auth hints that
+ * grant nothing (tenant-context hints, the impersonation write fence that
+ * `requireAuth` re-checks) — never for anything a forged token could exploit.
+ * Tolerates missing / malformed tokens by returning `{}`.
+ */
+export function peekJwtClaims(req: express.Request): TokenClaims {
   const auth = req.headers.authorization;
   if (!auth?.startsWith('Bearer ')) return {};
-  const token = auth.slice(7);
-  const parts = token.split('.');
+  const parts = auth.slice(7).split('.');
   if (parts.length !== 3 || !parts[1]) return {};
   try {
-    return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8')) as {
-      tier?: string;
-      role?: string;
-      organizationId?: string;
-      organizationName?: string;
-      isSuperAdmin?: boolean;
-      impersonationReadOnly?: boolean;
-    };
+    return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8')) as TokenClaims;
   } catch {
     return {};
   }
 }
 
+/** Per-request memo: the skip, key and max callbacks all ask for the same token. */
+const verifiedClaimsCache = new WeakMap<express.Request, TokenClaims | null>();
+
 /**
- * Whether the request carries a VALID (signature-verified) access token with the
- * `isSuperAdmin` flag. Used only for the rate-limit bypass, which must not honor a
- * forged token. Unlike `peekJwtClaims` (unverified — fine for tier/key selection),
- * this verifies against the same secret + pinned algorithm as `requireAuth`.
+ * The claims of a VALID (signature-verified, `type: 'access'`) access token, or
+ * `null` when there is no token or it does not verify. Same secret, pinned
+ * algorithm, issuer/audience and rotation as `requireAuth`.
+ *
+ * Everything that decides a LIMIT goes through this: the bucket key, the tier
+ * multiplier and the sysadmin bypass. An unverified peek there would let a caller
+ * mint a fresh bucket per request (random `organizationId`) or claim
+ * `tier: 'unlimited'`.
  */
-export function verifiedIsSuperAdmin(req: express.Request): boolean {
+export function verifiedAccessClaims(req: express.Request): TokenClaims | null {
+  const cached = verifiedClaimsCache.get(req);
+  if (cached !== undefined) return cached;
+  let claims: TokenClaims | null = null;
   const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) return false;
-  try {
-    const payload = verifyPlatformJwt<{ isSuperAdmin?: boolean }>(auth.slice(7));
-    return payload.isSuperAdmin === true;
-  } catch {
-    return false;
+  if (auth?.startsWith('Bearer ')) {
+    try {
+      const payload = verifyPlatformJwt<TokenClaims>(auth.slice(7));
+      if (payload.type === 'access') claims = payload;
+    } catch {
+      // Invalid / expired / forged — treated as anonymous.
+    }
   }
+  verifiedClaimsCache.set(req, claims);
+  return claims;
 }
 
 /**
- * Per-tier max calculator. JWT carries `tier` (set at issuance from the
- * org's planId); we multiply the baseline by the tier's multiplier so a
- * premium org gets proportionally more burst. Sysadmins bypass entirely
- * (see the limiter's `skip`).
+ * Rate-limit bucket: the verified token's org, else the client IP.
  *
- * `tier` is a JWT claim and arrives untyped — narrow via api-core's
- * `isValidTier` guard before indexing the strongly-typed
- * `Record<QuotaTier, number>`. Unknown tiers fall back to 1× (developer
- * baseline), keeping a renamed-but-not-deployed tier from accidentally
- * getting an unlimited budget.
+ * Net effect: a single noisy authenticated org consumes its own quota window
+ * instead of degrading every other tenant sharing an IP (NAT / corp gateway),
+ * while an unverified or forged token is bucketed by IP like any anonymous
+ * caller.
+ */
+export function rateLimitKey(req: express.Request): string {
+  const orgId = verifiedAccessClaims(req)?.organizationId;
+  if (typeof orgId === 'string' && orgId.length > 0) return `org:${orgId.toLowerCase()}`;
+  return `ip:${extractClientIp(req)}`;
+}
+
+/**
+ * Whether the request carries a verified access token with `isSuperAdmin`. Used
+ * only for the rate-limit bypass; `requireAuth` still authorizes the request.
+ */
+export function verifiedIsSuperAdmin(req: express.Request): boolean {
+  return verifiedAccessClaims(req)?.isSuperAdmin === true;
+}
+
+/**
+ * Per-tier max: the baseline multiplied by the verified token's tier multiplier
+ * (set at issuance from the org's plan). Sysadmins bypass entirely (see the
+ * limiter's `skip`).
+ *
+ * `tier` is narrowed via api-core's `isValidTier` before indexing the
+ * `Record<QuotaTier, number>`. No verified token, or an unknown tier, gets the
+ * base 1× budget — so neither a forged `tier: 'unlimited'` nor a renamed tier
+ * can raise a limit.
  */
 export function tierLimitedMax(req: express.Request): number {
-  const { tier } = peekJwtClaims(req);
+  const tier = verifiedAccessClaims(req)?.tier;
   const mult: number = (tier && isValidTier(tier) ? config.rateLimit.tierMultipliers[tier] : 1) || 1;
   return Math.max(1, Math.floor(config.rateLimit.max * mult));
 }

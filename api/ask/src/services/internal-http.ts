@@ -5,7 +5,11 @@
 // STRICTLY on behalf of the calling user by forwarding their bearer token to the
 // existing service routes — never a service principal — so compliance, quota,
 // permissions, and tenancy apply exactly as they do for the user's own requests.
-// Base URLs are service-discovery env vars (in-cluster DNS / docker service name).
+// Base URLs come from the typed `server.services` config (PIPELINE_SERVICE_HOST/PORT,
+// PLUGIN_SERVICE_HOST/PORT) — the same discovery config every other service uses.
+
+import { envInt } from '@pipeline-builder/api-core';
+import { Config } from '@pipeline-builder/pipeline-core';
 
 /** Minimal service client that forwards the caller's Authorization header. */
 export interface ServiceClient {
@@ -16,7 +20,7 @@ export interface ServiceClient {
 // Per-call timeout so a hung downstream service can't wedge the whole SSE turn
 // (the tool `execute` runs inside the model's fullStream await). Mirrors the
 // bounded external calls in api/pipeline's git-analysis client.
-const HTTP_TIMEOUT_MS = parseInt(process.env.ASK_HTTP_TIMEOUT_MS || '30000', 10);
+const HTTP_TIMEOUT_MS = envInt('ASK_HTTP_TIMEOUT_MS', 30000, { min: 1 });
 
 function makeClient(baseUrl: string, authHeader: string): ServiceClient {
   const headers = { 'Content-Type': 'application/json', 'Authorization': authHeader };
@@ -41,10 +45,12 @@ function makeClient(baseUrl: string, authHeader: string): ServiceClient {
 
 /** Client for the pipeline service (`/pipelines/*`), forwarding the user token. */
 export function pipelineClient(authHeader: string): ServiceClient {
-  return makeClient(process.env.PIPELINE_URL || 'http://pipeline:3000', authHeader);
+  const { pipelineHost, pipelinePort } = Config.get('server').services;
+  return makeClient(`http://${pipelineHost}:${pipelinePort}`, authHeader);
 }
 
 /** Client for the plugin service (`/plugins/*`), forwarding the user token. */
 export function pluginClient(authHeader: string): ServiceClient {
-  return makeClient(process.env.PLUGIN_URL || 'http://plugin:3000', authHeader);
+  const { pluginHost, pluginPort } = Config.get('server').services;
+  return makeClient(`http://${pluginHost}:${pluginPort}`, authHeader);
 }

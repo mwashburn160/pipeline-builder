@@ -9,9 +9,10 @@
  * operators pipe the response to `kubectl apply -f -`.
  */
 
+import { requireStepUp } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import { renderOrgNamespace } from '../controllers/org-namespace.js';
-import { requireAuth, requireStepUp } from '../middleware/index.js';
+import { requireAuth } from '../middleware/index.js';
 
 const router: Router = Router({ mergeParams: true });
 

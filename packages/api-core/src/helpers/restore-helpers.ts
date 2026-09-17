@@ -82,9 +82,9 @@ export interface PurgeableService<T extends RestorableEntity> {
  * genuine tombstone (a live/active row loads as `null` here and 404s, so purge
  * can never hard-delete a live row). Returns `{ existing, purgedId }` on success
  * (the caller emits the entity-specific audit off `existing`), or `null` when it
- * has ALREADY sent a response (400/404/403). Purge is intentionally NOT step-up
- * gated: it only finalizes what the retention sweep would remove anyway, and the
- * frontend gates it with an explicit confirm dialog. DRYs the near-identical
+ * has ALREADY sent a response (400/404/403). Step-up is the ROUTE's job: the
+ * pipeline, template and plugin services mount purge behind `requireStepUp`
+ * (sharing restore's chain so one token isn't consumed twice). DRYs the near-identical
  * pipeline / pipeline_template purge routes.
  */
 export async function loadAndPurge<T extends RestorableEntity>(

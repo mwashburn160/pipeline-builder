@@ -105,8 +105,10 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   postgresHealthCheck: () => async () => ({ ok: true }),
   // Auth/quota chains are exercised elsewhere; here they are no-ops so the test
   // controls req.user via the request-context middleware below.
-  createProtectedRoute: () => [],
-  createAuthenticatedWithOrgRoute: () => [],
+  // (one pass-through each: index.ts mounts the shared chain on its own, and
+  // `app.use(path)` with zero handlers throws)
+  createProtectedRoute: () => [(_req: unknown, _res: unknown, next: () => void) => next()],
+  createAuthenticatedWithOrgRoute: () => [(_req: unknown, _res: unknown, next: () => void) => next()],
   rateLimitByOrg: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   // Stand-in for attachRequestContext: seed req.user + req.context from headers.
   attachRequestContext: () => (req: any, _res: any, next: () => void) => {

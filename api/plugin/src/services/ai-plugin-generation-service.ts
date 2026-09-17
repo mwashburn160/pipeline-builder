@@ -10,12 +10,27 @@ import {
   streamText,
   Output,
 } from '@pipeline-builder/ai-core';
-import { createLogger, ValidationError } from '@pipeline-builder/api-core';
+import { createLogger } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 
 export { getAvailableProviders, getProviderModels };
 
 const logger = createLogger('ai-plugin-generation');
+
+/**
+ * The provider round-trip COMPLETED but returned no usable plugin config. Typed
+ * so the route can apply the keep-on-provider-contact quota rule: the external
+ * cost was incurred, so the reserved `aiCalls` slot is kept (mirrors pipeline's
+ * `AIEmptyOutputError`).
+ */
+export class AIEmptyOutputError extends Error {
+  /** Marker: the AI provider WAS contacted before this failure. */
+  readonly providerContacted = true;
+  constructor(message = 'AI did not produce a plugin configuration') {
+    super(message);
+    this.name = 'AIEmptyOutputError';
+  }
+}
 
 // Service-Specific Types
 
@@ -158,7 +173,8 @@ For a "Python test plugin":
  *
  * @param request - Generation parameters including prompt, provider, and model
  * @returns Generated plugin config and Dockerfile content
- * @throws Error if the AI provider is not configured, model is invalid, or AI produces no output
+ * @throws Error if the AI provider is not configured or the model is invalid
+ * @throws AIEmptyOutputError if the provider responded but produced no config
  */
 export async function generatePluginConfig(request: PluginGenerationRequest): Promise<PluginGenerationResult> {
   const model = resolveRequestModel(request);
@@ -179,7 +195,7 @@ export async function generatePluginConfig(request: PluginGenerationRequest): Pr
   });
 
   if (!output) {
-    throw new ValidationError('AI did not produce a plugin configuration');
+    throw new AIEmptyOutputError();
   }
 
   const { dockerfile, ...config } = output;

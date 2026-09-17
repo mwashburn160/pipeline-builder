@@ -3,54 +3,14 @@
 
 import { createLogger, isOrgAssignablePermission, isValidPermission, ROLE_PERMISSIONS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
-import { toOrgId } from '../helpers/controller-helper.js';
+import { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SYSTEM_IMMUTABLE, RL_NAME_TAKEN, RL_INVALID_PERMISSION, RL_PERMISSION_NOT_ASSIGNABLE, RL_PERMISSION_EXCEEDS_CEILING, RL_SUPERADMIN_ROLE_MISSING, RL_ASSIGN_EXCEEDS_CEILING } from './roles-errors.js';
+import { toOrgId } from '../helpers/org-id.js';
 import { publishUserRevocation, publishUsersRevocation } from '../helpers/session-revocation.js';
 import { Role, RoleAssignment, User, UserOrganization } from '../models/index.js';
 import type { RoleGrant } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('roles-service');
-
-export const RL_ROLE_NOT_FOUND = 'RL_ROLE_NOT_FOUND';
-export const RL_USER_NOT_FOUND = 'RL_USER_NOT_FOUND';
-export const RL_NOT_ORG_MEMBER = 'RL_NOT_ORG_MEMBER';
-/** You can't remove yourself from a Role that grants your own admin/superadmin. */
-export const RL_CANNOT_REMOVE_SELF = 'RL_CANNOT_REMOVE_SELF';
-/** Removing this user would leave a privilege-granting Role with no members. */
-export const RL_LAST_PRIVILEGED_MEMBER = 'RL_LAST_PRIVILEGED_MEMBER';
-/** Only a platform superadmin may add/remove members of a `superadmin`-granting
- *  Role — otherwise a mere org admin of the system org could mint or strip
- *  platform superadmins via `recomputeUserOrgRole`. */
-export const RL_REQUIRES_SUPERADMIN = 'RL_REQUIRES_SUPERADMIN';
-/** Seeded (`system`) Roles can't be renamed/edited/deleted via the CRUD API. */
-export const RL_SYSTEM_IMMUTABLE = 'RL_SYSTEM_IMMUTABLE';
-/** Another Role in the org already uses this name. */
-export const RL_NAME_TAKEN = 'RL_NAME_TAKEN';
-/** A supplied permission string isn't in the api-core catalog. */
-export const RL_INVALID_PERMISSION = 'RL_INVALID_PERMISSION';
-/** A supplied permission is valid but NOT assignable through a user-authored
- *  custom Role — it's superadmin-only (the shared image registry:
- *  `registry:read`/`registry:write`). Built-in Role seeds are exempt (they carry
- *  it legitimately); this guards only custom-Role create/update. */
-export const RL_PERMISSION_NOT_ASSIGNABLE = 'RL_PERMISSION_NOT_ASSIGNABLE';
-/** A requested permission is org-assignable but the ACTOR authoring the custom
- *  Role does not themselves hold it — a custom Role can't grant beyond the
- *  creator's own permission ceiling (prevents a delegated `roles:manage` holder
- *  from minting + self-assigning `members:manage`/`org:settings`/etc.).
- *  Platform superadmins bypass the ceiling (they implicitly hold everything). */
-export const RL_PERMISSION_EXCEEDS_CEILING = 'RL_PERMISSION_EXCEEDS_CEILING';
-/** The system org has no seeded Super Admin Role — platform-admin can't be
- *  granted/revoked via Role assignment (should never happen post-seed). */
-export const RL_SUPERADMIN_ROLE_MISSING = 'RL_SUPERADMIN_ROLE_MISSING';
-/** The actor tried to ASSIGN (or unassign) a Role granting permissions beyond
- *  their own effective set — the assignment-time analogue of the create/update
- *  ceiling (`RL_PERMISSION_EXCEEDS_CEILING`). Without this, a non-admin holder
- *  of a delegated `roles:manage` custom Role could assign the built-in Admin
- *  Role (the full `ADMIN_PERMISSIONS` bundle) — or any Role carrying a
- *  capability they lack — to themselves and self-escalate past the very ceiling
- *  `sanitizePermissions` enforces on custom-Role authoring. Admin/owner of the
- *  org and platform superadmins bypass (they already hold the full bundle). */
-export const RL_ASSIGN_EXCEEDS_CEILING = 'RL_ASSIGN_EXCEEDS_CEILING';
 
 /** A Role with its current members, for the management UI. */
 export interface RoleWithMembers {
@@ -268,6 +228,25 @@ export async function assignBuiltinAdminRole(
 }
 
 /**
+ * Assignment ceiling for granting or revoking an org's built-in Admin Role
+ * outside the Role-membership API (e.g. `PUT /users/:id { role }`): a caller who
+ * is neither a platform superadmin nor an admin/owner of the org must hold every
+ * permission the Admin Role grants — otherwise a delegate holding only
+ * `members:manage` could promote anyone, themselves included, to Admin. Throws
+ * `RL_ASSIGN_EXCEEDS_CEILING`.
+ */
+export async function assertActorMayAssignBuiltinAdmin(
+  organizationId: OrgId,
+  actor: RoleAssignmentActor,
+  session?: mongoose.ClientSession,
+): Promise<void> {
+  if (actor.isSuperAdmin || actor.isOrgAdmin) return;
+  const adminRole = await Role.findOne({ organizationId, grantsRole: 'admin', system: true })
+    .session(session ?? null).select('permissions').lean();
+  assertActorMayAssignRole(adminRole?.permissions as string[] | undefined, actor);
+}
+
+/**
  * Idempotently REMOVE an org's built-in **Admin** Role assignment from a user
  * (the demote counterpart of {@link assignBuiltinAdminRole}). Does NOT recompute
  * — the caller recomputes once (typically after re-asserting the Member floor).
@@ -291,7 +270,7 @@ export async function removeBuiltinAdminRole(
  * `tokenVersion` on a genuine change. This keeps the flag and `recomputeUserOrgRole`
  * permanently in agreement (a later recompute re-derives `isSuperAdmin=true`
  * because the assignment persists), closing the direct-flag divergence. Also
- * drops the refresh token on a real change so the session can't be re-issued.
+ * clears the refresh-session slots on a real change so the session can't be re-issued.
  *
  * Self-healing + idempotent: a legacy user who has the flag but no assignment
  * gets the assignment added with no session churn (`changed:false`); an already-
@@ -315,7 +294,7 @@ export async function grantPlatformAdmin(userId: UserId): Promise<{ changed: boo
     // bumps tokenVersion only on a genuine flip.
     await recomputeUserOrgRole(userId, SYSTEM_ORG_ID, session);
     if (!wasSuperadmin) {
-      await User.updateOne({ _id: userId }, { $unset: { refreshToken: '' } }, { session });
+      await User.updateOne({ _id: userId }, { $set: { refreshSessions: [] } }, { session });
     }
     return { changed: !wasSuperadmin };
   });
@@ -329,7 +308,7 @@ export async function grantPlatformAdmin(userId: UserId): Promise<{ changed: boo
  * then recomputing (which clears `User.isSuperAdmin` + bumps `tokenVersion`).
  * Counterpart of {@link grantPlatformAdmin}; works even for a legacy user who
  * had the flag set directly but never held the Role (recompute clears the flag
- * from the now-absent assignment). Drops the refresh token on a real change.
+ * from the now-absent assignment). Clears the refresh-session slots on a real change.
  */
 export async function revokePlatformAdmin(userId: UserId): Promise<{ changed: boolean }> {
   const result = await withMongoTransaction(async (session) => {
@@ -342,7 +321,7 @@ export async function revokePlatformAdmin(userId: UserId): Promise<{ changed: bo
     await RoleAssignment.deleteOne({ userId, roleId: role._id }, { session });
     await recomputeUserOrgRole(userId, SYSTEM_ORG_ID, session);
     if (wasSuperadmin) {
-      await User.updateOne({ _id: userId }, { $unset: { refreshToken: '' } }, { session });
+      await User.updateOne({ _id: userId }, { $set: { refreshSessions: [] } }, { session });
     }
     return { changed: wasSuperadmin };
   });
@@ -725,6 +704,38 @@ export async function addUserToRole(
 }
 
 /**
+ * Lockout guard: throw `RL_LAST_PRIVILEGED_MEMBER` if removing `userId` from a
+ * privilege-granting (admin/superadmin) Role would leave that Role with no
+ * members — deleting the sole Super Admin, or an org's last Admin, locks
+ * everyone out. Checks the user's assignment to `roleId`, or to EVERY Role they
+ * hold when `roleId` is omitted (account deletion). Member-only Roles are
+ * unguarded — losing them revokes nothing.
+ *
+ * Runs inside the caller's transaction so it reads a snapshot consistent with
+ * the removal. Three queries regardless of how many Roles the user holds.
+ * (Residual: distinct-doc deletes don't write-conflict under WiredTiger, so a
+ * fully concurrent removal of both members of a two-member Role can still slip
+ * through; the in-transaction read closes the common window.)
+ */
+export async function assertNotLastPrivilegedMember(
+  session: mongoose.ClientSession,
+  userId: UserId,
+  roleId?: string | mongoose.Types.ObjectId,
+): Promise<void> {
+  const held = await RoleAssignment.find(roleId === undefined ? { userId } : { userId, roleId })
+    .select('roleId').session(session).lean();
+  if (held.length === 0) return;
+  const privileged = await Role.find({ _id: { $in: held.map((a) => a.roleId) }, grantsRole: { $ne: 'member' } })
+    .select('_id').session(session).lean();
+  if (privileged.length === 0) return;
+  const counts = await RoleAssignment.aggregate<{ _id: unknown; members: number }>([
+    { $match: { roleId: { $in: privileged.map((r) => r._id) } } },
+    { $group: { _id: '$roleId', members: { $sum: 1 } } },
+  ]).session(session);
+  if (counts.some((c) => c.members <= 1)) throw new Error(RL_LAST_PRIVILEGED_MEMBER);
+}
+
+/**
  * Remove a user from a Role, then recompute their cached org role. Within the
  * system org, removing the last `superadmin`-granting assignment also clears
  * `User.isSuperAdmin` (handled by {@link recomputeUserOrgRole}).
@@ -783,25 +794,21 @@ export async function removeUserFromRole(
     });
   }
 
-  if (role.grantsRole !== 'member') {
-    // Only meaningful if the user actually holds the Role — a no-op remove of a
-    // non-member must not trip the "last member" guard.
-    const isMember = await RoleAssignment.exists({ userId, roleId });
-    if (isMember) {
+  // Atomic: the lockout guards, the assignment delete and the role/isSuperAdmin
+  // recompute run in one transaction, so the guards read a snapshot consistent
+  // with the delete and a crash can't leave the user removed from the Role but
+  // still carrying the Role's cached role or platform-admin flag.
+  await withMongoTransaction(async (session) => {
+    // Only meaningful if the user actually holds a privilege-granting Role — a
+    // no-op remove of a non-member must not trip the guards.
+    if (role.grantsRole !== 'member' && await RoleAssignment.exists({ userId, roleId }).session(session)) {
       // G2: self-removal from a Role granting your own admin/superadmin.
       if (opts.actorUserId && String(opts.actorUserId) === String(userId)) {
         throw new Error(RL_CANNOT_REMOVE_SELF);
       }
       // G3: never empty an admin/superadmin-granting Role.
-      const memberCount = await RoleAssignment.countDocuments({ roleId });
-      if (memberCount <= 1) throw new Error(RL_LAST_PRIVILEGED_MEMBER);
+      await assertNotLastPrivilegedMember(session, userId, roleId);
     }
-  }
-
-  // Atomic: assignment delete + role/isSuperAdmin recompute commit together so a
-  // crash can't leave the user removed from the Role but still carrying the
-  // Role's cached role or platform-admin flag.
-  await withMongoTransaction(async (session) => {
     await RoleAssignment.deleteOne({ userId, roleId }, { session });
     await recomputeUserOrgRole(userId, oid, session);
     // Assignment change alters effective permissions (JWT) — force a reissue.

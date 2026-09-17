@@ -25,7 +25,7 @@ const logger = createLogger('discount-helpers');
 /** Statuses that may hold/redeem a discount (a coupon applies post-trial). */
 const REDEEMABLE_STATUSES = ['active', 'trialing'] as const;
 
-/** Feature flag — the discount surface is off unless BILLING_DISCOUNTS_ENABLED=true. */
+/** Feature flag — the discount surface is ON unless BILLING_DISCOUNTS_ENABLED=false. */
 export function discountsEnabled(): boolean {
   return config.discounts.enabled;
 }
@@ -37,7 +37,7 @@ export function discountsEnabled(): boolean {
  * Marketplace reports `'metered'` only when metering + a dimension price map are
  * configured (else `'none'`, so an unrealizable credit is never accepted).
  */
-export function discountAllowedForProvider(): boolean {
+function discountAllowedForProvider(): boolean {
   const support = getPaymentProvider().usageCreditSupport;
   if (!support) return config.billingProvider !== 'aws-marketplace';
   return support !== 'none';
@@ -119,7 +119,7 @@ type BreakdownState = {
  * single credit line, never a separate coupon. `creditRemainingCents` carries to
  * future cycles.
  */
-export function computeDiscountBreakdown(planName: string, prices: { monthly: number; annual: number }, sub: BreakdownState): DiscountBreakdown {
+function computeDiscountBreakdown(planName: string, prices: { monthly: number; annual: number }, sub: BreakdownState): DiscountBreakdown {
   const interval: 'monthly' | 'annual' = sub.interval === 'annual' ? 'annual' : 'monthly';
   const base = prices[interval];
   const items = [{ label: planName, cents: base }];
@@ -130,7 +130,7 @@ export function computeDiscountBreakdown(planName: string, prices: { monthly: nu
 }
 
 /** Hypothetical breakdown if `discount` were redeemed now (adds its credit to the balance). */
-export function projectDiscountBreakdown(planName: string, prices: { monthly: number; annual: number }, sub: BreakdownState, discount: Pick<DiscountDocument, 'kind' | 'unit' | 'value'>): DiscountBreakdown {
+function projectDiscountBreakdown(planName: string, prices: { monthly: number; annual: number }, sub: BreakdownState, discount: Pick<DiscountDocument, 'kind' | 'unit' | 'value'>): DiscountBreakdown {
   const interval: 'monthly' | 'annual' = sub.interval === 'annual' ? 'annual' : 'monthly';
   const projected: BreakdownState = {
     interval,
@@ -153,7 +153,7 @@ async function loadSubPlan(orgId: string): Promise<LoadedSubPlan> {
 }
 
 /** Read-only applicability check shared by apply + preview (no reserve/mutate). */
-export function validateApplicable(
+function validateApplicable(
   orgId: string,
   discount: DiscountDocument,
   subscription: SubscriptionDocument,
@@ -281,12 +281,6 @@ export async function applyDiscountToOrg(
   }
 }
 
-/**
- * Grant a usage credit of `cents`: post it to the provider (customer balance,
- * when supported + an external customer exists), bank it on the subscription
- * mirror + ledger, and emit `credit_applied`. Mutates `subscription` in place;
- * the caller saves. `idemSeed` dedupes the provider grant.
- */
 /** Post the credit to the provider (idempotency-keyed customer-balance credit,
  *  when supported + an external customer exists). Returns the fulfillment ref for
  *  the ledger row, or undefined when the provider doesn't realize credits. */
@@ -299,6 +293,12 @@ async function realizeUsageCredit(subscription: SubscriptionDocument, cents: num
   return undefined;
 }
 
+/**
+ * Grant a usage credit of `cents`: post it to the provider (customer balance,
+ * when supported + an external customer exists), bank it on the subscription
+ * mirror + ledger, and emit `credit_applied`. Mutates `subscription` in place;
+ * the caller saves. `idemSeed` dedupes the provider grant.
+ */
 async function grantUsageCredit(subscription: SubscriptionDocument, discountId: string, cents: number, idemSeed: string, actorId?: string, dedupeKey?: string, atomic = false): Promise<void> {
   const ref = await realizeUsageCredit(subscription, cents, idemSeed);
 

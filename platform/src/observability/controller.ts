@@ -22,7 +22,7 @@
  *   - Valid query returning empty result        → 200 with `{samples: []}` / `{series: []}` / `{entries: []}`
  */
 
-import { parseQueryString, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { parseQueryString, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import * as am from './alertmanager-client.js';
 import { queryAuditStore } from './audit-store-client.js';
@@ -38,7 +38,7 @@ import {
 } from './catalog.js';
 import * as prom from './prometheus-client.js';
 import { audit } from '../helpers/audit.js';
-import { getAdminContext, isSystemAdmin, requireAuth, withController } from '../helpers/controller-helper.js';
+import { getAdminContext, requireAuth, withController } from '../helpers/controller-helper.js';
 import { isReasonableString } from '../utils/string-guards.js';
 
 /**

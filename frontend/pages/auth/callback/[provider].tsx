@@ -12,7 +12,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { Card } from '@/components/ui/Card';
 import { LinkButton } from '@/components/ui/LinkButton';
 import api from '@/lib/api';
-import { OAUTH_INTENT_KEY } from '@/lib/oauth-intent';
+import { startOAuthLogin, takeOAuthIntent } from '@/lib/oauth-intent';
 import { formatError } from '@/lib/constants';
 
 /**
@@ -40,23 +40,6 @@ import { formatError } from '@/lib/constants';
  * the intent across the redirect. No PKCE is involved.
  */
 
-
-interface OAuthIntent {
-  state: string;
-  kind: 'login' | 'invite';
-  inviteToken?: string;
-  returnUrl?: string;
-}
-
-function readIntent(): OAuthIntent | null {
-  try {
-    const raw = sessionStorage.getItem(OAUTH_INTENT_KEY);
-    return raw ? (JSON.parse(raw) as OAuthIntent) : null;
-  } catch {
-    return null;
-  }
-}
-
 /** Only permit same-site relative return URLs — never an attacker-supplied absolute
  *  URL (open-redirect). Falls back to the dashboard. */
 function safeReturnUrl(url: string | undefined): string {
@@ -82,8 +65,7 @@ export default function OAuthCallbackPage() {
     const providerError = typeof router.query.error === 'string' ? router.query.error : '';
 
     // Consume the stored intent immediately — it is single-use.
-    const intent = readIntent();
-    try { sessionStorage.removeItem(OAUTH_INTENT_KEY); } catch { /* storage unavailable */ }
+    const intent = takeOAuthIntent();
 
     const run = async () => {
       if (providerError) {
@@ -131,11 +113,7 @@ export default function OAuthCallbackPage() {
             state,
           });
 
-          const urlRes = await api.getOAuthUrl(provider);
-          if (!urlRes.data?.url || !urlRes.data.state) throw new Error('Could not start sign-in with this provider');
-          const next: OAuthIntent = { state: urlRes.data.state, kind: 'login', returnUrl: '/dashboard' };
-          try { sessionStorage.setItem(OAUTH_INTENT_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ }
-          window.location.href = urlRes.data.url;
+          await startOAuthLogin(provider, '/dashboard');
           return;
         }
 
@@ -143,7 +121,7 @@ export default function OAuthCallbackPage() {
         const res = await api.completeOAuthCallback(provider, { code, state });
         if (!res.success) throw new Error(res.message || 'Sign-in failed');
         await refreshUser();
-        router.replace(safeReturnUrl(effective?.returnUrl));
+        router.replace(safeReturnUrl(effective?.kind === 'login' ? effective.returnUrl : undefined));
       } catch (err) {
         setError(formatError(err, 'Sign-in failed. Please try again.'));
       }

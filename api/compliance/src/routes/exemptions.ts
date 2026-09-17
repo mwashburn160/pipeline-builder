@@ -17,13 +17,13 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
+import { emitComplianceAudit } from '../services/audit.js';
 import {
   complianceExemptionService,
   CE_NOT_FOUND,
   CE_SELF_APPROVE,
   CE_ALREADY_EXISTS,
 } from '../services/compliance-exemption-service.js';
-import { emitComplianceAudit } from '../services/remote-audit-client.js';
 
 /** Exemption CRUD routes. */
 

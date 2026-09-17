@@ -20,7 +20,7 @@ jest.unstable_mockModule('mongoose', () => {
   return { ...api, default: api };
 });
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 
 const mockResolveOrgLineage = jest.fn<(...a: unknown[]) => Promise<{ rootOrgId: string }>>();
 const mockExpandOrgScope = jest.fn<(...a: unknown[]) => Promise<string[]>>();

@@ -23,19 +23,12 @@ import { config } from '../config.js';
 import { billingServiceAuth, getBillingTimeout } from '../helpers/billing-helpers.js';
 import { getBillingSummary, listBillingInvoices, getAdminBillingSummary, backfillLedgerFromProvider } from '../helpers/billing-ledger.js';
 import { allocateCosts } from '../helpers/cost-allocation.js';
+import { parseOptionalDate } from '../helpers/query-dates.js';
 import { fetchSeatUsage } from '../helpers/quota-client.js';
 import { getTeamUsage } from '../helpers/team-usage.js';
 
 const logger = createLogger('billing-summary');
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
-
-/** Parse an optional ISO date query param; returns undefined if absent, or null if malformed. */
-function parseOptionalDate(raw: unknown): Date | undefined | null {
-  const s = parseQueryString(raw);
-  if (!s) return undefined;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
 
 /**
  * Resolve the org→team subtree `[self, …descendants]` for a rollup — but only

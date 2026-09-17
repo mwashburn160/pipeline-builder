@@ -31,11 +31,6 @@
       "type": "build"
     },
     {
-      "name": "@types/ws",
-      "version": "8.18.1",
-      "type": "build"
-    },
-    {
       "name": "@typescript-eslint/eslint-plugin",
       "version": "^8",
       "type": "build"
@@ -89,11 +84,6 @@
       "type": "runtime"
     },
     {
-      "name": "@aws-sdk/s3-request-presigner",
-      "version": "3.1101.0",
-      "type": "runtime"
-    },
-    {
       "name": "@pipeline-builder/api-core",
       "version": "workspace:*",
       "type": "runtime"
@@ -136,21 +126,6 @@
     {
       "name": "pg",
       "version": "8.22.0",
-      "type": "runtime"
-    },
-    {
-      "name": "uuid",
-      "version": "14.0.1",
-      "type": "runtime"
-    },
-    {
-      "name": "ws",
-      "version": "8.21.1",
-      "type": "runtime"
-    },
-    {
-      "name": "zod",
-      "version": "4.4.3",
       "type": "runtime"
     }
   ],

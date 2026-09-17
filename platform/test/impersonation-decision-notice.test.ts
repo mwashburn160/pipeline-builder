@@ -41,7 +41,7 @@ describe('notifyRequesterOfDecision', () => {
     expect(msg.recipientOrgId).toBe('system');
     expect(msg.recipientUserId).toBe('op');
     expect(msg.content).toMatch(/org-admin approved/);
-    expect(msg.content).toMatch(/within an hour/);
+    expect(msg.content).toMatch(/within 1 hour/);
     expect(msg.content).toContain('/dashboard/access-requests');
   });
 

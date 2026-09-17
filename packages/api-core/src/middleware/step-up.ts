@@ -20,7 +20,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import { buildJwtVerifyOptions, verifyJwtWithRotation, isServicePrincipal } from './auth.js';
-import { createEnvRedisClient } from '../services/env-redis.js';
+import { createEnvRedisClient, createRedisReadyGate, type ReadyAwareRedis } from '../services/env-redis.js';
 import { getHeaderString } from '../utils/headers.js';
 import { createLogger } from '../utils/logger.js';
 import { sendError } from '../utils/response.js';
@@ -70,11 +70,21 @@ export function verifyStepUpToken(token: string): StepUpTokenPayload {
 // degrading to the per-instance mem guard, which would accept a cross-instance
 // replay during the outage. The mem guard is used ONLY when Redis is absent.
 
-let _redis: { set: (...args: unknown[]) => Promise<unknown> } | null | undefined;
-function redis(): { set: (...args: unknown[]) => Promise<unknown> } | null {
+type JtiRedis = ReadyAwareRedis & { set: (...args: unknown[]) => Promise<unknown> };
+let _redis: JtiRedis | null | undefined;
+let _redisReady: (() => Promise<void>) | undefined;
+/**
+ * The jti client, built lazily. The env client has no offline queue, so a SET on
+ * a connection that isn't up yet is rejected — which used to fail the FIRST
+ * step-up on every pod. Wait (bounded, never rejecting) for readiness before
+ * handing it out; a genuinely down Redis still fails closed on the SET below.
+ */
+async function redis(): Promise<JtiRedis | null> {
   if (_redis === undefined) {
-    _redis = createEnvRedisClient<{ set: (...args: unknown[]) => Promise<unknown> }>('step-up-jti');
+    _redis = createEnvRedisClient<JtiRedis>('step-up-jti');
+    _redisReady = _redis ? createRedisReadyGate(_redis) : undefined;
   }
+  if (_redisReady) await _redisReady();
   return _redis;
 }
 
@@ -112,7 +122,7 @@ function evictOldestJti(): void {
  */
 export async function consumeStepUpJti(jti: string, expEpochSeconds: number): Promise<boolean> {
   const ttlSeconds = Math.max(1, expEpochSeconds - Math.floor(Date.now() / 1000));
-  const client = redis();
+  const client = await redis();
   if (client) {
     // Redis configured ⇒ authoritative cross-instance store. SET NX EX → 'OK'
     // when newly set, null when already consumed. A thrown Redis error is NOT

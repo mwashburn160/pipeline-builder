@@ -266,9 +266,10 @@ describe('POST /marketplace/claim', () => {
     expect(created.metadata.awsCustomerIdentifier).toBe(CUSTOMER_ID);
     expect(hasAwsAccountIdKey(created)).toBe(false);
 
-    // Tier synced against the real org; the ref is consumed atomically by the
-    // findOneAndDelete (single-use even under a race).
-    expect(mockSyncEntitlements).toHaveBeenCalledWith('org-real', 'team', 'user-1', 'sub-created-1', expect.anything());
+    // Tier synced against the real org with EMPTY auth (→ service-token fallback),
+    // never the caller's user id passed as an Authorization header; the ref is
+    // consumed atomically by the findOneAndDelete (single-use even under a race).
+    expect(mockSyncEntitlements).toHaveBeenCalledWith('org-real', 'team', '', 'sub-created-1', expect.anything());
     expect(mockPendingFindOneAndDelete).toHaveBeenCalledWith({ _id: 'ref-1' });
 
     const [, status] = mockSendSuccess.mock.calls[0];

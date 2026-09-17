@@ -15,24 +15,59 @@
  *      owner recorded from another tier and never reclaim the leak.
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 
-// -- Redis + queue mocks (before imports) -------------------------------------
+// -- In-memory Redis that RUNS the slot manager's real Lua scripts -------------
+//
+// The scripts are the unit under test (atomicity + idempotency live in them), so
+// rather than stub `eval`, this double executes the script text: a small
+// Lua→JS translation covering the subset the scripts use (redis.call, local,
+// if/then/end, tonumber, 1-based KEYS/ARGV). Mutating a script changes behavior
+// here exactly as it would in Redis.
 
-const mockEval = jest.fn<(...args: any[]) => any>().mockResolvedValue(1);
-const mockDecr = jest.fn<(...args: any[]) => any>().mockResolvedValue(0);
-const mockHset = jest.fn<(...args: any[]) => any>().mockResolvedValue(1);
-const mockHdel = jest.fn<(...args: any[]) => any>().mockResolvedValue(1);
-const mockHgetall = jest.fn<(...args: any[]) => any>().mockResolvedValue({});
-const mockSet = jest.fn<(...args: any[]) => any>().mockResolvedValue('OK');
+const strings = new Map<string, number>();
+const hashes = new Map<string, Map<string, string>>();
+
+function call(cmd: string, ...args: string[]): unknown {
+  switch (cmd.toUpperCase()) {
+    case 'INCR': { const v = (strings.get(args[0]) ?? 0) + 1; strings.set(args[0], v); return v; }
+    case 'DECR': { const v = (strings.get(args[0]) ?? 0) - 1; strings.set(args[0], v); return v; }
+    case 'EXPIRE': return 1;
+    case 'SET': strings.set(args[0], Number(args[1])); return 'OK';
+    case 'HSET': { const h = hashes.get(args[0]) ?? new Map(); const isNew = !h.has(args[1]); h.set(args[1], args[2]); hashes.set(args[0], h); return isNew ? 1 : 0; }
+    case 'HDEL': return hashes.get(args[0])?.delete(args[1]) ? 1 : 0;
+    case 'HEXISTS': return hashes.get(args[0])?.has(args[1]) ? 1 : 0;
+    default: throw new Error(`fake redis: unsupported ${cmd}`);
+  }
+}
+
+function runLua(script: string, keys: string[], argv: string[]): unknown {
+  const js = script
+    .replace(/--[^\n]*/g, '')
+    .replace(/\bKEYS\[(\d+)\]/g, (_m, n) => `KEYS[${Number(n) - 1}]`)
+    .replace(/\bARGV\[(\d+)\]/g, (_m, n) => `ARGV[${Number(n) - 1}]`)
+    .replace(/redis\.call\(/g, 'call(')
+    .replace(/\btonumber\(/g, 'Number(')
+    .replace(/\blocal\s+/g, 'let ')
+    .replace(/\bif\s+([\s\S]+?)\s+then\b/g, 'if ($1) {')
+    .replace(/\bend\b/g, '}')
+    .replace(/~=/g, '!==')
+    .replace(/([^=!<>])==([^=])/g, '$1===$2');
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  return new Function('KEYS', 'ARGV', 'call', js)(keys, argv, call);
+}
+
+const mockEval = jest.fn<(...args: any[]) => any>(async (script: string, numKeys: number, ...rest: string[]) =>
+  runLua(script, rest.slice(0, numKeys), rest.slice(numKeys)));
+const mockDecr = jest.fn<(...args: any[]) => any>(async (key: string) => call('DECR', key));
+const mockHdel = jest.fn<(...args: any[]) => any>(async (key: string, field: string) => call('HDEL', key, field));
+const mockHgetall = jest.fn<(...args: any[]) => any>(async (key: string) => Object.fromEntries(hashes.get(key) ?? new Map()));
 
 const redis = {
   eval: mockEval,
   decr: mockDecr,
-  hset: mockHset,
   hdel: mockHdel,
   hgetall: mockHgetall,
-  set: mockSet,
 };
 
 const mockGetAllTierQueues = jest.fn<() => any[]>(() => []);
@@ -43,12 +78,9 @@ const mockGetDeadLetterQueue = jest.fn<() => any>(() => ({ name: 'plugin-build-d
 // NOTE: `env-int.js` is intentionally NOT mocked — the real `intFromEnv` runs
 // so the fallback behaviour is exercised end-to-end.
 function registerMocks() {
-  jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
+  jest.unstable_mockModule('../src/queue/connections.js', () => ({
     getConnectionForDb: () => redis,
     getAllTierQueues: mockGetAllTierQueues,
-  }));
-
-  jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
     getDeadLetterQueue: mockGetDeadLetterQueue,
   }));
 
@@ -60,16 +92,23 @@ function registerMocks() {
 
 registerMocks();
 
-const { tryAcquireOrgSlot, scrubOrgSlots } = await import('../src/queue/slot-manager.js');
+const { tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots } = await import('../src/queue/slot-manager.js');
 
 const OWNERS_KEY = 'pb:org-build-owners';
+const count = (orgId: string) => strings.get(`pb:org-build:${orgId}`) ?? 0;
+const owners = () => Object.fromEntries(hashes.get(OWNERS_KEY) ?? new Map());
+
+function resetRedis() {
+  strings.clear();
+  hashes.clear();
+}
 
 // -- Tests --------------------------------------------------------------------
 
 describe('tryAcquireOrgSlot', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockEval.mockResolvedValue(1);
+    resetRedis();
   });
 
   it('refreshes the counter TTL on EVERY acquire (Lua EXPIRE is unconditional)', async () => {
@@ -87,39 +126,71 @@ describe('tryAcquireOrgSlot', () => {
     // counter was already raised with no owner entry — and the scrubber
     // reclaims by iterating the owner hash, so that slot could only be
     // reclaimed by the 900s TTL, wedging the org's cap until then.
-    await tryAcquireOrgSlot('org-a', 'plugin-build-developer:job-1');
+    expect(await tryAcquireOrgSlot('org-a', 'plugin-build-developer:job-1')).toBe(true);
 
-    const call = mockEval.mock.calls.at(-1)!;
-    // (LUA, numKeys=2, counterKey, ownersKey, cap, ttl, jobId, orgId)
-    expect(call[1]).toBe(2);
-    expect(call[3]).toBe(OWNERS_KEY);
-    expect(call[6]).toBe('plugin-build-developer:job-1');
-    expect(call[7]).toBe('org-a');
-    // No separate write — the owner record rides the same script.
-    expect(mockHset).not.toHaveBeenCalled();
+    expect(mockEval).toHaveBeenCalledTimes(1); // one round trip
+    expect(count('org-a')).toBe(1);
+    expect(owners()).toEqual({ 'plugin-build-developer:job-1': 'org-a' });
   });
 
-  it('records no owner when the cap is already reached', async () => {
-    mockEval.mockResolvedValueOnce(0); // Lua returns 0 → over cap, before the HSET
-    const ok = await tryAcquireOrgSlot('org-a', 'plugin-build-developer:job-9');
+  it('records no owner (and holds no slot) when the cap is already reached', async () => {
+    for (let i = 1; i <= 3; i++) await tryAcquireOrgSlot('org-a', `q:job-${i}`);
 
-    expect(ok).toBe(false);
-    expect(mockHset).not.toHaveBeenCalled();
+    expect(await tryAcquireOrgSlot('org-a', 'q:job-9')).toBe(false);
+    expect(count('org-a')).toBe(3);
+    expect(owners()).not.toHaveProperty('q:job-9');
+  });
+
+  it('is re-entrant per job: a re-run of a job that already holds a slot takes no second one', async () => {
+    // A stalled job re-run by BullMQ keeps its id; a second INCR could never be
+    // given back (release is keyed on the single owner record).
+    await tryAcquireOrgSlot('org-a', 'q:job-1');
+    expect(await tryAcquireOrgSlot('org-a', 'q:job-1')).toBe(true);
+    expect(count('org-a')).toBe(1);
+
+    await releaseOrgSlot('org-a', 'q:job-1');
+    expect(count('org-a')).toBe(0);
+  });
+});
+
+describe('releaseOrgSlot — idempotent per job', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetRedis();
+  });
+
+  it('releases a held slot exactly once, however many times release runs for the job', async () => {
+    await tryAcquireOrgSlot('org-a', 'q:job-1');
+    await tryAcquireOrgSlot('org-a', 'q:job-2');
+
+    expect(await releaseOrgSlot('org-a', 'q:job-1')).toBe(true);
+    expect(await releaseOrgSlot('org-a', 'q:job-1')).toBe(false);
+    expect(await releaseOrgSlot('org-a', 'q:job-1')).toBe(false);
+
+    // job-2 still holds its slot — a double release used to steal it.
+    expect(count('org-a')).toBe(1);
+    expect(owners()).toEqual({ 'q:job-2': 'org-a' });
+  });
+
+  it('never drives the counter negative (e.g. after the counter key expired)', async () => {
+    await tryAcquireOrgSlot('org-a', 'q:job-1');
+    strings.delete('pb:org-build:org-a'); // TTL lapsed while the job ran
+
+    await releaseOrgSlot('org-a', 'q:job-1');
+    expect(count('org-a')).toBe(0);
   });
 });
 
 describe('scrubOrgSlots — queue-qualified reconciliation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockDecr.mockResolvedValue(0);
+    resetRedis();
   });
 
   it('reclaims a same-id slot in a different queue (bare-id collision would leak it)', async () => {
     // Two owners share the bare job id "job-1" but live in different tier queues.
-    mockHgetall.mockResolvedValueOnce({
-      'plugin-build-developer:job-1': 'org-a', // live below
-      'plugin-build-pro:job-1': 'org-b', // NOT live → must be reclaimed
-    });
+    await tryAcquireOrgSlot('org-a', 'plugin-build-developer:job-1'); // live below
+    await tryAcquireOrgSlot('org-b', 'plugin-build-pro:job-1'); // NOT live → must be reclaimed
 
     // Only the developer queue actually has job-1 in flight; pro is empty.
     mockGetAllTierQueues.mockReturnValueOnce([
@@ -131,15 +202,14 @@ describe('scrubOrgSlots — queue-qualified reconciliation', () => {
     await scrubOrgSlots();
 
     // org-b's leaked slot reclaimed...
-    expect(mockDecr).toHaveBeenCalledWith('pb:org-build:org-b');
-    expect(mockHdel).toHaveBeenCalledWith(OWNERS_KEY, 'plugin-build-pro:job-1');
+    expect(count('org-b')).toBe(0);
     // ...while the genuinely-live developer:job-1 owner is untouched.
-    expect(mockDecr).not.toHaveBeenCalledWith('pb:org-build:org-a');
-    expect(mockHdel).not.toHaveBeenCalledWith(OWNERS_KEY, 'plugin-build-developer:job-1');
+    expect(count('org-a')).toBe(1);
+    expect(owners()).toEqual({ 'plugin-build-developer:job-1': 'org-a' });
   });
 
   it('keeps an owner whose job is live in its own queue', async () => {
-    mockHgetall.mockResolvedValueOnce({ 'plugin-build-team:job-5': 'org-c' });
+    await tryAcquireOrgSlot('org-c', 'plugin-build-team:job-5');
     mockGetAllTierQueues.mockReturnValueOnce([
       { tier: 'team', queue: { name: 'plugin-build-team', getJobs: async () => [{ id: 'job-5' }] } },
     ]);
@@ -147,8 +217,36 @@ describe('scrubOrgSlots — queue-qualified reconciliation', () => {
 
     await scrubOrgSlots();
 
-    expect(mockDecr).not.toHaveBeenCalled();
-    expect(mockHdel).not.toHaveBeenCalled();
+    expect(count('org-c')).toBe(1);
+    expect(owners()).toEqual({ 'plugin-build-team:job-5': 'org-c' });
+  });
+
+  it('does not double-decrement a job that released its own slot after the owner snapshot', async () => {
+    // The race: the scrubber snapshots the owner hash, the job finishes and its
+    // processor `finally` releases the slot, THEN the scrubber (seeing the job
+    // no longer live) releases it again — stealing another in-flight job's slot.
+    await tryAcquireOrgSlot('org-a', 'plugin-build-developer:job-1');
+    await tryAcquireOrgSlot('org-a', 'plugin-build-developer:job-2'); // still running
+
+    mockGetAllTierQueues.mockReturnValueOnce([
+      {
+        tier: 'developer',
+        queue: {
+          name: 'plugin-build-developer',
+          getJobs: async () => {
+            // job-1 completes (and releases) between the snapshot and the scrub loop.
+            await releaseOrgSlot('org-a', 'plugin-build-developer:job-1');
+            return [{ id: 'job-2' }];
+          },
+        },
+      },
+    ]);
+    mockGetDeadLetterQueue.mockReturnValueOnce({ name: 'plugin-build-dlq', getJobs: async () => [] });
+
+    await scrubOrgSlots();
+
+    expect(count('org-a')).toBe(1); // job-2's slot survives
+    expect(owners()).toEqual({ 'plugin-build-developer:job-2': 'org-a' });
   });
 });
 
@@ -172,7 +270,7 @@ describe('MAX_BUILDS_PER_ORG — NaN-fallback (bricked-builds regression)', () =
     registerMocks();
     const mod = await import('../src/queue/slot-manager.js');
 
-    mockEval.mockResolvedValueOnce(1);
+    resetRedis();
     const ok = await mod.tryAcquireOrgSlot('org-x', 'plugin-build-developer:job-1');
 
     expect(ok).toBe(true);
@@ -190,7 +288,7 @@ describe('MAX_BUILDS_PER_ORG — NaN-fallback (bricked-builds regression)', () =
     registerMocks();
     const mod = await import('../src/queue/slot-manager.js');
 
-    mockEval.mockResolvedValueOnce(1);
+    resetRedis();
     await mod.tryAcquireOrgSlot('org-x', 'plugin-build-developer:job-2');
 
     expect(mockEval.mock.calls.at(-1)![4]).toBe('7');

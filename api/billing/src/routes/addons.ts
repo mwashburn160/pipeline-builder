@@ -12,12 +12,22 @@ import {
   getParam,
   validateBody,
 } from '@pipeline-builder/api-core';
-import type { QuotaTier } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import type { BundleConfig, ComboDiscountConfig } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import type { Request, RequestHandler } from 'express';
 import { config } from '../config.js';
+import {
+  applyAddon,
+  bundleQuantityCapError,
+  bundleRequiresError,
+  cascadeRemoveDependents,
+  comboDelta,
+  comboSavings,
+  priceBreakdown,
+  resolvePurchasableBundle,
+  type Addon,
+  type ComboChange,
+} from '../helpers/addon-catalog.js';
 import {
   bundleSelfServiceAllowed,
   bundlesEnabled,
@@ -31,179 +41,15 @@ import {
   syncEntitlements,
   syncProviderAddons,
 } from '../helpers/billing-helpers.js';
-import { activeComboCredits, comboBasisCents, getComboDiscounts, volumeCredits } from '../helpers/combo-pricing.js';
+import { getComboDiscounts } from '../helpers/combo-pricing.js';
 import { Plan } from '../models/plan.js';
-import { Subscription } from '../models/subscription.js';
+import { Subscription, type SubscriptionDocument } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 import { getAuditClient } from '../services/audit.js';
 import { AddonMutateSchema } from '../validation/schemas.js';
 
 const logger = createLogger('billing-addons');
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
-
-type Addon = { bundleId: string; quantity: number };
-
-/** Set a bundle's quantity in the add-on list (quantity 0 removes it). */
-function applyAddon(addons: Addon[], bundleId: string, quantity: number): Addon[] {
-  const rest = addons.filter((a) => a.bundleId !== bundleId);
-  if (quantity > 0) rest.push({ bundleId, quantity });
-  return rest;
-}
-
-/**
- * Resolve an active bundle that is purchasable on `tier`, or an error message.
- * Shared by the preview + add handlers so the "unknown bundle" / "not available
- * on this plan" gate (and its 400 copy) can't drift between them.
- */
-function resolvePurchasableBundle(
-  bundles: readonly BundleConfig[],
-  bundleId: string,
-  tier: QuotaTier,
-): { bundle: BundleConfig } | { error: string } {
-  const bundle = bundles.find((b) => b.id === bundleId && b.isActive);
-  if (!bundle) return { error: `Unknown bundle "${bundleId}"` };
-  if (!bundle.availableForTiers.includes(tier)) {
-    return { error: `Bundle "${bundleId}" is not available on the ${tier} plan` };
-  }
-  return { bundle };
-}
-
-/** The over-`maxQuantity` (retention-ceiling) 400 message for a stacked bundle,
- *  or null when within cap. Shared so the preview + add gate stay identical. */
-function bundleQuantityCapError(bundle: BundleConfig, qty: number): string | null {
-  return bundle.maxQuantity !== undefined && qty > bundle.maxQuantity
-    ? `Bundle "${bundle.id}" is capped at ${bundle.maxQuantity} (retention ceiling)`
-    : null;
-}
-
-/** The set of bundle ids HELD (quantity > 0) in an add-on list. */
-function heldBundleIds(addons: readonly Addon[]): Set<string> {
-  return new Set(addons.filter((a) => a.quantity > 0).map((a) => a.bundleId));
-}
-
-/**
- * Generic `requires` gate (bundle.requires): the 400 message when `bundle`'s
- * prerequisite bundle ids are NOT all satisfied by the add-on set `next` (the set
- * AFTER the change), or null when satisfied / no prerequisites. A prerequisite
- * counts as satisfied when it is present in `next` — whether already held or added
- * in the same action (a combo/simultaneous add). Only enforced when `bundle`
- * itself is held after the change (qty > 0). Not compliance-specific: drives any
- * bundle with a `requires` list (e.g. `compliance_advanced`→`compliance_standard`).
- */
-function bundleRequiresError(bundle: BundleConfig, next: readonly Addon[], bundles: readonly BundleConfig[]): string | null {
-  const requires = bundle.requires ?? [];
-  if (requires.length === 0) return null;
-  const held = heldBundleIds(next);
-  if (!held.has(bundle.id)) return null; // bundle isn't being added/kept — nothing to gate
-  const missing = requires.filter((r) => !held.has(r));
-  if (missing.length === 0) return null;
-  const byId = new Map(bundles.map((b) => [b.id, b]));
-  const names = missing.map((r) => byId.get(r)?.name ?? r);
-  return `${bundle.name} requires the ${names.join(', ')} add-on`;
-}
-
-/**
- * Cascade-remove: after a bundle is removed, any OTHER held bundle whose
- * `requires[]` is no longer satisfied by the remaining set must go too (a
- * dependent can't outlive its prerequisite). Iterated to a fixpoint so a chain
- * (A requires B requires C; remove C ⇒ drop B then A) fully unwinds. Returns the
- * reduced add-on list plus the ids that were cascaded (for audit). Generic on
- * `bundle.requires` — not compliance-specific.
- */
-function cascadeRemoveDependents(
-  next: readonly Addon[],
-  bundles: readonly BundleConfig[],
-): { addons: Addon[]; removed: string[] } {
-  const byId = new Map(bundles.map((b) => [b.id, b]));
-  let addons: Addon[] = [...next];
-  const removed: string[] = [];
-  let changed = true;
-  while (changed) {
-    changed = false;
-    const held = heldBundleIds(addons);
-    for (const a of addons) {
-      if (a.quantity <= 0) continue;
-      const requires = byId.get(a.bundleId)?.requires ?? [];
-      if (requires.length > 0 && requires.some((r) => !held.has(r))) {
-        addons = applyAddon(addons, a.bundleId, 0);
-        removed.push(a.bundleId);
-        changed = true;
-        break;
-      }
-    }
-  }
-  return { addons, removed };
-}
-
-// The durable `metadata.providerAddonSyncPending` marker (crash-durability for the
-// provider sync) is now stamped inline in the guarded `findOneAndUpdate` of the add
-// + remove routes — `$set: { 'metadata.providerAddonSyncPending': true }` when the
-// sub has an `externalId` — so a crash before `syncProviderAddons` still leaves the
-// marker for `reconcileFailedProviderAddonSyncs` to re-drive (cleared on success).
-
-/** Catalog-time combo savings (`min-composition basket − combined price`, ≥ 0) for
- *  an interval — ownership-independent, for the "pair to save" nudge. Shares
- *  `comboBasisCents` with the credit math so the two can't drift. */
-function comboSavings(combo: ComboDiscountConfig, bundles: readonly BundleConfig[], interval: 'monthly' | 'annual'): number {
-  return Math.max(0, comboBasisCents(combo, bundles, interval) - combo.prices[interval]);
-}
-
-/**
- * Itemized price breakdown: base plan line + one line per add-on, then a NEGATIVE
- * line per active combo discount (e.g. Analytics Suite −$20/mo when both DORA and
- * Team Usage Analytics are held). The combo credit is realized as a recurring
- * usage credit at invoice time; this line shows the customer the net up front so
- * `totalCents` matches what they'll effectively pay.
- */
-function priceBreakdown(
-  plan: { name: string; prices: { monthly: number; annual: number } },
-  addons: Addon[],
-  bundles: readonly BundleConfig[],
-  interval: 'monthly' | 'annual',
-): { interval: string; items: { label: string; quantity: number; cents: number }[]; totalCents: number } {
-  const key = interval === 'annual' ? 'annual' : 'monthly';
-  const byId = new Map(bundles.map((b) => [b.id, b]));
-  const items = [{ label: plan.name, quantity: 1, cents: plan.prices[key] }];
-  for (const a of addons) {
-    const b = byId.get(a.bundleId);
-    if (b) items.push({ label: b.name, quantity: a.quantity, cents: b.prices[key] * a.quantity });
-  }
-  // Volume-discount lines (e.g. per-seat tiers) — negative, like combo credits. The
-  // pack line above stays full unit×qty; this line shows the discount so the net
-  // `totalCents` is what the customer effectively pays (realized as a usage credit).
-  for (const v of volumeCredits(addons, bundles, interval)) {
-    items.push({ label: `${v.name} volume discount`, quantity: 1, cents: -v.creditCents });
-  }
-  for (const combo of activeComboCredits(addons, bundles, getComboDiscounts(), interval)) {
-    items.push({ label: `${combo.name} discount`, quantity: 1, cents: -combo.creditCents });
-  }
-  return { interval, items, totalCents: items.reduce((s, i) => s + i.cents, 0) };
-}
-
-/** A combo gained/lost by a proposed add-on change (drives the removal warning + the
- *  `combo_expired` event). */
-type ComboChange = { comboId: string; name: string; creditCents: number };
-
-/**
- * The combo discounts LOST and GAINED moving from `current` → `next` add-ons. Diffed
- * on the packed active set (so it reflects real max-weight packing, not raw membership).
- */
-function comboDelta(
-  current: Addon[],
-  next: Addon[],
-  bundles: readonly BundleConfig[],
-  interval: 'monthly' | 'annual',
-): { lostCombos: ComboChange[]; gainedCombos: ComboChange[] } {
-  const combos = getComboDiscounts();
-  const before = activeComboCredits(current, bundles, combos, interval);
-  const after = activeComboCredits(next, bundles, combos, interval);
-  const afterIds = new Set(after.map((c) => c.comboId));
-  const beforeIds = new Set(before.map((c) => c.comboId));
-  return {
-    lostCombos: before.filter((c) => !afterIds.has(c.comboId)),
-    gainedCombos: after.filter((c) => !beforeIds.has(c.comboId)),
-  };
-}
 
 /** Emit a `combo_expired` billing event + audit record for each combo a bundle
  *  change dropped. Shared by the add and remove handlers (was copy-pasted). */
@@ -218,6 +64,62 @@ async function recordLostCombos(orgId: string, lost: ComboChange[], subscription
       details: { comboId: c.comboId, creditCents: c.creditCents, subscriptionId },
     }, 'billing');
   }
+}
+
+/**
+ * Commit an add-on change and run its side effects — shared by the add and remove
+ * handlers so the two can't drift:
+ *
+ * 1. Guarded write (optimistic concurrency): commit `addons` ONLY if the doc hasn't
+ *    changed since it was read (`__v` match), so two concurrent seat/add-on changes
+ *    can't clobber each other or both slip past the over-cap gate. The durable
+ *    `metadata.providerAddonSyncPending` marker rides the SAME write whenever the
+ *    sub has an `externalId`, so a crash before `syncProviderAddons` still leaves it
+ *    for `reconcileFailedProviderAddonSyncs` to re-drive (cleared on success).
+ * 2. Push EFFECTIVE entitlements (tier + all add-ons) to quota + platform with a
+ *    root-scoped service token, then rebuild the provider line items.
+ * 3. Record the local billing event + mirror it to the CENTRAL audit trail
+ *    (fire-and-forget; details are an explicit id/quantity whitelist — no
+ *    card/payment secret or AWS account id can leak).
+ *
+ * Returns the committed document, or `null` on a version miss (caller → 409; the
+ * client re-previews and retries).
+ */
+async function commitAddonChange(args: {
+  /** The loaded (hydrated) doc — its `__v` is the optimistic-concurrency guard. */
+  subscription: SubscriptionDocument & { __v?: number };
+  tier: Parameters<typeof syncEntitlements>[1];
+  orgId: string;
+  next: Addon[];
+  actorId: string | undefined;
+  source: 'addon_add' | 'addon_remove';
+  bundleId: string;
+  eventDetails: Record<string, unknown>;
+  auditDetails: Record<string, unknown>;
+}): Promise<SubscriptionDocument | null> {
+  const { subscription, tier, orgId, next, actorId, source, bundleId } = args;
+  const committed = await Subscription.findOneAndUpdate(
+    { _id: subscription._id, __v: subscription.__v },
+    {
+      $set: { addons: next, ...(subscription.externalId ? { 'metadata.providerAddonSyncPending': true } : {}) },
+      $inc: { __v: 1 },
+    },
+    { new: true },
+  );
+  if (!committed) return null;
+
+  const subscriptionId = committed._id.toString();
+  await syncEntitlements(orgId, tier, billingServiceAuth(orgId), subscriptionId, next);
+  await syncProviderAddons(committed.externalId, next, committed.interval, orgId, subscriptionId, source);
+  await createBillingEvent(orgId, 'subscription_updated', args.eventDetails, subscriptionId, actorId);
+  getAuditClient().record({
+    action: source === 'addon_add' ? 'billing.addon.add' : 'billing.addon.remove',
+    actorId: actorId ?? 'system',
+    orgId,
+    targetId: bundleId,
+    details: { ...args.auditDetails, subscriptionId },
+  }, 'billing');
+  return committed;
 }
 
 /**
@@ -289,17 +191,17 @@ export function createAddonRoutes(): Router {
     // A past_due account is exactly who needs the hosted portal (to add/fix a
     // payment method and stop dunning), so include the full non-terminal set.
     const subscription = await Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } });
-    if (!subscription?.externalCustomerId) return sendError(res, 404, 'No billing customer for this account');
+    if (!subscription?.externalCustomerId) return sendError(res, 404, 'No billing customer for this account', ErrorCode.NOT_FOUND);
 
     const provider = getPaymentProvider();
     if (!provider.createBillingPortalSession) {
-      return sendError(res, 501, 'The configured billing provider has no hosted payment portal');
+      return sendError(res, 501, 'The configured billing provider has no hosted payment portal', ErrorCode.NOT_IMPLEMENTED);
     }
 
     // Land the user back on the billing page. Prefer the request Origin (works
     // across every deploy host); fall back to the configured frontend URL.
     const origin = (req.headers.origin as string | undefined) || config.frontendUrl;
-    if (!origin) return sendError(res, 500, 'Cannot determine a return URL for the billing portal');
+    if (!origin) return sendError(res, 500, 'Cannot determine a return URL for the billing portal', ErrorCode.INTERNAL_ERROR);
     const returnUrl = `${origin.replace(/\/$/, '')}/dashboard/billing`;
 
     const url = await provider.createBillingPortalSession(subscription.externalCustomerId, returnUrl);
@@ -308,20 +210,20 @@ export function createAddonRoutes(): Router {
 
   // POST /billing/subscriptions/:id/addons/preview
   router.post('/subscriptions/:id/addons/preview', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
-    if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled');
-    if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace');
+    if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled', ErrorCode.NOT_FOUND);
+    if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace', ErrorCode.INSUFFICIENT_PERMISSIONS);
     const validation = validateBody(req, AddonMutateSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const { bundleId, quantity } = validation.value;
 
     const loaded = await loadSubAndPlan(orgId);
-    if (!loaded) return sendError(res, 404, 'No active subscription');
+    if (!loaded) return sendError(res, 404, 'No active subscription', ErrorCode.NOT_FOUND);
     const { subscription, plan } = loaded;
     if (!subscriptionIdMatches(req, subscription)) return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
 
     const bundles = getBundleCatalog();
     const resolved = resolvePurchasableBundle(bundles, bundleId, plan.tier);
-    if ('error' in resolved) return sendError(res, 400, resolved.error);
+    if ('error' in resolved) return sendError(res, 400, resolved.error, ErrorCode.VALIDATION_ERROR);
     const { bundle } = resolved;
 
     const qty = bundle.stackable ? Math.max(0, Math.trunc(quantity ?? 1)) : (quantity && quantity > 0 ? 1 : 0);
@@ -357,20 +259,20 @@ export function createAddonRoutes(): Router {
 
   // POST /billing/subscriptions/:id/addons — add or set a bundle quantity
   router.post('/subscriptions/:id/addons', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
-    if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled');
-    if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace');
+    if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled', ErrorCode.NOT_FOUND);
+    if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace', ErrorCode.INSUFFICIENT_PERMISSIONS);
     const validation = validateBody(req, AddonMutateSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const { bundleId, quantity } = validation.value;
 
     const loaded = await loadSubAndPlan(orgId);
-    if (!loaded) return sendError(res, 404, 'No active subscription');
+    if (!loaded) return sendError(res, 404, 'No active subscription', ErrorCode.NOT_FOUND);
     const { subscription, plan } = loaded;
     if (!subscriptionIdMatches(req, subscription)) return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
 
     const bundles = getBundleCatalog();
     const resolved = resolvePurchasableBundle(bundles, bundleId, plan.tier);
-    if ('error' in resolved) return sendError(res, 400, resolved.error);
+    if ('error' in resolved) return sendError(res, 400, resolved.error, ErrorCode.VALIDATION_ERROR);
     const { bundle } = resolved;
 
     // Stackable packs take a quantity (>=1); boolean feature bundles are qty 1.
@@ -409,41 +311,20 @@ export function createAddonRoutes(): Router {
       return sendError(res, 409, 'This change would put the account over its limit — remove members/resources first', ErrorCode.ADDON_OVER_CAP, { overages });
     }
 
-    // Guarded write (optimistic concurrency): commit `addons` ONLY if the doc
-    // hasn't changed since we read it (`__v` match), so two concurrent seat/add-on
-    // purchases can't clobber each other or both slip past the over-cap gate above.
-    // On a version miss → 409; the client re-previews and retries. Stamps the
-    // provider-sync-pending marker in the SAME write (durable if we crash before
-    // syncProviderAddons; cleared on success below).
-    const committed = await Subscription.findOneAndUpdate(
-      { _id: subscription._id, __v: subscription.__v },
-      {
-        $set: { addons: next, ...(subscription.externalId ? { 'metadata.providerAddonSyncPending': true } : {}) },
-        $inc: { __v: 1 },
-      },
-      { new: true },
-    );
-    if (!committed) {
-      return sendError(res, 409, 'This subscription was modified concurrently — please retry', 'CONCURRENT_MODIFICATION');
-    }
-
-    // Recompute + push EFFECTIVE entitlements (tier + all add-ons) to both
-    // targets (quota + platform). Root-scoped service token.
-    const serviceAuth = billingServiceAuth(orgId);
-    await syncEntitlements(orgId, plan.tier, serviceAuth, committed._id.toString(), next);
-    await syncProviderAddons(committed.externalId, next, committed.interval, orgId, committed._id.toString(), 'addon_add');
-    await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_added', bundleId, quantity: qty }, committed._id.toString(), req.user?.sub);
-
-    // Mirror the add-on purchase to the CENTRAL audit trail (alongside the local
-    // billing_events row). Fire-and-forget; details are an explicit id/quantity
-    // whitelist — no card/payment secret or AWS account id can leak.
-    getAuditClient().record({
-      action: 'billing.addon.add',
-      actorId: req.user?.sub ?? 'system',
+    const committed = await commitAddonChange({
+      subscription,
+      tier: plan.tier,
       orgId,
-      targetId: bundleId,
-      details: { bundleId, quantity: qty, subscriptionId: committed._id.toString() },
-    }, 'billing');
+      next,
+      actorId: req.user?.sub,
+      source: 'addon_add',
+      bundleId,
+      eventDetails: { reason: 'addon_added', bundleId, quantity: qty },
+      auditDetails: { bundleId, quantity: qty },
+    });
+    if (!committed) {
+      return sendError(res, 409, 'This subscription was modified concurrently — please retry', ErrorCode.CONFLICT);
+    }
 
     logger.info('Add-on applied', { orgId, bundleId, quantity: qty });
 
@@ -466,13 +347,13 @@ export function createAddonRoutes(): Router {
   // The over-cap gate below blocks a removal that would drop a pooled cap under
   // current usage (docs/billing-bundles.md §8); otherwise it removes + re-syncs.
   router.delete('/subscriptions/:id/addons/:bundleId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
-    if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled');
-    if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace');
+    if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled', ErrorCode.NOT_FOUND);
+    if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace', ErrorCode.INSUFFICIENT_PERMISSIONS);
     const bundleId = getParam(req.params, 'bundleId');
-    if (!bundleId) return sendError(res, 400, 'bundleId is required');
+    if (!bundleId) return sendError(res, 400, 'bundleId is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
     const loaded = await loadSubAndPlan(orgId);
-    if (!loaded) return sendError(res, 404, 'No active subscription');
+    if (!loaded) return sendError(res, 404, 'No active subscription', ErrorCode.NOT_FOUND);
     const { subscription, plan } = loaded;
     if (!subscriptionIdMatches(req, subscription)) return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
 
@@ -492,36 +373,20 @@ export function createAddonRoutes(): Router {
       return sendError(res, 409, 'Removing this bundle would put the account over its limit — remove members/resources first', ErrorCode.ADDON_OVER_CAP, { overages });
     }
 
-    // Guarded write (optimistic concurrency) — same rationale as the add path: only
-    // commit if `__v` still matches, so a concurrent change can't be clobbered. The
-    // marker (durable if we crash before syncProviderAddons) rides the same write.
-    const committed = await Subscription.findOneAndUpdate(
-      { _id: subscription._id, __v: subscription.__v },
-      {
-        $set: { addons: next, ...(subscription.externalId ? { 'metadata.providerAddonSyncPending': true } : {}) },
-        $inc: { __v: 1 },
-      },
-      { new: true },
-    );
-    if (!committed) {
-      return sendError(res, 409, 'This subscription was modified concurrently — please retry', 'CONCURRENT_MODIFICATION');
-    }
-
-    const serviceAuth = billingServiceAuth(orgId);
-    await syncEntitlements(orgId, plan.tier, serviceAuth, committed._id.toString(), next);
-    await syncProviderAddons(committed.externalId, next, committed.interval, orgId, committed._id.toString(), 'addon_remove');
-    await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_removed', bundleId }, committed._id.toString(), req.user?.sub);
-
-    // Mirror the add-on removal to the CENTRAL audit trail (alongside the local
-    // billing_events row). Fire-and-forget; details are an explicit id whitelist —
-    // no card/payment secret or AWS account id can leak.
-    getAuditClient().record({
-      action: 'billing.addon.remove',
-      actorId: req.user?.sub ?? 'system',
+    const committed = await commitAddonChange({
+      subscription,
+      tier: plan.tier,
       orgId,
-      targetId: bundleId,
-      details: { bundleId, subscriptionId: committed._id.toString() },
-    }, 'billing');
+      next,
+      actorId: req.user?.sub,
+      source: 'addon_remove',
+      bundleId,
+      eventDetails: { reason: 'addon_removed', bundleId },
+      auditDetails: { bundleId },
+    });
+    if (!committed) {
+      return sendError(res, 409, 'This subscription was modified concurrently — please retry', ErrorCode.CONFLICT);
+    }
 
     // Cascade-removed dependents (their `requires` prerequisite just went away):
     // record each as its own removal in the local billing_events + central audit

@@ -37,6 +37,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
 }));
 
 const { parsePluginZip, validateBuildArgs } = await import('../src/helpers/plugin-spec.js');
+const { extractionLimits } = await import('../src/helpers/zip-extract.js');
 
 // Helper: build an in-memory ZIP with the given entries
 function buildZip(entries: Record<string, string>): string {
@@ -308,6 +309,38 @@ commands:
     });
 
     await expect(parsePluginZip(zipPath)).rejects.toThrow('maximum entry count');
+  });
+
+  // A bare parseInt turned a typo'd value into NaN, and `total > NaN` is always
+  // false — silently DISABLING the zip-bomb cap.
+  it('a non-numeric cap falls back to the derived default instead of disabling the cap', async () => {
+    process.env.PLUGIN_MAX_EXTRACT_BYTES = 'unlimited-please';
+    process.env.PLUGIN_MAX_UPLOAD_MB = '1';
+    process.env.PLUGIN_MAX_EXTRACT_RATIO = '1';
+    try {
+      const zipPath = buildZip({
+        'plugin-spec.yaml': 'name: bomb\nversion: "1.0.0"\ncommands:\n  - echo hi\n',
+        'big.txt': 'A'.repeat(2 * 1024 * 1024), // 2 MB > the 1 MB × 1 derived ceiling
+      });
+
+      await expect(parsePluginZip(zipPath)).rejects.toThrow('maximum extracted size');
+    } finally {
+      delete process.env.PLUGIN_MAX_UPLOAD_MB;
+      delete process.env.PLUGIN_MAX_EXTRACT_RATIO;
+    }
+  });
+
+  it('extractionLimits() never yields NaN for garbage env values', () => {
+    process.env.PLUGIN_MAX_EXTRACT_BYTES = 'x';
+    process.env.PLUGIN_MAX_EXTRACT_ENTRIES = 'y';
+    process.env.PLUGIN_MAX_UPLOAD_MB = 'z';
+    process.env.PLUGIN_MAX_EXTRACT_RATIO = 'w';
+    try {
+      expect(extractionLimits()).toEqual({ maxBytes: 4096 * 1024 * 1024 * 50, maxEntries: 10000 });
+    } finally {
+      delete process.env.PLUGIN_MAX_UPLOAD_MB;
+      delete process.env.PLUGIN_MAX_EXTRACT_RATIO;
+    }
   });
 
   it('does not clean-abort a normal small ZIP under the (default) ceiling', async () => {

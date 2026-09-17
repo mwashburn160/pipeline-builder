@@ -1,12 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { CrudService, buildCompliancePolicyConditions, runWithTenantContext, schema, withTenantTx, type CompliancePolicyFilter } from '@pipeline-builder/pipeline-data';
-import { SQL, and, eq, isNull } from 'drizzle-orm';
+import { ConflictError } from '@pipeline-builder/api-core';
+import { CrudService, buildCompliancePolicyConditions, schema, withTenantTx, type CompliancePolicyFilter } from '@pipeline-builder/pipeline-data';
+import { SQL, and, eq, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
-import { complianceRuleService, ruleInsertFromSource } from './compliance-rule-service.js';
 
 export type CompliancePolicy = typeof schema.compliancePolicy.$inferSelect;
 export type CompliancePolicyInsert = typeof schema.compliancePolicy.$inferInsert;
@@ -47,62 +46,43 @@ export class CompliancePolicyService extends CrudService<
     return [schema.compliancePolicy.orgId, schema.compliancePolicy.name, schema.compliancePolicy.version];
   }
 
-  /** Find system-org template policies available for cloning. */
-  async findTemplates(): Promise<CompliancePolicy[]> {
-    return this.find({ isTemplate: true }, SYSTEM_ORG_ID);
-  }
-
   /**
-   * Clone a template policy and its rules into a target org.
-   *
-   * Reads the template's rules under sysadmin scope (templates live with
-   * `orgId='system'`, which the caller's RLS would otherwise hide), then
-   * re-inserts each as an org-scoped rule pointing at the new policy id.
-   * The new rules carry `createdBy/updatedBy = userId` and intentionally do
-   * NOT preserve the template's `id` / `forkedFromRuleId` lineage — a cloned
-   * template is a fresh starting point, not a tracked fork.
+   * Create a policy and link the org's existing rules (by name) to it in ONE
+   * transaction. The route previously wrapped `this.create(...)` in an outer
+   * `withTenantTx`, but `create` opens its OWN transaction (withTenantTx does not
+   * nest), so the policy row committed independently and a failure in the
+   * rule-link UPDATE left a policy with no rules. Both statements now run on the
+   * same `tx`. Like `CrudService.create`, it never overwrites: a live or deleted
+   * policy with the same org/name/version is a 409 (restore brings a deleted one
+   * back), and the rollback means no rules are re-linked either.
    */
-  async cloneTemplate(
-    templateId: string,
-    targetOrgId: string,
-    userId: string,
-  ): Promise<CompliancePolicy> {
-    const template = await this.findById(templateId, SYSTEM_ORG_ID);
-    if (!template) throw new Error('Template not found');
+  async createWithRules(data: CompliancePolicyInsert, ruleNames: string[] | undefined, userId: string): Promise<CompliancePolicy> {
+    const safeData = this.enforceOrgId(data, /* isCreate */ true);
+    const actor = userId || 'system';
+    return withTenantTx(async (tx) => {
+      const [created] = await tx
+        .insert(schema.compliancePolicy)
+        .values({ ...safeData, createdBy: actor, updatedBy: actor })
+        .onConflictDoNothing({
+          target: [schema.compliancePolicy.orgId, schema.compliancePolicy.name, schema.compliancePolicy.version],
+        })
+        .returning();
+      if (!created) {
+        throw new ConflictError(`A policy named "${safeData.name}" (version ${safeData.version ?? '1.0.0'}) already exists. If it was deleted, restore it instead.`);
+      }
 
-    const cloned = await this.create({
-      orgId: targetOrgId,
-      name: template.name,
-      description: template.description,
-      version: template.version,
-      isTemplate: false,
-      createdBy: userId,
-      updatedBy: userId,
-    } as CompliancePolicyInsert, userId);
-
-    // Look up the template's rules under sysadmin scope (template rows live
-    // outside the caller's org) and copy each into the target org.
-    const templateRules = await runWithTenantContext({ isSuperAdmin: true }, () =>
-      withTenantTx(async (tx) => tx
-        .select()
-        .from(schema.complianceRule)
-        .where(and(
-          eq(schema.complianceRule.policyId, template.id),
-          eq(schema.complianceRule.isActive, true),
-          isNull(schema.complianceRule.deletedAt),
-        ))),
-    );
-
-    for (const rule of templateRules) {
-      await complianceRuleService.create(ruleInsertFromSource(rule, {
-        orgId: targetOrgId,
-        policyId: cloned.id,
-        createdBy: userId,
-        updatedBy: userId,
-      }), userId);
-    }
-
-    return cloned;
+      // Link existing rules by name in a single batched UPDATE on the same tx.
+      if (ruleNames && ruleNames.length > 0) {
+        await tx
+          .update(schema.complianceRule)
+          .set({ policyId: created.id, updatedBy: actor, updatedAt: new Date() })
+          .where(and(
+            eq(schema.complianceRule.orgId, created.orgId),
+            inArray(schema.complianceRule.name, ruleNames),
+          ));
+      }
+      return created as CompliancePolicy;
+    });
   }
 }
 

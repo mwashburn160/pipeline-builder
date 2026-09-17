@@ -213,3 +213,76 @@ export function whenRedisReady(client: ReadyAwareRedis, timeoutMs = 30_000): Pro
     client.once!('ready', onReady);
   });
 }
+
+/** Default bound for {@link createRedisReadyGate}: short enough for a request path. */
+export const REQUEST_PATH_REDIS_READY_TIMEOUT_MS = 2_000;
+
+/**
+ * A request-path readiness gate for a lazily built env Redis client.
+ *
+ * The env client has no offline queue, so a command issued before the first
+ * connection completes is rejected outright — the first request after a lazy
+ * construction would otherwise hit that rejection (e.g. the first step-up per
+ * pod failing, or the first impersonation check reading "unavailable").
+ *
+ * The returned function resolves once the client is ready, or after
+ * `timeoutMs` — it NEVER rejects: the caller then runs its command and keeps its
+ * own fail-open / fail-closed semantics. Concurrent callers share one wait. After
+ * a wait times out (Redis genuinely down) later calls stop waiting until the
+ * client reports `ready` again, so an outage costs one bounded wait instead of
+ * adding `timeoutMs` to every request.
+ */
+export function createRedisReadyGate(
+  client: ReadyAwareRedis,
+  timeoutMs = REQUEST_PATH_REDIS_READY_TIMEOUT_MS,
+): () => Promise<void> {
+  let inflight: Promise<void> | null = null;
+  let gaveUp = false;
+  return () => {
+    if (client.status === undefined || client.status === 'ready' || !client.once) {
+      gaveUp = false;
+      return Promise.resolve();
+    }
+    if (gaveUp) return Promise.resolve();
+    if (!inflight) {
+      inflight = whenRedisReady(client, timeoutMs)
+        .catch(() => {
+          gaveUp = true;
+          // Re-arm the wait once the connection comes back.
+          client.once!('ready', () => { gaveUp = false; });
+        })
+        .finally(() => { inflight = null; });
+    }
+    return inflight;
+  };
+}
+
+/** The subset of ioredis needed by {@link incrWindow}. */
+export interface RedisEvalClient {
+  eval(script: string, numKeys: number, ...args: (string | number)[]): Promise<unknown>;
+}
+
+/**
+ * INCR a fixed-window counter and make sure it carries a TTL, atomically.
+ *
+ * A separate `INCR` then `EXPIRE` is not atomic: if the EXPIRE is lost (a
+ * connection drop, a failover between the two commands) the key never expires
+ * and the counter stays over its limit forever. The script also heals a key
+ * that somehow lacks a TTL (`PTTL` = -1) rather than only setting it on the
+ * first hit.
+ */
+const INCR_WINDOW_SCRIPT = `
+local n = redis.call('INCR', KEYS[1])
+if n == 1 or redis.call('PTTL', KEYS[1]) < 0 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+return n`;
+
+/**
+ * Increment `key` within a window of `windowMs` and return the new count.
+ * Throws when Redis errors — callers choose their own failure policy.
+ */
+export async function incrWindow(redis: RedisEvalClient, key: string, windowMs: number): Promise<number> {
+  const n = await redis.eval(INCR_WINDOW_SCRIPT, 1, key, Math.max(1, Math.ceil(windowMs)));
+  return Number(n);
+}

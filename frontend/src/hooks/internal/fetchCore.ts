@@ -11,10 +11,6 @@
  * write once cancelled (unmount / deps change). Consolidating it here keeps
  * the cancellation semantics — and the canonical `Error` error shape — in a
  * single place instead of three near-identical copies.
- *
- * Note: this is intentionally NOT used by `useAsync`, which uses a real
- * `AbortSignal` and a `string` error shape and carries many consumers that
- * depend on those contracts.
  */
 
 /**

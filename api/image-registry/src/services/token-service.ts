@@ -169,7 +169,7 @@ logger.info('Initialized token service', { issuer: config.tokenSigning.issuer })
  * the configured private key; the header carries the `x5c` cert chain so Docker
  * Distribution v3 verifies it against its `rootcertbundle`.
  */
-export function issueRegistryToken( identity: Identity,
+function issueRegistryToken( identity: Identity,
   access: RegistryScope[],
   account: string,
 ): string {

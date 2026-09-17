@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, LogQueryResult } from '@/types';
+import type { ApiResponse } from '@/types';
 
 export function observabilityApi(core: ApiCore) {
   return {
@@ -251,21 +251,6 @@ export function observabilityApi(core: ApiCore) {
         `/api/observability/alert-rules/${encodeURIComponent(id)}`,
         { method: 'DELETE' },
       );
-    },
-
-    // ============================================
-    // Log endpoints
-    // ============================================
-    getLogs: async (params?: { service?: string; level?: string; search?: string; start?: string; end?: string; limit?: number; direction?: string }) => {
-      return core.request<ApiResponse<LogQueryResult>>(`/api/logs${buildQuery(params)}`);
-    },
-
-    getLogServices: async () => {
-      return core.request<ApiResponse<{ services: string[] }>>('/api/logs/services');
-    },
-
-    getLogLevels: async () => {
-      return core.request<ApiResponse<{ levels: string[] }>>('/api/logs/levels');
     },
   };
 }

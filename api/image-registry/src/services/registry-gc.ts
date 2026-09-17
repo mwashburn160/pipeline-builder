@@ -14,6 +14,7 @@ import {
   isNotFound,
 } from './registry-client.js';
 import { invalidateStorageCache } from './storage-usage.js';
+import { repoOwnerOrgId } from '../routes/images/repo-access.js';
 
 const logger = createLogger('registry-gc');
 
@@ -170,8 +171,9 @@ async function resolveCreated(
  * weekly off-peak; we don't drive it from this app.
  *
  * Used by both:
- *  - the periodic CronJob (`deploy/{minikube,aws/ec2}/k8s/registry-gc-cronjob.yaml`)
- *    that runs daily across every `org-*` namespace, AND
+ *  - the in-process scheduler (`gc-scheduler.ts`, opt-in via
+ *    `REGISTRY_GC_ENABLED=true`) that sweeps every `org-*` namespace
+ *    (default every 24h), AND
  *  - the admin `POST /api/admin/gc` endpoint for manual one-off runs.
  */
 export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
@@ -299,10 +301,13 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
   // scheduler path (no request user). Details carry counts + the org namespace
   // (no secrets / AWS account ids).
   if (!dryRun && deleted > 0) {
+    const affectedOrgId = repoOwnerOrgId(prefix);
     emitImageRegistryAudit({
       action: 'registry.gc',
       actorId: actorId ?? 'system',
       ...(actorEmail && { actorEmail }),
+      // The org whose namespace was pruned (so its admins see the sweep).
+      ...(affectedOrgId && { affectedOrgId }),
       outcome: 'success',
       targetType: 'registry-namespace',
       targetId: prefix,

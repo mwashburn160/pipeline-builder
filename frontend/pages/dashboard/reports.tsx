@@ -1,8 +1,8 @@
-import { useRouter } from 'next/router';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { GitBranch, Puzzle, AlertTriangle, Gauge, Trophy } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useUrlTab } from '@/hooks/useUrlTab';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -28,6 +28,7 @@ const TOP_TABS: { id: TopTab; label: string; icon: typeof GitBranch }[] = [
   { id: 'dora', label: 'DORA', icon: Gauge },
   { id: 'scorecard', label: 'Scorecard', icon: Trophy },
 ];
+const TOP_TAB_IDS: readonly TopTab[] = TOP_TABS.map((t) => t.id);
 
 // Quick date-range presets. Each maps to a rolling window ending today; the
 // bounds are computed client-side as `YYYY-MM-DD` (the format the native date
@@ -93,38 +94,22 @@ function rangeCapFromError(error: string | null): number | null {
 // ─── Page ───────────────────────────────────────────────
 export default function ReportsPage() {
   const { user, isReady, isAuthenticated, can, isReadOnly } = useAuthGuard({ requirePermission: 'reports:read' });
-  const router = useRouter();
   // DORA / advanced delivery analytics is a paid-tier entitlement. Gates the tab
   // body (non-entitled → upsell teaser) and the fetches (skip to avoid a 403).
   const doraEnabled = useFeatures().isEnabled('advanced_reporting');
 
-  const [topTab, setTopTab] = useState<TopTab>('pipelines');
+  // `?tab=` on load and on browser back/forward; shallow URL write-back (the
+  // active tab component keys its own fetch off its filters).
+  const [topTab, selectTopTab] = useUrlTab<TopTab>('tab', TOP_TAB_IDS, 'pipelines');
 
-  // Honor ?tab=plugins|pipelines|dora on load and on browser back/forward.
-  useEffect(() => {
-    if (!router.isReady) return;
-    const raw = router.query.tab;
-    const tab = Array.isArray(raw) ? raw[0] : raw;
-    if (tab === 'plugins' || tab === 'pipelines' || tab === 'dora' || tab === 'scorecard') {
-      setTopTab((prev) => (prev === tab ? prev : tab));
-    }
-  }, [router.isReady, router.query.tab]);
-
-  // Switch the top-level tab and reflect it in the URL (shallow — the active tab
-  // component keys its own fetch off its filters, so no route-driven refetch).
   const changeTopTab = useCallback((id: TopTab) => {
-    setTopTab(id);
     // Clear the outgoing tab's status so the range-cap effect below can't record
     // one tab's over-range error against the newly-selected tab (cross-tab cap
     // leak). The incoming tab re-reports via onStatus on mount. `setStatus` is a
     // stable useState setter, resolved at call time.
     setStatus({ loading: true, error: null, refetch: () => {} });
-    void router.replace(
-      { pathname: router.pathname, query: { ...router.query, tab: id } },
-      undefined,
-      { shallow: true },
-    );
-  }, [router]);
+    selectTopTab(id);
+  }, [selectTopTab]);
 
   const [timeInterval, setTimeInterval] = useState<'day' | 'week' | 'month'>('week');
   const [dateFrom, setDateFrom] = useState('');
@@ -174,15 +159,15 @@ export default function ReportsPage() {
 
   // Detect whether the active org parents any teams (subtree larger than self),
   // so the rollup toggle only shows when there's something to roll up.
+  const activeOrgId = user?.organizationId;
   useEffect(() => {
-    if (!isReady || !user || !canRollup || !user.organizationId) return;
+    if (!isReady || !canRollup || !activeOrgId) return;
     let cancelled = false;
-    void api.getOrganizationDescendants(user.organizationId)
+    void api.getOrganizationDescendants(activeOrgId)
       .then((res) => { if (!cancelled) setHasTeams((res.data?.orgIds?.length ?? 0) > 1); })
       .catch(() => { /* best-effort — no toggle if it fails */ });
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isReady, user, canRollup]);
+  }, [isReady, activeOrgId, canRollup]);
 
   if (!isReady || !user) return <LoadingPage />;
 

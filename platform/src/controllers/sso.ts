@@ -41,13 +41,13 @@ const logger = createLogger('sso-controller');
 
 /** Cap on the in-memory pending-state fallback (same default + override knob as
  *  the OAuth surface). Each entry is ~120 bytes. */
-const MAX_PENDING_STATES = parseInt(process.env.OAUTH_MAX_PENDING_STATES || '1000', 10);
+const MAX_PENDING_STATES = config.oauth.maxPendingStates;
 
 /** Cross-pod pending-state store (env Redis; process-local Map fallback):
  *  state → { orgId it was minted for, the nonce echoed in the id_token }.
  *  Backing this with Redis is what lets the SSO initiate + callback land on
  *  different replicas without the callback losing the state. */
-const pendingSsoStates = createPendingStateStore<{ orgId: string; nonce: string; createdAt: number }>({
+const pendingSsoStates = createPendingStateStore<{ orgId: string; nonce: string }>({
   prefix: 'sso:state:',
   ttlMs: config.oauth.stateTtlMs,
   cleanupIntervalMs: config.oauth.cleanupIntervalMs,
@@ -70,7 +70,7 @@ export const getSsoAuthUrl = withController('Get SSO URL', async (req, res) => {
   const nonce = crypto.randomBytes(16).toString('hex');
   const url = await buildAuthorizeUrl(cfg, state, nonce);
 
-  await pendingSsoStates.put(state, { orgId, nonce, createdAt: Date.now() });
+  await pendingSsoStates.put(state, { orgId, nonce });
 
   sendSuccess(res, 200, { url, state });
 }, OIDC_ERROR_MAP);

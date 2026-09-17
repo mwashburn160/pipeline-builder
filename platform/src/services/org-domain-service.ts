@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { promises as dns } from 'dns';
 import { createLogger } from '@pipeline-builder/api-core';
 import { Types, isValidObjectId } from 'mongoose';
+import { DOMAIN_TAKEN, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_VERIFY_FAILED, DOMAIN_NOT_ENTITLED, DOMAIN_LIMIT, DOMAIN_PUBLIC, JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT, JOIN_REQUEST_NOT_FOUND, JOIN_REQUESTER_GONE } from './org-domain-errors.js';
 import { ensureBaselineRole } from './roles-service.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -15,19 +16,6 @@ import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('org-domain-service');
 
-/** Domain error codes — thrown by the service and mapped to HTTP statuses in the
- *  controller error maps. (JOIN_MEMBERSHIP_REVOKED below is internal-only — it's
- *  caught inside this module and never reaches a controller.) */
-export const DOMAIN_TAKEN = 'DOMAIN_TAKEN';
-export const DOMAIN_NOT_FOUND = 'DOMAIN_NOT_FOUND';
-export const DOMAIN_NOT_VERIFIED = 'DOMAIN_NOT_VERIFIED';
-export const DOMAIN_VERIFY_FAILED = 'DOMAIN_VERIFY_FAILED';
-export const DOMAIN_NOT_ENTITLED = 'DOMAIN_NOT_ENTITLED';
-export const DOMAIN_LIMIT = 'DOMAIN_LIMIT';
-export const DOMAIN_PUBLIC = 'DOMAIN_PUBLIC';
-export const JOIN_NOT_ELIGIBLE = 'JOIN_NOT_ELIGIBLE';
-export const JOIN_SEAT_LIMIT = 'JOIN_SEAT_LIMIT';
-export const JOIN_REQUEST_NOT_FOUND = 'JOIN_REQUEST_NOT_FOUND';
 /** Internal control-flow only (auto-join hit an admin-revoked membership → the
  *  caller downgrades to a request). Never mapped to an HTTP status. */
 const JOIN_MEMBERSHIP_REVOKED = 'JOIN_MEMBERSHIP_REVOKED';
@@ -427,6 +415,10 @@ class OrgDomainService {
    */
   private async createMembership(orgId: string, userId: Types.ObjectId, opts: { allowReactivate: boolean }): Promise<void> {
     await withMongoTransaction(async (session) => {
+      // The account may have been deleted since the request was filed (account
+      // deletion removes its join requests, but a decision can race it). Read in
+      // the transaction so the membership is never created for a missing user.
+      if (!(await User.exists({ _id: userId }).session(session))) throw new Error(JOIN_REQUESTER_GONE);
       const alreadyHasSeat = await userHasSeatInAccount(userId, orgId, session);
       if (!alreadyHasSeat && !(await seatCapacityAvailable(orgId, 1, session))) throw new Error(JOIN_SEAT_LIMIT);
 

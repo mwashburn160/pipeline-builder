@@ -139,7 +139,7 @@ describe('ComplianceRuleService', () => {
 
       const rules = await svc.findActiveByOrgAndTarget('org-1', 'plugin');
 
-      expect(svc.find).toHaveBeenCalledWith({ target: 'plugin', isActive: true }, 'org-1');
+      expect(svc.find).toHaveBeenCalledWith({ target: 'plugin', isActive: true, scope: 'org' }, 'org-1');
       expect(rules).toHaveLength(2);
       expect(cacheGetOrSet).toHaveBeenCalled();
     });

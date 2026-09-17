@@ -18,3 +18,16 @@
  * that already ended, or hide ones still running.
  */
 export const IMPERSONATION_SESSION_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+/** How long an approval (or a pending request) stays redeemable. */
+export const IMPERSONATION_REQUEST_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+/** A duration in whole minutes or hours, for user-facing text ("15 minutes", "1 hour"). */
+export function describeDuration(ms: number): string {
+  const minutes = Math.round(ms / 60_000);
+  if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return `${hours} hour${hours === 1 ? '' : 's'}`;
+  }
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+}

@@ -15,7 +15,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const clientGet = jest.fn<(path: string, opts?: unknown) => unknown>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createSafeClient: () => ({ get: clientGet, destroy: () => undefined }),
+  createSafeClient: () => ({ get: clientGet }),
   getServiceAuthHeader: () => 'Bearer test-service',
   setCounterEmitter: jest.fn(),
 }));
@@ -50,7 +50,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
 
 const { fetchQuotaSnapshot, fetchQuotaTypeUsage, fetchSeatUsage } = await import('../src/helpers/quota-client.js');
 
-beforeEach(() => clientGet.mockReset());
+beforeEach(() => { clientGet.mockReset(); });
 
 describe('fetchQuotaSnapshot', () => {
   it('parses data.quota from a 2xx envelope', async () => {
@@ -80,10 +80,6 @@ describe('fetchQuotaSnapshot', () => {
     expect(await fetchQuotaSnapshot('org-1', 'Bearer x')).toBeNull();
   });
 
-  it('is fail-soft when the client throws', async () => {
-    clientGet.mockImplementation(() => { throw new Error('boom'); });
-    expect(await fetchQuotaSnapshot('org-1', 'Bearer x')).toBeNull();
-  });
 });
 
 describe('fetchQuotaTypeUsage', () => {
@@ -93,10 +89,12 @@ describe('fetchQuotaTypeUsage', () => {
     expect(clientGet).toHaveBeenCalledWith('/quotas/org-1/plugins', { headers: { 'Authorization': 'Bearer x', 'x-org-id': 'org-1' } });
   });
 
-  it('returns null on a missing value or non-2xx', async () => {
+  it('returns null on a missing value, non-2xx, or transport failure', async () => {
     clientGet.mockReturnValue({ statusCode: 200, body: { data: {} } });
     expect(await fetchQuotaTypeUsage('org-1', 'plugins', 'Bearer x')).toBeNull();
     clientGet.mockReturnValue({ statusCode: 404, body: {} });
+    expect(await fetchQuotaTypeUsage('org-1', 'plugins', 'Bearer x')).toBeNull();
+    clientGet.mockReturnValue(null);
     expect(await fetchQuotaTypeUsage('org-1', 'plugins', 'Bearer x')).toBeNull();
   });
 });
@@ -118,8 +116,8 @@ describe('fetchSeatUsage', () => {
     expect(await fetchSeatUsage('org-1', 'Bearer x')).toBeNull();
   });
 
-  it('is fail-soft when the client throws', async () => {
-    clientGet.mockImplementation(() => { throw new Error('refused'); });
+  it('is fail-soft on a transport failure (the safe client resolves null)', async () => {
+    clientGet.mockReturnValue(null);
     expect(await fetchSeatUsage('org-1', 'Bearer x')).toBeNull();
   });
 });

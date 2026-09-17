@@ -10,7 +10,7 @@ import { CodeBlock } from '@/components/ui/CodeBlock';
 import { DescriptionList, type DescriptionItem } from '@/components/ui/DescriptionList';
 import { SegmentedFilter } from '@/components/ui/SegmentedFilter';
 import { Button } from '@/components/ui/Button';
-import { ReadOnlyNotice, READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
+import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { CopyButton } from '@/components/ui/CopyButton';
@@ -287,7 +287,7 @@ export default function TokensPage() {
               <ErrorAlert message={genError} />
               <SuccessAlert message={genSuccess} />
 
-              <Button onClick={handleGenerateToken} loading={generating} disabled={isReadOnly} title={isReadOnly ? READ_ONLY_REASON : undefined} className={genError || genSuccess ? 'mt-4' : ''}>
+              <Button onClick={handleGenerateToken} loading={generating} readOnly={isReadOnly} className={genError || genSuccess ? 'mt-4' : ''}>
                 {generating ? 'Generating...' : <><RefreshCw className="w-4 h-4 mr-2" />Generate Token</>}
               </Button>
             </SectionCard>
@@ -314,7 +314,7 @@ export default function TokensPage() {
           }
           description="Last 20 access tokens issued for your account, with computed status. Each unexpired + unrevoked token is an active session. JWTs cannot be revoked individually — use “Sign out everywhere” to invalidate all of them at once."
           actions={
-            <Button variant="danger" onClick={() => setPendingRevokeAll(true)} loading={revoking} disabled={isReadOnly} title={isReadOnly ? READ_ONLY_REASON : undefined} className="flex-shrink-0">
+            <Button variant="danger" onClick={() => setPendingRevokeAll(true)} loading={revoking} readOnly={isReadOnly} className="flex-shrink-0">
               {revoking ? 'Revoking…' : <><ShieldOff className="w-4 h-4 mr-2" />Sign out everywhere</>}
             </Button>
           }

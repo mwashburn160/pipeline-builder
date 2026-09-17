@@ -43,11 +43,14 @@ const mockSubscriptionFind = jest.fn<(...args: unknown[]) => any>();
 const mockSubscriptionFindById = jest.fn<(...args: unknown[]) => any>();
 const mockSubscriptionCountDocuments = jest.fn<(...args: unknown[]) => Promise<number>>();
 
+const mockSubscriptionDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ deletedCount: 0 });
+
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: {
     find: mockSubscriptionFind,
     findById: mockSubscriptionFindById,
     countDocuments: mockSubscriptionCountDocuments,
+    deleteMany: mockSubscriptionDeleteMany,
   },
 }));
 
@@ -61,10 +64,13 @@ jest.unstable_mockModule('../src/models/plan.js', () => ({
 const mockBillingEventFind = jest.fn<(...args: unknown[]) => any>();
 const mockBillingEventCountDocuments = jest.fn<(...args: unknown[]) => Promise<number>>();
 
+const mockBillingEventDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ deletedCount: 0 });
+
 jest.unstable_mockModule('../src/models/billing-event.js', () => ({
   BillingEvent: {
     find: mockBillingEventFind,
     countDocuments: mockBillingEventCountDocuments,
+    deleteMany: mockBillingEventDeleteMany,
   },
 }));
 
@@ -133,9 +139,12 @@ jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
 // Payment provider — an admin plan change must push the new price to the
 // provider (provider-first), mirroring the user-facing PUT /subscriptions/:id.
 const mockUpdateSubscription = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+// The org-cascade DELETE provider-cancels every billable sub before the local delete.
+const mockCancelSubscription = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
   getPaymentProvider: () => ({
     updateSubscription: mockUpdateSubscription,
+    cancelSubscription: mockCancelSubscription,
   }),
 }));
 
@@ -512,6 +521,42 @@ describe('PUT /admin/subscriptions/:id', () => {
     );
   });
 
+  it('pushes the new cadence to the provider on an INTERVAL-ONLY override (current plan, new interval)', async () => {
+    // No planId: the provider must still be re-priced to `{currentPlan}_{newInterval}`,
+    // otherwise it keeps invoicing the old cadence while the record says annual.
+    const sub = makeSubscription({ planId: 'team', interval: 'monthly', externalId: 'ext-stripe-4' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockValidateBody.mockReturnValue({ ok: true, value: { interval: 'annual' } });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    expect(mockUpdateSubscription).toHaveBeenCalledWith('ext-stripe-4', 'team', 'annual');
+    expect(sub.interval).toBe('annual');
+    expect(sub.save).toHaveBeenCalled();
+  });
+
+  it('aborts an interval-only override before save when the provider push fails', async () => {
+    const sub = makeSubscription({ planId: 'team', interval: 'monthly', externalId: 'ext-stripe-5' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockValidateBody.mockReturnValue({ ok: true, value: { interval: 'annual' } });
+    mockUpdateSubscription.mockRejectedValueOnce(new Error('stripe cadence push failed'));
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    expect(sub.save).not.toHaveBeenCalled();
+    expect(mockCreateBillingEvent).not.toHaveBeenCalled();
+  });
+
+  it('does NOT push to the provider for an unchanged interval with no plan change', async () => {
+    const sub = makeSubscription({ planId: 'team', interval: 'monthly', externalId: 'ext-stripe-6' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockValidateBody.mockReturnValue({ ok: true, value: { interval: 'monthly', cancelAtPeriodEnd: true } });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    expect(mockUpdateSubscription).not.toHaveBeenCalled();
+  });
+
   it('attributes the override to the acting sysadmin (actorId = caller sub)', async () => {
     const sub = makeSubscription({ planId: 'developer' });
     mockSubscriptionFindById.mockResolvedValue(sub);
@@ -706,6 +751,96 @@ describe('PUT /admin/subscriptions/:id', () => {
     await handler(req, res);
 
     expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'Invalid field', 'VALIDATION_ERROR');
+  });
+});
+
+describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
+  const handler = getHandler('delete', '/subscriptions/by-org/:orgId');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockIsSystemAdmin.mockReturnValue(true);
+    mockSubscriptionDeleteMany.mockResolvedValue({ deletedCount: 1 });
+    mockBillingEventDeleteMany.mockResolvedValue({ deletedCount: 2 });
+  });
+
+  it('mirrors each removed subscription to the CENTRAL audit trail (no secrets)', async () => {
+    const sub = makeSubscription({
+      _id: { toString: () => 'sub-9' },
+      orgId: 'org-9',
+      externalCustomerId: 'cus_LEAKED',
+      stripeCustomerId: 'cus_LEAKED',
+    });
+    mockSubscriptionFind.mockReturnValue({ limit: jest.fn().mockResolvedValue([sub]) });
+    mockCancelSubscription.mockResolvedValue(undefined);
+
+    // The handler uses the :orgId param + req.user.sub (a sysadmin / service caller).
+    const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
+    await handler(req, mockRes());
+
+    expect(mockAuditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'billing.subscription.delete',
+        actorId: 'sysadmin-1',
+        orgId: 'org-9',
+        targetId: 'sub-9',
+        details: expect.objectContaining({ planId: 'pro', orgId: 'org-9' }),
+      }),
+      'billing',
+    );
+    const [event] = mockAuditRecord.mock.calls[0];
+    expect(JSON.stringify(event)).not.toContain('cus_LEAKED');
+  });
+
+  it('looks up the manageable (non-terminal) set, not just active, for the provider-cancel sweep', async () => {
+    mockSubscriptionFind.mockReturnValue({ limit: jest.fn().mockResolvedValue([]) });
+    const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
+    await handler(req, mockRes());
+
+    expect(mockSubscriptionFind).toHaveBeenCalledWith({
+      orgId: 'org-9',
+      status: { $in: expect.arrayContaining(['active', 'trialing', 'past_due']) },
+    });
+  });
+
+  it('provider-cancels a trialing sub before the local cascade (live externalId would keep billing otherwise)', async () => {
+    // A trialing row carries a live externalId at the provider. Before the fix
+    // the sweep matched only status:'active', so deleteMany wiped the local row
+    // while the provider kept billing with nothing left to reconcile.
+    const trialing = makeSubscription({
+      _id: { toString: () => 'sub-trial' },
+      orgId: 'org-9',
+      status: 'trialing',
+      externalId: 'ext-trial-1',
+    });
+    mockSubscriptionFind.mockReturnValue({ limit: jest.fn().mockResolvedValue([trialing]) });
+    mockCancelSubscription.mockResolvedValue(undefined);
+
+    const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
+    await handler(req, mockRes());
+
+    expect(mockCancelSubscription).toHaveBeenCalledWith('ext-trial-1');
+    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9' });
+  });
+
+  it('continues the local cascade when a provider-cancel fails (fail-soft)', async () => {
+    const trialing = makeSubscription({
+      _id: { toString: () => 'sub-trial' },
+      orgId: 'org-9',
+      status: 'trialing',
+      externalId: 'ext-trial-1',
+    });
+    mockSubscriptionFind.mockReturnValue({ limit: jest.fn().mockResolvedValue([trialing]) });
+    mockCancelSubscription.mockRejectedValue(new Error('provider down'));
+
+    const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    // Provider failure is swallowed; the local delete still runs and the route
+    // returns 200 (not 500).
+    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9' });
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({ deleted: 1 }));
   });
 });
 

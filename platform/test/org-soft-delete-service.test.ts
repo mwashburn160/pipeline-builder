@@ -45,7 +45,8 @@ const mockUserOrgFind = jest.fn();
 const mockUserUpdateMany = jest.fn();
 const mockPatUpdateMany = jest.fn();
 
-jest.unstable_mockModule('../src/models/audit-event.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: jest.fn(() => ({ lean: () => [] })), create: jest.fn() } }));
+const auditExportQuery = { sort: () => auditExportQuery, limit: () => auditExportQuery, lean: async () => [] };
+jest.unstable_mockModule('../src/models/audit-event.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: jest.fn(() => auditExportQuery), create: jest.fn() } }));
 jest.unstable_mockModule('../src/models/invitation.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: jest.fn(() => ({ lean: () => [] })) } }));
 jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({ __esModule: true, default: { deleteMany: jest.fn() } }));
 jest.unstable_mockModule('../src/models/organization.js', () => ({
@@ -62,8 +63,8 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
 }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 
-const { softDeleteOrg, ORG_ALREADY_DELETED, ORG_SNAPSHOT_FAILED, ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN } =
-  await import('../src/services/org-cascade-service.js');
+const { softDeleteOrg } = await import('../src/services/org-cascade-service.js');
+const { ORG_ALREADY_DELETED, ORG_SNAPSHOT_FAILED, ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN } = await import('../src/services/org-errors.js');
 
 const SYSTEM_ORG_ID = '000000000000000000000001';
 
@@ -99,7 +100,7 @@ describe('softDeleteOrg', () => {
     const [uFilter, uUpdate] = mockUserUpdateMany.mock.calls[0] as [any, any];
     expect(uFilter).toEqual({ _id: { $in: ['u1', 'u2'] } });
     expect(uUpdate.$inc).toEqual({ tokenVersion: 1 });
-    expect(uUpdate.$unset).toEqual({ refreshToken: '' });
+    expect(uUpdate.$set).toEqual({ refreshSessions: [] });
 
     expect(result.membersInvalidated).toBe(2);
     expect(result.snapshotId).toBe('snap-1');
@@ -130,6 +131,16 @@ describe('softDeleteOrg', () => {
     await expect(softDeleteOrg('org-acme', SYSTEM_ORG_ID, 'admin-1')).rejects.toThrow(ORG_SNAPSHOT_FAILED);
 
     // Critically: the org must NOT be tombstoned and no sessions cut.
+    expect(mockOrgUpdateOne).not.toHaveBeenCalled();
+    expect(mockUserUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('ABORTS and does NOT tombstone when any store cannot be read — the snapshot must be complete', async () => {
+    mockSelectChain.where.mockRejectedValueOnce(new Error('relation down'));
+
+    await expect(softDeleteOrg('org-acme', SYSTEM_ORG_ID, 'admin-1')).rejects.toThrow(ORG_SNAPSHOT_FAILED);
+
+    expect(mockSnapshotCreate).not.toHaveBeenCalled();
     expect(mockOrgUpdateOne).not.toHaveBeenCalled();
     expect(mockUserUpdateMany).not.toHaveBeenCalled();
   });

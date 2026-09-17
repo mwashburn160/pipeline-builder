@@ -166,13 +166,12 @@ export default function DashboardPage() {
   }, [isAuthenticated, trendRange]);
 
   // Read onboarding flags from localStorage once the user/org is known.
+  const orgIdForOnboarding = user?.organizationId ?? '';
   useEffect(() => {
-    if (typeof window === 'undefined' || !user) return;
-    const orgId = user.organizationId ?? '';
-    if (!orgId) return;
-    setOnboardingDismissed(localStorage.getItem(dismissKey(orgId)) === '1');
-    setOnboardingVisitedPlugins(localStorage.getItem(visitedPluginsKey(orgId)) === '1');
-  }, [user]);
+    if (typeof window === 'undefined' || !orgIdForOnboarding) return;
+    setOnboardingDismissed(localStorage.getItem(dismissKey(orgIdForOnboarding)) === '1');
+    setOnboardingVisitedPlugins(localStorage.getItem(visitedPluginsKey(orgIdForOnboarding)) === '1');
+  }, [orgIdForOnboarding]);
 
   // ─── Computed (must run on every render — hooks before early return) ───
 

@@ -4,14 +4,16 @@
 /**
  * Sending an impersonation CHALLENGE — asking someone to approve a session.
  *
- * Not yet reached: sessions still auto-approve until the consent policy is
- * switched on. Built now so that switch is the only thing left to land.
+ * Reached when the target org's effective policy is `consent`: the request waits
+ * `pending` until the named approver (or an org admin) decides.
  */
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { sendInAppNotificationConfirmed } from './in-app-notify.js';
+import { describeDuration, IMPERSONATION_REQUEST_TTL_MS, IMPERSONATION_SESSION_TTL_MS } from '../constants/impersonation.js';
 import type { ImpersonationApproverMode } from '../models/index.js';
 import { User, UserOrganization } from '../models/index.js';
+import { CHALLENGE_SELF_APPROVAL_FORBIDDEN } from '../services/impersonation-errors.js';
 
 const logger = createLogger('impersonation-challenge');
 
@@ -21,10 +23,6 @@ const logger = createLogger('impersonation-challenge');
  */
 export const ACCESS_REQUESTS_PATH = '/dashboard/access-requests';
 
-/** The org forbids the impersonated user from approving their own session. */
-export const CHALLENGE_SELF_APPROVAL_FORBIDDEN = 'IMPERSONATION_SELF_APPROVAL_FORBIDDEN';
-/** No pinned org, so there are no admins to ask. */
-export const CHALLENGE_NO_ORG = 'IMPERSONATION_CHALLENGE_NO_ORG';
 
 /**
  * Decide where a challenge may go.
@@ -56,7 +54,7 @@ export interface ChallengeDelivery {
  *
  * The caller MUST treat `delivered === 0` as undeliverable rather than leaving
  * the request `pending`. Delivery is in-app only, so a failed message has no
- * fallback — and a pending request nobody can see would sit for an hour and
+ * fallback — and a pending request nobody can see would sit until it expires and
  * then expire, reading to the operator exactly like a refusal.
  */
 export async function sendImpersonationChallenge(input: {
@@ -93,9 +91,9 @@ export async function sendImpersonationChallenge(input: {
     `${requesterName} is asking to view ${input.mode === 'user' ? 'your account' : 'a member\'s account'} `
     + 'in this organization.\n\n'
     + reasonLine
-    + 'If approved, they will see what that account sees, for 15 minutes. It is view-only: '
+    + `If approved, they will see what that account sees, for ${describeDuration(IMPERSONATION_SESSION_TTL_MS)}. It is view-only: `
     + 'no changes can be made. You can end the session at any time. '
-    + 'The request expires in 1 hour if nobody responds.\n\n'
+    + `The request expires in ${describeDuration(IMPERSONATION_REQUEST_TTL_MS)} if nobody responds.\n\n`
     + `Approve or deny it: ${ACCESS_REQUESTS_PATH}`;
 
   const outcomes = await Promise.all(

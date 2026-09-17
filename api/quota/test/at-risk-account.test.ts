@@ -35,6 +35,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'],
   isSystemAdmin: jest.fn(),
+  requireSystemAdmin: jest.fn(),
   // read-quotas uses `requireAuth as RequestHandler` (a middleware directly),
   // and this suite runs the full stack — so mock it as a pass-through mw.
   requireAuth: (_req: any, _res: any, next: any) => next(),

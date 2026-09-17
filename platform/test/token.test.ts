@@ -52,6 +52,7 @@ jest.unstable_mockModule('crypto', () => {
 
 import jwt from 'jsonwebtoken';
 const {
+  MAX_REFRESH_SESSIONS,
   hashRefreshToken,
   issueTokens,
   verifyAccessToken,
@@ -133,7 +134,7 @@ describe('token utilities', () => {
   });
 
   describe('issueTokens', () => {
-    it('should generate tokens and persist hash + token-history record to DB', async () => {
+    it('opens a new refresh-session slot (capped) and records token history', async () => {
       const { User } = await import('../src/models/index.js') as unknown as { User: { updateOne: jest.Mock } };
       const user = mockUser();
 
@@ -141,11 +142,16 @@ describe('token utilities', () => {
 
       expect(result.accessToken).toBeDefined();
       expect(result.refreshToken).toBeDefined();
+      const sid = (jwt.decode(result.refreshToken) as { sid: string }).sid;
+      expect((jwt.decode(result.accessToken) as { sid: string }).sid).toBe(sid);
       expect(User.updateOne).toHaveBeenCalledWith(
         { _id: user._id },
         expect.objectContaining({
-          $set: { refreshToken: expect.stringMatching(/^[0-9a-f]{64}$/) },
           $push: {
+            refreshSessions: {
+              $each: [expect.objectContaining({ id: sid, hash: hashRefreshToken(result.refreshToken) })],
+              $slice: -MAX_REFRESH_SESSIONS,
+            },
             issuedTokens: {
               $each: [expect.objectContaining({
                 id: expect.stringMatching(/^[0-9a-f]{16}$/),

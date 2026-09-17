@@ -7,11 +7,9 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 // builds and assert the retrieved context is injected.
 
 const generateText = jest.fn(async (_args: unknown) => ({ text: 'grounded answer' }));
+let streamParts: Array<Record<string, unknown>> = [];
 const streamText = jest.fn((_args: unknown) => ({
-  textStream: (async function* () {
-    yield 'grounded ';
-    yield 'answer';
-  })(),
+  fullStream: (async function* () { for (const p of streamParts) yield p; })(),
 }));
 
 jest.unstable_mockModule('ai', () => ({ generateText, streamText }));
@@ -73,14 +71,40 @@ describe('answerHowTo', () => {
 describe('streamHowTo', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('returns sources immediately and a token stream', async () => {
+  it('returns sources immediately, then provider-responded and the text', async () => {
+    streamParts = [
+      { type: 'start' },
+      { type: 'start-step' },
+      { type: 'text-start', id: 't' },
+      { type: 'text-delta', id: 't', delta: 'grounded ' },
+      { type: 'text-delta', id: 't', delta: 'answer' },
+      { type: 'text-end', id: 't' },
+      { type: 'finish-step' },
+      { type: 'finish' },
+    ];
     const index = buildGroundingIndex(docs);
-    const { sources, textStream } = streamHowTo({ model: fakeModel, query: 'alertmanager incidents', index });
+    const { sources, events } = streamHowTo({ model: fakeModel, query: 'alertmanager incidents', index });
 
     expect(sources[0].id).toBe('deployment.md#alertmanager');
+    const seen: string[] = [];
     let out = '';
-    for await (const chunk of textStream) out += chunk;
+    for await (const e of events) {
+      seen.push(e.type);
+      if (e.type === 'text') out += e.text;
+    }
     expect(out).toBe('grounded answer');
+    expect(seen[0]).toBe('provider-responded');
     expect(streamText).toHaveBeenCalledTimes(1);
+  });
+
+  it('THROWS a provider error instead of ending as an empty answer', async () => {
+    // A failed provider call: `start` then a bare `error`, no `start-step`.
+    streamParts = [{ type: 'start' }, { type: 'error', error: new Error('invalid api key') }];
+    const index = buildGroundingIndex(docs);
+    const { events } = streamHowTo({ model: fakeModel, query: 'alertmanager incidents', index });
+
+    const seen: string[] = [];
+    await expect((async () => { for await (const e of events) seen.push(e.type); })()).rejects.toThrow('invalid api key');
+    expect(seen).not.toContain('provider-responded');
   });
 });

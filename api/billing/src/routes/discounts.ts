@@ -68,10 +68,12 @@ function toDiscountResponse(d: DiscountDocument): Record<string, unknown> {
 export function createDiscountRoutes(): Router {
   const router: Router = Router();
 
-  // Every discount route 404s when the feature is off — gate once here so a new
-  // route can't forget it (was an inline `if (!discountsEnabled())` in each handler).
-  router.use((_req, res, next) => {
-    if (!discountsEnabled()) return sendError(res, 404, 'Discounts are not enabled');
+  // Every discount route 404s when the feature is off — gated once here so a new
+  // route can't forget it. SCOPED to the discount path prefixes: this router is
+  // mounted at `/billing` ahead of the summary/usage/admin/marketplace/Stripe
+  // routers, so a path-less `router.use` would 404 every later billing route too.
+  router.use(['/admin/discounts', '/subscriptions/:id/discounts'], (_req, res, next) => {
+    if (!discountsEnabled()) return sendError(res, 404, 'Discounts are not enabled', ErrorCode.NOT_FOUND);
     next();
   });
 
@@ -121,7 +123,7 @@ export function createDiscountRoutes(): Router {
   // POST /billing/admin/discounts/:id/token — Mode B: mint/re-issue an opaque token.
   router.post('/admin/discounts/:id/token', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const id = getParam(req.params, 'id');
-    if (!id) return sendError(res, 400, 'id is required');
+    if (!id) return sendError(res, 400, 'id is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const discount = await Discount.findById(id);
     if (!discount) return sendError(res, 404, 'Discount not found', ErrorCode.NOT_FOUND);
     if (!discount.isActive) return sendError(res, 409, 'Cannot issue a token for an inactive discount', ErrorCode.DISCOUNT_INACTIVE);
@@ -137,7 +139,7 @@ export function createDiscountRoutes(): Router {
       });
     } catch (error) {
       logger.error('Token issuance failed — discount signing key unavailable', { discountId: id, error });
-      return sendError(res, 501, 'Discount code signing is not configured');
+      return sendError(res, 501, 'Discount code signing is not configured', ErrorCode.NOT_IMPLEMENTED);
     }
 
     await createBillingEvent(discount.targetOrgId ?? orgId, 'discount_issued', { discountId: id }, undefined, req.user?.sub);
@@ -155,7 +157,7 @@ export function createDiscountRoutes(): Router {
   // POST /billing/admin/discounts/:id/apply — Mode A: direct grant to a target org.
   router.post('/admin/discounts/:id/apply', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
     const id = getParam(req.params, 'id');
-    if (!id) return sendError(res, 400, 'id is required');
+    if (!id) return sendError(res, 400, 'id is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const validation = validateBody(req, DiscountApplySchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const { targetOrgId } = validation.value;
@@ -180,7 +182,7 @@ export function createDiscountRoutes(): Router {
   // POST /billing/admin/discounts/:id/preview — system dry-run on a target org.
   router.post('/admin/discounts/:id/preview', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
     const id = getParam(req.params, 'id');
-    if (!id) return sendError(res, 400, 'id is required');
+    if (!id) return sendError(res, 400, 'id is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const validation = validateBody(req, DiscountApplySchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const discount = await Discount.findById(id);
@@ -215,7 +217,7 @@ export function createDiscountRoutes(): Router {
   // GET /billing/admin/discounts/:id — inspect one.
   router.get('/admin/discounts/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
     const id = getParam(req.params, 'id');
-    if (!id) return sendError(res, 400, 'id is required');
+    if (!id) return sendError(res, 400, 'id is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const discount = await Discount.findById(id);
     if (!discount) return sendError(res, 404, 'Discount not found', ErrorCode.NOT_FOUND);
     return sendSuccess(res, 200, { discount: toDiscountResponse(discount) });
@@ -224,7 +226,7 @@ export function createDiscountRoutes(): Router {
   // PUT /billing/admin/discounts/:id — edit / revoke (isActive:false).
   router.put('/admin/discounts/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const id = getParam(req.params, 'id');
-    if (!id) return sendError(res, 400, 'id is required');
+    if (!id) return sendError(res, 400, 'id is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const validation = validateBody(req, DiscountUpdateSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
@@ -234,7 +236,7 @@ export function createDiscountRoutes(): Router {
     if (body.maxRedemptions !== undefined) update.maxRedemptions = body.maxRedemptions;
     if (body.redeemBy !== undefined) update.redeemBy = new Date(body.redeemBy);
     if (body.appliesToTiers !== undefined) update.appliesToTiers = body.appliesToTiers;
-    if (Object.keys(update).length === 0) return sendError(res, 400, 'No updatable fields provided');
+    if (Object.keys(update).length === 0) return sendError(res, 400, 'No updatable fields provided', ErrorCode.VALIDATION_ERROR);
 
     const discount = await Discount.findByIdAndUpdate(id, { $set: update }, { new: true });
     if (!discount) return sendError(res, 404, 'Discount not found', ErrorCode.NOT_FOUND);
@@ -256,7 +258,7 @@ export function createDiscountRoutes(): Router {
   // DELETE /billing/admin/discounts/:id — hard revoke.
   router.delete('/admin/discounts/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const id = getParam(req.params, 'id');
-    if (!id) return sendError(res, 400, 'id is required');
+    if (!id) return sendError(res, 400, 'id is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const discount = await Discount.findByIdAndUpdate(id, { $set: { isActive: false } }, { new: true });
     if (!discount) return sendError(res, 404, 'Discount not found', ErrorCode.NOT_FOUND);
     await createBillingEvent(discount.targetOrgId ?? orgId, 'discount_revoked', { discountId: id }, undefined, req.user?.sub);
@@ -312,10 +314,10 @@ export function createDiscountRoutes(): Router {
   // provider (discounts are usage credits, not coupons).
   router.delete('/subscriptions/:id/discounts/:discountId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const discountId = getParam(req.params, 'discountId');
-    if (!discountId) return sendError(res, 400, 'discountId is required');
+    if (!discountId) return sendError(res, 400, 'discountId is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
     const subscription = await loadManageableSubscription(orgId);
-    if (!subscription) return sendError(res, 404, 'No active subscription');
+    if (!subscription) return sendError(res, 404, 'No active subscription', ErrorCode.NOT_FOUND);
     if (subscription.recurringDiscount?.discountId !== discountId) {
       return sendError(res, 404, 'No active recurring discount with that id', ErrorCode.NOT_FOUND);
     }

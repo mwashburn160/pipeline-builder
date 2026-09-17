@@ -19,6 +19,7 @@ import { withRoute, incCounter, observe, withSpan } from '@pipeline-builder/api-
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
+import { clientAbortSignal } from '../client-abort.js';
 import { AskBodySchema } from '../request-schema.js';
 import { buildAgentTools } from '../services/agent-tools.js';
 import { getAuditClient } from '../services/audit.js';
@@ -57,7 +58,7 @@ const AGENT_SYSTEM = [
  * action in the UI. Reuses `ai_generation` gating.
  *
  * Quota: this turn reserves ONE `aiCalls` slot for the agent's own reasoning
- * (refunded on abort/error, kept on completion). Note the delegated generators —
+ * (kept once the provider has responded; refunded on an abort/error before it did). Note the delegated generators —
  * `propose_pipeline`/`propose_plugin` → pipeline/plugin `/generate` — each reserve
  * their OWN `aiCalls` slot (they are separate model invocations), so a turn that
  * drafts a pipeline/plugin draws more than one slot. `propose_template` generates
@@ -95,12 +96,12 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
       return sendQuotaReserveDenied(res, 'aiCalls', reservation);
     }
     let reserved = true;
-    // True once the FIRST stream part arrives — proof the provider responded and
-    // its $ cost was incurred. Mirrors the pipeline streaming routes. Without
-    // it, the refund below fired unconditionally, INCLUDING for the
-    // `case 'error'` raised from inside `fullStream` (i.e. strictly after the
-    // model round-trip), so a client that provoked mid-stream provider errors
-    // burned tokens without ever consuming quota.
+    // True once the provider actually RESPONDED — i.e. the SDK emitted a
+    // 'start-step' part. The ai SDK emits 'start' synchronously before any
+    // provider call, and emits 'start-step' only on the first chunk of the
+    // provider's response stream; a provider failure before that (bad key,
+    // 5xx, network) surfaces as a bare 'error' part with no 'start-step'.
+    // Keep the slot once contacted (its $ cost was incurred); refund otherwise.
     let providerContacted = false;
 
     // Audit trail (safe metadata only — never the raw query text): what tools the
@@ -139,10 +140,9 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         orgId,
       });
 
-      const sse = initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
+      initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
       // Abort the model loop when the client disconnects (avoids wasted spend).
-      const abortController = new AbortController();
-      req.on('close', () => abortController.abort());
+      const abortSignal = clientAbortSignal(res);
       // Custom span around the model's tool-calling loop — the AI path is the
       // thing an operator actually debugs (slow/hung generation, provider stalls),
       // and auto-instrumentation gives it no detail. `span` records tool usage.
@@ -153,12 +153,12 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
           messages: [...(history ?? []), { role: 'user', content: query }],
           tools,
           stopWhen: stepCountIs(6),
-          abortSignal: abortController.signal,
+          abortSignal,
         });
 
         for await (const part of stream.fullStream) {
-          providerContacted = true;
-          if (sse.aborted()) break;
+          if (part.type === 'start-step') providerContacted = true;
+          if (abortSignal.aborted) break;
           switch (part.type) {
             case 'text-delta':
               res.write(`data: ${JSON.stringify({ type: 'token', data: part.text })}\n\n`);
@@ -191,7 +191,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         return stream;
       }, { 'pb.provider': providerLabel });
 
-      if (!sse.aborted()) {
+      if (!abortSignal.aborted) {
         res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
         res.write('data: [DONE]\n\n');
         observe('ai_generation_duration_seconds', { route: 'agent', provider: providerLabel }, (Date.now() - startedAt) / 1000);
@@ -208,8 +208,8 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
           .catch(() => { /* usage unavailable for this provider — skip */ });
         auditTurn('success');
       } else {
-        // Refund ONLY if the provider was never reached; an abort after the
-        // first token still cost us the call.
+        // Refund ONLY if the provider never responded; an abort after its
+        // first response chunk still cost us the call.
         if (!providerContacted) {
           decrementQuota(quotaService, orgId, 'aiCalls', quotaAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;

@@ -81,8 +81,6 @@ This reference documents every environment variable across the Pipeline Builder 
 | `BCRYPT_SALT_ROUNDS` | `12` | bcrypt cost factor for password hashing (10-12 recommended). |
 | `REFRESH_TOKEN_EXPIRES_IN` | `2592000` | Refresh token TTL (30d) |
 | `PASSWORD_MIN_LENGTH` | `8` | Minimum password length |
-| `COOKIE_SAME_SITE` | `lax` | `lax`, `strict`, or `none` for refresh cookie |
-| `COOKIE_SECURE` | `false` (auto-true in prod) | Set `true` to force the `secure` cookie flag; auto-enabled when `NODE_ENV=production` |
 | `BOOTSTRAP_SUPERADMIN_EMAILS` | — | Comma-separated user emails auto-promoted to `isSuperAdmin=true` at platform boot. **Required for fresh installs** — the first sysadmin can only be granted through this env or a direct DB update. Idempotent. |
 
 ### Multi-team secret encryption
@@ -208,6 +206,9 @@ deployment. The redirect URI to register in each provider's console is
 | `IMAGE_REGISTRY_PORT` | `5000` | Registry port |
 | `IMAGE_REGISTRY_USER` | `admin` | Registry username |
 | `IMAGE_REGISTRY_TOKEN` | — | Registry password/token |
+| `REGISTRY_TOKEN_RATE_LIMIT_MAX` | `60` | image-registry `/token`: requests per window per (source IP, username) |
+| `REGISTRY_TOKEN_RATE_LIMIT_IP_MAX` | `300` | image-registry `/token`: requests per window per source IP across all usernames (stops password spraying) |
+| `REGISTRY_TOKEN_RATE_LIMIT_WINDOW_MS` | `60000` | image-registry `/token` rate-limit window (ms) |
 | `IMAGE_REGISTRY_HTTP` | `true` | Plugin builds talk to the in-cluster registry over plain HTTP. Set `false` only if the registry is exposed via a TLS-terminating proxy with a publicly trusted cert. |
 | `IMAGE_REGISTRY_TOKEN_REALM` | `${PLATFORM_BASE_URL}/image-registry/token` | Bearer-token realm the plugin keys its registry credential under. **Must match the registry's `REGISTRY_AUTH_TOKEN_REALM`** (e.g. `http://image-registry:3000/token` in-cluster) — when the registry redirects a push to a different host than the push target, the plugin only sends Basic auth if it has a credential keyed under that realm host. Set on every target's plugin so pushes don't 401 / `insufficient_scope`. |
 
@@ -362,6 +363,7 @@ Attachments are validated against a MIME allow-list (common images + documents; 
 | `SCAN_SCHEDULER_INTERVAL_MS` | `60000` | Compliance scan scheduler interval (ms) |
 | `SYSTEM_ORG_SCANS_ENABLED` | `false` | Run scheduled scans for the system org too |
 | `SCAN_LOCK_TTL_MS` | `300000` | Scan scheduler cross-pod leader-lock TTL (ms); only one replica sweeps per tick |
+| `COMPLIANCE_SCAN_STALE_TIMEOUT_MS` | `7200000` | Mark a scan `failed` once it has been `running` this long (min 60000) |
 | `DIGEST_SCHEDULER_INTERVAL_MS` | `3600000` | How often the notification digest scheduler checks for due daily/weekly digests (ms) |
 | `DIGEST_LOCK_TTL_MS` | `300000` | Digest scheduler cross-pod leader-lock TTL (ms) |
 
@@ -485,10 +487,9 @@ Billing computes the effective window (`tierBase + Σ pack grant`, `-1` = unlimi
 | `LAMBDA_RUNTIME` | `nodejs24.x` | Lambda runtime |
 | `LAMBDA_TIMEOUT` | `900` | Timeout (seconds) |
 | `LAMBDA_MEMORY_SIZE` | `512` | Memory (MB) |
-| `LAMBDA_ARCHITECTURE` | `ARM_64` | `ARM_64` or `x86_64` |
+| `LAMBDA_ARCHITECTURE` | `ARM_64` | Plugin-lookup Lambda architecture: `ARM_64` or `x86_64` |
 | `CODEBUILD_COMPUTE_TYPE` | `SMALL` | `SMALL`, `MEDIUM`, `LARGE`, `X2_LARGE` |
 | `LOG_GROUP_NAME` | `/pipeline-builder/logs` | CloudWatch log group |
-| `LOG_RETENTION` | `7` | Log retention (days) |
 | `SECRETS_PATH_PREFIX` | `pipeline-builder` | AWS Secrets Manager path prefix |
 
 ---

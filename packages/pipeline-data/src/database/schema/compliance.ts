@@ -445,19 +445,7 @@ export const complianceReportSchedule = pgTable('compliance_report_schedules', {
   orgIdx: index('compliance_report_schedule_org_idx').on(table.orgId),
 }));
 
-// Per-org watermark for the billing→compliance entitlement sync
-// (`PUT /entitlements/:orgId`). Billing stamps each push with `occurredAt`; the
-// route skips any push not strictly newer than the stored value so out-of-order
-// deliveries (concurrent purchase + drift reconciler, retries) can't revert a
-// newer entitlement state. Sync metadata only — no tenant content, so no RLS.
-// MIGRATION REQUIRED: run `pnpm drizzle-kit generate` after pulling.
-export const complianceEntitlementWatermark = pgTable('compliance_entitlement_watermark', {
-  orgId: text('org_id').primaryKey(),
-  lastOccurredAt: timestamp('last_occurred_at', { withTimezone: true }).notNull(),
-});
-
 // Compliance types
-export type ComplianceEntitlementWatermark = typeof complianceEntitlementWatermark.$inferSelect;
 
 export type CompliancePolicy = typeof compliancePolicy.$inferSelect;
 export type CompliancePolicyInsert = typeof compliancePolicy.$inferInsert;

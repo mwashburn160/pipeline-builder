@@ -4,15 +4,15 @@
 import { z } from 'zod';
 
 /** Valid compliance rule operators — single source of truth for Zod validation. */
-export const VALID_OPERATORS = [
+const VALID_OPERATORS = [
   'eq', 'neq', 'contains', 'notContains', 'regex',
   'gt', 'gte', 'lt', 'lte', 'in', 'notIn',
   'exists', 'notExists', 'notEmpty', 'countGt', 'countLt', 'lengthGt', 'lengthLt',
 ] as const;
 
-export const OperatorEnum = z.enum(VALID_OPERATORS);
+const OperatorEnum = z.enum(VALID_OPERATORS);
 
-export const ConditionSchema = z.object({
+const ConditionSchema = z.object({
   field: z.string().min(1).max(100),
   operator: OperatorEnum,
   value: z.unknown().optional(),

@@ -82,15 +82,15 @@ export default function ExecutionsPage() {
   const { connected: liveConnected } = useExecutionStatusStream(user?.organizationId ?? null, refetch);
 
   // Detect whether the active org parents any teams (subtree larger than self).
+  const activeOrgId = user?.organizationId;
   useEffect(() => {
-    if (!isReady || !user || !canRollup || !user.organizationId) return;
+    if (!isReady || !canRollup || !activeOrgId) return;
     let cancelled = false;
-    void api.getOrganizationDescendants(user.organizationId)
+    void api.getOrganizationDescendants(activeOrgId)
       .then((res) => { if (!cancelled) setHasTeams((res.data?.orgIds?.length ?? 0) > 1); })
       .catch(() => { /* best-effort — no toggle if it fails */ });
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isReady, user, canRollup]);
+  }, [isReady, activeOrgId, canRollup]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

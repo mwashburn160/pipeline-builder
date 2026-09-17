@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, createQuotaService, registerComplianceEventSubscriber, requirePermission, requireStepUp, wireServiceSecurity } from '@pipeline-builder/api-core';
-import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
+import { createApp, runServer, checkQuota, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data';
 
 import { createBulkPipelineRoutes } from './routes/bulk-pipeline.js';
@@ -31,65 +31,67 @@ wireServiceSecurity('pipeline', getAuditClient);
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));
 
-// -- Create route FIRST — manages its own middleware (uses 'pipelines' quota).
-//    Must be before read routes so POST /pipelines doesn't run through the
-//    read routes' apiCalls quota check unnecessarily.
+// -- /pipelines mount order ---------------------------------------------------
+// Express runs an `app.use('/pipelines', ...guards, router)` mount's guards for
+// EVERY request under the prefix that reaches it, whether or not that router
+// then matches. Two rules follow:
+//
+//   1. Self-guarded routers (each route owns its full chain) mount FIRST, so a
+//      request they serve never also runs a shared prefix chain.
+//   2. Everything else shares ONE auth chain, mounted ONCE. The api-server chain
+//      factories embed `idempotencyMiddleware`, which reserves the request's
+//      Idempotency-Key and 409s on seeing its own pending reservation — so a
+//      keyed POST/PUT/DELETE that fell through two stacked
+//      `createAuthenticatedWithOrgRoute()` / `createProtectedRoute()` mounts was
+//      rejected by its own second pass (PUT /:id, DELETE /:id, POST /:id/purge,
+//      POST /:id/restore, and /bulk/* behind the old registry chain). The
+//      remaining gates (apiCalls quota, pipelines:write, step-up) are layered
+//      as plain middleware on the later mounts, each still running once.
+
+// -- Self-guarded routers (per-route auth chains) ----------------------------
+//    - create: its own 'pipelines' quota reserve (no apiCalls pre-flight).
+//    - generate: auth + orgId + ai_generation feature gate per route.
+//    - bulk: auth + orgId + pipelines:write + bulk_operations per route.
+//    - executions: POST-only, auth + orgId + pipelines:write per route.
+//    None of their guards leak onto sibling reads, and their literal/two-segment
+//    paths (`/bulk/create`, `/:pipelineId/executions`) are claimed before the
+//    read router's `/:id`.
 app.use('/pipelines', createCreatePipelineRoutes(quotaService));
-
-// -- AI generation routes — mounted plainly. Each route owns its auth + orgId +
-//    ai_generation feature gate (see generate-pipeline.ts), so the feature guard
-//    can't leak onto sibling reads under the shared '/pipelines' prefix.
 app.use('/pipelines', createGeneratePipelineRoutes(quotaService));
-
-// -- Registry route — must be BEFORE read routes so `/registry` doesn't get
-//    swallowed by read's `/:id` matcher (would 404 with "Pipeline not found.")
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createRegistryRoutes());
-
-// -- Bulk routes — mounted plainly. Each route owns its auth + orgId +
-//    pipelines:write + bulk_operations feature gate (see bulk-pipeline.ts), so
-//    those guards can't leak onto sibling reads. Still before read routes —
-//    `/bulk/create` must not hit `/:id`.
 app.use('/pipelines', createBulkPipelineRoutes(quotaService));
-
-// -- Execution write routes (trigger / cancel via AWS CodePipeline) ----------
-//    Mounted plainly. Each POST-only route owns its auth + orgId +
-//    pipelines:write gate (see executions.ts), so the write permission can't
-//    leak onto sibling reads. Paths (`/:pipelineId/executions` and
-//    `.../:executionId/stop`) won't collide with the read GET `/:id`.
 app.use('/pipelines', createExecutionRoutes(quotaService));
 
-// -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
-app.use('/pipelines', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPipelineRoutes(quotaService));
+// -- Shared chain: auth + orgId + idempotency + tenant scope, ONCE ------------
+app.use('/pipelines', ...createAuthenticatedWithOrgRoute());
 
-// -- Per-pipeline maturity scorecard — auth + org + apiCalls quota (metered
-//    like the other reads), + advanced_reporting per-route inside. MUST be
-//    mounted BEFORE the write-gated update/delete routes below: those apply
-//    requirePermission('pipelines:write') as a PREFIX layer that would otherwise
-//    run for GET /pipelines/:id/scorecard (a read) and 403 read-only viewers.
-//    The two-segment path (/:id/scorecard) doesn't clash with the read /:id.
-app.use('/pipelines', ...createProtectedRoute(quotaService, 'apiCalls'), createScorecardRoutes(quotaService));
+// -- Registry — no quota; writes gate on pipelines:write per route. Before the
+//    read router so `/registry` isn't swallowed by `/:id`.
+app.use('/pipelines', createRegistryRoutes());
 
-// -- Update route — auth + orgId + pipelines:write ---------------------------
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), createUpdatePipelineRoutes());
+// -- Reads + scorecards — apiCalls quota ------------------------------------
+//    Scorecard routes mount BEFORE the read router: read's `GET /:id` would
+//    otherwise capture `GET /pipelines/scorecard` (the org roll-up) as a
+//    pipeline lookup and 404. Mounting them ahead of the write gate below also
+//    keeps `GET /:id/scorecard` (a read) from hitting requirePermission('pipelines:write').
+//    `advanced_reporting` is enforced per route inside the scorecard router.
+app.use('/pipelines', checkQuota(quotaService, 'apiCalls'), createScorecardRoutes(quotaService), createReadPipelineRoutes(quotaService));
 
-// -- Delete route — auth + orgId + pipelines:write ---------------------------
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), createDeletePipelineRoutes());
-
-// -- Purge + Restore routes — auth + orgId + pipelines:write + step-up --------
-// Both are permanently-consequential soft-delete operations and BOTH require a
-// step-up (password re-verify) beyond pipelines:write:
-//   - Purge:   permanent hard-delete of an already soft-deleted tombstone
-//              (finalizes what the retention sweep would remove anyway).
-//   - Restore: undo a soft-delete within the retention window.
-// They share ONE mount so the single-use `requireStepUp` gate runs exactly once
-// per request. `requireStepUp` consumes the step-up token's `jti` a single time;
-// mounting purge and restore as two separate step-up-gated mounts would
-// double-consume it for whichever router is second (that request first falls
-// through the other mount's step-up layer, then hits its own), 401'ing every
-// call as a STEP_UP_REPLAY. With one shared chain a POST /:id/purge is served by
-// the purge router and a POST /:id/restore falls through it to the restore
-// router, each having cleared auth + orgId + pipelines:write + step-up once.
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), requireStepUp, createPurgePipelineRoutes(), createRestorePipelineRoutes());
+// -- Writes — pipelines:write; purge + restore additionally need step-up -----
+// Purge (permanent hard-delete of a tombstone) and restore (undo a soft-delete)
+// are permanently-consequential and require a step-up (password re-verify). The
+// single-use `requireStepUp` gate consumes the step-up token's `jti`, so it must
+// run exactly once per request: it sits in this ONE chain after update/delete,
+// so only requests those routers didn't serve reach it, and a POST /:id/restore
+// falls through the purge router to the restore router without a second step-up.
+app.use(
+  '/pipelines',
+  requirePermission('pipelines:write'),
+  createUpdatePipelineRoutes(),
+  createDeletePipelineRoutes(),
+  requireStepUp,
+  createPurgePipelineRoutes(),
+  createRestorePipelineRoutes(),
+);
 
 // -- Golden-path pipeline templates (list/get/instantiate + author) ----------
 // Middleware is applied per-route inside the router (reads: auth+org; writes:

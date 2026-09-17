@@ -61,7 +61,7 @@ export const addUserGrant = withController('Add user grant', async (req, res) =>
   if (parsed.grant === 'platform-admin') {
     // Single-source: the system-org Super Admin Role is authoritative. This
     // assigns it + recomputes (which flips isSuperAdmin + bumps tokenVersion +
-    // drops the refresh token) atomically, so a later recompute can't revert it.
+    // clears the refresh-session slots) atomically, so a later recompute can't revert it.
     const { changed } = await grantPlatformAdmin(userId);
     if (changed) {
       audit(req, 'admin.superadmin.grant', {
@@ -100,7 +100,7 @@ export const removeUserGrant = withController('Remove user grant', async (req, r
     if (!user) return sendError(res, 404, 'User not found');
 
     // Remove the system-org Super Admin Role + recompute (clears isSuperAdmin,
-    // bumps tokenVersion, drops the refresh token) atomically. Works even for a
+    // bumps tokenVersion, clears the refresh-session slots) atomically. Works even for a
     // legacy user who had the flag set directly but never held the Role.
     const { changed } = await revokePlatformAdmin(userId);
     if (changed) {

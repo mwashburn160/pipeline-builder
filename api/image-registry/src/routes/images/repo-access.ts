@@ -40,6 +40,17 @@ export function repoTenant(repo: string): string | null {
   return m ? m[1] : null;
 }
 
+/**
+ * The org that OWNS `repo` — the org id of an `org-<id>/...` repo, the system org
+ * for `system/...` — or undefined for org-less shared namespaces (`library/...`,
+ * anything unrecognized). Used as the audit `affectedOrgId`.
+ */
+export function repoOwnerOrgId(repo: string): string | undefined {
+  const tenant = repoTenant(repo);
+  if (tenant !== null) return tenant;
+  return repo.startsWith('system/') ? SYSTEM_ORG_ID : undefined;
+}
+
 function ownsTenant(user: RepoAccessUser | undefined, tenant: string): boolean {
   return !!user?.organizationId && user.organizationId.toLowerCase() === tenant;
 }

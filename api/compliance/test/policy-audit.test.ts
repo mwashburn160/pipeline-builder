@@ -38,27 +38,14 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-// create-policies wraps its work in withTenantTx; run the callback with a
-// chainable tx stub (the rule-linking branch is skipped when no rules given).
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
-  schema: { complianceRule: {} },
-  withTenantTx: async (fn: any) => fn({
-    update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
-  }),
-}));
-
-jest.unstable_mockModule('drizzle-orm', () => ({
-  and: jest.fn(), eq: jest.fn(), inArray: jest.fn(),
-}));
-
-jest.unstable_mockModule('../src/services/remote-audit-client.js', () => ({
+jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
   getAuditClient: () => ({ record: jest.fn() }),
 }));
 
 jest.unstable_mockModule('../src/services/policy-service.js', () => ({
   compliancePolicyService: {
-    create: (...a: unknown[]) => createMock(...a),
+    createWithRules: (...a: unknown[]) => createMock(...a),
     update: (...a: unknown[]) => updateMock(...a),
     delete: (...a: unknown[]) => deleteMock(...a),
   },

@@ -76,6 +76,7 @@ function toBillingEventResponse(event: {
  * Registers:
  * - GET /admin/subscriptions      -- list all subscriptions (paginated)
  * - PUT /admin/subscriptions/:id  -- admin override on a subscription
+ * - DELETE /subscriptions/by-org/:orgId -- org-cascade hook (sysadmin / service token)
  * - GET /admin/events             -- list billing events (paginated)
  * @returns Express Router
  */
@@ -147,31 +148,35 @@ export function createAdminSubscriptionRoutes(): Router {
       // subscription document never kept.
       const deferred: Array<() => Promise<void>> = [];
 
-      if (planId) {
-        const plan = await Plan.findOne({ _id: planId, isActive: true });
-        if (!plan) {
-          return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
-        }
-        // Push the new plan's price to the payment provider BEFORE mutating /
-        // saving the doc — mirroring the user-facing PUT /subscriptions/:id plan
-        // path (provider-first). Without this the provider keeps invoicing the OLD
-        // plan's price while the org receives the NEW tier's entitlements (a silent
-        // finance drift). Unlike the status→terminal branch — which INTENTIONALLY
-        // leaves the provider untouched (see providerUntouched note) — a plan-price
-        // change must keep billing and entitlements consistent. Provider-first also
-        // gives the user path's failure contract: if updateSubscription throws, the
-        // route aborts before save()/sync, so the two stores never diverge (nothing
-        // is persisted to revert). Marketplace-metered subs no-op at the provider,
-        // and a not-yet-externally-bound row (no externalId) has no provider price
-        // to push, so it's skipped cleanly.
-        if (subscription.externalId) {
-          // Honor a concurrent interval override so a combined plan+interval change
-          // lands on `{newPlan}_{newInterval}` (the provider selects the price via
-          // `{planId}_{interval}`), matching the user path's effective-cadence push.
-          const effectiveInterval = interval && interval !== subscription.interval ? interval : subscription.interval;
-          await getPaymentProvider().updateSubscription(subscription.externalId, planId, effectiveInterval);
-        }
+      // Validate the target plan FIRST (a 404 must not reach the provider).
+      const plan = planId ? await Plan.findOne({ _id: planId, isActive: true }) : null;
+      if (planId && !plan) {
+        return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
+      }
+      const intervalChanged = !!(interval && interval !== subscription.interval);
 
+      // Push the effective `{planId}_{interval}` price to the payment provider
+      // BEFORE mutating / saving the doc — mirroring the user-facing
+      // PUT /subscriptions/:id (provider-first) — whenever the plan OR the billing
+      // interval changes. Without this the provider keeps invoicing the OLD price
+      // (or the old cadence, for an interval-only override) while the local record
+      // and entitlements move on: a silent finance drift. Unlike the
+      // status→terminal branch — which INTENTIONALLY leaves the provider untouched
+      // (see providerUntouched note) — a price change must keep billing and
+      // entitlements consistent. Provider-first also gives the user path's failure
+      // contract: if updateSubscription throws, the route aborts before
+      // save()/sync, so the two stores never diverge. Marketplace-metered subs
+      // no-op at the provider, and a not-yet-externally-bound row (no externalId)
+      // has no provider price to push, so it's skipped cleanly.
+      if ((planId || intervalChanged) && subscription.externalId) {
+        await getPaymentProvider().updateSubscription(
+          subscription.externalId,
+          planId ?? subscription.planId,
+          intervalChanged ? interval : subscription.interval,
+        );
+      }
+
+      if (planId && plan) {
         const oldPlanId = subscription.planId;
         subscription.planId = planId;
         const newTier = plan.tier;
@@ -282,7 +287,6 @@ export function createAdminSubscriptionRoutes(): Router {
         });
       }
 
-      const intervalChanged = !!(interval && interval !== subscription.interval);
       if (intervalChanged) {
         const oldInterval = subscription.interval;
         subscription.interval = interval;
@@ -314,6 +318,84 @@ export function createAdminSubscriptionRoutes(): Router {
 
       return sendSuccess(res, 200, {
         subscription: buildSubscriptionResponse(subscription),
+      });
+    }, { requireOrgId: false }),
+  );
+
+  // DELETE /billing/subscriptions/by-org/:orgId — org-cascade hook.
+  // Sysadmin / service-token only. Cancels and removes every subscription
+  // + event for the org. Idempotent: missing org → 200 with `deleted: 0`.
+  //
+  // The platform's org-cascade-service calls this with a service-minted
+  // token; user-initiated org deletes never reach this path (they go
+  // through admin.org.delete on platform, which fires us internally).
+  router.delete(
+    '/subscriptions/by-org/:orgId',
+    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireSystemAdmin as RequestHandler,
+    withRoute(async ({ req, res }) => {
+      const targetOrgId = getParam(req.params, 'orgId');
+      if (!targetOrgId) return sendError(res, 400, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
+
+      // Cancel every still-billable subscription at the provider first so we
+      // don't leave billable state running after our local rows are gone.
+      // A trialing / past_due row carries a live externalId at the provider
+      // just like an active one; cancelling only status:'active' meant the
+      // deleteMany below wiped the local row while the provider kept billing,
+      // with nothing left to reconcile. Match the manageable (non-terminal)
+      // set so the provider-cancel covers what deleteMany removes. Fail-soft:
+      // a provider-cancel failure is logged but never blocks the local cascade.
+      // An org realistically holds a single active subscription; a hard cap
+      // keeps this cascade sweep bounded even against pathological data (the
+      // provider-cancel loop + audit mirror below iterate this set).
+      const billable = await Subscription.find({
+        orgId: targetOrgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
+      }).limit(1000);
+      for (const sub of billable) {
+        if (sub.externalId) {
+          try {
+            await getPaymentProvider().cancelSubscription(sub.externalId);
+          } catch (err) {
+            logger.warn('Provider cancel failed during cascade — continuing with local delete', {
+              orgId: targetOrgId,
+              subscriptionId: sub._id?.toString(),
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      }
+
+      const subDelete = await Subscription.deleteMany({ orgId: targetOrgId });
+
+      // Drop billing events too — they're scoped to the org and have no
+      // independent purpose once the subscription is gone. Audit retention
+      // lives in platform's audit_events collection, not here.
+      const eventDelete = await BillingEvent.deleteMany({ orgId: targetOrgId });
+
+      // Mirror each removed (billable) subscription to the CENTRAL audit trail,
+      // ALONGSIDE the local billing_events rows we just dropped. Fire-and-forget;
+      // details are an explicit id-only whitelist so no provider/card secret or
+      // AWS account id leaks. `billable` holds the org's live (non-terminal)
+      // subscription(s) loaded before deletion, each carrying its own id + plan.
+      for (const sub of billable) {
+        getAuditClient().record({
+          action: 'billing.subscription.delete',
+          actorId: req.user?.sub ?? 'system',
+          orgId: targetOrgId,
+          targetId: sub._id?.toString(),
+          details: { planId: sub.planId, orgId: targetOrgId },
+        }, 'billing');
+      }
+
+      logger.info('Subscription cascade complete', {
+        orgId: targetOrgId,
+        subscriptions: subDelete.deletedCount ?? 0,
+        events: eventDelete.deletedCount ?? 0,
+      });
+
+      return sendSuccess(res, 200, {
+        deleted: subDelete.deletedCount ?? 0,
+        events: eventDelete.deletedCount ?? 0,
       });
     }, { requireOrgId: false }),
   );

@@ -59,7 +59,7 @@ Inline validation (upload/create) is synchronous and blocking. Existing entities
 | `GET` | `/compliance/rules` | List rules (filterable, paginated) |
 | `GET` | `/compliance/rules/:id` | Get rule by ID |
 | `GET` | `/compliance/rules/:id/history` | Rule change history |
-| `POST` | `/compliance/rules` | Create rule |
+| `POST` | `/compliance/rules` | Create rule — `409 CONFLICT` if a rule with that name exists (live, or deleted: restore it instead) |
 | `PUT` | `/compliance/rules/:id` | Update rule |
 | `DELETE` | `/compliance/rules/:id` | Soft-delete rule |
 
@@ -79,7 +79,7 @@ Inline validation (upload/create) is synchronous and blocking. Existing entities
 | `POST` | `/compliance/subscriptions/preview` | Dry-run a rule against caller-supplied sample attributes |
 | `POST` | `/compliance/subscriptions/:ruleId/pin` | Pin a subscription to the rule's current version |
 | `DELETE` | `/compliance/subscriptions/:ruleId/pin` | Unpin (follow latest published version) |
-| `DELETE` | `/compliance/subscriptions/:ruleId` | Unsubscribe |
+| `DELETE` | `/compliance/subscriptions/:ruleId` | Unsubscribe (requires `compliance:write`, like deactivating) |
 
 ### Scans
 
@@ -414,6 +414,7 @@ Add your own by creating `deploy/compliance/rules/<name>/rule.json` + `README.md
 | `COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE` | `10` | Scan progress flush batch size |
 | `SCAN_SCHEDULER_INTERVAL_MS` | `60000` | Scan scheduler interval (ms) |
 | `SCAN_LOCK_TTL_MS` | `300000` | Scan scheduler cross-pod leader-lock TTL (ms) |
+| `COMPLIANCE_SCAN_STALE_TIMEOUT_MS` | `7200000` | A scan still `running` after this long is marked `failed` by the next scheduler sweep (minimum 60000), so a crashed scan can't block rule-change re-scans |
 | `DIGEST_SCHEDULER_INTERVAL_MS` | `3600000` | Notification digest scheduler interval (ms) |
 | `DIGEST_LOCK_TTL_MS` | `300000` | Digest scheduler cross-pod leader-lock TTL (ms) |
 | `REDIS_URL` / `REDIS_SENTINELS` | — | Redis for scheduler leader locks (see [environment variables](environment-variables.md#redis)) |

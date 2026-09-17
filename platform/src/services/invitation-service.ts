@@ -3,9 +3,10 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
+import { INV_ORG_NOT_FOUND, INV_UNAUTHORIZED, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_MAX_REACHED, INV_SEAT_LIMIT, INV_INVITER_NOT_FOUND, INV_NOT_FOUND, INV_EXPIRED, INV_USER_NOT_FOUND, INV_EMAIL_MISMATCH, INV_OAUTH_NOT_ALLOWED, INV_EMAIL_NOT_ALLOWED, INV_NOT_PENDING } from './invitation-errors.js';
 import { assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import { config } from '../config/index.js';
-import { toOrgId } from '../helpers/controller-helper.js';
+import { toOrgId } from '../helpers/org-id.js';
 import { seatCapacityAvailable, seatCapacityStillWithinCap } from '../helpers/seats.js';
 import { Invitation, type InvitationDocument, Organization, type OrganizationDocument, User, type UserDocument, UserOrganization } from '../models/index.js';
 import type { InvitationOAuthProvider } from '../models/invitation.js';
@@ -14,24 +15,6 @@ import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
 
 const logger = createLogger('invitation-service');
-
-/** Domain errors mapped to HTTP status by controllers via withController. */
-export const INV_ORG_NOT_FOUND = 'INV_ORG_NOT_FOUND';
-export const INV_UNAUTHORIZED = 'INV_UNAUTHORIZED';
-export const INV_ALREADY_MEMBER = 'INV_ALREADY_MEMBER';
-export const INV_ALREADY_SENT = 'INV_ALREADY_SENT';
-export const INV_MAX_REACHED = 'INV_MAX_REACHED';
-export const INV_SEAT_LIMIT = 'INV_SEAT_LIMIT';
-export const INV_INVITER_NOT_FOUND = 'INV_INVITER_NOT_FOUND';
-export const INV_NOT_FOUND = 'INV_NOT_FOUND';
-export const INV_ACCEPTED = 'INV_ACCEPTED';
-export const INV_EXPIRED = 'INV_EXPIRED';
-export const INV_REVOKED = 'INV_REVOKED';
-export const INV_USER_NOT_FOUND = 'INV_USER_NOT_FOUND';
-export const INV_EMAIL_MISMATCH = 'INV_EMAIL_MISMATCH';
-export const INV_OAUTH_NOT_ALLOWED = 'INV_OAUTH_NOT_ALLOWED';
-export const INV_EMAIL_NOT_ALLOWED = 'INV_EMAIL_NOT_ALLOWED';
-export const INV_NOT_PENDING = 'INV_NOT_PENDING';
 
 interface SendInvitationInput {
   orgId: string;

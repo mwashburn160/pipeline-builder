@@ -3,6 +3,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import api from '@/lib/api';
+import { StepUpModal } from '@/components/admin/StepUpModal';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Button } from '@/components/ui/Button';
 import { FilterSelect } from '@/components/ui/FilterSelect';
@@ -34,6 +35,8 @@ export function FeatureOverridesEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  // Granting capabilities needs a fresh password check; Save opens it.
+  const [confirming, setConfirming] = useState(false);
 
   const dirty = useMemo(() => {
     const keys = new Set([...Object.keys(initial), ...Object.keys(state)]);
@@ -52,7 +55,8 @@ export function FeatureOverridesEditor({
     });
   }, []);
 
-  const handleSave = useCallback(async () => {
+  const handleSave = useCallback(async (stepUpToken: string) => {
+    setConfirming(false);
     setSaving(true);
     setError(null);
     try {
@@ -60,7 +64,7 @@ export function FeatureOverridesEditor({
       const overrides = Object.fromEntries(
         Object.entries(state).filter(([, v]) => typeof v === 'boolean'),
       ) as Record<string, boolean>;
-      const res = await api.updateUserFeatures(userId, overrides);
+      const res = await api.updateUserFeatures(userId, overrides, stepUpToken);
       if (res.success) {
         setSavedAt(Date.now());
         onSaved();
@@ -116,13 +120,20 @@ export function FeatureOverridesEditor({
         </span>
         <Button
           variant="secondary"
-          onClick={handleSave}
+          onClick={() => setConfirming(true)}
           disabled={saving || !dirty}
           className="text-xs"
         >
           {saving ? 'Saving…' : 'Save overrides'}
         </Button>
       </div>
+      {confirming && (
+        <StepUpModal
+          action="Change this user's feature overrides"
+          onConfirmed={(token) => { void handleSave(token); }}
+          onClose={() => setConfirming(false)}
+        />
+      )}
     </div>
   );
 }

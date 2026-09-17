@@ -345,58 +345,65 @@ async function sendRenewalReminders(): Promise<void> {
     port: config.messageService.port,
   });
 
-  try {
-    for (const subscription of upcoming) {
-      try {
-        const periodKey = formatDate(subscription.currentPeriodEnd);
-        if (subscription.metadata?.lastRenewalReminder === periodKey) continue;
+  for (const subscription of upcoming) {
+    try {
+      const periodKey = formatDate(subscription.currentPeriodEnd);
+      if (subscription.metadata?.lastRenewalReminder === periodKey) continue;
 
-        const plan = await Plan.findById(subscription.planId);
-        const planName = plan?.name || 'your plan';
-        const renewDate = subscription.currentPeriodEnd.toLocaleDateString('en-US', {
-          year: 'numeric', month: 'long', day: 'numeric',
-        });
+      const plan = await Plan.findById(subscription.planId);
+      const planName = plan?.name || 'your plan';
+      const renewDate = subscription.currentPeriodEnd.toLocaleDateString('en-US', {
+        year: 'numeric', month: 'long', day: 'numeric',
+      });
 
-        await messageClient.post('/messages', {
-        // Caller's org identity is taken from the JWT — don't pass orgId/
-        // senderOrgId, the message service rejects them. recipientOrgId
-        // is the target tenant. Use 'conversation' (not 'announcement',
-        // which message-service only allows for recipientOrgId='*').
-          recipientOrgId: subscription.orgId,
-          messageType: 'conversation',
-          subject: `Subscription renewal in ${reminderDays} days`,
-          content: `Your ${planName} subscription (${subscription.interval}) will renew on ${renewDate}. `
-          + 'If you need to make changes, visit your billing settings.',
-          priority: 'normal',
-        }, {
-          headers: {
-            'x-internal-service': 'true',
-            'x-org-id': SYSTEM_ORG_ID,
-            'authorization': billingServiceAuth(SYSTEM_ORG_ID, 'member'),
-          },
-        });
+      // Caller's org identity is taken from the JWT — don't pass orgId/
+      // senderOrgId, the message service rejects them. recipientOrgId
+      // is the target tenant. Use 'conversation' (not 'announcement',
+      // which message-service only allows for recipientOrgId='*').
+      const resp = await messageClient.post('/messages', {
+        recipientOrgId: subscription.orgId,
+        messageType: 'conversation',
+        subject: `Subscription renewal in ${reminderDays} days`,
+        content: `Your ${planName} subscription (${subscription.interval}) will renew on ${renewDate}. `
+        + 'If you need to make changes, visit your billing settings.',
+        priority: 'normal',
+      }, {
+        headers: {
+          'x-internal-service': 'true',
+          'x-org-id': SYSTEM_ORG_ID,
+          'authorization': billingServiceAuth(SYSTEM_ORG_ID, 'member'),
+        },
+      });
 
-        subscription.metadata = {
-          ...subscription.metadata,
-          lastRenewalReminder: periodKey,
-        };
-        await subscription.save();
-
-        logger.info('Renewal reminder sent', {
+      // The safe client never throws — a transport failure is `null` and a
+      // rejection is a 4xx/5xx. Only stamp the per-period dedupe marker once the
+      // message service ACCEPTED the reminder; otherwise leave it unmarked so the
+      // next tick retries instead of silently recording an undelivered reminder.
+      if (!resp || resp.statusCode >= 400) {
+        logger.warn('Renewal reminder not delivered — will retry next tick', {
           orgId: subscription.orgId,
-          renewDate,
-          planName,
+          statusCode: resp?.statusCode,
         });
-      } catch (err) {
-        logger.warn('Failed to send renewal reminder', {
-          orgId: subscription.orgId,
-          error: errorMessage(err),
-        });
+        continue;
       }
+
+      subscription.metadata = {
+        ...subscription.metadata,
+        lastRenewalReminder: periodKey,
+      };
+      await subscription.save();
+
+      logger.info('Renewal reminder sent', {
+        orgId: subscription.orgId,
+        renewDate,
+        planName,
+      });
+    } catch (err) {
+      logger.warn('Failed to send renewal reminder', {
+        orgId: subscription.orgId,
+        error: errorMessage(err),
+      });
     }
-  } finally {
-    // Release the shared client's keep-alive agent after the batch.
-    messageClient.destroy();
   }
 }
 
@@ -498,8 +505,13 @@ async function reconcileEntitlementDrift(): Promise<void> {
   const cutoff = new Date(Date.now() - config.entitlementDriftIntervalMs).toISOString();
   const candidates = await Subscription.find(
     {
-      status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
-      $or: [
+      'status': { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
+      // A grace-expired sub stays `past_due` (the recovery signal) but has been
+      // DOWNGRADED to developer by checkGracePeriodExpiry. Its "expected" state is
+      // no longer its plan tier, so re-syncing it here would silently hand the
+      // paid tier back. handlePaymentSucceeded clears the marker on recovery.
+      'metadata.gracePeriodDowngradedAt': { $exists: false },
+      '$or': [
         { 'metadata.lastReconciledAt': { $exists: false } },
         { 'metadata.lastReconciledAt': { $lte: cutoff } },
       ],

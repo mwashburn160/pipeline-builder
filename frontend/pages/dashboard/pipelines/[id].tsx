@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
+import { useUrlTab } from '@/hooks/useUrlTab';
 import Link from 'next/link';
 import { ArrowLeft, Ban, ExternalLink, GitBranch, LayoutTemplate, Pencil, Play, Rocket, Trash2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -77,7 +78,7 @@ const DETAIL_TABS = [
   { id: 'runs', label: 'Runs' },
 ] as const;
 type DetailTab = (typeof DETAIL_TABS)[number]['id'];
-const DETAIL_TAB_IDS = DETAIL_TABS.map((t) => t.id) as readonly string[];
+const DETAIL_TAB_IDS: readonly DetailTab[] = DETAIL_TABS.map((t) => t.id);
 
 export default function PipelineDetailPage() {
   const router = useRouter();
@@ -88,15 +89,7 @@ export default function PipelineDetailPage() {
   // Detail sections split into Overview (metadata) + Runs (recent runs +
   // executions) so it isn't one long scroll. Deep-linkable via `?tab=` (kept
   // separate from the `?id` route param).
-  const [activeTab, setActiveTab] = useState<DetailTab>('overview');
-  useEffect(() => {
-    const raw = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
-    if (raw && DETAIL_TAB_IDS.includes(raw) && raw !== activeTab) setActiveTab(raw as DetailTab);
-  }, [router.query.tab]); // eslint-disable-line react-hooks/exhaustive-deps
-  const changeTab = (tabId: string) => {
-    setActiveTab(tabId as DetailTab);
-    void router.replace({ query: { ...router.query, tab: tabId } }, undefined, { shallow: true });
-  };
+  const [activeTab, changeTab] = useUrlTab<DetailTab>('tab', DETAIL_TAB_IDS, 'overview');
 
   const fetchPipeline = useCallback(async (pipelineId: string): Promise<Pipeline> => {
     const response = await api.getPipelineById(pipelineId);
@@ -369,7 +362,7 @@ export default function PipelineDetailPage() {
 
       {pipeline && (
         <>
-        <TabBar items={[...DETAIL_TABS]} activeId={activeTab} onSelect={changeTab} className="mb-4" />
+        <TabBar items={[...DETAIL_TABS]} activeId={activeTab} onSelect={(tabId) => changeTab(tabId as DetailTab)} className="mb-4" />
 
         {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

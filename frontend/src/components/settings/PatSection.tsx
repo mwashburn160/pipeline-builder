@@ -9,7 +9,6 @@ import { SecretReveal } from '@/components/ui/SecretReveal';
 import { RetryError } from '@/components/ui/RetryError';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Button } from '@/components/ui/Button';
-import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 import { Input } from '@/components/ui/Input';
 import { FormField } from '@/components/ui/FormField';
 import { Badge } from '@/components/ui/Badge';
@@ -129,8 +128,8 @@ export function PatSection({ readOnly }: { readOnly: boolean }) {
           variant="ghost"
           size="xs"
           onClick={() => setPendingRevoke(p)}
-          disabled={readOnly || revoking === p.jti}
-          title={readOnly ? READ_ONLY_REASON : undefined}
+          readOnly={readOnly}
+          disabled={revoking === p.jti}
           className="gap-1 text-red-600 hover:text-red-700"
         >
           <Trash2 className="w-3.5 h-3.5" /> Revoke
@@ -152,7 +151,7 @@ export function PatSection({ readOnly }: { readOnly: boolean }) {
         <FormField label="Expires (days)" className="w-32">
           <Input type="number" min={1} max={365} value={days} onChange={(e) => setDays(Number(e.target.value))} disabled={creating || readOnly} />
         </FormField>
-        <Button onClick={handleCreate} loading={creating || !!pendingCreate} disabled={readOnly} title={readOnly ? READ_ONLY_REASON : undefined}>Create token</Button>
+        <Button onClick={handleCreate} loading={creating || !!pendingCreate} readOnly={readOnly}>Create token</Button>
       </div>
 
       {pendingCreate && (

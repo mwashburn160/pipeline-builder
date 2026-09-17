@@ -5,7 +5,7 @@ import { createLogger, errorMessage, createScheduler, createEnvRedisLock, type S
 import { Config } from '@pipeline-builder/pipeline-core';
 import { schema, withTenantTx, runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { eq, and, lte, sql } from 'drizzle-orm';
-import { executeScan } from './scan-executor.js';
+import { executeScan, recoverStaleScans } from './scan-executor.js';
 
 const logger = createLogger('scan-scheduler');
 
@@ -30,7 +30,8 @@ const LOCK_KEY = 'compliance:scan-scheduler:leader';
 const LOCK_TTL_MS = Number(complianceConfig.scanLockTtlMs ?? 300_000);
 
 /**
- * The actual sweep: process pending scans + check due schedules.
+ * The actual sweep: recover stale running scans, process pending scans, then
+ * check due schedules.
  *
  * Scheduler is a privileged background tick that legitimately reads + writes
  * across every org; establish a sysadmin tenant context for the whole cycle
@@ -38,6 +39,10 @@ const LOCK_TTL_MS = Number(complianceConfig.scanLockTtlMs ?? 300_000);
  */
 async function sweep(): Promise<void> {
   await runWithTenantContext({ isSuperAdmin: true }, async () => {
+    // Fail orphaned `running` scans first (crashed executor) so they don't sit
+    // in-progress forever or block rule-change re-scan coalescing. Best-effort:
+    // a failure here must not stop pending scans / due schedules from running.
+    await recoverStaleScans().catch((err) => logger.error('Stale scan recovery failed', { error: errorMessage(err) }));
     await processPendingScans();
     await checkDueSchedules();
   });

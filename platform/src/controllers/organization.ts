@@ -14,20 +14,9 @@ import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { pooledFeatureEntitlements, pooledSeatUsage } from '../helpers/seats.js';
 import type { QuotaTier } from '../models/organization.js';
 import { incCounter } from '../observability/metrics.js';
-import {
-  organizationService,
-  ORG_NOT_FOUND,
-  SYSTEM_ORG_DELETE_FORBIDDEN,
-  ORG_SLUG_TAKEN,
-  ORG_AI_KEY_TOO_LONG,
-  changedAiProviderFields,
-} from '../services/index.js';
-import {
-  exportOrg,
-  softDeleteOrg,
-  ORG_ALREADY_DELETED,
-  ORG_SNAPSHOT_FAILED,
-} from '../services/org-cascade-service.js';
+import { organizationService, changedAiProviderFields } from '../services/index.js';
+import { exportOrg, softDeleteOrg } from '../services/org-cascade-service.js';
+import { ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN, ORG_AI_KEY_TOO_LONG, ORG_ALREADY_DELETED, ORG_SNAPSHOT_FAILED } from '../services/org-errors.js';
 import { validateBody, createOrganizationSchema, updateOrganizationSchema, updateOrgIdentitySchema, updateQuotasSchema } from '../utils/validation.js';
 
 const logger = createLogger('organization-controller');
@@ -192,6 +181,12 @@ export const getOrganizationNames = withController('Get organization names', asy
   sendSuccess(res, 200, { names });
 });
 
+/** Errors `organizationService.update` can raise, shared by both org-edit routes. */
+const ORG_UPDATE_ERROR_MAP = {
+  [ORG_SLUG_TAKEN]: { status: 409, message: 'That slug is already taken — choose another' },
+};
+
+/** PUT /organization/:id — sysadmin org edit (name/description). */
 export const updateOrganization = withController('Update organization', async (req, res) => {
   if (!requireSystemAdmin(req, res)) return;
   const body = validateBody(updateOrganizationSchema, req.body, res);
@@ -201,9 +196,18 @@ export const updateOrganization = withController('Update organization', async (r
   const updated = await organizationService.update(id, body);
   if (!updated) return sendError(res, 404, 'Organization not found');
 
+  audit(req, 'org.update', {
+    targetType: 'organization',
+    targetId: id,
+    affectedOrgId: id,
+    details: {
+      fields: Object.keys(body),
+      ...(body.name !== undefined ? { name: updated.name } : {}),
+    },
+  });
   logger.info(`Organization ${id} updated by system admin ${req.user!.sub}`);
   sendSuccess(res, 200, { organization: updated }, 'Organization updated successfully');
-});
+}, ORG_UPDATE_ERROR_MAP);
 
 /**
  * PATCH /organization/:id/identity — self-serve org identity edit (name/slug).
@@ -244,9 +248,7 @@ export const updateOrganizationIdentity = withController('Update organization id
   });
   logger.info(`Organization ${id} identity updated by ${req.user!.sub}`, { fields: Object.keys(body) });
   sendSuccess(res, 200, { organization: updated }, 'Organization updated successfully');
-}, {
-  [ORG_SLUG_TAKEN]: { status: 409, message: 'That slug is already taken — choose another' },
-});
+}, ORG_UPDATE_ERROR_MAP);
 
 /**
  * PATCH /organization/:id/tier — sysadmin tier change.
@@ -413,6 +415,7 @@ export const exportOrganization = withController('Export organization', async (r
       postgresTables: Object.keys(dump.postgres).length,
       invitations: dump.mongo.invitations.length,
       auditEvents: dump.mongo.auditEvents.length,
+      ...(dump.failed ? { failedStores: dump.failed } : {}),
     },
   });
 

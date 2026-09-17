@@ -26,7 +26,7 @@ const DIGEST_PATTERN = /^sha(256|512):[0-9a-f]{64,128}$/;
  * inputs before issuing registry calls — a malformed digest could
  * otherwise be smuggled into the upstream URL path.
  */
-export function isValidDigest(digest: string): boolean {
+function isValidDigest(digest: string): boolean {
   return DIGEST_PATTERN.test(digest);
 }
 
@@ -200,31 +200,46 @@ export async function listTags(name: string): Promise<{ name: string; tags: stri
   return { name: data.name, tags: data.tags ?? [] };
 }
 
+/** Manifest media types we accept: Distribution v2 + OCI, single-arch and multi-arch. */
+const MANIFEST_ACCEPT = [
+  'application/vnd.docker.distribution.manifest.v2+json',
+  'application/vnd.docker.distribution.manifest.list.v2+json',
+  'application/vnd.oci.image.manifest.v1+json',
+  'application/vnd.oci.image.index.v1+json',
+].join(', ');
+
+/** A fetched manifest: the parsed body plus the exact bytes the registry served. */
+export interface FetchedManifest {
+  /** Parsed JSON — for inspection only (walking layers/children). */
+  body: unknown;
+  /**
+   * The manifest bytes exactly as served. A manifest's digest is the sha256 of
+   * these bytes, so anything that re-PUTs a manifest (tag-copy) must send `raw`,
+   * never a re-serialization of `body` — `JSON.stringify` normalizes whitespace
+   * and can reorder keys, which changes the digest (and a PUT by digest is
+   * rejected outright with DIGEST_INVALID).
+   */
+  raw: Buffer;
+  digest: string;
+  mediaType: string;
+}
+
 /**
- * GET /v2/<name>/manifests/<reference>. Returns both the raw manifest body
- * and the digest header — callers need both for delete and tag-copy.
+ * GET /v2/<name>/manifests/<reference>. Fetched as raw bytes (not axios-parsed
+ * JSON) so {@link FetchedManifest.raw} is byte-identical to the stored manifest.
  */
 export async function getManifest( name: string,
   reference: string,
-): Promise<{ body: unknown; digest: string; mediaType: string }> {
+): Promise<FetchedManifest> {
   const c = await authedClient([{ type: 'repository', name, actions: ['pull'] }]);
-  const { data, headers } = await c.get<unknown>( `/v2/${encodeRepoName(name)}/manifests/${encodeURIComponent(reference)}`,
-    {
-      // Distribution v2 + OCI both, plus manifest list for multi-arch.
-      headers: {
-        Accept: [
-          'application/vnd.docker.distribution.manifest.v2+json',
-          'application/vnd.docker.distribution.manifest.list.v2+json',
-          'application/vnd.oci.image.manifest.v1+json',
-          'application/vnd.oci.image.index.v1+json',
-        ].join(', '),
-      },
-    },
+  const { data, headers } = await c.get<ArrayBuffer>( `/v2/${encodeRepoName(name)}/manifests/${encodeURIComponent(reference)}`,
+    { responseType: 'arraybuffer', headers: { Accept: MANIFEST_ACCEPT } },
   );
 
+  const raw = Buffer.from(data);
   const digest = headers['docker-content-digest'] as string;
   const mediaType = headers['content-type'] as string;
-  return { body: data, digest, mediaType };
+  return { body: JSON.parse(raw.toString('utf-8')) as unknown, raw, digest, mediaType };
 }
 
 /** DELETE /v2/<name>/manifests/<digest>. Reference must be a digest, not a tag. */
@@ -237,15 +252,19 @@ export async function deleteManifest(name: string, digest: string): Promise<void
  * Tag-copy: PUT a fetched manifest under a new reference. Distribution
  * accepts a manifest PUT for any reference; this is how `docker tag` +
  * `docker push <new-tag>` is implemented under the hood.
+ *
+ * `raw` must be the manifest's original bytes ({@link FetchedManifest.raw}) and
+ * `mediaType` its original Content-Type — both go on the wire verbatim so the
+ * target's digest equals the source's.
  */
 export async function putManifest( name: string,
   reference: string,
-  body: unknown,
+  raw: Buffer,
   mediaType: string,
 ): Promise<{ digest: string }> {
   const c = await authedClient([{ type: 'repository', name, actions: ['push', 'pull'] }]);
   const { headers } = await c.put<unknown>( `/v2/${encodeRepoName(name)}/manifests/${encodeURIComponent(reference)}`,
-    body,
+    raw,
     { headers: { 'Content-Type': mediaType } },
   );
   return { digest: headers['docker-content-digest'] as string };
@@ -263,16 +282,7 @@ export async function headManifest( name: string,
   const c = await authedClient([{ type: 'repository', name, actions: ['pull'] }]);
   try {
     const { headers } = await c.head<unknown>( `/v2/${encodeRepoName(name)}/manifests/${encodeURIComponent(reference)}`,
-      {
-        headers: {
-          Accept: [
-            'application/vnd.docker.distribution.manifest.v2+json',
-            'application/vnd.docker.distribution.manifest.list.v2+json',
-            'application/vnd.oci.image.manifest.v1+json',
-            'application/vnd.oci.image.index.v1+json',
-          ].join(', '),
-        },
-      },
+      { headers: { Accept: MANIFEST_ACCEPT } },
     );
     const digest = headers['docker-content-digest'] as string | undefined;
     if (digest) return { digest };

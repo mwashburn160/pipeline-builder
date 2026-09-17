@@ -59,96 +59,85 @@ export default function InboxPage() {
     const gen = ++genRef.current;
     setLoading(true);
     setError(null);
-    const collected: InboxItem[] = [];
-    // Track sources so a TOTAL failure renders an error/retry state rather than a
-    // misleading "Inbox zero" (which is indistinguishable from a clean inbox).
-    let attempted = 0;
-    let failed = 0;
+
+    // Each source loads independently and in parallel; a source that fails
+    // (throws or returns a non-success envelope) contributes nothing.
+    const notLoaded = () => new Error('source unavailable');
+    const sources: Array<() => Promise<InboxItem[]>> = [];
 
     // Failing pipelines I own — join owned pipelines against execution counts.
     // Gated on reports:read (the execution-count source requires it).
     if (canReadReports) {
-      attempted++;
-      try {
+      sources.push(async () => {
         const [ownedRes, countsRes] = await Promise.all([
           api.listPipelines({ ownerId, limit: '200', includeTotal: 'false' }),
           api.getExecutionCount(),
         ]);
-        if (ownedRes.success && ownedRes.data && countsRes.success && countsRes.data) {
-          const ownedIds = new Set(ownedRes.data.pipelines.map((p) => p.id));
-          for (const row of countsRes.data.pipelines) {
-            if (ownedIds.has(row.id) && row.failed > 0) {
-              collected.push({
-                id: `pipeline:${row.id}`,
-                kind: 'pipeline-failure',
-                title: `${row.pipeline_name || row.project} has ${row.failed} failed run${row.failed === 1 ? '' : 's'}`,
-                detail: `${row.succeeded} succeeded · ${row.total} total`,
-                href: `/dashboard/pipelines/${row.id}`,
-                severity: 'high',
-                icon: AlertTriangle,
-              });
-            }
-          }
-        } else {
-          failed++;
-        }
-      } catch { failed++; }
+        if (!(ownedRes.success && ownedRes.data && countsRes.success && countsRes.data)) throw notLoaded();
+        const ownedIds = new Set(ownedRes.data.pipelines.map((p) => p.id));
+        return countsRes.data.pipelines
+          .filter((row) => ownedIds.has(row.id) && row.failed > 0)
+          .map((row): InboxItem => ({
+            id: `pipeline:${row.id}`,
+            kind: 'pipeline-failure',
+            title: `${row.pipeline_name || row.project} has ${row.failed} failed run${row.failed === 1 ? '' : 's'}`,
+            detail: `${row.succeeded} succeeded · ${row.total} total`,
+            href: `/dashboard/pipelines/${row.id}`,
+            severity: 'high',
+            icon: AlertTriangle,
+          }));
+      });
     }
 
     // Compliance exemptions awaiting review (admins only).
     if (canReviewCompliance) {
-      attempted++;
-      try {
+      sources.push(async () => {
         const res = await api.getExemptions({ status: 'pending', limit: 50 });
-        if (res.success && res.data) {
-          for (const ex of res.data.exemptions) {
-            collected.push({
-              id: `exemption:${ex.id}`,
-              kind: 'exemption',
-              title: `Exemption request pending review (${ex.entityType})`,
-              detail: ex.reason,
-              href: '/dashboard/compliance',
-              severity: 'medium',
-              icon: ShieldCheck,
-            });
-          }
-        } else {
-          failed++;
-        }
-      } catch { failed++; }
+        if (!(res.success && res.data)) throw notLoaded();
+        return res.data.exemptions.map((ex): InboxItem => ({
+          id: `exemption:${ex.id}`,
+          kind: 'exemption',
+          title: `Exemption request pending review (${ex.entityType})`,
+          detail: ex.reason,
+          href: '/dashboard/compliance',
+          severity: 'medium',
+          icon: ShieldCheck,
+        }));
+      });
     }
 
     // Unread messages — a single summary item.
     if (canReadMessages) {
-      attempted++;
-      try {
+      sources.push(async () => {
         const res = await api.getUnreadCount();
-        if (res.success && res.data) {
-          const count = (res.data as { count?: number }).count ?? 0;
-          if (count > 0) {
-            collected.push({
-              id: 'messages:unread',
-              kind: 'messages',
-              title: `${count} unread message${count === 1 ? '' : 's'}`,
-              href: '/dashboard/messages',
-              severity: 'low',
-              icon: MessageSquare,
-            });
-          }
-        } else {
-          failed++;
-        }
-      } catch { failed++; }
+        if (!(res.success && res.data)) throw notLoaded();
+        const count = (res.data as { count?: number }).count ?? 0;
+        return count > 0
+          ? [{
+            id: 'messages:unread',
+            kind: 'messages',
+            title: `${count} unread message${count === 1 ? '' : 's'}`,
+            href: '/dashboard/messages',
+            severity: 'low',
+            icon: MessageSquare,
+          }]
+          : [];
+      });
     }
+
+    const results = await Promise.allSettled(sources.map((load) => load()));
 
     // A newer run superseded this one — discard the stale result.
     if (genRef.current !== gen) return;
 
+    // Source order is preserved before the (stable) severity sort.
+    const collected = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
     collected.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
     setItems(collected);
     // Only surface an error when EVERY attempted source failed — a partial
-    // failure still shows whatever loaded.
-    if (attempted > 0 && failed >= attempted) {
+    // failure still shows whatever loaded, and a total failure must not read as
+    // "Inbox zero" (indistinguishable from a clean inbox).
+    if (results.length > 0 && results.every((r) => r.status === 'rejected')) {
       setError('Could not load your action items. Please retry.');
     }
     setLoading(false);

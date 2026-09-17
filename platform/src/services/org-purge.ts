@@ -125,8 +125,8 @@ export async function purgeExpiredOrgs(): Promise<PurgeSweepResult> {
       // Audit the hard delete — the single most destructive lifecycle action.
       // This is a BACKGROUND sweep (no `req`), so go through the service directly
       // with a synthetic `org-purge` actor and the system org as the actor org.
-      // The `admin.org.delete` row survives the cascade's audit-wipe (it's the
-      // `$ne` carve-out) so it remains the durable proof the org was purged.
+      // Written AFTER the cascade's audit delete, so it remains the durable
+      // proof the org was purged.
       // Fire-and-forget: an audit failure must NEVER fail/abort the purge, so it
       // is isolated in its own try/catch (the delete already committed above).
       try {

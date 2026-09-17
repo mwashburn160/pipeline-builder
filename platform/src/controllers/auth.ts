@@ -2,30 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, isSystemOrgId } from '@pipeline-builder/api-core';
+import type { TokenScope } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
+import { DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG } from '../services/auth-errors.js';
 import { provisionBillingSubscription } from '../services/billing-provision.js';
-import { authService, DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG } from '../services/index.js';
-import { issueTokens } from '../utils/token.js';
+import { authService } from '../services/index.js';
+import { JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT } from '../services/org-domain-errors.js';
+import type { AccessTokenPayload } from '../types/index.js';
+import { issueTokens, renewSessionTokens } from '../utils/token.js';
 import { validateBody, registerSchema, loginSchema, refreshSchema, completeOnboardingSchema, joinOrgSchema } from '../utils/validation.js';
 
 const logger = createLogger('auth-controller');
-
-/**
- * Create a billing service subscription for a new organization (fire-and-forget).
- *
- * Delegates to {@link provisionBillingSubscription}, which retries with short
- * backoff and — if billing is still unreachable — persists a DURABLE marker on
- * the org so the reconcile pass provisions it later. This closes the old
- * fail-open gap where a paid-plan signup during a billing outage stayed
- * silently developer-tier with no subscription and nothing ever retried it.
- */
-async function createBillingSubscription(orgId: string, planId: string): Promise<void> {
-  await provisionBillingSubscription(orgId, planId);
-}
 
 /** Auto-subscribe a new org to all published compliance rules (inactive, fire-and-forget). */
 async function autoSubscribeToPublishedRules(orgId: string): Promise<void> {
@@ -72,7 +63,9 @@ export const register = withController('Register', async (req, res) => {
   const isSystem = isSystemOrgId(result.organizationId, result.organizationName);
 
   if (config.billing.enabled) {
-    void createBillingSubscription(result.organizationId, result.planId || 'developer');
+    // Fire-and-forget: retries, then persists a durable marker the reconcile pass
+    // provisions later, so a paid-plan signup during a billing outage isn't lost.
+    void provisionBillingSubscription(result.organizationId, result.planId || 'developer');
   }
   if (config.compliance.enabled && !isSystem) {
     void autoSubscribeToPublishedRules(result.organizationId);
@@ -102,7 +95,6 @@ export const register = withController('Register', async (req, res) => {
 }, {
   [DUPLICATE_CREDENTIALS]: { status: 409, message: 'Credentials already in use' },
   [RESERVED_ORG_NAME]: { status: 403, message: 'That organization name is reserved' },
-  MISSING_FIELDS: { status: 400, message: 'Missing required fields' },
 });
 
 /**
@@ -121,7 +113,7 @@ export const completeOnboarding = withController('Complete onboarding', async (r
   const result = await authService.completeOnboarding(req.user.sub, { organizationName: body.organizationName });
 
   if (config.billing.enabled && body.planId) {
-    void createBillingSubscription(result.organizationId, body.planId);
+    void provisionBillingSubscription(result.organizationId, body.planId);
   }
 
   audit(req, 'user.onboarding.complete', { targetType: 'organization', targetId: result.organizationId });
@@ -176,10 +168,8 @@ export const joinDomainOrg = withController('Join domain org', async (req, res) 
   incCounter('platform_domain_join_total', { status: result.status });
   sendSuccess(res, 200, result);
 }, {
-  // Literal keys (not imported) so the org-domain-service module isn't pulled
-  // into auth.ts's static graph — must match its exported error-code strings.
-  JOIN_NOT_ELIGIBLE: { status: 403, message: 'You are not eligible to join that organization' },
-  JOIN_SEAT_LIMIT: { status: 409, message: 'That organization has no seats available' },
+  [JOIN_NOT_ELIGIBLE]: { status: 403, message: 'You are not eligible to join that organization' },
+  [JOIN_SEAT_LIMIT]: { status: 409, message: 'That organization has no seats available' },
 });
 
 /** Login user. POST /auth/login */
@@ -217,42 +207,60 @@ export const login = withController('Login', async (req, res) => {
 /**
  * Refresh tokens. POST /auth/refresh
  *
- * AuthService does an atomic findOne against the old refresh-token hash
- * to prevent reuse races; on miss we invalidate every session for the
- * user as a defense against token theft.
+ * Rotates the presented token's refresh-session slot atomically. A miss means
+ * the token was already rotated away (reuse — presumed stolen) or the session
+ * was invalidated meanwhile: that ONE slot is revoked, the user's other devices
+ * stay signed in.
  */
 export const refresh = withController('Refresh', async (req, res) => {
   if (!req.user) return sendError(res, 401, 'Unauthorized');
 
   const body = validateBody(refreshSchema, req.body, res);
   if (!body) return;
+  const sessionId = res.locals.refreshSessionId as string;
 
-  const user = await authService.rotateRefreshToken(req.user.sub, body.refreshToken);
-  if (!user) {
-    await authService.invalidateAllSessions(req.user.sub);
-    logger.warn('Refresh token reuse detected, invalidated all sessions', { userId: req.user.sub });
+  const user = await authService.findForTokenIssue(req.user.sub);
+  // Preserve the active org resolved from the session; fall back to lastActiveOrgId.
+  const tokens = user && await renewSessionTokens(
+    user,
+    req.user.organizationId || user.lastActiveOrgId?.toString(),
+    { sessionId, presentedToken: body.refreshToken },
+  );
+  if (!tokens) {
+    await authService.revokeRefreshSession(req.user.sub, sessionId);
+    logger.warn('Refresh token reuse detected, revoked its session', { userId: req.user.sub, sessionId });
     return sendError(res, 401, 'Session invalidated — please log in again');
   }
-
-  // Preserve active org from current JWT; fall back to lastActiveOrgId
-  const activeOrgId = req.user.organizationId || user.lastActiveOrgId?.toString();
-  const tokens = await issueTokens(user, activeOrgId);
 
   sendSuccess(res, 200, tokens);
 });
 
-/** Logout user — bumps tokenVersion + clears refresh token. POST /auth/logout */
+/**
+ * Logout this device. POST /auth/logout
+ *
+ * Revokes the refresh-session slot the access token was minted for; the user's
+ * other devices stay signed in ("sign out everywhere" is
+ * POST /user/tokens/revoke-all). The access token itself stays valid until it
+ * expires (short TTL) — the client discards it.
+ */
 export const logout = withController('Logout', async (req, res) => {
   const userId = req.user?.sub;
   if (!userId) return sendError(res, 401, 'Unauthorized');
 
-  await authService.invalidateAllSessions(userId);
+  const sessionId = (req.user as AccessTokenPayload).sid;
+  if (sessionId) await authService.revokeRefreshSession(userId, sessionId);
 
   audit(req, 'user.logout');
   sendSuccess(res, 200, undefined, 'Logged out');
 });
 
-/** Switch active organization. POST /auth/switch-org */
+/**
+ * Switch active organization. POST /auth/switch-org
+ *
+ * Re-issues the CURRENT session's tokens (same refresh-session slot) scoped to
+ * the new org, so switching never consumes another device's slot. A token with
+ * no session slot (a PAT) gets a new session.
+ */
 export const switchOrg = withController('Switch org', async (req, res) => {
   const userId = req.user?.sub;
   if (!userId) return sendError(res, 401, 'Unauthorized');
@@ -264,7 +272,13 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   const user = await authService.switchActiveOrg(userId, organizationId);
   if (!user) return sendError(res, 403, 'You are not an active member of this organization');
 
-  const tokens = await issueTokens(user, organizationId);
+  const sessionId = (req.user as AccessTokenPayload).sid;
+  // A scoped caller keeps its scope across the switch (never widened).
+  const callerScope = (req.user as { scope?: TokenScope }).scope;
+  const tokens = sessionId
+    ? await renewSessionTokens(user, organizationId, { sessionId })
+    : await issueTokens(user, organizationId, undefined, callerScope);
+  if (!tokens) return sendError(res, 401, 'Session invalid');
 
   // Record which org the actor pivoted their session INTO. `affectedOrgId` is
   // the destination org so it surfaces in that org's audit view.

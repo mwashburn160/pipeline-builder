@@ -40,7 +40,6 @@ const mockClientPut = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createSafeClient: () => ({
     put: mockClientPut,
-    destroy: () => undefined,
   }),
   // api-server's app-factory wires this at module load to inject the metrics
   // counter into api-core helpers; tests just need it to be callable.
@@ -111,6 +110,7 @@ const {
   syncTierToQuotaService,
   syncEntitlements,
   setEntitlementSyncBus,
+  startEntitlementSyncConsumer,
   effectiveEntitlements,
 } = await import('../src/helpers/billing-helpers.js');
 
@@ -326,8 +326,31 @@ describe('syncEntitlements durable-bus retry', () => {
 
     expect(ok).toBe(false);
     expect(mockPublish).toHaveBeenCalledWith('entitlement.sync', {
-      orgId: 'org-1', tier: 'pro', subscriptionId: 'sub-1', addons: [{ bundleId: 'b1', quantity: 2 }],
+      orgId: 'org-1',
+      tier: 'pro',
+      subscriptionId: 'sub-1',
+      addons: [{ bundleId: 'b1', quantity: 2 }],
+      occurredAt: expect.any(String),
     });
+  });
+
+  it('a retry carries the ORIGINAL change time, which is what compliance receives', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 500 });
+    await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
+    const { occurredAt } = mockPublish.mock.calls[0][1] as { occurredAt: string };
+    const complianceBody = (call: unknown[]) => call[1] as { occurredAt?: string };
+    const inline = mockClientPut.mock.calls.find((c) => String(c[0]).includes('/api/compliance/entitlements/'));
+    // The inline attempt and the queued retry share one timestamp …
+    expect(complianceBody(inline!).occurredAt).toBe(occurredAt);
+
+    // … and the consumer replays it rather than stamping "now".
+    let handler: ((env: { payload: unknown }) => Promise<void>) | undefined;
+    startEntitlementSyncConsumer({ subscribe: (o: { handler: typeof handler }) => { handler = o.handler; return { stop: async () => {} }; } } as never);
+    mockClientPut.mockClear();
+    mockClientPut.mockResolvedValue({ statusCode: 200 });
+    await handler!({ payload: mockPublish.mock.calls[0][1] });
+    const replay = mockClientPut.mock.calls.find((c) => String(c[0]).includes('/api/compliance/entitlements/'));
+    expect(complianceBody(replay!).occurredAt).toBe(occurredAt);
   });
 
   it('never throws even if the bus publish rejects (preserves fail-open contract)', async () => {

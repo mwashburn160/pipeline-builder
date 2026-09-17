@@ -10,9 +10,9 @@ import { mapCommonParams, canModify, canWritePipeline } from '../src/lib/resourc
 // mapCommonParams
 // ---------------------------------------------------------------------------
 describe('mapCommonParams', () => {
-  it('should map access filter to visibility param', () => {
-    expect(mapCommonParams({ access: 'public' }, true)).toEqual({ visibility: 'public' });
-    expect(mapCommonParams({ access: 'private' }, true)).toEqual({ visibility: 'private' });
+  it('should map the visibility filter to the visibility param', () => {
+    expect(mapCommonParams({ visibility: 'public' }, true)).toEqual({ visibility: 'public' });
+    expect(mapCommonParams({ visibility: 'private' }, true)).toEqual({ visibility: 'private' });
   });
 
   // Regression: previously this helper forced `visibility=private` for
@@ -21,17 +21,17 @@ describe('mapCommonParams', () => {
   // correct scope (caller's own org + system-org public catalog), so this
   // helper now passes nothing through unless the user explicitly picked an
   // Access filter.
-  it('should NOT force visibility when canViewPublic is false and no access filter', () => {
+  it('should NOT force visibility when canViewPublic is false and no visibility filter', () => {
     expect(mapCommonParams({}, false)).toEqual({});
   });
 
-  it('should not add visibility when canViewPublic is true and no access filter', () => {
+  it('should not add visibility when canViewPublic is true and no visibility filter', () => {
     expect(mapCommonParams({}, true)).toEqual({});
   });
 
-  it('honors an explicit access filter regardless of canViewPublic', () => {
-    expect(mapCommonParams({ access: 'public' }, false)).toEqual({ visibility: 'public' });
-    expect(mapCommonParams({ access: 'private' }, false)).toEqual({ visibility: 'private' });
+  it('honors an explicit visibility filter regardless of canViewPublic', () => {
+    expect(mapCommonParams({ visibility: 'public' }, false)).toEqual({ visibility: 'public' });
+    expect(mapCommonParams({ visibility: 'private' }, false)).toEqual({ visibility: 'private' });
   });
 
   it('should map status filter to isActive param', () => {
@@ -45,7 +45,7 @@ describe('mapCommonParams', () => {
   });
 
   it('should map multiple filters at once', () => {
-    const result = mapCommonParams({ access: 'private', status: 'active', default: 'default' }, true);
+    const result = mapCommonParams({ visibility: 'private', status: 'active', default: 'default' }, true);
     expect(result).toEqual({ visibility: 'private', isActive: 'true', isDefault: 'true' });
   });
 

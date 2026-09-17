@@ -12,10 +12,29 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 
 const SERVICE_TOKEN = 'Bearer service-minted-token';
 
-// fullStream parts the mocked streamText will emit.
+// fullStream parts the mocked streamText will emit. Shaped like ai@7's real
+// fullStream: 'start' is emitted synchronously BEFORE any provider call;
+// 'start-step' only once the provider's response stream yields its first chunk;
+// a provider failure before that is a bare 'error' part (no 'start-step').
 let streamParts: Array<Record<string, unknown>> = [];
+
+/** A realistic single-step turn wrapping `inner` parts in start/step/finish framing. */
+function turn(...inner: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  return [
+    { type: 'start' },
+    { type: 'start-step', request: {}, warnings: [] },
+    ...inner,
+    { type: 'finish-step', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } },
+    { type: 'finish', finishReason: 'stop', totalUsage: { inputTokens: 1, outputTokens: 1 } },
+  ];
+}
+/** Text output as the SDK emits it: text-start / text-delta / text-end. */
+function text(t: string, id = 't1'): Array<Record<string, unknown>> {
+  return [{ type: 'text-start', id }, { type: 'text-delta', id, text: t }, { type: 'text-end', id }];
+}
 const streamText = jest.fn(() => ({
   fullStream: (async function* () { for (const p of streamParts) yield p; })(),
+  usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }),
 }));
 const stepCountIs = jest.fn((n: number) => n);
 jest.unstable_mockModule('@pipeline-builder/ai-core', () => ({ streamText, stepCountIs }));
@@ -73,7 +92,7 @@ function getHandler(method: string, path: string) {
   return s[s.length - 1].handle;
 }
 function mockReq(body: unknown, auth = 'Bearer USER-tok'): any {
-  return { body, on: jest.fn(), headers: { authorization: auth }, context: { identity: { orgId: 'ORG-1', userId: 'u9' }, log: jest.fn(), requestId: 'r1' } };
+  return { body, headers: { authorization: auth }, context: { identity: { orgId: 'ORG-1', userId: 'u9' }, log: jest.fn(), requestId: 'r1' } };
 }
 function mockRes(): any {
   const res: any = {};
@@ -81,6 +100,8 @@ function mockRes(): any {
   res.json = jest.fn().mockReturnValue(res);
   res.write = jest.fn().mockReturnValue(true);
   res.end = jest.fn().mockReturnValue(res);
+  res.on = jest.fn().mockReturnValue(res);
+  res.writableFinished = false;
   return res;
 }
 
@@ -95,7 +116,7 @@ beforeEach(() => {
 
 describe('POST /ask/agent/stream', () => {
   it('forwards the USER token to the tools and reserves quota with a SERVICE header', async () => {
-    streamParts = [{ type: 'text-delta', text: 'hi' }];
+    streamParts = turn(...text('hi'));
     await handler(mockReq({ query: 'help me' }), mockRes());
 
     expect(pipelineClient).toHaveBeenCalledWith('Bearer USER-tok');
@@ -106,20 +127,20 @@ describe('POST /ask/agent/stream', () => {
 
   it('rejects a request with no Authorization header (no quota reserved)', async () => {
     const res = mockRes();
-    const req = { body: { query: 'help me' }, on: jest.fn(), headers: {}, context: { identity: { orgId: 'ORG-1', userId: 'u9' }, log: jest.fn(), requestId: 'r1' } };
+    const req = { body: { query: 'help me' }, headers: {}, context: { identity: { orgId: 'ORG-1', userId: 'u9' }, log: jest.fn(), requestId: 'r1' } };
     await handler(req, res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockReserveQuota).not.toHaveBeenCalled();
   });
 
   it('maps fullStream to SSE (tool-call, proposal, token, done) and keeps the slot', async () => {
-    streamParts = [
-      { type: 'tool-call', toolName: 'propose_pipeline' },
-      { type: 'tool-result', toolName: 'propose_pipeline', output: { kind: 'pipeline', props: { name: 'x' } } },
-      { type: 'tool-result', toolName: 'answer_how_to', output: { context: 'noise', sources: [{ id: 'deployment.md#x' }] } },
-      { type: 'tool-result', toolName: 'list_pipelines', output: { pipelines: [] } },
-      { type: 'text-delta', text: 'Here is a draft.' },
-    ];
+    streamParts = turn(
+      { type: 'tool-call', toolCallId: 'c1', toolName: 'propose_pipeline', input: {} },
+      { type: 'tool-result', toolCallId: 'c1', toolName: 'propose_pipeline', input: {}, output: { kind: 'pipeline', props: { name: 'x' } } },
+      { type: 'tool-result', toolCallId: 'c2', toolName: 'answer_how_to', input: {}, output: { context: 'noise', sources: [{ id: 'deployment.md#x' }] } },
+      { type: 'tool-result', toolCallId: 'c3', toolName: 'list_pipelines', input: {}, output: { pipelines: [] } },
+      ...text('Here is a draft.'),
+    );
     const res = mockRes();
     await handler(mockReq({ query: 'create a pipeline' }), res);
 
@@ -149,7 +170,7 @@ describe('POST /ask/agent/stream', () => {
   });
 
   it('audits an ask.agent.turn failure when the stream throws', async () => {
-    streamParts = [{ type: 'error', error: new Error('model exploded') }];
+    streamParts = turn({ type: 'error', error: new Error('model exploded') });
     await handler(mockReq({ query: 'do something' }), mockRes());
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'ask.agent.turn', outcome: 'failure' }),
@@ -166,7 +187,9 @@ describe('POST /ask/agent/stream — aiCalls refund boundary', () => {
    * strictly after the model round-trip — so a client that provoked mid-stream
    * provider errors burned tokens without ever consuming quota.
    *
-   * The pipeline streaming routes already got this right via `providerContacted`.
+   * "Reached" means the SDK emitted 'start-step' (first chunk of the provider's
+   * response). The SDK's own 'start' part precedes any provider call, so keying
+   * on "any part" never refunded a provider failure.
    */
   it('REFUNDS when the failure happens BEFORE the provider responds', async () => {
     // streamText itself throws → nothing ever streamed → we owe nothing.
@@ -175,31 +198,41 @@ describe('POST /ask/agent/stream — aiCalls refund boundary', () => {
     expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
   });
 
+  it('REFUNDS when the provider call fails before it responds (start → error, no start-step)', async () => {
+    // How ai@7 surfaces a failed doStream (bad key / 5xx / network): its own
+    // 'start' part, then a bare 'error' — the provider never produced a chunk.
+    streamParts = [{ type: 'start' }, { type: 'error', error: new Error('401 invalid x-api-key') }];
+    await handler(mockReq({ query: 'help me' }), mockRes());
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+  });
+
   it('does NOT refund when the stream errors AFTER the provider responded', async () => {
     // A token flowed (provider billed us), then the model emitted an error part.
     streamParts = [
-      { type: 'text-delta', text: 'partial' },
+      { type: 'start' },
+      { type: 'start-step', request: {}, warnings: [] },
+      ...text('partial'),
       { type: 'error', error: new Error('provider blew up mid-stream') },
     ];
     await handler(mockReq({ query: 'help me' }), mockRes());
     expect(mockDecrementQuota).not.toHaveBeenCalled();
   });
 
-  it('does NOT refund when the error part is the FIRST thing the provider sends', async () => {
-    // Reaching the stream at all means the request was dispatched and billed.
-    streamParts = [{ type: 'error', error: new Error('content filter') }];
+  it('does NOT refund when an error is the FIRST thing the provider streams', async () => {
+    // The provider responded (start-step) and its first chunk was an error event.
+    streamParts = [{ type: 'start' }, { type: 'start-step', request: {}, warnings: [] }, { type: 'error', error: new Error('content filter') }];
     await handler(mockReq({ query: 'help me' }), mockRes());
     expect(mockDecrementQuota).not.toHaveBeenCalled();
   });
 
   it('keeps the slot on a completed turn', async () => {
-    streamParts = [{ type: 'text-delta', text: 'done' }];
+    streamParts = turn(...text('done'));
     await handler(mockReq({ query: 'help me' }), mockRes());
     expect(mockDecrementQuota).not.toHaveBeenCalled();
   });
 
   it('bounds the tool-calling loop so a looping agent cannot burn the budget', async () => {
-    streamParts = [{ type: 'text-delta', text: 'hi' }];
+    streamParts = turn(...text('hi'));
     await handler(mockReq({ query: 'help me' }), mockRes());
     expect(stepCountIs).toHaveBeenCalledWith(6);
   });

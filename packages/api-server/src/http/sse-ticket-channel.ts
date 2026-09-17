@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requireAuth, sendSuccess, sendError, ErrorCode, createLogger, type SseTicketStore } from '@pipeline-builder/api-core';
+import { requireAuth, sendSuccess, sendError, ErrorCode, createLogger, writeSseHeaders, type SseTicketStore } from '@pipeline-builder/api-core';
 import type { Express, Request, RequestHandler, Response } from 'express';
 import type { SSEManager } from './sse-connection-manager.js';
 
@@ -26,8 +26,10 @@ export interface SseTicketChannelOptions {
  * Register a per-ORG SSE channel: a POST that exchanges the caller's VERIFIED JWT
  * org for a single-use, org-bound ticket, and a GET that redeems the ticket and
  * attaches an EventSource keyed by that org. The org IS the stream subject, so a
- * producer reaches subscribers with `sseManager.send(orgId, …)` (cross-pod via the
- * relay). Shared by the message-notification and reporting execution-status
+ * producer reaches subscribers with `sseManager.send(orgId, …)`. Registering a
+ * channel turns on the manager's cross-pod relay (this service's own relay
+ * channel), so a frame produced on one replica reaches a subscriber on another.
+ * Shared by the message-notification and reporting execution-status
  * channels so the subtle bits — the ticket→addClient→flushHeaders ordering (a 429
  * MUST precede flushHeaders, which commits the 200) and the capacity semantics —
  * live in exactly one place.
@@ -37,6 +39,7 @@ export interface SseTicketChannelOptions {
  */
 export function registerSseTicketChannel(app: Express, opts: SseTicketChannelOptions): void {
   const { ticketPath, streamPath, ticketStore, sseManager, label, ticketGuards = [] } = opts;
+  sseManager.enableRelay();
 
   app.post(ticketPath, requireAuth, ...ticketGuards, async (req: Request, res: Response) => {
     const orgId = req.user?.organizationId?.toLowerCase();
@@ -54,15 +57,15 @@ export function registerSseTicketChannel(app: Express, opts: SseTicketChannelOpt
     const ticketId = req.query.ticket as string | undefined;
     if (!ticketId) return void sendError(res, 401, 'Missing ticket parameter', ErrorCode.UNAUTHORIZED);
     const ticket = await ticketStore.consume(ticketId); // atomic single-use
-    if (!ticket) return void sendError(res, 401, 'Invalid or expired ticket', ErrorCode.UNAUTHORIZED);
+    // An org channel's ticket is org-bound only; a subject-bound ticket (e.g. a
+    // build-log ticket from a store sharing this namespace) doesn't open it.
+    if (!ticket || ticket.subject !== undefined) return void sendError(res, 401, 'Invalid or expired ticket', ErrorCode.UNAUTHORIZED);
     // Reserve the connection slot BEFORE flushing SSE headers: once flushHeaders
     // runs the response is committed at 200 and a later 429 is silently dropped.
-    const added = sseManager.addClient(ticket.orgId, res);
+    // The org is the subject, so the per-ORG cap applies (not the per-request one).
+    const added = sseManager.addOrgClient(ticket.orgId, res);
     if (!added) return void sendError(res, 429, `Too many ${label} connections`, ErrorCode.QUOTA_EXCEEDED);
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
+    writeSseHeaders(res);
     res.flushHeaders();
     logger.info('SSE client connected', { channel: label, orgId: ticket.orgId });
   });

@@ -2,13 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { AuthTokens, ApiResponse } from '@/types';
-import { REFRESH_BUFFER_MS, MAX_REFRESH_ATTEMPTS, API_REQUEST_TIMEOUT_MS } from '../constants';
+import { REFRESH_BUFFER_MS, REFRESH_RETRY_DELAYS_MS, REFRESH_FAILURE_COOLDOWN_MS, API_REQUEST_TIMEOUT_MS } from '../constants';
 import { ApiError, StepUpRequiredError } from './errors';
 import { API_URL, base64UrlDecode, isStepUpErrorCode } from './util';
 
 /** Upper bound on the server-side revoke when stopping impersonation. Stopping
  *  must never wait on the network longer than this. */
 const END_IMPERSONATION_REVOKE_TIMEOUT_MS = 3000;
+
+/** Web Locks name that serializes token refreshes across this browser's tabs. */
+const REFRESH_LOCK_NAME = 'pipeline-builder:auth-refresh';
+
+/** `ApiError.code` when a request needed a token refresh that failed transiently. */
+export const SESSION_REFRESH_UNAVAILABLE = 'SESSION_REFRESH_UNAVAILABLE';
 
 /** SSE event received from AI streaming endpoints. */
 export interface StreamEvent {
@@ -31,14 +37,17 @@ export class ApiCore {
   private isRefreshing = false;
   private refreshPromise: Promise<boolean> | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
-  private refreshAttempts = 0;
+  /** While set (ms timestamp), refreshes short-circuit to `false` without a
+   *  network call: the last refresh gave up on transient failures. */
+  private refreshCooldownUntil = 0;
   private sessionExpiredCallbacks: Set<() => void> = new Set();
 
   private static REFRESH_BUFFER_MS = REFRESH_BUFFER_MS;
-  private static MAX_REFRESH_ATTEMPTS = MAX_REFRESH_ATTEMPTS;
 
   /**
-   * Register a callback invoked when the session expires (refresh fails).
+   * Register a callback invoked when the session expires — the server rejected
+   * the refresh token (401/400), or an impersonation token ran out. A refresh
+   * that fails transiently (network, 5xx) does NOT fire this.
    * Returns an unsubscribe function.
    */
   onSessionExpired(callback: () => void): () => void {
@@ -58,6 +67,11 @@ export class ApiCore {
       this.refreshToken = localStorage.getItem('refreshToken');
       this.organizationId = localStorage.getItem('organizationId');
       this.scheduleProactiveRefresh();
+      // Keep this tab's copy current when another tab rotates the pair, so its
+      // next refresh doesn't present a token the server already rotated away.
+      window.addEventListener('storage', (e) => {
+        if (e.key === 'refreshToken' && e.newValue) this.adoptTokensRotatedElsewhere();
+      });
     }
   }
 
@@ -117,12 +131,9 @@ export class ApiCore {
   setTokens(tokens: AuthTokens) {
     this.accessToken = tokens.accessToken;
     this.refreshToken = tokens.refreshToken;
-    // A fresh token pair is a fresh session — reset the consecutive-refresh
-    // failure counter. Without this, a session that hit MAX_REFRESH_ATTEMPTS
-    // (and was cleared) leaves the counter pinned at MAX, so a re-login in the
-    // same tab (the singleton client survives client-side nav) is immediately
-    // kicked out when its next refresh short-circuits on `>= MAX`.
-    this.refreshAttempts = 0;
+    // A fresh token pair must be refreshable right away, even if the previous
+    // pair's refresh was cooling down after transient failures.
+    this.refreshCooldownUntil = 0;
 
     if (typeof window !== 'undefined') {
       try {
@@ -296,9 +307,7 @@ export class ApiCore {
     this.accessToken = null;
     this.refreshToken = null;
     this.organizationId = null;
-    // Clear the failure counter too, so the next session (re-login in this
-    // same tab) doesn't start pre-locked at MAX consecutive failures.
-    this.refreshAttempts = 0;
+    this.refreshCooldownUntil = 0;
 
     if (this.refreshTimer) {
       clearTimeout(this.refreshTimer);
@@ -464,6 +473,7 @@ export class ApiCore {
         // refresh loop.
         return this.request<T>(endpoint, options, _retryCount, true);
       }
+      this.throwIfRefreshUnavailable();
     }
 
     // An impersonation session deliberately carries NO refresh token, so the
@@ -529,8 +539,8 @@ export class ApiCore {
     }
 
     this.isRefreshing = true;
-    this.refreshPromise = this.doRefresh();
-    
+    this.refreshPromise = this.withCrossTabRefreshLock(() => this.doRefresh());
+
     try {
       return await this.refreshPromise;
     } finally {
@@ -539,43 +549,145 @@ export class ApiCore {
     }
   }
 
+  /**
+   * One refresh, retried with backoff on transient failures.
+   *
+   * Only a definitive rejection of the refresh token — HTTP 401 or 400 from
+   * `/auth/refresh` — ends the session (tokens cleared, `onSessionExpired`
+   * fired). A network error, 5xx or 429 is retried per
+   * `REFRESH_RETRY_DELAYS_MS`; if every attempt fails the tokens are KEPT, the
+   * refresh reports `false` (so the caller's request surfaces its own error),
+   * and further refreshes pause for `REFRESH_FAILURE_COOLDOWN_MS` before the
+   * proactive timer tries again. An outage must not log everybody out.
+   */
   private async doRefresh(): Promise<boolean> {
-    if (this.refreshAttempts >= ApiCore.MAX_REFRESH_ATTEMPTS) {
-      this.clearTokens();
-      this.notifySessionExpired();
+    if (!this.refreshToken) return false;
+    if (Date.now() < this.refreshCooldownUntil) return false;
+    // Another tab of this browser shares the same refresh-session slot and may
+    // already have rotated the token. Presenting the old one would look like
+    // token REUSE to the server, which revokes the slot and signs every tab out.
+    if (this.adoptTokensRotatedElsewhere()) return true;
+
+    const refreshToken = this.refreshToken;
+    for (let attempt = 0; ; attempt++) {
+      const outcome = await this.attemptRefresh(refreshToken);
+      if (outcome === 'ok') return true;
+      // The session changed underneath us (logout, re-login, impersonation):
+      // this refresh no longer speaks for the current tokens.
+      if (this.refreshToken !== refreshToken) return false;
+      if (outcome === 'rejected') {
+        this.clearTokens();
+        this.notifySessionExpired();
+        return false;
+      }
+      if (outcome === 'failed' || attempt >= REFRESH_RETRY_DELAYS_MS.length) break;
+      await new Promise((r) => setTimeout(r, REFRESH_RETRY_DELAYS_MS[attempt]));
+      if (this.refreshToken !== refreshToken) return false;
+    }
+
+    this.refreshCooldownUntil = Date.now() + REFRESH_FAILURE_COOLDOWN_MS;
+    this.scheduleRefreshAfterCooldown();
+    return false;
+  }
+
+  /**
+   * Serialize refreshes across tabs (Web Locks), so two tabs whose proactive
+   * timers fire together don't both present the same refresh token. Without
+   * Web Locks the storage re-check in `doRefresh` and the `storage` listener
+   * still cover the common case.
+   */
+  private withCrossTabRefreshLock(fn: () => Promise<boolean>): Promise<boolean> {
+    const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+    if (!locks?.request) return fn();
+    return locks.request(REFRESH_LOCK_NAME, fn);
+  }
+
+  /**
+   * If localStorage holds a DIFFERENT refresh token than this tab's, another
+   * tab rotated the pair: take it over instead of refreshing. Returns true when
+   * tokens were adopted.
+   */
+  private adoptTokensRotatedElsewhere(): boolean {
+    if (typeof window === 'undefined') return false;
+    let storedAccess: string | null;
+    let storedRefresh: string | null;
+    let storedOrg: string | null;
+    try {
+      storedAccess = localStorage.getItem('accessToken');
+      storedRefresh = localStorage.getItem('refreshToken');
+      storedOrg = localStorage.getItem('organizationId');
+    } catch {
       return false;
     }
+    if (!storedAccess || !storedRefresh || storedRefresh === this.refreshToken) return false;
+    this.accessToken = storedAccess;
+    this.refreshToken = storedRefresh;
+    if (storedOrg) this.organizationId = storedOrg;
+    this.refreshCooldownUntil = 0;
+    this.scheduleProactiveRefresh();
+    return true;
+  }
 
-    this.refreshAttempts++;
-
+  /**
+   * A single POST to `/auth/refresh`:
+   *  - `ok`        new tokens stored
+   *  - `rejected`  401/400 — the refresh token is no good
+   *  - `transient` network error, 5xx or 429 — worth retrying
+   *  - `failed`    anything else (other 4xx, 2xx without tokens) — not retried,
+   *                but not proof the session is over either
+   */
+  private async attemptRefresh(refreshToken: string): Promise<'ok' | 'rejected' | 'transient' | 'failed'> {
+    let response: Response;
     try {
-      const response = await fetch(`${API_URL}/api/auth/refresh`, {
+      response = await fetch(`${API_URL}/api/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: this.refreshToken }),
+        body: JSON.stringify({ refreshToken }),
       });
-
-      const data = await response.json().catch(() => ({}));
-      // Decide success from the REAL HTTP status, never a body `statusCode` field —
-      // a proxy may inject/lie about it (mirrors request()). Trusting the body could
-      // clear tokens on a genuine 200 (spurious logout) or mask a real failure.
-      const statusCode = response.status;
-
-      // Check for tokens in data.data (standardized response) or data directly
-      const tokens = data.data || data;
-
-      if (statusCode < 400 && tokens.accessToken) {
-        this.refreshAttempts = 0; // Reset on success
-        this.setTokens(tokens);
-        return true;
-      }
     } catch {
-      // Refresh failed
+      return 'transient';
     }
+    // Decide from the REAL HTTP status, never a body `statusCode` field — a proxy
+    // may inject/lie about it (mirrors request()).
+    const statusCode = response.status;
+    if (statusCode === 401 || statusCode === 400) return 'rejected';
+    if (statusCode >= 500 || statusCode === 429) return 'transient';
 
-    this.clearTokens();
-    this.notifySessionExpired();
-    return false;
+    const data = await response.json().catch(() => ({}));
+    // Tokens live in data.data (standardized envelope) or on the body itself.
+    const tokens = data.data || data;
+    if (statusCode < 400 && tokens.accessToken && tokens.refreshToken) {
+      if (this.refreshToken !== refreshToken) return 'failed';
+      this.setTokens(tokens);
+      return 'ok';
+    }
+    return 'failed';
+  }
+
+  /**
+   * A refresh that returned `false` but left the refresh token in place failed
+   * transiently — the session is intact, the auth service just couldn't be
+   * reached. Surface that as a retryable 503 rather than the request's own 401,
+   * which callers (useAuth) rightly read as "signed out".
+   */
+  private throwIfRefreshUnavailable(): void {
+    if (!this.refreshToken) return;
+    throw new ApiError(
+      'Your session could not be refreshed because the server is unavailable. Try again shortly.',
+      503,
+      SESSION_REFRESH_UNAVAILABLE,
+    );
+  }
+
+  /** After a transient give-up, try again once the cooldown ends — if the
+   *  access token is still worth refreshing by then. */
+  private scheduleRefreshAfterCooldown(): void {
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null;
+      this.refreshCooldownUntil = 0;
+      if (this.refreshToken) void this.refreshAccessToken();
+    }, REFRESH_FAILURE_COOLDOWN_MS);
   }
 
   /** Build the header object an api method threads when called with a
@@ -628,6 +740,7 @@ export class ApiCore {
           yield* this.streamRequest(endpoint, body, true);
           return;
         }
+        this.throwIfRefreshUnavailable();
       }
       throw new ApiError(data.message || 'Stream failed', response.status, data.code);
     }

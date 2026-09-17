@@ -7,13 +7,13 @@
  */
 
 /**
- * Maps common filter keys (access, status, default) to API parameter names.
+ * Maps common filter keys (visibility, status, default) to API parameter names.
  * Backend's AccessControlQueryBuilder handles tenant scoping; this only
  * forwards the user's filter selections.
  */
 export function mapCommonParams(params: Record<string, string>): Record<string, string> {
   const p: Record<string, string> = {};
-  if (params.access) p.visibility = params.access;
+  if (params.visibility) p.visibility = params.visibility;
   if (params.status) p.isActive = params.status === 'active' ? 'true' : 'false';
   if (params.default) p.isDefault = params.default === 'default' ? 'true' : 'false';
   return p;

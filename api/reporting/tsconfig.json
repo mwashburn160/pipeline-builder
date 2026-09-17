@@ -28,8 +28,7 @@
     "target": "ESNext",
     "types": [
       "express",
-      "node",
-      "pg"
+      "node"
     ],
     "skipLibCheck": true,
     "isolatedModules": true,

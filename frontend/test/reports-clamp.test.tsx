@@ -13,15 +13,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import ReportsPage from '../pages/dashboard/reports';
 
-jest.mock('@/hooks/useAuthGuard', () => ({
-  __esModule: true,
-  useAuthGuard: () => ({
-    isReady: true,
-    isAuthenticated: true,
-    user: { id: 'u1', organizationId: 'org-1', role: 'member' },
-    can: () => false,
-  }),
-}));
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 
 jest.mock('@/hooks/useFeatures', () => ({
   __esModule: true,
@@ -38,12 +30,7 @@ jest.mock('next/router', () => ({
   useRouter: () => ({ isReady: true, query: {}, pathname: '/dashboard/reports', replace: jest.fn() }),
 }));
 
-jest.mock('@/components/ui/DashboardLayout', () => ({
-  __esModule: true,
-  DashboardLayout: ({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) => (
-    <div>{actions}{children}</div>
-  ),
-}));
+jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 
 const getExecutionCount = jest.fn();
 const getSuccessRate = jest.fn();

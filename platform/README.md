@@ -23,7 +23,7 @@ The API gateway strips the `/api` prefix before proxying; paths below are as mou
 | POST | `/auth/register` | Create a user + paired organization (owner role) |
 | POST | `/auth/login` | Authenticate with email/username + password, return token pair |
 | POST | `/auth/refresh` | Exchange a refresh token for a new access token |
-| POST | `/auth/logout` | Invalidate the current session |
+| POST | `/auth/logout` | Sign this device out (revokes its refresh session) |
 | POST | `/auth/switch-org` | Switch active organization and re-issue tokens |
 | POST | `/auth/send-verification` | Send an email-verification link |
 | POST | `/auth/verify-email` | Verify email with a token (public) |
@@ -94,7 +94,7 @@ The API gateway strips the `/api` prefix before proxying; paths below are as mou
 | GET | `/audit` | List audit events (admin only; org-scoped for org admins) |
 | POST | `/audit/events` | Internal ingest for non-platform services (service-token auth) |
 
-> Additional operational routes are also mounted: `/invitation`, `/dashboards`, `/logs`, `/observability`, `/config`, `/internal/notify-email` (service-token email send), and `/admin/*` (org IdP, KMS config, k8s namespace, user grants, summary, impersonate), plus `/health` and `/metrics`.
+> Additional operational routes are also mounted: `/invitation`, `/dashboards`, `/observability`, `/config`, `/internal/notify-email` (service-token email send), and `/admin/*` (org IdP, KMS config, k8s namespace, user grants, summary, impersonate), plus `/health` and `/metrics`.
 
 ## Configuration
 

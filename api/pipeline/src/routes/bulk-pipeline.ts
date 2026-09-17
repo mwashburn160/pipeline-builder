@@ -28,6 +28,7 @@ import { CoreConstants, replaceNonAlphanumeric } from '@pipeline-builder/pipelin
 import { Router } from 'express';
 import { z } from 'zod';
 import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator.js';
+import { checkPipelineUpdateCompliance, isComplianceRelevantUpdate } from '../helpers/pipeline-update-compliance.js';
 import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineService, type PipelineInsert, type PipelineUpdate } from '../services/pipeline-service.js';
 
@@ -292,9 +293,14 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       return sendBadRequest(res, errorMessage(err), ErrorCode.TEMPLATE_VALIDATION_FAILED);
     }
 
+    // The shared payload can change the compliance posture of every row (same
+    // rule as single update) — then each row must be re-checked against its own
+    // existing state, so load the rows once for both that and the visibility gate.
+    const complianceRelevant = isComplianceRelevantUpdate(validData);
+    const matched = (!isSystemAdmin(req) || complianceRelevant) ? await pipelineService.findByIds(ids, orgId) : [];
+
     // Same per-row visibility rule as single-row update (see bulk delete above).
     if (!isSystemAdmin(req)) {
-      const matched = await pipelineService.findByIds(ids, orgId);
       const forbidden = matched.filter(
         (p) => checkVisibilityWriteAccess(req, p, userId, 'pipelines:publish') !== 'ok',
       );
@@ -340,8 +346,28 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     // the isolation of the rest: earlier rows may already have committed, and a
     // single throw under Promise.all would surface a blanket 500 that hides
     // them. Instead accumulate per-index errors like bulk/create does.
+    //
+    // Compliance (fail-closed, per row — mirrors bulk create): a row the payload
+    // would make non-compliant, or that can't be checked because compliance is
+    // down, is reported in errors[] and NOT updated. A row absent from `matched`
+    // isn't visible to the caller, so the update couldn't touch it either — it is
+    // skipped rather than written unchecked.
+    const matchedById = new Map(matched.map((p) => [p.id, p]));
     const settled = await Promise.allSettled(
-      ids.map(id => pipelineService.update(id, updateData as PipelineUpdate, orgId, userId)),
+      ids.map(async (id) => {
+        if (complianceRelevant) {
+          const existing = matchedById.get(id);
+          if (!existing) return null;
+          const verdict = await checkPipelineUpdateCompliance(orgId, existing, updateData);
+          if (verdict.status === 'blocked') {
+            throw new Error(`Compliance blocked: ${verdict.violations.map((v) => v.message).join('; ')}`);
+          }
+          if (verdict.status === 'unavailable') {
+            throw new Error('Compliance service unavailable — pipeline update rejected');
+          }
+        }
+        return pipelineService.update(id, updateData as PipelineUpdate, orgId, userId);
+      }),
     );
 
     const updatedRows: Array<NonNullable<Awaited<ReturnType<typeof pipelineService.update>>>> = [];

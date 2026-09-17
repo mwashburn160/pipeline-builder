@@ -113,14 +113,15 @@ describe('POST /admin/promotions (mint)', () => {
 });
 
 describe('feature flag', () => {
-  // The flag is now enforced by a single router-level middleware (not per-handler),
-  // so exercise that middleware layer directly.
-  it('the gate middleware 404s all routes when promotions are disabled', () => {
+  // The flag is enforced by a single router-level middleware scoped to
+  // /admin/promotions (not per-handler), so exercise that middleware layer directly.
+  // test/billing-router-mount.test.ts covers the scoping against later routers.
+  it('the gate middleware 404s promotion routes when promotions are disabled', () => {
     promoEnabled = false;
     const mw = router.stack.find((l: any) => !l.route && typeof l.handle === 'function')?.handle; // eslint-disable-line @typescript-eslint/no-explicit-any
     const next = jest.fn();
     mw({}, {}, next);
-    expect(mockSendError).toHaveBeenCalledWith({}, 404, 'Promotions are not enabled');
+    expect(mockSendError).toHaveBeenCalledWith({}, 404, 'Promotions are not enabled', 'NOT_FOUND');
     expect(next).not.toHaveBeenCalled();
   });
 
@@ -150,7 +151,7 @@ describe('POST /admin/promotions/:id/grant', () => {
     promoStore.set('promo_1', { _id: 'promo_1', isActive: true });
     mockLoadSub.mockResolvedValue(null as never);
     await call(handler('post', '/admin/promotions/:id/grant'), adminReq({ params: { id: 'promo_1' }, body: { targetOrgId: 'org-cust' } }));
-    expect(mockSendError).toHaveBeenCalledWith({}, 404, 'Target org has no active subscription');
+    expect(mockSendError).toHaveBeenCalledWith({}, 404, 'Target org has no active subscription', 'NOT_FOUND');
     expect(mockGrant).not.toHaveBeenCalled();
   });
 });
@@ -170,7 +171,7 @@ describe('POST /admin/promotions/:id/activate', () => {
   it('409s when the promotion is inactive', async () => {
     promoStore.set('promo_1', { _id: 'promo_1', isActive: false });
     await call(handler('post', '/admin/promotions/:id/activate'), adminReq({ params: { id: 'promo_1' } }));
-    expect(mockSendError).toHaveBeenCalledWith({}, 409, 'Promotion is not active');
+    expect(mockSendError).toHaveBeenCalledWith({}, 409, 'Promotion is not active', 'CONFLICT');
     expect(mockBatch).not.toHaveBeenCalled();
   });
 });

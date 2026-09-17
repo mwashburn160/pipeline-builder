@@ -18,11 +18,11 @@
  * create/update/delete (org admins own their notification surface).
  */
 
-import { assertSafeUrl, createLogger, errorMessage, sendError, sendQuotaReserveDenied, sendSuccess } from '@pipeline-builder/api-core';
+import { assertSafeUrl, createLogger, errorMessage, sendError, sendQuotaReserveDenied, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
-import { isSystemAdmin, requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
+import { requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
 import { alertDestinationService, DestinationNotFoundError, toApiDestination } from '../services/alert-destination-service.js';
 import { relayWebhook, type AlertmanagerWebhook } from '../services/alert-relay.js';
@@ -31,12 +31,8 @@ import { isReasonableString } from '../utils/string-guards.js';
 
 const logger = createLogger('alert-destinations-controller');
 
-/** UI-displayed label length. Override via `ALERT_DESTINATION_MAX_LABEL`. */
-const MAX_LABEL = parseInt(process.env.ALERT_DESTINATION_MAX_LABEL || '100', 10);
-/** Slack/webhook URL length cap. Slack hooks are ~85 chars but enterprise
- *  webhooks signed with long query params can be much longer — 2048 is
- *  HTTP-spec-safe. Override via `ALERT_DESTINATION_MAX_TARGET`. */
-const MAX_TARGET = parseInt(process.env.ALERT_DESTINATION_MAX_TARGET || '2048', 10);
+/** UI label and Slack/webhook URL length caps (see config.observability). */
+const { alertDestinationMaxLabel: MAX_LABEL, alertDestinationMaxTarget: MAX_TARGET } = config.observability;
 
 
 /** Validate channel/target combos. Slack URLs must start with the canonical

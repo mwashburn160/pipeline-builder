@@ -3,7 +3,7 @@
 
 import { parseDateRange } from '@pipeline-builder/api-core';
 import { reportingService } from '@pipeline-builder/pipeline-data';
-import { MAX_REPORT_RANGE_DAYS } from '../helpers.js';
+import { MAX_REPORT_RANGE_DAYS } from './report-helpers.js';
 
 const MS_PER_DAY = 86_400_000;
 

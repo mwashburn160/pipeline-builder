@@ -46,7 +46,7 @@ const PIPELINE_SORT_FIELD: Record<string, string> = {
   pipelineId: 'id',
   project: 'project',
   organization: 'organization',
-  access: 'visibility',
+  visibility: 'visibility',
   status: 'isActive',
   default: 'isDefault',
   createdBy: 'createdBy',
@@ -83,7 +83,7 @@ export default function PipelinesPage() {
       { key: 'project', type: 'text', defaultValue: '' },
       { key: 'organization', type: 'text', defaultValue: '' },
       { key: 'keyword', type: 'text', defaultValue: '' },
-      { key: 'access', type: 'select', defaultValue: 'all' },
+      { key: 'visibility', type: 'select', defaultValue: 'all' },
       { key: 'status', type: 'select', defaultValue: 'all' },
       { key: 'default', type: 'select', defaultValue: 'all' },
     ],
@@ -360,10 +360,10 @@ export default function PipelinesPage() {
       render: (p) => <>{p.organization}</>,
     },
     {
-      id: 'access',
-      header: 'Access',
+      id: 'visibility',
+      header: 'Visibility',
       sortValue: (p) => p.visibility,
-      render: (p) => <AccessCell modifier={p.visibility} />,
+      render: (p) => <AccessCell visibility={p.visibility} />,
     },
     {
       id: 'status',
@@ -476,7 +476,7 @@ export default function PipelinesPage() {
         )}
 
         {canWrite && deletedView === 'deleted' ? (
-          <RecentlyDeletedPanel resource="pipeline" onRestored={list.refresh} canRestoreRow={(r) => canWritePipeline(can, isSuperAdmin, { visibility: r.access, createdBy: r.createdBy }, user?.id)} />
+          <RecentlyDeletedPanel resource="pipeline" onRestored={list.refresh} canRestoreRow={(r) => canWritePipeline(can, isSuperAdmin, { visibility: r.visibility, createdBy: r.createdBy }, user?.id)} />
         ) : (
         <>
         <DeployedPipelinesPanel canWrite={canWrite} />
@@ -510,8 +510,8 @@ export default function PipelinesPage() {
                 <option value="default">Default only</option>
               </FilterSelect>
               {canViewPublic && (
-                <FilterSelect aria-label="Filter by access" value={list.filters.access} onChange={(e) => list.updateFilter('access', e.target.value)}>
-                  <option value="all">All Access</option>
+                <FilterSelect aria-label="Filter by visibility" value={list.filters.visibility} onChange={(e) => list.updateFilter('visibility', e.target.value)}>
+                  <option value="all">All Visibility</option>
                   <option value="public">Public</option>
                   {/* The ladder has THREE rungs — omitting `org` made every
                       org-shared row invisible under both other filter values. */}

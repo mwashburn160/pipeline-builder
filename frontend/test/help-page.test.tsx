@@ -13,15 +13,9 @@
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import HelpPage from '../pages/dashboard/help';
 
-jest.mock('@/hooks/useAuthGuard', () => ({
-  __esModule: true,
-  useAuthGuard: () => ({ isReady: true, user: { id: 'u1', organizationId: 'org-1' } }),
-}));
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 
-jest.mock('@/components/ui/DashboardLayout', () => ({
-  __esModule: true,
-  DashboardLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}));
+jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 
 // framer-motion's AnimatePresence keeps collapsed content out of the DOM;
 // reduce it to plain divs so assertions see the rendered body.

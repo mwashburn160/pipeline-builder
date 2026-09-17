@@ -1,0 +1,132 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+import { useState } from 'react';
+import { useFormState } from '@/hooks/useFormState';
+import { Modal } from '@/components/ui/Modal';
+import { ModalFooter } from '@/components/ui/ModalFooter';
+import { Input } from '@/components/ui/Input';
+import { Checkbox } from '@/components/ui/Checkbox';
+import api from '@/lib/api';
+import type { Discount } from '@/types';
+import { TIER_KEYS } from '@/lib/tiers';
+import { formatDiscount } from './formatDiscount';
+
+// Selectable tiers a discount can target — sourced from the shared TIER_KEYS so
+// the picker never drifts from the tier catalog. (`unlimited` is intentionally absent.)
+const TIER_OPTIONS = TIER_KEYS;
+
+interface EditDiscountModalProps {
+  discount: Discount;
+  onClose: () => void;
+  /** Called after the update succeeded. */
+  onSaved: () => void;
+}
+
+/** Edit isActive / maxRedemptions / redeemBy / appliesToTiers of a minted discount. */
+export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountModalProps) {
+  const [editMaxRedemptions, setEditMaxRedemptions] = useState(
+    discount.maxRedemptions != null ? String(discount.maxRedemptions) : '',
+  );
+  // <input type="date"> wants YYYY-MM-DD; the record carries a full ISO instant.
+  const [editRedeemBy, setEditRedeemBy] = useState(discount.redeemBy ? discount.redeemBy.slice(0, 10) : '');
+  const [editTiers, setEditTiers] = useState<string[]>(discount.appliesToTiers ?? []);
+  const [editActive, setEditActive] = useState(discount.isActive);
+  const editForm = useFormState();
+
+  const toggleEditTier = (tier: string) => {
+    setEditTiers((prev) => prev.includes(tier) ? prev.filter((t) => t !== tier) : [...prev, tier]);
+  };
+
+  const handleEdit = async () => {
+    const maxR = editMaxRedemptions.trim() ? Number(editMaxRedemptions.trim()) : undefined;
+    // The API only accepts a positive cap (schema min 1); a blank field leaves the
+    // existing value untouched rather than clearing it.
+    if (maxR !== undefined && (!Number.isFinite(maxR) || maxR < 1)) {
+      editForm.setError('Max redemptions must be a positive number (leave blank to keep unchanged).');
+      return;
+    }
+    const body: { isActive?: boolean; maxRedemptions?: number; redeemBy?: string; appliesToTiers?: string[] } = {
+      isActive: editActive,
+      appliesToTiers: editTiers,
+    };
+    if (maxR !== undefined) body.maxRedemptions = maxR;
+    if (editRedeemBy.trim()) body.redeemBy = new Date(editRedeemBy.trim()).toISOString();
+    const result = await editForm.run(() => api.updateDiscount(discount.id, body));
+    if (result !== null) onSaved();
+  };
+
+  return (
+    <Modal
+      title="Edit Discount"
+      onClose={onClose}
+      footer={
+        <ModalFooter
+          onCancel={onClose}
+          onConfirm={handleEdit}
+          confirmLabel="Save Changes"
+          loading={editForm.loading}
+        />
+      }
+    >
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+        Editing <strong className="text-gray-700 dark:text-gray-300">{discount.alias || formatDiscount(discount)}</strong>.
+        The discount amount and kind are fixed at mint time and can’t be changed here.
+      </p>
+      <div className="space-y-3">
+        <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+          <Checkbox
+            checked={editActive}
+            onChange={(e) => setEditActive(e.target.checked)}
+            disabled={editForm.loading}
+          />
+          <span><strong>Active</strong> — uncheck to deactivate (existing grants persist).</span>
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Max redemptions</label>
+            <Input
+              type="number"
+              min={1}
+              placeholder="Keep unchanged"
+              value={editMaxRedemptions}
+              onChange={(e) => setEditMaxRedemptions(e.target.value)}
+              className="text-sm"
+              disabled={editForm.loading}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Redeem by</label>
+            <Input
+              type="date"
+              value={editRedeemBy}
+              onChange={(e) => setEditRedeemBy(e.target.value)}
+              className="text-sm"
+              disabled={editForm.loading}
+            />
+          </div>
+        </div>
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Applies to tiers <span className="text-gray-400">(none = all tiers)</span></label>
+          <div className="flex flex-wrap gap-2">
+            {TIER_OPTIONS.map((tier) => (
+              <button
+                key={tier}
+                type="button"
+                onClick={() => toggleEditTier(tier)}
+                aria-pressed={editTiers.includes(tier)}
+                disabled={editForm.loading}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium border capitalize transition-colors ${editTiers.includes(tier)
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+              >
+                {tier}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      {editForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{editForm.error}</p>}
+    </Modal>
+  );
+}

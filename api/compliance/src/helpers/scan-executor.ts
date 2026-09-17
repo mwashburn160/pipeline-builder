@@ -1,13 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, envInt, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-data';
-import { eq, and, gt, asc } from 'drizzle-orm';
+import { eq, and, gt, lt, asc } from 'drizzle-orm';
 import { logComplianceCheck } from './compliance-check-log.js';
 import { notifyComplianceBlock, notifyComplianceWarnings } from './compliance-notifier.js';
-import { parseIntEnv } from './env.js';
 import { resolveParentOrgId } from './org-hierarchy-client.js';
 import { evaluateRules, type ActiveExemption } from '../engine/rule-engine.js';
 import { complianceExemptionService } from '../services/compliance-exemption-service.js';
@@ -17,15 +16,72 @@ const logger = createLogger('scan-executor');
 
 /** Progress update interval (every N entities). Override via
  *  `COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE`. */
-const PROGRESS_BATCH_SIZE = parseIntEnv(process.env.COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE, 10);
+const PROGRESS_BATCH_SIZE = envInt('COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE', 10, { min: 1 });
 
 /** Per-batch concurrency for the entity-evaluation loop. Tunable for very large orgs. */
-const SCAN_CONCURRENCY = parseIntEnv(process.env.COMPLIANCE_SCAN_CONCURRENCY, 10);
+const SCAN_CONCURRENCY = envInt('COMPLIANCE_SCAN_CONCURRENCY', 10, { min: 1 });
 
+/** An entity to evaluate: its id + display name, and the compliance-safe
+ *  attribute projection the rules run against. */
 interface EntityRecord {
   id: string;
   name?: string;
-  [key: string]: unknown;
+  attributes: Record<string, unknown>;
+}
+
+/**
+ * Project a full plugin/pipeline row into the evaluation record. `attributes`
+ * goes through api-core's `toComplianceAttributes` — byte-for-byte what the
+ * plugin/pipeline services emit on the live entity-event path — so a scan
+ * evaluates the same field names (`name`, `pipelineName`, `env` keys, …) with the
+ * same secret-value redaction. Selecting only `{id, name}` (the old shape) left
+ * every field-based rule evaluating against nothing.
+ */
+function toEntityRecord(row: Record<string, unknown>, name: unknown): EntityRecord {
+  return {
+    id: row.id as string,
+    name: typeof name === 'string' ? name : undefined,
+    attributes: toComplianceAttributes(row) as Record<string, unknown>,
+  };
+}
+
+/** A `running` scan whose `startedAt` is older than this is presumed orphaned
+ *  (its executor crashed / the pod died mid-scan) and is failed by
+ *  {@link recoverStaleScans}. Override via `COMPLIANCE_SCAN_STALE_TIMEOUT_MS`. */
+const STALE_SCAN_TIMEOUT_MS = envInt('COMPLIANCE_SCAN_STALE_TIMEOUT_MS', 2 * 60 * 60 * 1000, { min: 60_000 });
+
+/**
+ * Fail scans stuck in `running` past {@link STALE_SCAN_TIMEOUT_MS}.
+ *
+ * The executor only leaves `running` through its own terminal UPDATEs, so a
+ * process crash mid-scan stranded the row in `running` forever — it never
+ * completed, showed as in-progress in the UI, and (because rule-change scans
+ * coalesce on an existing pending/running scan for the org+target) silently
+ * suppressed every later rule-change re-scan for that org. Called at the start
+ * of each scheduler sweep. The UPDATE is conditional on `status='running'`, so it
+ * can't clobber a scan that finished or was cancelled concurrently; a live scan
+ * that genuinely outruns the timeout sees its next progress write match zero
+ * rows and aborts cleanly. Returns the number of scans recovered.
+ */
+export async function recoverStaleScans(now: Date = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - STALE_SCAN_TIMEOUT_MS);
+  const recovered = await runWithTenantContext({ isSuperAdmin: true }, () =>
+    withTenantTx(async (tx) => tx.update(schema.complianceScan)
+      .set({ status: 'failed', completedAt: now })
+      .where(and(
+        eq(schema.complianceScan.status, 'running'),
+        lt(schema.complianceScan.startedAt, cutoff),
+      ))
+      .returning({ id: schema.complianceScan.id })));
+  if (recovered.length > 0) {
+    incCounter('compliance_scans_total', { outcome: 'failed' }, recovered.length);
+    logger.warn('Recovered stale running scans (marked failed)', {
+      count: recovered.length,
+      scanIds: recovered.map((r: { id: string }) => r.id),
+      timeoutMs: STALE_SCAN_TIMEOUT_MS,
+    });
+  }
+  return recovered.length;
 }
 
 /**
@@ -146,7 +202,7 @@ async function executeScanInternal(scanId: string): Promise<void> {
         const slice = entities.slice(i, i + concurrency);
         const settled = await Promise.allSettled(slice.map(async (entity) => {
           const exemptions = exemptionMap.get(entity.id) ?? [];
-          const result = evaluateRules(rules, entity as Record<string, unknown>, exemptions);
+          const result = evaluateRules(rules, entity.attributes, exemptions);
 
           if (!isDryRun) {
             logComplianceCheck(
@@ -266,14 +322,14 @@ async function executeScanInternal(scanId: string): Promise<void> {
 /** Page size for entity pagination. Entities are fetched in keyset-paginated
  *  pages of this size and ALL pages are evaluated — there is no truncation.
  *  Override via `COMPLIANCE_SCAN_ENTITY_PAGE_SIZE`. */
-const ENTITY_PAGE_SIZE = parseIntEnv(process.env.COMPLIANCE_SCAN_ENTITY_PAGE_SIZE, 1000);
+const ENTITY_PAGE_SIZE = envInt('COMPLIANCE_SCAN_ENTITY_PAGE_SIZE', 1000, { min: 1 });
 
 /** Absolute safety bound on total entities materialized per target per scan.
  *  Pagination evaluates every entity; this only guards against pathological
  *  unbounded memory. Exceeding it FAILS the scan (honest terminal state) rather
  *  than silently truncating to a green "all pass". Override via
  *  `COMPLIANCE_SCAN_ENTITY_MAX_TOTAL`. */
-const ENTITY_MAX_TOTAL = parseIntEnv(process.env.COMPLIANCE_SCAN_ENTITY_MAX_TOTAL, 100_000);
+const ENTITY_MAX_TOTAL = envInt('COMPLIANCE_SCAN_ENTITY_MAX_TOTAL', 100_000, { min: 1 });
 
 /**
  * Fetch ALL active entities for a target via keyset (id-ordered) pagination.
@@ -298,8 +354,8 @@ async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityR
     for (;;) {
       let rows: EntityRecord[];
       if (target === 'plugin') {
-        rows = await withTenantTx(async (tx) => tx
-          .select({ id: schema.plugin.id, name: schema.plugin.name })
+        const page = await withTenantTx(async (tx) => tx
+          .select()
           .from(schema.plugin)
           .where(and(
             eq(schema.plugin.isActive, true),
@@ -307,10 +363,11 @@ async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityR
             ...(cursor === undefined ? [] : [gt(schema.plugin.id, cursor)]),
           ))
           .orderBy(asc(schema.plugin.id))
-          .limit(pageSize)) as EntityRecord[];
+          .limit(pageSize));
+        rows = page.map((r: typeof schema.plugin.$inferSelect) => toEntityRecord(r as unknown as Record<string, unknown>, r.name));
       } else {
-        rows = await withTenantTx(async (tx) => tx
-          .select({ id: schema.pipeline.id, name: schema.pipeline.pipelineName })
+        const page = await withTenantTx(async (tx) => tx
+          .select()
           .from(schema.pipeline)
           .where(and(
             eq(schema.pipeline.isActive, true),
@@ -318,7 +375,8 @@ async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityR
             ...(cursor === undefined ? [] : [gt(schema.pipeline.id, cursor)]),
           ))
           .orderBy(asc(schema.pipeline.id))
-          .limit(pageSize)) as EntityRecord[];
+          .limit(pageSize));
+        rows = page.map((r: typeof schema.pipeline.$inferSelect) => toEntityRecord(r as unknown as Record<string, unknown>, r.pipelineName));
       }
 
       all.push(...rows);

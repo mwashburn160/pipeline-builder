@@ -19,6 +19,7 @@ const mockAudit = jest.fn();
 const mockGetRawQuotaLimits = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUpdateQuotas = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUpdateAIConfig = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockUpdateOrg = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (params: Record<string, unknown>, key: string) => params?.[key],
@@ -36,7 +37,17 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   requireAuth: (_req: any, _res: any) => true,
   canAccessOrg: jest.fn(),
   canAdministerOrg: jest.fn(),
-  withController: (_label: string, fn: Function) => async (req: any, res: any) => fn(req, res),
+  // Applies the error map like the real wrapper, so a mapped code is observable.
+  withController: (_label: string, fn: Function, errorMap?: Record<string, { status: number; message: string }>) =>
+    async (req: any, res: any) => {
+      try {
+        await fn(req, res);
+      } catch (err) {
+        const mapped = errorMap?.[(err as Error).message];
+        if (!mapped) throw err;
+        res.status(mapped.status).json({ success: false, message: mapped.message });
+      }
+    },
 }));
 
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgScope: jest.fn() }));
@@ -49,19 +60,14 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
     getRawQuotaLimits: (...a: unknown[]) => mockGetRawQuotaLimits(...a),
     updateQuotas: (...a: unknown[]) => mockUpdateQuotas(...a),
     updateAIConfig: (...a: unknown[]) => mockUpdateAIConfig(...a),
+    update: (...a: unknown[]) => mockUpdateOrg(...a),
   },
-  ORG_NOT_FOUND: 'ORG_NOT_FOUND',
-  SYSTEM_ORG_DELETE_FORBIDDEN: 'SYSTEM_ORG_DELETE_FORBIDDEN',
-  ORG_SLUG_TAKEN: 'ORG_SLUG_TAKEN',
-  ORG_AI_KEY_TOO_LONG: 'ORG_AI_KEY_TOO_LONG',
   changedAiProviderFields: (body: Record<string, unknown>) => Object.keys(body ?? {}),
 }));
 
 jest.unstable_mockModule('../src/services/org-cascade-service.js', () => ({
   softDeleteOrg: jest.fn(),
   exportOrg: jest.fn(),
-  ORG_ALREADY_DELETED: 'ORG_ALREADY_DELETED',
-  ORG_SNAPSHOT_FAILED: 'ORG_SNAPSHOT_FAILED',
 }));
 
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
@@ -72,7 +78,8 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   updateQuotasSchema: {},
 }));
 
-const { updateOrganizationQuotas, updateOrgAIConfig } = await import('../src/controllers/organization.js');
+const { updateOrganization, updateOrganizationQuotas, updateOrgAIConfig } = await import('../src/controllers/organization.js');
+const { ORG_SLUG_TAKEN } = await import('../src/services/org-errors.js');
 
 function mockRes() {
   const res: any = {};
@@ -146,5 +153,32 @@ describe('updateOrgAIConfig audit — admin.org.ai-config.update', () => {
     // The secret key values must never reach the audit trail.
     expect(JSON.stringify(call[2].details)).not.toContain('SUPER-SECRET');
     expect(JSON.stringify(call[2].details)).not.toContain('sk-ant-SECRET');
+  });
+});
+
+describe('updateOrganization (PUT /organization/:id) — audit + error mapping', () => {
+  const req = (body: Record<string, unknown>): any => ({ user: { sub: 'admin-1', organizationId: 'sysorg' }, params: { id: 'org-acme' }, headers: {}, body });
+
+  it('audits org.update against the edited org, naming the changed fields', async () => {
+    mockUpdateOrg.mockResolvedValue({ id: 'org-acme', name: 'Acme Corp', slug: 'acme', description: '' });
+    const r = req({ name: 'Acme Corp', description: 'x' });
+    const res = mockRes();
+    await (updateOrganization as any)(r, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockAudit).toHaveBeenCalledWith(r, 'org.update', expect.objectContaining({
+      targetType: 'organization',
+      targetId: 'org-acme',
+      affectedOrgId: 'org-acme',
+      details: { fields: ['name', 'description'], name: 'Acme Corp' },
+    }));
+  });
+
+  it('maps ORG_SLUG_TAKEN to 409 instead of a 500', async () => {
+    mockUpdateOrg.mockRejectedValue(new Error(ORG_SLUG_TAKEN));
+    const res = mockRes();
+    await (updateOrganization as any)(req({ name: 'Acme' }), res);
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 });

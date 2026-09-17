@@ -66,7 +66,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
   config: { quota: { tier: {} } },
 }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 
 // org-hierarchy + seats mocked so the pooled inputs are fully controlled.
 const mockResolveOrgLineage = jest.fn<(...a: unknown[]) => Promise<{ rootOrgId: string }>>();

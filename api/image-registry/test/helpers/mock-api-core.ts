@@ -66,11 +66,20 @@ function permissionGate(mode: 'some' | 'every', joiner: string) {
 }
 
 /**
+ * The REAL api-core exports, used as the base of every mock below. Suites stub
+ * only what they exercise; everything else is the genuine export, so adding an
+ * export to api-core can never again break a suite with "does not provide an
+ * export named X". (`requireActual` bypasses the module mock.)
+ */
+const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record<string, unknown>;
+
+/**
  * Default api-core namespace for `unstable_mockModule`. Spread `overrides` last
  * so a suite can replace any default (and add exports the default omits).
  */
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
+    ...actualApiCore,
     createLogger: loggerMock,
     MAX_PAGE_LIMIT: 1000,
     DEFAULT_PAGE_LIMIT: 100,
@@ -93,6 +102,14 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     requirePermission: permissionGate('some', ' or '),
     requireAllPermissions: permissionGate('every', ' and '),
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    // Zod body validation used by the copy + GC routes. Mirrors api-core's
+    // `validate`: `{ ok, value }` or `{ ok: false, error }` naming the FIRST issue.
+    validateBody: (req: { body?: unknown }, schema: { safeParse: (d: unknown) => { success: boolean; data?: unknown; error?: { issues: Array<{ path: PropertyKey[]; message: string }> } } }) => {
+      const r = schema.safeParse(req.body);
+      if (r.success) return { ok: true, value: r.data };
+      const first = r.error?.issues[0];
+      return { ok: false, error: first ? `${first.path.join('.')}: ${first.message}` : 'Validation failed' };
+    },
     // Remote audit client factory — the registry's audit wiring
     // (src/services/audit.ts) links against this. Default returns a no-op
     // recorder; suites asserting on emitted audit events mock the audit module

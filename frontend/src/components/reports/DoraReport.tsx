@@ -9,7 +9,6 @@ import { fmtDate, ReportEmpty, SectionHeading, StatCardSkeleton, SectionCardSkel
 import { fmtWindow, DoraCard, DoraTrendSparkline, DoraScopeControls, type DoraScope } from './DoraParts';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 import { formatDurationSeconds } from '@/lib/format';
 
 /** Billing deep-link that rings the DORA-History pack on the add-ons grid. */
@@ -324,18 +323,20 @@ function DeploymentList({ deployments, pipelineSelected, markEnvironment, canMar
                         <Button
                           variant="ghost"
                           size="xs"
-                          disabled={readOnly || pending === d.execution_id}
+                          readOnly={readOnly}
+                          disabled={pending === d.execution_id}
                           onClick={() => mark(d.execution_id, 'failed')}
-                          title={readOnly ? READ_ONLY_REASON : 'Mark this deployment as failed in production (post-deploy failure)'}
+                          title='Mark this deployment as failed in production (post-deploy failure)'
                         >
                           Mark failed
                         </Button>
                         <Button
                           variant="ghost"
                           size="xs"
-                          disabled={readOnly || pending === d.execution_id}
+                          readOnly={readOnly}
+                          disabled={pending === d.execution_id}
                           onClick={() => mark(d.execution_id, 'restored')}
-                          title={readOnly ? READ_ONLY_REASON : 'Mark this deployment as restored (recovery — feeds MTTR)'}
+                          title='Mark this deployment as restored (recovery — feeds MTTR)'
                         >
                           Mark restored
                         </Button>

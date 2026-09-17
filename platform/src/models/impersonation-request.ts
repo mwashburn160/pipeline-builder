@@ -17,7 +17,7 @@ import { Document, Schema, model, Types } from 'mongoose';
  */
 
 /**
- * `pending`  — awaiting a decision (only reachable once a consent policy exists).
+ * `pending`  — awaiting a decision (a `consent` policy, or a four-eyes break-glass).
  * `approved` — may be redeemed for a token.
  * `denied`   — refused by the approver; terminal.
  * `consumed` — redeemed; the token was issued. Terminal for redemption, which is
@@ -116,9 +116,6 @@ export interface ImpersonationRequestDocument extends Document {
   createdAt: Date;
   updatedAt: Date;
 }
-
-/** How long an approval stays redeemable. */
-export const IMPERSONATION_REQUEST_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 /** Cap on the operator's stated reason — it is rendered to the target org. */
 export const IMPERSONATION_REASON_MAX = 500;

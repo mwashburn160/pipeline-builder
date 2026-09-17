@@ -12,7 +12,7 @@ import { FormField } from '@/components/ui/FormField';
 import { Callout } from '@/components/ui/Callout';
 import { RetryError } from '@/components/ui/RetryError';
 import { Button } from '@/components/ui/Button';
-import { ReadOnlyNotice, READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
+import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { Input } from '@/components/ui/Input';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { AIProviderConfig } from '@/components/settings/AIProviderConfig';
@@ -87,12 +87,15 @@ export default function SettingsPage() {
   // performs the gated action with the returned token.
   const [pendingDelete, setPendingDelete] = useState(false);
 
+  // Seed the form once per signed-in user — NOT on every profile refresh, which
+  // would overwrite whatever the user is typing.
   useEffect(() => {
     if (user) {
       setUsername(user.username);
       setEmail(user.email);
     }
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -193,7 +196,7 @@ export default function SettingsPage() {
                     Mark as verified
                   </Button>
                 )}
-                <Button type="button" variant="secondary" size="sm" loading={verify.loading} onClick={handleResendVerification} disabled={isReadOnly} title={isReadOnly ? READ_ONLY_REASON : undefined}>
+                <Button type="button" variant="secondary" size="sm" loading={verify.loading} onClick={handleResendVerification} readOnly={isReadOnly}>
                   Resend verification email
                 </Button>
               </div>
@@ -263,7 +266,7 @@ export default function SettingsPage() {
           description="Permanently delete your account and all associated data. This cannot be undone."
           className="border-[var(--pb-danger)]/40"
         >
-          <Button variant="danger" onClick={() => setShowDeleteConfirm(true)} disabled={isReadOnly} title={isReadOnly ? READ_ONLY_REASON : undefined}>
+          <Button variant="danger" onClick={() => setShowDeleteConfirm(true)} readOnly={isReadOnly}>
             Delete account
           </Button>
         </SectionCard>

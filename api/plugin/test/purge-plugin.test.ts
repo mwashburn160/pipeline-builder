@@ -5,29 +5,26 @@
  * Tests for routes/purge-plugin.
  *
  * Extracts the POST /:id/purge handler from the router and tests it directly
- * with mock req/res objects — no HTTP server needed. Mirrors the sibling
- * restore-plugin.test.ts mocking approach. Unlike restore, purge loads the
- * tombstone + publish-gates + hard-deletes inline (no `loadAndRestore`), so the
- * service exposes `findDeletedById` + `purgeById`.
+ * with mock req/res objects — no HTTP server needed. The route delegates the
+ * load-tombstone → visibility-gate → hard-delete → 404 skeleton to api-core's
+ * shared `loadAndPurge`, and this suite runs the REAL helper (and the real
+ * visibility ladder + response helpers it uses) rather than a stub, so the
+ * route's contract is exercised end to end against `findDeletedById` +
+ * `purgeById` on a mocked service.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockSendBadRequestForRoute = jest.fn((res: any, msg: string) => {
-  res.status(400).json({ success: false, statusCode: 400, message: msg });
-});
+// Loaded by file path, NOT through the mocked '@pipeline-builder/api-core' entry,
+// so the real implementation backs the mock's `loadAndPurge` export.
+const { loadAndPurge } = await import('@pipeline-builder/api-core/lib/helpers/restore-helpers.js') as {
+  loadAndPurge: (...args: any[]) => Promise<any>;
+};
+
 const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
-
-const sendBadRequest = jest.fn((res: any, msg: string, code?: string) => {
-  res.status(400).json({ success: false, statusCode: 400, message: msg, code });
-});
-const sendEntityNotFound = jest.fn((res: any, entity: string) => {
-  res.status(404).json({ success: false, statusCode: 404, message: `${entity} not found.` });
-});
-const requireVisibilityWriteAccess = jest.fn((_req: any, _res: any, _resource: any, _perm?: string) => true);
 const sendSuccess = jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
   const response: any = { success: true, statusCode };
   if (data !== undefined) response.data = data;
@@ -36,11 +33,8 @@ const sendSuccess = jest.fn((res: any, statusCode: number, data?: any, message?:
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
-  requireVisibilityWriteAccess,
+  loadAndPurge,
   sendSuccess,
-  sendBadRequest,
-  sendEntityNotFound,
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
@@ -48,9 +42,8 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
     const ctx = req.context;
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
     const userId = ctx.identity.userId || '';
-    const requireOrgId = options?.requireOrgId !== false;
-    if (requireOrgId && !orgId) {
-      return mockSendBadRequestForRoute(res, 'Organization ID is required');
+    if (options?.requireOrgId !== false && !orgId) {
+      return res.status(400).json({ message: 'Organization ID is required' });
     }
     try {
       await handler({ req, res, ctx, orgId, userId });
@@ -96,7 +89,7 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
     query: {},
     body: {},
     headers: { authorization: 'Bearer tok' },
-    user: { sub: 'user-1' },
+    user: { sub: 'user-1', permissions: [] },
     context: {
       identity: { orgId: 'ORG-1', userId: 'user-1' },
       log: jest.fn(),
@@ -110,6 +103,7 @@ function mockRes(): any {
   const res: any = {};
   res.status = jest.fn().mockReturnValue(res);
   res.json = jest.fn().mockReturnValue(res);
+  res.setHeader = jest.fn();
   return res;
 }
 
@@ -119,6 +113,7 @@ const existingPlugin = {
   version: '1.0.0',
   orgId: 'org-1',
   visibility: 'private',
+  createdBy: 'user-1',
   isActive: false,
   isDefault: false,
 };
@@ -171,7 +166,6 @@ describe('POST /plugins/:id/purge (purge)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(sendBadRequest).toHaveBeenCalledWith(res, 'Plugin ID is required.', 'MISSING_REQUIRED_FIELD');
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockFindDeletedById).not.toHaveBeenCalled();
     expect(mockPurgeById).not.toHaveBeenCalled();
@@ -206,21 +200,35 @@ describe('POST /plugins/:id/purge (purge)', () => {
 
   it('returns 403 (publish gate) when a non-publisher purges a PUBLIC tombstone', async () => {
     mockFindDeletedById.mockResolvedValue({ ...existingPlugin, visibility: 'public' });
-    requireVisibilityWriteAccess.mockReturnValueOnce(false);
 
     const req = mockReq();
     const res = mockRes();
     await handler(req, res);
 
-    expect(requireVisibilityWriteAccess).toHaveBeenCalledWith(
-      req,
-      res,
-      expect.objectContaining({ visibility: 'public' }),
-      'user-1',
-      'plugins:publish',
-    );
+    expect(res.status).toHaveBeenCalledWith(403);
     expect(mockPurgeById).not.toHaveBeenCalled();
     expect(mockEmitPluginAudit).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 when a member purges another author's PRIVATE tombstone", async () => {
+    mockFindDeletedById.mockResolvedValue({ ...existingPlugin, visibility: 'private', createdBy: 'someone-else' });
+
+    const res = mockRes();
+    await handler(mockReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockPurgeById).not.toHaveBeenCalled();
+  });
+
+  it('lets a plugins:publish holder purge a PUBLIC tombstone', async () => {
+    mockFindDeletedById.mockResolvedValue({ ...existingPlugin, visibility: 'public' });
+    mockPurgeById.mockResolvedValue('plugin-uuid-1');
+
+    const res = mockRes();
+    await handler(mockReq({ user: { sub: 'user-1', permissions: ['plugins:publish'] } }), res);
+
+    expect(mockPurgeById).toHaveBeenCalledWith('plugin-uuid-1', 'org-1');
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 
   it('returns 500 on service error', async () => {

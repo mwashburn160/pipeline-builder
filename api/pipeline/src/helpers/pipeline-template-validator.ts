@@ -101,7 +101,6 @@ export function resolvePipeline<T extends PipelineLike>(pipeline: T): T {
     scope,
     isPipelineTemplatable,
     fieldToScopePath,
-    'pipeline',
   );
   if (errors.length) {
     throw new ValidationError(

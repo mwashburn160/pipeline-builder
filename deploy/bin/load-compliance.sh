@@ -39,7 +39,6 @@ post_with_retry() {
     -X POST "$1" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $JWT_TOKEN" \
-    -H "x-internal-service: true" \
     -d @"$2" || _rc=$?
   case "$_rc" in
     0) SUCCEEDED=$((SUCCEEDED + 1)) ;;

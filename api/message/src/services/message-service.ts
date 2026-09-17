@@ -100,19 +100,65 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
   }
 
   /**
-   * Cascade attachment teardown when messages are HARD-purged (retention sweep).
-   * Runs inside the purge transaction (sysadmin-scoped, so it spans all orgs):
-   * deletes the attachment metadata rows for the doomed messages and reclaims
-   * their object-storage blobs. Blob deletion is best-effort (never throws) — an
-   * orphaned blob is housekeeping, not data loss, and must not abort the purge.
+   * Storage keys of attachments whose metadata rows were deleted inside a purge
+   * transaction, keyed by message id, awaiting blob deletion in
+   * {@link onAfterPurge}. Keys are only ever ADDED here and only REMOVED when
+   * `onAfterPurge` consumes them after a commit: a rolled-back attempt leaves its
+   * keys behind, but they belong to that same message's attachments, so they are
+   * consumed (and correctly deleted) when that message is eventually purged —
+   * never used for anything else. Additive (a Set, not overwrite) so a
+   * concurrent purge of the same id whose DELETE matched nothing cannot erase
+   * the committed attempt's keys before they are consumed.
+   */
+  private readonly purgedBlobKeys = new Map<string, Set<string>>();
+
+  /**
+   * Cascade attachment teardown when messages are HARD-purged (retention sweep
+   * or manual purge). Runs inside the purge transaction (sysadmin-scoped for the
+   * sweep): deletes the attachment metadata rows for the doomed messages and
+   * stashes their storage keys. The blobs are NOT touched here.
+   *
+   * ORDERING — rows first, blobs after commit. Deleting blobs inside this hook
+   * (the old behavior) destroyed them BEFORE the transaction committed: if the
+   * parent DELETE or the commit then failed, the rollback resurrected the
+   * message + attachment rows pointing at blobs that no longer exist — an
+   * unrecoverable, user-visible loss (e.g. a tombstone later restored with
+   * broken attachments). With rows first, the worst case is the reverse: a blob
+   * whose delete keeps failing outlives its row — a storage leak that is
+   * retried, logged, and counted (`message_attachment_blob_orphans_total`),
+   * never a dangling reference. The alternative ("delete rows only for blobs
+   * that deleted") still deletes blobs before an uncommitted transaction, so it
+   * does not close the rollback hole.
    */
   protected async onBeforePurge(ids: string[], tx: CrudTx): Promise<void> {
     if (ids.length === 0) return;
     const removed = await tx
       .delete(schema.messageAttachment)
       .where(inArray(schema.messageAttachment.messageId, ids))
-      .returning({ storageKey: schema.messageAttachment.storageKey });
-    await deleteAttachments((removed as Array<{ storageKey: string }>).map((r) => r.storageKey));
+      .returning({ messageId: schema.messageAttachment.messageId, storageKey: schema.messageAttachment.storageKey });
+    for (const { messageId, storageKey } of removed as Array<{ messageId: string | null; storageKey: string }>) {
+      if (!messageId) continue;
+      const keys = this.purgedBlobKeys.get(messageId) ?? new Set<string>();
+      keys.add(storageKey);
+      this.purgedBlobKeys.set(messageId, keys);
+    }
+  }
+
+  /**
+   * Post-commit blob reclamation for the rows `onBeforePurge` deleted. Only
+   * reached once the purge transaction committed (the base class skips it on a
+   * rollback). `deleteAttachments` batches to the S3 1000-key cap, honours
+   * per-key `Errors`, retries, and never throws.
+   */
+  protected async onAfterPurge(ids: string[]): Promise<void> {
+    const keys: string[] = [];
+    for (const id of ids) {
+      const stashed = this.purgedBlobKeys.get(id);
+      if (!stashed) continue;
+      this.purgedBlobKeys.delete(id);
+      keys.push(...stashed);
+    }
+    await deleteAttachments(keys);
   }
 
   /**

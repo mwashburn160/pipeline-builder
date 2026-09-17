@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendBadRequest, sendError, sendSuccess, ErrorCode, resolveVisibility, isSystemAdmin, checkVisibilityWriteAccess, userHasPermission, VisibilitySchema } from '@pipeline-builder/api-core';
+import { sendBadRequest, sendError, sendSuccess, ErrorCode, requireFeature, resolveVisibility, isSystemAdmin, checkVisibilityWriteAccess, userHasPermission, VisibilitySchema } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
+import { checkUpdateCompliance, needsComplianceRecheck } from '../helpers/update-compliance.js';
 import { emitPluginAudit } from '../services/audit.js';
 import { pluginService } from '../services/plugin-service.js';
 
@@ -54,13 +55,18 @@ function parseBulkIds(res: Parameters<typeof sendBadRequest>[0], raw: unknown): 
 
 /**
  * Register bulk operation routes for plugins.
- * Requires auth + orgId middleware applied at the parent level.
+ *
+ * Expects auth + orgId + `plugins:write` at the parent mount (index.ts). The
+ * `bulk_operations` feature gate is attached to each route HERE, not the mount:
+ * the mount's gates are prefix layers that also run for every request falling
+ * through to later routers (purge/restore), which must not require the feature.
  */
 export function createBulkPluginRoutes(): Router {
   const router: Router = Router();
+  const bulkFeature = requireFeature('bulk_operations');
 
   /** POST /plugins/bulk/delete — Soft-delete multiple plugins by ID */
-  router.post('/bulk/delete', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/bulk/delete', bulkFeature, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const ids = parseBulkIds(res, req.body?.ids);
     if (!ids) return;
 
@@ -97,7 +103,7 @@ export function createBulkPluginRoutes(): Router {
   }));
 
   /** PUT /plugins/bulk/update — Update multiple plugins with the same data */
-  router.put('/bulk/update', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/bulk/update', bulkFeature, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const ids = parseBulkIds(res, req.body?.ids);
     if (!ids) return;
     const data = req.body?.data;
@@ -135,8 +141,11 @@ export function createBulkPluginRoutes(): Router {
     // updateMany's read predicate already hides other authors' private rows, but
     // it happily matches PUBLIC rows — so without this a member could bulk-edit
     // (deactivate, re-describe, or downgrade to `org`) a published plugin.
+    // Loaded once for both per-row gates below (visibility for non-admins, and
+    // the compliance re-check for everyone).
+    const recheck = needsComplianceRecheck(updateData);
+    const matched = (!isSystemAdmin(req) || recheck) ? await pluginService.findByIds(ids, orgId) : [];
     if (!isSystemAdmin(req)) {
-      const matched = await pluginService.findByIds(ids, orgId);
       const forbidden = matched.filter(
         (p) => checkVisibilityWriteAccess(req, p, userId, 'plugins:publish') !== 'ok',
       );
@@ -151,8 +160,30 @@ export function createBulkPluginRoutes(): Router {
       }
     }
 
+    // Same fail-closed compliance re-check as single-row update, per row: a bulk
+    // edit (e.g. flipping visibility) must not turn a compliant plugin
+    // non-compliant. Any block rejects the whole batch (mirrors the visibility
+    // gate above); an unreachable compliance service rejects it with 503.
+    if (recheck) {
+      const blocked: Array<{ id: string; violations: unknown[] }> = [];
+      for (const plugin of matched) {
+        const verdict = await checkUpdateCompliance(orgId, plugin, updateData);
+        if (verdict.outcome === 'unavailable') {
+          ctx.log('ERROR', 'Compliance service unavailable — bulk plugin update rejected', { error: verdict.error });
+          return sendError(res, 503, 'Compliance service unavailable — plugin update rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
+        }
+        if (verdict.outcome === 'blocked') blocked.push({ id: plugin.id, violations: verdict.violations });
+      }
+      if (blocked.length > 0) {
+        ctx.log('WARN', 'Bulk plugin update blocked by compliance', { blocked: blocked.length });
+        return sendError(res, 403, 'Bulk update blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, { blocked });
+      }
+    }
+
     ctx.log('INFO', 'Bulk update plugins', { count: ids.length });
 
+    // pluginService.updateMany runs the per-row post-update lifecycle (cache
+    // invalidation + compliance entity event), same as a single-row update.
     const updated = await pluginService.updateMany(
       { id: ids },
       updateData,

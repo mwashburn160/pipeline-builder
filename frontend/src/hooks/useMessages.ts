@@ -6,12 +6,14 @@
  * Provides CRUD operations for messages, thread replies, and read-state management.
  * Uses SSE push notifications when connected; falls back to 30-second polling when not.
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import type { Message, MessageType, MessagePriority } from '@/types';
+import { acquireLiveUnreadSource, setUnreadCount, useUnreadCount } from '@/lib/unread-count-store';
 import { useAsyncCallback } from './useAsync';
 import { useMessageNotifications } from './useMessageNotifications';
+import { usePolling } from './usePolling';
 
 /** Return type of the {@link useMessages} hook. */
 interface UseMessagesReturn {
@@ -60,10 +62,10 @@ export function useMessages(orgId?: string | null, search = ''): UseMessagesRetu
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [unreadCount, setUnreadCount] = useState(0);
+  // Shared with the sidebar badge (see unread-count-store), so both update together.
+  const { unreadCount } = useUnreadCount();
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Kept in a ref so fetchMessages/loadMore stay stable (no SSE/poll effect
   // churn) while still reading the CURRENT search term.
   const searchRef = useRef(search);
@@ -257,23 +259,23 @@ export function useMessages(orgId?: string | null, search = ''): UseMessagesRetu
     return unsub;
   }, [connected, onNotification, fetchMessages, fetchUnreadCount]);
 
+  // This hook keeps the shared unread count current (SSE, or the fallback poll
+  // below), so the sidebar badge doesn't poll it separately while we're mounted.
+  // A layout effect, so it's in place before the layout's (child) polling effect
+  // runs its first tick in the same commit.
+  useLayoutEffect(() => acquireLiveUnreadSource(), []);
+
   // Polling fallback: only poll when SSE is disconnected. Refresh BOTH the
   // unread count and the message LIST so the inbox stays current during an
-  // outage — not just the badge. The interval is cleared on unmount and as
-  // soon as SSE reconnects (connected → true), so live push never runs
-  // alongside polling.
+  // outage — not just the badge. Stops as soon as SSE reconnects, so live push
+  // never runs alongside polling.
   useEffect(() => {
-    if (connected) return;
-
-    fetchUnreadCount();
-    pollRef.current = setInterval(() => {
-      fetchUnreadCount();
-      fetchMessages();
-    }, POLL_INTERVAL);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [fetchUnreadCount, fetchMessages, connected]);
+    if (!connected) void fetchUnreadCount();
+  }, [connected, fetchUnreadCount]);
+  usePolling(() => {
+    void fetchUnreadCount();
+    void fetchMessages();
+  }, POLL_INTERVAL, { enabled: !connected, immediate: false });
 
   return {
     messages,

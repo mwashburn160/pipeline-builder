@@ -28,6 +28,9 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   },
 }));
 
+// Fail-closed compliance re-check shared with single-row update.
+const mockValidatePlugin = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue({ blocked: false, violations: [] });
+
 const mockEmitPluginAudit = jest.fn();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitPluginAudit: mockEmitPluginAudit,
@@ -35,6 +38,7 @@ jest.unstable_mockModule('../src/services/audit.js', () => ({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  createComplianceClient: () => ({ validatePlugin: mockValidatePlugin }),
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendSuccess: jest.fn((res: any, status: number, data: any) =>
     res.status(status).json({ success: true, statusCode: status, data })),
@@ -73,7 +77,7 @@ function getUpdateHandler() {
   const layer = (router.stack as any[]).find(
     (l) => l.route?.path === '/bulk/update' && l.route?.methods?.put,
   );
-  return layer.route.stack[0].handle;
+  return layer.route.stack[layer.route.stack.length - 1].handle;
 }
 
 function makeRes() {
@@ -149,7 +153,7 @@ function getDeleteHandler() {
   const layer = (router.stack as any[]).find(
     (l) => l.route?.path === '/bulk/delete' && l.route?.methods?.post,
   );
-  return layer.route.stack[0].handle;
+  return layer.route.stack[layer.route.stack.length - 1].handle;
 }
 
 describe('POST /plugins/bulk/delete — visibility ladder parity', () => {
@@ -300,6 +304,56 @@ describe('PUT /plugins/bulk/update — exact ids, visibility ladder, singular de
 
     const second = makeRes();
     await getUpdateHandler()({ body: { ids: [P1], data: { isDefault: false } }, user: { permissions: [] } }, second.res);
+    expect(mockUpdateMany).toHaveBeenCalled();
+  });
+});
+
+// Bulk update used to skip the compliance re-check single-row update runs, so a
+// bulk visibility flip could turn a compliant plugin non-compliant.
+describe('PUT /plugins/bulk/update — compliance re-check parity with single update', () => {
+  const rows = [
+    { id: P1, name: 'a', version: '1.0.0', visibility: 'org', createdBy: 'u-1', env: {}, buildArgs: {} },
+    { id: P2, name: 'b', version: '2.0.0', visibility: 'org', createdBy: 'u-1', env: {}, buildArgs: {} },
+  ];
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFindByIds.mockResolvedValue(rows);
+    mockUpdateMany.mockResolvedValue(rows);
+    mockValidatePlugin.mockResolvedValue({ blocked: false, violations: [] });
+  });
+
+  it('re-validates every matched row with the post-update visibility (even for a sysadmin)', async () => {
+    const { res } = makeRes();
+    await getUpdateHandler()({ body: { ids: [P1, P2], data: { visibility: 'private' } }, user: { isSuperAdmin: true } }, res);
+    expect(mockValidatePlugin).toHaveBeenCalledTimes(2);
+    expect(mockValidatePlugin).toHaveBeenCalledWith('org-1', expect.objectContaining({ name: 'a', visibility: 'private' }),
+      expect.any(String), P1, 'a', 'update');
+    expect(mockUpdateMany).toHaveBeenCalled();
+  });
+
+  it('403s the whole batch (listing blocked ids) when compliance blocks a row', async () => {
+    mockValidatePlugin
+      .mockResolvedValueOnce({ blocked: false, violations: [] })
+      .mockResolvedValueOnce({ blocked: true, violations: [{ rule: 'no-private' }] });
+    const { res, status, json } = makeRes();
+    await getUpdateHandler()({ body: { ids: [P1, P2], data: { visibility: 'private' } }, user: { isSuperAdmin: true } }, res);
+    expect(status).toHaveBeenCalledWith(403);
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ blocked: [{ id: P2, violations: [{ rule: 'no-private' }] }] }));
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('503s (fail-closed) when the compliance service is unreachable', async () => {
+    mockValidatePlugin.mockRejectedValue(new Error('ECONNREFUSED'));
+    const { res, status } = makeRes();
+    await getUpdateHandler()({ body: { ids: [P1], data: { visibility: 'private' } }, user: { permissions: [] } }, res);
+    expect(status).toHaveBeenCalledWith(503);
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('skips the round-trip for a catalog-metadata-only edit', async () => {
+    const { res } = makeRes();
+    await getUpdateHandler()({ body: { ids: [P1], data: { description: 'x', isActive: false } }, user: { isSuperAdmin: true } }, res);
+    expect(mockValidatePlugin).not.toHaveBeenCalled();
     expect(mockUpdateMany).toHaveBeenCalled();
   });
 });

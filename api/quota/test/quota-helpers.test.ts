@@ -38,19 +38,10 @@ const {
   buildOrgQuotaResponse,
   buildDefaultOrgQuotaResponse,
 } = await import('../src/helpers/quota-helpers.js');
-const { INTERNAL_AUTH_OPTS } = await import('../src/middleware/authorize-org.js');
 
 // Tests
 
 describe('quota-helpers', () => {
-  describe('INTERNAL_AUTH_OPTS', () => {
-    it('allows x-org-id header override (internal mutation routes only)', () => {
-      // Renamed from AUTH_OPTS to make the security boundary explicit —
-      // public read routes use plain requireAuth without override.
-      expect(INTERNAL_AUTH_OPTS).toEqual({ allowOrgHeaderOverride: true });
-    });
-  });
-
   describe('getNextResetDate', () => {
     it('should return a date N days from now at midnight', () => {
       const result = getNextResetDate(3);

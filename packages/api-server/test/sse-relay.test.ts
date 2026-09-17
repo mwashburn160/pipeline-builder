@@ -150,7 +150,7 @@ describe('createRedisSSERelay — subscribing at startup', () => {
       const subscriber = { on: jest.fn(), subscribe, quit: jest.fn(async () => 'OK') };
       const publisher: any = { publish: jest.fn(async () => 1), duplicate: () => subscriber, quit: jest.fn(async () => 'OK') };
 
-      const relay = relayMod.createRedisSSERelay(publisher);
+      const relay = relayMod.createRedisSSERelay(publisher, 'sse:relay:test');
       relay.subscribe(() => {});
       await jest.advanceTimersByTimeAsync(0);
       expect(subscribe).toHaveBeenCalledTimes(1);
@@ -176,7 +176,7 @@ describe('createRedisSSERelay — subscribing at startup', () => {
       const subscriber = { on: jest.fn(), subscribe, quit: jest.fn(async () => 'OK') };
       const publisher: any = { publish: jest.fn(async () => 1), duplicate: () => subscriber, quit: jest.fn(async () => 'OK') };
 
-      const relay = relayMod.createRedisSSERelay(publisher);
+      const relay = relayMod.createRedisSSERelay(publisher, 'sse:relay:test');
       relay.subscribe(() => {});
       await jest.advanceTimersByTimeAsync(0);
       await relay.close();
@@ -185,5 +185,51 @@ describe('createRedisSSERelay — subscribing at startup', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('createRedisSSERelay — per-service channel', () => {
+  function pubsub() {
+    const handlers: Record<string, Array<(...a: any[]) => void>> = {};
+    const subscriber: any = {
+      on: jest.fn((evt: string, cb: (...a: any[]) => void) => { (handlers[evt] ||= []).push(cb); }),
+      subscribe: jest.fn(async () => 1),
+      quit: jest.fn(async () => 'OK'),
+      emit: (evt: string, ...args: any[]) => (handlers[evt] || []).forEach((cb) => cb(...args)),
+    };
+    const publisher: any = { publish: jest.fn(async () => 1), duplicate: () => subscriber, quit: jest.fn(async () => 'OK') };
+    return { publisher, subscriber };
+  }
+
+  it('names the channel after the service', () => {
+    expect(relayMod.sseRelayChannel('message')).toBe('sse:relay:message');
+    expect(relayMod.sseRelayChannel('reporting')).not.toBe(relayMod.sseRelayChannel('message'));
+  });
+
+  it('publishes and subscribes on its own channel and ignores other services\' frames', async () => {
+    const { publisher, subscriber } = pubsub();
+    const relay = relayMod.createRedisSSERelay(publisher, 'sse:relay:message');
+    const received: SSERelayMessage[] = [];
+    relay.subscribe((m) => received.push(m));
+    await Promise.resolve();
+    expect(subscriber.subscribe).toHaveBeenCalledWith('sse:relay:message');
+
+    const frame: SSERelayMessage = { origin: 'x', kind: 'send', requestId: 'org-1', payload: { ts: 't', type: 'MESSAGE', message: 'm' } };
+    relay.publish(frame);
+    expect(publisher.publish).toHaveBeenCalledWith('sse:relay:message', JSON.stringify(frame));
+
+    subscriber.emit('message', 'sse:relay:reporting', JSON.stringify(frame));
+    expect(received).toHaveLength(0);
+    subscriber.emit('message', 'sse:relay:message', JSON.stringify(frame));
+    expect(received).toHaveLength(1);
+    await relay.close();
+  });
+
+  it('attaches an error listener to the subscriber connection (an unhandled error would crash the process)', async () => {
+    const { publisher, subscriber } = pubsub();
+    const relay = relayMod.createRedisSSERelay(publisher, 'sse:relay:x');
+    expect(subscriber.on).toHaveBeenCalledWith('error', expect.any(Function));
+    expect(() => subscriber.emit('error', new Error('ECONNRESET'))).not.toThrow();
+    await relay.close();
   });
 });

@@ -27,7 +27,6 @@
     "stripInternal": true,
     "target": "ESNext",
     "types": [
-      "cors",
       "express",
       "jsonwebtoken",
       "node"

@@ -51,7 +51,7 @@ jest.unstable_mockModule('../src/utils/email.js', () => ({
   default: { send: (...a: unknown[]) => mockSend(...a) },
 }));
 
-const { handleNotifyEmail } = await import('../src/routes/notify-email.js');
+const { notifyEmail: handleNotifyEmail } = await import('../src/controllers/notify-email.js');
 
 function mockRes() {
   const res: any = {};

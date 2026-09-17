@@ -26,7 +26,7 @@ const mockInsert = jest.fn(() => ({ values: mockValues }));
 const mockWithTenantTx = jest.fn(async (fn: (tx: unknown) => unknown) => fn({ insert: mockInsert }));
 
 const mockSend = jest.fn<(opts: { to: string; subject: string; text?: string }) => Promise<boolean>>(async () => true);
-const mockConfig = { email: { enabled: true } };
+const mockConfig = { email: { enabled: true }, observability: { alertEmailDedupeTtlMs: 600_000 } };
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   assertSafeUrl: (url: string) => mockAssertSafeUrl(url),

@@ -17,8 +17,10 @@ const mockIsSystemAdmin = jest.fn();
 const mockIsOrgAdmin = jest.fn();
 const mockIsAncestorOrg = jest.fn();
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
   isSystemAdmin: (...a: unknown[]) => mockIsSystemAdmin(...a),
+}));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   isOrgAdmin: (...a: unknown[]) => mockIsOrgAdmin(...a),
 }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({

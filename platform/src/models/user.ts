@@ -38,6 +38,19 @@ interface OAuthProviders {
   'cognito'?: OAuthProviderData;
 }
 
+/** A signed-in device's refresh-token slot. */
+export interface RefreshSession {
+  /** Stable slot id, carried as `sid` in that session's access + refresh tokens. */
+  id: string;
+  /** SHA-256 of the slot's current refresh token. */
+  hash: string;
+  createdAt: Date;
+  lastUsedAt: Date;
+  /** Capability scope of the tokens this slot mints (a narrow machine credential).
+   *  Stored server-side so renewal can never widen it. */
+  scope?: string;
+}
+
 /**
  * User document interface.
  *
@@ -95,7 +108,10 @@ export interface UserDocument extends Document {
    */
   isSuperAdmin?: boolean;
   tokenVersion: number;
-  refreshToken?: string;
+  /** One refresh-token slot per signed-in device, oldest first (capped — see
+   *  `MAX_REFRESH_SESSIONS`). Only the SHA-256 of the current token is stored.
+   *  Rotation swaps a slot's hash; reuse of a rotated token revokes that slot. */
+  refreshSessions?: RefreshSession[];
   /** Last 20 access tokens issued for this user. Append-only ring; capped at 20.
    *  Used to surface a token-history view on the dashboard. */
   issuedTokens?: Array<{
@@ -190,8 +206,16 @@ const userSchema = new Schema<UserDocument>(
       type: Number,
       default: 0,
     },
-    refreshToken: {
-      type: String,
+    refreshSessions: {
+      type: [{
+        _id: false,
+        id: { type: String, required: true },
+        hash: { type: String, required: true },
+        createdAt: { type: Date, required: true },
+        lastUsedAt: { type: Date, required: true },
+        scope: { type: String },
+      }],
+      default: [],
       select: false,
     },
     issuedTokens: {

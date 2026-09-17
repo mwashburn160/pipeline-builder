@@ -4,7 +4,7 @@
 import { DEFAULT_TIER, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaTier } from '@pipeline-builder/api-core';
 export type { QuotaTier } from '@pipeline-builder/api-core';
-export { QUOTA_TIERS, VALID_TIERS, VALID_QUOTA_TYPES, isValidQuotaType } from '@pipeline-builder/api-core';
+export { QUOTA_TIERS, VALID_QUOTA_TYPES, isValidQuotaType } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import type { QuotaLimits, QuotaUsageTracking, OrganizationDocument } from '../models/organization.js';
 export { toOrgId } from './org-id.js';
@@ -61,7 +61,7 @@ export function computeQuotaStatus(
 // Org quota response — unified shape used by all endpoints
 
 /** Per-type summary (status minus the internal `allowed` flag). */
-export type QuotaSummary = Omit<QuotaStatus, 'allowed'>;
+type QuotaSummary = Omit<QuotaStatus, 'allowed'>;
 
 /** Unified org-level response returned to all callers. */
 export interface OrgQuotaResponse {
@@ -105,7 +105,7 @@ function buildSummaries(
  * pass either a hydrated mongoose document or a `.lean()` plain object without
  * tying this helper to Mongoose's document type.
  */
-export interface OrgQuotaSource {
+interface OrgQuotaSource {
   _id: unknown;
   name: string;
   slug: string;

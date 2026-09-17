@@ -38,9 +38,9 @@ import { createTemplateRoutes } from './routes/templates.js';
 import { createUpdatePolicyRoutes } from './routes/update-policies.js';
 import { createUpdateRuleRoutes } from './routes/update-rules.js';
 import { createValidateRoutes } from './routes/validate.js';
+import { getAuditClient } from './services/audit.js';
 import { complianceRuleService } from './services/compliance-rule-service.js';
 import { compliancePolicyService } from './services/policy-service.js';
-import { getAuditClient } from './services/remote-audit-client.js';
 
 const logger = createLogger('compliance');
 const quotaService = createQuotaService();

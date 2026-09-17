@@ -3,17 +3,11 @@
 
 import {
   createLogger,
-  createSafeClient,
-  decrementQuota,
   errorMessage,
-  getServiceAuthHeader,
   handleAIError,
   initSSEStream,
   requireFeature,
-  reserveQuota,
-  runConcurrent,
   sendBadRequest,
-  sendQuotaReserveDenied,
   sendSuccess,
   validateBody,
   AIGenerateBodySchema,
@@ -21,23 +15,14 @@ import {
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute, rateLimitByOrg } from '@pipeline-builder/api-server';
-import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
+import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
-import { getAvailableProviders, getFilteredPlugins, generatePipelineConfig, streamPipelineConfig, AIEmptyOutputError } from '../services/ai-generation-service.js';
+import { withAiCallsReservation } from '../helpers/ai-calls-reservation.js';
+import { getAvailableProviders, getFilteredPlugins, generatePipelineConfig, streamPipelineConfig } from '../services/ai-generation-service.js';
+import { autoCreateMissingPlugins } from '../services/auto-plugin-service.js';
 import { parseGitUrl, analyzeRepository, buildEnhancedPrompt } from '../services/git-analysis-service.js';
-import { findExistingPluginNames } from '../services/plugin-lookup-service.js';
 
 const logger = createLogger('generate-pipeline');
-
-/**
- * Strict allowlist for AI/repo-derived plugin names before they are used to
- * build shell commands / a Dockerfile downstream. `PluginOptionsSchema.name` is
- * only `z.string()`, so an AI (or a poisoned repo analysis) could emit a name
- * like `"; rm -rf / #` that would break out of the `echo "..."` command or the
- * `RUN echo "Plugin ..."` Dockerfile line. Only lowercase alphanumerics and
- * hyphens are safe to interpolate; anything else is rejected, never escaped.
- */
-const SAFE_PLUGIN_NAME_RE = /^[a-z0-9-]+$/;
 
 /**
  * The client-facing summary of a repository analysis — what the from-URL routes
@@ -75,30 +60,23 @@ async function streamPartials( stream: AsyncIterable<unknown>,
   }
 }
 
-/** Timeout for the pipeline service's calls into the plugin service.
- * 30s by default — these calls are sometimes slow because plugin upload
- * responses include build queue results. Override via
- * `PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS`. */
-const parsedTimeout = parseInt(process.env.PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS || '30000', 10);
-const PLUGIN_SERVICE_TIMEOUT_MS = Number.isFinite(parsedTimeout) ? parsedTimeout : 30000;
-
-let _pluginClient: ReturnType<typeof createSafeClient> | undefined;
-/** Lazily construct the plugin service client — defers Config.get() until first
- * request so module load doesn't fail before env is initialized in tests. */
-function getPluginClient(): ReturnType<typeof createSafeClient> {
-  if (!_pluginClient) {
-    const { pluginHost, pluginPort } = Config.get('server').services;
-    _pluginClient = createSafeClient({ host: pluginHost, port: pluginPort, timeout: PLUGIN_SERVICE_TIMEOUT_MS });
+/** Yield every partial from the provider stream, marking the slot's provider
+ *  contact on the FIRST one — proof the provider responded (and its $ cost was
+ *  incurred). */
+async function* markingContact<T>(stream: AsyncIterable<T>, markProviderContacted: () => void): AsyncIterable<T> {
+  for await (const p of stream) {
+    markProviderContacted();
+    yield p;
   }
-  return _pluginClient;
 }
 
 /**
  * Create and register AI pipeline generation routes.
  *
  * AI calls consume the org's dedicated `aiCalls` quota (reserved atomically
- * per generate below), bounding AI usage by the per-org, per-tier budget so an
- * org can't spam the platform AI provider key beyond their tier.
+ * per generate via {@link withAiCallsReservation}), bounding AI usage by the
+ * per-org, per-tier budget so an org can't spam the platform AI provider key
+ * beyond their tier.
  *
  * @returns Express Router with AI generation endpoints
  */
@@ -139,20 +117,11 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         return sendBadRequest(res, validation.error);
       }
       const { prompt, provider, model, apiKey, previousConfig, fallbackProviders } = validation.value;
-      // Mint a service token for the S2S quota reserve/decrement rather than
-      // forwarding the end-user bearer. The quota `/increment` endpoint rejects
-      // non-service principals (403), so forwarding the user token fails the
-      // reservation for every non-admin. Mirrors create-pipeline.ts / upload-plugin.ts.
-      const serviceAuth = getServiceAuthHeader({ serviceName: 'pipeline', orgId, role: 'member' });
 
-      // reserve the aiCalls slot atomically before the LLM call.
-      // Two concurrent generates at the limit can't both burn a call.
-      const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', serviceAuth);
-      if (reservation.exceeded) {
-        return sendQuotaReserveDenied(res, 'aiCalls', reservation);
-      }
-
-      try {
+      // Non-streaming: the provider is contacted inside generatePipelineConfig, so
+      // a failure there refunds — except AIEmptyOutputError, which carries
+      // `providerContacted` (round-trip completed, $ incurred) and keeps the slot.
+      await withAiCallsReservation({ quotaService, orgId, res, logWarn: ctx.log.bind(null, 'WARN') }, async () => {
         ctx.log('INFO', 'AI pipeline generation requested', {
           promptLength: prompt.length,
           provider,
@@ -178,7 +147,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           ...(result.usage && { tokens: result.usage.totalTokens }),
         });
 
-        return sendSuccess(res, 200, {
+        sendSuccess(res, 200, {
           props: result.props,
           description: result.description,
           keywords: result.keywords,
@@ -187,18 +156,11 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           promptVersion: result.promptVersion,
           validationWarnings: result.validationWarnings,
         });
-      } catch (error) {
+      }, (error) => {
         const message = errorMessage(error);
         logger.error('AI pipeline generation failed', { requestId: ctx.requestId, error: message });
-        // Keep-on-provider-contact policy (unified with the streaming path): an
-        // empty/unparseable output AFTER the provider round-trip completed still
-        // incurred the external $ cost, so the reserved aiCalls slot is KEPT.
-        // Only pre-provider failures (model resolution, connectivity) refund.
-        if (!(error instanceof AIEmptyOutputError)) {
-          decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-        }
         handleAIError(res, message, 'Failed to generate pipeline configuration');
-      }
+      });
     }),
   );
 
@@ -223,25 +185,8 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         return sendBadRequest(res, validation.error);
       }
       const { prompt, provider, model, apiKey } = validation.value;
-      // Mint a service token for the S2S quota reserve/decrement rather than
-      // forwarding the end-user bearer. The quota `/increment` endpoint rejects
-      // non-service principals (403), so forwarding the user token fails the
-      // reservation for every non-admin. Mirrors create-pipeline.ts / upload-plugin.ts.
-      const serviceAuth = getServiceAuthHeader({ serviceName: 'pipeline', orgId, role: 'member' });
 
-      // reserve upfront. If the stream is aborted before completion
-      // OR an error throws, the catch block decrements to give the slot back.
-      const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', serviceAuth);
-      if (reservation.exceeded) {
-        return sendQuotaReserveDenied(res, 'aiCalls', reservation);
-      }
-      let reserved = true;
-      // True once the FIRST partial flows — proof the provider responded (and its $
-      // cost was incurred). A failure after this keeps the slot; a pre-provider
-      // failure (model config / DB) refunds it.
-      let providerContacted = false;
-
-      try {
+      await withAiCallsReservation({ quotaService, orgId, res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
         ctx.log('INFO', 'AI pipeline streaming generation requested', {
           promptLength: prompt.length,
           provider,
@@ -261,10 +206,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           ...(apiKey ? { apiKey }: {}),
         });
 
-        await streamPartials(
-          (async function* () { for await (const p of result.partialOutputStream) { providerContacted = true; yield p; } })(),
-          res, sse.aborted, ctx.requestId,
-        );
+        await streamPartials(markingContact(result.partialOutputStream, slot.markProviderContacted), res, sse.aborted, ctx.requestId);
 
         if (!sse.aborted()) {
           // Get final validated output
@@ -286,21 +228,15 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         } else {
           // Aborted before completion — caller never consumed the LLM
           // output, so give the slot back.
-          decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-          reserved = false;
+          slot.refund();
         }
 
         res.end();
-      } catch (error) {
+      }, (error) => {
         const message = errorMessage(error);
         logger.error('AI pipeline streaming generation failed', { requestId: ctx.requestId, error: message });
-        // Keep-on-provider-contact: refund only when the provider was NEVER reached
-        // (a mid-stream failure arrives after the round-trip's $ cost was incurred).
-        if (reserved && !providerContacted) {
-          decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-        }
         handleAIError(res, message, 'Failed to stream pipeline configuration');
-      }
+      });
     }),
   );
 
@@ -327,41 +263,36 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         return sendBadRequest(res, validation.error);
       }
       const { gitUrl, provider, model, apiKey, repoToken } = validation.value;
-      const serviceAuth = getServiceAuthHeader({ serviceName: 'pipeline', orgId, role: 'member' });
 
       const parsed = parseGitUrl(gitUrl);
       if (!parsed) {
         return sendBadRequest(res, 'Invalid Git URL format. Supported: HTTPS, SSH, git@ formats.');
       }
 
-      const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', serviceAuth);
-      if (reservation.exceeded) {
-        return sendQuotaReserveDenied(res, 'aiCalls', reservation);
-      }
+      await withAiCallsReservation({ quotaService, orgId, res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
+        // Log only the parsed host/owner/repo — never the raw `gitUrl`, which may
+        // embed credentials (parseGitUrl accepts https://user:token@host/...).
+        ctx.log('INFO', 'AI pipeline generation from URL requested (JSON)', {
+          host: parsed.host,
+          owner: parsed.owner,
+          repo: parsed.repo,
+          provider,
+          model,
+          gitProvider: parsed.provider,
+        });
 
-      // Log only the parsed host/owner/repo — never the raw `gitUrl`, which may
-      // embed credentials (parseGitUrl accepts https://user:token@host/...).
-      ctx.log('INFO', 'AI pipeline generation from URL requested (JSON)', {
-        host: parsed.host,
-        owner: parsed.owner,
-        repo: parsed.repo,
-        provider,
-        model,
-        gitProvider: parsed.provider,
-      });
+        let analysis;
+        try {
+          analysis = await analyzeRepository(parsed, repoToken);
+        } catch (analyzeError) {
+          const msg = errorMessage(analyzeError);
+          logger.warn('Repository analysis failed', { requestId: ctx.requestId, error: msg });
+          // Failed before any LLM call — give the slot back.
+          slot.refund();
+          sendBadRequest(res, `Repository analysis failed: ${msg}`);
+          return;
+        }
 
-      let analysis;
-      try {
-        analysis = await analyzeRepository(parsed, repoToken);
-      } catch (analyzeError) {
-        const msg = errorMessage(analyzeError);
-        logger.warn('Repository analysis failed', { requestId: ctx.requestId, error: msg });
-        // Failed before any LLM call — give the slot back.
-        decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-        return sendBadRequest(res, `Repository analysis failed: ${msg}`);
-      }
-
-      try {
         const plugins = await getFilteredPlugins(orgId, {
           languages: Object.keys(analysis.languages),
           frameworks: analysis.frameworks,
@@ -383,7 +314,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           ...(result.usage && { tokens: result.usage.totalTokens }),
         });
 
-        return sendSuccess(res, 200, {
+        sendSuccess(res, 200, {
           props: result.props,
           description: result.description,
           keywords: result.keywords,
@@ -393,16 +324,11 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           promptVersion: result.promptVersion,
           validationWarnings: result.validationWarnings,
         });
-      } catch (error) {
+      }, (error) => {
         const message = errorMessage(error);
         logger.error('AI pipeline generation from URL failed', { requestId: ctx.requestId, error: message });
-        // Keep-on-provider-contact policy (same as /generate): only a
-        // pre-provider failure refunds the slot.
-        if (!(error instanceof AIEmptyOutputError)) {
-          decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-        }
         handleAIError(res, message, 'Failed to generate pipeline from URL');
-      }
+      });
     }),
   );
 
@@ -417,6 +343,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
    * - `{type:"analyzed", data:{...}}` — repo analysis summary
    * - `{type:"partial", data:{...}}` — streaming AI generation partial
    * - `{type:"done", data:{props,...}}` — final generated config
+   * - `{type:"checking-plugins"}` / `{type:"creating-plugins"}` — auto-plugin creation
    * - `{type:"error", message:"..."}` — error during processing
    *
    * Validated with {@link AIGenerateFromUrlBodySchema}.
@@ -434,11 +361,6 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         return sendBadRequest(res, validation.error);
       }
       const { gitUrl, provider, model, apiKey, repoToken } = validation.value;
-      // Mint a service token for the S2S quota reserve/decrement rather than
-      // forwarding the end-user bearer. The quota `/increment` endpoint rejects
-      // non-service principals (403), so forwarding the user token fails the
-      // reservation for every non-admin. Mirrors create-pipeline.ts / upload-plugin.ts.
-      const serviceAuth = getServiceAuthHeader({ serviceName: 'pipeline', orgId, role: 'member' });
 
       // Parse the Git URL
       const parsed = parseGitUrl(gitUrl);
@@ -446,15 +368,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         return sendBadRequest(res, 'Invalid Git URL format. Supported: HTTPS, SSH, git@ formats.');
       }
 
-      // reserve the aiCalls slot before any LLM work.
-      const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', serviceAuth);
-      if (reservation.exceeded) {
-        return sendQuotaReserveDenied(res, 'aiCalls', reservation);
-      }
-      let reserved = true;
-      let providerContacted = false; // true once the first LLM partial flows
-
-      try {
+      await withAiCallsReservation({ quotaService, orgId, res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
         // Log only the parsed host/owner/repo — never the raw `gitUrl`, which
         // may embed credentials (parseGitUrl accepts https://user:token@host/...).
         ctx.log('INFO', 'AI pipeline generation from URL requested', {
@@ -467,9 +381,10 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         });
 
         const sse = initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
+        const writeEvent = (event: unknown): void => { res.write(`data: ${JSON.stringify(event)}\n\n`); };
 
         // Phase 1: Analyze repository
-        res.write(`data: ${JSON.stringify({ type: 'analyzing' })}\n\n`);
+        writeEvent({ type: 'analyzing' });
 
         let analysis;
         try {
@@ -478,21 +393,19 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           const msg = errorMessage(analyzeError);
           logger.warn('Repository analysis failed', { requestId: ctx.requestId, error: msg });
           // Repo analysis failed before any LLM call — roll back the slot.
-          decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-          reserved = false;
-          res.write(`data: ${JSON.stringify({ type: 'error', message: `Repository analysis failed: ${msg}` })}\n\n`);
+          slot.refund();
+          writeEvent({ type: 'error', message: `Repository analysis failed: ${msg}` });
           res.end();
           return;
         }
 
         if (sse.aborted()) {
-          decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-          reserved = false;
+          slot.refund();
           res.end();
           return;
         }
 
-        res.write(`data: ${JSON.stringify({ type: 'analyzed', data: summarizeAnalysis(analysis) })}\n\n`);
+        writeEvent({ type: 'analyzed', data: summarizeAnalysis(analysis) });
 
         // Phase 2: Build enhanced prompt and stream AI generation
         const enhancedPrompt = buildEnhancedPrompt(analysis);
@@ -511,16 +424,13 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           ...(apiKey ? { apiKey }: {}),
         });
 
-        await streamPartials(
-          (async function* () { for await (const p of result.partialOutputStream) { providerContacted = true; yield p; } })(),
-          res, sse.aborted, ctx.requestId,
-        );
+        await streamPartials(markingContact(result.partialOutputStream, slot.markProviderContacted), res, sse.aborted, ctx.requestId);
 
         if (!sse.aborted()) {
           const finalOutput = await result.output;
           if (finalOutput) {
             const { description, keywords, ...props } = finalOutput;
-            res.write(`data: ${JSON.stringify({
+            writeEvent({
               type: 'done',
               data: {
                 props,
@@ -529,171 +439,33 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
                 servedBy: result.servedBy,
                 promptVersion: result.promptVersion,
               },
-            })}\n\n`);
+            });
 
             // Phase 3: Auto-create missing plugins
             if (!sse.aborted()) {
-              await autoCreateMissingPlugins(res, props, orgId, {
+              await autoCreateMissingPlugins(props, orgId, {
                 authToken: req.headers.authorization || '',
                 requestId: ctx.requestId,
-              });
+              }, writeEvent);
             }
           }
           res.write('data: [DONE]\n\n');
           // Quota policy: a COMPLETED stream keeps the reserved `aiCalls` slot even
           // when `finalOutput` is empty/unparseable — the provider round-trip (and
           // its external $ cost) was incurred. Only an ABORT (client disconnect /
-          // pre-provider failure) refunds the slot, below.
+          // pre-provider failure) refunds the slot.
         } else {
-          decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-          reserved = false;
+          slot.refund();
         }
 
         res.end();
-      } catch (error) {
+      }, (error) => {
         const message = errorMessage(error);
         logger.error('AI pipeline generation from URL failed', { requestId: ctx.requestId, error: message });
-        // Keep the slot once the provider was contacted (see the /generate/stream
-        // catch). A pre-LLM failure (repo analysis, model config) refunds it.
-        if (reserved && !providerContacted) {
-          decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-        }
         handleAIError(res, message, 'Failed to generate pipeline from URL');
-      }
+      });
     }),
   );
 
   return router;
-}
-
-// Auto-Plugin Creation
-
-/**
- * Extract plugin names referenced in a generated pipeline config.
- * Walks `synth.plugin.name` and `stages[].steps[].plugin.name` to match the
- * shape produced by `PipelineGenerationSchema` (see ai-generation-service).
- *
- * @param props - Generated pipeline props (partial BuilderProps)
- * @returns Unique list of plugin names
- */
-function extractPluginNames(props: Record<string, unknown>): string[] {
-  const names = new Set<string>();
-
-  // Only stage plugins are subject to auto-creation. The synth plugin (build
-  // tool for the synth step) is provisioned out-of-band; including it here
-  // would trigger creating-plugins on every generated pipeline and break the
-  // "skip auto-creation when no stages" guarantee.
-  const stages = props.stages as Array<{
-    steps?: Array<{ plugin?: { name?: unknown } }>;
-    actions?: Array<{ pluginName?: unknown }>;
-  }> | undefined;
-  if (!Array.isArray(stages)) return [];
-  for (const stage of stages) {
-    // Two AI-output shapes are accepted: stages[].steps[].plugin.name
-    // (BuilderProps) and stages[].actions[].pluginName (legacy / alt schema).
-    if (Array.isArray(stage.steps)) {
-      for (const step of stage.steps) {
-        const name = step.plugin?.name;
-        if (typeof name === 'string' && name) names.add(name);
-      }
-    }
-    if (Array.isArray(stage.actions)) {
-      for (const action of stage.actions) {
-        const name = action.pluginName;
-        if (typeof name === 'string' && name) names.add(name);
-      }
-    }
-  }
-  return [...names];
-}
-
-/**
- * Check which plugins already exist in the database and auto-create
- * missing ones via the plugin service's deploy-generated endpoint.
- *
- * Emits SSE events
- * - `{type:"checking-plugins", data:{plugins:[...]}}` — list of referenced plugins
- * - `{type:"creating-plugins", data:{creating:[...], existing:[...], builds:[...]}}` — creation results
- *
- * @param res - Express response (SSE stream)
- * @param props - Generated pipeline props
- * @param orgId - Organization ID
- * @param context - Auth context (bearer + request id) forwarded to the plugin service
- */
-async function autoCreateMissingPlugins( res: import('express').Response,
-  props: Record<string, unknown>,
-  orgId: string,
-  context: {
-    authToken: string;
-    requestId: string;
-  },
-): Promise<void> {
-  const pluginNames = extractPluginNames(props);
-  if (pluginNames.length === 0) return;
-
-  res.write(`data: ${JSON.stringify({ type: 'checking-plugins', data: { plugins: pluginNames } })}\n\n`);
-
-  // Check which plugins already exist (single batched query)
-  const existingSet = await findExistingPluginNames(pluginNames, orgId);
-  const existing: string[] = pluginNames.filter(n => existingSet.has(n));
-  const missing: string[] = pluginNames.filter(n => !existingSet.has(n));
-
-  if (missing.length === 0) {
-    res.write(`data: ${JSON.stringify({
-      type: 'creating-plugins',
-      data: { creating: [], existing, builds: [] },
-    })}\n\n`);
-    return;
-  }
-
-  // Auto-create missing plugins via plugin service — cap concurrency so a
-  // generation with many plugins doesn't fan out unbounded requests.
-  const pluginClient = getPluginClient();
-  const builds = await runConcurrent(missing, 5, async (name) => {
-    // Reject any name that isn't a strict `[a-z0-9-]+` token BEFORE it reaches
-    // the shell command / Dockerfile interpolation below. This is validate-and-
-    // reject, not escape: an out-of-allowlist name is never sent to the plugin
-    // service (which would embed it in `echo "..."` / `RUN echo "Plugin ..."`).
-    if (!SAFE_PLUGIN_NAME_RE.test(name)) {
-      logger.warn('Rejected unsafe auto-plugin name', { plugin: name });
-      return { name, error: 'invalid plugin name' };
-    }
-    try {
-      // Idempotency-Key scopes the deploy to (requestId, plugin name) so a
-      // client retrying a failed /generate/from-url/stream call doesn't enqueue
-      // duplicate plugin builds. Plugin service should treat the same key
-      // within a short window as a no-op.
-      const deployResponse = await pluginClient.post<{ data?: { requestId?: string } }>('/plugins/deploy-generated', {
-        name,
-        description: 'Auto-generated plugin for pipeline',
-        version: '1.0.0',
-        pluginType: 'CodeBuildStep',
-        computeType: 'MEDIUM',
-        installCommands: [],
-        commands: [`echo "Plugin ${name} — replace with real build commands"`],
-        dockerfile: `FROM public.ecr.aws/codebuild/amazonlinux-x86_64-standard:6.0\nRUN echo "Plugin ${name}"`,
-        visibility: 'private',
-      }, {
-        headers: {
-          'Authorization': context.authToken,
-          'x-org-id': orgId,
-          'x-request-id': context.requestId,
-          'Idempotency-Key': `${context.requestId}:${name}`,
-        },
-      });
-
-      if (deployResponse && (deployResponse.statusCode === 202 || deployResponse.statusCode === 200)) {
-        return { name, requestId: deployResponse.body?.data?.requestId };
-      }
-      return { name, error: `HTTP ${deployResponse?.statusCode ?? 'unknown'}` };
-    } catch (err) {
-      logger.warn('Auto-plugin creation failed', { plugin: name, error: errorMessage(err) });
-      return { name, error: errorMessage(err) };
-    }
-  });
-
-  res.write(`data: ${JSON.stringify({
-    type: 'creating-plugins',
-    data: { creating: missing, existing, builds },
-  })}\n\n`);
 }

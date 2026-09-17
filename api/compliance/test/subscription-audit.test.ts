@@ -22,8 +22,12 @@ const bulkSetActiveMock = jest.fn<(...a: unknown[]) => Promise<string[]>>(async 
 const emitComplianceAuditMock = jest.fn();
 const recordMock = jest.fn();
 
-// Permission set carried by the current fake request; mutated per-test.
-let currentPermissions: string[] = [];
+// api-core's REAL `requirePermission` gate and `authz.denied` sink, imported from
+// their module files (the package-specifier mock below does not intercept these
+// paths), so the inline deactivate denial audit is exercised for real.
+const { requireFeature, requirePermission } = await import('@pipeline-builder/api-core/lib/middleware/auth.js');
+const { wireAuthzDenialAuditor } = await import('@pipeline-builder/api-core/lib/services/remote-audit-client.js');
+wireAuthzDenialAuditor('compliance', () => ({ record: recordMock }) as any);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (p: any, k: string) => p[k],
@@ -35,14 +39,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       return { ok: false, error: err.message ?? 'invalid' };
     }
   },
-  userHasPermission: (_req: any, perm: string) => currentPermissions.includes(perm),
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendError: jest.fn((res: any, status: number, msg: string, code: string) =>
     res.status(status).json({ message: msg, code })),
   sendSuccess: jest.fn((res: any, status: number, data: any) =>
     res.status(status).json({ success: true, statusCode: status, data })),
   sendPaginatedNested: jest.fn(),
-  requirePermission: () => (_req: any, _res: any, next: any) => next(),
+  requirePermission,
+  requireFeature,
   isServicePrincipal: () => true,
 }));
 
@@ -75,11 +79,10 @@ jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   },
 }));
 
-// Spy on the audit surface: the per-rule toggle helper (#A2) and the raw audit
-// client used for the inline authz.denied record (#A4).
-jest.unstable_mockModule('../src/services/remote-audit-client.js', () => ({
+// Spy on the per-rule toggle helper (#A2). The authz.denied record (#A4) flows
+// through api-core's shared sink wired above.
+jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-  getAuditClient: () => ({ record: recordMock }),
 }));
 
 jest.unstable_mockModule('../src/services/subscription-service.js', () => ({
@@ -117,7 +120,6 @@ const USER = { sub: 'u-1', email: 'u1@example.com', organizationId: 'org-a' };
 describe('POST /bulk — audits toggle ONLY for affected ids (#A2)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    currentPermissions = [];
   });
 
   it('emits compliance.rule.toggle only for the ruleIds the service toggled', async () => {
@@ -129,6 +131,7 @@ describe('POST /bulk — audits toggle ONLY for affected ids (#A2)', () => {
     await handler({
       __orgId: 'org-a',
       method: 'POST',
+      originalUrl: '/compliance/subscriptions/bulk',
       body: { ruleIds: [RULE_A, RULE_B], isActive: true },
       user: { ...USER, permissions: [] },
     } as any, res);
@@ -156,6 +159,7 @@ describe('POST /bulk — audits toggle ONLY for affected ids (#A2)', () => {
     await handler({
       __orgId: 'org-a',
       method: 'POST',
+      originalUrl: '/compliance/subscriptions/bulk',
       body: { ruleIds: [RULE_A], isActive: true },
       user: { ...USER, permissions: [] },
     } as any, res);
@@ -168,7 +172,6 @@ describe('POST /bulk — audits toggle ONLY for affected ids (#A2)', () => {
 describe('inline compliance:write deactivate denial records authz.denied (#A4)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    currentPermissions = []; // plain member — no compliance:write
   });
 
   it('PATCH /:ruleId deactivate: emits authz.denied before the 403', async () => {
@@ -178,7 +181,7 @@ describe('inline compliance:write deactivate denial records authz.denied (#A4)',
     await handler({
       __orgId: 'org-a',
       method: 'PATCH',
-      originalUrl: '/compliance/subscriptions/' + RULE_A,
+      originalUrl: '/compliance/subscriptions/' + RULE_A + '?access_token=s3cr3t',
       params: { ruleId: RULE_A },
       body: { isActive: false },
       user: { ...USER, permissions: [] },
@@ -187,7 +190,8 @@ describe('inline compliance:write deactivate denial records authz.denied (#A4)',
     // 403 body/status unchanged.
     expect(status).toHaveBeenCalledWith(403);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ code: 'INSUFFICIENT_PERMISSIONS' }));
-    // The denied attempt is recorded via the audit client, service principal 'compliance'.
+    // The denied attempt is recorded via api-core's shared sink, service principal
+    // 'compliance', with the path (no query string).
     expect(recordMock).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'authz.denied',
@@ -195,7 +199,7 @@ describe('inline compliance:write deactivate denial records authz.denied (#A4)',
         actorEmail: 'u1@example.com',
         orgId: 'org-a',
         outcome: 'failure',
-        details: expect.objectContaining({ method: 'PATCH', required: 'compliance:write' }),
+        details: { method: 'PATCH', path: '/compliance/subscriptions/' + RULE_A, required: 'compliance:write' },
       }),
       'compliance',
     );

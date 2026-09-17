@@ -8,8 +8,10 @@ import type { Job } from 'bullmq';
 import { Router } from 'express';
 
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
+import { findFailedJob, getAllTierQueues, getDeadLetterQueue } from '../queue/connections.js';
 import { intFromEnv } from '../queue/env-int.js';
-import { findFailedJob, getAllTierQueues, getDeadLetterQueue, purgeDlq, replayDlqJob, retryFailedJob } from '../queue/plugin-build-queue.js';
+import { purgeDlq } from '../queue/plugin-build-dlq.js';
+import { replayDlqJob, retryFailedJob } from '../queue/requeue.js';
 import { emitPluginAudit } from '../services/audit.js';
 
 /** Shape returned by GET /triage — failed-build summary grouped by category. */

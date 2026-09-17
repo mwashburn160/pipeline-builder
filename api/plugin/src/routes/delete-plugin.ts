@@ -10,8 +10,8 @@ import { pluginService } from '../services/plugin-service.js';
 /**
  * Register the DELETE route on a router.
  *
- * Expects `requireAuth` and `requireOrgId` to have already been
- * applied as router-level middleware in the parent.
+ * Expects auth + orgId + tenant scope (the shared `/plugins` chain) and
+ * `requirePermission('plugins:write')` from the parent mount in index.ts.
  */
 export function createDeletePluginRoutes(): Router {
   const router: Router = Router();
@@ -27,7 +27,7 @@ export function createDeletePluginRoutes(): Router {
 
     if (!existing) return sendEntityNotFound(res, 'Plugin');
 
-    // System admins or publish-permission holders can delete non-private (public) plugins
+    // Visibility ladder: `public` needs plugins:publish, `private` is author-only.
     if (!requireVisibilityWriteAccess(req, res, existing, userId, 'plugins:publish')) return;
 
     // The delete is pinned to the caller's org, so a public/system-org sample the

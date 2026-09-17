@@ -74,7 +74,7 @@ describe('quota.reserve', () => {
     mockPost.mockResolvedValue(
       httpResponse(429, {
         success: false,
-        errorCode: 'QUOTA_EXCEEDED',
+        code: 'QUOTA_EXCEEDED',
         details: { quota: { type: 'pipelines', limit: 5, used: 5, remaining: 0, resetAt: '2026-08-01T00:00:00Z' } },
       }),
     );
@@ -89,12 +89,15 @@ describe('quota.reserve', () => {
 
   it('returns exceeded:true even when a 429 omits the quota detail (safe default)', async () => {
     const quotaService = await loadQuotaService();
-    mockPost.mockResolvedValue(httpResponse(429, { success: false, errorCode: 'QUOTA_EXCEEDED' }));
+    mockPost.mockResolvedValue(httpResponse(429, { success: false, code: 'QUOTA_EXCEEDED' }));
 
     const result = await quotaService.reserve('org1', 'pipelines', AUTH);
 
     expect(result.exceeded).toBe(true);
     expect(result.quota).toEqual({ type: 'pipelines', limit: 0, used: 0, remaining: 0 });
+    // Recognized by `code` (the field sendError emits) — a genuine over-limit,
+    // not an unconfirmed reservation answered as a 503.
+    expect(result.unavailable).toBeUndefined();
   });
 
   it('FAILS CLOSED on an errored-but-reachable response (HTTP 500) by default', async () => {
@@ -138,7 +141,7 @@ describe('quota.reserve', () => {
 
   it('FAILS CLOSED on a 429 that is NOT a genuine QUOTA_EXCEEDED (gateway / rate limiter) by default', async () => {
     const quotaService = await loadQuotaService();
-    mockPost.mockResolvedValue(httpResponse(429, { success: false, errorCode: 'RATE_LIMIT_EXCEEDED' }));
+    mockPost.mockResolvedValue(httpResponse(429, { success: false, code: 'RATE_LIMIT_EXCEEDED' }));
 
     const result = await quotaService.reserve('org1', 'pipelines', AUTH);
 
@@ -149,7 +152,7 @@ describe('quota.reserve', () => {
 
   it('FAILS OPEN on every unconfirmed outcome when QUOTA_RESERVE_FAIL_OPEN=true', async () => {
     const quotaService = await loadQuotaService({ reserveFailOpen: true });
-    for (const outcome of [null, httpResponse(429, { success: false, errorCode: 'RATE_LIMIT_EXCEEDED' }), httpResponse(503, { success: false })]) {
+    for (const outcome of [null, httpResponse(429, { success: false, code: 'RATE_LIMIT_EXCEEDED' }), httpResponse(503, { success: false })]) {
       mockPost.mockResolvedValueOnce(outcome);
       const result = await quotaService.reserve('org1', 'pipelines', AUTH);
       expect(result.exceeded).toBe(false);
@@ -158,7 +161,7 @@ describe('quota.reserve', () => {
 
   it('a genuine QUOTA_EXCEEDED 429 is denied even with QUOTA_RESERVE_FAIL_OPEN=true', async () => {
     const quotaService = await loadQuotaService({ reserveFailOpen: true });
-    mockPost.mockResolvedValue(httpResponse(429, { success: false, errorCode: 'QUOTA_EXCEEDED' }));
+    mockPost.mockResolvedValue(httpResponse(429, { success: false, code: 'QUOTA_EXCEEDED' }));
 
     expect((await quotaService.reserve('org1', 'pipelines', AUTH)).exceeded).toBe(true);
   });
@@ -372,7 +375,7 @@ describe('sendQuotaReserveDenied', () => {
     const quotaService = await loadQuotaService();
     mockPost.mockResolvedValue(httpResponse(429, {
       success: false,
-      errorCode: 'QUOTA_EXCEEDED',
+      code: 'QUOTA_EXCEEDED',
       details: { quota: { type: 'aiCalls', limit: 5, used: 5, remaining: 0, resetAt: '2099-01-01T00:00:00Z' } },
     }));
     const mod = await import('../src/services/quota.js');

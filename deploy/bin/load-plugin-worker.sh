@@ -140,9 +140,8 @@ curl_with_retry "$label" \
   --max-time "$UPLOAD_TIMEOUT" \
   -H "Authorization: Bearer ${JWT_TOKEN}" \
   -H "x-org-id: system" \
-  -H "x-internal-service: true" \
   -F "plugin=@${zip_file}" \
-  -F "accessModifier=public" || _rc=$?
+  -F "visibility=public" || _rc=$?
 case "$_rc" in
   0) _count succeeded; exit 0 ;;
   2) _count skipped;   exit 2 ;;

@@ -22,7 +22,6 @@
   "devDependencies": {
     "@jest/globals": "30.4.1",
     "@stylistic/eslint-plugin": "^2",
-    "@types/cors": "2.8.19",
     "@types/express": "5.0.6",
     "@types/jsonwebtoken": "9.0.10",
     "@types/node": "26.1.2",
@@ -42,12 +41,8 @@
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
     "axios": "1.19.0",
-    "cors": "2.8.6",
     "express": "5.2.1",
-    "express-rate-limit": "8.6.1",
-    "helmet": "8.3.0",
     "jsonwebtoken": "9.0.3",
-    "winston": "3.19.0",
     "zod": "4.4.3"
   },
   "engines": {
@@ -64,7 +59,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "4.1.4",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",

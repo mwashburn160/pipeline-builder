@@ -8,17 +8,17 @@ import mongoose, { Schema, Document } from 'mongoose';
 /** Lifecycle events a promotion can auto-grant on. `manual` = admin-triggered only.
  *  `referral` = two-sided (phase 2c): a new org subscribing with a referral code
  *  credits the referee now and the referrer once the referee first pays. */
-export const PROMOTION_EVENTS = ['subscription_created', 'plan_change', 'manual', 'referral'] as const;
+const PROMOTION_EVENTS = ['subscription_created', 'plan_change', 'manual', 'referral'] as const;
 export type PromotionEvent = (typeof PROMOTION_EVENTS)[number];
 
 /** `onetime` grants once; `recurring` re-grants each billing period (phase 2a),
  *  re-granted from the periodic reconcile/metering path with period-keyed idempotency. */
-export const PROMOTION_KINDS = ['onetime', 'recurring'] as const;
+const PROMOTION_KINDS = ['onetime', 'recurring'] as const;
 export type PromotionKind = (typeof PROMOTION_KINDS)[number];
 
 /** Credit magnitude unit. `dollar` = CENTS; `percent` = percent-of-plan-price (mirrors
  *  the discount codec) — resolved to cents at grant time via `creditCents`. */
-export const PROMOTION_UNITS = ['dollar', 'percent'] as const;
+const PROMOTION_UNITS = ['dollar', 'percent'] as const;
 export type PromotionUnit = (typeof PROMOTION_UNITS)[number];
 
 /** Eligibility predicate — every present field must match for a promo to fire. */

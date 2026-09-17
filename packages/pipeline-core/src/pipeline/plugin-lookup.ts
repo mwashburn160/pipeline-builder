@@ -9,7 +9,7 @@ import { CustomResource, Token, Duration } from 'aws-cdk-lib';
 import { PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
 import { Runtime, Architecture } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
-import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import { LogGroup } from 'aws-cdk-lib/aws-logs';
 import { Provider } from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import type { PluginOptions } from './step-types.js';
@@ -42,8 +42,8 @@ export interface PluginLookupProps {
   readonly timeout?: Duration;
   /** Lambda memory in MB (default: 512) */
   readonly memorySize?: number;
-  /** Log retention (default: ONE_WEEK) */
-  readonly logRetention?: RetentionDays;
+  /** Lambda CPU architecture (default: ARM_64) */
+  readonly architecture?: Architecture;
   /** Reserved concurrent executions for the lookup Lambda (default: 30) */
   readonly reservedConcurrentExecutions?: number;
   /**
@@ -86,6 +86,7 @@ export class PluginLookup extends Construct {
   private readonly _runtime: Runtime;
   private readonly _timeout: Duration;
   private readonly _memorySize: number;
+  private readonly _architecture: Architecture;
   private readonly _reservedConcurrentExecutions?: number;
   private readonly _orgId?: string;
   private readonly _resolvedPlugins?: Record<string, Plugin>;
@@ -103,6 +104,7 @@ export class PluginLookup extends Construct {
     this._runtime = props.runtime ?? Runtime.NODEJS_24_X;
     this._timeout = props.timeout ?? Duration.seconds(30);
     this._memorySize = props.memorySize ?? Config.get('aws').lambda.memorySize;
+    this._architecture = props.architecture ?? Architecture.ARM_64;
     this._reservedConcurrentExecutions = props.reservedConcurrentExecutions;
     this._resolvedPlugins = props.resolvedPlugins;
 
@@ -200,7 +202,7 @@ export class PluginLookup extends Construct {
       runtime: this._runtime,
       timeout: this._timeout,
       memorySize: this._memorySize,
-      architecture: Architecture.ARM_64,
+      architecture: this._architecture,
       entry: join(MODULE_DIR, '/../handlers/plugin-lookup-handler.js'),
       depsLockFilePath: join(MODULE_DIR, '/../handlers/pnpm-lock.yaml'),
       reservedConcurrentExecutions: this._reservedConcurrentExecutions,

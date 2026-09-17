@@ -19,6 +19,7 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { sendInAppNotification, sendInAppNotificationConfirmed } from './in-app-notify.js';
 import { toOrgId } from './org-id.js';
+import { describeDuration, IMPERSONATION_REQUEST_TTL_MS } from '../constants/impersonation.js';
 import { Organization, User, UserOrganization } from '../models/index.js';
 
 const logger = createLogger('impersonation-notify');
@@ -173,7 +174,7 @@ export async function notifyRequesterOfDecision(input: {
       : (input.breakglass ? 'Emergency access denied' : 'Access request denied');
     const content = input.approved
       ? `${who(decider)} approved ${what} ${account}. Open it from /dashboard/access-requests `
-        + 'within an hour, or the approval lapses.'
+        + `within ${describeDuration(IMPERSONATION_REQUEST_TTL_MS)}, or the approval lapses.`
       : `${who(decider)} denied ${what} ${account}.`;
 
     await sendInAppNotification({

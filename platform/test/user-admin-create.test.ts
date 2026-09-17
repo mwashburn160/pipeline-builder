@@ -45,9 +45,7 @@ jest.unstable_mockModule('../src/helpers/active-org-info.js', () => ({
   loadActiveOrgInfo: jest.fn(async () => ({ organizationName: null, activeOrgRole: undefined, tier: 'developer' })),
 }));
 
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  toOrgId: (v: unknown) => v,
-}));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityAvailable: jest.fn(async () => true),
@@ -71,7 +69,8 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
 // real role-derivation machinery.
 const RL_ROLE_NOT_FOUND = 'RL_ROLE_NOT_FOUND';
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
-  RL_ROLE_NOT_FOUND,
+  assertActorMayAssignBuiltinAdmin: jest.fn(),
+  assertNotLastPrivilegedMember: jest.fn(),
   recomputeUserOrgRole: (...a: unknown[]) => mockRecomputeUserOrgRole(...a),
   ensureBaselineRole: (...a: unknown[]) => mockEnsureBaselineRole(...a),
   assignBuiltinAdminRole: (...a: unknown[]) => mockAssignBuiltinAdminRole(...a),
@@ -79,6 +78,7 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  JoinRequest: {},
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},
@@ -89,8 +89,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { updateOne: (...a: unknown[]) => mockGroupMembershipUpdateOne(...a) },
 }));
 
-const { userAdminService, UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_ORG_NOT_FOUND, UA_ROLES_NEED_ORG } =
-  await import('../src/services/user-admin-service.js');
+const { userAdminService } = await import('../src/services/user-admin-service.js');
+const { UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_ORG_NOT_FOUND, UA_ROLES_NEED_ORG } = await import('../src/services/user-errors.js');
 
 /** `User.exists(...)` returns a query with a `.session()` that resolves to `val`. */
 const existsResolving = (val: unknown) => ({ session: () => Promise.resolve(val) });

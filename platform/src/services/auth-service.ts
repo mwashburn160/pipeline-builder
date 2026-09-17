@@ -4,33 +4,15 @@
 import crypto from 'crypto';
 import { createLogger, isBillingEnabled, QUOTA_TIERS, SYSTEM_ORG_ID, SYSTEM_ORG_SLUG, type QuotaTier } from '@pipeline-builder/api-core';
 import type { ClientSession } from 'mongoose';
+import { DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, ACCOUNT_EMAIL_UNVERIFIED, SSO_SUPERADMIN_REFUSED } from './auth-errors.js';
 import { seedDefaultRoles } from './roles-service.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishUserRevocation } from '../helpers/session-revocation.js';
 import { User, Organization, UserOrganization, type UserDocument } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
-import { hashRefreshToken } from '../utils/token.js';
 
 const logger = createLogger('auth-service');
-
-/** Domain error codes thrown by service methods (mapped to HTTP status by the controller). */
-export const DUPLICATE_CREDENTIALS = 'DUPLICATE_CREDENTIALS';
-/** A self-serve caller tried to create/join the reserved `system` org
- *  (name === SYSTEM_ORG_SLUG) without operator authorization. The system org
- *  confers platform superadmin to its creator, so only an operator-authorized
- *  email (BOOTSTRAP_SUPERADMIN_EMAILS) may create it; everyone else is refused. */
-export const RESERVED_ORG_NAME = 'RESERVED_ORG_NAME';
-/** `completeOnboarding` could not resolve the caller's user or their active org. */
-export const ONBOARDING_USER_NOT_FOUND = 'ONBOARDING_USER_NOT_FOUND';
-export const ONBOARDING_NO_ORG = 'ONBOARDING_NO_ORG';
-/** Thrown by findOrCreateOAuthUser when a social/SSO login would silently link
- *  onto a pre-existing but UNVERIFIED account. Mapped to 409 by the OAuth + OIDC
- *  callback error maps (single source, shared by both). */
-export const ACCOUNT_EMAIL_UNVERIFIED = 'ACCOUNT_EMAIL_UNVERIFIED';
-/** A platform administrator's sign-in must never depend on a tenant-run IdP.
- *  Mapped to 403 in OIDC_ERROR_MAP. */
-export const SSO_SUPERADMIN_REFUSED = 'SSO_SUPERADMIN_REFUSED';
 
 /**
  * Is this email operator-authorized as a platform super-admin (i.e. listed in
@@ -253,27 +235,31 @@ class AuthService {
   }
 
   /**
-   * Atomically swap the user's refresh-token hash. Returns the user if the
-   * old hash matched (rotation succeeded), null otherwise (token was reused
-   * or stolen — caller should invalidate all sessions).
+   * Load a user for token (re)issue. `+isSuperAdmin` because the schema marks it
+   * `select: false` and the reissued access token must carry the real flag —
+   * without it every refresh would silently downgrade a sysadmin.
    */
-  async rotateRefreshToken(userId: string, oldRefreshToken: string) {
-    const oldHash = hashRefreshToken(oldRefreshToken);
-    // `+isSuperAdmin` — refresh rotation reissues the access token via
-    // `issueTokens(user)`, which reads `user.isSuperAdmin` to set the JWT
-    // claim. Without the explicit opt-in (schema is `select: false`) every
-    // refresh would silently downgrade a sysadmin.
-    return User.findOne({ _id: userId, refreshToken: oldHash }).select('+refreshToken +tokenVersion +isSuperAdmin');
+  async findForTokenIssue(userId: string) {
+    return User.findById(userId).select('+tokenVersion +isSuperAdmin');
   }
 
   /**
-   * Bump tokenVersion + clear refresh token to invalidate every active
-   * session. Used on logout AND defensively on suspected refresh-token reuse.
+   * Sign one device out: drop its refresh-session slot. Other devices keep
+   * their sessions. Used on logout and when a rotated refresh token is reused
+   * (the slot is presumed stolen).
+   */
+  async revokeRefreshSession(userId: string, sessionId: string): Promise<void> {
+    await User.updateOne({ _id: userId }, { $pull: { refreshSessions: { id: sessionId } } });
+  }
+
+  /**
+   * Sign out everywhere: bump tokenVersion (every outstanding access and refresh
+   * token is rejected) and clear every refresh-session slot.
    */
   async invalidateAllSessions(userId: string): Promise<void> {
     await User.updateOne(
       { _id: userId },
-      { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } },
+      { $inc: { tokenVersion: 1 }, $set: { refreshSessions: [] } },
     );
     // Post-commit: publish the user's now-current tokenVersion so the stateless
     // services reject outstanding tokens immediately (best-effort).

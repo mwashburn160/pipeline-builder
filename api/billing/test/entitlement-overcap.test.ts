@@ -17,10 +17,10 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 let seatUsed: number | null = 0;
 let pluginsUsed: number | null = 0;
 let pipelinesUsed: number | null = 0;
-let throwOnGet = false;
+let transportFailure = false;
 
 const mockGet = jest.fn(async (path: string) => {
-  if (throwOnGet) throw new Error('network');
+  if (transportFailure) return null; // the real safe client resolves null on a transport failure
   if (path.includes('/seat-usage')) {
     // REAL shape: platform's `sendSuccess(res, 200, { limit, used })` → the
     // payload is under `body.data`, NOT at the envelope root. (The old fixture
@@ -35,7 +35,7 @@ const mockGet = jest.fn(async (path: string) => {
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createSafeClient: () => ({ get: mockGet, put: jest.fn(), destroy: () => undefined }),
+  createSafeClient: () => ({ get: mockGet, put: jest.fn() }),
   getServiceAuthHeader: jest.fn(() => 'Bearer svc'),
   setCounterEmitter: jest.fn(),
 }));
@@ -81,7 +81,7 @@ const { checkEntitlementOvercap } = await import('../src/helpers/billing-helpers
 
 beforeEach(() => {
   jest.clearAllMocks();
-  seatUsed = 0; pluginsUsed = 0; pipelinesUsed = 0; throwOnGet = false;
+  seatUsed = 0; pluginsUsed = 0; pipelinesUsed = 0; transportFailure = false;
 });
 
 describe('checkEntitlementOvercap', () => {
@@ -118,8 +118,8 @@ describe('checkEntitlementOvercap', () => {
     expect(overages).toEqual([]);
   });
 
-  it('fails OPEN when the usage read throws (transient outage must not block removal)', async () => {
-    throwOnGet = true;
+  it('fails OPEN when the usage read fails in transport (transient outage must not block removal)', async () => {
+    transportFailure = true;
     const overages = await checkEntitlementOvercap('org-1', 'pro', [], 'Bearer x');
     expect(overages).toEqual([]);
   });

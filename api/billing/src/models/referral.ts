@@ -8,7 +8,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 /** `pending` = referee credited at signup, referrer not yet; `qualified` = the
  *  referee reached the qualifying event (first paid invoice) and the referrer was
  *  credited. Terminal either way — a referee is referred at most once. */
-export const REFERRAL_STATUSES = ['pending', 'qualified'] as const;
+const REFERRAL_STATUSES = ['pending', 'qualified'] as const;
 export type ReferralStatus = (typeof REFERRAL_STATUSES)[number];
 
 /**

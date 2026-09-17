@@ -73,7 +73,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     );
 
     ctx.log('COMPLETED', 'Messages fetched', { count: result.data.length, total: result.total });
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     // Label each row with the counterparty org's NAME (the UI renders names, not
     // ids). Best-effort: a resolution failure leaves the id for the client to show.
@@ -94,7 +94,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     });
 
     ctx.log('COMPLETED', 'Announcements fetched', { count: result.data.length });
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     const messages = await enrichWithOrgNames(result.data);
     return sendPaginatedNested(res, 'messages', messages, {
@@ -111,7 +111,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     });
 
     ctx.log('COMPLETED', 'Conversations fetched', { count: result.data.length });
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     const messages = await enrichWithOrgNames(result.data);
     return sendPaginatedNested(res, 'messages', messages, {
@@ -120,14 +120,14 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   }));
 
   // GET /messages/unread/count — Get unread count
-  router.get('/unread/count', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/unread/count', ...protect, requirePermission('messages:read'), withRoute(async ({ res, ctx, orgId }) => {
     ctx.log('INFO', 'Fetching unread count', { orgId });
 
     const count = await messageService.getUnreadCount(orgId);
 
     // Parity with every other read handler — the frontend polls this frequently,
     // so omitting the increment systematically under-counts apiCalls.
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     ctx.log('COMPLETED', 'Unread count fetched', { count });
 
@@ -142,7 +142,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     const deleted = await messageService.findDeleted(orgId, { limit, offset });
 
     ctx.log('COMPLETED', 'Listed deleted messages', { count: deleted.length });
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     const messages = await enrichWithOrgNames(deleted);
     return sendSuccess(res, 200, { messages });
@@ -161,7 +161,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
       return sendEntityNotFound(res, 'Message');
     }
 
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     return sendSuccess(res, 200, { message: await enrichOneWithOrgNames(message) });
   }));
@@ -205,7 +205,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     const messages = await enrichWithOrgNames(withAttachments);
 
     ctx.log('COMPLETED', 'Thread fetched', { count: thread.length });
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     return sendSuccess(res, 200, { messages });
   }));
@@ -228,7 +228,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
       sizeBytes: a.sizeBytes,
     }));
 
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
+    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
     return sendSuccess(res, 200, { attachments });
   }));
 

@@ -13,8 +13,8 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
+import { emitComplianceAudit } from '../services/audit.js';
 import { entitlementWatermarkStore } from '../services/entitlement-watermark-store.js';
-import { emitComplianceAudit } from '../services/remote-audit-client.js';
 import { subscriptionService, KNOWN_CONTENT_SETS } from '../services/subscription-service.js';
 
 /**

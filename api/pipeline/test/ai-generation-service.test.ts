@@ -113,6 +113,9 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     db: tx,
     schema: { plugin: {} },
     withTenantTx: (fn: (t: typeof tx) => unknown) => fn(tx),
+    // Visibility-ladder predicate pieces plugin-lookup-service links against.
+    buildPluginConditions: () => [],
+    withViewerContext: (f: unknown) => f,
   };
 });
 

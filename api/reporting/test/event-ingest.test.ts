@@ -7,6 +7,7 @@
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { routeChain } from './helpers/route-chain.js';
 
 const mockSelect = jest.fn<(...args: unknown[]) => unknown>();
 const mockInsert = jest.fn<(...args: unknown[]) => unknown>();
@@ -74,11 +75,6 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   },
 }));
 
-jest.unstable_mockModule('drizzle-orm', () => ({
-  eq: jest.fn((col: any, val: any) => ({ col, val })),
-  inArray: jest.fn((col: any, vals: any) => ({ col, vals })),
-}));
-
 const { createEventIngestRoutes } = await import('../src/routes/event-ingest.js');
 
 describe('POST /reports/events', () => {
@@ -103,7 +99,7 @@ describe('POST /reports/events', () => {
   });
 
   it('should reject empty events array', async () => {
-    const handler = router.stack.find((l: any) => l.route?.path === '/')?.route?.stack[0]?.handle;
+    const handler = routeChain(router, '/');
     expect(handler).toBeDefined();
 
     const req = { body: { events: [] }, user: { sub: 'svc', scope: 'reporting:ingest' } };
@@ -120,7 +116,7 @@ describe('POST /reports/events', () => {
   });
 
   it('should reject more than 100 events', async () => {
-    const handler = router.stack.find((l: any) => l.route?.path === '/')?.route?.stack[0]?.handle;
+    const handler = routeChain(router, '/');
 
     const events = Array.from({ length: 101 }, (_, i) => ({
       pipelineId: `pipeline-uuid-${i}`,
@@ -145,7 +141,7 @@ describe('POST /reports/events', () => {
   });
 
   it('should reject request without events field', async () => {
-    const handler = router.stack.find((l: any) => l.route?.path === '/')?.route?.stack[0]?.handle;
+    const handler = routeChain(router, '/');
 
     const req = { body: {}, user: { sub: 'svc', scope: 'reporting:ingest' } };
     const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
@@ -163,7 +159,7 @@ describe('POST /reports/events', () => {
   // --- reporting:ingest scope guard -------------------------------------------
 
   const validEvent = { pipelineId: 'p-1', eventSource: 'codepipeline', eventType: 'PIPELINE', status: 'SUCCEEDED' };
-  const getHandler = () => router.stack.find((l: any) => l.route?.path === '/')?.route?.stack[0]?.handle;
+  const getHandler = () => routeChain(router, '/');
   const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
 
   it('rejects a non-scoped token with 403 (scope is always enforced)', async () => {

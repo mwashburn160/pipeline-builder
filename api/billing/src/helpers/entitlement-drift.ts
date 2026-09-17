@@ -88,12 +88,12 @@ async function readEnforcedSeatLimit(orgId: string, auth: string): Promise<numbe
 
 /** Read the enforced account feature entitlements from platform; `null` on any read failure. */
 async function readEnforcedFeatureEntitlements(orgId: string, auth: string): Promise<string[] | null> {
+  const client = createSafeClient({
+    host: config.platformService.host,
+    port: config.platformService.port,
+    timeout: getBillingTimeout(),
+  });
   try {
-    const client = createSafeClient({
-      host: config.platformService.host,
-      port: config.platformService.port,
-      timeout: getBillingTimeout(),
-    });
     const resp = await client.get<{ data?: { featureEntitlements?: unknown } }>(
       `/organization/${orgId}/feature-entitlements`,
       { headers: { 'Authorization': auth, 'x-org-id': orgId } },
@@ -112,13 +112,6 @@ async function readEnforcedFeatureEntitlements(orgId: string, auth: string): Pro
 }
 
 /**
- * Read the ACTUAL enforced entitlements (quota limits + seats + features) for an
- * account. Returns `null` if ANY store read fails — the caller must treat that as
- * a skip, never as drift (an unreachable store must not trigger a false re-sync).
- * `authHeader` may be `''`; a service token is minted for the target org, the
- * same way syncEntitlements does.
- */
-/**
  * Read the compliance service's CURRENTLY-ACTIVE content sets for an org
  * (handshake #2): `GET /api/compliance/entitlements/:orgId` → `{ sets }`, the
  * distinct `set:<x>` values among the org's ACTIVE published-rule subscriptions.
@@ -129,12 +122,12 @@ async function readEnforcedFeatureEntitlements(orgId: string, auth: string): Pro
  * body and the `{ data: { sets } }` envelope `sendSuccess` produces.
  */
 export async function readEnforcedComplianceSets(orgId: string, auth: string): Promise<string[] | null> {
+  const client = createSafeClient({
+    host: config.complianceService.host,
+    port: config.complianceService.port,
+    timeout: getBillingTimeout(),
+  });
   try {
-    const client = createSafeClient({
-      host: config.complianceService.host,
-      port: config.complianceService.port,
-      timeout: getBillingTimeout(),
-    });
     const resp = await client.get<{ sets?: unknown; data?: { sets?: unknown } }>(
       `/api/compliance/entitlements/${orgId}`,
       { headers: { 'Authorization': auth, 'x-org-id': orgId } },
@@ -162,6 +155,13 @@ export function complianceSetsDiffer(expected: readonly string[], actual: readon
   return exp.size !== act.size || [...exp].some((s) => !act.has(s));
 }
 
+/**
+ * Read the ACTUAL enforced entitlements (quota limits + seats + features) for an
+ * account. Returns `null` if ANY store read fails — the caller must treat that as
+ * a skip, never as drift (an unreachable store must not trigger a false re-sync).
+ * `authHeader` may be `''`; a service token is minted for the target org, the
+ * same way syncEntitlements does.
+ */
 export async function readActualEntitlements(orgId: string, authHeader: string): Promise<ActualEntitlements | null> {
   const auth = authHeader || billingServiceAuth(orgId);
 

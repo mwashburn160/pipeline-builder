@@ -25,9 +25,16 @@ const setActiveMock = jest.fn(async () => ({ id: 'sub-1', isActive: false }));
 // bulkSetActive now returns the ruleIds actually toggled (see FIX #A2); the
 // route iterates that array, so the mock must resolve to an array, not a count.
 const bulkSetActiveMock = jest.fn(async (_orgId: string, ruleIds: string[]) => ruleIds);
+const unsubscribeMock = jest.fn(async () => undefined);
 
-// The permission set carried by the current fake request. Mutated per-test.
-let currentPermissions: string[] = [];
+const recordMock = jest.fn();
+
+// api-core's REAL authorization gates and `authz.denied` sink, imported from
+// their module files (the package-specifier mock below does not intercept these
+// paths), so the route's inline gates and denial audit are exercised for real.
+const { requireFeature, requirePermission } = await import('@pipeline-builder/api-core/lib/middleware/auth.js');
+const { wireAuthzDenialAuditor } = await import('@pipeline-builder/api-core/lib/services/remote-audit-client.js');
+wireAuthzDenialAuditor('compliance', () => ({ record: recordMock }) as any);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (p: any, k: string) => p[k],
@@ -39,15 +46,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       return { ok: false, error: err.message ?? 'invalid' };
     }
   },
-  // Real semantics: a caller holds the permission only if it's in their set.
-  userHasPermission: (_req: any, perm: string) => currentPermissions.includes(perm),
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendError: jest.fn((res: any, status: number, msg: string, code: string) =>
     res.status(status).json({ message: msg, code })),
   sendSuccess: jest.fn((res: any, status: number, data: any) =>
     res.status(status).json({ success: true, statusCode: status, data })),
   sendPaginatedNested: jest.fn(),
-  requirePermission: () => (_req: any, _res: any, next: any) => next(),
+  requirePermission,
+  requireFeature,
   isServicePrincipal: () => true,
 }));
 
@@ -88,6 +94,7 @@ jest.unstable_mockModule('../src/services/subscription-service.js', () => ({
   subscriptionService: {
     setActive: (...args: unknown[]) => setActiveMock(...args),
     bulkSetActive: (...args: unknown[]) => bulkSetActiveMock(...args),
+    unsubscribe: (...args: unknown[]) => unsubscribeMock(...args),
   },
   CS_RULE_NOT_FOUND: 'CS_RULE_NOT_FOUND',
   CS_SUBSCRIPTION_NOT_FOUND: 'CS_SUBSCRIPTION_NOT_FOUND',
@@ -117,35 +124,36 @@ const RULE_ID = '11111111-1111-4111-8111-111111111111';
 describe('PATCH /:ruleId — deactivate requires compliance:write', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    currentPermissions = [];
   });
 
   it('lets a member WITHOUT compliance:write ACTIVATE (200)', async () => {
-    currentPermissions = []; // plain member
     setActiveMock.mockResolvedValueOnce({ id: 'sub-1', isActive: true } as never);
     const handler = getHandler('/:ruleId', 'patch');
     const { res, status } = makeRes();
-    await handler({ __orgId: 'org-a', params: { ruleId: RULE_ID }, body: { isActive: true }, user: { permissions: [] } } as any, res);
+    await handler({ __orgId: 'org-a', params: { ruleId: RULE_ID }, body: { isActive: true }, method: 'PATCH', originalUrl: '/compliance/subscriptions', user: { sub: 'u-1', permissions: [] } } as any, res);
     expect(status).toHaveBeenCalledWith(200);
     expect(setActiveMock).toHaveBeenCalledWith('org-a', RULE_ID, true, 'u-1');
   });
 
   it('403s a member WITHOUT compliance:write on DEACTIVATE', async () => {
-    currentPermissions = []; // plain member
     const handler = getHandler('/:ruleId', 'patch');
     const { res, status, json } = makeRes();
-    await handler({ __orgId: 'org-a', params: { ruleId: RULE_ID }, body: { isActive: false }, user: { permissions: [] } } as any, res);
+    await handler({ __orgId: 'org-a', params: { ruleId: RULE_ID }, body: { isActive: false }, method: 'PATCH', originalUrl: '/compliance/subscriptions', user: { sub: 'u-1', permissions: [] } } as any, res);
     expect(status).toHaveBeenCalledWith(403);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ code: 'INSUFFICIENT_PERMISSIONS' }));
     // Org-scoped service must not run when the gate rejects.
     expect(setActiveMock).not.toHaveBeenCalled();
+    // The denial is recorded through api-core's shared authz.denied sink.
+    expect(recordMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'authz.denied', details: expect.objectContaining({ required: 'compliance:write' }) }),
+      'compliance',
+    );
   });
 
   it('lets a caller WITH compliance:write DEACTIVATE (200)', async () => {
-    currentPermissions = ['compliance:write'];
     const handler = getHandler('/:ruleId', 'patch');
     const { res, status } = makeRes();
-    await handler({ __orgId: 'org-a', params: { ruleId: RULE_ID }, body: { isActive: false }, user: { permissions: ['compliance:write'] } } as any, res);
+    await handler({ __orgId: 'org-a', params: { ruleId: RULE_ID }, body: { isActive: false }, method: 'PATCH', originalUrl: '/compliance/subscriptions', user: { sub: 'u-1', permissions: ['compliance:write'] } } as any, res);
     expect(status).toHaveBeenCalledWith(200);
     expect(setActiveMock).toHaveBeenCalledWith('org-a', RULE_ID, false, 'u-1');
   });
@@ -154,34 +162,68 @@ describe('PATCH /:ruleId — deactivate requires compliance:write', () => {
 describe('POST /bulk — deactivate requires compliance:write', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    currentPermissions = [];
   });
 
   it('lets a member WITHOUT compliance:write bulk-ACTIVATE (200)', async () => {
-    currentPermissions = [];
     const handler = getHandler('/bulk', 'post');
     const { res, status } = makeRes();
-    await handler({ __orgId: 'org-a', body: { ruleIds: [RULE_ID], isActive: true }, user: { permissions: [] } } as any, res);
+    await handler({ __orgId: 'org-a', body: { ruleIds: [RULE_ID], isActive: true }, method: 'POST', originalUrl: '/compliance/subscriptions', user: { sub: 'u-1', permissions: [] } } as any, res);
     expect(status).toHaveBeenCalledWith(200);
     expect(bulkSetActiveMock).toHaveBeenCalledWith('org-a', [RULE_ID], true, 'u-1');
   });
 
   it('403s a member WITHOUT compliance:write on bulk-DEACTIVATE (batch rejected)', async () => {
-    currentPermissions = [];
     const handler = getHandler('/bulk', 'post');
     const { res, status, json } = makeRes();
-    await handler({ __orgId: 'org-a', body: { ruleIds: [RULE_ID], isActive: false }, user: { permissions: [] } } as any, res);
+    await handler({ __orgId: 'org-a', body: { ruleIds: [RULE_ID], isActive: false }, method: 'POST', originalUrl: '/compliance/subscriptions', user: { sub: 'u-1', permissions: [] } } as any, res);
     expect(status).toHaveBeenCalledWith(403);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ code: 'INSUFFICIENT_PERMISSIONS' }));
     expect(bulkSetActiveMock).not.toHaveBeenCalled();
   });
 
   it('lets a caller WITH compliance:write bulk-DEACTIVATE (200)', async () => {
-    currentPermissions = ['compliance:write'];
     const handler = getHandler('/bulk', 'post');
     const { res, status } = makeRes();
-    await handler({ __orgId: 'org-a', body: { ruleIds: [RULE_ID], isActive: false }, user: { permissions: ['compliance:write'] } } as any, res);
+    await handler({ __orgId: 'org-a', body: { ruleIds: [RULE_ID], isActive: false }, method: 'POST', originalUrl: '/compliance/subscriptions', user: { sub: 'u-1', permissions: ['compliance:write'] } } as any, res);
     expect(status).toHaveBeenCalledWith(200);
     expect(bulkSetActiveMock).toHaveBeenCalledWith('org-a', [RULE_ID], false, 'u-1');
+  });
+});
+
+describe('DELETE /:ruleId — unsubscribe requires compliance:write', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  /** Run the FULL route stack (gate middleware, then handler), as Express would. */
+  async function runDelete(user: Record<string, unknown>) {
+    const router = createSubscriptionRoutes();
+    const layer = (router.stack as any[]).find((l) => l.route?.path === '/:ruleId' && l.route?.methods?.delete);
+    if (!layer) throw new Error('no DELETE /:ruleId');
+    const { res, status, json } = makeRes();
+    const req = { __orgId: 'org-a', method: 'DELETE', originalUrl: `/compliance/subscriptions/${RULE_ID}`, params: { ruleId: RULE_ID }, user } as any;
+    for (const { handle } of layer.route.stack as Array<{ handle: Function }>) {
+      let advanced = false;
+      await handle(req, res, () => { advanced = true; });
+      if (!advanced) break;
+    }
+    return { status, json };
+  }
+
+  it('403s (and audits) a member WITHOUT compliance:write — unsubscribing drops enforcement like deactivate', async () => {
+    const { status, json } = await runDelete({ sub: 'u-1', organizationId: 'org-a', permissions: [] });
+    expect(status).toHaveBeenCalledWith(403);
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ code: 'INSUFFICIENT_PERMISSIONS' }));
+    expect(unsubscribeMock).not.toHaveBeenCalled();
+    expect(recordMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'authz.denied', details: expect.objectContaining({ required: 'compliance:write' }) }),
+      'compliance',
+    );
+  });
+
+  it('lets a caller WITH compliance:write unsubscribe (200)', async () => {
+    const { status } = await runDelete({ sub: 'u-1', permissions: ['compliance:write'] });
+    expect(status).toHaveBeenCalledWith(200);
+    expect(unsubscribeMock).toHaveBeenCalledWith('org-a', RULE_ID, 'u-1');
   });
 });

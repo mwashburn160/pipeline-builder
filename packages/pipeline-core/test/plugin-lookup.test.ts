@@ -415,7 +415,24 @@ describe('PluginLookup', () => {
   });
 
   describe('Lambda function configuration', () => {
-    it('should use ARM_64 architecture', () => {
+    it('uses the architecture it is given (from LAMBDA_ARCHITECTURE)', () => {
+      new PluginLookup(mockScope, 'TestLookup', {
+        organization: 'my-org',
+        orgId: 'test-org',
+        project: 'my-project',
+        platformUrl: 'https://api.example.com',
+        uniqueId: createUniqueId(),
+        architecture: 'x86_64' as never,
+      });
+
+      expect(mockNodejsFunction).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(String),
+        expect.objectContaining({ architecture: 'x86_64' }),
+      );
+    });
+
+    it('defaults to ARM_64 architecture', () => {
       new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
         orgId: 'test-org',
