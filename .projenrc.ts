@@ -201,7 +201,7 @@ const IMAGE_DESCRIPTIONS: Record<string, string> = {
   frontend: 'Pipeline Builder web UI.',
   quota: 'Pipeline Builder quota service — per-org usage quotas and metering.',
   billing: 'Pipeline Builder billing service — subscriptions, usage metering, and Stripe/marketplace billing.',
-  plugin: 'Pipeline Builder plugin service — plugin upl   d, BuildKit image builds, and registry publishing.',
+  plugin: 'Pipeline Builder plugin service — plugin upload, BuildKit image builds, and registry publishing.',
   pipeline: 'Pipeline Builder pipeline service — pipeline CRUD and CDK pipeline synthesis.',
   message: 'Pipeline Builder message service — in-app notifications and messaging.',
   reporting: 'Pipeline Builder reporting service — dashboards, metrics, and reporting.',
