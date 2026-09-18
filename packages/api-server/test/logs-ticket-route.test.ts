@@ -13,8 +13,6 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { jest, describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 
-const TEST_SECRET = 'test-secret-for-logs-ticket';
-process.env.JWT_SECRET = TEST_SECRET;
 process.env.NODE_ENV = 'test';
 
 // Mock uuid (ESM-only) and createLogger (Winston open handles) before imports.
@@ -25,11 +23,28 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
 }));
 
-const jwt = (await import('jsonwebtoken')).default;
 const { createApp } = await import('../src/api/app-factory.js');
+const { generateTestSigningKey, installTestJwks, signTestUserToken } =
+  await import('@pipeline-builder/api-core/lib/testing/user-tokens.js');
+
+// Access tokens are ES256, signed only by platform; this installs the published
+// key set (in-memory) so the real `requireAuth` can verify what we mint.
+const signingKey = generateTestSigningKey();
+installTestJwks([signingKey]);
 
 function signAccess(payload: Record<string, unknown>): string {
-  return jwt.sign({ type: 'access', sub: 'user-1', role: 'member', ...payload }, TEST_SECRET);
+  // requireAuth fails closed without the identity claims the platform mints.
+  return signTestUserToken({
+    type: 'access',
+    sub: 'user-1',
+    role: 'member',
+    principalType: 'user',
+    token_use: 'access',
+    amr: ['pwd'],
+    aal: 1,
+    auth_time: 1_700_000_000,
+    ...payload,
+  }, { key: signingKey });
 }
 
 describe('POST /logs/ticket (app-factory)', () => {

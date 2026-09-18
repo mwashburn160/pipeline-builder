@@ -2,11 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Step-up authentication: re-verify the current user's password before
- * destructive or credential-minting actions (grant/revoke platform-admin, rotate
- * KMS, download namespace YAML, create tokens, etc.).
+ * Step-up authentication: re-verify the current user before destructive or
+ * credential-minting actions (grant/revoke platform-admin, rotate KMS, download
+ * namespace YAML, create tokens, etc.).
  *
- *   POST /api/auth/step-up   body: { password: string }
+ * Step-up is factor-agnostic — every method issues the SAME token:
+ *   POST /api/auth/step-up                  body: { password }   (this file)
+ *   POST /api/auth/step-up/reauth           + /reauth/callback   (provider
+ *     re-auth for OAuth/SSO accounts — controllers/step-up-reauth.ts)
+ * The token records `method` ('password' | 'reauth') for audit.
  *
  * Returns 200 with a short-lived `stepUpToken` JWT (default 60s TTL) bound to
  * `req.user.sub`, or 401 on a bad password. The frontend pattern is:
@@ -27,6 +31,7 @@ import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core
 import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
 import { User } from '../models/index.js';
+import { incCounter } from '../observability/metrics.js';
 import { issueStepUpToken } from '../utils/token.js';
 
 const logger = createLogger('step-up');
@@ -54,12 +59,16 @@ export const stepUpVerify = withController('Step-up password verify', async (req
       targetType: 'step-up',
       targetId: userId,
       outcome: 'failure',
-      details: { reason: 'invalid-password' },
+      details: { reason: 'invalid-password', method: 'password' },
     });
+    incCounter('platform_step_up_total', { method: 'password', outcome: 'failure' });
     logger.warn('Step-up password verify failed', { userId });
     return sendError(res, 401, 'Invalid password');
   }
 
-  const { token, expiresAt } = issueStepUpToken(userId);
-  sendSuccess(res, 200, { ok: true, stepUpToken: token, expiresAt });
+  const { token, expiresAt } = await issueStepUpToken(userId, 'password');
+  audit(req, 'user.step-up', { targetType: 'user', targetId: userId, details: { method: 'password' } });
+  incCounter('platform_step_up_total', { method: 'password', outcome: 'success' });
+  // One response shape for every factor: the token plus how it was earned.
+  sendSuccess(res, 200, { ok: true, stepUpToken: token, expiresAt, method: 'password' });
 });

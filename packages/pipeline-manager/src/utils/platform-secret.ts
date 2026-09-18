@@ -9,6 +9,7 @@
  * organizationId, logging in first if needed to obtain the token.
  */
 
+import { isOpaqueApiKey } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import axios from 'axios';
 import { decodeTokenPayload } from './auth-guard.js';
@@ -18,10 +19,34 @@ import { assertSslDisableAllowed } from './tls.js';
 
 /** Login/secret options shared across the platform-secret helpers. */
 export interface PlatformSecretOptions {
-  /** Login identifier (username OR email) — matches `auth login` / `auth pat`. */
+  /**
+   * Login identifier (username OR email) for the NON-INTERACTIVE machine login
+   * below. This is the only password path left in the CLI: `auth login` and
+   * `auth pat` sign in through the browser (device authorization), but
+   * `store-token` / `setup-events` run on hosts with nobody present to approve a
+   * code, and what they mint is a machine credential, not a person's session.
+   */
   readonly identifier?: string;
   readonly password?: string;
   readonly verifySsl?: boolean;
+}
+
+/**
+ * The Secrets Manager path a stored machine credential lives at:
+ * `{SECRETS_PATH_PREFIX}/{orgId}/{leaf}`.
+ *
+ * `leaf` is `platform` for the org's full-privilege automation credential, and
+ * the scope's slug (`reporting-ingest`, `registry-push`) for a least-privilege
+ * one — so a scoped credential can never clobber the platform one, and the
+ * events Lambda's secret is a different object from CodeBuild's.
+ */
+export function secretNameForOrg(orgId: string, leaf: string = 'platform'): string {
+  return `${CoreConstants.SECRETS_PATH_PREFIX}/${orgId}/${leaf}`;
+}
+
+/** A capability scope as a secret-path leaf: `reporting:ingest` → `reporting-ingest`. */
+export function scopeSecretLeaf(scope: string): string {
+  return scope.replace(/[^a-z0-9]+/gi, '-');
 }
 
 /**
@@ -30,12 +55,20 @@ export interface PlatformSecretOptions {
  * @throws if the token carries no organizationId (caller should fall back to PLATFORM_SECRET_NAME).
  */
 export function resolveSecretName(token: string): string {
+  // An ACCESS KEY (`pb_pat_…`) is opaque — it carries no org claim to read, by
+  // design. Say so instead of the generic decode failure, since exporting a key
+  // as PLATFORM_TOKEN is now the normal way to authenticate the CLI.
+  if (isOpaqueApiKey(token)) {
+    throw new Error(
+      'PLATFORM_TOKEN is an opaque access key, which carries no organizationId — set PLATFORM_SECRET_NAME to name the secret explicitly.',
+    );
+  }
   const payload = decodeTokenPayload(token);
   const orgId = payload?.organizationId;
   if (!orgId) {
     throw new Error('Token does not contain organizationId — cannot derive secret name. Set PLATFORM_SECRET_NAME to specify it explicitly.');
   }
-  return `${CoreConstants.SECRETS_PATH_PREFIX}/${orgId}/platform`;
+  return secretNameForOrg(orgId);
 }
 
 /**
@@ -70,8 +103,7 @@ export async function ensurePlatformToken(options: PlatformSecretOptions): Promi
   const loginResponse = await axios.post(
     `${apiConfig.api.baseUrl}/api/auth/login`,
     // The server's loginSchema requires `identifier` (email OR username), not
-    // `email` — sending `email` fails zod validation with a 400. Mirror the
-    // canonical `postLogin` body.
+    // `email` — sending `email` fails zod validation with a 400.
     { identifier: loginIdentifier, password: loginPassword },
     {
       httpsAgent: rejectUnauthorized === false

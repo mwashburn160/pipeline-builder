@@ -3,6 +3,7 @@
 
 import { randomUUID } from 'node:crypto';
 import {
+  audited,
   requireAuth,
   requirePermission,
   sendSuccess,
@@ -30,6 +31,7 @@ import { MarketplacePendingRegistration, PENDING_REGISTRATION_TTL_MS } from '../
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 import { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent } from '../models/webhook-dedupe.js';
+import { getAuditClient } from '../services/audit.js';
 
 const logger = createLogger('billing-marketplace');
 
@@ -182,6 +184,7 @@ export function createMarketplaceRoutes(): Router {
     '/marketplace/claim',
     requireAuth(AUTH_OPTS) as RequestHandler,
     requirePermission('billing:manage') as RequestHandler,
+    audited('billing.subscription.create'),
     withRoute(async ({ req, res, ctx, orgId }) => {
       const registrationRef = (req.body as { registrationRef?: unknown })?.registrationRef;
       if (typeof registrationRef !== 'string' || !registrationRef) {
@@ -262,6 +265,18 @@ export function createMarketplaceRoutes(): Router {
         provider: 'aws-marketplace',
         awsCustomerIdentifier: pending.awsCustomerIdentifier,
       }, subscription._id.toString());
+
+      // Mirror the bind to the CENTRAL audit trail like the self-serve create —
+      // this is where an AWS Marketplace purchase becomes THIS org's paid
+      // subscription. Fire-and-forget; plan/tier ids only: the AWS customer
+      // identifier (and any AWS account id) is deliberately NOT recorded.
+      getAuditClient().record({
+        action: 'billing.subscription.create',
+        actorId: req.user?.sub ?? 'system',
+        orgId,
+        targetId: subscription._id.toString(),
+        details: { planId: pending.planId, interval: pending.interval, tier: plan.tier, provider: 'aws-marketplace' },
+      }, 'billing');
 
       ctx.log('COMPLETED', 'Marketplace subscription claimed', { orgId, planId: pending.planId });
       return sendSuccess(res, 201, {

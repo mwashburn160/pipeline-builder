@@ -5,92 +5,86 @@ import axios from 'axios';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { TIMEOUTS } from '../config/cli.constants.js';
-import { assertCredentialTlsAllowed, credentialHttpsAgent, postLogin, resolveCredentials, switchOrganization } from '../utils/auth-utils.js';
+import { assertCredentialTlsAllowed, credentialHttpsAgent, switchOrganization } from '../utils/auth-utils.js';
 import { printCommandHeader, withSslOptions } from '../utils/command-utils.js';
+import { DeviceAuthError, openInBrowser, pollForDeviceToken, requestDeviceCode } from '../utils/device-auth.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { printDebug, printError, printInfo, printKeyValue, printSuccess, printWarning } from '../utils/output-utils.js';
-import { checkAuthRateLimit, recordAuthFailure, recordAuthSuccess } from '../utils/rate-limiter.js';
+import { printDebug, printError, printInfo, printKeyValue, printSuccess } from '../utils/output-utils.js';
 
-const { bold, green, yellow } = pico;
+const { bold, cyan, dim, green, yellow } = pico;
 
-/** Step-up response — a short-lived (60s) JWT bound to the user's sub. */
-interface StepUpResponse {
-  success: boolean;
-  data: { stepUpToken: string };
-}
-
-/** Create-PAT response — the raw token is returned exactly once. */
-interface CreatePatResponse {
+/** Create-key response — the raw key is returned exactly once. */
+interface CreateAccessKeyResponse {
   success: boolean;
   data: {
-    token: string;
-    pat: { jti: string; name: string; expiresAt: string; scope?: string | null };
+    /** The opaque key (`pb_pat_…`). Only its hash is stored server-side. */
+    key: string;
+    accessKey: { id: string; name: string; display: string; expiresAt: string; scope?: string | null };
   };
 }
 
 const MAX_EXPIRES_DAYS = 365;
 
 /**
- * Registers the `create-pat` command with the CLI program.
+ * Registers the `pat` command with the CLI program.
  *
- * Mints a named Personal Access Token — a durable, individually-revocable API
- * credential — for CI/automation. Unlike `login` (which returns a short-lived
- * session token), a PAT is the right long-lived credential for scripts.
+ * Mints a named ACCESS KEY (`pb_pat_…`) — a durable, individually-revocable API
+ * credential — for CI/automation. Unlike a session, a key is the right
+ * long-lived credential for scripts.
  *
- * The platform gates PAT creation behind step-up re-authentication, so this
- * command chains three calls: login (→ access token), step-up with the same
- * password (→ step-up token), then POST /user/pats. The PAT binds to the user's
- * active org; pass `--org` to switch first (persists as the active org).
+ * The key is OPAQUE: it carries no claims, and each service trades it at
+ * platform's /auth/token/exchange for a 5-minute token, so revoking it takes
+ * effect everywhere within five minutes.
  *
- * The raw token is printed ONCE. `--quiet` prints only `export PLATFORM_TOKEN=…`
- * so it can be `eval`'d — the PAT is itself a valid Bearer credential.
+ * Creating one is step-up gated server-side, which used to mean the CLI had to
+ * hold a password (it POSTed it twice — sign-in, then step-up). It no longer
+ * has one: the device flow asks for the step-up IN THE BROWSER, where the
+ * account's real factors live, and the approved poll returns both the session
+ * and a short-lived step-up token. The key binds to the user's active org; pass
+ * `--org` to switch first (which persists as the active org).
+ *
+ * The raw key is printed ONCE — only its hash is stored, so it can never be read
+ * back. `--quiet` prints only `export PLATFORM_TOKEN=…` so it can be `eval`'d;
+ * the key is itself a valid Bearer credential.
  *
  * @param program - The root Commander program instance to attach the command to.
  *
  * @example
  * ```bash
- * PLATFORM_PASSWORD=secret pipeline-manager auth pat --name ci-deploy -u ci@example.com
- * pipeline-manager auth pat --name ci --expires-days 30 -u ci@example.com -p secret
- * eval $(PLATFORM_PASSWORD=secret pipeline-manager auth pat --name ci -u ci@example.com --quiet)
+ * pipeline-manager auth pat --name ci-deploy
+ * pipeline-manager auth pat --name ci --expires-days 30 --org <orgId>
+ * eval $(pipeline-manager auth pat --name ci --quiet)
  * ```
  */
 export function createPat(program: Command): void {
   withSslOptions(program
     .command('pat')
-    .description('Create a named Personal Access Token (long-lived CLI/automation credential)')
-    .requiredOption('--name <name>', 'Human-readable token name (e.g. ci-deploy)')
-    .option('--expires-days <days>', `Token lifetime in days (1-${MAX_EXPIRES_DAYS})`, '90')
-    .option('--scope <scope>', 'Optional token scope')
-    .option('-u, --identifier <identifier>', 'Username or email')
-    .option('-p, --password <password>', 'Password (prefer PLATFORM_PASSWORD env)')
-    .option('--org <orgId>', 'Bind the token to a specific organization (switches active org)')
+    .description('Create a named access key (long-lived, opaque CLI/automation credential)')
+    .requiredOption('--name <name>', 'Human-readable key name (e.g. ci-deploy)')
+    .option('--expires-days <days>', `Key lifetime in days (1-${MAX_EXPIRES_DAYS})`, '90')
+    .option('--scope <scope>', 'Optional capability scope (least-privilege key)')
+    .option('--org <orgId>', 'Bind the key to a specific organization (switches active org)')
+    .option('--no-browser', 'Never open a browser — print the verification URL instead')
     .option('--url <url>', 'Platform base URL', process.env.PLATFORM_BASE_URL || 'https://localhost:8443'))
     .option('--quiet', 'Only print the export statement (useful for eval)')
     .action(async (options) => {
-      // SECURITY: this POSTs a plaintext password (login + step-up). Never send it
-      // over an unverified TLS connection in production — a MITM would harvest it.
-      // Mirrors the guard in `login`. Non-production still honors --no-verify-ssl.
+      // SECURITY: the poll returns a session AND a step-up token, and the response
+      // below carries the raw key. None of that may cross an unverified connection
+      // in production. Mirrors the guard in `login`.
       assertCredentialTlsAllowed(options.verifySsl);
 
-      // Credentials from flags OR PLATFORM_IDENTIFIER/PLATFORM_PASSWORD env (so the
-      // password need not appear in shell history / `ps`).
-      const { identifier, password } = resolveCredentials(options);
       const quiet = options.quiet ?? false;
-      const executionId = printCommandHeader(
-        'Create Personal Access Token',
-        'Create Personal Access Token',
-        { quiet },
-      );
+      const executionId = printCommandHeader('Create Access Key', 'Create Access Key', { quiet });
 
       try {
         // Validate name.
         const name = typeof options.name === 'string' ? options.name.trim() : '';
         if (!name) {
-          printError('Token name is required (--name)');
+          printError('Key name is required (--name)');
           process.exit(ERROR_CODES.VALIDATION);
         }
         if (name.length > 100) {
-          printError('Token name must be 100 characters or fewer');
+          printError('Key name must be 100 characters or fewer');
           process.exit(ERROR_CODES.VALIDATION);
         }
 
@@ -102,78 +96,58 @@ export function createPat(program: Command): void {
         }
         const expiresIn = days * 86400;
 
-        // Credentials required — step-up needs a password, so --refresh can't work here.
-        if (!identifier || !password) {
-          printError('create-pat requires --identifier and --password (or PLATFORM_IDENTIFIER/PLATFORM_PASSWORD env)');
-          process.exit(ERROR_CODES.AUTHENTICATION);
-        }
-        if (options.password) {
-          printWarning('Passing --password on the command line can expose it via shell history; prefer the PLATFORM_PASSWORD env var.');
-        }
-
-        // Rate limiting — prevent brute force (keyed to identifier + url, like login).
-        const rateLimitMsg = checkAuthRateLimit(identifier, options.url);
-        if (rateLimitMsg) {
-          printError(rateLimitMsg);
-          process.exit(ERROR_CODES.AUTHENTICATION);
-        }
-
-        if (!quiet) {
-          printInfo('Authenticating', { identifier, url: options.url, verifySsl: options.verifySsl });
-        }
-
         const httpsAgent = credentialHttpsAgent(options.verifySsl);
         const timeout = TIMEOUTS.HTTP_REQUEST;
+        const transport = { url: options.url, httpsAgent, timeout };
 
-        // 1) Login → session access token.
-        let accessToken: string | undefined;
-        try {
-          accessToken = await postLogin({ url: options.url, identifier, password, httpsAgent, timeout });
-        } catch (error) {
-          recordAuthFailure(identifier, options.url);
-          throw error;
-        }
-        if (!accessToken) {
-          recordAuthFailure(identifier, options.url);
-          printError('Login failed: no access token in response');
+        // 1) Device sign-in, asking for the step-up the create call needs.
+        if (!quiet) printInfo('Starting browser sign-in', { url: options.url, verifySsl: options.verifySsl });
+        const code = await requestDeviceCode(transport, { stepUp: true });
+        const approvalUrl = code.verification_uri_complete || code.verification_uri;
+        const opened = options.browser !== false && openInBrowser(approvalUrl);
+
+        // The prompt goes to STDERR under `--quiet`: stdout is captured by
+        // `eval $(…)`, so printing the code there would swallow the one thing
+        // the user has to read before anything can proceed.
+        const say = quiet ? console.error : console.log;
+        say('');
+        say(`  Your code:  ${bold(cyan(code.user_code))}`);
+        say(`  Approve at: ${green(approvalUrl)}`);
+        say('');
+        say(dim(opened
+          ? '  Opening your browser… approve the code there, then come back.'
+          : '  Open that URL in a browser, check the code matches, and approve.'));
+        if (!quiet) printInfo('Waiting for approval…');
+
+        const session = await pollForDeviceToken(transport, code);
+        let accessToken = session.access_token;
+        const stepUpToken = session.step_up_token;
+        if (!stepUpToken) {
+          printError('The approval did not return a step-up confirmation — approve the code promptly and try again.');
           process.exit(ERROR_CODES.AUTHENTICATION);
         }
-        recordAuthSuccess(identifier, options.url);
 
-        // 2) Optionally bind to a specific org (persists as the active org, which the
-        //    PAT inherits).
+        // 2) Optionally bind to a specific org (persists as the active org, which
+        //    the key inherits). Rotates the session, but the step-up token is
+        //    bound to the user, not the session, so it survives the switch.
         if (options.org) {
           if (!quiet) printInfo('Switching to organization', { orgId: options.org });
-          accessToken = await switchOrganization({
+          accessToken = (await switchOrganization({
             url: options.url,
             orgId: options.org,
             accessToken,
             httpsAgent,
             timeout,
             quiet,
-          });
+          })).accessToken;
         }
 
-        // 3) Step-up — re-verify the password to unlock the gated create call.
-        //    The returned token is short-lived (~60s), so we use it immediately.
-        const stepUpUrl = `${options.url}/api/auth/step-up`;
-        printDebug('POST', { url: stepUpUrl });
-        const stepUpRes = await axios.post<StepUpResponse>(
-          stepUpUrl,
-          { password },
-          { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` }, httpsAgent, timeout },
-        );
-        const stepUpToken = stepUpRes.data?.data?.stepUpToken;
-        if (!stepUpToken) {
-          printError('Step-up verification failed: no step-up token in response');
-          process.exit(ERROR_CODES.AUTHENTICATION);
-        }
-
-        // 4) Create the PAT.
-        const patUrl = `${options.url}/api/user/pats`;
-        printDebug('POST', { url: patUrl });
-        const patRes = await axios.post<CreatePatResponse>(
-          patUrl,
+        // 3) Create the access key. The step-up token is short-lived (~60s) and
+        //    single-use, so it is spent immediately.
+        const keyUrl = `${options.url}/api/user/keys`;
+        printDebug('POST', { url: keyUrl });
+        const keyRes = await axios.post<CreateAccessKeyResponse>(
+          keyUrl,
           { name, expiresIn, ...(options.scope ? { scope: options.scope } : {}) },
           {
             headers: {
@@ -186,40 +160,45 @@ export function createPat(program: Command): void {
           },
         );
 
-        const token = patRes.data?.data?.token;
-        const pat = patRes.data?.data?.pat;
-        if (!token) {
-          printError('Create token failed: no token in response');
+        const key = keyRes.data?.data?.key;
+        const meta = keyRes.data?.data?.accessKey;
+        if (!key) {
+          printError('Create key failed: no key in response');
           process.exit(ERROR_CODES.API_REQUEST);
         }
 
-        // Quiet mode: emit only the export line (the PAT is a valid Bearer token).
+        // Quiet mode: emit only the export line (the key is a valid Bearer credential).
         if (quiet) {
-          console.log(`export PLATFORM_TOKEN=${token}`);
+          console.log(`export PLATFORM_TOKEN=${key}`);
           return;
         }
 
         console.log('');
-        printSuccess('Personal access token created');
+        printSuccess('Access key created');
         console.log('');
         printKeyValue({
-          'Name': pat?.name ?? name,
-          'Token ID (jti)': pat?.jti ?? '(unknown)',
-          'Expires': pat?.expiresAt ?? `${days} day(s)`,
-          ...(pat?.scope ? { Scope: pat.scope } : {}),
+          'Name': meta?.name ?? name,
+          'Key ID': meta?.id ?? '(unknown)',
+          'Key': meta?.display ?? '(unknown)',
+          'Expires': meta?.expiresAt ?? `${days} day(s)`,
+          ...(meta?.scope ? { Scope: meta.scope } : {}),
         });
         console.log('');
-        console.log(yellow(bold('Copy your token now — it will not be shown again:')));
-        console.log(green(token));
+        console.log(yellow(bold('Copy your key now — only its hash is stored, so it will not be shown again:')));
+        console.log(green(key));
         console.log('');
         printInfo('Tip: use it as PLATFORM_TOKEN for subsequent commands:');
         console.log(green('  export PLATFORM_TOKEN=<token>'));
-        console.log(green(`  # or:  eval $(pipeline-manager auth pat --name ${name} -u ${identifier} --quiet)`));
+        console.log(green(`  # or:  eval $(pipeline-manager auth pat --name ${name} --quiet)`));
       } catch (error) {
+        if (error instanceof DeviceAuthError) {
+          printError(`Create key failed: ${error.message}`, { reason: error.code });
+          process.exit(ERROR_CODES.AUTHENTICATION);
+        }
         if (axios.isAxiosError(error)) {
           const status = error.response?.status;
           const message = (error.response?.data as { message?: string })?.message;
-          printError('Create token failed', {
+          printError('Create key failed', {
             status: status ?? 'no response',
             ...(message ? { message } : {}),
           });
@@ -228,7 +207,7 @@ export function createPat(program: Command): void {
         handleError(error, ERROR_CODES.API_REQUEST, {
           debug: program.opts().debug,
           exit: true,
-          context: { command: 'create-pat', executionId, identifier: options.identifier, url: options.url },
+          context: { command: 'create-pat', executionId, url: options.url },
         });
       }
     });

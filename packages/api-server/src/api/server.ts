@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Server } from 'http';
-import { createLogger, errorMessage, installCrashHandlers, resolveRedisConnection } from '@pipeline-builder/api-core';
+import { buildRouteTable, createLogger, errorMessage, installCrashHandlers, resolveRedisConnection, summarizeRouteTable } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { getConnection, closeConnection } from '@pipeline-builder/pipeline-data';
 import type { Express } from 'express';
@@ -174,6 +174,18 @@ export async function startServer(
 
   // Validate auth configuration at server startup (not during CDK synthesis)
   Config.validateAuth();
+  // Fail fast if this service has no internal signing key of its own, or no
+  // public bundle to verify its peers with (#14). Without them it would mint
+  // tokens on an EPHEMERAL in-process key that no peer accepts, and reject every
+  // peer's token — i.e. silently lose all service-to-service traffic. Checked
+  // HERE rather than in `createApp` because it is a property of the running
+  // deployment, not of the app object: route-table builders and test suites
+  // assemble an app without ever signing anything.
+  for (const envVar of ['SERVICE_SIGNING_KEY_FILE', 'SERVICE_KEY_BUNDLE_FILE'] as const) {
+    if (!process.env[envVar]) {
+      throw new Error(`${envVar} environment variable is required (generate with deploy/bin/service-signing-keys.sh). Set it before starting the server.`);
+    }
+  }
   // Fail fast on an unusable Redis configuration (throws RedisConfigError) — a
   // Redis client is created lazily on first use, so without this a bad config
   // would surface as request-time errors instead of a failed start.
@@ -292,6 +304,12 @@ export async function startServer(
  * ```
  */
 export function runServer(app: Express, options: StartServerOptions = {}): void {
+  // Route table of the fully assembled app (see api-core's route-table.ts): the
+  // same introspection the per-service coverage test asserts on, logged once at
+  // boot so an ungated or unaudited write route is visible in the running
+  // service, not only in CI.
+  logger.info('Route table built', summarizeRouteTable(buildRouteTable(app)));
+
   // Last-resort fault handlers for the production entrypoint: an unhandled
   // rejection / uncaught exception is logged (not silently fatal) then the
   // process exits for the orchestrator to restart. No-op under NODE_ENV=test.

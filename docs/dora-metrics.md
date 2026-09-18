@@ -130,7 +130,7 @@ POST /api/reports/ingest-health
 ```
 
 Body `{ "forwarded": <int>, "dropped": <int>, "lastEventAt": "<iso>" }`. Posted by
-the AWS events Lambda (machine `reporting:ingest` scope; org taken from the token
+the AWS events Lambda (a `reporting:ingest`-scoped service-account key it exchanges per batch; org taken from the token
 identity) so the Reports UI can show flowing / stale / dropping. One row per org.
 
 ### Prometheus metrics

@@ -24,8 +24,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
 }));
 
-const jwt = (await import('jsonwebtoken')).default;
 const express = (await import('express')).default;
+const { generateTestSigningKey, installTestJwks, signTestUserToken } =
+  await import('@pipeline-builder/api-core/lib/testing/user-tokens.js');
+
+// Access tokens are ES256, signed only by platform; install the published key
+// set (in-memory) so the real `requireAuth` can verify what we mint.
+const signingKey = generateTestSigningKey();
+installTestJwks([signingKey]);
 const { SSEManager } = await import('../src/http/sse-connection-manager.js');
 const { registerSseTicketChannel } = await import('../src/http/sse-ticket-channel.js');
 type SSERelay = import('../src/http/sse-relay.js').SSERelay;
@@ -99,7 +105,18 @@ describe('org-keyed SSE channel', () => {
     servers.push(server);
     await new Promise<void>((r) => server.once('listening', () => r()));
     const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    const token = (org: string) => jwt.sign({ type: 'access', sub: 'u1', role: 'member', organizationId: org }, TEST_SECRET);
+    const token = (org: string) => signTestUserToken({
+      type: 'access',
+      sub: 'u1',
+      role: 'member',
+      organizationId: org,
+      // The identity claims requireAuth requires (see api-core hasValidIdentityClaims).
+      principalType: 'user',
+      token_use: 'access',
+      amr: ['pwd'],
+      aal: 1,
+      auth_time: 1_700_000_000,
+    }, { key: signingKey });
     const open = async (org: string): Promise<number> => {
       const t = await fetch(`${base}/n/ticket`, { method: 'POST', headers: { authorization: `Bearer ${token(org)}` } });
       const { data } = (await t.json()) as { data: { ticket: string } };

@@ -165,7 +165,7 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
   const effectiveEventDays = settings?.eventRetentionDays ?? settings?.defaultEventRetentionDays ?? 30;
   const effectiveDoraDays = settings?.doraRetentionDays ?? settings?.defaultDoraRetentionDays ?? 180;
 
-  // ── Self-serve webhook token (reuses PAT issuance; copy-once + step-up) ──
+  // ── Self-serve webhook key (reuses access-key issuance; copy-once + step-up) ──
   const [newToken, setNewToken] = useState<string | null>(null);
   const [pendingCreate, setPendingCreate] = useState<{ name: string; expiresIn: number; scope: string } | null>(null);
   const [creating, setCreating] = useState(false);
@@ -181,9 +181,9 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
     setCreating(true);
     setNewToken(null);
     try {
-      const res = await api.createPat(pendingCreate, stepUpToken);
+      const res = await api.createAccessKey(pendingCreate, stepUpToken);
       if (res.success && res.data) {
-        setNewToken(res.data.token);
+        setNewToken(res.data.key);
         toast.success('Webhook token created');
       } else {
         toast.error('Failed to create token');

@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { isOpaqueApiKey } from '@pipeline-builder/api-core';
 import axios from 'axios';
 import { Command } from 'commander';
 import { ENV_VARS, TIMEOUTS } from '../config/cli.constants.js';
@@ -57,10 +58,14 @@ export function status(program: Command): void {
         }
 
         // 5. Decode token expiry (shared decoder — same base64url + exp logic
-        // used by audit-tokens / api-client).
+        // used by audit-tokens / api-client). An ACCESS KEY carries no claims at
+        // all, so there is nothing local to read: its expiry lives on its record
+        // and is shown on the keys page.
         if (token) {
           const payload = decodeTokenPayload(token);
-          if (!payload) {
+          if (isOpaqueApiKey(token)) {
+            results['Token Expires'] = 'n/a (access key — see Dashboard → API Tokens)';
+          } else if (!payload) {
             results['Token Expires'] = 'unable to decode';
           } else if (typeof payload.exp === 'number') {
             const expiresAt = new Date(payload.exp * 1000);

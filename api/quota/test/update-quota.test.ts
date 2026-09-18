@@ -17,9 +17,6 @@ const mockSendError = jest.fn();
 const mockSendQuotaExceeded = jest.fn();
 const mockGetParam = jest.fn((params: Record<string, string>, key: string) => params[key]);
 const mockIsSystemAdmin = jest.fn().mockReturnValue(false);
-// Default to a service principal so the existing increment/decrement route
-// tests (which exercise the internal-only path) pass through the new guard.
-const mockIsServicePrincipal = jest.fn().mockReturnValue(true);
 
 class MockAppError extends Error {
   statusCode: number;
@@ -51,7 +48,6 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: mockSendError,
   sendQuotaExceeded: mockSendQuotaExceeded,
   isSystemAdmin: mockIsSystemAdmin,
-  isServicePrincipal: mockIsServicePrincipal,
   AppError: MockAppError,
   NotFoundError: MockNotFoundError,
   ValidationError: MockValidationError,
@@ -115,6 +111,10 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 
 jest.unstable_mockModule('../src/middleware/authorize-org.js', () => ({
   authorizeOrg: () => (_req: any, _res: any, next: any) => next(),
+  // Internal-only gate on increment/decrement — passes through here; its real
+  // behaviour (service principal / sysadmin only) is covered in
+  // authorize-org.test.ts.
+  requireInternalCaller: (_req: any, _res: any, next: any) => next(),
 }));
 
 const mockFindById = jest.fn();
@@ -650,87 +650,5 @@ describe('POST /quotas/:orgId/decrement (reserve rollback)', () => {
     await handler(req, res);
 
     expect(mockSendError).toHaveBeenCalledWith(res, 400, expect.any(String), 'VALIDATION_ERROR');
-  });
-});
-
-// Tests — internal-only guard (service principal / sysadmin) on the
-// usage-mutating routes. authorizeOrg() alone admits any same-org member, so
-// the guard is what actually protects the caps from being self-served.
-
-describe.each([
-  ['increment', '/:orgId/increment'],
-  ['decrement', '/:orgId/decrement'],
-])('POST /quotas/:orgId/%s internal-only guard', (_name, path) => {
-  const handler = getHandler('post', path);
-
-  beforeEach(() => jest.clearAllMocks());
-
-  it('returns 403 for a same-org member (neither service principal nor sysadmin)', async () => {
-    mockIsServicePrincipal.mockReturnValue(false);
-    mockIsSystemAdmin.mockReturnValue(false);
-
-    const req = mockReq({
-      params: { orgId: 'org-123' },
-      body: { quotaType: 'plugins', amount: 1 },
-      user: { organizationId: 'org-123' },
-    });
-    const res = mockRes();
-    await handler(req, res);
-
-    expect(mockSendError).toHaveBeenCalledWith(res, 403, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
-    // Guard runs before body validation / service work.
-    expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
-  });
-
-  it('allows a signed service principal', async () => {
-    mockIsServicePrincipal.mockReturnValue(true);
-    mockIsSystemAdmin.mockReturnValue(false);
-    mockUpdateOne.mockResolvedValue({ modifiedCount: 0 });
-    const org = makeSaveableOrg({
-      quotas: { plugins: 100, pipelines: 10, apiCalls: -1 },
-      usage: {
-        plugins: { used: 4, resetAt: futureDate },
-        pipelines: { used: 2, resetAt: futureDate },
-        apiCalls: { used: 50, resetAt: futureDate },
-      },
-    });
-    mockFindOneAndUpdate.mockResolvedValue(org);
-
-    const req = mockReq({
-      params: { orgId: 'org-123' },
-      body: { quotaType: 'plugins', amount: 1 },
-      user: { organizationId: 'org-123' },
-    });
-    const res = mockRes();
-    await handler(req, res);
-
-    expect(mockSendError).not.toHaveBeenCalledWith(res, 403, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
-    expect(mockSendSuccess).toHaveBeenCalled();
-  });
-
-  it('allows a system admin', async () => {
-    mockIsServicePrincipal.mockReturnValue(false);
-    mockIsSystemAdmin.mockReturnValue(true);
-    mockUpdateOne.mockResolvedValue({ modifiedCount: 0 });
-    const org = makeSaveableOrg({
-      quotas: { plugins: 100, pipelines: 10, apiCalls: -1 },
-      usage: {
-        plugins: { used: 4, resetAt: futureDate },
-        pipelines: { used: 2, resetAt: futureDate },
-        apiCalls: { used: 50, resetAt: futureDate },
-      },
-    });
-    mockFindOneAndUpdate.mockResolvedValue(org);
-
-    const req = mockReq({
-      params: { orgId: 'org-123' },
-      body: { quotaType: 'plugins', amount: 1 },
-      user: { organizationId: 'org-123' },
-    });
-    const res = mockRes();
-    await handler(req, res);
-
-    expect(mockSendError).not.toHaveBeenCalledWith(res, 403, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
-    expect(mockSendSuccess).toHaveBeenCalled();
   });
 });

@@ -45,11 +45,13 @@
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
+    "@aws-sdk/client-kms": "3.1101.0",
     "@aws-sdk/client-sesv2": "3.1101.0",
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
     "@pipeline-builder/pipeline-data": "workspace:*",
+    "@simplewebauthn/server": "14.0.2",
     "adm-zip": "0.6.0",
     "bcryptjs": "3.0.3",
     "cors": "2.8.6",

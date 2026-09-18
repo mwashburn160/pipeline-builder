@@ -25,13 +25,19 @@ export interface WhatsNewEntry {
 export const WHATS_NEW: ReadonlyArray<WhatsNewEntry> = [
   {
     when: 'This week',
+    date: '2026-09-18',
+    title: 'Passkeys: sign in and confirm actions with your device',
+    href: '/dashboard/settings?tab=security#passkeys',
+    hint: 'Add one and sign in with a fingerprint, face or screen lock — no password to phish.',
+  },
+  {
+    when: 'Recent',
     date: '2026-05-28',
     title: 'Read-only "view as user" impersonation for sysadmins',
     href: '/dashboard/users',
     hint: "Reproduce a tenant's view safely; writes blocked under impersonation.",
   },
-  { when: 'This week', date: '2026-05-27', title: 'Notifications & alert-channel preferences', href: '/dashboard/notifications' },
-  { when: 'This week', date: '2026-05-26', title: 'Executions drill-down with CSV export', href: '/dashboard/executions' },
+  { when: 'Recent', date: '2026-05-27', title: 'Notifications & alert-channel preferences', href: '/dashboard/notifications' },
+  { when: 'Recent', date: '2026-05-26', title: 'Executions drill-down with CSV export', href: '/dashboard/executions' },
   { when: 'Recent', date: '2026-05-15', title: 'Step-up password reverify on destructive sysadmin actions' },
-  { when: 'Recent', date: '2026-05-10', title: 'Per-org KMS, IdP config, and org-tier change endpoint' },
 ];

@@ -51,6 +51,9 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
 jest.unstable_mockModule('../src/utils/regex.js', () => ({ escapeRegex: (s: string) => s }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   JoinRequest: {},
+  // The user-delete cascade also removes the account's passkeys.
+  WebAuthnCredential: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
+  UserTotp: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })), exists: jest.fn(async () => null) },
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},

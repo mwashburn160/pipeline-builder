@@ -7,6 +7,7 @@ import {
   streamHowTo,
 } from '@pipeline-builder/ai-core';
 import {
+  audited,
   createLogger,
   decrementQuota,
   errorMessage,
@@ -24,6 +25,7 @@ import { withRoute, incCounter, observe } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
+import { requireAskAccess } from '../authz.js';
 import { clientAbortSignal } from '../client-abort.js';
 import { AskBodySchema } from '../request-schema.js';
 import { getAuditClient } from '../services/audit.js';
@@ -81,12 +83,12 @@ export function createAskRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
   // -- GET /ask/providers  list configured AI providers ----------------------
-  router.get('/providers', requireFeature('ai_generation'), withRoute(async ({ res }) => {
+  router.get('/providers', requireAskAccess, requireFeature('ai_generation'), withRoute(async ({ res }) => {
     return sendSuccess(res, 200, { providers: getAvailableProviders() });
   }));
 
   // -- POST /ask  grounded how-to answer (non-streaming) ---------------------
-  router.post('/', requireFeature('ai_generation'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/', requireAskAccess, requireFeature('ai_generation'), audited('ask.query'), withRoute(async ({ req, res, ctx, orgId }) => {
     const parsed = AskBodySchema.safeParse(req.body);
     if (!parsed.success) {
       return sendBadRequest(res, parsed.error.issues[0]?.message ?? 'Invalid request');
@@ -127,7 +129,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
   }));
 
   // -- POST /ask/stream  grounded how-to answer as SSE -----------------------
-  router.post('/stream', requireFeature('ai_generation'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/stream', requireAskAccess, requireFeature('ai_generation'), audited('ask.query'), withRoute(async ({ req, res, ctx, orgId }) => {
     const parsed = AskBodySchema.safeParse(req.body);
     if (!parsed.success) {
       return sendBadRequest(res, parsed.error.issues[0]?.message ?? 'Invalid request');

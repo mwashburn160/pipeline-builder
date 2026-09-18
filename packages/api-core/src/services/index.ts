@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+export * from './api-key-exchange.js';
 export * from './cache-service.js';
 export * from './leader-lock.js';
 export * from './scheduler.js';
@@ -8,6 +9,8 @@ export * from './compliance-client.js';
 export * from './compliance-event-subscriber.js';
 export * from './entity-events.js';
 export * from './http-client.js';
+export * from './jwks-cache.js';
+export * from './service-keys.js';
 export * from './circuit-breaker.js';
 export * from './durable-event-bus.js';
 export {

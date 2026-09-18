@@ -35,7 +35,18 @@ import { formatDateTime } from '@/lib/format';
  *   - `cognito`      → `region` + `userPoolId` (discovery URL derived server-side).
  *   - `google`/`github` → built-in endpoints; no extra fields.
  */
-export function OrgSsoSettings({ orgId, readOnly }: { orgId: string; readOnly: boolean }) {
+export function OrgSsoSettings({
+  orgId,
+  readOnly,
+  onConfigChange,
+}: {
+  orgId: string;
+  readOnly: boolean;
+  /** Fired with the stored config (or null when none) after each load and save.
+   *  The group-mapping editor beside this one keys off the provider, and only
+   *  this component knows it. */
+  onConfigChange?: (config: OrgIdpConfigDto | null) => void;
+}) {
   const form = useFormState();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -46,8 +57,15 @@ export function OrgSsoSettings({ orgId, readOnly }: { orgId: string; readOnly: b
   const [discoveryUrl, setDiscoveryUrl] = useState('');
   const [region, setRegion] = useState('');
   const [userPoolId, setUserPoolId] = useState('');
+  const [groupsClaim, setGroupsClaim] = useState('');
   const [allowedEmailDomains, setAllowedEmailDomains] = useState('');
   const [enabled, setEnabled] = useState(true);
+
+  // Google (and GitHub, which isn't an OpenID provider at all) issue no group
+  // claim, so just-in-time Role mapping cannot work there — the field is hidden
+  // and the limitation stated, rather than letting an admin configure a rule set
+  // that would silently never fire. The server refuses it independently.
+  const supportsGroups = provider !== 'google' && provider !== 'github';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,6 +79,7 @@ export function OrgSsoSettings({ orgId, readOnly }: { orgId: string; readOnly: b
       // `config: null` = no IdP configured yet (a normal state) — leave the
       // defaults so the admin gets an empty create form, not an error.
       const c = res.data?.config;
+      onConfigChange?.(c ?? null);
       if (c) {
         setExisting(c);
         setProvider(c.provider);
@@ -68,6 +87,7 @@ export function OrgSsoSettings({ orgId, readOnly }: { orgId: string; readOnly: b
         setDiscoveryUrl(c.discoveryUrl || '');
         setRegion(c.region || '');
         setUserPoolId(c.userPoolId || '');
+        setGroupsClaim(c.groupsClaim || '');
         setAllowedEmailDomains((c.allowedEmailDomains || []).join(', '));
         setEnabled(c.enabled);
       }
@@ -78,7 +98,7 @@ export function OrgSsoSettings({ orgId, readOnly }: { orgId: string; readOnly: b
     } finally {
       setLoading(false);
     }
-  }, [orgId]);
+  }, [orgId, onConfigChange]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -111,6 +131,10 @@ export function OrgSsoSettings({ orgId, readOnly }: { orgId: string; readOnly: b
 
     const payload: Partial<OrgIdpConfigCreate> = {
       provider, clientId, ...providerFields,
+      // Empty string clears it back to the `groups` default; a provider without
+      // group claims always sends the clear, so switching to Google can't leave
+      // a stale claim name behind (the server would reject the pair anyway).
+      groupsClaim: supportsGroups ? groupsClaim.trim() : '',
       allowedEmailDomains: domains, enabled,
     };
     // Only send the secret when it's supplied (write-only; empty = keep existing).
@@ -125,6 +149,7 @@ export function OrgSsoSettings({ orgId, readOnly }: { orgId: string; readOnly: b
       if (c) {
         setExisting(c);
         setClientSecret('');
+        onConfigChange?.(c);
       }
     }
   };
@@ -251,6 +276,35 @@ export function OrgSsoSettings({ orgId, readOnly }: { orgId: string; readOnly: b
                   </p>
                 </div>
               </>
+            )}
+
+            {supportsGroups ? (
+              <div>
+                <label htmlFor="sso-groups-claim" className="label">
+                  Groups Claim
+                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">(optional)</span>
+                </label>
+                <Input
+                  id="sso-groups-claim"
+                  type="text"
+                  value={groupsClaim}
+                  onChange={(e) => setGroupsClaim(e.target.value)}
+                  placeholder={provider === 'cognito' ? 'cognito:groups' : 'groups'}
+                  className="font-mono text-sm"
+                  disabled={loading || form.loading}
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Name of the token claim carrying group memberships — <code>groups</code> for Okta and
+                  Keycloak, <code>cognito:groups</code> for Cognito. Leave empty to use <code>groups</code>.
+                  Map those groups to roles below.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {provider === 'google'
+                  ? 'Google sign-in cannot map groups to roles: Google\'s OIDC tokens carry no group claim. Members signing in through Google are added to the organization with the member role only.'
+                  : 'GitHub is not an OpenID provider, so it supports neither SSO sign-in nor group-to-role mapping.'}
+              </p>
             )}
 
             <div>

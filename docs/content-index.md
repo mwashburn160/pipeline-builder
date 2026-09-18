@@ -30,6 +30,7 @@ the links below.
 - **Artifact passing between steps** — [CDK: Artifact Passing](cdk-usage.md#artifact-passing-between-steps), [Artifact & Registry Plugins](plugins/artifact.md)
 - **Audit events / audit log / tamper-evidence** — [Audit Events](audit-events.md), [Integrity](audit-events.md#integrity--tamper-evidence), [Action catalog](audit-events.md#action-catalog)
 - **Authentication (login, JWT, OAuth)** — [Authentication & SSO](authentication.md), [Env vars: Authentication](environment-variables.md#authentication)
+- **Sessions, devices and machine credentials** — [Authentication: Sessions, devices and machine credentials](authentication.md#sessions-devices-and-machine-credentials), [Authentication: Token claims](authentication.md#token-claims-what-a-request-proves), [API: Account & Sessions](api-reference.md#account--sessions)
 - **AWS deployment** — [AWS Deployment](aws-deployment.md), [EC2](aws-deployment.md#ec2), [EKS](aws-deployment.md#eks)
 - **AWS Marketplace (setup walkthrough)** — [Billing Providers: AWS Marketplace](billing-providers.md#aws-marketplace)
 - **AWS Marketplace (metering, private offers)** — [Billing Discounts: Marketplace](billing-discounts.md#aws-marketplace--private-offers-handled-in-aws-not-in-app), [Env vars: Marketplace metering](environment-variables.md#aws-marketplace-metering--credit-realization)
@@ -149,7 +150,7 @@ the links below.
 ## P
 
 - **Pagination & limits** — [Env vars: Pagination & Limits](environment-variables.md#pagination--limits), [API: Common Query Parameters](api-reference.md#common-query-parameters)
-- **PAT / Personal Access Token (CLI/automation credential)** — [Onboarding: Create a PAT](onboarding.md#step-4--create-a-personal-access-token-pat), [Pipeline Manager: auth](pipeline-manager.md#auth--infrastructure)
+- **Access key (`pb_pat_…`, the CLI/automation credential)** — [Onboarding: Create an access key](onboarding.md#step-4--create-an-access-key), [Authentication: Access keys](authentication.md#access-keys-opaque-verified-by-exchange), [Pipeline Manager: auth](pipeline-manager.md#auth--infrastructure)
 - **Permissions / RBAC / roles** — [Roles & Permissions](permissions.md), [Permission catalog](permissions.md#permission-catalog)
 - **Pipeline creation (5 ways)** — [Developer Guide: Five Ways](developer-guide.md#five-ways-to-create-a-pipeline), [Docs: Creating Pipelines](README.md#creating-pipelines)
 - **Plugins (catalog, categories, structure)** — [Plugin Catalog](plugins/README.md), [Categories](plugins/README.md#categories), by type: [AI](plugins/ai.md) · [Artifact](plugins/artifact.md) · [Deploy](plugins/deploy.md) · [Infrastructure](plugins/infrastructure.md) · [Language](plugins/language.md) · [Monitoring](plugins/monitoring.md) · [Notification](plugins/notification.md) · [Quality](plugins/quality.md) · [Security](plugins/security.md) · [Testing](plugins/testing.md)
@@ -175,17 +176,18 @@ the links below.
 
 - **Samples (pipeline templates + CDK examples)** — [Samples](samples.md), [Loading Samples](samples.md#loading-samples)
 - **Scheduled pipelines (cron/EventBridge)** — [CDK: Scheduled Pipelines](cdk-usage.md#scheduled-pipelines)
+- **SCIM (directory provisioning, Okta / Entra)** — [Authentication: SCIM 2.0 provisioning](authentication.md#scim-20-provisioning), [API: SCIM 2.0](api-reference.md#scim-20-apiscimv2), [Permissions: SCIM is a scope, not a permission](permissions.md#scim-apiscimv2--a-capability-scope-not-a-permission), [Audit: SCIM provisioning](audit-events.md#action-catalog)
 - **Scopes (compliance / metadata scope levels)** — [Compliance: Scopes](compliance.md#scopes), [Metadata: Scope Levels](metadata-keys.md#scope-levels)
 - **Secrets — usage & injection** — [CDK: Secrets Management](cdk-usage.md#secrets-management), [Plugins: How Secrets Work](plugins/README.md#how-secrets-work), [Env vars](environment-variables.md#authentication)
 - **Service token (`store-token`, JWT in Secrets Manager)** — [Onboarding: Store the service token](onboarding.md#step-5--store-the-service-token-aws-targets), [AWS: Store Service Credentials](aws-deployment.md#2-store-service-credentials)
 - **Secret naming convention (`pipeline-builder/{orgId}/{name}`)** — [Plugins: Naming Convention](plugins/README.md#naming-convention)
-- **Secrets — rotation runbook** — [Deploy Operations: Rotation runbook](deploy-operations.md#rotation-runbook-there-is-deliberately-no-blind---rotate-flag)
+- **Secrets — rotation runbook** — [Secret Rotation](runbooks/secret-rotation.md) (per-secret: JWT, refresh, at-rest master key + re-encryption tool, alert relay, registry signing key), [Deploy Operations: Rotation runbook](deploy-operations.md#rotation-runbook-there-is-deliberately-no-blind---rotate-flag) (databases, Mongo keyfile)
 - **Security plugins (SAST, SCA, secret detection)** — [Security Plugins](plugins/security.md)
 - **Self-references (pipeline.json cross-refs)** — [Templates: pipeline-level self-references](templates.md#example-pipeline-level-self-references)
 - **Service mesh (Istio ambient, mTLS, AuthZ)** — [Service Mesh](service-mesh.md), also [AWS](aws-deployment.md#service-mesh-istio-ambient) / [Ops](deploy-operations.md#service-mesh-istio-ambient)
 - **Session invalidation (token revocation)** — [Permissions: Session invalidation](permissions.md#session-invalidation)
 - **SSE / Server-Sent Events** — [Env vars: Server-Sent Events](environment-variables.md#server-sent-events)
-- **SSO (single sign-on)** — see **OAuth** / **OIDC** → [Authentication & SSO](authentication.md)
+- **SSO (single sign-on)** — see **OAuth** / **OIDC** / **SCIM** → [Authentication & SSO](authentication.md)
 - **Stages and steps** — [CDK: Stages and Steps](cdk-usage.md#stages-and-steps)
 - **Storage requirements (disk sizing)** — [AWS Deployment: Storage (EC2)](aws-deployment.md#storage-requirements), [Storage (EKS)](aws-deployment.md#storage-requirements)
 - **Stripe (billing provider setup)** — [Billing Providers: Stripe](billing-providers.md#stripe), [Env vars: Stripe](environment-variables.md#stripe-billing_providerstripe)
@@ -218,7 +220,7 @@ the links below.
 | [api-reference](api-reference.md) | REST endpoints per service, query params, response format |
 | [architecture-flow](architecture-flow.md) | End-to-end flows: plugin build, pipeline create, synth, execution |
 | [audit-events](audit-events.md) | Audit action catalog, integrity, sensitive-data scrubbing |
-| [authentication](authentication.md) | OAuth social login, per-org enterprise SSO (OIDC) |
+| [authentication](authentication.md) | OAuth social login, per-org enterprise SSO (OIDC), JIT + SCIM provisioning |
 | [aws-deployment](aws-deployment.md) | EC2 & EKS deploy, public/private modes, SES, reporting |
 | [billing-bundles](billing-bundles.md) | Stackable add-on packs raising pooled caps |
 | [billing-discounts](billing-discounts.md) | Discount codes, promotions, referrals, Marketplace offers |
@@ -227,6 +229,8 @@ the links below.
 | [compliance](compliance.md) | Policy-as-code rules, scans, enforcement, exemptions |
 | [content-index](content-index.md) | *This page — keyword/topic index* |
 | [deploy-operations](deploy-operations.md) | Ops runbook: preflight, secrets rotation, backups, teardown |
+| [runbooks/secret-rotation](runbooks/secret-rotation.md) | Per-secret rotation runbooks + the `secret_rotation_previous_set` metric and alert |
+| [runbooks/access-key-cutover](runbooks/access-key-cutover.md) | One-time reissue of every PAT as an opaque access key — no migration is possible |
 | [developer-guide](developer-guide.md) | Five ways to create a pipeline, plugin cut-and-paste patterns |
 | [developer-portal](developer-portal.md) | Catalog ownership, golden-path templates, scorecards |
 | [dora-metrics](dora-metrics.md) | Deploy freq, lead time, MTTR, change-fail rate, build health |
@@ -234,7 +238,7 @@ the links below.
 | [environment-variables](environment-variables.md) | Every env var by subsystem |
 | [error-handling](error-handling.md) | Typed `AppError` convention |
 | [metadata-keys](metadata-keys.md) | All `aws:cdk:*` and step/pipeline metadata keys |
-| [onboarding](onboarding.md) | New-org walkthrough: initial login → org → members → PAT → store-token → setup-events → first pipeline |
+| [onboarding](onboarding.md) | New-org walkthrough: initial login → org → members → access key → store-token → setup-events → first pipeline |
 | [organization-benefits](organization-benefits.md) | Value story, orgs/teams/billing, impact by role |
 | [permissions](permissions.md) | RBAC model, permission catalog, enforcement, sessions |
 | [pipeline-manager](pipeline-manager.md) | CLI install, commands, workflows |

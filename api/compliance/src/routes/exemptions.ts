@@ -12,6 +12,7 @@ import {
   getParam,
   parsePaginationParams,
   validateBody,
+  audited,
   requirePermission,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
@@ -45,11 +46,20 @@ const BulkExemptionsSchema = z.object({
   exemptions: z.array(ExemptionCreateSchema).min(1).max(500),
 });
 
+/**
+ * Requesting an exemption is member self-service: it files a PENDING row that
+ * changes no enforcement posture until an admin reviews it (PUT /:id/review,
+ * `compliance:write`). So the request routes gate on `compliance:read` — a
+ * principal with no compliance capability at all can no longer file requests —
+ * while the governance decisions keep the write gate.
+ */
+const requireComplianceRead = requirePermission('compliance:read');
+
 export function createExemptionRoutes(): Router {
   const router = Router();
 
   // GET / — list exemptions (paginated, filterable)
-  router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/', requireComplianceRead, withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query);
     const filter = {
       ruleId: req.query.ruleId as string | undefined,
@@ -70,7 +80,7 @@ export function createExemptionRoutes(): Router {
   // (org_id, rule_id, entity_id) + `onConflictDoNothing` in the service, so a
   // double-submit (or a batch repeating an entity) skips the colliding rows
   // instead of erroring. `skipped = requested - created` reports the difference.
-  router.post('/bulk', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/bulk', requireComplianceRead, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, BulkExemptionsSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -91,7 +101,7 @@ export function createExemptionRoutes(): Router {
   // POST / — request a new exemption. Deduped on (org, rule, entity) at the DB
   // level (same unique index as POST /bulk): a duplicate triple returns a clean
   // 409 instead of the raw unique-violation 500.
-  router.post('/', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/', requireComplianceRead, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, ExemptionCreateSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -117,7 +127,7 @@ export function createExemptionRoutes(): Router {
   // decision, so it requires an org admin/owner (any member may *request* an
   // exemption via POST /, but only an admin reviews it). The service still
   // blocks self-approval (CE_SELF_APPROVE) so an admin can't approve their own.
-  router.put('/:id/review', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/:id/review', requirePermission('compliance:write'), audited('compliance.exemption.approve'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Exemption ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -164,7 +174,7 @@ export function createExemptionRoutes(): Router {
   // DELETE /:id — revoke an exemption. Admin-gated like PUT /:id/review: revoking
   // re-imposes a rule (can block a previously-compliant entity), so it's an
   // admin action, not something any member should do.
-  router.delete('/:id', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.delete('/:id', requirePermission('compliance:write'), audited('compliance.exemption.revoke'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Exemption ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 

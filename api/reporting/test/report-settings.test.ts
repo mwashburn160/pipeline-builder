@@ -49,7 +49,7 @@ const { createReportSettingsRoutes } = await import('../src/routes/report-settin
 describe('reporting settings routes', () => {
   let router: any;
   const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
-  // PUT is [requirePermission gate, withRoute] — the withRoute handler is last.
+  // PUT is [requirePermission gate, audited(...), withRoute] — the handler is last.
   const putHandler = () => {
     const stack = router.stack.find((l: any) => l.route?.path === '/incidents' && l.route?.methods.put)?.route?.stack;
     return stack[stack.length - 1].handle;

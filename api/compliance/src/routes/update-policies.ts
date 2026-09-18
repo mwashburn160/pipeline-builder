@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, validateBody } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, audited, getParam, requirePermission, validateBody } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -18,7 +18,7 @@ const CompliancePolicyUpdateSchema = z.object({
 export function createUpdatePolicyRoutes(): Router {
   const router = Router();
 
-  router.put('/:id', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/:id', requirePermission('compliance:write'), audited('compliance.policy.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Policy ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 

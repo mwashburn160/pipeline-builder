@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { MAX_PAGE_LIMIT as SHARED_MAX_PAGE_LIMIT, DEFAULT_PAGE_LIMIT as SHARED_DEFAULT_PAGE_LIMIT } from '@pipeline-builder/api-core';
-import type { Algorithm } from 'jsonwebtoken';
 import { loadBillingConfig } from './billing-config.js';
 import type { AppConfig } from './config-types.js';
 import * as HandlerConstants from './handler-constants.js';
@@ -28,9 +27,6 @@ import {
  */
 export class CoreConstants {
   static readonly NAME_PATTERN = /^[a-z0-9-]+$/;
-
-  // Supported JWT algorithms
-  static readonly ALLOWED_JWT_ALGORITHMS: Algorithm[] = ['HS256', 'RS256', 'ES256'];
 
   // Custom Resource Handler configuration (must be less than Lambda timeout of 30s to allow response handling).
   // Sourced from the dependency-free `handler-constants.ts` leaf — the Lambda handler imports that module

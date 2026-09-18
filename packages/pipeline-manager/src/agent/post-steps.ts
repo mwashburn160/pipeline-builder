@@ -120,26 +120,35 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
   if (opts.events) {
     if (opts.target === 'ec2' || opts.target === 'eks') {
       // Event ingestion is a THREE-step bundle, in this order:
-      //   1. store-token          — the full-privilege platform JWT (synth/deploy
-      //                             callbacks read it; --schedule auto-renews it).
+      //   1. store-token          — the org's full-privilege SERVICE-ACCOUNT key
+      //                             (synth/deploy callbacks and CodeBuild's registry
+      //                             credentials read it; --schedule auto-rotates it).
       //   2. store-token --scope reporting:ingest --schedule
-      //                           — a DISTINCT least-privilege token whose `scope`
-      //                             claim is exactly `reporting:ingest`. The ingest
-      //                             endpoint requires this scope and `hasScope` is a
-      //                             single-value equality check, so the platform
-      //                             token (no scope) can NEVER ingest — the Lambda
-      //                             must read this dedicated token. Stored at
-      //                             `.../reporting-ingest`. --schedule deploys its OWN
-      //                             renewal stack (named `-reporting-ingest`, distinct
-      //                             from the platform one) whose handler preserves the
-      //                             scope on re-mint, so it auto-renews and never lapses.
-      //                             See setup-events --scoped-ingest.
+      //                           — a DISTINCT least-privilege KEY whose exchanged
+      //                             token carries exactly `reporting:ingest` and no
+      //                             permissions at all. The ingest endpoint requires
+      //                             that scope and `hasScope` is a single-value
+      //                             equality check, so the platform key (no scope)
+      //                             can NEVER ingest — the Lambda must read this
+      //                             dedicated secret. Stored at `.../reporting-ingest`.
+      //                             --schedule deploys its OWN rotation stack (named
+      //                             `-reporting-ingest`, distinct from the platform
+      //                             one), which rotates the key in place so it never
+      //                             lapses. See setup-events --scoped-ingest.
+      //   2b. store-token --scope registry:push --schedule
+      //                           — the CI registry credential CodeBuild presents
+      //                             as Basic auth. Synth wires
+      //                             `.../registry-push` into every build image's
+      //                             `secretsManagerCredentials`, so a deployment
+      //                             without it cannot pull its build images.
       //   3. setup-events --scoped-ingest
       //                           — deploys the EventBridge → SQS → Lambda and points
       //                             the Lambda at the reporting-ingest secret from #2.
       //                             WITHOUT --scoped-ingest the Lambda reads the
       //                             platform secret and every ingest 403s
       //                             ("Token must carry the 'reporting:ingest' scope").
+      // Both store-token steps are step-up gated on the platform, so they need
+      // PLATFORM_PASSWORD in the environment (provision already passes it).
       // provision surfaces (does not auto-run) the bundle on AWS — it needs a
       // registered, in-VPC platform.
       const region = opts.region ? ` --region ${opts.region}` : '';
@@ -151,15 +160,26 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
       const env = opts.target === 'ec2' && opts.url ? { PLATFORM_BASE_URL: opts.url } : undefined;
       steps.push({
         id: 'store-token',
-        label: 'Store platform token in AWS Secrets Manager (+ daily auto-renewal)',
-        // --schedule: synth/deploy callbacks read this token, so install the
-        // renewal stack so it never lapses (store-token no longer deploys it by default).
+        label: 'Store the platform service-account key in AWS Secrets Manager (+ daily auto-rotation)',
+        // --schedule: synth/deploy callbacks read this key, so install the
+        // rotation stack so it never lapses (store-token does not deploy it by default).
         command: `pipeline-manager infra store-token --schedule${region}`,
         env,
       });
       steps.push({
+        id: 'store-token-registry',
+        label: 'Store the registry-push (scoped) service-account key in AWS Secrets Manager (+ auto-rotation)',
+        // CodeBuild's `secretsManagerCredentials` reads THIS secret, not the
+        // platform one: its exchanged token carries only `registry:push`, so a
+        // leaked build credential can move images inside the org's namespace and
+        // nothing else. Synth points at `.../registry-push` unconditionally, so
+        // this step is not optional on AWS.
+        command: `pipeline-manager infra store-token --scope registry:push --schedule${region}`,
+        env,
+      });
+      steps.push({
         id: 'store-token-ingest',
-        label: 'Store reporting-ingest (scoped) token in AWS Secrets Manager (+ auto-renewal)',
+        label: 'Store the reporting-ingest (scoped) service-account key in AWS Secrets Manager (+ auto-rotation)',
         command: `pipeline-manager infra store-token --scope reporting:ingest --schedule${region}`,
         env,
       });

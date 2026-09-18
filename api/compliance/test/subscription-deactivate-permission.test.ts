@@ -110,7 +110,9 @@ function getHandler(path: string, method: 'get' | 'post' | 'patch' = 'post') {
     (l) => l.route?.path === path && l.route?.methods?.[method],
   );
   if (!layer) throw new Error(`no ${method.toUpperCase()} ${path}`);
-  return layer.route.stack[0].handle;
+  // The withRoute handler is the LAST layer in the chain — a route's own
+  // middleware (permission gate, `audited(...)` declaration) comes first.
+  return layer.route.stack[layer.route.stack.length - 1].handle;
 }
 
 function makeRes() {

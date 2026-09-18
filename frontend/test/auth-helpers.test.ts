@@ -17,7 +17,7 @@ import {
   isSystemAdmin,
   isOrgAdmin,
 } from '../src/lib/auth-helpers';
-import { PERMISSION_CATALOG } from '../src/lib/permissions';
+import { PERMISSION_CATALOG } from '@pipeline-builder/api-core/permissions';
 import type { User } from '../src/types';
 
 describe('isMutationPermission', () => {

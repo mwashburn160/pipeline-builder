@@ -12,6 +12,7 @@ import {
   requireFeature,
   runConcurrent,
   errorMessage,
+  requirePermission,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
@@ -84,7 +85,7 @@ export function createScorecardRoutes(quotaService: QuotaService): Router {
   // Mounted behind the shared auth chain + the apiCalls quota check (see
   // src/index.ts), so this heavy endpoint (compliance dry-run + DORA scan) is
   // metered like other reads rather than being a free cost-amplification path.
-  router.get('/:id/scorecard', requireFeature('advanced_reporting'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/:id/scorecard', requirePermission('pipelines:read'), requireFeature('advanced_reporting'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -115,7 +116,7 @@ export function createScorecardRoutes(quotaService: QuotaService): Router {
   // above, but it DOES match the read router's single-segment `GET /:id` — so
   // src/index.ts must mount this router BEFORE the read router (else the roll-up
   // is looked up as a pipeline with id "scorecard" and 404s).
-  router.get('/scorecard', requireFeature('advanced_reporting'), withRoute(async ({ res, ctx, orgId }) => {
+  router.get('/scorecard', requirePermission('pipelines:read'), requireFeature('advanced_reporting'), withRoute(async ({ res, ctx, orgId }) => {
     const to = new Date();
     const from = new Date(to.getTime() - SCORECARD_WINDOW_MS);
     const { incidentWindowHours } = await reportingService.getIncidentSettings(orgId);

@@ -53,7 +53,7 @@ export const deploymentTopic: HelpTopic = {
             "Provision — run pipeline-manager infra provision (recommended) or bin/setup.sh / raw CloudFormation directly; it requests a DNS-validated ACM cert and fronts the private compute with an ALB.",
             "Wait for the URL — the cert validates mid-deploy, then instances/pods pass health checks a few minutes later; the URL is https://<your-domain> (public, or in-VPC only for private mode).",
             "Initialize the platform — register the admin and load plugins/compliance/samples via init-platform.sh (runs automatically by default; use --init manual to set real admin creds yourself).",
-            "Store service credentials — infra store-token writes a platform JWT to Secrets Manager for the lookup and event-ingestion Lambdas.",
+            "Store service credentials — infra store-token provisions the org's service accounts and writes their pb_sa_… keys to Secrets Manager for the lookup Lambda, CodeBuild's registry pulls and the event-ingestion Lambda.",
             "Deploy reporting — wire up the EventBridge → SQS → Lambda stack for execution and plugin analytics.",
             "Operate — monitor via /dashboard/observability, reconcile registry vs live stacks with audit stacks, and tear down with --teardown when done."
           ]
@@ -186,7 +186,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Post-install steps. After deploy + health, infra provision registers the admin (non-interactive with --admin-email/--admin-password, which set PLATFORM_IDENTIFIER/PLATFORM_PASSWORD) and runs opt-in loads — each also pulls its folder into the sparse clone: --with-plugins (build + load plugins; adds deploy/plugins + deploy/codebuild), --with-compliance (deploy/compliance), --with-samples (deploy/samples), or --with-all. Also --build-bootstrap (CodeBuild bootstrap image), --with-smoke-test (read-only API check), --with-events (EC2/EKS event ingestion — a two-step bundle: infra store-token writes a platform JWT to Secrets Manager at the pipeline-builder/{orgId}/platform pattern, then infra setup-events deploys the EventBridge → SQS → Lambda that reads it; both pull AWS creds from the standard env / ~/.aws chain), and repeatable --post-step \"<cmd>\". The default is register-only (minimal clone); the loads are deterministic + idempotent, so re-running with more options just layers them on. On the AWS targets these loads run deploy-side by default (so infra provision doesn't prompt for them locally) — EC2 on first boot, EKS in setup.sh's final phase over a kubectl port-forward. Pass --init manual to drive them yourself."
+          "content": "Post-install steps. After deploy + health, infra provision registers the admin (non-interactive with --admin-email/--admin-password, which set PLATFORM_IDENTIFIER/PLATFORM_PASSWORD) and runs opt-in loads — each also pulls its folder into the sparse clone: --with-plugins (build + load plugins; adds deploy/plugins + deploy/codebuild), --with-compliance (deploy/compliance), --with-samples (deploy/samples), or --with-all. Also --build-bootstrap (CodeBuild bootstrap image), --with-smoke-test (read-only API check), --with-events (EC2/EKS event ingestion — a four-step bundle: three infra store-token runs writing the platform, registry:push and reporting:ingest service-account keys to Secrets Manager at the pipeline-builder/{orgId}/… pattern, then infra setup-events --scoped-ingest deploying the EventBridge → SQS → Lambda that reads the ingest key; all pull AWS creds from the standard env / ~/.aws chain, and need PLATFORM_PASSWORD for the step-up each key write requires), and repeatable --post-step \"<cmd>\". The default is register-only (minimal clone); the loads are deterministic + idempotent, so re-running with more options just layers them on. On the AWS targets these loads run deploy-side by default (so infra provision doesn't prompt for them locally) — EC2 on first boot, EKS in setup.sh's final phase over a kubectl port-forward. Pass --init manual to drive them yourself."
         },
         {
           "type": "code",
@@ -1591,7 +1591,7 @@ export const deploymentTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Don't run the whole script under sudo. sudo runs as root, whose $HOME has no kubeconfig, so the publish fails with \"JWT_SECRET not found … Available contexts: (none)\". Instead grant your user Docker access and run without sudo:"
+            "Don't run the whole script under sudo. sudo runs as root, whose $HOME has no kubeconfig, so the publish fails with \"the deploy-bootstrap service key was not found … Available contexts: (none)\". Instead grant your user Docker access and run without sudo:"
           ]
         },
         {
@@ -1601,7 +1601,8 @@ export const deploymentTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "After a fresh deploy (which rotates JWT_SECRET), re-run infra store-token before publishing — otherwise the crane push / CodeBuild image pull can 401."
+            "After a fresh deploy (which generates a new user-token signing key), re-run infra store-token before publishing — otherwise the crane push / CodeBuild image pull can 401.",
+            "Re-run it for ALL THREE credentials — the platform one, --scope registry:push (what CodeBuild presents to the registry) and --scope reporting:ingest (what the event Lambda reads). Each is a separate service account with only the authority its job needs; see Authentication → Stored machine credentials (AWS). Credentials stored before this release stop working and must be reissued — they were JWTs, and the secret now holds an opaque pb_sa_… key in the same password field (cutover runbook)."
           ]
         },
         {
@@ -1610,25 +1611,58 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The plugin-lookup Lambda and event-ingestion Lambda use a JWT token stored in Secrets Manager. Generate and store it using the CLI:"
+          "content": "The Lambdas and CodeBuild read service-account keys from Secrets Manager — machine identities owned by the org, not a person's token. infra store-token provisions the account and issues the key:"
         },
         {
           "type": "code",
-          "content": "eval $(pipeline-manager auth login -u admin@your-domain.com -p '***' --quiet --no-verify-ssl)\n\npipeline-manager infra store-token --days 30 --region us-east-1",
+          "content": "pipeline-manager auth login --no-verify-ssl\n\nexport PLATFORM_PASSWORD='…'\n\npipeline-manager infra store-token --days 30 --schedule --region us-east-1\n\npipeline-manager infra store-token --scope registry:push --schedule --region us-east-1\n\npipeline-manager infra store-token --scope reporting:ingest --schedule --region us-east-1",
           "language": "bash"
         },
         {
           "type": "text",
-          "content": "By default infra store-token only writes the secret — you must re-run it before the token expires (audit tokens warns you in advance). To avoid that, add --schedule to also deploy a small daily auto-renewal stack (pipeline-builder-token-renew):"
+          "content": "Each run writes its own secret and its own rotation stack:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Secret",
+            "Service account",
+            "Key scope"
+          ],
+          "rows": [
+            [
+              "pipeline-builder/{orgId}/platform",
+              "platform-automation",
+              "none (org admin Roles)"
+            ],
+            [
+              "pipeline-builder/{orgId}/registry-push",
+              "registry-push",
+              "registry:push"
+            ],
+            [
+              "pipeline-builder/{orgId}/reporting-ingest",
+              "reporting-ingest",
+              "reporting:ingest"
+            ]
+          ]
+        },
+        {
+          "type": "note",
+          "content": "On a headless host with no browser, export PLATFORM_IDENTIFIER / PLATFORM_PASSWORD instead: store-token still has a non-interactive password login of its own for exactly that case (it is provisioning a machine credential, with nobody present to approve anything). PLATFORM_PASSWORD is required either way — it is the step-up factor for both writes."
+        },
+        {
+          "type": "text",
+          "content": "By default infra store-token only writes the secret — you must re-run it before the key expires (audit tokens warns you in advance). To avoid that, add --schedule to also deploy a small daily key-rotation stack (pipeline-builder-token-renew):"
         },
         {
           "type": "code",
-          "content": "pipeline-manager infra store-token --days 30 --schedule --region us-east-1\n\npipeline-manager infra store-token --schedule --cron '0 3 * * *' --region us-east-1",
+          "content": "pipeline-manager infra store-token --schedule --cron '0 3 * * *' --region us-east-1",
           "language": "bash"
         },
         {
           "type": "text",
-          "content": "The renewal stack is a scheduled Lambda that reads the current JWT, mints a fresh one via the platform, and writes it back to the same secret. (The --with-events provision bundle opts into --schedule automatically, since the event-ingestion Lambda depends on this token.)"
+          "content": "The rotation stack is a scheduled Lambda that mints a sibling key on the same account, writes it to the secret, and only then retires its predecessor — in that order, so a failure at any step leaves a working credential behind. It installs nothing at runtime. See Authentication → Self-rotation. (The --with-events provision bundle opts into --schedule automatically, since the event-ingestion Lambda depends on its key.)"
         },
         {
           "type": "text",

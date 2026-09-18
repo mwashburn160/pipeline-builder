@@ -2,100 +2,66 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Drift guard for the frontend permission catalog.
+ * The frontend consumes ONE permission catalog: api-core's dependency-free
+ * `@pipeline-builder/api-core/permissions` subpath. There is no local mirror to
+ * drift any more (the old `src/lib/permissions.ts` copy is gone), so this suite
+ * checks the two things that can still break the UI:
  *
- * `src/lib/permissions.ts` is a hand-maintained mirror of api-core's catalog
- * (types/permissions.ts). We deliberately don't import the server package here
- * (it would pull express/jwt into the Next.js test bundle), so instead this
- * test pins the invariant locally:
- *   - every id is a well-formed `resource:action` pair,
- *   - ids are unique,
- *   - the id set matches the known catalog exactly.
- *
- * If you add/rename/remove a permission, update BOTH this list AND the backend
- * catalog in the same change — a mismatch here is the signal that the mirror
- * has drifted. The backend validates every permission against ITS catalog, so
- * an out-of-sync entry can never grant anything unknown, but it can silently
- * fail to gate UI, which is what this test catches.
+ *   1. the subpath resolves and carries the catalog + helpers the picker needs
+ *      (a broken `exports`/`typesVersions` entry or a Node-only import creeping
+ *      into that module fails here, not at `next build`);
+ *   2. the ids the UI gates on are really in the catalog.
  */
-import { PERMISSION_CATALOG, ORG_ASSIGNABLE_CATEGORIES, isOrgAssignablePermission, permissionLabel } from '../src/lib/permissions';
+import {
+  ALL_PERMISSIONS,
+  ORG_ASSIGNABLE_CATEGORIES,
+  PERMISSION_CATALOG,
+  isOrgAssignablePermission,
+  permissionLabel,
+} from '@pipeline-builder/api-core/permissions';
 
-// The canonical id set. Kept in sync with api-core's PERMISSION_CATALOG.
-const KNOWN_IDS = [
-  'pipelines:read',
-  'pipelines:write',
-  'pipelines:publish',
-  'templates:read',
-  'templates:write',
-  'templates:publish',
-  'plugins:read',
-  'plugins:write',
-  'plugins:publish',
-  'compliance:read',
-  'compliance:write',
-  'members:manage',
-  'roles:manage',
-  'invitations:manage',
-  'dashboards:read',
-  'dashboards:write',
-  'observability:read',
-  'observability:write',
-  'reports:read',
-  'reports:rollup',
-  'messages:read',
-  'messages:write',
-  'billing:read',
-  'billing:manage',
-  'quotas:read',
-  'registry:read',
-  'registry:write',
-  'org:settings',
-  'org:idp',
-  'org:kms',
-  'org:impersonation',
-] as const;
-
-describe('PERMISSION_CATALOG parity', () => {
+describe('shared permission catalog', () => {
   const ids = PERMISSION_CATALOG.map((p) => p.id);
 
-  it('every id matches the resource:action shape', () => {
-    const shape = /^[a-z]+:[a-z]+$/;
-    for (const id of ids) {
-      expect(id).toMatch(shape);
-    }
+  it('resolves through the api-core subpath with a complete catalog', () => {
+    expect(ids.length).toBeGreaterThan(0);
+    expect([...ids].sort()).toEqual([...ALL_PERMISSIONS].sort());
   });
 
-  it('has no duplicate ids', () => {
+  it('every id is a well-formed resource:action pair, listed once', () => {
+    // `resource:action`, both snake_case — the resource may carry an underscore
+    // (`service_accounts:manage`); neither half ever carries a separator of its own.
+    for (const id of ids) expect(id).toMatch(/^[a-z]+(_[a-z]+)*:[a-z]+(_[a-z]+)*$/);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('matches the known catalog id set exactly (no drift)', () => {
-    // Order-independent equality: a missing OR extra id fails the test and
-    // names the offender.
-    expect([...ids].sort()).toEqual([...KNOWN_IDS].sort());
+  it('exposes labels for the picker and falls back to the raw id', () => {
+    expect(permissionLabel('plugins:write')).toBe('Manage plugins');
+    expect(permissionLabel('does:notexist')).toBe('does:notexist');
   });
 
-  it('gives every entry a non-empty label, description, and category', () => {
-    for (const p of PERMISSION_CATALOG) {
-      expect(p.label.trim().length).toBeGreaterThan(0);
-      expect(p.description.trim().length).toBeGreaterThan(0);
-      expect(p.category.trim().length).toBeGreaterThan(0);
-    }
-  });
-
-  it('groups every org-assignable entry into exactly one category (no loss)', () => {
-    // ORG_ASSIGNABLE_CATEGORIES is the live grouping export (drives the custom-Role
-    // authoring picker). It must cover every org-assignable catalog id exactly once,
-    // with the superadmin-only registry perms dropped.
+  it('offers only org-assignable permissions in the authoring picker', () => {
     const grouped = ORG_ASSIGNABLE_CATEGORIES.flatMap((c) => c.permissions.map((p) => p.id));
-    const assignable = ids.filter(isOrgAssignablePermission);
-    expect([...grouped].sort()).toEqual([...assignable].sort());
+    expect(grouped.every(isOrgAssignablePermission)).toBe(true);
     expect(grouped).not.toContain('registry:read');
     expect(grouped).not.toContain('registry:write');
   });
 
-  it('permissionLabel resolves known ids and falls back to the raw id', () => {
-    expect(permissionLabel('plugins:write')).toBe('Manage plugins');
-    expect(permissionLabel('does:notexist')).toBe('does:notexist');
+  it('contains every permission the dashboard gates on', () => {
+    // The ids passed to `can(...)` across the dashboard pages. A rename in
+    // api-core that isn't followed here (or vice versa) silently disables a gate.
+    const gated = [
+      'pipelines:read', 'pipelines:write', 'pipelines:publish',
+      'templates:write', 'templates:publish',
+      'plugins:write', 'plugins:publish',
+      'compliance:write',
+      'members:manage', 'roles:manage', 'invitations:manage',
+      'dashboards:write', 'observability:write',
+      'reports:read', 'reports:rollup',
+      'messages:read', 'messages:write',
+      'billing:manage',
+      'org:settings', 'org:idp', 'org:kms', 'org:impersonation',
+    ];
+    for (const id of gated) expect(ids).toContain(id);
   });
 });

@@ -1,20 +1,24 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useRef, useState } from 'react';
-import { ShieldAlert } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { KeyRound, LogIn, ShieldAlert, Smartphone } from 'lucide-react';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
-import { formatError } from '@/lib/constants';
+import { formatError, providerLabel } from '@/lib/constants';
+import { stepUpWithPasskey } from '@/lib/passkeys';
+import { runProviderReauth } from '@/lib/step-up-reauth';
+import { webauthnErrorMessage } from '@/lib/webauthn';
+import type { AuthFactors, ReauthProvider } from '@/types';
 
 interface Props {
   /** Short description of the action being gated, shown to the user. */
   action: string;
-  /** Called with the short-lived step-up token after password verifies.
+  /** Called with the short-lived step-up token once the user re-verifies.
    *  The caller MUST pass this token to the subsequent destructive API
    *  call as the second argument; api methods that require step-up
    *  forward it via the `X-Step-Up-Token` header. */
@@ -22,20 +26,78 @@ interface Props {
   onClose: () => void;
 }
 
+/** Fallback when the profile can't be read: offer the password, which is what
+ *  most accounts have — the server is the real gate either way. */
+const PASSWORD_ONLY: AuthFactors = { hasPassword: true, passkeyCount: 0, hasTotp: false, providers: [] };
+
+/** What to call a provider option in the button. */
+function optionLabel(option: ReauthProvider): string {
+  if (option.type === 'sso') {
+    return option.orgName ? `${option.orgName} single sign-on` : 'single sign-on';
+  }
+  return providerLabel(option.provider);
+}
+
 /**
- * Password re-prompt before destructive sysadmin actions (grant/revoke
- * platform-admin, KMS rotation, namespace YAML download, org delete,
- * bulk-delete users, ownership transfer).
+ * Re-verification prompt before destructive actions (grant/revoke platform-admin,
+ * KMS rotation, namespace YAML download, org delete, bulk-delete users, ownership
+ * transfer, PAT creation, …).
  *
- * Calls POST /api/auth/step-up; backend returns a 60s-TTL JWT bound to
- * the user's sub. The token is passed to `onConfirmed` and forwarded by
- * the caller's API call; backend `requireStepUp` middleware enforces.
+ * Step-up is factor-agnostic: the modal reads the account's factors from
+ * `GET /user/profile` (`authFactors`) and offers only what the user has, in
+ * descending order of how hard each is to steal —
+ *   - "Use a passkey" (POST /api/auth/step-up/webauthn/…), offered FIRST when
+ *     the account has one: it is the strongest factor here and the quickest
+ *     (a fingerprint, not a typed secret);
+ *   - an authenticator-app code (POST /api/auth/step-up/totp), which a recovery
+ *     code also satisfies — second because it proves possession of a device, and
+ *     is the one factor available on a machine with no passkey;
+ *   - a password field (POST /api/auth/step-up), and/or
+ *   - "Sign in again with <provider>" for each linked social/SSO provider, which
+ *     runs the provider round trip in a popup (src/lib/step-up-reauth).
+ * Accounts created through Google/GitHub/SSO have no password at all, and used to
+ * be locked out of every step-up-gated action.
+ *
+ * Every path returns the same 60s step-up token, which is handed to
+ * `onConfirmed` and replayed by the caller's API call; the backend's
+ * `requireStepUp` middleware enforces it.
  */
 export function StepUpModal({ action, onConfirmed, onClose }: Props) {
+  const [factors, setFactors] = useState<AuthFactors | null>(null);
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [pendingProvider, setPendingProvider] = useState<string | null>(null);
+  const [passkeyPending, setPasskeyPending] = useState(false);
+  const [totpCode, setTotpCode] = useState('');
+  const [totpPending, setTotpPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
+  // Lets Cancel abort a provider round trip that's still waiting on the popup.
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await api.getProfile();
+        const loaded = res.data?.user?.authFactors;
+        if (!cancelled) setFactors(loaded ?? PASSWORD_ONLY);
+      } catch {
+        // Fail soft: show the password field rather than blocking the action.
+        if (!cancelled) setFactors(PASSWORD_ONLY);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Abandoning the dialog must also stop a popup round trip that's in flight.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const finish = useCallback(async (token: string) => {
+    await onConfirmed(token);
+    onClose();
+  }, [onConfirmed, onClose]);
 
   const handleSubmit = useCallback(async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -48,8 +110,7 @@ export function StepUpModal({ action, onConfirmed, onClose }: Props) {
     try {
       const res = await api.stepUpVerify(password);
       if (res.success && res.data?.stepUpToken) {
-        await onConfirmed(res.data.stepUpToken);
-        onClose();
+        await finish(res.data.stepUpToken);
       } else {
         setError(res.message || 'Verification failed');
       }
@@ -58,45 +119,216 @@ export function StepUpModal({ action, onConfirmed, onClose }: Props) {
     } finally {
       setSubmitting(false);
     }
-  }, [password, onConfirmed, onClose]);
+  }, [password, finish]);
+
+  const handlePasskey = useCallback(async () => {
+    setPasskeyPending(true);
+    setError(null);
+    try {
+      await finish(await stepUpWithPasskey());
+    } catch (err) {
+      // A dismissed browser prompt is a cancel, not a failure — say nothing.
+      setError(webauthnErrorMessage(err, 'Could not confirm with that passkey'));
+    } finally {
+      setPasskeyPending(false);
+    }
+  }, [finish]);
+
+  const handleTotp = useCallback(async () => {
+    const code = totpCode.trim();
+    if (!code) { setError('Enter the code from your authenticator app'); return; }
+    setTotpPending(true);
+    setError(null);
+    try {
+      const res = await api.stepUpWithTotp(code);
+      if (res.success && res.data?.stepUpToken) {
+        await finish(res.data.stepUpToken);
+      } else {
+        setError(res.message || 'Verification failed');
+      }
+    } catch (err) {
+      // The server's wording is specific (wrong code vs. locked out); showing it
+      // verbatim beats re-deriving a message the backend may disagree with.
+      setError(formatError(err, 'Could not confirm with that code'));
+    } finally {
+      setTotpPending(false);
+    }
+  }, [totpCode, finish]);
+
+  const handleProvider = useCallback(async (option: ReauthProvider) => {
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setPendingProvider(option.type === 'sso' ? option.orgId : option.provider);
+    setError(null);
+    try {
+      await finish(await runProviderReauth(option, controller.signal));
+    } catch (err) {
+      setError(formatError(err, `Could not confirm with ${optionLabel(option)}`));
+    } finally {
+      abortRef.current = null;
+      setPendingProvider(null);
+    }
+  }, [finish]);
+
+  const handleClose = useCallback(() => {
+    abortRef.current?.abort();
+    onClose();
+  }, [onClose]);
+
+  const busy = submitting || pendingProvider !== null || passkeyPending || totpPending;
+  const hasPassword = factors?.hasPassword ?? false;
+  const hasPasskeys = (factors?.passkeyCount ?? 0) > 0;
+  const hasTotp = factors?.hasTotp ?? false;
+  const providers = factors?.providers ?? [];
 
   return (
     <Modal
-      title="Confirm with password"
+      title="Confirm it's you"
       titleIcon={<ShieldAlert className="h-5 w-5 text-amber-500 shrink-0" />}
-      onClose={onClose}
+      onClose={handleClose}
       initialFocusRef={passwordRef}
     >
       <form onSubmit={handleSubmit} className="space-y-3">
         <p className="text-sm text-gray-700 dark:text-gray-300">
           About to: <strong>{action}</strong>
         </p>
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          Re-enter your password to confirm. This protects against accidental
-          destructive actions on a left-open session.
-        </p>
 
-        <Input
-          ref={passwordRef}
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="current-password"
-          placeholder="Password"
-          className="w-full"
-          disabled={submitting}
-        />
+        {!factors ? (
+          <p className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+            <LoadingSpinner size="sm" /> Checking how you can confirm…
+          </p>
+        ) : (
+          <>
+            {/* Passkey first: the strongest factor offered here, and the one
+                that takes a touch rather than a typed secret. */}
+            {hasPasskeys && (
+              <div className="space-y-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Confirm with a passkey. This protects against accidental
+                  destructive actions on a left-open session.
+                </p>
+                <Button
+                  type="button"
+                  fullWidth
+                  className="inline-flex items-center justify-center gap-2"
+                  disabled={busy}
+                  onClick={() => void handlePasskey()}
+                >
+                  {passkeyPending ? <LoadingSpinner size="sm" /> : <KeyRound className="w-4 h-4" />}
+                  Use a passkey
+                </Button>
+              </div>
+            )}
+
+            {/* Authenticator app — the factor that works on any machine, with or
+                without a passkey. A recovery code is accepted here too, which is
+                why the field is not digit-constrained. */}
+            {hasTotp && (
+              <div className="space-y-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {hasPasskeys
+                    ? 'Or enter the code from your authenticator app:'
+                    : 'Enter the code from your authenticator app. A recovery code works too.'}
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleTotp(); } }}
+                    autoComplete="one-time-code"
+                    placeholder="123456"
+                    aria-label="Authentication code"
+                    className="flex-1"
+                    disabled={busy}
+                  />
+                  <Button
+                    type="button"
+                    className="inline-flex items-center justify-center gap-2 shrink-0"
+                    disabled={busy || !totpCode.trim()}
+                    onClick={() => void handleTotp()}
+                  >
+                    {totpPending ? <LoadingSpinner size="sm" /> : <Smartphone className="w-4 h-4" />}
+                    Verify
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {hasPassword && (
+              <>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {hasPasskeys || hasTotp
+                    ? 'Or re-enter your password:'
+                    : 'Re-enter your password to confirm. This protects against accidental destructive actions on a left-open session.'}
+                </p>
+
+                <Input
+                  ref={passwordRef}
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  placeholder="Password"
+                  className="w-full"
+                  disabled={busy}
+                />
+              </>
+            )}
+
+            {providers.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {hasPassword || hasPasskeys || hasTotp
+                    ? 'Or confirm by signing in again:'
+                    : 'Sign in again with your provider to confirm. A window opens for the sign-in.'}
+                </p>
+                {providers.map((option) => {
+                  const key = option.type === 'sso' ? `sso:${option.orgId}` : `oauth:${option.provider}`;
+                  const pending = pendingProvider === (option.type === 'sso' ? option.orgId : option.provider);
+                  return (
+                    <Button
+                      key={key}
+                      type="button"
+                      variant="secondary"
+                      fullWidth
+                      className="inline-flex items-center justify-center gap-2"
+                      disabled={busy}
+                      onClick={() => void handleProvider(option)}
+                    >
+                      {pending ? <LoadingSpinner size="sm" /> : <LogIn className="w-4 h-4" />}
+                      Sign in again with {optionLabel(option)}
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
+
+            {!hasPassword && !hasPasskeys && !hasTotp && providers.length === 0 && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                This account has no way to confirm sensitive actions. Add a passkey
+                from{' '}
+                <a href="/dashboard/settings?tab=security#passkeys" className="action-link">
+                  Settings → Security
+                </a>
+                , set a password, or link a sign-in provider — or ask an administrator for help.
+              </p>
+            )}
+          </>
+        )}
 
         <ErrorAlert message={error} />
 
         <div className="flex justify-end gap-2 pt-1">
-          <Button type="button" variant="secondary" onClick={onClose} disabled={submitting}>
+          <Button type="button" variant="secondary" onClick={handleClose} disabled={submitting}>
             Cancel
           </Button>
-          <Button type="submit" className="inline-flex items-center gap-2" disabled={submitting || !password}>
-            {submitting && <LoadingSpinner size="sm" />}
-            Confirm
-          </Button>
+          {hasPassword && (
+            <Button type="submit" className="inline-flex items-center gap-2" disabled={busy || !password}>
+              {submitting && <LoadingSpinner size="sm" />}
+              Confirm
+            </Button>
+          )}
         </div>
       </form>
     </Modal>

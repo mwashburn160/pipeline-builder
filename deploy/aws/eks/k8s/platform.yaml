@@ -8,6 +8,12 @@ metadata:
   name: platform
   labels:
     app: platform
+    # This Service exposes INTERNAL routes, so its traffic goes through the
+    # `pb-waypoint` proxy, which is the only thing in an ambient mesh that can
+    # enforce a per-ROUTE (L7) AuthorizationPolicy. See k8s/istio-internal-routes.yaml
+    # — removing this label is the rollback: the policies then match nothing and
+    # the app-side `requireInternalService` gate carries the routes alone.
+    istio.io/use-waypoint: pb-waypoint
 spec:
   type: ClusterIP
   ports:
@@ -96,8 +102,6 @@ spec:
             # Credentials (DB_PASSWORD, MONGODB_URI, API keys, …) split out of app-env.
             - secretRef:
                 name: app-secrets
-            - secretRef:
-                name: jwt-secret
           env:
             - name: SERVICE_NAME
               value: "platform"
@@ -111,8 +115,16 @@ spec:
                 secretKeyRef:
                   name: alertmanager-relay
                   key: ALERT_WEBHOOK_INSTANCE_TOKEN
+            # Rotation overlap: the OUTGOING bearer, empty outside a rotation
+            # (the key always exists in the Secret). Platform accepts either
+            # while it is non-empty. docs/runbooks/secret-rotation.md
+            - name: ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-relay
+                  key: ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS
             - name: ALERT_WEBHOOK_INSTANCES
-              value: '[{"id":"alertmanager","token":"$(ALERT_WEBHOOK_INSTANCE_TOKEN)"}]'
+              value: '[{"id":"alertmanager","token":"$(ALERT_WEBHOOK_INSTANCE_TOKEN)","previousToken":"$(ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS)"}]'
           resources:
             limits:
               cpu: "750m"
@@ -144,6 +156,43 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 30
+          volumeMounts:
+            # This pod's OWN internal-token signing key (#14) and the PUBLIC
+            # bundle it verifies its peers with. One private key per pod — that
+            # is what stops a compromised service signing as another — while the
+            # bundle is public and identical everywhere. Both from
+            # deploy/bin/service-signing-keys.sh; the service refuses to start
+            # without them.
+            - name: service-signing-key
+              mountPath: /etc/pipeline-builder/service-keys
+              readOnly: true
+            - name: service-key-bundle
+              mountPath: /etc/pipeline-builder/service-key-bundle
+              readOnly: true
+            # The ES256 user-token signing key. Mounted into PLATFORM ONLY — it
+            # is the one credential in the fleet that can mint a token for a
+            # person; every other service verifies against the public keys
+            # platform publishes at /.well-known/jwks.json. TOKEN_SIGNING_MODE
+            # =kms installs no such Secret, and platform then never reads a file.
+            - name: token-signing-key
+              mountPath: /etc/pipeline-builder/keys
+              readOnly: true
+      volumes:
+        - name: service-signing-key
+          secret:
+            secretName: service-key-platform
+            defaultMode: 0444
+        - name: service-key-bundle
+          secret:
+            secretName: service-key-bundle
+            defaultMode: 0444
+        # `optional: true` so a KMS-signing install (where bin/k8s-resources.sh
+        # creates no token-signing-key Secret) still schedules.
+        - name: token-signing-key
+          secret:
+            secretName: token-signing-key
+            optional: true
+            defaultMode: 0444
 ---
 # =============================================================================
 # Platform HorizontalPodAutoscaler

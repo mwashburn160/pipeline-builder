@@ -68,6 +68,19 @@ export interface OrgIdpConfigDocument extends Document {
   userPoolId?: string;
 
   /**
+   * Name of the id_token claim carrying the user's GROUP memberships, for
+   * just-in-time membership + Role mapping (3a). IdPs disagree on it — Okta and
+   * Keycloak emit `groups`, Cognito emits `cognito:groups`, Entra emits `roles`
+   * — so it is configurable per org. Unset means the default (`groups`).
+   *
+   * NOT supported for `provider: 'google'`: Google's OIDC tokens carry no group
+   * claim at all, so a mapping there could only ever match nothing. The write
+   * path refuses to set it (and to create mappings) for a Google config rather
+   * than let an admin build a rule set that silently never fires.
+   */
+  groupsClaim?: string;
+
+  /**
    * If set, only IdP users whose email matches one of these domains are
    * allowed to sign in to this org. Defense against an over-broad IdP that
    * authenticates anyone in a corporate domain  pinning to `acme.com`
@@ -98,6 +111,7 @@ const orgIdpConfigSchema = new Schema<OrgIdpConfigDocument>( {
   discoveryUrl: { type: String },
   region: { type: String },
   userPoolId: { type: String },
+  groupsClaim: { type: String },
   allowedEmailDomains: { type: [String], default: [] },
   enabled: { type: Boolean, default: true },
   createdBy: { type: String, required: true },

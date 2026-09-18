@@ -43,6 +43,11 @@ export type Permission =
   | 'members:manage'
   | 'roles:manage'
   | 'invitations:manage'
+  // Org-scoped service accounts (non-human principals) and their access keys.
+  // Split out of `members:manage` because a service account is a CREDENTIAL
+  // holder, not a person: granting someone the ability to mint long-lived
+  // machine keys is a different decision from letting them manage the roster.
+  | 'service_accounts:manage'
   // Observability
   | 'dashboards:read'
   | 'dashboards:write'
@@ -85,7 +90,7 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   'templates:read', 'templates:write', 'templates:publish',
   'plugins:read', 'plugins:write', 'plugins:publish',
   'compliance:read', 'compliance:write',
-  'members:manage', 'roles:manage', 'invitations:manage',
+  'members:manage', 'roles:manage', 'invitations:manage', 'service_accounts:manage',
   'dashboards:read', 'dashboards:write',
   'observability:read', 'observability:write',
   'reports:read', 'reports:rollup',
@@ -95,6 +100,85 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   'registry:read', 'registry:write',
   'org:settings', 'org:idp', 'org:kms', 'org:impersonation',
 ];
+
+/**
+ * Display metadata for one permission: the label + description the
+ * permission-picker UI shows, and the category it groups under.
+ */
+export interface PermissionMeta {
+  id: Permission;
+  label: string;
+  description: string;
+  category: string;
+}
+
+/**
+ * The permission catalog with display metadata, in picker order.
+ *
+ * This module is the SINGLE catalog for backend and browser alike: it has no
+ * runtime dependencies (the only import is a type), so the frontend imports it
+ * through the `@pipeline-builder/api-core/permissions` subpath instead of keeping
+ * a hand-maintained mirror. Every id in {@link ALL_PERMISSIONS} must appear here
+ * exactly once (asserted by `permissions.test.ts`).
+ */
+export const PERMISSION_CATALOG: readonly PermissionMeta[] = [
+  { id: 'pipelines:read', label: 'View pipelines', description: 'View pipelines and their executions', category: 'Pipelines' },
+  { id: 'pipelines:write', label: 'Manage pipelines', description: 'Create, edit, and delete pipelines', category: 'Pipelines' },
+  { id: 'pipelines:publish', label: 'Publish pipelines', description: 'Make pipelines public (org-wide/catalog visibility)', category: 'Pipelines' },
+  { id: 'templates:read', label: 'View templates', description: 'View the golden-path template catalog', category: 'Templates' },
+  { id: 'templates:write', label: 'Manage templates', description: 'Author, edit, and delete pipeline templates', category: 'Templates' },
+  { id: 'templates:publish', label: 'Publish templates', description: 'Share a template beyond your org (public visibility)', category: 'Templates' },
+  { id: 'plugins:read', label: 'View plugins', description: 'View plugins and builds', category: 'Plugins' },
+  { id: 'plugins:write', label: 'Manage plugins', description: 'Create, upload, edit, and delete plugins', category: 'Plugins' },
+  { id: 'plugins:publish', label: 'Publish plugins', description: 'Make plugins public (org-wide/catalog visibility)', category: 'Plugins' },
+  { id: 'compliance:read', label: 'View compliance', description: 'View compliance rules, policies, and scans', category: 'Compliance' },
+  { id: 'compliance:write', label: 'Manage compliance', description: 'Create and edit rules, policies, and exemptions', category: 'Compliance' },
+  { id: 'members:manage', label: 'Manage members', description: 'Add, remove, and change roles of org members', category: 'Members & Access' },
+  { id: 'roles:manage', label: 'Manage roles', description: 'Create, edit, and delete roles', category: 'Members & Access' },
+  { id: 'invitations:manage', label: 'Manage invitations', description: 'Send, resend, and revoke invitations', category: 'Members & Access' },
+  { id: 'service_accounts:manage', label: 'Manage service accounts', description: 'Create org service accounts, assign their roles, and issue or revoke their keys', category: 'Members & Access' },
+  { id: 'dashboards:read', label: 'View dashboards', description: 'View custom dashboards', category: 'Observability' },
+  { id: 'dashboards:write', label: 'Manage dashboards', description: 'Create and edit custom dashboards', category: 'Observability' },
+  { id: 'observability:read', label: 'View alerting', description: 'View alert rules and destinations', category: 'Observability' },
+  { id: 'observability:write', label: 'Manage alerting', description: 'Create and edit alert rules and destinations', category: 'Observability' },
+  { id: 'reports:read', label: 'View reports', description: 'View analytics and reports', category: 'Insights' },
+  { id: 'reports:rollup', label: 'Roll up team reports', description: 'Include descendant teams when viewing reports', category: 'Insights' },
+  { id: 'messages:read', label: 'View messages', description: 'View messages and announcements', category: 'Messaging' },
+  { id: 'messages:write', label: 'Send messages', description: 'Send messages and announcements', category: 'Messaging' },
+  { id: 'billing:read', label: 'View billing', description: 'View subscriptions and usage', category: 'Billing & Quotas' },
+  { id: 'billing:manage', label: 'Manage billing', description: 'Manage subscriptions, add-ons, and the billing portal', category: 'Billing & Quotas' },
+  { id: 'quotas:read', label: 'View quotas', description: 'View organization quotas and usage', category: 'Billing & Quotas' },
+  { id: 'registry:read', label: 'View registry', description: 'View the container image registry', category: 'Registry' },
+  { id: 'registry:write', label: 'Manage registry', description: 'Delete and copy container images', category: 'Registry' },
+  { id: 'org:settings', label: 'Organization settings', description: 'Manage general org settings and AI config', category: 'Organization' },
+  { id: 'org:idp', label: 'Manage SSO/IdP', description: 'Configure single sign-on and identity providers', category: 'Organization' },
+  { id: 'org:kms', label: 'Manage encryption keys', description: 'Configure customer-managed KMS encryption keys', category: 'Organization' },
+  { id: 'org:impersonation', label: 'Manage impersonation policy', description: 'Control whether platform operators may view the organization as one of its members', category: 'Organization' },
+];
+
+const PERMISSION_LABELS = new Map<string, string>(PERMISSION_CATALOG.map((p) => [p.id, p.label]));
+
+/** Human label for a permission id (falls back to the raw id for an unknown one). */
+export function permissionLabel(id: string): string {
+  return PERMISSION_LABELS.get(id) ?? id;
+}
+
+/** One picker section: a category and the permissions it contains, in catalog order. */
+export interface PermissionCategory {
+  category: string;
+  permissions: PermissionMeta[];
+}
+
+/** Group a permission list into categories, preserving catalog order. */
+function groupByCategory(perms: readonly PermissionMeta[]): PermissionCategory[] {
+  const order: string[] = [];
+  const byCategory = new Map<string, PermissionMeta[]>();
+  for (const p of perms) {
+    if (!byCategory.has(p.category)) { byCategory.set(p.category, []); order.push(p.category); }
+    byCategory.get(p.category)!.push(p);
+  }
+  return order.map((category) => ({ category, permissions: byCategory.get(category)! }));
+}
 
 /** Check whether a string is a valid Permission. */
 export function isValidPermission(value: string): value is Permission {
@@ -128,6 +212,15 @@ export const ORG_ASSIGNABLE_PERMISSIONS: readonly Permission[] =
 export function isOrgAssignablePermission(permission: Permission): boolean {
   return !SUPERADMIN_ONLY_PERMISSIONS.includes(permission);
 }
+
+/**
+ * Category → permissions for the custom-Role AUTHORING picker: the catalog minus
+ * the {@link SUPERADMIN_ONLY_PERMISSIONS}, with any now-empty category dropped
+ * (so "Registry" disappears). The grouped view of
+ * {@link ORG_ASSIGNABLE_PERMISSIONS}.
+ */
+export const ORG_ASSIGNABLE_CATEGORIES: readonly PermissionCategory[] =
+  groupByCategory(PERMISSION_CATALOG.filter((p) => isOrgAssignablePermission(p.id)));
 
 // =============================================================================
 // Built-in Role seed bundles

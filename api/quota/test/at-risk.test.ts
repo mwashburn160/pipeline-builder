@@ -22,7 +22,6 @@ jest.unstable_mockModule('../src/config.js', () => ({
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'],
-  isSystemAdmin: jest.fn(),
   requireAuth: () => (_req: any, _res: any, next: any) => next(),
   getParam: (p: any, k: string) => p[k],
   parseQueryIntClamped: (v: unknown, def: number, max: number) => {
@@ -48,7 +47,7 @@ jest.unstable_mockModule('../src/helpers/quota-helpers.js', () => ({
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
 }));
 
-const { isSystemAdmin } = await import('@pipeline-builder/api-core');
+const { getRouteGates } = await import('@pipeline-builder/api-core');
 const { createReadQuotaRoutes } = await import('../src/routes/read-quotas.js');
 
 // The router owns the at-risk memoization cache (I57). Rebuild per-test so
@@ -58,8 +57,21 @@ function getHandler(path: string) {
   const router = createReadQuotaRoutes();
   const layer = (router as any).stack.find((l: any) => l.route?.path === path && l.route?.methods.get);
   if (!layer) throw new Error(`no GET ${path}`);
-  // The route stack contains middleware (requireAuth) + the withRoute handler at the end.
+  // The route stack contains middleware (requireAuth + requireSystemAdmin) +
+  // the withRoute handler at the end.
   return layer.route.stack.at(-1).handle;
+}
+
+/** The api-core `requireSystemAdmin` layer of the route's chain, by its tag. */
+function getSystemAdminGate(path: string) {
+  const router = createReadQuotaRoutes();
+  const layer = (router as any).stack.find((l: any) => l.route?.path === path && l.route?.methods.get);
+  if (!layer) throw new Error(`no GET ${path}`);
+  const gate = layer.route.stack
+    .map((s: any) => s.handle)
+    .find((h: any) => getRouteGates(h).some((g) => g.kind === 'systemAdmin'));
+  if (!gate) throw new Error(`no requireSystemAdmin gate on GET ${path}`);
+  return gate;
 }
 
 function makeRes() {
@@ -84,17 +96,30 @@ describe('GET /quotas/at-risk', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
     // Fresh router → fresh at-risk cache (see getHandler note).
     handler = getHandler('/at-risk');
   });
 
-  it('rejects non-system-admins with 403', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+  it('rejects non-system-admins with 403 at the requireSystemAdmin gate', () => {
+    const gate = getSystemAdminGate('/at-risk');
     const res = makeRes();
-    await handler({ query: {} } as any, res);
+    const next = jest.fn();
+
+    gate({ query: {}, user: { organizationId: 'org-1' } } as any, res, next);
+
+    expect(next).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(403);
     expect(findAll).not.toHaveBeenCalled();
+  });
+
+  it('admits a superadmin at the requireSystemAdmin gate', () => {
+    const gate = getSystemAdminGate('/at-risk');
+    const res = makeRes();
+    const next = jest.fn();
+
+    gate({ query: {}, user: { isSuperAdmin: true } } as any, res, next);
+
+    expect(next).toHaveBeenCalled();
   });
 
   it('returns orgs above 80% by default, sorted by percent desc', async () => {

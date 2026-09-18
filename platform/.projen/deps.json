@@ -114,6 +114,11 @@
       "type": "build"
     },
     {
+      "name": "@aws-sdk/client-kms",
+      "version": "3.1101.0",
+      "type": "runtime"
+    },
+    {
       "name": "@aws-sdk/client-sesv2",
       "version": "3.1101.0",
       "type": "runtime"
@@ -136,6 +141,11 @@
     {
       "name": "@pipeline-builder/pipeline-data",
       "version": "workspace:*",
+      "type": "runtime"
+    },
+    {
+      "name": "@simplewebauthn/server",
+      "version": "14.0.2",
       "type": "runtime"
     },
     {

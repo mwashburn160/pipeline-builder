@@ -79,11 +79,54 @@ describe('config.loader', () => {
       expect(config.api.baseUrl).toBe('https://localhost:8443');
     });
 
-    it('should throw when PLATFORM_TOKEN is not set', () => {
+    it('should throw when there is neither a PLATFORM_TOKEN nor a stored session', () => {
       delete process.env.PLATFORM_TOKEN;
       mockExistsSync.mockReturnValue(false);
 
-      expect(() => getConfig()).toThrow('PLATFORM_TOKEN environment variable is required');
+      expect(() => getConfig()).toThrow('pipeline-manager auth login');
+    });
+
+    it('falls back to the session `auth login` stored for this platform', () => {
+      delete process.env.PLATFORM_TOKEN;
+      process.env.PLATFORM_BASE_URL = 'https://api.example.com';
+      mockExistsSync.mockReturnValue(false);
+      // The credential store reads its own file through the same mocked `fs`.
+      mockReadFileSync.mockImplementation(((p: unknown) => {
+        if (String(p).includes('credentials.json')) {
+          return JSON.stringify({
+            version: 1,
+            sessions: {
+              'https://api.example.com': {
+                accessToken: 'stored.session.jwt',
+                expiresAt: Date.now() + 600_000,
+                savedAt: new Date().toISOString(),
+              },
+            },
+          });
+        }
+        return passthroughPackageJson(p);
+      }) as never);
+
+      expect(getConfig().auth.token).toBe('stored.session.jwt');
+    });
+
+    it('ignores a stored session whose access token has expired', () => {
+      delete process.env.PLATFORM_TOKEN;
+      process.env.PLATFORM_BASE_URL = 'https://api.example.com';
+      mockExistsSync.mockReturnValue(false);
+      mockReadFileSync.mockImplementation(((p: unknown) => {
+        if (String(p).includes('credentials.json')) {
+          return JSON.stringify({
+            version: 1,
+            sessions: {
+              'https://api.example.com': { accessToken: 'stale.jwt', expiresAt: Date.now() - 1, savedAt: '' },
+            },
+          });
+        }
+        return passthroughPackageJson(p);
+      }) as never);
+
+      expect(() => getConfig()).toThrow('pipeline-manager auth login');
     });
 
     it('should throw when PLATFORM_TOKEN is empty', () => {
@@ -192,7 +235,7 @@ describe('config.loader', () => {
       mockExistsSync.mockReturnValue(false);
 
       expect(() => getApiConfig()).not.toThrow();
-      expect(() => getConfig()).toThrow('PLATFORM_TOKEN environment variable is required');
+      expect(() => getConfig()).toThrow('pipeline-manager auth login');
     });
 
     it('honors TLS_REJECT_UNAUTHORIZED=0 without a token', () => {

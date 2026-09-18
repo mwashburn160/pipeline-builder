@@ -14,11 +14,12 @@ import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { CopyButton } from '@/components/ui/CopyButton';
+import { SecretReveal } from '@/components/ui/SecretReveal';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import api from '@/lib/api';
-import { PatSection } from '@/components/settings/PatSection';
+import { AccessKeysSection } from '@/components/settings/AccessKeysSection';
 import { decodeJwt, formatTimestamp, isExpired, expiresIn } from '@/lib/jwt';
 import { redactString, redactDetails } from '@/lib/redact';
 import { formatError } from '@/lib/constants';
@@ -152,7 +153,7 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
 // Page is split into tabs so token management, live sessions, and the decoded
 // current token don't stack into one long scroll. Each is deep-linkable via `?tab=`.
 const TOKEN_TABS = [
-  { id: 'tokens', label: 'Tokens' },
+  { id: 'tokens', label: 'Access keys' },
   { id: 'sessions', label: 'Active sessions' },
   { id: 'access', label: 'Access Token' },
 ] as const;
@@ -171,10 +172,10 @@ export default function TokensPage() {
   const [activeTab, changeTab] = useUrlTab<TokenTab>('tab', TOKEN_TAB_IDS as readonly TokenTab[], 'tokens');
 
   const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [genSuccess, setGenSuccess] = useState<string | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
+  // The minted machine token, shown exactly once (it is never stored here).
+  const [machineToken, setMachineToken] = useState<string | null>(null);
 
   const [history, setHistory] = useState<TokenHistoryEntry[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -211,9 +212,10 @@ export default function TokensPage() {
     }
   }, []);
 
+  // Only the ACCESS token is reachable from here. The refresh token is an
+  // HttpOnly cookie the browser never exposes to scripts — see the note below.
   const syncTokens = useCallback(() => {
     setAccessToken(api.getAccessToken());
-    setRefreshToken(api.getRefreshToken());
   }, []);
 
   useEffect(() => {
@@ -223,16 +225,20 @@ export default function TokensPage() {
     }
   }, [isAuthenticated, syncTokens, loadHistory]);
 
+  // Generating a token opens its OWN machine session server-side; it does NOT
+  // replace this tab's session (a machine session can't be refreshed, so applying
+  // it here would strand the browser). The token is revealed once for copying and
+  // then only appears — as a machine credential — under Settings → Security.
   const handleGenerateToken = async () => {
     setGenerating(true);
     setGenError(null);
-    setGenSuccess(null);
+    setMachineToken(null);
 
     try {
-      await api.generateNewToken();
-      syncTokens();
+      const res = await api.generateNewToken();
+      if (!res.success || !res.data?.accessToken) throw new Error('Failed to generate token');
+      setMachineToken(res.data.accessToken);
       void loadHistory();
-      setGenSuccess('New token pair generated successfully. Your session tokens have been updated.');
     } catch (error) {
       setGenError(formatError(error, 'Failed to generate token'));
     } finally {
@@ -272,7 +278,7 @@ export default function TokensPage() {
   if (!isReady || !user) return <LoadingPage />;
 
   return (
-    <DashboardLayout title="API Tokens" subtitle="Create and revoke API tokens" maxWidth="4xl">
+    <DashboardLayout title="API Tokens" subtitle="Create and revoke access keys and machine tokens" maxWidth="4xl">
       <div className="space-y-6">
         <TabBar items={[...TOKEN_TABS]} activeId={activeTab} onSelect={(id) => changeTab(id as TokenTab)} />
         <ReadOnlyNotice show={isReadOnly} />
@@ -281,25 +287,35 @@ export default function TokensPage() {
           <div className="space-y-6">
             <SectionCard
               icon={KeyRound}
-              title="Generate new token"
-              description="Generate a fresh access / refresh token pair. This replaces your current session tokens and can be used for CLI or API access."
+              title="Generate machine token"
+              description="Mint a long-lived token for CLI or API access. It gets its own machine session — your browser session is untouched — and is listed under Settings → Security, where you can stop it renewing."
             >
               <ErrorAlert message={genError} />
-              <SuccessAlert message={genSuccess} />
 
-              <Button onClick={handleGenerateToken} loading={generating} readOnly={isReadOnly} className={genError || genSuccess ? 'mt-4' : ''}>
+              <Button onClick={handleGenerateToken} loading={generating} readOnly={isReadOnly} className={genError ? 'mt-4' : ''}>
                 {generating ? 'Generating...' : <><RefreshCw className="w-4 h-4 mr-2" />Generate Token</>}
               </Button>
+
+              {machineToken && (
+                <SecretReveal value={machineToken} label="Machine token" className="mt-4" />
+              )}
             </SectionCard>
 
-            <PatSection readOnly={isReadOnly} />
+            <AccessKeysSection readOnly={isReadOnly} />
           </div>
         )}
 
         {activeTab === 'access' && (
           <div className="space-y-6">
             <TokenCard title="Access Token" token={accessToken} />
-            <TokenCard title="Refresh Token" token={refreshToken} />
+            <SectionCard title="Refresh Token">
+              <p className="text-sm text-[var(--pb-text-muted)]">
+                Your refresh token is stored in an HttpOnly cookie scoped to the refresh endpoint,
+                so no script — including this page — can read it. That is what keeps a stolen script
+                from walking off with a 30-day credential. The browser presents it automatically when
+                this access token needs renewing; to end it, sign out (or use Sign out everywhere).
+              </p>
+            </SectionCard>
           </div>
         )}
 
@@ -312,7 +328,7 @@ export default function TokensPage() {
               <Badge color={activeSessionCount > 0 ? 'green' : 'gray'}>{activeSessionCount} active</Badge>
             </span>
           }
-          description="Last 20 access tokens issued for your account, with computed status. Each unexpired + unrevoked token is an active session. JWTs cannot be revoked individually — use “Sign out everywhere” to invalidate all of them at once."
+          description="Last 20 access tokens issued for your account, with computed status. To see (and revoke) the sessions behind them — signed-in devices and stored machine credentials — go to Settings → Security; “Sign out everywhere” invalidates every token at once."
           actions={
             <Button variant="danger" onClick={() => setPendingRevokeAll(true)} loading={revoking} readOnly={isReadOnly} className="flex-shrink-0">
               {revoking ? 'Revoking…' : <><ShieldOff className="w-4 h-4 mr-2" />Sign out everywhere</>}

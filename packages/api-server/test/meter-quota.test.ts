@@ -15,7 +15,7 @@ const mockIncrementQuota = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   incrementQuota: mockIncrementQuota,
-  isServicePrincipal: (req: { user?: { sub?: string } }) => req?.user?.sub?.startsWith('service:') ?? false,
+  isServicePrincipal: (req: { user?: { principalType?: string } }) => req?.user?.principalType === 'service',
 }));
 
 const { meterQuotaOnSuccess } = await import('../src/api/meter-quota.js');
@@ -93,7 +93,7 @@ describe('meterQuotaOnSuccess', () => {
 
   it('does NOT meter a service-principal (internal S2S) request', () => {
     const res = mockRes(200);
-    const req = mockReq({ user: { organizationId: 'org-1', sub: 'service:plugin' } });
+    const req = mockReq({ user: { organizationId: 'org-1', sub: 'service:plugin', principalType: 'service' } });
     meterQuotaOnSuccess(quotaService, 'apiCalls')(req, res as never, jest.fn());
     res.finish();
     expect(mockIncrementQuota).not.toHaveBeenCalled();

@@ -64,7 +64,17 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ rejectIfSsoEnforced: async () => false }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn(), renewSessionTokens: jest.fn() }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({
+  // Session-auth helpers the controllers now import (see utils/token.ts).
+  signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  findRefreshSession: jest.fn(async () => undefined),
+  signApiKeyToken: jest.fn(),
+  signServiceAccountToken: jest.fn(),
+  membershipForOrg: jest.fn(async () => undefined),
+  issueTokens: jest.fn(),
+  renewSessionTokens: jest.fn(),
+}));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({ oauthCallbackSchema: {}, validateBody: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   withController: (_label: string, fn: Function, errorMap?: Record<string, { status: number; message: string }>) =>

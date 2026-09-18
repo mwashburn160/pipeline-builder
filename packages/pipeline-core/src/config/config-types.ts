@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { QuotaTier, QuotaTierLimits } from '@pipeline-builder/api-core';
-import type { Algorithm } from 'jsonwebtoken';
 
 /**
  * Type-safe configuration interface
@@ -68,22 +67,27 @@ export interface ServerConfig {
   };
 }
 
-/** JWT and refresh token authentication configuration. */
+/** Authentication configuration for the generic service scaffold. */
 export interface AuthConfig {
   readonly jwt: {
-    /** Signing secret for access tokens (env: `JWT_SECRET`). */
-    readonly secret: string;
-    /** Token lifetime in seconds (env: `JWT_EXPIRES_IN`). */
+    /**
+     * Token lifetime in seconds (env: `JWT_EXPIRES_IN`).
+     *
+     * There is no JWT SECRET here any more. Every token is asymmetric: a user
+     * token is ES256 signed by platform alone (`services/token-signing`), and an
+     * internal service token is ES256 signed by the CALLING service with its own
+     * key (#14, `SERVICE_SIGNING_KEY_FILE` / `SERVICE_KEY_BUNDLE_FILE`).
+     */
     readonly expiresIn: number;
-    /** Signing algorithm, e.g. `'HS256'` (env: `JWT_ALGORITHM`). */
-    readonly algorithm: Algorithm;
     /** bcrypt salt rounds for password hashing (env: `BCRYPT_SALT_ROUNDS`). */
     readonly saltRounds: number;
   };
   readonly refreshToken: {
-    /** Signing secret for refresh tokens (env: `REFRESH_TOKEN_SECRET`). */
-    readonly secret: string;
-    /** Token lifetime in seconds (env: `REFRESH_TOKEN_EXPIRES_IN`). */
+    /**
+     * Token lifetime in seconds (env: `REFRESH_TOKEN_EXPIRES_IN`). There is no
+     * refresh-token SECRET any more: a refresh token is a user token, signed
+     * with platform's ES256 key like every other credential a person holds.
+     */
     readonly expiresIn: number;
   };
 }

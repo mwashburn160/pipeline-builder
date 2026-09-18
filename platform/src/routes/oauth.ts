@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { audited } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import { getProviders, getAuthUrl, handleCallback } from '../controllers/oauth.js';
 
@@ -13,6 +14,6 @@ router.get('/providers', getProviders);
 router.get('/:provider/url', getAuthUrl);
 
 /** POST /oauth/:provider/callback - Exchange authorization code for tokens */
-router.post('/:provider/callback', handleCallback);
+router.post('/:provider/callback', audited('user.login', 'user.login.failed'), handleCallback);
 
 export default router;

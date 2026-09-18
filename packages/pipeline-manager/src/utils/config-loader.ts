@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'yaml';
+import { isSessionUsable, loadSession } from './credential-store.js';
 import { printDebug, printError, printWarning } from './output-utils.js';
 import { assertSslDisableAllowed, isProductionEnv } from './tls.js';
 import { type Config } from '../types/index.js';
@@ -67,7 +68,8 @@ function loadConfigFile(filePath: string, config: Omit<Config, 'auth'>): Omit<Co
  * 3. Project config file: CLI_CONFIG_PATH or ./config.yml
  * 4. Environment variables
  *
- * Auth token MUST come from PLATFORM_TOKEN env var (never from config file).
+ * Auth token comes from PLATFORM_TOKEN, else the stored `auth login` session —
+ * never from a config file.
  */
 /**
  * Resolve the API/connection config (base URL, SSL, timeouts) from files and
@@ -81,8 +83,11 @@ function loadConfigFile(filePath: string, config: Omit<Config, 'auth'>): Omit<Co
 export function getApiConfig(): Omit<Config, 'auth'> {
   const projectConfigPath = process.env.CLI_CONFIG_PATH || path.join(__dirname, '../config.yml');
 
-  // Layer 1: defaults → Layer 2: user config → Layer 3: project config
-  let config = loadConfigFile(USER_CONFIG_PATH, { ...defaultConfig });
+  // Layer 1: defaults → Layer 2: user config → Layer 3: project config.
+  // `api` is copied too: a shallow `{ ...defaultConfig }` shares the SAME `api`
+  // object, so the `PLATFORM_BASE_URL` assignment below mutated the module-level
+  // defaults and leaked one caller's base URL into every later resolution.
+  let config = loadConfigFile(USER_CONFIG_PATH, { api: { ...defaultConfig.api } });
   config = loadConfigFile(projectConfigPath, config);
 
   // Layer 4: environment variable overrides
@@ -119,12 +124,17 @@ export function getApiConfig(): Omit<Config, 'auth'> {
 export function getConfig(): Config {
   const config = getApiConfig();
 
-  // Token is REQUIRED from environment
-  const token = process.env.PLATFORM_TOKEN;
+  // PLATFORM_TOKEN wins (an access key in CI, or an explicit export); otherwise
+  // fall back to the session `auth login` stored for THIS platform. A stored
+  // session that has already expired is ignored rather than sent and rejected —
+  // the async path (`resolveToken`) refreshes it, and everything else tells the
+  // user to sign in again.
+  const stored = loadSession(config.api.baseUrl);
+  const token = process.env.PLATFORM_TOKEN || (isSessionUsable(stored) ? stored.accessToken : undefined);
 
   if (!token) {
-    printError('PLATFORM_TOKEN environment variable is not set');
-    throw new Error('PLATFORM_TOKEN environment variable is required');
+    printError('Not signed in: no PLATFORM_TOKEN, and no valid stored session for this platform');
+    throw new Error('Run "pipeline-manager auth login", or set PLATFORM_TOKEN to an access key');
   }
 
   if (token.trim().length === 0) {

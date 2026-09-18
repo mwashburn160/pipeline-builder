@@ -20,7 +20,6 @@ afterAll(() => {
 
 beforeAll(async () => {
   process.env.JWT_SECRET ||= 'test-jwt-secret-config-env';
-  process.env.REFRESH_TOKEN_SECRET ||= 'test-refresh-secret-config-env';
   process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
   process.env.MONGODB_URI ||= 'mongodb://stub:27017/test';
   process.env.DOMAIN_REVERIFY_INTERVAL_MS = '0';

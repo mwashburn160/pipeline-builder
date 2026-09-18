@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, createLogger, errorMessage, validateBody, requirePermission } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, audited, createLogger, errorMessage, validateBody, requirePermission } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -22,8 +22,8 @@ const ApplyTemplatesSchema = z.object({
 export function createTemplateRoutes(): Router {
   const router = Router();
 
-  // GET / — list available rule templates
-  router.get('/', withRoute(async ({ res, ctx }) => {
+  // GET / — list available rule templates (member-readable starter catalog)
+  router.get('/', requirePermission('compliance:read'), withRoute(async ({ res, ctx }) => {
     ctx.log('COMPLETED', 'Listed rule templates', { count: RULE_TEMPLATES.length });
     return sendSuccess(res, 200, { templates: RULE_TEMPLATES });
   }));
@@ -32,7 +32,7 @@ export function createTemplateRoutes(): Router {
   // Applying a template mints enforceable org rules (same write as
   // POST /compliance/rules), so it requires `compliance:write`. GET / stays
   // member-readable so anyone can browse the starter catalog.
-  router.post('/apply', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/apply', requirePermission('compliance:write'), audited('compliance.template.apply'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, ApplyTemplatesSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);

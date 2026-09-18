@@ -3,6 +3,7 @@
 
 import { createLogger, isOrgAssignablePermission, isValidPermission, ROLE_PERMISSIONS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
+import { IGM_FORBIDDEN_GRANT } from './idp-mapping-errors.js';
 import { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SYSTEM_IMMUTABLE, RL_NAME_TAKEN, RL_INVALID_PERMISSION, RL_PERMISSION_NOT_ASSIGNABLE, RL_PERMISSION_EXCEEDS_CEILING, RL_SUPERADMIN_ROLE_MISSING, RL_ASSIGN_EXCEEDS_CEILING } from './roles-errors.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishUserRevocation, publishUsersRevocation } from '../helpers/session-revocation.js';
@@ -573,7 +574,12 @@ export async function updateRole(
     await role.save({ session });
     // Permission change must reach members' JWTs — invalidate their access tokens.
     if (permsChanged) {
-      bumpedMemberIds = (await RoleAssignment.find({ roleId }).session(session).select('userId').lean()).map((m) => m.userId);
+      // USERS only: a service account assigned to this Role holds no session and
+      // no `tokenVersion` — its next exchange (≤5 minutes) re-derives the new
+      // permissions, so there is nothing to invalidate for it.
+      bumpedMemberIds = (await RoleAssignment.find({ roleId, userId: { $ne: null } }).session(session).select('userId').lean())
+        .map((m) => m.userId)
+        .filter((id): id is mongoose.Types.ObjectId => !!id);
       if (bumpedMemberIds.length > 0) {
         await User.updateMany({ _id: { $in: bumpedMemberIds } }, { $inc: { tokenVersion: 1 } }, { session });
       }
@@ -615,7 +621,11 @@ export async function deleteRole(orgId: string, roleId: string, actor: RoleAssig
 
   let bumpedMemberIds: mongoose.Types.ObjectId[] = [];
   await withMongoTransaction(async (session) => {
-    bumpedMemberIds = (await RoleAssignment.find({ roleId }).session(session).select('userId').lean()).map((m) => m.userId);
+    // Users only — see the note in `updateRole`; a service account's exchange
+    // re-derives its (now absent) permissions on its own.
+    bumpedMemberIds = (await RoleAssignment.find({ roleId, userId: { $ne: null } }).session(session).select('userId').lean())
+      .map((m) => m.userId)
+      .filter((id): id is mongoose.Types.ObjectId => !!id);
     await RoleAssignment.deleteMany({ roleId }, { session });
     await Role.deleteOne({ _id: roleId }, { session });
     if (bumpedMemberIds.length > 0) {
@@ -685,9 +695,16 @@ export async function addUserToRole(
   // commit together. A crash between them would otherwise leave the assignment
   // added but the effective role/flag stale (a silent privilege change).
   await withMongoTransaction(async (session) => {
+    // `source: 'manual'` is $set, not $setOnInsert: an admin explicitly granting
+    // a Role the IdP happened to map TAKES OVER the row, so a later group sync
+    // can no longer take it away (the "manual Roles are never removed by a sync"
+    // guarantee — see models/role-assignment.ts).
     await RoleAssignment.updateOne(
       { userId: user._id, roleId },
-      { $setOnInsert: { userId: user._id, roleId, organizationId: oid } },
+      {
+        $setOnInsert: { userId: user._id, roleId, organizationId: oid },
+        $set: { source: 'manual' },
+      },
       { upsert: true, session },
     );
     await recomputeUserOrgRole(user._id, oid, session);
@@ -701,6 +718,248 @@ export async function addUserToRole(
 
   logger.info('Assigned user to Role', { organizationId: orgId, roleId, userId: String(user._id) });
   return { userId: String(user._id) };
+}
+
+// ---------------------------------------------------------------------------
+// Directory-driven Role grants (3a IdP group mapping; 3b SCIM reuses both)
+// ---------------------------------------------------------------------------
+
+/** A Role as the mapping surfaces report it. */
+export interface MappableRole {
+  id: string;
+  name: string;
+  grantsRole: RoleGrant;
+}
+
+/**
+ * Validate a Role-id set for an AUTOMATED grant — an IdP group mapping today,
+ * a SCIM group tomorrow — and return the Roles it names.
+ *
+ * Three gates, in the order a reviewer would ask about them:
+ *   1. every id must be a Role OF `orgId` (`RL_ROLE_NOT_FOUND`), so a mapping can
+ *      never reach into another tenant's Roles;
+ *   2. no Role may confer authority that an in-org admin cannot take back —
+ *      `grantsRole: 'superadmin'` is refused for EVERYONE, platform superadmins
+ *      included (`IGM_FORBIDDEN_GRANT`). Org ownership is not expressible as a
+ *      Role at all, and the provisioning path never writes `role: 'owner'`, so
+ *      "a mapping can never grant owner" holds on both sides;
+ *   3. the actor's own ceiling, exactly as a direct assignment enforces it
+ *      (`RL_ASSIGN_EXCEEDS_CEILING`): a delegate holding only `roles:manage`
+ *      cannot author a rule that grants capabilities they lack themselves.
+ *
+ * Gate 2 is stricter than {@link addUserToRole} on purpose: a direct assignment
+ * is one deliberate act by a named admin, while a mapping keeps granting for as
+ * long as an external directory says so.
+ */
+export async function assertMappableRoleSet(
+  orgId: string,
+  roleIds: readonly string[],
+  actor: RoleAssignmentActor,
+  session?: mongoose.ClientSession,
+): Promise<MappableRole[]> {
+  const oid = toOrgId(orgId);
+  const requested = [...new Set(roleIds)];
+  if (requested.length === 0) return [];
+
+  const roles = await Role.find({ _id: { $in: requested }, organizationId: oid })
+    .session(session ?? null).select('name grantsRole permissions').lean();
+  if (roles.length !== requested.length) throw new Error(RL_ROLE_NOT_FOUND);
+
+  for (const role of roles) {
+    if (role.grantsRole === 'superadmin') throw new Error(IGM_FORBIDDEN_GRANT);
+    assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
+  }
+  return roles.map((r) => ({ id: String(r._id), name: r.name, grantsRole: r.grantsRole as RoleGrant }));
+}
+
+/**
+ * Reconcile a user's DIRECTORY-DERIVED Role assignments in one org against
+ * `mappedRoleIds`, leaving everything a human granted alone.
+ *
+ * Only rows carrying `source: 'jit'` are candidates for removal. A row an admin
+ * created by hand (`source: 'manual'`, which is also how every pre-existing row
+ * reads — the field is absent, and `$ne: 'jit'` therefore excludes it) survives
+ * every sync, even when the Role has dropped out of the mapping. Conversely an
+ * already-manual row that IS mapped stays manual: `$setOnInsert` only stamps
+ * `jit` on a row this sync actually creates, so a sync can never demote a
+ * hand-granted Role into one it may later delete.
+ *
+ * Runs inside the CALLER's transaction (the membership write and this must
+ * commit together) and does NOT recompute the cached org role or bump
+ * `tokenVersion` — the caller does that once, after the membership is settled.
+ * Returns the Role ids added/removed, for the audit trail.
+ */
+export async function syncMappedRoles(
+  organizationId: OrgId,
+  userId: UserId,
+  mappedRoleIds: readonly string[],
+  session: mongoose.ClientSession,
+): Promise<{ added: string[]; removed: string[] }> {
+  const oid = toOrgId(String(organizationId));
+  const wanted = new Set(mappedRoleIds.map(String));
+
+  const held = await RoleAssignment.find({ userId, organizationId: oid })
+    .session(session).select('roleId source').lean();
+  const heldByRole = new Map(held.map((a) => [String(a.roleId), (a as { source?: string }).source]));
+
+  const added: string[] = [];
+  for (const roleId of wanted) {
+    if (heldByRole.has(roleId)) continue; // already held (manual or jit) — leave it
+    await RoleAssignment.updateOne(
+      { userId, roleId },
+      { $setOnInsert: { userId, roleId, organizationId: oid, source: 'jit' } },
+      { upsert: true, session },
+    );
+    added.push(roleId);
+  }
+
+  // Removals: JIT-owned rows the mapping no longer names. Manual rows and the
+  // built-in Member floor (granted by ensureBaselineRole, hence manual) stay.
+  const stale = held
+    .filter((a) => (a as { source?: string }).source === 'jit' && !wanted.has(String(a.roleId)))
+    .map((a) => a.roleId);
+  if (stale.length > 0) {
+    await RoleAssignment.deleteMany({ userId, organizationId: oid, roleId: { $in: stale }, source: 'jit' }, { session });
+  }
+
+  return { added, removed: stale.map(String) };
+}
+
+// ---------------------------------------------------------------------------
+// Service-account Role assignment (#2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The Roles a SERVICE ACCOUNT holds in an org, resolved through the SAME
+ * `role_assignments` collection people use (see the model docs) — so there is
+ * one Role model, one ceiling and one permission resolver for both kinds of
+ * principal.
+ */
+export async function serviceAccountRoles(
+  organizationId: OrgId,
+  serviceAccountId: UserId,
+  session?: mongoose.ClientSession,
+): Promise<ServiceAccountRole[]> {
+  const byAccount = await serviceAccountRolesFor(organizationId, [serviceAccountId], session);
+  return byAccount.get(String(serviceAccountId)) ?? [];
+}
+
+/** One Role as the service-account surfaces report it. */
+export interface ServiceAccountRole {
+  id: string;
+  name: string;
+  grantsRole: RoleGrant;
+  permissions: string[];
+}
+
+/**
+ * The Roles held by SEVERAL service accounts, keyed by account id — two queries
+ * regardless of how many accounts are asked for, so listing an org's accounts
+ * costs a constant number of round-trips instead of one pair per account.
+ * Accounts with no Roles are absent from the map.
+ */
+export async function serviceAccountRolesFor(
+  organizationId: OrgId,
+  serviceAccountIds: readonly UserId[],
+  session?: mongoose.ClientSession,
+): Promise<Map<string, ServiceAccountRole[]>> {
+  const byAccount = new Map<string, ServiceAccountRole[]>();
+  if (serviceAccountIds.length === 0) return byAccount;
+
+  const assignments = await RoleAssignment.find({ serviceAccountId: { $in: serviceAccountIds }, organizationId })
+    .session(session ?? null).select('serviceAccountId roleId').lean();
+  if (assignments.length === 0) return byAccount;
+
+  const roles = await Role.find({ _id: { $in: [...new Set(assignments.map((a) => String(a.roleId)))] } })
+    .session(session ?? null).select('name grantsRole permissions').lean();
+  const byRoleId = new Map(roles.map((r) => [String(r._id), {
+    id: String(r._id),
+    name: r.name,
+    grantsRole: r.grantsRole as RoleGrant,
+    permissions: ((r.permissions as string[]) ?? []).filter((p) => isValidPermission(p)),
+  }]));
+
+  for (const assignment of assignments) {
+    const role = byRoleId.get(String(assignment.roleId));
+    // A Role deleted between the two reads simply drops out — the account holds
+    // whatever still exists, which is also what the exchange would resolve.
+    if (!role) continue;
+    const key = String(assignment.serviceAccountId);
+    const held = byAccount.get(key) ?? [];
+    held.push(role);
+    byAccount.set(key, held);
+  }
+  return byAccount;
+}
+
+/**
+ * REPLACE the Role set a service account holds (the UI edits it as a set, and a
+ * replace is the only shape that can't leave a half-applied grant behind).
+ *
+ * Every ceiling that applies to assigning a Role to a PERSON applies here
+ * identically, because a service account's authority is exactly its Roles:
+ *   - the Role must belong to `orgId` (`RL_ROLE_NOT_FOUND`) — an account can
+ *     never hold another tenant's Role;
+ *   - a `superadmin`-granting Role needs the actor to BE a platform superadmin
+ *     (`RL_REQUIRES_SUPERADMIN`), the same gate {@link addUserToRole} applies;
+ *   - otherwise the actor must already hold every permission the Role grants
+ *     (`RL_ASSIGN_EXCEEDS_CEILING`), so nobody can mint a machine credential
+ *     more powerful than themselves. Checked against BOTH the incoming set and
+ *     the set being removed, so a delegate can't strip a capability they lack.
+ *
+ * No `tokenVersion` bump is needed (a service account has no sessions): its
+ * exchanged tokens live ~5 minutes and every exchange re-derives permissions
+ * from these assignments, so a change takes effect within one token lifetime.
+ */
+export async function setServiceAccountRoles(
+  orgId: string,
+  serviceAccountId: string,
+  roleIds: readonly string[],
+  actor: RoleAssignmentActor,
+  session?: mongoose.ClientSession,
+): Promise<void> {
+  const oid = toOrgId(orgId);
+  const requested = [...new Set(roleIds)];
+
+  const roles = requested.length > 0
+    ? await Role.find({ _id: { $in: requested }, organizationId: oid })
+      .session(session ?? null).select('grantsRole permissions').lean()
+    : [];
+  if (roles.length !== requested.length) throw new Error(RL_ROLE_NOT_FOUND);
+
+  for (const role of roles) {
+    if (role.grantsRole === 'superadmin' && !actor.isSuperAdmin) throw new Error(RL_REQUIRES_SUPERADMIN);
+    assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
+  }
+
+  // Removals are subject to the same ceiling (symmetry with removeUserFromRole):
+  // a delegate must not be able to strip a capability they don't hold.
+  const current = await serviceAccountRoles(oid, serviceAccountId, session);
+  for (const role of current) {
+    if (requested.includes(role.id)) continue;
+    if (role.grantsRole === 'superadmin' && !actor.isSuperAdmin) throw new Error(RL_REQUIRES_SUPERADMIN);
+    assertActorMayAssignRole(role.permissions, actor);
+  }
+
+  await RoleAssignment.deleteMany({ serviceAccountId, organizationId: oid }, { session });
+  if (requested.length > 0) {
+    await RoleAssignment.insertMany(
+      requested.map((roleId) => ({ serviceAccountId, roleId, organizationId: oid })),
+      { session, ordered: true },
+    );
+  }
+  logger.info('Set service-account Roles', { organizationId: orgId, serviceAccountId, roles: requested.length });
+}
+
+/** Drop every Role assignment of a service account (delete / org cascade). */
+export async function clearServiceAccountRoles(
+  serviceAccountId: UserId | UserId[],
+  session?: mongoose.ClientSession,
+): Promise<void> {
+  const filter = Array.isArray(serviceAccountId)
+    ? { serviceAccountId: { $in: serviceAccountId } }
+    : { serviceAccountId };
+  await RoleAssignment.deleteMany(filter, { session });
 }
 
 /**

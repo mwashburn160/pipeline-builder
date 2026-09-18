@@ -411,7 +411,13 @@ describe('addUserToRole error paths', () => {
     expect(res).toEqual({ userId: 'u1' });
     expect(mockGmUpdateOne).toHaveBeenCalledWith(
       { userId: 'u1', roleId: 'gA' },
-      { $setOnInsert: { userId: 'u1', roleId: 'gA', organizationId: 'org-1' } },
+      // `source: 'manual'` is $set, not $setOnInsert (3a): an explicit admin
+      // grant takes over a row an IdP group sync may have created, so the sync
+      // can no longer remove it.
+      {
+        $setOnInsert: { userId: 'u1', roleId: 'gA', organizationId: 'org-1' },
+        $set: { source: 'manual' },
+      },
       { upsert: true, session: expect.anything() },
     );
   });

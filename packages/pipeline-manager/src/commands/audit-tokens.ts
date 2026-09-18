@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { isOpaqueApiKey } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Command } from 'commander';
-import { decodeTokenPayload } from '../utils/auth-guard.js';
 import { resolveAwsRegion } from '../utils/aws-env.js';
 import { getSecretValue, listSecrets } from '../utils/aws-secrets.js';
 import { printCommandHeader, withProfileOption, withRegionOption } from '../utils/command-utils.js';
@@ -15,7 +15,9 @@ interface TokenAuditEntry {
   arn: string;
   expiresAt: Date;
   daysUntilExpiry: number;
-  status: 'expired' | 'expiring-soon' | 'ok';
+  status: 'expired' | 'expiring-soon' | 'unverifiable' | 'ok';
+  /** Why the stored token failed verification, when `status` is `unverifiable`. */
+  reason?: string;
 }
 
 /**
@@ -64,11 +66,12 @@ export function auditTokens(program: Command): void {
           printWarning('Secret listing was TRUNCATED (paging cap hit) — results may be INCOMPLETE and an expiring token could be missed. Narrow by --prefix/--region.');
         }
 
-        // Audit both the full-privilege platform token (`<prefix>/<orgId>/platform`)
-        // AND the scoped event-ingestion token (`.../reporting-ingest`, minted by
-        // `store-token --scope reporting:ingest`) — both expire and both are
-        // auto-renewed, so a stalled renewal on either must surface here.
-        const platformSecrets = secrets.filter((s) => s.name.endsWith('/platform') || s.name.endsWith('/reporting-ingest'));
+        // Audit every stored machine credential: the full-privilege platform key
+        // (`<prefix>/<orgId>/platform`) and each SCOPED one (`.../reporting-ingest`,
+        // `.../registry-push`, from `store-token --scope …`). All expire and all
+        // are auto-rotated, so a stalled rotation on any of them must surface here.
+        const CREDENTIAL_LEAVES = ['/platform', '/reporting-ingest', '/registry-push'];
+        const platformSecrets = secrets.filter((s) => CREDENTIAL_LEAVES.some((leaf) => s.name.endsWith(leaf)));
 
         const entries: TokenAuditEntry[] = [];
         const now = Date.now();
@@ -83,7 +86,7 @@ export function auditTokens(program: Command): void {
             continue;
           }
 
-          let parsed: { password?: string; expiresAt?: string };
+          let parsed: { password?: string; expiresAt?: string; platformUrl?: string };
           try {
             parsed = JSON.parse(raw);
           } catch {
@@ -91,19 +94,14 @@ export function auditTokens(program: Command): void {
             continue;
           }
 
-          // Prefer the explicit expiresAt field written by store-token; fall back
-          // to decoding the JWT's exp claim if the field is missing.
+          // `expiresAt` is the ONLY expiry source now. The stored credential is an
+          // opaque service-account key: it carries no claims, so there is no `exp`
+          // to decode as a fallback — which is exactly why store-token and the
+          // rotator both write the field.
           let expiresAt: Date | undefined;
           if (parsed.expiresAt) {
             const d = new Date(parsed.expiresAt);
             if (!Number.isNaN(d.getTime())) expiresAt = d;
-          }
-          // `store-token` writes the JWT to the canonical `password` field.
-          if (!expiresAt && parsed.password) {
-            const payload = decodeTokenPayload(parsed.password);
-            if (payload?.exp && typeof payload.exp === 'number') {
-              expiresAt = new Date(payload.exp * 1000);
-            }
           }
           if (!expiresAt) {
             printWarning(`Secret ${s.name} has no expiry information, skipping`);
@@ -111,11 +109,25 @@ export function auditTokens(program: Command): void {
           }
 
           const daysUntilExpiry = Math.floor((expiresAt.getTime() - now) / (24 * 60 * 60 * 1000));
-          const status: TokenAuditEntry['status'] =
+          let status: TokenAuditEntry['status'] =
             expiresAt.getTime() < now ? 'expired'
               : expiresAt.getTime() < warnCutoff ? 'expiring-soon'
                 : 'ok';
-          entries.push({ secretName: s.name, arn: s.arn, expiresAt, daysUntilExpiry, status });
+
+          // A secret that still has months of life but holds the WRONG KIND of
+          // credential is just as dead as an expired one. After the service-account
+          // cutover the stored value must be an opaque `pb_sa_…` key; a secret left
+          // holding a pre-cutover machine-session JWT is refused by every consumer,
+          // and this is the scan that names it instead of leaving three services to
+          // fail with an opaque 401.
+          let reason: string | undefined;
+          if (status !== 'expired' && parsed.password && !isOpaqueApiKey(parsed.password)) {
+            status = 'unverifiable';
+            reason = parsed.password.split('.').length === 3
+              ? 'holds a pre-cutover JWT, not a service-account key — re-run "pipeline-manager infra store-token"'
+              : 'does not hold an opaque service-account key (expected a "pb_sa_…" value)';
+          }
+          entries.push({ secretName: s.name, arn: s.arn, expiresAt, daysUntilExpiry, status, ...(reason ? { reason } : {}) });
         }
 
         const atRisk = entries.filter((e) => e.status !== 'ok');
@@ -141,16 +153,18 @@ export function auditTokens(program: Command): void {
             if (truncated) {
               printWarning('No at-risk tokens in the scanned pages, but the scan was truncated — some secrets were not checked.');
             } else {
-              printSuccess(`All tokens valid for at least ${warnDays} days`);
+              printSuccess(`All stored keys valid for at least ${warnDays} days`);
             }
           } else {
             for (const e of atRisk) {
               const label = e.status === 'expired'
                 ? `EXPIRED ${Math.abs(e.daysUntilExpiry)} day${e.daysUntilExpiry === -1 ? '' : 's'} ago`
-                : `expires in ${e.daysUntilExpiry} day${e.daysUntilExpiry === 1 ? '' : 's'}`;
+                : e.status === 'unverifiable'
+                  ? `UNUSABLE — ${e.reason}`
+                  : `expires in ${e.daysUntilExpiry} day${e.daysUntilExpiry === 1 ? '' : 's'}`;
               printWarning(`${e.secretName} — ${label}`);
             }
-            printError(`${atRisk.length} secret${atRisk.length === 1 ? '' : 's'} need rotation. Run \`pipeline-manager infra store-token --days <N>\` to refresh.`);
+            printError(`${atRisk.length} secret${atRisk.length === 1 ? '' : 's'} need rotation. Run \`pipeline-manager infra store-token --days <N>\` (add --scope for a scoped credential) to reissue.`);
           }
         }
         process.exit(exitCode);

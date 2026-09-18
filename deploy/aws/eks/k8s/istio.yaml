@@ -13,6 +13,12 @@
 #     redis-sentinel:26379 for master discovery and redis:6379 for data, so both
 #     get AuthorizationPolicies and both `redis` + `redis-sentinel` identities are
 #     allowed (replication + gossip).
+#   - The five Services that expose INTERNAL routes (platform, message,
+#     compliance, quota, reporting) are attached to the `pb-waypoint` proxy so
+#     their per-route L7 policies can be enforced (k8s/istio-internal-routes.yaml).
+#     Traffic to them arrives at their ztunnel as the WAYPOINT's identity, which
+#     is why `sa/pb-waypoint` appears in those policies' principal lists — the
+#     original caller has already been checked, at the waypoint.
 #   - Per-org (`pb-org-*`) enterprise namespaces run build pods under
 #     sa/org-workload — allowed to the registry + image-registry build path via a
 #     namespace wildcard so STRICT doesn't 403 them.
@@ -436,6 +442,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/message
               - cluster.local/ns/pipeline-builder/sa/quota
               - cluster.local/ns/pipeline-builder/sa/reporting
+              - cluster.local/ns/pipeline-builder/sa/pb-waypoint
               # Per-org alert relay: POST /observability/alert-webhook.
               - cluster.local/ns/pipeline-builder/sa/alertmanager
       to:
@@ -507,6 +514,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/pipeline
               - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/pb-waypoint
       to:
         - operation:
             ports: ["3000"]
@@ -532,6 +540,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/plugin
               - cluster.local/ns/pipeline-builder/sa/message
               - cluster.local/ns/pipeline-builder/sa/billing
+              - cluster.local/ns/pipeline-builder/sa/pb-waypoint
               # every api-core service runs the quota-check middleware (apiCalls
               # increment) on inbound requests, so all API services call quota.
               - cluster.local/ns/pipeline-builder/sa/compliance
@@ -581,6 +590,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/platform
               - cluster.local/ns/pipeline-builder/sa/pipeline
               - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/pb-waypoint
       to:
         - operation:
             ports: ["3000"]
@@ -604,6 +614,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/platform
               - cluster.local/ns/pipeline-builder/sa/pipeline
               - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/pb-waypoint
       to:
         - operation:
             ports: ["3000"]

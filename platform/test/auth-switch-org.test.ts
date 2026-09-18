@@ -45,14 +45,23 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
     invalidateAllSessions: (...a: unknown[]) => mockInvalidateAllSessions(...a),
     findForTokenIssue: (...a: unknown[]) => mockFindForTokenIssue(...a),
   },
+  // controllers/auth.ts attributes the PUBLIC email-verify to the user the token
+  // resolved to via createEvent (no req.user on that route); unused here.
+  auditService: { createEvent: jest.fn(async () => undefined) },
 }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({
-  signPersonalAccessToken: jest.fn(),
+  // Session-auth helpers the controllers now import (see utils/token.ts).
+  signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  findRefreshSession: jest.fn(async () => undefined),
+  signApiKeyToken: jest.fn(),
+  signServiceAccountToken: jest.fn(),
+  membershipForOrg: jest.fn(async () => undefined),
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
   renewSessionTokens: (...a: unknown[]) => mockRenewSessionTokens(...a),
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
-  validateBody: (_schema: unknown, body: unknown) => body, registerSchema: {}, loginSchema: {}, refreshSchema: {}, completeOnboardingSchema: {}, joinOrgSchema: {},
+  validateBody: (_schema: unknown, body: unknown) => body, registerSchema: {}, loginSchema: {}, completeOnboardingSchema: {}, joinOrgSchema: {},
 }));
 
 const { switchOrg, refresh, logout } = await import('../src/controllers/auth.js');
@@ -61,6 +70,8 @@ function makeRes() {
   const res: any = { locals: {} };
   res.status = jest.fn().mockReturnValue(res);
   res.json = jest.fn().mockReturnValue(res);
+  res.cookie = jest.fn().mockReturnValue(res);
+  res.clearCookie = jest.fn().mockReturnValue(res);
   return res;
 }
 
@@ -74,7 +85,7 @@ describe('switchOrg — org.switch audit', () => {
   it('emits org.switch with destination org as affectedOrgId and from/to in details', async () => {
     mockSwitchActiveOrg.mockResolvedValue({ _id: 'u1', lastActiveOrgId: 'org-to' });
 
-    const req: any = { user: { sub: 'u1', organizationId: 'org-from' }, body: { organizationId: 'org-to' } };
+    const req: any = { user: { sub: 'u1', organizationId: 'org-from' }, headers: {}, body: { organizationId: 'org-to' } };
     const res = makeRes();
     await (switchOrg as any)(req, res);
 
@@ -89,7 +100,7 @@ describe('switchOrg — org.switch audit', () => {
     mockSwitchActiveOrg.mockResolvedValue(null);
 
     const res = makeRes();
-    await (switchOrg as any)({ user: { sub: 'u1', organizationId: 'org-from' }, body: { organizationId: 'org-x' } }, res);
+    await (switchOrg as any)({ user: { sub: 'u1', organizationId: 'org-from' }, headers: {}, body: { organizationId: 'org-x' } }, res);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockAudit).not.toHaveBeenCalled();
@@ -101,9 +112,10 @@ describe('switchOrg — session slot', () => {
     const user = { _id: 'u1' };
     mockSwitchActiveOrg.mockResolvedValue(user);
     const res = makeRes();
-    await (switchOrg as any)({ user: { sub: 'u1', organizationId: 'org-from', sid: 's1' }, body: { organizationId: 'org-to' } }, res);
+    await (switchOrg as any)({ user: { sub: 'u1', organizationId: 'org-from', sid: 's1' }, headers: {}, body: { organizationId: 'org-to' } }, res);
 
-    expect(mockRenewSessionTokens).toHaveBeenCalledWith(user, 'org-to', { sessionId: 's1' });
+    // The device details of the switching request are recorded on the slot too.
+    expect(mockRenewSessionTokens).toHaveBeenCalledWith(user, 'org-to', { sessionId: 's1' }, expect.objectContaining({ client: expect.anything() }));
     expect(mockIssueTokens).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
   });
@@ -112,7 +124,7 @@ describe('switchOrg — session slot', () => {
     mockSwitchActiveOrg.mockResolvedValue({ _id: 'u1' });
     mockRenewSessionTokens.mockResolvedValue(null);
     const res = makeRes();
-    await (switchOrg as any)({ user: { sub: 'u1', sid: 's1' }, body: { organizationId: 'org-to' } }, res);
+    await (switchOrg as any)({ user: { sub: 'u1', sid: 's1' }, headers: {}, body: { organizationId: 'org-to' } }, res);
     expect(res.status).toHaveBeenCalledWith(401);
   });
 });
@@ -123,9 +135,15 @@ describe('refresh — reuse revokes one slot', () => {
     mockFindForTokenIssue.mockResolvedValue(user);
     const res = makeRes();
     res.locals.refreshSessionId = 's1';
-    await (refresh as any)({ user: { sub: 'u1', organizationId: 'org-1' }, body: { refreshToken: 'rt' } }, res);
+    res.locals.presentedRefreshToken = 'rt';
+    await (refresh as any)({ user: { sub: 'u1', organizationId: 'org-1' }, headers: {}, body: {} }, res);
 
-    expect(mockRenewSessionTokens).toHaveBeenCalledWith(user, 'org-1', { sessionId: 's1', presentedToken: 'rt' });
+    // Only INTERACTIVE slots refresh — a machine session is turned away by the
+    // middleware and renews through generate-token instead.
+    expect(mockRenewSessionTokens).toHaveBeenCalledWith(
+      user, 'org-1', { sessionId: 's1', presentedToken: 'rt', kind: 'interactive' },
+      expect.objectContaining({ client: expect.anything() }),
+    );
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
@@ -134,7 +152,8 @@ describe('refresh — reuse revokes one slot', () => {
     mockRenewSessionTokens.mockResolvedValue(null);
     const res = makeRes();
     res.locals.refreshSessionId = 's1';
-    await (refresh as any)({ user: { sub: 'u1' }, body: { refreshToken: 'old' } }, res);
+    res.locals.presentedRefreshToken = 'old';
+    await (refresh as any)({ user: { sub: 'u1' }, headers: {}, body: {} }, res);
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(mockRevokeRefreshSession).toHaveBeenCalledWith('u1', 's1');
@@ -145,9 +164,61 @@ describe('refresh — reuse revokes one slot', () => {
 describe('logout — current slot only', () => {
   it('revokes the access token\'s slot and nothing else', async () => {
     const res = makeRes();
-    await (logout as any)({ user: { sub: 'u1', sid: 's1' }, body: {} }, res);
+    await (logout as any)({ user: { sub: 'u1', sid: 's1' }, headers: {}, body: {} }, res);
     expect(mockRevokeRefreshSession).toHaveBeenCalledWith('u1', 's1');
     expect(mockInvalidateAllSessions).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('clears the refresh cookie — only the server can, it is HttpOnly', async () => {
+    const res = makeRes();
+    await (logout as any)({ user: { sub: 'u1', sid: 's1' }, headers: { 'x-pb-client': 'web' }, body: {} }, res);
+    expect(res.clearCookie).toHaveBeenCalledWith('pb_refresh', expect.objectContaining({ httpOnly: true, path: '/api/auth/refresh' }));
+  });
+});
+
+describe('refresh — transport', () => {
+  const browserReq = (extra: Record<string, unknown> = {}) =>
+    ({ user: { sub: 'u1', organizationId: 'org-1' }, headers: { 'x-pb-client': 'web' }, body: {}, ...extra }) as any;
+
+  it('rotates the browser\'s cookie and keeps the refresh token out of the body', async () => {
+    mockFindForTokenIssue.mockResolvedValue({ _id: 'u1' });
+    mockRenewSessionTokens.mockResolvedValue({ accessToken: 'a2', refreshToken: 'r2', expiresIn: 900 });
+    const res = makeRes();
+    res.locals.refreshSessionId = 's1';
+    res.locals.presentedRefreshToken = 'rt';
+
+    await (refresh as any)(browserReq(), res);
+
+    expect(res.cookie).toHaveBeenCalledWith('pb_refresh', 'r2', expect.objectContaining({ httpOnly: true, sameSite: 'strict' }));
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: { accessToken: 'a2', expiresIn: 900 } }));
+  });
+
+  it('hands a CLI caller both tokens in the body, with no cookie', async () => {
+    mockFindForTokenIssue.mockResolvedValue({ _id: 'u1' });
+    mockRenewSessionTokens.mockResolvedValue({ accessToken: 'a2', refreshToken: 'r2', expiresIn: 900 });
+    const res = makeRes();
+    res.locals.refreshSessionId = 's1';
+    res.locals.presentedRefreshToken = 'rt';
+
+    await (refresh as any)(browserReq({ headers: { 'x-pb-client': 'cli' } }), res);
+
+    expect(res.cookie).not.toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      data: { accessToken: 'a2', refreshToken: 'r2', expiresIn: 900 },
+    }));
+  });
+
+  it('drops the cookie when the slot is revoked, so the browser stops retrying a dead credential', async () => {
+    mockFindForTokenIssue.mockResolvedValue({ _id: 'u1' });
+    mockRenewSessionTokens.mockResolvedValue(null);
+    const res = makeRes();
+    res.locals.refreshSessionId = 's1';
+    res.locals.presentedRefreshToken = 'old';
+
+    await (refresh as any)(browserReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.clearCookie).toHaveBeenCalledWith('pb_refresh', expect.anything());
   });
 });

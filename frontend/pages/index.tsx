@@ -15,6 +15,22 @@ import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/li
  * (as it was) hid it from the server-rendered HTML, since `isInitialized` is
  * `false` on the server, so social scrapers never saw the card.
  */
+/**
+ * A path a page asked to be returned to after signing in (today: the device
+ * approval page, which a signed-out visitor reaches from a CLI-printed link).
+ * Consumed ONCE, and only ever a same-origin path — a stored absolute URL would
+ * be an open redirect, so anything that isn't a bare `/…` is discarded.
+ */
+function takePostSignInPath(): string | null {
+  try {
+    const stored = window.sessionStorage.getItem('pb.postSignIn');
+    window.sessionStorage.removeItem('pb.postSignIn');
+    return stored && /^\/(?!\/)/.test(stored) ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function Home({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl>) {
   const router = useRouter();
   const { isAuthenticated, isLoading, isInitialized } = useAuth();
@@ -22,7 +38,7 @@ export default function Home({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl
 
   useEffect(() => {
     if (isInitialized && !isLoading && isAuthenticated) {
-      router.push('/dashboard');
+      router.push(takePostSignInPath() ?? '/dashboard');
     }
   }, [isAuthenticated, isLoading, isInitialized, router]);
 

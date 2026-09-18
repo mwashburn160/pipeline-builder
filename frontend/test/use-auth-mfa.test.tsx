@@ -1,0 +1,135 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * `useAuth.login` / `completeMfaLogin` — the sign-in half that a second factor
+ * splits in two.
+ *
+ * The property being pinned is that a pending factor is NOT a half-signed-in
+ * state: `login` returns `mfa_required` and touches nothing — no profile
+ * refresh, no navigation — so a caller that ignores the result simply fails to
+ * sign in rather than landing somewhere with no session. `completeMfaLogin` then
+ * finishes exactly as a plain password sign-in does.
+ */
+
+import { renderHook, act, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
+
+const mockPush = jest.fn();
+jest.mock('next/router', () => ({ useRouter: () => ({ push: mockPush }) }));
+jest.mock('../src/hooks/usePlugins', () => ({ clearPluginCache: jest.fn() }));
+
+const mockApi = {
+  isAuthenticated: jest.fn(() => true),
+  restoreSession: jest.fn(async () => true),
+  isImpersonating: jest.fn(() => false),
+  getProfile: jest.fn(async () => ({
+    success: true,
+    data: { user: { id: 'u1', username: 'ada', email: 'ada@example.com', role: 'owner', organizationId: 'o1' } },
+  })),
+  getUserOrganizations: jest.fn(async () => ({ data: { organizations: [] } })),
+  setOrganizationId: jest.fn(),
+  onSessionExpired: jest.fn(() => () => { /* unsubscribe */ }),
+  login: jest.fn(),
+  verifyMfaLogin: jest.fn(),
+};
+class ApiError extends Error {
+  statusCode: number;
+  constructor(message: string, statusCode: number) { super(message); this.statusCode = statusCode; }
+}
+jest.mock('@/lib/api', () => ({ __esModule: true, default: mockApi, ApiError }));
+
+import { AuthProvider, useAuth } from '../src/hooks/useAuth';
+
+function wrapper({ children }: { children: ReactNode }) {
+  return <AuthProvider>{children}</AuthProvider>;
+}
+
+/** A mounted, initialized hook with the navigation history cleared. */
+async function mounted() {
+  const { result } = renderHook(() => useAuth(), { wrapper });
+  await waitFor(() => expect(result.current.isInitialized).toBe(true));
+  mockPush.mockClear();
+  mockApi.getProfile.mockClear();
+  return result;
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockApi.isAuthenticated.mockReturnValue(true);
+  mockApi.restoreSession.mockResolvedValue(true);
+  mockApi.isImpersonating.mockReturnValue(false);
+  mockApi.getProfile.mockResolvedValue({
+    success: true,
+    data: { user: { id: 'u1', username: 'ada', email: 'ada@example.com', role: 'owner', organizationId: 'o1' } },
+  });
+  mockApi.getUserOrganizations.mockResolvedValue({ data: { organizations: [] } });
+  mockApi.onSessionExpired.mockReturnValue(() => { /* unsubscribe */ });
+});
+
+describe('useAuth.login with a second factor', () => {
+  it('reports the pending factor and does NOT navigate or refresh', async () => {
+    mockApi.login.mockResolvedValue({
+      success: true,
+      data: { mfaRequired: true, challengeId: 'chal-1', expiresAt: 123, methods: ['totp', 'recovery'] },
+    });
+    const result = await mounted();
+
+    let outcome;
+    await act(async () => { outcome = await result.current.login('ada@example.com', 'hunter2'); });
+
+    expect(outcome).toEqual({ status: 'mfa_required', challengeId: 'chal-1', expiresAt: 123 });
+    // Nothing happened locally: there is no session to refresh and nowhere to go.
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(mockApi.getProfile).not.toHaveBeenCalled();
+  });
+
+  it('reports a completed sign-in as usual when there is no second factor', async () => {
+    mockApi.login.mockResolvedValue({ success: true, data: { accessToken: 'a', expiresIn: 900 } });
+    const result = await mounted();
+
+    let outcome;
+    await act(async () => { outcome = await result.current.login('ada@example.com', 'hunter2'); });
+
+    expect(outcome).toEqual({ status: 'complete' });
+    expect(mockPush).toHaveBeenCalledWith('/dashboard');
+  });
+
+  it('still throws on a refused sign-in', async () => {
+    mockApi.login.mockResolvedValue({ success: false, message: 'Invalid credentials' });
+    const result = await mounted();
+
+    await expect(act(async () => { await result.current.login('ada@example.com', 'nope'); }))
+      .rejects.toThrow('Invalid credentials');
+  });
+});
+
+describe('useAuth.completeMfaLogin', () => {
+  it('finishes the sign-in exactly as the password path would', async () => {
+    mockApi.verifyMfaLogin.mockResolvedValue({ success: true, data: { accessToken: 'a', expiresIn: 900 } });
+    const result = await mounted();
+
+    await act(async () => { await result.current.completeMfaLogin('chal-1', '123456'); });
+
+    expect(mockApi.verifyMfaLogin).toHaveBeenCalledWith({ challengeId: 'chal-1', code: '123456' });
+    expect(mockApi.getProfile).toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith('/dashboard');
+  });
+
+  it('honours redirect:false for callers that drive navigation themselves', async () => {
+    mockApi.verifyMfaLogin.mockResolvedValue({ success: true, data: { accessToken: 'a', expiresIn: 900 } });
+    const result = await mounted();
+
+    await act(async () => { await result.current.completeMfaLogin('chal-1', '123456', { redirect: false }); });
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('throws — and opens nothing — on a refused code', async () => {
+    mockApi.verifyMfaLogin.mockResolvedValue({ success: false, message: 'Invalid credentials' });
+    const result = await mounted();
+
+    await expect(act(async () => { await result.current.completeMfaLogin('chal-1', '000000'); }))
+      .rejects.toThrow('Invalid credentials');
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+});

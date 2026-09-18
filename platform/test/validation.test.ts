@@ -13,7 +13,6 @@ const {
   emailSchema,
   registerSchema,
   loginSchema,
-  refreshSchema,
   oauthCallbackSchema,
   updateProfileSchema,
   changePasswordSchema,
@@ -106,20 +105,6 @@ describe('loginSchema', () => {
 
   it('should reject empty password', () => {
     expect(loginSchema.safeParse({ identifier: 'user', password: '' }).success).toBe(false);
-  });
-});
-
-describe('refreshSchema', () => {
-  it('should accept valid refresh token', () => {
-    expect(refreshSchema.safeParse({ refreshToken: 'some-token-value' }).success).toBe(true);
-  });
-
-  it('should reject empty refresh token', () => {
-    expect(refreshSchema.safeParse({ refreshToken: '' }).success).toBe(false);
-  });
-
-  it('should reject missing refresh token', () => {
-    expect(refreshSchema.safeParse({}).success).toBe(false);
   });
 });
 

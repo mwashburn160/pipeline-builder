@@ -108,8 +108,6 @@ spec:
             - secretRef:
                 name: app-secrets
             - secretRef:
-                name: jwt-secret
-            - secretRef:
                 # IMAGE_REGISTRY_USERNAME / IMAGE_REGISTRY_PASSWORD —
                 # Basic auth used when image-registry talks to the
                 # underlying registry's management API.
@@ -147,6 +145,18 @@ spec:
             # as the registry container's htpasswd; setup.sh keeps them
             # in sync.
           volumeMounts:
+            # This pod's OWN internal-token signing key (#14) and the PUBLIC
+            # bundle it verifies its peers with. One private key per pod — that
+            # is what stops a compromised service signing as another — while the
+            # bundle is public and identical everywhere. Both from
+            # deploy/bin/service-signing-keys.sh; the service refuses to start
+            # without them.
+            - name: service-signing-key
+              mountPath: /etc/pipeline-builder/service-keys
+              readOnly: true
+            - name: service-key-bundle
+              mountPath: /etc/pipeline-builder/service-key-bundle
+              readOnly: true
             - name: registry-token
               mountPath: /etc/registry/jwt-private.pem
               subPath: jwt-private.pem
@@ -187,6 +197,14 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 30
       volumes:
+        - name: service-signing-key
+          secret:
+            secretName: service-key-image-registry
+            defaultMode: 0444
+        - name: service-key-bundle
+          secret:
+            secretName: service-key-bundle
+            defaultMode: 0444
         - name: registry-token
           secret:
             # Same secret mounted into the registry; here we mount BOTH

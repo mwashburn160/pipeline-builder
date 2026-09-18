@@ -37,17 +37,33 @@ x-db-deploy: &db-deploy
       cpus: '0.8'
       memory: 768M
 
+# -- The PUBLIC per-service key bundle, mounted read-only into every API service.
+# Each service ALSO mounts its own private key at
+# /etc/pipeline-builder/service-keys/service.key (see each service's `volumes:`) —
+# one key per container, so a compromised service cannot sign as another. #14
+x-service-key-bundle: &service-key-bundle
+  ./certs/service-keys/bundle.json:/etc/pipeline-builder/service-key-bundle/bundle.json:ro
+
 # -- Env shared by ALL API services --
 x-common-env: &common-env
   LOG_LEVEL: ${LOG_LEVEL:-info}
   LOG_FORMAT: ${LOG_FORMAT:-json}
-  JWT_SECRET: ${JWT_SECRET}
-  REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
+  # INTERNAL service-to-service tokens (#14): each service signs with its OWN
+  # ES256 key, mounted read-only at the path below, and verifies its peers
+  # against the shared PUBLIC bundle. There is no shared signing secret left —
+  # tokens that speak for a person are ES256 signed by platform alone. Both
+  # files come from deploy/bin/service-signing-keys.sh; a service refuses to
+  # start without them.
+  SERVICE_SIGNING_KEY_FILE: /etc/pipeline-builder/service-keys/service.key
+  SERVICE_KEY_BUNDLE_FILE: /etc/pipeline-builder/service-key-bundle/bundle.json
   # AES-256-GCM master key for encrypted secret columns (AI provider keys, IdP
   # client secrets). Required under NODE_ENV=production — platform refuses to
-  # boot without it. Alongside JWT_SECRET rather than in a service-specific
-  # block so any service that grows a decrypt path already has it.
+  # boot without it. In common-env rather than a service-specific block so any
+  # service that grows a decrypt path already has it.
   SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY}
+  # Decrypt-only fallback during a master-key rotation (empty otherwise); clear
+  # it after `docker compose exec platform node scripts/reencrypt-secrets.js`.
+  SECRET_ENCRYPTION_KEY_PREVIOUS: ${SECRET_ENCRYPTION_KEY_PREVIOUS:-}
   PLATFORM_BASE_URL: ${PLATFORM_BASE_URL:-https://localhost:8443}
   # OpenTelemetry. On by default — exports to the bundled `jaeger` all-in-one
   # collector (OTLP/HTTP on 4318; UI on http://localhost:16686). Set
@@ -137,6 +153,10 @@ services:
       # was ended; without it impersonation tokens are rejected.
       <<: [*common-env, *server-env, *redis-env, *ai-env]
       SERVICE_NAME: ask
+    volumes:
+      - *service-key-bundle
+      # This service's OWN internal-token signing key — mounted here and nowhere else.
+      - ./certs/service-keys/ask.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
     healthcheck: *api-healthcheck
@@ -221,8 +241,11 @@ services:
     ports:
       - '8080:8080'
       - '8443:8443'
-    environment:
-      JWT_SECRET: ${JWT_SECRET}
+    # No signing secret: njs/jwt.js DECODES the access token to populate the
+    # x-org-id/x-user-id headers and the access log, and verifies nothing —
+    # user tokens are ES256 and checking one needs an async JWKS fetch a
+    # synchronous `js_set` handler cannot make. Enforcement was always the
+    # services' own `requireAuth`. See docs/authentication.md.
     volumes:
       - './certs/nginx-tls.crt:/etc/nginx/certs/nginx.crt:ro'
       - './certs/nginx-tls.key:/etc/nginx/certs/nginx.key:ro'
@@ -454,7 +477,15 @@ services:
       SECRET_ENCRYPTION_PER_ORG_KMS: ${SECRET_ENCRYPTION_PER_ORG_KMS:-false}
       # JWT
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      # Algorithm of the INTERNAL service tokens; user tokens are always ES256.
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      # ES256 user-token signing — platform is the only minter in the fleet.
+      # The key file is bind-mounted read-only below.
+      TOKEN_SIGNING_MODE: ${TOKEN_SIGNING_MODE:-local}
+      TOKEN_SIGNING_KEY_FILE: ${TOKEN_SIGNING_KEY_FILE:-/etc/pipeline-builder/keys/token-signing.key}
+      TOKEN_SIGNING_KEY_PREVIOUS_FILE: ${TOKEN_SIGNING_KEY_PREVIOUS_FILE:-}
+      TOKEN_SIGNING_KMS_KEY_ID: ${TOKEN_SIGNING_KMS_KEY_ID:-}
+      TOKEN_SIGNING_KMS_KEY_PREVIOUS_ID: ${TOKEN_SIGNING_KMS_KEY_PREVIOUS_ID:-}
       # bcrypt password-hash cost. Empty :- default so compose doesn't warn when
       # unset — the app owns the default (BCRYPT_SALT_ROUNDS || 12).
       BCRYPT_SALT_ROUNDS: ${BCRYPT_SALT_ROUNDS:-}
@@ -534,7 +565,19 @@ services:
       # Per-org alert relay: the single Alertmanager instance (id `alertmanager`,
       # sent as X-Alertmanager-Instance) and its bearer token, which Alertmanager
       # reads from the `alert_webhook_token` compose secret below.
-      ALERT_WEBHOOK_INSTANCES: '[{"id":"alertmanager","token":"${ALERT_WEBHOOK_INSTANCE_TOKEN:?ALERT_WEBHOOK_INSTANCE_TOKEN must be set (run gen-env-secrets)}"}]'
+      # `previousToken` is the rotation overlap (empty = not rotating): platform
+      # accepts either bearer while it is set. docs/runbooks/secret-rotation.md
+      ALERT_WEBHOOK_INSTANCES: '[{"id":"alertmanager","token":"${ALERT_WEBHOOK_INSTANCE_TOKEN:?ALERT_WEBHOOK_INSTANCE_TOKEN must be set (run gen-env-secrets)}","previousToken":"${ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS:-}"}]'
+    volumes:
+      # The ES256 user-token signing key (TOKEN_SIGNING_MODE=local). Read-only,
+      # and mounted into PLATFORM ONLY — it is the one credential that can mint
+      # a token for a person. Generated by deploy/bin/token-signing-keys.sh
+      # before `compose up`; a missing file makes platform refuse to start
+      # (rather than quietly signing with something else).
+      - ./certs/token-signing:/etc/pipeline-builder/keys:ro
+      - *service-key-bundle
+      # This service's OWN internal-token signing key — mounted here and nowhere else.
+      - ./certs/service-keys/platform.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
     depends_on:
@@ -600,6 +643,9 @@ services:
       # scratch: transient ZIP + extract dir). Symmetric naming makes "what's in
       # the laptop dir" obvious from inside the container too.
       - './data/plugins-data:/data/plugins-data:rw'
+      - *service-key-bundle
+      # This service's OWN internal-token signing key — mounted here and nowhere else.
+      - ./certs/service-keys/plugin.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
     depends_on:
@@ -698,6 +744,10 @@ services:
       PLUGIN_SERVICE_HOST: ${PLUGIN_SERVICE_HOST:-plugin}
       PLUGIN_SERVICE_PORT: ${PLUGIN_SERVICE_PORT:-3000}
       HANDLER_TIMEOUT_MS: ${HANDLER_TIMEOUT_MS:-30000}
+    volumes:
+      - *service-key-bundle
+      # This service's OWN internal-token signing key — mounted here and nowhere else.
+      - ./certs/service-keys/pipeline.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
     depends_on:
@@ -724,6 +774,10 @@ services:
       S3_SECRET_ACCESS_KEY: ${MESSAGE_S3_SECRET_KEY}
       S3_FORCE_PATH_STYLE: 'true'
       MESSAGE_ATTACHMENT_MAX_MB: ${MESSAGE_ATTACHMENT_MAX_MB:-10}
+    volumes:
+      - *service-key-bundle
+      # This service's OWN internal-token signing key — mounted here and nowhere else.
+      - ./certs/service-keys/message.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
     depends_on:
@@ -749,6 +803,10 @@ services:
     environment:
       <<: [*common-env, *postgres-env, *server-env, *redis-env]
       SERVICE_NAME: reporting
+    volumes:
+      - *service-key-bundle
+      # This service's OWN internal-token signing key — mounted here and nowhere else.
+      - ./certs/service-keys/reporting.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
     depends_on:
@@ -778,6 +836,10 @@ services:
       PLUGIN_SERVICE_PORT: '3000'
       PIPELINE_SERVICE_HOST: pipeline
       PIPELINE_SERVICE_PORT: '3000'
+    volumes:
+      - *service-key-bundle
+      # This service's OWN internal-token signing key — mounted here and nowhere else.
+      - ./certs/service-keys/compliance.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
     depends_on:
@@ -854,6 +916,10 @@ services:
       QUOTA_TIER_PRO_LABEL: ${QUOTA_TIER_PRO_LABEL:-}
       QUOTA_TIER_TEAM_LABEL: ${QUOTA_TIER_TEAM_LABEL:-}
       QUOTA_TIER_ENTERPRISE_LABEL: ${QUOTA_TIER_ENTERPRISE_LABEL:-}
+    volumes:
+      - *service-key-bundle
+      # This service's OWN internal-token signing key — mounted here and nowhere else.
+      - ./certs/service-keys/quota.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
     depends_on:
@@ -908,11 +974,13 @@ services:
       REGISTRY_TOKEN_ISSUER: ${REGISTRY_TOKEN_ISSUER:-platform}
       REGISTRY_TOKEN_SERVICE: ${REGISTRY_TOKEN_SERVICE:-pipeline-image-registry}
       REGISTRY_TOKEN_EXPIRES_IN: ${REGISTRY_TOKEN_EXPIRES_IN:-300}
-      # JWT_SECRET is the platform's signing key — used here to verify
-      # incoming Basic-auth-where-password-is-a-platform-JWT.
     volumes:
+      # The RS256 keypair this registry signs its OWN pull/push tokens with.
       - './certs/image-registry-jwt.key:/etc/registry/jwt-private.pem:ro'
       - './certs/image-registry-jwt.crt:/etc/registry/jwt-public.pem:ro'
+      - *service-key-bundle
+      # This service's OWN internal-token signing key — mounted here and nowhere else.
+      - ./certs/service-keys/image-registry.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
       - proxy-network
@@ -1029,6 +1097,10 @@ services:
       # Message service (for notifications)
       MESSAGE_SERVICE_HOST: ${MESSAGE_SERVICE_HOST:-message}
       MESSAGE_SERVICE_PORT: ${MESSAGE_SERVICE_PORT:-3000}
+    volumes:
+      - *service-key-bundle
+      # This service's OWN internal-token signing key — mounted here and nowhere else.
+      - ./certs/service-keys/billing.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
     depends_on:

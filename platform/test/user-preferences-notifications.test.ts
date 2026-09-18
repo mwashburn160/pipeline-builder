@@ -28,10 +28,23 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({ seedDefaul
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: {} } }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({ withMongoTransaction: (fn: (s: unknown) => unknown) => fn({}) }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn(), renewSessionTokens: jest.fn() }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({
+  // Session-auth helpers the controllers now import (see utils/token.ts).
+  signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  findRefreshSession: jest.fn(async () => undefined),
+  signApiKeyToken: jest.fn(),
+  signServiceAccountToken: jest.fn(),
+  membershipForOrg: jest.fn(async () => undefined),
+  issueTokens: jest.fn(),
+  renewSessionTokens: jest.fn(),
+}));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   JoinRequest: {},
+  // The user-delete cascade also removes the account's passkeys.
+  WebAuthnCredential: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
+  UserTotp: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })), exists: jest.fn(async () => null) },
   PersonalAccessToken: {},
   UserPreferences: {
     findOne: (...a: unknown[]) => mockFindOne(...a),
@@ -49,6 +62,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 const mockUpdatePreferences = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/services/index.js', () => ({
   userProfileService: { updatePreferences: (...a: unknown[]) => mockUpdatePreferences(...a) },
+  // Linking stub: the access-key handlers live in the same controller.
+  apiKeyService: {},
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({ validateBody: jest.fn(), updateProfileSchema: {}, changePasswordSchema: {} }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({

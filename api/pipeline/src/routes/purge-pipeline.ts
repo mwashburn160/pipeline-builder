@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { loadAndPurge, sendSuccess } from '@pipeline-builder/api-core';
+import { loadAndPurge, sendSuccess, audited } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { emitPipelineAudit } from '../services/audit.js';
@@ -24,7 +24,7 @@ import { pipelineService } from '../services/pipeline-service.js';
 export function createPurgePipelineRoutes(): Router {
   const router: Router = Router();
 
-  router.post('/:id/purge', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/:id/purge', audited('pipeline.purge'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const result = await loadAndPurge(req, res, orgId, pipelineService, 'Pipeline', 'pipelines:publish', userId);
     if (!result) return;
     const { existing, purgedId } = result;

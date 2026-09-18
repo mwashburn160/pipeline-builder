@@ -40,19 +40,22 @@ Authorization: Bearer <reporting:ingest-scoped token>
 
 ### Getting a token (self-serve)
 
-The webhook token is a **Personal Access Token scoped to `reporting:ingest`** —
+The webhook token is an **access key scoped to `reporting:ingest`** —
 org-bound and **least-privilege** (the scope forces `role=member` with no
 features/permissions, so even an admin's webhook token can only file incidents).
 Two ways to mint one:
 
 - **Admin UI (recommended)** — **Settings → Incident Reporting → Webhook token →
-  Generate webhook token**. It re-prompts for your password (step-up) and shows
-  the token **once** — copy it immediately. **To rotate:** generate a new one and
-  revoke the old token on the **API Tokens** settings page. (Under the hood this
-  is `POST /api/user/pats` with `{ scope: "reporting:ingest" }`.)
-- **CLI** — for the in-AWS-account event forwarder credential (stored in Secrets
-  Manager with auto-renewal), use `pipeline-manager infra store-token --scope
-  reporting:ingest`. See [Onboarding → store the service token](onboarding.md).
+  Generate webhook token**. It asks you to re-confirm your identity — password, or a fresh sign-in with your
+  provider ([step-up](authentication.md#step-up-re-authentication-every-account)) — and shows
+  the key **once** — copy it immediately, since only its hash is stored. **To
+  rotate:** generate a new one and revoke the old key on the **API Tokens**
+  settings page; the old one stops working within five minutes. (Under the hood
+  this is `POST /api/user/keys` with `{ scope: "reporting:ingest" }`.)
+- **CLI** — for the in-AWS-account event forwarder credential (a
+  [service-account key](authentication.md#stored-machine-credentials-aws) stored
+  in Secrets Manager with daily rotation), use `pipeline-manager infra store-token
+  --scope reporting:ingest`. See [Onboarding → store the service-account keys](onboarding.md).
 
 ## Contract
 

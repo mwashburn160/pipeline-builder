@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { QUOTA_TIERS, type QuotaTier, VALID_TIERS } from '@pipeline-builder/api-core';
-import type { Algorithm } from 'jsonwebtoken';
+import { assertWebAuthnConfig, resolveWebAuthnConfig } from './webauthn-validate.js';
 
 const isDev = (process.env.NODE_ENV || 'development') === 'development';
 
@@ -25,13 +25,6 @@ const DEFAULT_PLATFORM_URL = 'https://localhost:8443';
  * Require an environment variable in production, allow a dev-only fallback.
  * @internal
  */
-function requireSecret(envVar: string, name: string): string {
-  const value = process.env[envVar];
-  if (value) return value;
-  if (isDev) return 'dev-only-insecure-secret';
-  throw new Error(`${name} (${envVar}) is required in production. Generate with: openssl rand -base64 32`);
-}
-
 /**
  * Per-tier quota reset period, overridable via `QUOTA_TIER_<TIER>_RESET_PERIOD`
  * (a single duration string applied to every quota type). Defaults: `3days`
@@ -72,6 +65,9 @@ export interface AlertWebhookInstance {
   id: string;
   /** Bearer token this instance must present. */
   token: string;
+  /** Rotation only: the outgoing token, still accepted while set. An empty
+   *  string (the deploy manifests' default) means "not rotating". */
+  previousToken?: string;
   /** When set, every alert in the payload must have its `labels.org_id`
    *  within this list. Missing → no org-scope restriction (legacy mode). */
   allowedOrgIds?: string[];
@@ -94,6 +90,7 @@ function parseAlertWebhookInstances(raw: string | undefined): AlertWebhookInstan
       if (typeof e.id !== 'string' || !e.id) return [];
       if (typeof e.token !== 'string' || !e.token) return [];
       const inst: AlertWebhookInstance = { id: e.id, token: e.token };
+      if (typeof e.previousToken === 'string' && e.previousToken) inst.previousToken = e.previousToken;
       if (Array.isArray(e.allowedOrgIds) && e.allowedOrgIds.every((x) => typeof x === 'string')) {
         inst.allowedOrgIds = e.allowedOrgIds as string[];
       }
@@ -222,7 +219,23 @@ export const config = {
      */
     passwordSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || '12', 10),
     jwt: {
-      secret: requireSecret('JWT_SECRET', 'JWT secret'),
+      /**
+       * ES256 user-token signing (roadmap #5). `mode: 'kms'` keeps the private
+       * key inside AWS KMS (asymmetric `ECC_NIST_P256`, sign-only); `mode:
+       * 'local'` reads a PEM from disk — a bind mount under compose, a mounted
+       * Kubernetes Secret on minikube. Rotation is by `kid`: the *_PREVIOUS
+       * key is PUBLISHED in the JWKS but never signs, so tokens it minted keep
+       * verifying for one overlap window.
+       *
+       * Prefer a KMS ALIAS over an ARN — an alias carries no AWS account id.
+       */
+      signing: {
+        mode: (process.env.TOKEN_SIGNING_MODE || 'local') === 'kms' ? 'kms' as const : 'local' as const,
+        keyFile: process.env.TOKEN_SIGNING_KEY_FILE || undefined,
+        previousKeyFile: process.env.TOKEN_SIGNING_KEY_PREVIOUS_FILE || undefined,
+        kmsKeyId: process.env.TOKEN_SIGNING_KMS_KEY_ID || undefined,
+        kmsPreviousKeyId: process.env.TOKEN_SIGNING_KMS_KEY_PREVIOUS_ID || undefined,
+      },
       // Short access-token TTL (15 min). The frontend silently refreshes off the
       // token's expiry (see frontend/src/lib/api/core.ts), so a short lifetime is
       // transparent to users. It also bounds the WORST-CASE revocation window: on
@@ -231,9 +244,6 @@ export const config = {
       // (or Redis) is unavailable, a stale token can only outlive the change by at
       // most this TTL before natural expiry forces a refresh.
       expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '900', 10), // 15 min
-      algorithm: (process.env.JWT_ALGORITHM || 'HS256') as Algorithm,
-      /** Rotation: tokens signed with the previous secret keep verifying while it's set. */
-      secretPrevious: process.env.JWT_SECRET_PREVIOUS || undefined,
       /** Pinned on every token platform signs and checked on every token it verifies,
        *  when set. Must match what api-core's requireAuth expects. */
       issuer: process.env.JWT_ISSUER || undefined,
@@ -256,7 +266,13 @@ export const config = {
       ) as Record<QuotaTier, number | undefined>,
     },
     refreshToken: {
-      secret: requireSecret('REFRESH_TOKEN_SECRET', 'Refresh token secret'),
+      // No secret of its own any more: a refresh token is a user token, so it is
+      // signed with the SAME ES256 key (and rotated by the same `kid`) as every
+      // other credential that speaks for a person. `REFRESH_TOKEN_SECRET` and
+      // `REFRESH_TOKEN_SECRET_PREVIOUS` are gone.
+      //
+      // Also the Max-Age of the browser's refresh cookie, which reads this same
+      // variable directly — see helpers/session-cookie.ts.
       expiresIn: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '2592000', 10), // 30 days
     },
     /**
@@ -276,6 +292,79 @@ export const config = {
      * safe 1-hour ceiling well above the 15-min base access-token lifetime.
      */
     sessionRevocationTtlSeconds: parseInt(process.env.SESSION_REVOCATION_TTL_SECONDS || '3600', 10),
+    /**
+     * OAuth 2.0 device authorization grant (RFC 8628) — how `pipeline-manager
+     * auth login` signs in without ever holding a password.
+     *
+     * The defaults are the RFC's own guidance: a 10-minute code lifetime (long
+     * enough to walk to a browser, short enough that an unclaimed code is
+     * worthless) and a 5-second minimum poll interval. `maxPolls` is a
+     * runaway/abuse ceiling on ONE device code — a well-behaved client at the
+     * advertised interval spends ~120 polls over the full TTL.
+     */
+    device: {
+      ttlMs: intEnv('DEVICE_CODE_TTL_MS', 600_000), // 10 min
+      intervalSeconds: intEnv('DEVICE_CODE_INTERVAL_SECONDS', 5),
+      maxPolls: intEnv('DEVICE_CODE_MAX_POLLS', 200),
+      /** Cap on the in-memory pending-state fallback (Redis-less deployments). */
+      maxPending: intEnv('DEVICE_MAX_PENDING', 1000),
+      /** How long an approval's step-up proof stays good for the session the
+       *  CLI collects on its next poll (one poll interval plus slack). */
+      approvalGraceMs: intEnv('DEVICE_APPROVAL_GRACE_MS', 300_000), // 5 min
+    },
+
+    /**
+     * Passkeys (WebAuthn). The relying-party identity comes from
+     * `PLATFORM_FRONTEND_URL` — never from the request — and is validated at
+     * boot by `assertWebAuthnConfig` (see config/webauthn-validate.ts).
+     *
+     * A registered passkey is bound to `rpID` permanently: changing it orphans
+     * every credential, so the overrides exist for deployments whose frontend
+     * URL is not the origin users actually browse to (a CDN alias, a split
+     * app/api hostname), not as a routine knob.
+     *
+     * The challenge TTL is the window between "/…/options" and "/…/verify" —
+     * long enough to pick a finger/PIN, short enough that a captured challenge
+     * is worthless. Ceremony state lives in the shared Redis pending-state store
+     * and is consumed once.
+     */
+    webauthn: {
+      ...resolveWebAuthnConfig(process.env, process.env.PLATFORM_FRONTEND_URL || DEFAULT_PLATFORM_URL),
+      challengeTtlMs: intEnv('WEBAUTHN_CHALLENGE_TTL_MS', 120_000), // 2 min
+      /** Cap on the in-memory challenge fallback (Redis-less deployments). */
+      maxPendingCeremonies: intEnv('WEBAUTHN_MAX_PENDING_CEREMONIES', 1000),
+    },
+
+    /**
+     * Authenticator-app codes (TOTP, RFC 6238). The algorithm parameters are NOT
+     * configurable — SHA-1 / 6 digits / 30 s is the only combination every
+     * authenticator reads reliably (see utils/totp.ts); a knob here would only
+     * let an operator produce enrolments that scan and then never verify.
+     *
+     * What IS tunable is the abuse envelope. A 6-digit code is ~20 bits, so the
+     * lockout — not the code — is what makes online guessing hopeless: after
+     * `maxFailures` consecutive wrong codes the account's TOTP verification is
+     * refused for `lockoutMs` whatever the next code is, on the sign-in path and
+     * the step-up path alike.
+     */
+    totp: {
+      /** Shown by the authenticator above the code, and baked into the enrolment
+       *  QR. A deployment-identifying label, not a secret. */
+      issuer: process.env.TOTP_ISSUER || 'Pipeline Builder',
+      /** Consecutive failures before the account's TOTP is locked out. */
+      maxFailures: intEnv('TOTP_MAX_FAILURES', 5),
+      /** How long that lockout lasts. */
+      lockoutMs: intEnv('TOTP_LOCKOUT_MS', 900_000), // 15 min
+      /**
+       * Lifetime of the sign-in MFA challenge — the handle a password sign-in
+       * returns INSTEAD of a session when the account has TOTP. Long enough to
+       * unlock a phone and read a code, short enough that a captured handle is
+       * worthless. Held in the shared Redis pending-state store.
+       */
+      challengeTtlMs: intEnv('TOTP_LOGIN_CHALLENGE_TTL_MS', 300_000), // 5 min
+      /** Cap on the in-memory challenge fallback (Redis-less deployments). */
+      maxPendingChallenges: intEnv('TOTP_MAX_PENDING_CHALLENGES', 1000),
+    },
   },
 
   mongodb: {
@@ -455,6 +544,13 @@ export const config = {
     serviceHost: process.env.QUOTA_SERVICE_HOST || 'quota',
     servicePort: parseInt(process.env.QUOTA_SERVICE_PORT || '3000', 10),
     serviceTimeout: parseInt(process.env.QUOTA_SERVICE_TIMEOUT || '5000', 10), // 5s
+    // Usage-counter period, shared with the quota service (same env var). A
+    // service account's OWN token-exchange budget rolls over on this period, so
+    // its quota window matches every other quota in the deployment. NaN-guarded
+    // the same way the quota service guards it.
+    resetDays: Number.isFinite(parseInt(process.env.QUOTA_RESET_DAYS || '3', 10))
+      ? parseInt(process.env.QUOTA_RESET_DAYS || '3', 10)
+      : 3,
     // Quota tier presets (each tier defines its own limits and reset periods).
     // Consumed by Organization model schema defaults.
     tier: {
@@ -522,5 +618,12 @@ export const config = {
     serviceTimeout: parseInt(process.env.MESSAGE_SERVICE_TIMEOUT || '5000', 10), // 5s
   },
 } as const;
+
+// Boot-time relying-party validation (see config/webauthn-validate.ts). Done
+// HERE, at module load, for the same reason as `requireEncryptionKey()` above: a
+// bad RP ID must stop the process, not surface as an unexplained SecurityError
+// in the first person's passkey ceremony — and, worse, orphan any credential
+// registered under a value that later has to be corrected.
+assertWebAuthnConfig(config.auth.webauthn);
 
 export type Config = typeof config;

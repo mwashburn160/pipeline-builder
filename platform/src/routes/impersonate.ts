@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requireStepUp } from '@pipeline-builder/api-core';
+import { audited, requireStepUp } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   breakglassImpersonation,
@@ -30,15 +30,15 @@ const router: Router = Router({ mergeParams: true });
  *  impersonated user — usually not an admin — must be able to find a request to
  *  view their own account. Filtered server-side by the decide/revoke rules. */
 router.get('/requests', requireAuth, listImpersonationRequests);
-router.post('/requests/:id/decide', requireAuth, decideImpersonationRequest);
-router.post('/requests/:id/revoke', requireAuth, revokeImpersonationSession);
+router.post('/requests/:id/decide', requireAuth, audited('admin.impersonate.approve', 'admin.impersonate.deny'), decideImpersonationRequest);
+router.post('/requests/:id/revoke', requireAuth, audited('admin.impersonate.revoke'), revokeImpersonationSession);
 /** Redeem IS step-up gated: it mints the session token — the sensitive act. The
  *  step-up done when the request was opened is single-use and long gone after an
  *  approval that may take up to the request TTL. */
-router.post('/requests/:id/redeem', requireAuth, requireStepUp, redeemImpersonationRequest);
+router.post('/requests/:id/redeem', requireAuth, requireStepUp, audited('admin.impersonate.start'), redeemImpersonationRequest);
 
 /** Emergency access. Step-up gated like every token-minting path. */
-router.post('/:userId/breakglass', requireAuth, requireStepUp, breakglassImpersonation);
+router.post('/:userId/breakglass', requireAuth, requireStepUp, audited('admin.impersonate.breakglass', 'admin.impersonate.start'), breakglassImpersonation);
 
 /**
  * POST /admin/impersonate/:userId — start a read-only impersonation session of
@@ -54,6 +54,6 @@ router.post('/:userId/breakglass', requireAuth, requireStepUp, breakglassImperso
  * sensitive than a sysadmin's, and an admin session is the likelier of the two
  * to be stolen.
  */
-router.post('/:userId', requireAuth, requireStepUp, impersonateUser);
+router.post('/:userId', requireAuth, requireStepUp, audited('admin.impersonate.request', 'admin.impersonate.start'), impersonateUser);
 
 export default router;

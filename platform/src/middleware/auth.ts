@@ -1,11 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, ErrorCode, isServiceTokenDenied, isSystemAdmin, resolveUserPermissions, sendError } from '@pipeline-builder/api-core';
+import { createLogger, ErrorCode, hasValidIdentityClaims, isOpaqueApiKey, isServiceTokenDenied, isSystemAdmin, resolveUserPermissions, sendError, tagRouteGate } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 import { toOrgId } from '../helpers/org-id.js';
-import { User, Organization, UserOrganization, PersonalAccessToken, ImpersonationRequest } from '../models/index.js';
+import { CLIENT_TYPE_HEADER, clientType, readRefreshCookie } from '../helpers/session-cookie.js';
+import type { RefreshSession } from '../models/index.js';
+import { User, Organization, UserOrganization, ImpersonationRequest } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
+import { incCounter } from '../observability/metrics.js';
+import { MACHINE_SESSION_NOT_REFRESHABLE } from '../services/auth-errors.js';
 import type { AccessTokenPayload } from '../types/index.js';
 import { verifyAccessToken, verifyRefreshToken } from '../utils/index.js';
 
@@ -37,7 +41,7 @@ interface UserLike {
  * @param activeOrgId - Optional org ID override (e.g. from JWT)
  * @internal
  */
-async function populateRequestUser(req: Request, user: UserLike, activeOrgId?: string): Promise<void> {
+async function populateRequestUser(req: Request, user: UserLike, slot: RefreshSession, activeOrgId?: string): Promise<void> {
   const userId = user._id.toString();
   const orgId = activeOrgId || user.lastActiveOrgId;
 
@@ -85,6 +89,13 @@ async function populateRequestUser(req: Request, user: UserLike, activeOrgId?: s
   const payload: AccessTokenPayload = {
     type: 'access',
     sub: userId,
+    // The refresh path acts for the PERSON who opened the slot, with exactly the
+    // assurance that sign-in earned — read from the slot, never re-derived.
+    principalType: 'user',
+    token_use: 'access',
+    amr: slot.amr,
+    aal: slot.aal,
+    auth_time: Math.floor(new Date(slot.authTime).getTime() / 1000),
     username: user.username,
     email: user.email,
     role,
@@ -109,9 +120,9 @@ async function populateRequestUser(req: Request, user: UserLike, activeOrgId?: s
  * denylisted `service:<name>` principal, exactly as api-core's `requireAuth`
  * does. Returns true when the response was sent.
  */
-function rejectDeniedService(sub: string, res: Response): boolean {
-  if (!isServiceTokenDenied(sub)) return false;
-  logger.warn('Rejected denylisted service token', { sub });
+function rejectDeniedService(claims: AccessTokenPayload, res: Response): boolean {
+  if (!isServiceTokenDenied(claims)) return false;
+  logger.warn('Rejected denylisted service token', { sub: claims.sub });
   sendError(res, 401, 'Service token revoked', ErrorCode.TOKEN_REVOKED);
   return true;
 }
@@ -147,6 +158,32 @@ export async function requireAuth(
 
   const token = authHeader.split(' ')[1];
 
+  // An OPAQUE ACCESS KEY (`pb_pat_…` or a service account's `pb_sa_…`)
+  // presented straight to platform — the CLI and the deploy scripts export one
+  // as PLATFORM_TOKEN. Platform OWNS the key collection, so it resolves the key
+  // in place (the same checks and the same claims the exchange endpoint applies)
+  // rather than calling its own HTTP endpoint. Every other service exchanges
+  // first and only ever sees the resulting JWT.
+  if (isOpaqueApiKey(token)) {
+    // Loaded LAZILY, on the first key ever presented: the key service reaches
+    // the token signer and the whole model graph, none of which the (far more
+    // common) JWT path needs in its import graph.
+    const { apiKeyService } = await import('../services/api-key-service.js');
+    // `req.ip` is Express's `trust proxy`-aware client address — the value a
+    // service-account key's IP allowlist is checked against.
+    const resolved = await apiKeyService.exchange(token, req.ip);
+    if (!resolved.ok) {
+      logger.warn('Rejected access key', { reason: resolved.reason });
+      incCounter('platform_api_key_auth_failed_total', { reason: resolved.reason });
+      return sendError(res, 401, 'Invalid or revoked access key', ErrorCode.TOKEN_INVALID);
+    }
+    incCounter('platform_api_key_auth_total', { result: 'success' });
+    // Decode the token just minted, so `req.user` is byte-for-byte the payload
+    // every other service sees for this key — one claim shape, one source.
+    req.user = verifyAccessToken(resolved.accessToken);
+    return next();
+  }
+
   try {
     const decoded = verifyAccessToken(token);
 
@@ -158,15 +195,40 @@ export async function requireAuth(
       return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
     }
 
-    // Service principal (api-core `signServiceToken`, `sub: 'service:<name>'`).
+    // Every token must carry a well-formed identity (`principalType`,
+    // `token_use`, and a user principal's assurance claims). Fail closed: gates
+    // below branch on those claims, so a token without them is not an identity
+    // this service can reason about.
+    if (!hasValidIdentityClaims(decoded)) {
+      return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
+    }
+
+    // Service principal (api-core `signServiceToken`, `principalType: 'service'`).
     // These are NOT backed by a User row — `User.findById('service:x')` below
     // would throw a CastError (non-ObjectId) and reject every inter-service call,
     // which silently broke all service→platform hierarchy/name lookups. A service
-    // token is a short-lived, JWT_SECRET-signed access token whose per-route
-    // authority is gated by `isServicePrincipal`; accept it here and skip the
+    // token is a short-lived access token signed with the CALLING service's own
+    // key (#14), whose per-route authority is gated by `isServicePrincipal` (and,
+    // on the internal routes, by `requireInternalService`); accept it here and skip the
     // user/tokenVersion checks (there is no user/session to invalidate).
-    if (decoded.sub?.startsWith('service:')) {
-      if (rejectDeniedService(decoded.sub, res)) return;
+    if (decoded.principalType === 'service') {
+      if (rejectDeniedService(decoded, res)) return;
+      req.user = decoded;
+      return next();
+    }
+
+    // ORG SERVICE ACCOUNT (#2) — also NOT backed by a User row, so the
+    // `User.findById(decoded.sub)` below would reject every one of its requests.
+    // Its authority was re-derived from the account, its Roles and its org at
+    // EXCHANGE time (5 minutes ago at most) and it has no session or
+    // `tokenVersion` to compare, so the verified claims are the identity. It is
+    // still subject to every permission gate a member is — and can never pass
+    // step-up (api-core's `requireStepUp` refuses the principal outright).
+    // Fail closed on a malformed one: the token must name the key it came from.
+    if (decoded.principalType === 'service_account') {
+      if (decoded.token_use !== 'api_key' || !decoded.jti || !decoded.organizationId) {
+        return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
+      }
       req.user = decoded;
       return next();
     }
@@ -183,11 +245,11 @@ export async function requireAuth(
       return sendError(res, 401, 'Session invalid');
     }
 
-    if (decoded.jti && decoded.impersonatorId) {
-      // IMPERSONATION SESSION. It carries a `jti` like a PAT does, but its
-      // authority lives in a completely different record — so this branch MUST
-      // come first. Falling through to the PAT lookup below would find no
-      // PersonalAccessToken and 401 every impersonated request.
+    if (decoded.impersonatorId) {
+      if (!decoded.jti) return sendError(res, 401, 'Session invalid');
+      // IMPERSONATION SESSION — named by the `impersonatorId` claim. It carries
+      // a `jti` like a PAT does, but its authority lives in a completely
+      // different record, so it is classified by the claim, never by the shape.
       //
       // FAIL CLOSED, deliberately against the grain of the rest of auth. The
       // Redis revocation store is fail-open because denying on a blip would lock
@@ -212,53 +274,14 @@ export async function requireAuth(
       if (String(session.targetUserId) !== String(decoded.sub)) {
         return sendError(res, 401, 'Session invalid');
       }
-    } else if (decoded.jti) {
-      // Personal Access Token. Its authority comes from the PersonalAccessToken
-      // record, NOT `tokenVersion` — so a normal session logout (which bumps
-      // tokenVersion) does not silently kill a durable CI credential. "Sign out
-      // everywhere" and account deletion explicitly flip `revoked` on the user's
-      // PATs. Look up by jti AND userId (defense in depth against a
-      // jti/sub mismatch).
-      const pat = await PersonalAccessToken.findOne({ jti: decoded.jti, userId: decoded.sub }).select('revoked expiresAt lastUsedAt').lean();
-      if (!pat || pat.revoked || (pat.expiresAt && pat.expiresAt.getTime() < Date.now())) {
-        return sendError(res, 401, 'Token revoked or expired');
-      }
-      // A PAT bakes point-in-time authority. Because it's decoupled from
-      // tokenVersion, re-validate the pieces a privilege REDUCTION would change so
-      // it can't outlive the access it represents:
-      //  - superadmin must not have been revoked;
-      //  - the org membership the token was minted against must still be active
-      //    (catches member removal / deactivation / ownership transfer).
-      // (A role/permission change WITHIN an active membership still leaves stale
-      // baked claims until the PAT is revoked or expires — a documented limitation.)
-      if (decoded.isSuperAdmin && user.isSuperAdmin !== true) {
-        return sendError(res, 401, 'Token authority revoked');
-      }
-      if (decoded.organizationId) {
-        const membership = await UserOrganization.findOne({
-          userId: decoded.sub, organizationId: toOrgId(decoded.organizationId), isActive: true,
-        }).select('_id').lean();
-        if (!membership) {
-          return sendError(res, 401, 'Token authority revoked');
-        }
-        //  - the org the token is scoped to must still exist and NOT be
-        //    soft-deleted. `softDeleteOrg` bumps tokenVersion to cut interactive
-        //    sessions, but a PAT's authority is decoupled from tokenVersion, so
-        //    without this read-path guard an automation PAT keeps read+write on a
-        //    tombstoned org until purge. (softDeleteOrg ALSO revokes members' PATs
-        //    in its tombstone txn; this covers a PAT that raced the delete and any
-        //    org whose revocation write was missed.)
-        const org = await Organization.findById(toOrgId(decoded.organizationId)).select('deletedAt').lean();
-        if (!org || (org as { deletedAt?: Date | null }).deletedAt) {
-          return sendError(res, 401, 'Token authority revoked');
-        }
-      }
-      // Throttle the lastUsedAt stamp to at most once/minute so a busy CI/poller
-      // doesn't turn every request into a Mongo write on the auth hot path.
-      const STALE_MS = 60_000;
-      if (!pat.lastUsedAt || (Date.now() - new Date(pat.lastUsedAt).getTime()) > STALE_MS) {
-        void PersonalAccessToken.updateOne({ jti: decoded.jti }, { $set: { lastUsedAt: new Date() } }).catch(() => { /* best-effort */ });
-      }
+    } else if (decoded.token_use === 'api_key') {
+      // An EXCHANGED ACCESS-KEY token. It lives ~5 minutes and its claims were
+      // re-derived from the user, the membership and the org at exchange time,
+      // so there is nothing left to re-validate here: no key-record read, no
+      // authority re-check, and no `tokenVersion` comparison (a key is revoked by
+      // revoking the KEY, which stops the next exchange and therefore the
+      // credential everywhere within one token lifetime). `jti` names the key.
+      if (!decoded.jti) return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
     } else if (decoded.tokenVersion !== user.tokenVersion) {
       // Session token: reject if minted before the last "invalidate all sessions"
       // / role / permission / membership change.
@@ -282,14 +305,17 @@ export async function requireAuth(
  *
  * Verifies a service JWT minted by `signServiceToken` (api-core) — the same
  * mechanism `getServiceAuthHeader` uses for cross-service calls. Accepts
- * tokens whose `sub` starts with `service:` and rejects everything else,
+ * tokens carrying `principalType: 'service'` and rejects everything else,
  * so user tokens can't hit internal endpoints by accident.
  *
  * Used by the audit-events ingest endpoint so the plugin build worker
  * (and any future internal emitter) can write into MongoDB without
- * needing a real platform user identity. JWT signature is verified
- * against the same secret as user tokens; the platform/api-core split
- * shares `JWT_SECRET`.
+ * needing a real platform user identity. The signature is verified against the
+ * CALLING service's published key (#14) — the same per-service bundle api-core
+ * uses, so the two cannot drift.
+ *
+ * On its own this only proves "some service"; the routes that use it compose
+ * `requireInternalService({ callers })` after it to name WHICH.
  */
 export async function requireServiceAuth(
   req: Request,
@@ -312,10 +338,10 @@ export async function requireServiceAuth(
     if (decoded.type !== 'access') {
       return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
     }
-    if (!decoded.sub?.startsWith('service:')) {
+    if (decoded.principalType !== 'service' || !hasValidIdentityClaims(decoded)) {
       return sendError(res, 403, 'Service auth required');
     }
-    if (rejectDeniedService(decoded.sub, res)) return;
+    if (rejectDeniedService(decoded, res)) return;
     // Hydrate req.user enough that downstream handlers can read sub /
     // organizationId without re-decoding the token.
     req.user = decoded;
@@ -326,30 +352,59 @@ export async function requireServiceAuth(
 }
 
 /**
- * Middleware to validate refresh tokens from request body.
+ * CSRF guard for the cookie-bearing auth endpoints (`/auth/refresh`,
+ * `/auth/logout`).
+ *
+ * The browser's refresh token is a cookie, i.e. ambient authority: it rides
+ * along on any same-site request, including one a foreign page provokes. The
+ * `X-Pb-Client` header is the defence — a cross-site form, image or navigation
+ * cannot set a custom header at all, and a cross-origin `fetch` that tries
+ * forces a preflight this service's CORS policy refuses.
+ *
+ * Required of EVERY caller, not just the browser: making it conditional on
+ * "did a cookie arrive" would let an attacker strip the condition. Non-browser
+ * callers send `X-Pb-Client: cli` (see docs/authentication.md); the header's
+ * VALUE only selects the token transport, its presence is what authorizes.
+ */
+export function requireClientType(req: Request, res: Response, next: NextFunction): void {
+  if (!clientType(req)) {
+    incCounter('platform_auth_client_header_missing_total', { path: req.path });
+    return sendError(res, 403, `The ${CLIENT_TYPE_HEADER} header is required on this endpoint`, 'CLIENT_TYPE_REQUIRED');
+  }
+  next();
+}
+
+/**
+ * Middleware to validate the refresh token a caller presents.
+ *
+ * TWO transports, one meaning (see helpers/session-cookie.ts): the browser's
+ * token arrives in the `pb_refresh` cookie, a CLI/CI caller's in the request
+ * body. The cookie WINS when both are present — a browser must not be talked
+ * into refreshing a token some injected script supplied. The token that was
+ * actually accepted is passed on as `res.locals.presentedRefreshToken`.
  *
  * Checks the signature, that the user's tokenVersion is unchanged, and that the
- * token's refresh-session slot (`sid`) still exists. It does NOT compare the
+ * token's refresh-session slot (`sid`) still exists AND is interactive. It does NOT compare the
  * slot's hash: a live slot holding a different hash means this token was already
  * rotated away, and the refresh handler's atomic rotation both detects that and
  * revokes the slot. The slot id is passed on as `res.locals.refreshSessionId`.
  *
- * @param req - Express request object (expects refreshToken in body)
+ * @param req - Express request object (`pb_refresh` cookie, or refreshToken in body)
  * @param res - Express response object
  * @param next - Express next function
  * @returns 401 if refresh token is missing, invalid, or its session is gone
  *
  * @example
- * router.post('/refresh', isValidRefreshToken, refreshHandler);
+ * router.post('/refresh', requireClientType, isValidRefreshToken, refreshHandler);
  */
 export async function isValidRefreshToken(
   req: Request,
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  const { refreshToken } = req.body;
+  const refreshToken = readRefreshCookie(req) ?? req.body?.refreshToken;
 
-  if (!refreshToken) {
+  if (!refreshToken || typeof refreshToken !== 'string') {
     return sendError(res, 401, 'Token required');
   }
 
@@ -361,17 +416,25 @@ export async function isValidRefreshToken(
     }
 
     const user = await User.findById(decoded.sub).select('+refreshSessions +tokenVersion +isSuperAdmin');
+    const slot = user?.refreshSessions?.find((s) => s.id === decoded.sid);
 
-    if (
-      !user
-      || user.tokenVersion !== decoded.tokenVersion
-      || !user.refreshSessions?.some((slot) => slot.id === decoded.sid)
-    ) {
+    if (!user || user.tokenVersion !== decoded.tokenVersion || !slot) {
       return sendError(res, 401, 'Session invalid');
     }
 
-    await populateRequestUser(req, user);
+    // MACHINE sessions are not refreshable: a stored credential is renewed only
+    // through POST /user/generate-token. Turning it away HERE (before the
+    // rotation) is what keeps an operator's CLI — which shares the login that
+    // created the credential — from tripping reuse detection and killing it.
+    // Deliberately does NOT revoke the slot.
+    if (slot.kind === 'machine') {
+      logger.warn('Refused refresh for a machine session', { userId: String(user._id), sessionId: slot.id });
+      return sendError(res, 401, 'Machine sessions renew through /user/generate-token', MACHINE_SESSION_NOT_REFRESHABLE);
+    }
+
+    await populateRequestUser(req, user, slot);
     res.locals.refreshSessionId = decoded.sid;
+    res.locals.presentedRefreshToken = refreshToken;
     next();
   } catch {
     // Token verification failed - return unauthorized without exposing error details
@@ -394,3 +457,10 @@ export function requireSystemAdmin(req: Request, res: Response, next: NextFuncti
   if (!req.user) return sendError(res, 401, 'Authentication required');
   return sendError(res, 403, 'Forbidden: system administrator access required');
 }
+
+// Route-table metadata (see api-core's route-table.ts): these are platform's own
+// gates, so tag them here — the coverage test resolves what each route requires
+// from the middleware chain, not from source greps.
+tagRouteGate(requireAuth, { kind: 'auth' });
+tagRouteGate(requireSystemAdmin, { kind: 'systemAdmin' });
+tagRouteGate(requireServiceAuth, { kind: 'auth' }, { kind: 'servicePrincipal' });

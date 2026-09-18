@@ -23,7 +23,11 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 const { rateLimitByOrg } = await import('../src/api/rate-limit-by-org.js');
 
-interface MockReq { ip: string; user?: { organizationId: string }; serviceToken?: boolean }
+interface MockReq {
+  ip: string;
+  user?: { organizationId?: string; principalType?: string; sub?: string };
+  serviceToken?: boolean;
+}
 
 /** Invoke the middleware once and resolve after its async store settles. */
 function run(mw: (req: unknown, res: unknown, next: () => void) => void, req: MockReq): Promise<{ nexted: boolean }> {
@@ -46,6 +50,20 @@ describe('rateLimitByOrg', () => {
     const third = await run(mw, req);
     expect(third.nexted).toBe(false);
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 429, expect.any(String), expect.anything());
+  });
+
+  it('gives an org SERVICE ACCOUNT its own bucket, separate from its org', async () => {
+    const mw = rateLimitByOrg({ name: 'test-sa', max: 1, windowMs: 60_000 });
+    const account: MockReq = { ip: '10.0.0.1', user: { organizationId: 'org-1', principalType: 'service_account', sub: 'sa-1' } };
+
+    expect((await run(mw, account)).nexted).toBe(true);
+    // The account is now at cap…
+    expect((await run(mw, account)).nexted).toBe(false);
+    // …and its ORG's people are untouched: automation must not be able to burn
+    // the window the humans share.
+    expect((await run(mw, { ip: '10.0.0.1', user: { organizationId: 'org-1' } })).nexted).toBe(true);
+    // A second account in the same org also has its own bucket.
+    expect((await run(mw, { ip: '10.0.0.1', user: { organizationId: 'org-1', principalType: 'service_account', sub: 'sa-2' } })).nexted).toBe(true);
   });
 
   it('buckets orgs independently (a different org is unaffected)', async () => {

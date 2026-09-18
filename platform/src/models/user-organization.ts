@@ -20,6 +20,38 @@ export const MEMBER_ROLES = ['owner', 'admin', 'member'] as const;
 export type OrgMemberRole = typeof MEMBER_ROLES[number];
 
 /**
+ * Directory-owned state for ONE membership, written only by the SCIM endpoints
+ * (3b). It lives on the membership rather than on `User` on purpose: a person can
+ * belong to several orgs, each with its own identity provider, and a tenant's
+ * directory must never be able to rewrite the platform ACCOUNT (its email,
+ * username or sign-in) of someone who also belongs elsewhere. Everything here is
+ * per-org, display-or-correlation only, and grants nothing by itself.
+ */
+export interface ScimMembershipState {
+  /** The directory's own id for this person (SCIM `externalId`) — the handle the
+   *  IdP correlates on when the local `userName` changes. */
+  externalId?: string | null;
+  /** `userName` exactly as the IdP sends it (an email or a UPN). The platform
+   *  identity stays `User.email`; this is what an `userName eq` filter matches. */
+  userName?: string | null;
+  givenName?: string | null;
+  familyName?: string | null;
+  displayName?: string | null;
+  /**
+   * Lowercased group keys (`IdpGroupMapping.groupKey`) the directory currently
+   * puts this member in. THE source for a SCIM-driven Role sync: the keys resolve
+   * through the same `resolveMappedRoles` the SSO sign-in path uses, and the
+   * resulting assignments are `source: 'jit'`, so a hand-granted Role is never
+   * removed by a sync.
+   */
+  groups?: string[];
+  /** True once a SCIM client created or claimed this membership. */
+  managed?: boolean;
+  /** When a SCIM write last touched this membership. */
+  lastSyncedAt?: Date | null;
+}
+
+/**
  * UserOrganization document interface.
  * Junction collection linking users to organizations with per-org roles.
  */
@@ -29,6 +61,8 @@ export interface UserOrganizationDocument extends Document {
   role: OrgMemberRole;
   isActive: boolean;
   joinedAt: Date;
+  /** Present only on memberships an IdP's SCIM client has touched (3b). */
+  scim?: ScimMembershipState;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -58,6 +92,25 @@ const userOrganizationSchema = new Schema<UserOrganizationDocument>(
       type: Date,
       default: Date.now,
     },
+    // SCIM (3b). Absent until an IdP's SCIM client writes the membership; no
+    // sub-document default, so a membership created by any other path stays
+    // exactly as it was.
+    scim: {
+      type: new Schema<ScimMembershipState>(
+        {
+          externalId: { type: String, default: null, maxlength: 256 },
+          userName: { type: String, default: null, maxlength: 254 },
+          givenName: { type: String, default: null, maxlength: 128 },
+          familyName: { type: String, default: null, maxlength: 128 },
+          displayName: { type: String, default: null, maxlength: 256 },
+          groups: { type: [String], default: [] },
+          managed: { type: Boolean, default: false },
+          lastSyncedAt: { type: Date, default: null },
+        },
+        { _id: false },
+      ),
+      required: false,
+    },
   },
   { timestamps: true },
 );
@@ -81,5 +134,10 @@ userOrganizationSchema.index(
   { organizationId: 1, role: 1 },
   { unique: true, partialFilterExpression: { role: 'owner' } },
 );
+
+// SCIM lookups (3b): `externalId eq` correlation and the member list of one
+// directory group. Sparse — only SCIM-touched memberships carry the sub-document.
+userOrganizationSchema.index({ 'organizationId': 1, 'scim.externalId': 1 }, { sparse: true });
+userOrganizationSchema.index({ 'organizationId': 1, 'scim.groups': 1 }, { sparse: true });
 
 export default model<UserOrganizationDocument>('UserOrganization', userOrganizationSchema);

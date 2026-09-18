@@ -76,7 +76,7 @@ const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record
  * so a suite can replace any default (and add exports the default omits).
  */
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
+  const mock: Record<string, unknown> = {
     ...actualApiCore,
     createLogger: loggerMock,
     SYSTEM_ORG_ID: '000000000000000000000001',
@@ -183,9 +183,11 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // the JWT's `isSuperAdmin` flag. Used by tenant-binding gates (audit ingest,
     // notify-email) to let a sysadmin service token target any org.
     isSystemAdmin: (req: { user?: { isSuperAdmin?: boolean } }) => req?.user?.isSuperAdmin === true,
-    // Service-principal check (faithful to api-core): a service token's `sub`
-    // starts with `service:`. Used by internal read gates (org parent/members).
-    isServicePrincipal: (req: { user?: { sub?: string } }) => req?.user?.sub?.startsWith('service:') ?? false,
+    // Service-principal check (faithful to api-core): a service token carries
+    // `principalType: 'service'`. Used by internal read gates (org parent/members).
+    isServicePrincipal: (req: { user?: { principalType?: string } }) => req?.user?.principalType === 'service',
+    isServicePrincipalNamed: (req: { user?: { principalType?: string; sub?: string } }, name: string) =>
+      req?.user?.principalType === 'service' && req?.user?.sub === `service:${name}`,
     // Route-param extractor (faithful to api-core): first value of a param.
     getParam: (params: Record<string, unknown>, key: string) => {
       const v = params?.[key];
@@ -230,4 +232,26 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     },
     ...overrides,
   };
+
+  // Mirror api-core's `requireInternalService({ callers })` (#14): refuse any
+  // user token, then refuse a service whose name is not in the route's caller
+  // list. Re-implemented here (rather than inherited from `requireActual`) so it
+  // resolves `isServicePrincipal` / `sendError` from the MERGED mock — the real
+  // one closes over the real ones and would write to a suite's stub `res`.
+  if (overrides.requireInternalService === undefined) {
+    mock.requireInternalService = ({ callers }: { callers: readonly string[] }) =>
+      (req: unknown, res: unknown, next: () => void) => {
+        const isSvc = mock.isServicePrincipal as ((r: unknown) => boolean) | undefined;
+        const nameOf = mock.serviceNameOf as ((c: unknown) => string | undefined) | undefined;
+        const caller = nameOf?.((req as { user?: unknown }).user);
+        if (isSvc?.(req) && caller && callers.includes(caller)) {
+          next();
+          return;
+        }
+        const sendError = mock.sendError as (res: unknown, status: number, msg: string, code: string) => unknown;
+        sendError(res, 403, 'Internal service calls only', 'INSUFFICIENT_PERMISSIONS');
+      };
+  }
+
+  return mock;
 }

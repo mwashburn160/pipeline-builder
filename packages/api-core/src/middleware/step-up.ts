@@ -5,9 +5,10 @@
  * `requireStepUp` — a shared step-up (recent-password-reverify) gate for the
  * stateless api services, mirroring the platform middleware of the same name.
  *
- * Flow: the UI hits `POST /api/auth/step-up` (platform) to re-verify the user's
- * password; platform mints a short-lived (60s) `step-up` JWT signed with the
- * SAME `JWT_SECRET` these services already verify access tokens with. The UI
+ * Flow: the UI hits `POST /api/auth/step-up` (platform) to re-verify the user;
+ * platform mints a short-lived (60s) `step-up` JWT with the SAME ES256 signing
+ * key it mints access tokens with, so these services verify it through the same
+ * JWKS. The UI
  * replays it as the `X-Step-Up-Token` header on the destructive/sensitive call;
  * this middleware verifies it, binds it to the caller (`sub` match), and
  * consumes its `jti` once (Redis-backed cross-instance when configured, else a
@@ -19,7 +20,8 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import { buildJwtVerifyOptions, verifyJwtWithRotation, isServicePrincipal } from './auth.js';
+import { verifyUserJwt, isServiceAccountPrincipal, isServicePrincipal } from './auth.js';
+import { tagRouteGate } from './route-table.js';
 import { createEnvRedisClient, createRedisReadyGate, type ReadyAwareRedis } from '../services/env-redis.js';
 import { getHeaderString } from '../utils/headers.js';
 import { createLogger } from '../utils/logger.js';
@@ -38,23 +40,21 @@ export interface StepUpTokenPayload {
 }
 
 /**
- * Verify a step-up token: valid signature (primary `JWT_SECRET`, or
- * `JWT_SECRET_PREVIOUS` during a rotation), allow-listed algorithm, issuer and
- * audience when configured, AND the `type: 'step-up'` + `jti` claims — a plain
- * access token shares the secret and `sub`, so without asserting the step-up
- * shape it would bypass the gate. Throws on any failure. Does NOT bind to a
- * caller — `requireStepUp` does the `sub` match and single-use consume.
+ * Verify a step-up token: a valid ES256 signature from one of platform's
+ * published signing keys, issuer and audience when configured, AND the
+ * `type: 'step-up'` + `jti` claims — a plain access token is signed by the same
+ * key and carries the same `sub`, so without asserting the step-up shape it
+ * would bypass the gate. Throws on any failure (an unfetchable key set included:
+ * an unverifiable token is not a step-up). Does NOT bind to a caller —
+ * `requireStepUp` does the `sub` match and single-use consume.
  *
- * Delegates to `requireAuth`'s own primitives rather than re-implementing them.
- * The hand-rolled copy this replaced dropped TWO of their guards: it never
- * pinned issuer/audience (so a step-up token from any other system sharing
- * `JWT_SECRET` was accepted wherever `JWT_ISSUER`/`JWT_AUDIENCE` are set), and
- * its previous-secret retry had no expiry/not-before carve-out, so an EXPIRED
- * token was retried and surfaced as a signature error instead of an expiry one.
+ * Delegates to `requireAuth`'s own primitive (`verifyUserJwt`) rather than
+ * re-implementing it. The hand-rolled copy this replaced dropped TWO of its
+ * guards: it never pinned issuer/audience, and its previous-secret retry had no
+ * expiry/not-before carve-out, so an EXPIRED token surfaced as a signature error.
  */
-export function verifyStepUpToken(token: string): StepUpTokenPayload {
-  if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET environment variable is required');
-  const payload = verifyJwtWithRotation(token, buildJwtVerifyOptions()) as unknown as StepUpTokenPayload;
+export async function verifyStepUpToken(token: string): Promise<StepUpTokenPayload> {
+  const payload = await verifyUserJwt<StepUpTokenPayload>(token);
 
   if (payload.type !== 'step-up' || !payload.jti || !payload.sub) {
     throw new Error('INVALID_STEP_UP_TOKEN');
@@ -149,10 +149,22 @@ export async function requireStepUp(req: Request, res: Response, next: NextFunct
   // the same trust basis (a signed service JWT), and internal callers of a
   // step-up-gated route — e.g. the platform org-cascade's `DELETE /quotas/:orgId`
   // or the billing→quota entitlement sync — would otherwise be hard-blocked.
-  // Safe: a service token can only be minted with `JWT_SECRET`, so this can't be
-  // spoofed by an external client to skip step-up.
+  // Safe: a service token can only be minted with a SERVICE's own ES256 key
+  // (#14), which no external client holds, so this can't be spoofed to skip
+  // step-up.
   if (isServicePrincipal(req)) {
     next();
+    return;
+  }
+
+  // An ORG SERVICE ACCOUNT is the opposite case: it is subject to every gate a
+  // member is, and there is no person behind it to re-verify — so it can NEVER
+  // pass step-up. Refuse explicitly (rather than letting it fall through to the
+  // `sub`-bound token check, which would fail with a confusing STEP_UP_MISMATCH)
+  // so "a machine credential never satisfies an assurance requirement" is a
+  // property of this gate, not a side effect of how step-up tokens are minted.
+  if (isServiceAccountPrincipal(req)) {
+    sendError(res, 403, 'A service account cannot perform this action — it requires a person to re-verify', 'STEP_UP_NOT_AVAILABLE');
     return;
   }
 
@@ -170,7 +182,7 @@ export async function requireStepUp(req: Request, res: Response, next: NextFunct
 
   let payload: StepUpTokenPayload;
   try {
-    payload = verifyStepUpToken(token);
+    payload = await verifyStepUpToken(token);
   } catch {
     sendError(res, 401, 'Step-up token invalid or expired', 'STEP_UP_INVALID');
     return;
@@ -194,3 +206,4 @@ export async function requireStepUp(req: Request, res: Response, next: NextFunct
 
   next();
 }
+tagRouteGate(requireStepUp, { kind: 'stepUp' });

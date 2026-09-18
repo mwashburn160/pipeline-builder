@@ -1,17 +1,20 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, resolveUserFeatures } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, resolveUserFeatures, TOKEN_SCOPES } from '@pipeline-builder/api-core';
 import type { TokenScope, FeatureFlag, QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { audit } from '../helpers/audit.js';
+import { loadFactorUser, resolveAuthFactors } from '../helpers/auth-factors.js';
+import { clientInfoOf } from '../helpers/client-info.js';
 import { requireAuthUserId, withController } from '../helpers/controller-helper.js';
-import { TOKEN_SCOPE_ESCALATION } from '../services/auth-errors.js';
-import { userProfileService, type PreferencesPatch } from '../services/index.js';
+import { clearRefreshCookie, deliverSessionTokens } from '../helpers/session-cookie.js';
+import { SESSION_AUTH_MISSING, TOKEN_SCOPE_ESCALATION } from '../services/auth-errors.js';
+import { apiKeyService, userProfileService, type PreferencesPatch } from '../services/index.js';
 import { RL_LAST_PRIVILEGED_MEMBER } from '../services/roles-errors.js';
 import { PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_INVALID_CREDENTIALS, PROFILE_PAT_LIMIT, USER_OWNER_HAS_ORGS } from '../services/user-errors.js';
 import type { AccessTokenPayload } from '../types/index.js';
-import { issueTokens, renewSessionTokens } from '../utils/token.js';
+import { authFromClaims, findRefreshSession, issueTokens, renewSessionTokens } from '../utils/token.js';
 import { validateBody, updateProfileSchema, changePasswordSchema } from '../utils/validation.js';
 
 const logger = createLogger('user-profile-controller');
@@ -37,12 +40,15 @@ function scopeForCaller(req: Parameters<Parameters<typeof withController>[1]>[0]
 
 const profileErrorMap = {
   [TOKEN_SCOPE_ESCALATION]: { status: 403, message: 'A scoped token can only mint credentials with the same scope' },
+  // Fail closed: a caller whose token carries no assurance claims can't have
+  // them inherited by anything it mints.
+  [SESSION_AUTH_MISSING]: { status: 401, message: 'Session cannot mint credentials — please sign in again' },
   [PROFILE_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
   [PROFILE_EMAIL_TAKEN]: { status: 409, message: 'Email already in use' },
   [PROFILE_INVALID_CREDENTIALS]: { status: 401, message: 'Current password incorrect' },
   [USER_OWNER_HAS_ORGS]: { status: 400, message: 'Cannot delete account while you own an organization. Transfer ownership first.' },
   [RL_LAST_PRIVILEGED_MEMBER]: { status: 409, message: 'Cannot delete your account while you are the last member of an admin or super-admin role.' },
-  [PROFILE_PAT_LIMIT]: { status: 409, message: 'You have reached the maximum number of active personal access tokens. Revoke one first.' },
+  [PROFILE_PAT_LIMIT]: { status: 409, message: 'You have reached the maximum number of active access keys. Revoke one first.' },
 };
 
 /** Compact organization summary included in user responses. */
@@ -159,6 +165,11 @@ export const getUser = withController('Get user profile', async (req, res) => {
     activeOrgRole = activeMembership?.role || null;
   }
 
+  // Which step-up factors this account actually has, so the step-up modal
+  // offers only those (password, and/or "sign in again with <provider>").
+  const factorUser = await loadFactorUser(userId);
+  const authFactors = factorUser ? await resolveAuthFactors(factorUser) : undefined;
+
   const overrides = toOverridesRecord((user as { featureOverrides?: Map<string, boolean> }).featureOverrides);
   // Include the active org's account-level entitlements (e.g. add-on bundle
   // grants) so /profile reports the same feature set the JWT carries.
@@ -166,16 +177,21 @@ export const getUser = withController('Get user profile', async (req, res) => {
   const features = resolveUserFeatures(tier, { overrides, isSuperAdmin: (user as { isSuperAdmin?: boolean }).isSuperAdmin === true, accountFeatures: activeOrgFeatures });
 
   sendSuccess(res, 200, {
-    user: formatUserResponse(user as UserResponseInput, {
-      activeOrgRole: activeOrgRole || undefined,
-      activeOrgName,
-      organizations,
-      tier,
-      features,
-      // `req.user.permissions` is resolved per-request by populateRequestUser
-      // (role bundle ∪ group grants; superadmin ⇒ all) — echo it for UI gating.
-      permissions: req.user?.permissions,
-    }),
+    user: {
+      ...formatUserResponse(user as UserResponseInput, {
+        activeOrgRole: activeOrgRole || undefined,
+        activeOrgName,
+        organizations,
+        tier,
+        features,
+        // `req.user.permissions` is resolved per-request by populateRequestUser
+        // (role bundle ∪ group grants; superadmin ⇒ all) — echo it for UI gating.
+        permissions: req.user?.permissions,
+      }),
+      // Step-up factors ride on the user so the auth context (and the step-up
+      // modal) sees them with the rest of the profile.
+      ...(authFactors && { authFactors }),
+    },
   });
 }, profileErrorMap);
 
@@ -214,6 +230,8 @@ export const deleteUser = withController('Delete user account', async (req, res)
 
   await userProfileService.deleteAccount(userId);
   logger.info('Account deleted', { userId });
+  // The browser can't drop its own HttpOnly refresh cookie — this response must.
+  clearRefreshCookie(res);
   audit(req, 'user.delete', { targetType: 'user', targetId: userId });
   sendSuccess(res, 200, undefined, 'Account successfully deleted');
 }, profileErrorMap);
@@ -237,10 +255,13 @@ export const changePassword = withController('Change password', async (req, res)
 /**
  * Capability scopes a caller may request on a generated token. A scoped token is
  * minted at least-privilege (member role, no sysadmin, no features) and is only
- * honored by endpoints that opt into that scope. Kept as a strict allowlist so a
- * caller can't invent arbitrary scopes.
+ * honored by endpoints that opt into that scope.
+ *
+ * The allowlist is api-core's `TOKEN_SCOPES` catalog — the SAME list the
+ * service-account key routes validate against — so a new scoped surface is
+ * declared once instead of in every mint path.
  */
-const ALLOWED_TOKEN_SCOPES = new Set(['reporting:ingest']);
+const ALLOWED_TOKEN_SCOPES = new Set<string>(TOKEN_SCOPES);
 
 /**
  * POST /user/generate-token
@@ -248,10 +269,19 @@ const ALLOWED_TOKEN_SCOPES = new Set(['reporting:ingest']);
  * (max 365 days); optional narrow capability scope (e.g. 'reporting:ingest' for
  * the AWS event-ingestion machine credential).
  *
- * Re-mints for the CALLING device: a caller whose token belongs to a
- * refresh-session slot gets the new pair in that same slot (so a daily renewal,
- * or the dashboard re-minting its own session, never consumes another device's
- * slot). A caller without a slot (a PAT) opens a new one.
+ * Mints a STORED MACHINE credential, never touching the caller's own login:
+ *
+ * - From a person (an interactive session, or no slot at all — a PAT): opens a
+ *   NEW machine session holding the requested scope. The operator's login keeps
+ *   its own slot, so `store-token` can't be evicted by later sign-ins, can't be
+ *   killed by the operator's own refresh, and two runs from one login yield two
+ *   independent credentials (no scope leak between them).
+ * - From a machine session (the renewal Lambda's path): renews in place under
+ *   that slot's stored scope. A machine session can never open another session,
+ *   so a leaked machine token can't multiply itself.
+ *
+ * The result is NOT a browser session: machine sessions are refused by
+ * POST /auth/refresh and are renewed only through this endpoint.
  */
 export const generateToken = withController('Generate token', async (req, res) => {
   const userId = requireAuthUserId(req, res);
@@ -287,20 +317,78 @@ export const generateToken = withController('Generate token', async (req, res) =
   const user = await userProfileService.findForTokenIssue(userId);
   const sessionId = (req.user as AccessTokenPayload).sid;
   const activeOrgId = user.lastActiveOrgId?.toString();
-  const issued = sessionId
-    ? await renewSessionTokens(user, activeOrgId, { sessionId }, { expiresIn, scope })
-    : await issueTokens(user, activeOrgId, expiresIn, scope);
+  const client = clientInfoOf(req);
+  // A slot named by the token must still exist — a revoked or evicted session
+  // must not be able to mint a long-lived credential.
+  const callerSlot = sessionId ? await findRefreshSession(userId, sessionId) : undefined;
+  if (sessionId && !callerSlot) return sendError(res, 401, 'Session invalid');
+  const issued = callerSlot?.kind === 'machine'
+    ? await renewSessionTokens(user, activeOrgId, { sessionId: sessionId!, kind: 'machine' }, { expiresIn, scope, client })
+    : await issueTokens(user, activeOrgId, {
+      kind: 'machine',
+      auth: authFromClaims(req.user),
+      client,
+      expiresIn,
+      scope,
+    });
   if (!issued) return sendError(res, 401, 'Session invalid');
-  const { accessToken, refreshToken, expiresIn: actual } = issued;
+  const { accessToken, expiresIn: actual } = issued;
   // Bearer-token issuance is sensitive: long-lived tokens (up to 365 days)
-  // become a credential. Recording the requested lifetime lets reviewers
-  // spot anomalous issuance (e.g. max-life tokens from unexpected sessions).
+  // become a credential. Recording the requested lifetime + whether a machine
+  // session was opened or renewed lets reviewers spot anomalous issuance.
   audit(req, 'user.token.create', {
     targetType: 'user',
     targetId: userId,
-    details: { expiresIn: actual, ...(scope ? { scope } : {}) },
+    details: {
+      expiresIn: actual,
+      session: callerSlot?.kind === 'machine' ? 'renewed' : 'opened',
+      ...(scope ? { scope } : {}),
+    },
   });
-  sendSuccess(res, 200, { accessToken, refreshToken, expiresIn: actual });
+  // No refresh token: a machine session renews through THIS endpoint, never
+  // through POST /auth/refresh, so handing one out would only be a second
+  // long-lived secret to store.
+  sendSuccess(res, 200, { accessToken, expiresIn: actual });
+}, profileErrorMap);
+
+/** GET /user/sessions — the caller's signed-in devices and stored machine credentials. */
+export const listSessions = withController('List sessions', async (req, res) => {
+  const userId = requireAuthUserId(req, res);
+  if (!userId) return;
+  const currentSessionId = (req.user as AccessTokenPayload).sid;
+  const { sessions, machineSessions } = await userProfileService.listSessions(userId);
+  // `current` marks the session making THIS request so the UI can label it and
+  // refuse to revoke it.
+  sendSuccess(res, 200, {
+    sessions: sessions.map((s) => ({ ...s, current: s.id === currentSessionId })),
+    machineSessions: machineSessions.map((s) => ({ ...s, current: s.id === currentSessionId })),
+  });
+}, profileErrorMap);
+
+/**
+ * DELETE /user/sessions/:id — revoke one of the caller's own sessions.
+ *
+ * An interactive session is signed out; a machine session stops renewing. The
+ * CURRENT session can't revoke itself (that's POST /auth/logout, which also
+ * clears the client's tokens) — otherwise a mis-click would strand the tab with
+ * a token it can no longer refresh. Step-up gated (see routes/user.ts).
+ */
+export const revokeSession = withController('Revoke session', async (req, res) => {
+  const userId = requireAuthUserId(req, res);
+  if (!userId) return;
+  const sessionId = typeof req.params.id === 'string' ? req.params.id : '';
+  if (!sessionId) return sendError(res, 400, 'id is required', 'INVALID_SESSION_ID');
+  if (sessionId === (req.user as AccessTokenPayload).sid) {
+    return sendError(res, 400, 'This session cannot revoke itself — sign out instead', 'SESSION_SELF_REVOKE');
+  }
+  const revoked = await userProfileService.revokeSession(userId, sessionId);
+  if (!revoked) return sendError(res, 404, 'Session not found', 'SESSION_NOT_FOUND');
+  audit(req, 'user.session.revoke', {
+    targetType: 'user',
+    targetId: userId,
+    details: { sessionId, kind: revoked.kind },
+  });
+  sendSuccess(res, 200, { revoked: true });
 }, profileErrorMap);
 
 /** GET /user/tokens — recent access-token history with computed status. */
@@ -312,11 +400,14 @@ export const listTokenHistory = withController('List token history', async (req,
 }, profileErrorMap);
 
 /**
- * POST /user/pats — create a named Personal Access Token.
+ * POST /user/keys — create a named opaque access key.
  * Body: { name, expiresIn?: seconds (default 90d, max 365d), scope? }.
- * The raw token is returned ONCE; thereafter only its metadata is listable.
+ *
+ * The raw key (`pb_pat_…`) is returned ONCE and is never stored — only its
+ * SHA-256 hash, prefix and last four characters are kept, which is all the
+ * listing can ever show.
  */
-export const createPat = withController('Create personal access token', async (req, res) => {
+export const createAccessKey = withController('Create access key', async (req, res) => {
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
 
@@ -350,32 +441,42 @@ export const createPat = withController('Create personal access token', async (r
   }
   scope = effectiveScope;
 
-  const { token, pat } = await userProfileService.createPat(userId, name, expiresIn, scope);
-  audit(req, 'user.pat.create', {
+  // The key records the creating session's assurance (`amr`/`aal`/`auth_time`)
+  // so every token exchanged from it inherits — and never raises — it.
+  const { key, view } = await apiKeyService.create(
+    userId,
+    { name, expiresInSeconds: expiresIn, scope, client: clientInfoOf(req) },
+    authFromClaims(req.user),
+  );
+  audit(req, 'user.key.create', {
     targetType: 'user',
     targetId: userId,
-    details: { name, expiresIn, ...(scope ? { scope } : {}) },
+    details: { keyId: view.id, name, expiresIn, prefix: view.prefix, ...(scope ? { scope } : {}) },
   });
-  sendSuccess(res, 201, { token, pat });
+  sendSuccess(res, 201, { key, accessKey: view });
 }, profileErrorMap);
 
-/** GET /user/pats — list the user's PATs (metadata only, never the secret). */
-export const listPats = withController('List personal access tokens', async (req, res) => {
+/** GET /user/keys — list the user's access keys (metadata only, never the secret). */
+export const listAccessKeys = withController('List access keys', async (req, res) => {
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
-  const pats = await userProfileService.listPats(userId);
-  sendSuccess(res, 200, { pats });
+  const keys = await apiKeyService.list(userId);
+  sendSuccess(res, 200, { keys });
 }, profileErrorMap);
 
-/** DELETE /user/pats/:jti — revoke a single PAT immediately. */
-export const revokePat = withController('Revoke personal access token', async (req, res) => {
+/** DELETE /user/keys/:id — revoke a single access key immediately. */
+export const revokeAccessKey = withController('Revoke access key', async (req, res) => {
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
-  const jti = typeof req.params.jti === 'string' ? req.params.jti : '';
-  if (!jti) return sendError(res, 400, 'jti is required', 'INVALID_JTI');
-  const revoked = await userProfileService.revokePat(userId, jti);
-  if (!revoked) return sendError(res, 404, 'Token not found or already revoked', 'PAT_NOT_FOUND');
-  audit(req, 'user.pat.revoke', { targetType: 'user', targetId: userId, details: { jti } });
+  const id = typeof req.params.id === 'string' ? req.params.id : '';
+  if (!id) return sendError(res, 400, 'id is required', 'INVALID_KEY_ID');
+  const revoked = await apiKeyService.revoke(userId, id);
+  if (!revoked) return sendError(res, 404, 'Key not found or already revoked', 'ACCESS_KEY_NOT_FOUND');
+  audit(req, 'user.key.revoke', {
+    targetType: 'user',
+    targetId: userId,
+    details: { keyId: revoked.id, name: revoked.name },
+  });
   sendSuccess(res, 200, { revoked: true });
 }, profileErrorMap);
 
@@ -433,7 +534,16 @@ export const revokeAllTokens = withController('Revoke all tokens', async (req, r
   const user = await userProfileService.revokeAllSessions(userId);
   audit(req, 'user.tokens.revoke-all', { targetType: 'user', targetId: userId });
 
-  // Issue a fresh token at the new tokenVersion so the active session survives.
-  const { accessToken, refreshToken, expiresIn } = await issueTokens(user, user.lastActiveOrgId?.toString());
-  sendSuccess(res, 200, { revoked: true, accessToken, refreshToken, expiresIn });
+  // Issue a fresh token at the new tokenVersion so the active session survives —
+  // a new interactive slot (every old slot was just cleared), carrying the
+  // caller's own assurance and scope.
+  const tokens = await issueTokens(user, user.lastActiveOrgId?.toString(), {
+    kind: 'interactive',
+    auth: authFromClaims(req.user),
+    client: clientInfoOf(req),
+    scope: (req.user as { scope?: TokenScope }).scope,
+  });
+  // The surviving session's cookie is replaced here, so "sign out everywhere"
+  // leaves THIS browser signed in exactly as it did before.
+  sendSuccess(res, 200, { revoked: true, ...deliverSessionTokens(req, res, tokens) });
 }, profileErrorMap);

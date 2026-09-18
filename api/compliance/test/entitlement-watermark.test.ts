@@ -7,7 +7,7 @@
  *    (`{ ok:true, skipped:true }`) and never reconciles; a newer one applies and
  *    advances the watermark; a push with no `occurredAt` always applies.
  *  - #2 drift-read: `GET /:orgId` returns `{ sets }` from the active entitled sets.
- *  - P3: the machine guard is tightened to `sub === 'service:billing'` (or
+ *  - P3: the machine guard is tightened to the BILLING service principal (or
  *    sysadmin) — a generic service principal is 403'd on both legs.
  */
 
@@ -34,6 +34,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     }
   },
   isSystemAdmin: () => isAdmin,
+  isServicePrincipal: (req: any) => req?.user?.principalType === 'service',
+  serviceNameOf: (claims: any) => (claims?.principalType === 'service' && typeof claims.sub === 'string'
+    ? claims.sub.replace(/^service:/, '') || undefined
+    : undefined),
   sendBadRequest: jest.fn((res: any, msg: string, code: string) => res.status(400).json({ message: msg, code })),
   sendError: jest.fn((res: any, status: number, msg: string, code: string) => res.status(status).json({ message: msg, code })),
   sendSuccess: jest.fn((res: any, status: number, data: any) => res.status(status).json({ success: true, statusCode: status, data })),
@@ -68,11 +72,23 @@ jest.unstable_mockModule('../src/services/subscription-service.js', () => ({
 
 const { createEntitlementSyncRoutes } = await import('../src/routes/entitlements.js');
 
+/**
+ * Drive the route's FULL middleware chain, not just its handler — the
+ * authorization lives in `requireInternalService` ahead of the handler (#14), so
+ * a test that reached past it would assert nothing about who may call this.
+ */
 function handlerFor(method: 'put' | 'get') {
   const router = createEntitlementSyncRoutes();
   const layer = (router.stack as any[]).find((l) => l.route?.path === '/:orgId' && l.route?.methods?.[method]);
   if (!layer) throw new Error(`no ${method.toUpperCase()} /:orgId`);
-  return layer.route.stack[0].handle;
+  const stack = layer.route.stack as Array<{ handle: Function }>;
+  return async (req: any, res: any) => {
+    for (const l of stack) {
+      let advanced = false;
+      await l.handle(req, res, () => { advanced = true; });
+      if (!advanced) return; // a gate short-circuited
+    }
+  };
 }
 
 function makeRes() {
@@ -81,7 +97,7 @@ function makeRes() {
   return { res: { status, json } as any, status, json };
 }
 
-const BILLING = { sub: 'service:billing' };
+const BILLING = { sub: 'service:billing', principalType: 'service' };
 const T1 = '2026-08-20T10:00:00.000Z';
 const T2 = '2026-08-20T12:00:00.000Z';
 
@@ -145,7 +161,7 @@ describe('entitlement legs — P3 billing-only guard', () => {
   it('403s a generic (non-billing) service principal on PUT', async () => {
     const handler = handlerFor('put');
     const { res, status } = makeRes();
-    await handler({ params: { orgId: 'org-a' }, body: { sets: ['standard'] }, user: { sub: 'service:reporting' } } as any, res);
+    await handler({ params: { orgId: 'org-a' }, body: { sets: ['standard'] }, user: { sub: 'service:reporting', principalType: 'service' } } as any, res);
     expect(status).toHaveBeenCalledWith(403);
     expect(syncEntitledSetsMock).not.toHaveBeenCalled();
   });
@@ -153,17 +169,18 @@ describe('entitlement legs — P3 billing-only guard', () => {
   it('403s a generic service principal on GET', async () => {
     const handler = handlerFor('get');
     const { res, status } = makeRes();
-    await handler({ params: { orgId: 'org-a' }, user: { sub: 'service:reporting' } } as any, res);
+    await handler({ params: { orgId: 'org-a' }, user: { sub: 'service:reporting', principalType: 'service' } } as any, res);
     expect(status).toHaveBeenCalledWith(403);
     expect(getActiveEntitledSetsMock).not.toHaveBeenCalled();
   });
 
-  it('accepts a system admin on PUT', async () => {
+  it('403s a system admin on PUT — an internal route admits no user token (#14)', async () => {
     isAdmin = true;
     const handler = handlerFor('put');
     const { res, status } = makeRes();
     await handler({ params: { orgId: 'org-a' }, body: { sets: ['standard'] }, user: { sub: 'admin-1' } } as any, res);
-    expect(status).toHaveBeenCalledWith(200);
+    expect(status).toHaveBeenCalledWith(403);
+    expect(syncEntitledSetsMock).not.toHaveBeenCalled();
   });
 });
 

@@ -59,19 +59,12 @@ export interface AppConfig {
     readonly expiresInSeconds: number;
   };
 
-  /**
-   * Platform's JWT verification material. Used to validate incoming Basic
-   * auth where the password is a platform-issued JWT — this is the path
-   * customer CodeBuild + plugin-lookup Lambda use, by reading the same
-   * Secrets Manager secret platform wrote with `pipeline-manager infra store-token`.
-   */
-  readonly platformJwt: {
-    readonly secret: string;
-    /** `iss` claim platform stamps on its JWTs. */
-    readonly issuer?: string;
-    /** Permitted `aud` value(s) on platform JWTs. */
-    readonly audience?: string;
-  };
+  // Platform JWTs presented as the Basic-auth password (customer CodeBuild, the
+  // plugin-lookup Lambda) are verified against platform's PUBLISHED ES256 keys
+  // via api-core's JWKS cache — see `services/auth-resolver.ts`. There is no
+  // verification material to configure here any more. Internal SERVICE tokens
+  // are verified against the per-service public bundle (#14) — this service
+  // holds only its OWN signing key, and no key here can mint a platform token.
 
   /**
    * Platform service, reached IN-CLUSTER for the `docker login` flow
@@ -108,12 +101,6 @@ export function loadConfig(): AppConfig {
       issuer: process.env.REGISTRY_TOKEN_ISSUER || 'platform',
       service: process.env.REGISTRY_TOKEN_SERVICE || 'pipeline-image-registry',
       expiresInSeconds: parseInt(process.env.REGISTRY_TOKEN_EXPIRES_IN || '300', 10),
-    },
-
-    platformJwt: {
-      secret: resolveSecretValue('JWT_SECRET'),
-      issuer: process.env.JWT_ISSUER,
-      audience: process.env.JWT_AUDIENCE,
     },
 
     platformService: {

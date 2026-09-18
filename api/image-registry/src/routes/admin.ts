@@ -6,6 +6,7 @@ import {
   sendBadRequest,
   ErrorCode,
   getParam,
+  audited,
   requirePermission,
   createLogger,
   validateBody,
@@ -65,7 +66,7 @@ export function createAdminRoutes(): Router {
 
   // POST /api/admin/gc — prune old manifests under a repo namespace.
   // Body: { prefix: 'org-acme/', maxAgeDays: 30, dryRun: false }
-  router.post('/gc', requirePermission('registry:write') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+  router.post('/gc', requirePermission('registry:write') as RequestHandler, audited('registry.gc'), withRoute(async ({ req, res, ctx }) => {
     const validation = validateBody(req, GcSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const { prefix, maxAgeDays, dryRun } = validation.value;

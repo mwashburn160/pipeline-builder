@@ -9,6 +9,7 @@ import {
   handleAIError,
   initSSEStream,
   requireFeature,
+  requirePermission,
   reserveQuota,
   sendBadRequest,
   sendQuotaReserveDenied,
@@ -34,10 +35,11 @@ const logger = createLogger('generate-plugin');
  * `/increment` endpoint rejects non-service principals), NOT the caller's user
  * bearer — mirrors upload-plugin.ts / deploy-generated-plugin.ts.
  *
- * The `ai_generation` feature gate is attached to each route here (not to the
- * parent '/plugins' mount) so it can't leak onto sibling `GET /plugins` reads.
- * Auth + orgId is still applied at the mount in index.ts, which reads require
- * anyway — only the feature gate needed to move off the shared prefix.
+ * The `ai_generation` feature gate and the permission gate (`plugins:read` to
+ * list providers, `plugins:write` to generate a draft) are attached to each
+ * route here, not to the parent '/plugins' mount, so they can't leak onto
+ * sibling `GET /plugins` reads. Auth + orgId is still applied at the mount in
+ * app-routes.ts, which reads require anyway.
  *
  * @returns Express Router with AI generation endpoints
  */
@@ -45,13 +47,13 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
   // -- GET /providers  list configured AI providers --------------------------
-  router.get('/providers', requireFeature('ai_generation'), withRoute(async ({ res }) => {
+  router.get('/providers', requireFeature('ai_generation'), requirePermission('plugins:read'), withRoute(async ({ res }) => {
     const providers = getAvailableProviders();
     return sendSuccess(res, 200, { providers });
   }));
 
   // -- POST /generate  generate plugin config from natural language ----------
-  router.post('/generate', requireFeature('ai_generation'), rateLimitByOrg({ name: 'plugin-generate', max: 20, windowMs: 60_000, message: 'Too many plugin generation requests, please slow down.' }), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/generate', requireFeature('ai_generation'), requirePermission('plugins:write'), rateLimitByOrg({ name: 'plugin-generate', max: 20, windowMs: 60_000, message: 'Too many plugin generation requests, please slow down.' }), withRoute(async ({ req, res, ctx, orgId }) => {
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error);
@@ -105,7 +107,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
   }));
 
   // -- POST /generate/stream  stream plugin config as SSE events -------------
-  router.post('/generate/stream', requireFeature('ai_generation'), rateLimitByOrg({ name: 'plugin-generate', max: 20, windowMs: 60_000, message: 'Too many plugin generation requests, please slow down.' }), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/generate/stream', requireFeature('ai_generation'), requirePermission('plugins:write'), rateLimitByOrg({ name: 'plugin-generate', max: 20, windowMs: 60_000, message: 'Too many plugin generation requests, please slow down.' }), withRoute(async ({ req, res, ctx, orgId }) => {
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error);

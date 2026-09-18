@@ -50,7 +50,7 @@ pipeline-manager infra provision --repo --with-plugins           # add --prompt 
 ## Shared orchestration ([`bin/`](bin/))
 
 - **Images** — `build-plugin-images.sh` (base + plugin images; defaults `PUBLISH_PLATFORM` to the host arch for local targets, wires `ensure-binfmt.sh` for cross-arch), `push-base-images.sh`, `build-codebuild-bootstrap.sh`, `sync-image-tags.sh` / `verify-image-tags.sh`.
-- **Init** — `init-platform.sh` (health-gates dependencies, registers admin, drives the `load-*` steps), `load-plugins.sh` / `load-plugin-worker.sh`, `load-templates.sh`, `load-compliance.sh`.
+- **Init** — `init-platform.sh` (health-gates dependencies, registers admin, mints the `setup` **service-account** key the `load-*` steps then run with, and drives them), `load-plugins.sh` / `load-plugin-worker.sh`, `load-templates.sh`, `load-compliance.sh`. The admin signs in **once**: everything after that authenticates with a 24-hour `pb_sa_…` key (`SETUP_KEY_TTL_SECONDS` to change), so no password is replayed between steps and nothing durable is left behind — see [Authentication → Service accounts](../docs/authentication.md#service-accounts).
 - **Secrets / TLS** — `gen-env-secrets.sh` (`pb_gen_env_secrets` fills the `.env` `CHANGE_ME` credentials with fresh random values and asserts none remain), `jwt-keys.sh` (registry signing keypair), `nginx-tls.sh` (gateway TLS), `mongo-keyfile.sh` (`pb_ensure_mongo_keyfile` — the replica-set keyfile, generated **per deploy**, never committed).
 - **Helpers** — `common.sh` (logging, retries, `preflight <tools…>`, `curl_with_retry`, health waits, image-tag hashing, `mc_setup_aliases`), `k8s-resources.sh`, `cfn-deploy.sh`, `provision-docker.sh`.
 

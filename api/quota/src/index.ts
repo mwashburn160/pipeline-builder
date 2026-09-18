@@ -5,9 +5,8 @@ import { mongoSanitize, createLogger, DEFAULT_TIER, QUOTA_TIERS, VALID_TIERS, is
 import { createApp, runServer, attachRequestContext, mongoHealthCheck, connectMongo } from '@pipeline-builder/api-server';
 import mongoose from 'mongoose';
 
+import { mountRoutes } from './app-routes.js';
 import { config } from './config.js';
-import { createReadQuotaRoutes } from './routes/read-quotas.js';
-import { createUpdateQuotaRoutes } from './routes/update-quota.js';
 import { getAuditClient } from './services/audit.js';
 
 const logger = createLogger('quota-service');
@@ -28,8 +27,7 @@ const { app, sseManager } = createApp({
 app.use(mongoSanitize());
 app.use(attachRequestContext(sseManager));
 
-app.use('/quotas', createReadQuotaRoutes());
-app.use('/quotas', createUpdateQuotaRoutes());
+mountRoutes(app);
 
 // Forward denied state-changing authorizations (rejected by requirePermission /
 // requireSystemAdmin) into the same remote audit sink as the mutation events,

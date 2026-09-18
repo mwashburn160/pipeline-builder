@@ -1,20 +1,93 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type {
+  AuthenticationResponseJSON,
+  PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialRequestOptionsJSON,
+  RegistrationResponseJSON,
+} from '@simplewebauthn/browser';
 import type { ApiCore } from '../core';
-import type { ApiResponse, User, UserPreferences } from '@/types';
+import type { ApiResponse, MfaChallenge, Passkey, ReauthProvider, TotpEnrolment, TotpStatus, User, UserPreferences } from '@/types';
 
-/** Personal Access Token metadata (never includes the token secret). */
-export interface PatMeta {
+/**
+ * One of the caller's sessions: a signed-in device (`interactive`) or a stored
+ * machine credential minted by generate-token (`machine`).
+ */
+export interface SessionMeta {
   id: string;
-  jti: string;
-  name: string;
+  kind: 'interactive' | 'machine';
+  createdAt: string;
+  /** Last refresh / org switch — for a machine session, the last renewal. */
+  lastUsedAt: string;
+  /** When the sign-in behind the session happened (never reset by renewal). */
+  signedInAt: string;
+  /** Short client summary ("Chrome on macOS"), or null when unknown. */
+  userAgent: string | null;
+  /** Last IP the session was used from (kept only for the session's life). */
+  lastIp: string | null;
+  /** Capability scope of a machine credential (e.g. `reporting:ingest`). */
   scope: string | null;
+  /** Authentication methods of the sign-in (`pwd`, `oauth`, `sso`). */
+  amr: string[];
+  /** True for the session making the request — it can't revoke itself. */
+  current: boolean;
+}
+
+/**
+ * Access-key metadata (never the secret — the key itself is shown once, at
+ * creation, and only its hash is stored).
+ *
+ * `kind` is `personal` for a person's key (`pb_pat_…`) and `service_account`
+ * for an org service account's (`pb_sa_…`); both land in the same list, which is
+ * why the shape carries the discriminator rather than assuming one owner type.
+ */
+export interface AccessKeyMeta {
+  /** Record id — the revoke handle, and the `jti` of tokens exchanged from it. */
+  id: string;
+  name: string;
+  prefix: string;
+  /** Display-only fragment, e.g. `pb_pat_…a1b2`. */
+  display: string;
+  kind: 'personal' | 'service_account';
+  /** Owning service account (service-account keys only). */
+  serviceAccountId: string | null;
+  /** Owning service account's name, for labelling a mixed key list. */
+  serviceAccountName: string | null;
+  scope: string | null;
+  organizationId: string | null;
+  /** Addresses/CIDRs the key may be exchanged from; null = any. */
+  ipAllowlist: string[] | null;
   createdAt: string;
   expiresAt: string;
   lastUsedAt: string | null;
+  /** Where the key was created ("pipeline-manager CLI on macOS"), or null. */
+  createdFrom: string | null;
+  createdIp: string | null;
   revoked: boolean;
   status: 'active' | 'expired' | 'revoked';
+  /** Never exchanged — a candidate to clean up. */
+  neverUsed: boolean;
+  /** Active, but expires within 14 days. */
+  expiringSoon: boolean;
+}
+
+/**
+ * A pending device-authorization request, as the approval page sees it. Never
+ * carries the device code — only what the person needs to recognise the device
+ * they are about to hand a session to.
+ */
+export interface DeviceAuthorizationRequest {
+  /** The code as displayed, e.g. `BCDF-GHJK`. */
+  userCode: string;
+  /** Short client summary ("pipeline-manager CLI on macOS"), or null. */
+  client: string | null;
+  /** IP the device asked from, or null. */
+  ip: string | null;
+  requestedAt: string;
+  expiresAt: string;
+  /** The device also asked for a step-up token (it intends to create a key). */
+  stepUpRequested: boolean;
 }
 
 export function authApi(core: ApiCore) {
@@ -39,11 +112,32 @@ export function authApi(core: ApiCore) {
     // ============================================
     // Auth endpoints
     // ============================================
+    /**
+     * POST /auth/login.
+     *
+     * Two outcomes share one response: the usual `{ accessToken }`, or — for an
+     * account with an authenticator app — `{ mfaRequired: true, challengeId }`
+     * and NO token. `applyTokens` ignores the second (there is nothing to
+     * apply), so the caller must branch on `mfaRequired` and follow up with
+     * `verifyMfaLogin` rather than assume a session exists.
+     */
     login: async (email: string, password: string) => {
-      const response = await core.request<ApiResponse<{ accessToken: string; refreshToken: string }>>('/api/auth/login', {
+      const response = await core.request<ApiResponse<{ accessToken?: string; expiresIn?: number } & Partial<MfaChallenge>>>('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ identifier: email, password }),
       });
+      core.applyTokens(response as ApiResponse<{ accessToken: string; expiresIn?: number }>);
+      return response;
+    },
+
+    /** POST /auth/mfa/verify — second leg of a password sign-in: the challenge
+     *  handle plus a code from the authenticator app (or a recovery code).
+     *  Establishes exactly the session `login` would have. */
+    verifyMfaLogin: async (body: { challengeId: string; code: string }) => {
+      const response = await core.request<ApiResponse<{ accessToken: string; expiresIn?: number; recoveryCodesRemaining?: number }>>(
+        '/api/auth/mfa/verify',
+        { method: 'POST', body: JSON.stringify(body) },
+      );
       core.applyTokens(response);
       return response;
     },
@@ -92,12 +186,12 @@ export function authApi(core: ApiCore) {
 
     /** Switch active organization and re-issue tokens. */
     switchOrganization: async (organizationId: string) => {
-      const result = await core.request<ApiResponse<{ accessToken: string; refreshToken: string; expiresIn: number }>>('/api/auth/switch-org', {
+      const result = await core.request<ApiResponse<{ accessToken: string; expiresIn: number }>>('/api/auth/switch-org', {
         method: 'POST',
         body: JSON.stringify({ organizationId }),
       });
       if (result.data) {
-        core.setTokens({ accessToken: result.data.accessToken, refreshToken: result.data.refreshToken });
+        core.setTokens({ accessToken: result.data.accessToken, expiresIn: result.data.expiresIn });
       }
       return result;
     },
@@ -170,15 +264,31 @@ export function authApi(core: ApiCore) {
     },
 
     /**
-     * Generate a new token pair via POST /user/generate-token
+     * POST /user/generate-token — mint a stored MACHINE credential (CLI / CI /
+     * automation). It opens its own machine session, so it never replaces or
+     * disturbs the caller's browser session; the token is returned once and is
+     * renewed by calling this endpoint with the token itself (there is no
+     * refresh token — machine sessions are not refreshable).
      */
-    generateNewToken: async () => {
-      const response = await core.request<ApiResponse<{ accessToken: string; refreshToken: string }>>(
+    generateNewToken: async (body?: { expiresIn?: number; scope?: string }) => {
+      return core.request<ApiResponse<{ accessToken: string; expiresIn: number }>>(
         '/api/user/generate-token',
-        { method: 'POST' },
+        { method: 'POST', body: JSON.stringify(body ?? {}) },
       );
-      core.applyTokens(response);
-      return response;
+    },
+
+    /** GET /user/sessions — signed-in devices + stored machine credentials. */
+    listSessions: async () => {
+      return core.request<ApiResponse<{ sessions: SessionMeta[]; machineSessions: SessionMeta[] }>>('/api/user/sessions');
+    },
+
+    /** DELETE /user/sessions/:id — sign one device out, or stop a machine
+     *  credential from renewing. Step-up gated; the current session is refused. */
+    revokeSession: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ revoked: boolean }>>(`/api/user/sessions/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: core.stepUpHeader(stepUpToken),
+      });
     },
 
     /** GET /user/tokens — recent token-issuance history with computed status. */
@@ -188,24 +298,26 @@ export function authApi(core: ApiCore) {
       );
     },
 
-    /** POST /user/pats — create a named Personal Access Token. Returns the token ONCE.
+    /** POST /user/keys — create a named access key. The raw `pb_pat_…` key comes
+     *  back ONCE and is never retrievable again (only its hash is stored).
      *  Step-up gated: pass the token from a StepUpModal via `X-Step-Up-Token`. */
-    createPat: async (body: { name: string; expiresIn?: number; scope?: string }, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ token: string; pat: PatMeta }>>('/api/user/pats', {
+    createAccessKey: async (body: { name: string; expiresIn?: number; scope?: string }, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ key: string; accessKey: AccessKeyMeta }>>('/api/user/keys', {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify(body),
       });
     },
 
-    /** GET /user/pats — list the user's Personal Access Tokens (metadata only). */
-    listPats: async () => {
-      return core.request<ApiResponse<{ pats: PatMeta[] }>>('/api/user/pats');
+    /** GET /user/keys — list the user's access keys (metadata only). */
+    listAccessKeys: async () => {
+      return core.request<ApiResponse<{ keys: AccessKeyMeta[] }>>('/api/user/keys');
     },
 
-    /** DELETE /user/pats/:jti — revoke a single Personal Access Token immediately. */
-    revokePat: async (jti: string) => {
-      return core.request<ApiResponse<{ revoked: boolean }>>(`/api/user/pats/${encodeURIComponent(jti)}`, {
+    /** DELETE /user/keys/:id — revoke a single access key immediately. Its next
+     *  exchange fails, so it stops working on every service within 5 minutes. */
+    revokeAccessKey: async (id: string) => {
+      return core.request<ApiResponse<{ revoked: boolean }>>(`/api/user/keys/${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
     },
@@ -226,7 +338,7 @@ export function authApi(core: ApiCore) {
     /** POST /user/tokens/revoke-all — sign out everywhere (bumps tokenVersion). Re-issues a fresh token for the active session.
      *  Step-up gated — a stolen session can otherwise lock the legitimate user out. */
     revokeAllTokens: async (stepUpToken?: string) => {
-      const response = await core.request<ApiResponse<{ revoked: boolean; accessToken: string; refreshToken: string; expiresIn: number }>>(
+      const response = await core.request<ApiResponse<{ revoked: boolean; accessToken: string; expiresIn: number }>>(
         '/api/user/tokens/revoke-all',
         { method: 'POST', headers: core.stepUpHeader(stepUpToken) },
       );
@@ -235,10 +347,43 @@ export function authApi(core: ApiCore) {
     },
 
     // ============================================
+    // Device authorization (RFC 8628) — the browser half of `pipeline-manager
+    // auth login`. The CLI never sees a credential: it shows a code, the person
+    // approves it here in a normal (SSO-, step-up- and later MFA-protected)
+    // browser session, and the CLI collects a session on its next poll.
+    // ============================================
+
+    /** GET /auth/device/authorize — what the waiting device is asking for.
+     *  404 = unrecognised code, 410 = expired, 409 = already decided. */
+    getDeviceAuthorization: async (userCode: string) => {
+      return core.request<ApiResponse<{ request: DeviceAuthorizationRequest }>>(
+        `/api/auth/device/authorize?user_code=${encodeURIComponent(userCode)}`,
+      );
+    },
+
+    /** POST /auth/device/approve — grant the device a session. Step-up gated:
+     *  pass the token from a StepUpModal via `X-Step-Up-Token`. */
+    approveDeviceAuthorization: async (userCode: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ approved: boolean; request: DeviceAuthorizationRequest }>>(
+        '/api/auth/device/approve',
+        { method: 'POST', headers: core.stepUpHeader(stepUpToken), body: JSON.stringify({ userCode }) },
+      );
+    },
+
+    /** POST /auth/device/deny — refuse the device. No step-up: refusing is the
+     *  safe direction, and a code you did not start must be easy to shut down. */
+    denyDeviceAuthorization: async (userCode: string) => {
+      return core.request<ApiResponse<{ denied: boolean }>>('/api/auth/device/deny', {
+        method: 'POST',
+        body: JSON.stringify({ userCode }),
+      });
+    },
+
+    // ============================================
     // OAuth / SSO login
     //
     // Session establishment is IDENTICAL to password login: the callback
-    // endpoint returns the same `{ accessToken, refreshToken }` pair issued by
+    // endpoint returns the same session `{ accessToken }` (plus refresh cookie) issued by
     // `issueTokens`, so `completeOAuthCallback` funnels it through the same
     // `core.applyTokens(...)` used by `login`. There is no parallel auth path.
     //
@@ -266,9 +411,9 @@ export function authApi(core: ApiCore) {
 
     /** POST /auth/oauth/:provider/callback — exchange the provider's `code`/`state`
      *  for a session. Returns the SAME token shape as password login; tokens are
-     *  applied via `core.applyTokens` exactly like `login`. */
+     *  applied via `core.applyTokens` exactly like `login` (refresh token: cookie). */
     completeOAuthCallback: async (provider: string, params: { code: string; state: string }) => {
-      const response = await core.request<ApiResponse<{ accessToken: string; refreshToken: string; expiresIn?: number }>>(
+      const response = await core.request<ApiResponse<{ accessToken: string; expiresIn?: number }>>(
         `/api/auth/oauth/${encodeURIComponent(provider)}/callback`,
         { method: 'POST', body: JSON.stringify({ code: params.code, state: params.state }) },
       );
@@ -283,9 +428,187 @@ export function authApi(core: ApiCore) {
     // `requireStepUp` middleware enforces it.
     // ============================================
     stepUpVerify: async (password: string) => {
-      return core.request<ApiResponse<{ ok: boolean; stepUpToken: string; expiresAt: number }>>('/api/auth/step-up', {
+      return core.request<ApiResponse<{ ok: boolean; stepUpToken: string; expiresAt: number; method: 'password' }>>('/api/auth/step-up', {
         method: 'POST',
         body: JSON.stringify({ password }),
+      });
+    },
+
+    /** POST /auth/step-up/reauth — start a step-up by signing in again with one of
+     *  the user's own providers (the only step-up an account with no password has).
+     *  Returns the provider authorize URL to open; the CSRF `state` is stored
+     *  server-side, bound to the caller and single-use. */
+    startStepUpReauth: async (option: ReauthProvider) => {
+      const body = option.type === 'oauth'
+        ? { type: 'oauth', provider: option.provider }
+        : { type: 'sso', orgId: option.orgId };
+      return core.request<ApiResponse<{ url: string; state: string; expiresAt: number }>>('/api/auth/step-up/reauth', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+
+    /** POST /auth/step-up/reauth/callback — hand back the provider's `code`/`state`
+     *  and receive the same step-up token the password path issues. */
+    completeStepUpReauth: async (params: { code: string; state: string }) => {
+      return core.request<ApiResponse<{ ok: boolean; stepUpToken: string; expiresAt: number; method: 'reauth' }>>(
+        '/api/auth/step-up/reauth/callback',
+        { method: 'POST', body: JSON.stringify(params) },
+      );
+    },
+
+    // ============================================
+    // Passkeys (WebAuthn)
+    //
+    // Every ceremony is two calls: `/options` mints a single-use challenge the
+    // browser signs, `/verify` hands the authenticator's reply back. The
+    // `ceremonyId` is the server-side handle for that challenge — it is what
+    // binds the two halves and it can be redeemed exactly once.
+    //
+    // These are the RAW endpoints; `lib/passkeys.ts` wraps them with the
+    // browser calls so components never touch @simplewebauthn directly.
+    // ============================================
+
+    /** POST /auth/webauthn/register/options — a registration challenge.
+     *  Step-up gated: pass the token from a StepUpModal. */
+    getPasskeyRegistrationOptions: async (stepUpToken?: string) => {
+      return core.request<ApiResponse<{ ceremonyId: string; options: PublicKeyCredentialCreationOptionsJSON }>>(
+        '/api/auth/webauthn/register/options',
+        { method: 'POST', headers: core.stepUpHeader(stepUpToken), body: JSON.stringify({}) },
+      );
+    },
+
+    /** POST /auth/webauthn/register/verify — store the newly created passkey. */
+    verifyPasskeyRegistration: async (body: { ceremonyId: string; response: RegistrationResponseJSON; name: string }) => {
+      return core.request<ApiResponse<{ passkey: Passkey }>>('/api/auth/webauthn/register/verify', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+
+    /** GET /auth/webauthn/credentials — the caller's registered passkeys. */
+    listPasskeys: async () => {
+      return core.request<ApiResponse<{ passkeys: Passkey[] }>>('/api/auth/webauthn/credentials');
+    },
+
+    /** PATCH /auth/webauthn/credentials/:id — relabel a passkey. */
+    renamePasskey: async (id: string, name: string) => {
+      return core.request<ApiResponse<{ passkey: Passkey }>>(`/api/auth/webauthn/credentials/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
+      });
+    },
+
+    /** DELETE /auth/webauthn/credentials/:id — revoke a passkey. Step-up gated;
+     *  refused with `409` when it is the account's only way to sign in. */
+    deletePasskey: async (id: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ removed: boolean; passkey: Passkey }>>(
+        `/api/auth/webauthn/credentials/${encodeURIComponent(id)}`,
+        { method: 'DELETE', headers: core.stepUpHeader(stepUpToken) },
+      );
+    },
+
+    /** POST /auth/step-up/webauthn/options — a step-up challenge for the
+     *  caller's own passkeys. `409` when the account has none. */
+    getPasskeyStepUpOptions: async () => {
+      return core.request<ApiResponse<{ ceremonyId: string; options: PublicKeyCredentialRequestOptionsJSON }>>(
+        '/api/auth/step-up/webauthn/options',
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+    },
+
+    /** POST /auth/step-up/webauthn/verify — the same step-up token the password
+     *  and provider-re-auth paths issue. */
+    verifyPasskeyStepUp: async (body: { ceremonyId: string; response: AuthenticationResponseJSON }) => {
+      return core.request<ApiResponse<{ ok: boolean; stepUpToken: string; expiresAt: number; method: 'webauthn' }>>(
+        '/api/auth/step-up/webauthn/verify',
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+    },
+
+    /** POST /auth/webauthn/login/options — a sign-in challenge (public). Names
+     *  no user: the browser picks whichever discoverable credential it holds. */
+    getPasskeyLoginOptions: async () => {
+      return core.request<ApiResponse<{ ceremonyId: string; options: PublicKeyCredentialRequestOptionsJSON }>>(
+        '/api/auth/webauthn/login/options',
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+    },
+
+    /** POST /auth/webauthn/login/verify — sign in with a passkey. Returns the
+     *  SAME token shape as password login and is applied the same way. */
+    completePasskeyLogin: async (body: { ceremonyId: string; response: AuthenticationResponseJSON }) => {
+      const response = await core.request<ApiResponse<{ accessToken: string; expiresIn?: number }>>(
+        '/api/auth/webauthn/login/verify',
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+      core.applyTokens(response);
+      return response;
+    },
+
+    // ============================================
+    // Authenticator app (TOTP)
+    //
+    // Enrolment is two calls for the same reason a passkey ceremony is: `/enrol`
+    // mints a secret that has to reach the person's app, and `/activate` proves
+    // it actually got there before the account starts depending on it. Both the
+    // secret and the recovery codes are returned ONCE and never again — only
+    // hashes and an encrypted blob exist server-side.
+    // ============================================
+
+    /** GET /auth/totp/status — whether the caller has an authenticator app, and
+     *  how many recovery codes are left. Never the secret. */
+    getTotpStatus: async () => {
+      return core.request<ApiResponse<{ totp: TotpStatus }>>('/api/auth/totp/status');
+    },
+
+    /** POST /auth/totp/enrol — a fresh secret + `otpauth://` URI. Step-up gated;
+     *  refused with `409` when an enrolment is already active. */
+    enrolTotp: async (stepUpToken?: string) => {
+      return core.request<ApiResponse<TotpEnrolment>>('/api/auth/totp/enrol', {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+        body: JSON.stringify({}),
+      });
+    },
+
+    /** POST /auth/totp/activate — confirm the enrolment with a code from the app.
+     *  Returns the recovery codes, shown once. */
+    activateTotp: async (code: string) => {
+      return core.request<ApiResponse<{ recoveryCodes: string[] }>>('/api/auth/totp/activate', {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      });
+    },
+
+    /** DELETE /auth/totp — turn the authenticator off. Step-up gated; refused
+     *  with `409` when it would leave no way to sign in. */
+    disableTotp: async (stepUpToken?: string) => {
+      return core.request<ApiResponse<{ disabled: boolean }>>('/api/auth/totp', {
+        method: 'DELETE',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
+    /** POST /auth/totp/recovery-codes — replace the whole sheet. Step-up gated;
+     *  every previously issued code stops working. */
+    regenerateTotpRecoveryCodes: async (stepUpToken?: string) => {
+      return core.request<ApiResponse<{ recoveryCodes: string[] }>>('/api/auth/totp/recovery-codes', {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+        body: JSON.stringify({}),
+      });
+    },
+
+    /** POST /auth/step-up/totp — the same step-up token every other factor
+     *  issues, earned with an authenticator (or recovery) code. */
+    stepUpWithTotp: async (code: string) => {
+      return core.request<ApiResponse<{
+        ok: boolean; stepUpToken: string; expiresAt: number;
+        method: 'totp'; via: 'totp' | 'recovery'; recoveryCodesRemaining: number;
+      }>>('/api/auth/step-up/totp', {
+        method: 'POST',
+        body: JSON.stringify({ code }),
       });
     },
   };

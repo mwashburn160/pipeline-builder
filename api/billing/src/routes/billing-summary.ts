@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  audited,
   requireAuth,
   requirePermission,
   requireSystemAdmin,
@@ -26,6 +27,7 @@ import { allocateCosts } from '../helpers/cost-allocation.js';
 import { parseOptionalDate } from '../helpers/query-dates.js';
 import { fetchSeatUsage } from '../helpers/quota-client.js';
 import { getTeamUsage } from '../helpers/team-usage.js';
+import { getAuditClient } from '../services/audit.js';
 
 const logger = createLogger('billing-summary');
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
@@ -121,9 +123,19 @@ export function createBillingSummaryRoutes(): Router {
 
   // POST /billing/admin/backfill — one-off: seed the ledger from the
   // provider's historical invoices (idempotent; invoices predate the ledger).
-  router.post('/admin/backfill', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ res }) => {
+  router.post('/admin/backfill', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.ledger.backfill'), withRoute(async ({ req, res }) => {
     const result = await backfillLedgerFromProvider();
     logger.info('Ledger backfill requested', result);
+    // Operator-initiated, fleet-wide finance mutation (it ingests provider
+    // invoices for EVERY account), so it carries the durable central trail on
+    // top of the log line. Fire-and-forget; counts only, no invoice contents.
+    getAuditClient().record({
+      action: 'billing.ledger.backfill',
+      actorId: req.user?.sub ?? 'system',
+      // Fleet-wide sweep — not scoped to one org; use the system sentinel.
+      orgId: 'system',
+      details: { accounts: result.accounts, ingested: result.ingested, errors: result.errors },
+    }, 'billing');
     return sendSuccess(res, 200, result);
   }));
 

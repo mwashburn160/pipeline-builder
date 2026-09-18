@@ -102,7 +102,13 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({
-  signPersonalAccessToken: jest.fn(),
+  // Session-auth helpers the controllers now import (see utils/token.ts).
+  signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  findRefreshSession: jest.fn(async () => undefined),
+  signApiKeyToken: jest.fn(),
+  signServiceAccountToken: jest.fn(),
+  membershipForOrg: jest.fn(async () => undefined),
   issueImpersonationToken: (...a: unknown[]) => mockIssueImpersonation(...a),
 }));
 // This is a CONTROLLER test: stub the request lifecycle at the service boundary
@@ -280,6 +286,8 @@ describe('impersonateUser', () => {
       'sysadmin',
       'org-target',
       expect.any(String), // the session jti
+      // The OPERATOR's own sign-in context — the session inherits it, never raises it.
+      expect.objectContaining({ amr: expect.any(Array), aal: 1 }),
     );
     // The impersonator at session start IS the actor (the sysadmin), already
     // captured as the event's actorId — so it's no longer duplicated into
@@ -324,6 +332,7 @@ describe('redeemImpersonationRequest', () => {
     expect(mockConsume).toHaveBeenCalledWith('req-1', expect.any(String));
     expect(mockIssueImpersonation).toHaveBeenCalledWith(
       expect.objectContaining({ _id: 'target' }), 'sysadmin', 'org-a', expect.any(String),
+      expect.objectContaining({ amr: expect.any(Array), aal: 1 }),
     );
   });
 

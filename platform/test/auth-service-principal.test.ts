@@ -3,8 +3,8 @@
 
 /**
  * `requireAuth` service-principal branch (middleware/auth.ts). A token minted by
- * api-core `signServiceToken` carries `sub: 'service:<name>'` and is NOT backed
- * by a User row. Regression pin: `requireAuth` must accept it WITHOUT a
+ * api-core `signServiceToken` carries `principalType: 'service'` (and names the
+ * service in `sub: 'service:<name>'`) and is NOT backed by a User row. Regression pin: `requireAuth` must accept it WITHOUT a
  * `User.findById(sub)` — which throws a CastError on the non-ObjectId `sub` and
  * previously rejected every service→platform call with 401 "Token invalid",
  * silently breaking all inter-service hierarchy/name lookups.
@@ -13,14 +13,19 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
+// Loading the auth middleware pulls in platform's config module, which refuses
+// to boot without these secrets.
+process.env.JWT_SECRET ||= 'test-only-jwt-secret';
+process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
+
 const mockVerifyAccessToken = jest.fn<(...a: unknown[]) => unknown>();
 const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
-const mockIsServiceTokenDenied = jest.fn<(sub: string) => boolean>();
+const mockIsServiceTokenDenied = jest.fn<(claims: { sub?: string }) => boolean>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string, code?: string) =>
     res.status(status).json({ success: false, message: msg, code }),
-  isServiceTokenDenied: (sub: string) => mockIsServiceTokenDenied(sub),
+  isServiceTokenDenied: (claims: { sub?: string }) => mockIsServiceTokenDenied(claims),
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
@@ -31,7 +36,6 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findById: (...a: unknown[]) => mockUserFindById(...a) },
   Organization: { findById: jest.fn() },
   UserOrganization: { findOne: jest.fn() },
-  PersonalAccessToken: { findOne: jest.fn(), updateOne: jest.fn() },
 }));
 
 jest.unstable_mockModule('../src/utils/index.js', () => ({
@@ -50,6 +54,8 @@ function makeRes() {
 
 const SERVICE_DECODED = {
   type: 'access',
+  principalType: 'service',
+  token_use: 'access',
   sub: 'service:message',
   username: 'message-service',
   email: 'message@internal',
@@ -91,7 +97,18 @@ describe('requireAuth — service principal branch', () => {
   });
 
   it('a normal user token still goes through the User/tokenVersion path', async () => {
-    mockVerifyAccessToken.mockReturnValue({ type: 'access', sub: 'user-1', role: 'admin', tokenVersion: 1 });
+    mockVerifyAccessToken.mockReturnValue({
+      type: 'access',
+      sub: 'user-1',
+      role: 'admin',
+      tokenVersion: 1,
+      // A user token must carry the identity claims or requireAuth fails closed.
+      principalType: 'user',
+      token_use: 'access',
+      amr: ['pwd'],
+      aal: 1,
+      auth_time: 1_700_000_000,
+    });
     mockUserFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ _id: 'user-1', tokenVersion: 1 }) }) });
     const next = jest.fn();
     const res = makeRes();
@@ -103,13 +120,32 @@ describe('requireAuth — service principal branch', () => {
   });
 });
 
+describe('requireAuth — identity claims are mandatory', () => {
+  it.each([
+    ['no principalType/token_use at all', { type: 'access', sub: 'user-1', role: 'admin', tokenVersion: 1 }],
+    ['an unknown principalType', { type: 'access', sub: 'user-1', role: 'admin', principalType: 'robot', token_use: 'access' }],
+    ['a user principal missing its assurance claims', { type: 'access', sub: 'user-1', role: 'admin', principalType: 'user', token_use: 'access' }],
+    ['a service principal whose subject does not name a service', { type: 'access', sub: 'user-1', role: 'admin', principalType: 'service', token_use: 'access' }],
+  ])('rejects %s', async (_name, decoded) => {
+    mockVerifyAccessToken.mockReturnValue(decoded);
+    const next = jest.fn();
+    const res = makeRes();
+
+    await requireAuth({ headers: { authorization: 'Bearer t' } } as any, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockUserFindById).not.toHaveBeenCalled();
+  });
+});
+
 describe('service-token kill-switch (SERVICE_TOKEN_DENYLIST)', () => {
   it.each([
     ['requireAuth', requireAuth],
     ['requireServiceAuth', requireServiceAuth],
   ])('%s rejects a denylisted service principal with 401 TOKEN_REVOKED', async (_name, mw) => {
     mockVerifyAccessToken.mockReturnValue(SERVICE_DECODED);
-    mockIsServiceTokenDenied.mockImplementation((sub) => sub === 'service:message');
+    mockIsServiceTokenDenied.mockImplementation((claims) => claims.sub === 'service:message');
     const next = jest.fn();
     const res = makeRes();
 

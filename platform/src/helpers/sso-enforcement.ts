@@ -17,6 +17,7 @@
  */
 
 import { resolveUserFeatures, sendError } from '@pipeline-builder/api-core';
+import { requireOrgScope } from './controller-helper.js';
 import { resolveOrgLineage } from './org-hierarchy.js';
 import { toOrgId } from './org-id.js';
 import { OrgDomain, Organization } from '../models/index.js';
@@ -94,6 +95,26 @@ export async function isSsoEntitled(orgId: string): Promise<boolean> {
 
   const features = resolveUserFeatures((org as { tier: 'developer' | 'pro' | 'team' | 'enterprise' | 'unlimited' }).tier, { accountFeatures });
   return features.includes('sso');
+}
+
+/**
+ * Shared tenancy + entitlement gate for every org-facing SSO surface (the IdP
+ * config editor and the group-mapping editor). Confirms the caller may manage
+ * `orgId` — their own org or a team they administer — AND that the org is
+ * `sso`-entitled, which is what makes JIT and mapping part of SSO rather than a
+ * separate add-on. Returns false (having already responded) when either fails.
+ */
+export async function requireOwnOrgSso(
+  req: Parameters<typeof requireOrgScope>[0],
+  res: Parameters<typeof requireOrgScope>[1],
+  orgId: string,
+): Promise<boolean> {
+  if (!(await requireOrgScope(req, res, orgId))) return false;
+  if (!(await isSsoEntitled(orgId))) {
+    sendError(res, 403, 'This organization is not entitled to SSO', 'SSO_NOT_ENTITLED');
+    return false;
+  }
+  return true;
 }
 
 /**

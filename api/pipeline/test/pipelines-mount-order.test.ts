@@ -252,24 +252,27 @@ function request(method: string, path: string, headers: Record<string, string> =
 }
 
 const WRITER = { 'x-org-id': 'acme', 'x-test-caps': 'pipelines:write' };
+// Reads carry their own `pipelines:read` gate (route-permission coverage), so a
+// read request needs it even when the point of the test is mount ORDER.
+const READER = { 'x-org-id': 'acme', 'x-test-caps': 'pipelines:read' };
 const ID = '10000000-0000-4000-8000-000000000001';
 
 describe('A — scorecard routes are not shadowed by GET /:id', () => {
   it('GET /pipelines/scorecard serves the org roll-up (not a "Pipeline not found" 404)', async () => {
-    const res = await request('GET', '/pipelines/scorecard', { 'x-test-features': 'advanced_reporting' });
+    const res = await request('GET', '/pipelines/scorecard', { ...READER, 'x-test-features': 'advanced_reporting' });
     expect(res.status).toBe(200);
     expect(res.body.data.rollup).toEqual(expect.objectContaining({ orgId: 'acme', pipelineCount: 0 }));
     expect(passes).toEqual({ auth: 1, apiCallsCheck: 1, stepUp: 0 });
   });
 
   it('GET /pipelines/:id/scorecard is a read: no pipelines:write needed', async () => {
-    const res = await request('GET', `/pipelines/${ID}/scorecard`, { 'x-test-features': 'advanced_reporting' });
+    const res = await request('GET', `/pipelines/${ID}/scorecard`, { ...READER, 'x-test-features': 'advanced_reporting' });
     expect(res.status).toBe(404); // reached the handler (stub findById → null), not a 403
     expect(res.body.message).toBe('Pipeline not found');
   });
 
   it('GET /pipelines/:id still resolves through the read router', async () => {
-    const res = await request('GET', `/pipelines/${ID}`);
+    const res = await request('GET', `/pipelines/${ID}`, READER);
     expect(res.status).toBe(404);
     expect(passes).toEqual({ auth: 1, apiCallsCheck: 1, stepUp: 0 });
   });
@@ -330,7 +333,7 @@ describe('gates are unchanged by the single shared chain', () => {
   });
 
   it('GET /pipelines/registry is served without the apiCalls check (as before)', async () => {
-    const res = await request('GET', '/pipelines/registry');
+    const res = await request('GET', '/pipelines/registry', READER);
     expect(res.status).toBe(200);
     expect(passes).toEqual({ auth: 1, apiCallsCheck: 0, stepUp: 0 });
   });

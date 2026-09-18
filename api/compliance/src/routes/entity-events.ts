@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendError, ErrorCode, createLogger, requireAuth, requireServicePrincipal, validateBody } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendError, ErrorCode, createLogger, requireAuth, requireInternalService, validateBody } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
@@ -25,13 +25,13 @@ const EntityEventSchema = z.object({
  *
  * This route is called by the compliance event subscriber registered in
  * plugin/pipeline services via `registerComplianceEventSubscriber()`.
- * It is NOT user-facing — `requireAuth` + `requireServicePrincipal` ensures
- * the caller minted a valid service JWT via `getServiceAuthHeader`.
+ * It is NOT user-facing — `requireAuth` + `requireInternalService` admits only
+ * those two services' own signed tokens (#14), and refuses every user token.
  */
 export function createEntityEventRoutes(): Router {
   const router = Router();
 
-  router.post('/', requireAuth, requireServicePrincipal, async (req: Request, res: Response) => {
+  router.post('/', requireAuth, requireInternalService({ callers: ['pipeline', 'plugin'] }), async (req: Request, res: Response) => {
     const validation = validateBody(req, EntityEventSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);

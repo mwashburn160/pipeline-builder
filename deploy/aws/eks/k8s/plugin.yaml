@@ -202,8 +202,6 @@ spec:
             # Credentials (DB_PASSWORD, MONGODB_URI, API keys, …) split out of app-env.
             - secretRef:
                 name: app-secrets
-            - secretRef:
-                name: jwt-secret
           env:
             - name: SERVICE_NAME
               value: "plugin"
@@ -270,6 +268,18 @@ spec:
             - name: TMPDIR
               value: "/tmp"
           volumeMounts:
+            # This pod's OWN internal-token signing key (#14) and the PUBLIC
+            # bundle it verifies its peers with. One private key per pod — that
+            # is what stops a compromised service signing as another — while the
+            # bundle is public and identical everywhere. Both from
+            # deploy/bin/service-signing-keys.sh; the service refuses to start
+            # without them.
+            - name: service-signing-key
+              mountPath: /etc/pipeline-builder/service-keys
+              readOnly: true
+            - name: service-key-bundle
+              mountPath: /etc/pipeline-builder/service-key-bundle
+              readOnly: true
             # Mount at the SAME absolute path as the host (which buildkit
             # also sees) so DOCKER_BUILD_TEMP_ROOT resolves identically on
             # both sides — buildkit bind mounts won't work otherwise.
@@ -316,6 +326,14 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 30
       volumes:
+        - name: service-signing-key
+          secret:
+            secretName: service-key-plugin
+            defaultMode: 0444
+        - name: service-key-bundle
+          secret:
+            secretName: service-key-bundle
+            defaultMode: 0444
         # Per-pod build scratch (transient incoming ZIP + extracted context).
         # No longer shared EFS: the build queue (BullMQ) + autoscaler (KEDA)
         # decouple "pod that received the upload" from "pod that runs the build",

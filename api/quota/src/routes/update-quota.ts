@@ -1,12 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requireAuth, isSystemAdmin, isServicePrincipal, requireStepUp, NotFoundError, sendSuccess, sendError, sendBadRequest, sendQuotaExceeded, ErrorCode, getParam, validateBody, recordAuthzDenial } from '@pipeline-builder/api-core';
+import { requireAuth, requireStepUp, audited, NotFoundError, sendSuccess, sendBadRequest, sendQuotaExceeded, ErrorCode, getParam, validateBody } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import { authorizeOrg } from '../middleware/authorize-org.js';
+import { authorizeOrg, requireInternalCaller } from '../middleware/authorize-org.js';
 import { emitQuotaAudit } from '../services/audit.js';
 import { QuotaService, quotaService as defaultQuotaService, OrgNotFoundError } from '../services/quota-service.js';
 import { UpdateQuotaSchema, IncrementQuotaSchema, DecrementQuotaSchema, ResetQuotaSchema } from '../validation/schemas.js';
@@ -19,6 +19,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
   router.put( '/:orgId',
     requireAuth as RequestHandler,
     authorizeOrg({ requireSystemAdmin: true }) as RequestHandler,
+    audited('quota.limit.update'),
     withRoute(async ({ req, res, ctx }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
 
@@ -68,6 +69,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
     // exempt (requireStepUp skips verified service principals) so org-delete
     // still works unattended.
     requireStepUp as RequestHandler,
+    audited('quota.delete'),
     withRoute(async ({ req, res, ctx }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
       const deleted = await svc.delete(targetOrgId);
@@ -97,6 +99,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
     // Destructive: zeroes an org's usage counters (lets it re-consume against
     // its caps). Step-up re-verifies the human sysadmin; service principals exempt.
     requireStepUp as RequestHandler,
+    audited('quota.reset'),
     withRoute(async ({ req, res, ctx }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
 
@@ -129,23 +132,21 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
     }),
   );
 
-  // POST /quotas/:orgId/increment  increment usage (internal service use only)
-  // Accepts same-org or system admin auth. This endpoint is intended for
-  // internal service-to-service calls (pipeline, plugin services) and should
-  // not be exposed directly to end users.
+  // POST /quotas/:orgId/increment  increment usage (INTERNAL route, #14)
+  //
+  // Every service meters its own inbound traffic through api-core's quota
+  // client, so the caller list is the whole internal fleet — but it is still a
+  // closed list of cryptographically-named services, and NO user token reaches
+  // it, not even a superadmin's: a member who could increment or decrement their
+  // own counters would defeat the caps outright.
 
   router.post( '/:orgId/increment',
     requireAuth as RequestHandler,
     authorizeOrg() as RequestHandler,
+    // authorizeOrg() alone admits any same-org member — this is what makes the
+    // endpoint service-only.
+    requireInternalCaller as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
-      // Internal service-to-service only: authorizeOrg() admits any same-org
-      // member, which would let a member inflate their own usage counters and
-      // defeat caps. Require a signed service principal or a system admin.
-      if (!isServicePrincipal(req) && !isSystemAdmin(req)) {
-        recordAuthzDenial(req, 'service-principal or system-admin');
-        return sendError(res, 403, 'This endpoint is restricted to internal service callers.', ErrorCode.INSUFFICIENT_PERMISSIONS);
-      }
-
       const targetOrgId = getParam(req.params, 'orgId')!;
 
       const validation = validateBody(req, IncrementQuotaSchema);
@@ -154,8 +155,12 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
 
       try {
         const typedType = quotaType as QuotaType;
+        // No bypass: the only callers are services, and a service metering a
+        // tenant's usage must never be able to waive that tenant's cap. (The
+        // sysadmin bypass this replaced was unreachable for a service token —
+        // `isSuperAdmin` is a user claim — and the sysadmin path itself is gone.)
         const result = await svc.incrementUsage(targetOrgId, typedType, amount, {
-          bypassLimit: isSystemAdmin(req),
+          bypassLimit: false,
         });
 
         if (result.exceeded) {
@@ -193,15 +198,9 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
   router.post( '/:orgId/decrement',
     requireAuth as RequestHandler,
     authorizeOrg() as RequestHandler,
+    // Internal service-to-service only — same gate and reasoning as /increment.
+    requireInternalCaller as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
-      // Internal service-to-service only: authorizeOrg() admits any same-org
-      // member, which would let a member roll back their own usage counters and
-      // defeat caps. Require a signed service principal or a system admin.
-      if (!isServicePrincipal(req) && !isSystemAdmin(req)) {
-        recordAuthzDenial(req, 'service-principal or system-admin');
-        return sendError(res, 403, 'This endpoint is restricted to internal service callers.', ErrorCode.INSUFFICIENT_PERMISSIONS);
-      }
-
       const targetOrgId = getParam(req.params, 'orgId')!;
 
       const validation = validateBody(req, DecrementQuotaSchema);

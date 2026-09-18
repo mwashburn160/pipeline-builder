@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, requireStepUp } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, audited, getParam, requirePermission, requireStepUp } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { emitComplianceAudit } from '../services/audit.js';
@@ -19,12 +19,13 @@ interface PurgeableService {
  * `purgeById` (same `onBeforePurge`/`onAfterPurge` teardown) to destroy the
  * tombstone permanently.
  *
- * Like restore, this route adds `requireStepUp` (password re-verify) on the
- * route itself — the composite `/compliance/{rules,policies}` chain supplies
- * auth + orgId + `compliance:write`, not step-up. Purge is an irreversible
- * hard-delete, so it re-verifies before destroying the tombstone, matching the
- * restore route's "re-verify before a destructive action". The frontend sends
- * the step-up token in the same header restore uses.
+ * Like restore, this route owns its full authorization chain —
+ * `compliance:write` then `requireStepUp` (password re-verify) — rather than
+ * inheriting a gate from the `/compliance/{rules,policies}` mount, which
+ * supplies only auth + orgId + quota. Purge is an irreversible hard-delete, so
+ * it re-verifies before destroying the tombstone, matching the restore route's
+ * "re-verify before a destructive action". The frontend sends the step-up token
+ * in the same header restore uses.
  *
  * Mirrors {@link createComplianceRestoreRoutes}: load the own-org tombstone for
  * access-control gating (and to capture name/orgId for the audit record), then
@@ -40,7 +41,7 @@ export function createCompliancePurgeRoutes(opts: {
   const { service, label, action, targetType } = opts;
   const router = Router();
 
-  router.post('/:id/purge', requireStepUp, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/:id/purge', requirePermission('compliance:write'), requireStepUp, audited(action), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, `${label} ID is required`, ErrorCode.MISSING_REQUIRED_FIELD);
 

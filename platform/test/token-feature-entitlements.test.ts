@@ -64,7 +64,12 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { find: emptyRoleChain },
 }));
 
-const { issueTokens } = await import('../src/utils/token.js');
+const { issueTokens, signInAuth } = await import('../src/utils/token.js');
+const { installTestSigningKeys } = await import('./helpers/signing.js');
+installTestSigningKeys();
+
+/** Every sign-in opens an interactive slot; these tests only care about claims. */
+const login = { kind: 'interactive' as const, auth: signInAuth('pwd') };
 
 function mockUser() {
   return {
@@ -98,7 +103,7 @@ describe('resolveMembership — featureEntitlements resolve from the account ROO
     });
     mockResolveOrgLineage.mockResolvedValue({ rootOrgId: 'root-1', parentOrgId: 'root-1' });
 
-    const { accessToken } = await issueTokens(mockUser(), 'team-1');
+    const { accessToken } = await issueTokens(mockUser(), 'team-1', login);
     const decoded = jwt.decode(accessToken) as Record<string, unknown>;
 
     // Structurally drift-proof: the ROOT's set, never the team doc's stale copy.
@@ -125,7 +130,7 @@ describe('resolveMembership — featureEntitlements resolve from the account ROO
       }),
     }));
 
-    const { accessToken } = await issueTokens(mockUser(), 'team-1');
+    const { accessToken } = await issueTokens(mockUser(), 'team-1', login);
     const decoded = jwt.decode(accessToken) as Record<string, unknown>;
 
     // Graceful degrade: the JWT carries the team doc's own (possibly stale) copy —
@@ -147,7 +152,7 @@ describe('resolveMembership — featureEntitlements resolve from the account ROO
       'root-1': { name: 'Root', tier: 'pro', parentOrgId: null, featureEntitlements: ['ai_generation'], deletedAt: null },
     });
 
-    const { accessToken } = await issueTokens(mockUser(), 'root-1');
+    const { accessToken } = await issueTokens(mockUser(), 'root-1', login);
     const decoded = jwt.decode(accessToken) as Record<string, unknown>;
 
     expect(decoded.features).toEqual(['ai_generation']);

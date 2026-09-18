@@ -5,7 +5,7 @@ title: API Reference
 
 # API Reference
 
-REST API for managing pipelines, plugins, and reporting. All services run behind an Nginx gateway that handles TLS termination and JWT validation.
+REST API for managing pipelines, plugins, and reporting. All services run behind an Nginx gateway that handles TLS termination and routing; token validation is done by each service (the gateway only decodes claims for its access log — see [Authentication](authentication.md#how-tokens-are-signed-and-who-can-sign-one)).
 
 **Related docs:** [Environment Variables](environment-variables.md) | [Plugin Catalog](plugins/README.md) | [AWS Deployment](aws-deployment.md)
 
@@ -30,11 +30,57 @@ All requests require two headers:
 > Nginx gateway under the `/api` prefix, so the table entry `/pipelines/:id` is
 > called as `https://<host>/api/pipelines/<id>` — as the `curl` examples below show.
 
+Access tokens are **ES256, signed only by platform**, and carry a `kid` naming the signing key; every service verifies them against the key set at `GET /.well-known/jwks.json` (public, unauthenticated, cacheable). See [Authentication → how tokens are signed](authentication.md#how-tokens-are-signed-and-who-can-sign-one).
+
 Access tokens are short-lived — **900 s (15 min) by default**, set by `JWT_EXPIRES_IN` with optional per-tier overrides via `JWT_EXPIRES_IN_<TIER>`. The short TTL is what makes privilege changes take effect quickly; see [Permissions → session invalidation](permissions.md#session-invalidation). Use the refresh-token endpoint to obtain a new access token without re-authenticating.
+
+Routes marked **+ step-up** additionally require a short-lived step-up token in `X-Step-Up-Token`, earned from one of the platform's step-up endpoints:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/auth/step-up` | Re-verify the account **password** → `{ stepUpToken, expiresAt }` |
+| `POST` | `/auth/step-up/webauthn/options` + `/verify` | Re-verify with a **passkey**: `/options` returns `{ ceremonyId, options }`, `/verify` takes `{ ceremonyId, response }` → `{ stepUpToken, expiresAt, method: 'webauthn' }`. `409` when the account has no passkey |
+| `POST` | `/auth/step-up/totp` | Re-verify with an **authenticator-app code**, `{ code }` → `{ stepUpToken, expiresAt, method: 'totp', via }`. A recovery code works here too (`via: 'recovery'`); `409` when the account has no authenticator, `429` when it is locked out after repeated wrong codes |
+| `POST` | `/auth/step-up/reauth` | Start a **provider re-auth** (`{ type: 'oauth', provider }` or `{ type: 'sso', orgId }`) → `{ url, state }`; the only step-up an account with no password has |
+| `POST` | `/auth/step-up/reauth/callback` | Exchange that flow's `{ code, state }` → `{ stepUpToken, expiresAt, method: 'reauth' }` |
+| `POST` | `/auth/device/code` + `/auth/device/token` | The **CLI's** step-up: ask with `{ step_up: true }`, and the browser approval's own step-up is returned as `step_up_token` on the approved poll — so `pipeline-manager auth pat` needs no password |
+
+`GET /user/profile` reports which factors the account has (`authFactors`: `hasPassword`, `passkeyCount`, `hasTotp`, `providers`). All of them share ONE per-user budget of 5 attempts/minute; TOTP adds a per-account lockout on top, because a 6-digit code is small enough that a request limiter alone is not the real bound. See **[Authentication → step-up](authentication.md#step-up-re-authentication-every-account)**.
+
+### Internal routes are not part of this API
+
+A handful of endpoints exist ONLY for service-to-service calls and are **closed
+to every user token**, including a superadmin's: `/internal/*`, the quota usage
+counters (`POST /quotas/:orgId/{increment,decrement}`), the entity-event ingest
+(`POST /compliance/events/entity`), the audit ingest (`POST /audit/events`), the
+org-onboarding hook (`POST /compliance/subscriptions/auto-subscribe`) and the
+entitlement sync legs (`/compliance/entitlements/:orgId`,
+`PUT /reports/retention-sync/:orgId`).
+
+They require a token signed by one of a named set of internal services, so there
+is no credential a client can hold that reaches them — a request with any user
+token or access key gets `403 INSUFFICIENT_PERMISSIONS`. They are listed below
+only so the surface is complete. See
+[Authentication → internal routes](authentication.md#internal-routes).
 
 ---
 
 ## Endpoints
+
+> **Every endpoint below is permission-gated.** Reads need the resource's
+> `:read` permission and writes its `:write`/`:manage` (operator endpoints need
+> the super-admin flag instead) — a Role that drops a `:read` is refused at the
+> API, not just in the UI. Each service publishes its resolved route table
+> (method, path, permissions, step-up, feature flag, audit action) and a test
+> fails on any route that lacks its gate; see
+> **[Permissions → route coverage](permissions.md#route-coverage)**.
+
+The one exception is the public key set, which carries no tenant data and must
+answer before any credential exists:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/.well-known/jwks.json` | The ES256 public keys user tokens are verified against. Unauthenticated, cacheable (10 min), served both at the root and under `/api`. Rotation adds a second `kid` for one overlap window. |
 
 ### Pipeline Service
 
@@ -102,7 +148,8 @@ Access tokens are short-lived — **900 s (15 min) by default**, set by `JWT_EXP
 | `GET` | `/quotas/:orgId/:type` | Single quota type status |
 | `PUT` | `/quotas/:orgId` | Update tier/limits (system admin only) |
 | `POST` | `/quotas/:orgId/reset` | Reset usage counters (system admin only; **+ step-up**, service principals exempt) |
-| `POST` | `/quotas/:orgId/increment` | Internal: increment usage (service-to-service, `amount` capped at 1000/call) |
+| `POST` | `/quotas/:orgId/increment` | **Internal** (service-to-service only, no user token): increment usage (`amount` capped at 1000/call) |
+| `POST` | `/quotas/:orgId/decrement` | **Internal** (service-to-service only, no user token): roll back a reserve |
 
 ### Message Service
 
@@ -147,11 +194,91 @@ Base path `/api/organization` (and `/api/invitation`). Management endpoints enfo
 | `POST` | `/organization/:id/roles` | Create a custom Role | `roles:manage` |
 | `PUT` \| `DELETE` | `/organization/:id/roles/:roleId` | Update / delete a custom Role | `roles:manage` |
 | `POST` \| `DELETE` | `/organization/:id/roles/:roleId/members[/:userId]` | Add / remove a Role member | `roles:manage` |
+| `GET` | `/organization/:id/service-accounts[/:accountId]` | List (or read) the org's [service accounts](authentication.md#service-accounts) with their roles + key metadata — never a secret | `service_accounts:manage` |
+| `POST` \| `PATCH` \| `DELETE` | `/organization/:id/service-accounts[/:accountId]` | Create / update (description, roles, token budget, disabled) / delete a service account. Delete removes every key with it | `service_accounts:manage` + step-up |
+| `POST` | `/organization/:id/service-accounts/:accountId/keys` | Issue a `pb_sa_…` key — returned **once** (`{ key, accessKey }`); optional `ipAllowlist` and `scope` ([one capability instead of the account's Roles](authentication.md#scoped-keys--one-capability-no-roles): `reporting:ingest`, `registry:push`, `scim`), max 365 days, 5 active keys per account | `service_accounts:manage` + step-up |
+| `DELETE` | `/organization/:id/service-accounts/:accountId/keys/:keyId` | Revoke one key — it stops working fleet-wide within 5 minutes. Deliberately **not** step-up gated, so a compromised key can be killed immediately | `service_accounts:manage` |
+| `GET` \| `POST` | `/organization/:id/idp/group-mappings` | List / create an [IdP group → Role mapping](authentication.md#just-in-time-membership-and-group--role-mapping). SSO sign-in grants the mapped Roles (and creates the membership). Refused for a `google` config — Google issues no group claims | `roles:manage` (+ `sso` entitlement) |
+| `PUT` \| `DELETE` | `/organization/:id/idp/group-mappings/:mappingId` | Update / delete a mapping. Roles it granted fall away at each member's next sign-in; Roles assigned by hand are never removed | `roles:manage` (+ `sso` entitlement) |
+| `GET` \| `PUT` \| `PATCH` \| `DELETE` | `/organization/:id/idp` | Read / upsert / patch / remove the org's own SSO (OIDC) connection. Writes are step-up gated; the client secret is write-only | `org:idp` (+ `sso` entitlement) |
+
+#### SCIM 2.0 (`/api/scim/v2`)
+
+Base path `/api/scim/v2` — driven by the customer's **identity provider**, not by
+the dashboard. Authenticated ONLY by a service-account key carrying the `scim`
+scope (`Authorization: Bearer pb_sa_…`); a user token is refused. No org id
+appears in any path: the org is the key's own. Media type
+`application/scim+json`; failures are RFC 7644 `…:2.0:Error` documents with a
+string `status` and, where the RFC defines one, a `scimType`. Rate-limited per
+organization in its own bucket. Full behaviour — seats, verified domains, session
+revocation, the post-downgrade asymmetry — in
+**[SCIM 2.0 provisioning](authentication.md#scim-20-provisioning)**.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/scim/v2/ServiceProviderConfig`, `/ResourceTypes`, `/Schemas` | Discovery documents (what a validator fetches first) |
+| `GET` | `/scim/v2/Users` | List members. `filter` supports `userName eq`, `externalId eq`, `active eq`, `emails.value eq`; pages with `startIndex` (1-based) + `count` (default 100, max 200) |
+| `POST` | `/scim/v2/Users` | Provision a member. `409 uniqueness` if already a member; `400 invalidValue` at an unverified email domain; `403` naming the **seat limit** when the account is full |
+| `GET` \| `PUT` \| `PATCH` | `/scim/v2/Users/:id` | Read / replace / patch. `active:false` deactivates the membership, drops the roles the directory granted, and **revokes every session immediately**. `userName` is write-once (`400 mutability`) |
+| `DELETE` | `/scim/v2/Users/:id` | Deactivate + revoke sessions (the membership row is kept). Idempotent; `204` |
+| `GET` | `/scim/v2/Groups` | List directory groups (the group → Role mapping rows). `filter`: `displayName eq`, `externalId eq` |
+| `POST` \| `PUT` \| `PATCH` | `/scim/v2/Groups[/:id]` | Create / replace / patch a group and its **members**. SCIM never sets a group's **roles** — that stays a `roles:manage` decision in the dashboard |
+| `DELETE` | `/scim/v2/Groups/:id` | Remove the group; its members lose the roles it mapped to (hand-granted roles stay). `204` |
 | `POST` | `/invitation/send` | Send an invitation | `invitations:manage` |
 | `GET` | `/invitation` | List invitations | `invitations:manage` |
 | `DELETE` \| `POST` | `/invitation/:id[/resend]` | Revoke / resend an invitation | `invitations:manage` |
 
 The full permission catalog (`pipelines:write`, `pipelines:publish`, `plugins:publish`, `compliance:write`, `billing:manage`, `reports:rollup`, `org:settings`, …) lives in `@pipeline-builder/api-core` (`types/permissions.ts`). Custom Roles grant a subset of the **org-assignable** permissions (`registry:read/write` are Super-Admin-only and rejected) that is also bounded by the **author's own permissions** (a permission ceiling — you can't grant what you don't hold); a member's effective permissions are the union of the Roles assigned to them, and `:read` permissions are enforced. Managing Roles is gated by `roles:manage`. See **[Roles & Permissions](permissions.md)** for the full catalog, built-in bundles, and enforcement.
+
+### Account & Sessions
+
+Base path `/api/user` (and `/api/auth`). These are the caller's **own** account —
+no capability applies; a few writes require a step-up token (`X-Step-Up-Token`,
+from `POST /auth/step-up`).
+
+| Method | Endpoint | Description | Gate |
+|--------|----------|-------------|------|
+| `POST` | `/auth/refresh` | Rotate an **interactive** session's token pair. The browser presents the `pb_refresh` cookie (empty body); a CLI caller posts `{ refreshToken }`. Machine sessions are refused (they renew through `/user/generate-token`) | refresh cookie **or** body token, + `X-Pb-Client` |
+| `POST` | `/auth/logout` | End the current session's slot and clear the refresh cookie | — (auth), + `X-Pb-Client` |
+| `POST` | `/user/generate-token` | Mint a stored **machine** credential (`{ expiresIn?, scope? }`, max 365 d). From a person: opens a new machine session with that scope. From a machine token: renews that session in place under its stored scope. Returns `{ accessToken, expiresIn }` — no refresh token | — (auth) |
+| `GET` | `/user/sessions` | Signed-in devices (`sessions`) and stored machine credentials (`machineSessions`), each with client summary, last IP, `amr`, scope, created / last-used; the caller's own session is flagged `current` | — (auth) |
+| `DELETE` | `/user/sessions/:id` | Revoke one session — a device is signed out, a machine credential stops renewing. The current session is refused (use logout) | + step-up |
+| `POST` | `/user/tokens/revoke-all` | Sign out everywhere: bump `tokenVersion`, clear every slot of both kinds, revoke the user's access keys | + step-up |
+| `POST` \| `GET` \| `DELETE` | `/user/keys[/:id]` | Create / list / revoke an [access key](authentication.md#access-keys-opaque-verified-by-exchange). Create returns the raw `pb_pat_…` key **once** (`{ key, accessKey }`); the listing only ever shows `pb_pat_…last4`, plus scope, expiry, last use, where it was created, and the never-used / expiring-soon flags | create: + step-up |
+| `POST` | `/auth/key/rotate` | [Self-rotation](authentication.md#self-rotation--how-an-unattended-machine-replaces-its-own-key) for unattended machines: mint a **sibling** `pb_sa_…` key on the presented key's account (`{ key, name?, expiresIn? }` → `{ key, keyId, previousKeyId, expiresAt, scope, prunedKeyIds }`), inheriting its scope, IP allowlist and lifetime. The presented key stays **live** — retire it afterwards. Pre-auth; same gates and limiters as the exchange; `pb_pat_…` keys refused | the key itself |
+| `POST` | `/auth/key/revoke` | Retire a **sibling** key (`{ key, keyId }`) with the live key that replaced it. Revoking the presented key is refused (`400 SELF_REVOKE_REFUSED`) so a rotator cannot destroy its own credential; revoking an already-revoked key is idempotent success | the key itself |
+| `POST` | `/auth/token/exchange` | Trade an access key (`{ key }`) — a person's `pb_pat_…` or a service account's `pb_sa_…` — for a 5-minute `token_use: api_key` JWT (`{ accessToken, expiresIn, keyId }`). Pre-auth — the key is the credential. A service-account key additionally checks the account is enabled, its org live, the presenting address within the key's IP allowlist, and its own exchange budget. Rate-limited per key and per IP; every outcome audited, and every refusal answers the same 401 | the key itself |
+| `POST` | `/auth/device/code` | Open a **device authorization** (RFC 8628). Body `{ step_up?: true }`. Returns the RFC shape: `{ device_code, user_code, verification_uri, verification_uri_complete, expires_in, interval }`. Pre-auth — the caller has no identity yet | — (rate-limited per IP) |
+| `POST` | `/auth/device/token` | The waiting device's poll, `{ device_code }`. Answers `{ access_token, refresh_token, token_type, expires_in }` (plus `step_up_token` when the flow asked for one) once approved, else HTTP 400 with the RFC's `{ error }`: `authorization_pending`, `slow_down` (with a widened `interval`), `access_denied`, `expired_token`. Single-use | the device code itself |
+| `GET` | `/auth/device/authorize?user_code=…` | What the signed-in user is being asked to approve: `{ request: { userCode, client, ip, requestedAt, expiresAt, stepUpRequested } }` — never the device code. `404` unrecognised, `410` expired, `409` already decided | — (auth, per-user limit) |
+| `POST` | `/auth/device/approve` | Grant the waiting device a session, `{ userCode }`. The CLI session inherits this session's org, `amr`, `aal` and `auth_time` | + step-up |
+| `POST` | `/auth/device/deny` | Refuse the waiting device, `{ userCode }`. Its next poll gets `access_denied` | — (auth) |
+| `POST` | `/auth/webauthn/register/options` | Begin enrolling a **passkey** → `{ ceremonyId, options }` (`residentKey: required`, `userVerification: required`, existing credentials in `excludeCredentials`) | + step-up, interactive session |
+| `POST` | `/auth/webauthn/register/verify` | Store it: `{ ceremonyId, response, name }` → `{ passkey }`. `409` when that authenticator is already registered. Not step-up gated again — the ceremony it consumes was minted by the gated call, bound to the user and single-use | — (auth), interactive session |
+| `GET` | `/auth/webauthn/credentials` | The caller's passkeys: name, added, last used, synced flag. Never the public key | — (auth) |
+| `PATCH` | `/auth/webauthn/credentials/:id` | Relabel one, `{ name }` (≤ 64 chars) | — (auth), interactive session |
+| `DELETE` | `/auth/webauthn/credentials/:id` | Revoke one. `409 LAST_SIGN_IN_METHOD` when it is the account's only way in (no password, no linked provider, no other passkey) | + step-up, interactive session |
+| `POST` | `/auth/webauthn/login/options` | A **sign-in** challenge for a discoverable credential → `{ ceremonyId, options }`. Public, names no user, and has its own per-IP limiter (browser autofill asks on every page load) | — (pre-auth) |
+| `POST` | `/auth/webauthn/login/verify` | Sign in, `{ ceremonyId, response }` → the same `{ accessToken }` + refresh cookie password login returns. Every failure answers one opaque `401`, except an SSO-enforced account, which gets the same `403 SSO_REQUIRED` password login gives (the assertion already proved who the caller is) | the assertion itself |
+| `GET` | `/auth/totp/status` | Whether the caller has an **authenticator app**: `{ enabled, pending, activatedAt, lastUsedAt, recoveryCodesRemaining, recoveryCodesTotal, recoveryGeneratedAt, lockedUntil }`. Never the secret | — (auth) |
+| `POST` | `/auth/totp/enrol` | Mint a secret → `{ secret, otpauthUri }` (SHA-1 / 6 digits / 30 s — fixed, for authenticator compatibility). The secret is returned **once** and stored encrypted at rest, HKDF-bound to the user. `409` when an enrolment is already active (disable first), `403` when the address is SSO-enforced — the org's IdP owns its factors | + step-up, interactive session |
+| `POST` | `/auth/totp/activate` | Confirm it with a code, `{ code }` → `{ recoveryCodes }` (ten, shown **once**, stored only as hashes). Not step-up gated again — it confirms the secret the gated call minted, and the code is the proof | — (auth), interactive session |
+| `DELETE` | `/auth/totp` | Turn it off, taking every recovery code with it. `409` when it would leave no way to sign in | + step-up, interactive session |
+| `POST` | `/auth/totp/recovery-codes` | Replace the whole sheet → `{ recoveryCodes }`. Every previously issued code stops working, used or not | + step-up, interactive session |
+| `POST` | `/auth/mfa/verify` | Second leg of a password sign-in, `{ challengeId, code }` → the same `{ accessToken }` + refresh cookie password login returns, with `mfa` added to `amr`. A recovery code works here too. A WRONG code does not burn the challenge (a typo must not cost a password entry); a correct one spends it, so one handle yields at most one session. Every failure answers one opaque `401`, except an unknown or spent challenge (`401 TOTP_INVALID_CHALLENGE`, so the sign-in page can send the person back to the password field) | the challenge + the code |
+
+Access tokens carry an explicit identity — `principalType`, `token_use`, `amr`,
+`aal`, `auth_time` — which services enforce; see
+[Authentication → Token claims](authentication.md#token-claims-what-a-request-proves).
+
+**`X-Pb-Client`** names the calling client on every request: `web` (the browser
+app) receives its refresh token as an `HttpOnly` cookie and never in the body,
+any other value keeps the JSON body flow. `/auth/refresh` and `/auth/logout`
+reject a request that omits the header with `403 CLIENT_TYPE_REQUIRED` — it is
+the CSRF proof that makes the ambient cookie safe. Every session-issuing
+endpoint (login, OAuth/SSO callback, `switch-org`, `tokens/revoke-all`) applies
+the same split. See
+[Authentication → Where the refresh token lives](authentication.md#where-the-refresh-token-lives).
 
 ### Common Query Parameters
 

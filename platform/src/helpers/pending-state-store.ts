@@ -22,6 +22,9 @@
  *     `REDIS_SENTINELS` configured) the store degrades to a
  *     process-local Map with the same TTL sweep + bounded eviction the
  *     controllers used before — single-pod deployments keep working unchanged.
+ *   - `peek(state)` reads WITHOUT deleting and `remove(state)` deletes without
+ *     reading — the multi-step device-authorization flow polls and rewrites its
+ *     state many times before the single `consume` that issues the session.
  *   - Fail-safe: a Redis error on `put` falls back to the local Map; a Redis
  *     error on `consume` rejects that one attempt (the user simply retries),
  *     which is the safe direction for a CSRF token.
@@ -39,8 +42,17 @@ interface MaybeGetDel {
 }
 
 export interface PendingStateStore<T> {
-  put(state: string, value: T): Promise<void>;
+  /** Write (or overwrite) an entry. `ttlMsOverride` replaces the store's default
+   *  lifetime for this entry — used to rewrite a record with only its REMAINING
+   *  life (so a mid-flow update can't extend it), and to keep a lookup index
+   *  alive slightly longer than what it points at. */
+  put(state: string, value: T, ttlMsOverride?: number): Promise<void>;
   consume(state: string): Promise<T | null>;
+  /** Read WITHOUT consuming — for multi-step flows (device authorization) whose
+   *  state is polled and mutated before the single-use consume at the end. */
+  peek(state: string): Promise<T | null>;
+  /** Drop an entry without reading it (deny/expire paths). */
+  remove(state: string): Promise<void>;
   /** Test-only: clear the in-memory fallback map. */
   _resetForTests(): void;
   /** Test-only: stop the fallback sweep timer. */
@@ -60,13 +72,15 @@ export interface PendingStateStoreOptions {
 
 export function createPendingStateStore<T>(opts: PendingStateStoreOptions): PendingStateStore<T> {
   const { prefix, ttlMs, cleanupIntervalMs, maxEntries } = opts;
-  const mem = new Map<string, { value: T; createdAt: number }>();
+  // `expiresAt` (not `createdAt`) so a `put` with a shortened TTL — a rewrite of
+  // a longer-lived flow's state — expires when the ORIGINAL flow does.
+  const mem = new Map<string, { value: T; expiresAt: number }>();
 
   // `.unref()` so this background sweep never keeps Node alive in tests/workers.
   const sweep = setInterval(() => {
     const now = Date.now();
-    for (const [entryKey, { createdAt }] of mem) {
-      if (now - createdAt > ttlMs) mem.delete(entryKey);
+    for (const [entryKey, { expiresAt }] of mem) {
+      if (now > expiresAt) mem.delete(entryKey);
     }
   }, cleanupIntervalMs);
   sweep.unref();
@@ -86,12 +100,13 @@ export function createPendingStateStore<T>(opts: PendingStateStoreOptions): Pend
   }
 
   return {
-    async put(state: string, value: T): Promise<void> {
+    async put(state: string, value: T, ttlMsOverride?: number): Promise<void> {
+      const entryTtl = Math.max(1, Math.floor(ttlMsOverride ?? ttlMs));
       const redis = await getRedisClient();
       if (redis) {
         try {
           // ioredis-style variadic SET with millisecond expiry.
-          await redis.set(key(state), JSON.stringify(value), 'PX', ttlMs);
+          await redis.set(key(state), JSON.stringify(value), 'PX', entryTtl);
           return;
         } catch {
           // Fall through to the local map so an in-flight Redis blip on initiate
@@ -99,7 +114,7 @@ export function createPendingStateStore<T>(opts: PendingStateStoreOptions): Pend
         }
       }
       evictOldestIfFull();
-      mem.set(state, { value, createdAt: Date.now() });
+      mem.set(state, { value, expiresAt: Date.now() + entryTtl });
     },
 
     async consume(state: string): Promise<T | null> {
@@ -125,8 +140,39 @@ export function createPendingStateStore<T>(opts: PendingStateStoreOptions): Pend
       const entry = mem.get(state);
       mem.delete(state); // consume-once
       if (!entry) return null;
-      if (Date.now() - entry.createdAt > ttlMs) return null;
+      if (Date.now() > entry.expiresAt) return null;
       return entry.value;
+    },
+
+    async peek(state: string): Promise<T | null> {
+      const redis = await getRedisClient();
+      if (redis) {
+        try {
+          const raw = await redis.get(key(state));
+          if (raw != null) return JSON.parse(raw) as T;
+        } catch {
+          // Redis error: fall through to the local map (same direction as consume).
+        }
+      }
+      const entry = mem.get(state);
+      if (!entry) return null;
+      if (Date.now() > entry.expiresAt) {
+        mem.delete(state);
+        return null;
+      }
+      return entry.value;
+    },
+
+    async remove(state: string): Promise<void> {
+      const redis = await getRedisClient();
+      if (redis) {
+        try {
+          await redis.del(key(state));
+        } catch {
+          // Best effort: the entry's own TTL is the backstop.
+        }
+      }
+      mem.delete(state);
     },
 
     _resetForTests(): void {

@@ -8,8 +8,9 @@
  * so those mutations must carry `requirePermission('observability:write')` just
  * like every sibling alerting mutation — a plain member holding only
  * `observability:read` must NOT reach the handler. The silence LIST/read route
- * stays read-level (requireAuth only). This test inspects the router stack so a
- * regression that drops the write-gate fails loudly.
+ * stays READ-level — `observability:read`, never `:write`. This test inspects
+ * the router stack so a regression that drops (or downgrades) the write-gate
+ * fails loudly.
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
@@ -24,6 +25,12 @@ requireAuthStub.__mw = 'requireAuth';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
   // The restore routes import it; the silence-route assertions don't inspect it.
   requireStepUp: (_req: unknown, _res: unknown, next: () => void) => next(),
+  // Route-table audit declaration — a pass-through no-op here; the coverage test
+  // (test/route-coverage.test.ts) is what asserts on the declared actions.
+  audited: (..._actions: string[]) => Object.assign(
+    (_req: unknown, _res: unknown, next: () => void) => next(),
+    { __mw: 'audited' },
+  ),
   requirePermission: (...perms: string[]) => {
     const mw: any = (req: any, res: any, next: () => void) => {
       const has = req?.user?.isSuperAdmin === true
@@ -37,7 +44,15 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
   },
 }));
 
-jest.unstable_mockModule('../src/middleware/index.js', () => ({ requireAuth: requireAuthStub }));
+// requireSystemAdmin stub — the two cross-tenant reads (/alert-destinations/all,
+// /alert-rules/materialized.yml) mirror their handlers' sysadmin gate at the route.
+const requireSystemAdminStub: any = (_req: unknown, _res: unknown, next: () => void) => next();
+requireSystemAdminStub.__mw = 'requireSystemAdmin';
+
+jest.unstable_mockModule('../src/middleware/index.js', () => ({
+  requireAuth: requireAuthStub,
+  requireSystemAdmin: requireSystemAdminStub,
+}));
 
 // Handler stubs — the router only needs referenceable functions.
 const handler = (name: string) => Object.assign((_req: unknown, res: any) => res?.end?.(), { __handler: name });
@@ -115,10 +130,19 @@ describe('observability silence routes — write-gate wiring', () => {
     expect(status).toBe(403);
   });
 
-  it('the silence LIST route stays read-level (no requirePermission gate)', () => {
+  it('the silence LIST route stays read-level (observability:read, never :write)', () => {
     const layer = findRoute('get', (p) => p === '/silences');
     expect(layer).toBeDefined();
     const gate = routeHandlers(layer).find((h) => h.__mw === 'requirePermission');
-    expect(gate).toBeUndefined();
+    expect(gate).toBeDefined();
+    expect(gate.__perms).toEqual(['observability:read']);
+  });
+
+  it('the cross-tenant reads are sysadmin-gated at the route', () => {
+    for (const path of ['/alert-destinations/all', '/alert-rules/materialized.yml']) {
+      const layer = findRoute('get', (p) => p === path);
+      expect(layer).toBeDefined();
+      expect(routeHandlers(layer).map((h) => h.__mw)).toContain('requireSystemAdmin');
+    }
   });
 });

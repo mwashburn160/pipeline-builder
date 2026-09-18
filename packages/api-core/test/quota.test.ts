@@ -309,7 +309,6 @@ describe('quota.getTier', () => {
 
 describe('incrementQuota (metering helper)', () => {
   it('sends a signed service-principal token scoped to the org, never a user token', async () => {
-    process.env.JWT_SECRET = 'test-secret-for-quota-metering';
     process.env.SERVICE_NAME = 'pipeline';
     try {
       jest.resetModules();
@@ -326,9 +325,16 @@ describe('incrementQuota (metering helper)', () => {
       expect(path).toBe('/quotas/org1/increment');
       const auth = opts.headers.Authorization;
       expect(auth).toMatch(/^Bearer /);
+      // The token is this service's OWN ES256 mint (#14) — never an HMAC token
+      // and never a user token. Signature verification against the per-service
+      // key bundle is covered in jwt-rotation.test.ts.
       const { default: jwt } = await import('jsonwebtoken');
-      const decoded = jwt.verify(auth.slice(7), 'test-secret-for-quota-metering') as Record<string, unknown>;
+      const { decodeJwtHeader } = await import('../src/utils/jwk.js');
+      expect(decodeJwtHeader(auth.slice(7))?.alg).toBe('ES256');
+      expect(decodeJwtHeader(auth.slice(7))?.kid).toBeTruthy();
+      const decoded = jwt.decode(auth.slice(7)) as Record<string, unknown>;
       expect(decoded.sub).toBe('service:pipeline');
+      expect(decoded.principalType).toBe('service');
       expect(decoded.organizationId).toBe('org1');
       expect(decoded.role).toBe('member');
       expect(decoded.isAdmin).toBe(false);

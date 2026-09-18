@@ -285,6 +285,26 @@ openssl genrsa -out "$CERT_DIR/jwt.key" 2048 >/dev/null 2>&1
 openssl req -x509 -new -key "$CERT_DIR/jwt.key" -days 3650 \
   -subj "/CN=pipeline-image-registry-token-issuer" -out "$CERT_DIR/jwt.crt" >/dev/null 2>&1
 pb_create_registry_secrets "$CERT_DIR/jwt.key" "$CERT_DIR/jwt.crt"
+
+# The ES256 user-token signing key (platform only). Unlike the registry keypair
+# this one must SURVIVE the deploy — regenerating it would invalidate every
+# session — so it is written to the persistent cert dir, not the temp one, and
+# the generator skips when it already exists. Skipped entirely under
+# TOKEN_SIGNING_MODE=kms, where the private key never leaves AWS.
+if [ "${TOKEN_SIGNING_MODE:-local}" = "local" ]; then
+  bash "$BIN_DIR/token-signing-keys.sh" "$DEPLOY_DIR/certs"
+fi
+pb_create_token_signing_secret "$DEPLOY_DIR/certs/token-signing/token-signing.key" "$DEPLOY_DIR/certs/token-signing/token-signing-previous.key"
+
+# PER-SERVICE ES256 keys for INTERNAL service-to-service tokens (#14). Like the
+# user-token key these must SURVIVE the deploy (regenerating one would break
+# every in-flight internal call from that service), so they live in the
+# persistent cert dir and the generator skips existing keys. One
+# `service-key-<name>` Secret per service — mounted by that service ALONE, which
+# is what stops a compromised pod signing as another — plus the public
+# `service-key-bundle` every service verifies against.
+bash "$BIN_DIR/service-signing-keys.sh" "$DEPLOY_DIR/certs"
+pb_create_service_key_secrets "$DEPLOY_DIR/certs/service-keys"
 rm -rf "$CERT_DIR"
 
 # Generate the MongoDB replica-set keyfile per-deploy (idempotent; a fresh
@@ -459,6 +479,17 @@ kubectl rollout status daemonset/ztunnel -n istio-system --timeout=180s 2>/dev/n
 kubectl rollout status daemonset/istio-cni-node -n istio-system --timeout=180s 2>/dev/null || echo "  istio-cni not ready yet"
 # PodDisruptionBudget so an AZ/node drain never takes istiod to zero.
 kubectl -n istio-system create poddisruptionbudget istiod --selector=app=istiod --min-available=1 --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null || true
+
+# The `pb-waypoint` Gateway (k8s/istio-internal-routes.yaml) is a Kubernetes
+# Gateway API resource, and `istioctl install` does NOT ship those CRDs — without
+# them the manifest apply below dies on an unknown kind. Install the standard
+# channel once; idempotent, so a cluster that already has them is untouched.
+# Pinned rather than `latest` so a provision is reproducible.
+GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.3.0}"
+if ! kubectl get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1; then
+  echo "  installing Gateway API CRDs ($GATEWAY_API_VERSION) for the ambient waypoint"
+  kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
+fi
 echo "  Istio ambient installed (HA istiod + ztunnel + istio-cni)"
 
 # ---- Phase 7: apply workloads (kustomize overlay) --------------------------

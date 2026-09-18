@@ -80,16 +80,44 @@ const { isSystemAdmin } = await import('@pipeline-builder/api-core');
 const { createQueueStatusRoutes } = await import('../src/routes/queue-status.js');
 
 // Minimal Express-like mocks
-function createMockReqRes() {
+function createMockReqRes(user?: Record<string, unknown>) {
   const req = {
     headers: { 'x-org-id': '000000000000000000000001' },
     method: 'GET',
     path: '/status',
+    originalUrl: '/plugins/queue/status',
+    ...(user ? { user } : {}),
   } as any;
   const json = jest.fn();
   const status = jest.fn().mockReturnValue({ json });
   const res = { status, json } as any;
   return { req, res, json, status };
+}
+
+/**
+ * Drive a route's FULL middleware stack (gates + handler) and resolve only once
+ * the whole chain has settled. The operator-only endpoints (`GET /status`,
+ * `DELETE /dlq`) now carry the REAL `requireSystemAdmin` gate rather than an
+ * in-handler `isSystemAdmin` check, so a suite that invoked only the terminal
+ * handler would bypass authorization.
+ */
+async function runFullRoute(path: string, method: string, req: any, res: any): Promise<void> {
+  const router = createQueueStatusRoutes(mockQuotaService);
+  const layer = (router.stack as any[]).find(
+    (l) => l.route?.path === path && l.route?.methods?.[method.toLowerCase()],
+  );
+  const handles: Array<(req: any, res: any, next: () => unknown) => unknown> =
+    layer.route.stack.map((s: any) => s.handle);
+  // A synchronous gate calls next() without awaiting it, so the chain must be
+  // joined explicitly — otherwise the assertions run before the async handler.
+  const run = async (i: number): Promise<void> => {
+    const handle = handles[i];
+    if (!handle) return;
+    let downstream: Promise<void> | undefined;
+    await handle(req, res, () => { downstream = run(i + 1); return downstream; });
+    await downstream;
+  };
+  await run(0);
 }
 
 describe('queue-status route', () => {
@@ -98,7 +126,6 @@ describe('queue-status route', () => {
   });
 
   it('should return job counts for admin users', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
     mockGetJobCounts.mockResolvedValue({
       waiting: 3, active: 1, completed: 10, failed: 2, delayed: 0, paused: 0,
     });
@@ -106,11 +133,9 @@ describe('queue-status route', () => {
       waiting: 1, active: 0, completed: 0, failed: 1, delayed: 0, paused: 0,
     });
 
-    const router = createQueueStatusRoutes(mockQuotaService);
-    const handler = (router.stack as any)[0].route.stack[0].handle;
-
-    const { req, res, json } = createMockReqRes();
-    await handler(req, res, jest.fn());
+    // `requireSystemAdmin` reads the `isSuperAdmin` token claim directly.
+    const { req, res, json } = createMockReqRes({ sub: 'admin-1', isSuperAdmin: true });
+    await runFullRoute('/status', 'GET', req, res);
 
     expect(mockGetJobCounts).toHaveBeenCalled();
     expect(mockDlqGetJobCounts).toHaveBeenCalled();
@@ -129,13 +154,9 @@ describe('queue-status route', () => {
   });
 
   it('should reject non-admin users with 403', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
-
-    const router = createQueueStatusRoutes(mockQuotaService);
-    const handler = (router.stack as any)[0].route.stack[0].handle;
-
-    const { req, res, json } = createMockReqRes();
-    await handler(req, res, jest.fn());
+    // Denied at the `requireSystemAdmin` gate, before the queue read.
+    const { req, res, json } = createMockReqRes({ sub: 'user-1', role: 'admin' });
+    await runFullRoute('/status', 'GET', req, res);
 
     expect(mockGetJobCounts).not.toHaveBeenCalled();
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
@@ -156,21 +177,6 @@ describe('queue-status route', () => {
     const layer = (router.stack as any[]).find((l) => l.route?.path === path);
     const stack = layer?.route?.stack;
     return stack?.[stack.length - 1]?.handle;
-  }
-
-  // Run the FULL route stack (gate middleware + handler) so the standardized
-  // permission gate is actually exercised, not bypassed.
-  async function runRoute(path: string, req: any, res: any) {
-    const router = createQueueStatusRoutes(mockQuotaService);
-    const layer = (router.stack as any[]).find((l) => l.route?.path === path);
-    const handles: Array<(req: any, res: any, next: () => unknown) => unknown> =
-      layer.route.stack.map((s: any) => s.handle);
-    let i = 0;
-    const next = async (): Promise<void> => {
-      const h = handles[i++];
-      if (h) await h(req, res, next);
-    };
-    await next();
   }
 
   function makeReq(
@@ -235,7 +241,7 @@ describe('queue-status route', () => {
       const req = makeReq('member', 'org-1', {}, ['plugins:read', 'plugins:write']);
       const json = jest.fn();
       const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
-      await runRoute('/failed', req, res);
+      await runFullRoute('/failed', 'GET', req, res);
 
       expect(mockGetJobs).toHaveBeenCalled();
       const payload = (json.mock.calls[0])?.[0];
@@ -251,7 +257,7 @@ describe('queue-status route', () => {
       const req = makeReq('member', 'org-1', {}, ['plugins:read']); // no plugins:write
       const json = jest.fn();
       const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
-      await runRoute('/failed', req, res);
+      await runFullRoute('/failed', 'GET', req, res);
 
       expect(mockGetJobs).not.toHaveBeenCalled();
       const payload = (json.mock.calls[0])?.[0];
@@ -279,23 +285,14 @@ describe('queue-status route', () => {
   });
 
   describe('DELETE /dlq  purge + audit', () => {
-    function getDlqDeleteHandler() {
-      const router = createQueueStatusRoutes(mockQuotaService);
-      const layer = (router.stack as any[]).find(
-        (l) => l.route?.path === '/dlq' && l.route?.methods?.delete,
-      );
-      return layer?.route?.stack[layer.route.stack.length - 1]?.handle;
-    }
-
     it('sysadmin purge emits plugin.dlq.purge with the purged count', async () => {
-      (isSystemAdmin as jest.Mock).mockReturnValue(true);
       mockPurgeDlq.mockResolvedValue(7);
 
-      const handler = getDlqDeleteHandler();
-      const req = { headers: { 'x-org-id': '000000000000000000000001' }, method: 'DELETE', user: { role: 'owner', sub: 'admin-1' } } as any;
+      // `requireSystemAdmin` reads the `isSuperAdmin` token claim directly.
+      const req = { headers: { 'x-org-id': '000000000000000000000001' }, method: 'DELETE', originalUrl: '/plugins/queue/dlq', user: { role: 'owner', sub: 'admin-1', isSuperAdmin: true } } as any;
       const json = jest.fn();
       const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
-      await handler(req, res, jest.fn());
+      await runFullRoute('/dlq', 'DELETE', req, res);
 
       expect(mockPurgeDlq).toHaveBeenCalledWith(mockQuotaService);
       expect(mockEmitPluginAudit).toHaveBeenCalledTimes(1);
@@ -309,13 +306,10 @@ describe('queue-status route', () => {
     });
 
     it('non-sysadmin is rejected 403 and does NOT purge or emit', async () => {
-      (isSystemAdmin as jest.Mock).mockReturnValue(false);
-
-      const handler = getDlqDeleteHandler();
-      const req = { headers: { 'x-org-id': 'org-1' }, method: 'DELETE', user: { role: 'admin' } } as any;
+      const req = { headers: { 'x-org-id': 'org-1' }, method: 'DELETE', originalUrl: '/plugins/queue/dlq', user: { role: 'admin', sub: 'user-1' } } as any;
       const json = jest.fn();
       const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
-      await handler(req, res, jest.fn());
+      await runFullRoute('/dlq', 'DELETE', req, res);
 
       expect(mockPurgeDlq).not.toHaveBeenCalled();
       expect(mockEmitPluginAudit).not.toHaveBeenCalled();

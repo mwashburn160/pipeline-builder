@@ -1,0 +1,278 @@
+---
+# =============================================================================
+# Mesh identity for INTERNAL routes (#14)
+# =============================================================================
+# The internal routes — `/internal/*`, the quota usage counters, the entity-event
+# and audit ingests, and the billing→compliance / billing→reporting entitlement
+# legs — are enforced IN THE APPLICATION by api-core's `requireInternalService`,
+# which refuses every user token and admits only the named calling services,
+# whose names are cryptographically bound to their signing keys. That check is
+# the enforcement, and it has to be: docker compose runs no mesh at all, and the
+# gate must hold identically there (packages/api-core/test/internal-route-mesh-less.test.ts
+# proves it does).
+#
+# What this file adds is DEFENCE IN DEPTH for the targets that DO run Istio: a
+# second, independent refusal at the network layer, so reaching an internal route
+# needs both a valid service token AND the right workload identity.
+#
+# -- Why a waypoint ----------------------------------------------------------
+# These are per-ROUTE rules, so they are Layer 7 (path + method). In ambient
+# mode ztunnel is L4-only and cannot evaluate an HTTP path, so an L7
+# AuthorizationPolicy is enforced by a waypoint proxy or not at all. The
+# `pb-waypoint` Gateway below is that proxy, attached (via
+# `istio.io/use-waypoint`) to exactly the five Services that expose an internal
+# route — not namespace-wide, which would put an Envoy hop in front of the
+# datastores too.
+#
+# -- Why DENY rather than ALLOW ----------------------------------------------
+# ALLOW policies UNION, so adding an ALLOW for the internal paths would not
+# narrow anything: the broad per-service ALLOW in istio.yaml (which must keep
+# admitting nginx for ordinary user traffic on the same port) would still admit
+# everyone. DENY takes precedence over ALLOW, so `notPrincipals` + a path match
+# expresses "only these callers, on this route" without re-stating every
+# service's full caller list here.
+#
+# -- Path matching -----------------------------------------------------------
+# Istio supports exact, prefix (`/x/*`) and suffix (`*/x`) paths only — no
+# wildcard in the middle. Routes with an `:orgId` segment are therefore matched
+# by suffix or by prefix, which is why e.g. `*/increment` appears rather than
+# `/quotas/*/increment`. The app-side gate matches the exact route regardless.
+#
+# -- Keeping this in step with the code --------------------------------------
+# Each service's route-coverage test declares its internal routes and their
+# callers (`findInternalRouteViolations`), and the declaration is checked against
+# the routes in BOTH directions — so adding or re-scoping an internal route is a
+# visible change there, and this file is reviewed against that one list.
+#
+# -- Rollback ----------------------------------------------------------------
+# Remove the `istio.io/use-waypoint` label from a Service and its traffic stops
+# going through the waypoint; the policies below then match nothing and the
+# app-side gate carries the route on its own, exactly as it does under compose.
+# =============================================================================
+
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: pb-waypoint
+  namespace: pipeline-builder
+  labels:
+    # Attach per-SERVICE (the default), so only the Services that opt in with
+    # `istio.io/use-waypoint: pb-waypoint` are routed through it.
+    istio.io/waypoint-for: service
+spec:
+  gatewayClassName: istio-waypoint
+  listeners:
+    - name: mesh
+      port: 15008
+      protocol: HBONE
+---
+# -- platform ----------------------------------------------------------------
+# POST /internal/notify-email — compliance relays notification emails through
+# platform, which holds the SMTP credentials.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: platform-internal-notify-email
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: platform
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/compliance
+      to:
+        - operation:
+            methods: ["POST"]
+            paths: ["/internal/notify-email"]
+---
+# POST /audit/events — every non-platform service forwards its audit trail here.
+# The audit log is evidence, so the callers are enumerated rather than "anything
+# in the mesh".
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: platform-internal-audit-ingest
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: platform
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/billing
+              - cluster.local/ns/pipeline-builder/sa/compliance
+              - cluster.local/ns/pipeline-builder/sa/image-registry
+              - cluster.local/ns/pipeline-builder/sa/message
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+              - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/quota
+              - cluster.local/ns/pipeline-builder/sa/reporting
+      to:
+        - operation:
+            methods: ["POST"]
+            paths: ["/audit/events"]
+---
+# -- message -----------------------------------------------------------------
+# POST /messages/internal/notify and
+# DELETE /messages/internal/org/:orgId/attachments — both are platform-only
+# (the domain-join notifications and the org-delete cascade). One prefix covers
+# the whole internal surface, so a future internal route under it is denied to
+# everyone else by default rather than being open until someone remembers.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: message-internal-routes
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: message
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/platform
+      to:
+        - operation:
+            paths: ["/messages/internal/*"]
+---
+# -- compliance --------------------------------------------------------------
+# POST /compliance/events/entity — entity lifecycle events from pipeline/plugin.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: compliance-internal-entity-events
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: compliance
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+              - cluster.local/ns/pipeline-builder/sa/plugin
+      to:
+        - operation:
+            methods: ["POST"]
+            paths: ["/compliance/events/entity"]
+---
+# POST /compliance/subscriptions/auto-subscribe — org onboarding, platform only.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: compliance-internal-auto-subscribe
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: compliance
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/platform
+      to:
+        - operation:
+            methods: ["POST"]
+            paths: ["/compliance/subscriptions/auto-subscribe"]
+---
+# PUT + GET /compliance/entitlements/:orgId — the billing→compliance entitlement
+# sync and its drift read. Billing owns entitlement; nothing else may write what
+# an org's enforced compliance content is.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: compliance-internal-entitlements
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: compliance
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/billing
+      to:
+        - operation:
+            paths: ["/compliance/entitlements/*"]
+---
+# -- quota -------------------------------------------------------------------
+# POST /quotas/:orgId/increment and /decrement — the usage counters. Every
+# service meters its own inbound traffic, so the caller set is the whole internal
+# fleet; what the rule excludes is nginx (i.e. anything arriving from outside the
+# mesh) and any workload with no service identity of its own.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: quota-internal-counters
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: quota
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/billing
+              - cluster.local/ns/pipeline-builder/sa/compliance
+              - cluster.local/ns/pipeline-builder/sa/image-registry
+              - cluster.local/ns/pipeline-builder/sa/message
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/quota
+              - cluster.local/ns/pipeline-builder/sa/reporting
+      to:
+        - operation:
+            methods: ["POST"]
+            paths: ["*/increment", "*/decrement"]
+---
+# -- reporting ---------------------------------------------------------------
+# PUT /reports/retention-sync/:orgId — the billing→reporting retention sync.
+# A retention reduction destroys data on the next sweep, so only billing may
+# drive it.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: reporting-internal-retention-sync
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: reporting
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/billing
+      to:
+        - operation:
+            methods: ["PUT"]
+            paths: ["/reports/retention-sync/*"]

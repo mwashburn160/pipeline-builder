@@ -32,12 +32,23 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import {
+  generateTestSigningKey, installTestJwks, signTestUserToken, type TestSigningKey,
+} from '@pipeline-builder/api-core/lib/testing/user-tokens.js';
 import express from 'express';
 import jwt from 'jsonwebtoken';
 
 // -- Environment (read at module load by the real clients/config) -------------
 
 const JWT_SECRET = 'index-wiring-real-test-secret-0123456789';
+
+/**
+ * Platform's ES256 signing key, published through the JWKS installed here. User
+ * and step-up tokens are asymmetric since #5, so the shared `JWT_SECRET` this
+ * service holds cannot mint one — asserted in the negative case below.
+ */
+const signingKey: TestSigningKey = generateTestSigningKey();
+installTestJwks([signingKey]);
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-wiring-'));
 process.env.JWT_SECRET = JWT_SECRET;
 process.env.SOFT_DELETE_PURGE_ENABLED = 'false';
@@ -170,19 +181,49 @@ afterAll(async () => {
 // -- Helpers ------------------------------------------------------------------
 
 function accessToken(claims: Record<string, unknown> = {}): string {
-  return jwt.sign({
+  return signTestUserToken({
     type: 'access',
     sub: 'user-1',
     role: 'member',
     organizationId: 'org-1',
     permissions: ['plugins:write'],
     features: ['bulk_operations'],
+    // Identity claims `requireAuth` now insists on (fail-closed): a known
+    // principalType + token_use, plus the auth-method/assurance trio a user
+    // principal must carry.
+    principalType: 'user',
+    token_use: 'access',
+    amr: ['pwd'],
+    aal: 1,
+    auth_time: Math.floor(Date.now() / 1000),
     ...claims,
-  }, JWT_SECRET, { algorithm: 'HS256', expiresIn: 300 });
+  }, { key: signingKey, expiresIn: 300 });
 }
 
 function stepUpToken(sub = 'user-1'): string {
-  return jwt.sign({ type: 'step-up', sub, jti: randomUUID() }, JWT_SECRET, { algorithm: 'HS256', expiresIn: 60 });
+  return signTestUserToken({ type: 'step-up', sub, jti: randomUUID() }, { key: signingKey, expiresIn: 60 });
+}
+
+/**
+ * An HS256 token, shaped like a real access token and signed with the shared
+ * `JWT_SECRET` this service holds. Before #5 it was indistinguishable from a
+ * platform mint; now every verifier refuses it. Used by the negative case below.
+ */
+function forgedHs256AccessToken(): string {
+  return jwt.sign({
+    type: 'access',
+    sub: 'user-1',
+    role: 'owner',
+    organizationId: 'org-1',
+    permissions: ['plugins:write'],
+    features: ['bulk_operations'],
+    isSuperAdmin: true,
+    principalType: 'user',
+    token_use: 'access',
+    amr: ['pwd'],
+    aal: 1,
+    auth_time: Math.floor(Date.now() / 1000),
+  }, JWT_SECRET, { algorithm: 'HS256', expiresIn: 300 });
 }
 
 async function call(method: string, urlPath: string, opts: { headers?: Record<string, string>; body?: unknown } = {}) {
@@ -231,6 +272,16 @@ describe('step-up gated routes share ONE step-up layer', () => {
     const replay = await call('POST', `/plugins/${ID_A}/purge`, { headers: { 'x-step-up-token': token } });
     expect(replay.status).toBe(401);
     expect(pluginService.purgeById).not.toHaveBeenCalled();
+  });
+
+  it('REJECTS an HS256 token that claims to be a user, through the real chain', async () => {
+    // This service holds `JWT_SECRET` (it mints service tokens with it to push
+    // plugin images), so before #5 it could forge a platform-admin session for
+    // itself. The forged token below carries owner + isSuperAdmin and still 401s.
+    const res = await call('POST', '/plugins/p-1/purge', {
+      headers: { 'authorization': `Bearer ${forgedHs256AccessToken()}`, 'x-step-up-token': stepUpToken() },
+    });
+    expect(res.status).toBe(401);
   });
 
   it('purge/restore still require plugins:write', async () => {

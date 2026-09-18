@@ -64,7 +64,10 @@ const nextConfig = {
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          // `publickey-credentials-*` are declared explicitly (their default is
+          // already `self`) so a later tightening of this header cannot silently
+          // disable passkey registration and sign-in.
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), publickey-credentials-get=(self), publickey-credentials-create=(self)' },
           { key: 'Content-Security-Policy', value: csp },
           // HSTS — 2 years, include subdomains, preload-list eligible.
           // Nginx terminates TLS so this header survives the proxy hop and

@@ -18,7 +18,6 @@ import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0000000000000000000000000000000000000000000000000000000000000000';
 process.env.JWT_SECRET ||= 'test-only-jwt-secret';
-process.env.REFRESH_TOKEN_SECRET ||= 'test-only-refresh-secret';
 
 const MONGOD_VERSION = process.env.MONGOMS_VERSION || '6.0.14';
 const RUN = process.env.RUN_MONGO_INTEGRATION === '1' || process.env.RUN_MONGO_INTEGRATION === 'true';

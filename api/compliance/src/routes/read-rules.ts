@@ -1,16 +1,24 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendPaginatedNested, sendEntityNotFound, getParam, parsePaginationParams } from '@pipeline-builder/api-core';
+import { sendSuccess, sendPaginatedNested, sendEntityNotFound, getParam, parsePaginationParams, requirePermission } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
+
+/**
+ * Rule reads require `compliance:read` (in the member bundle). Gated PER ROUTE:
+ * the composite `/compliance/rules` router mounts these reads ahead of its
+ * `compliance:write` gate, so a `router.use(...)` here would also run for the
+ * mutation routers mounted after it.
+ */
+const requireComplianceRead = requirePermission('compliance:read');
 
 export function createReadRuleRoutes(): Router {
   const router = Router();
 
   // GET / — list rules with pagination and filters
-  router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/', requireComplianceRead, withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset, sortBy, sortOrder } = parsePaginationParams(req.query);
     const filter = {
       name: req.query.name as string | undefined,
@@ -34,7 +42,7 @@ export function createReadRuleRoutes(): Router {
   // GET /deleted — org's soft-deleted rule tombstones (most recent first),
   // powering the "recently deleted" restore UI. Registered BEFORE `/:id` so the
   // literal path isn't swallowed by the id matcher.
-  router.get('/deleted', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/deleted', requireComplianceRead, withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query);
     const deleted = await complianceRuleService.findDeleted(orgId, { limit, offset });
 
@@ -43,7 +51,7 @@ export function createReadRuleRoutes(): Router {
   }));
 
   // GET /:id — single rule by ID
-  router.get('/:id', withRoute(async ({ req, res, orgId }) => {
+  router.get('/:id', requireComplianceRead, withRoute(async ({ req, res, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendEntityNotFound(res, 'Rule');
 
@@ -54,7 +62,7 @@ export function createReadRuleRoutes(): Router {
   }));
 
   // GET /:id/history — rule change history (org-scoped, paginated)
-  router.get('/:id/history', withRoute(async ({ req, res, orgId }) => {
+  router.get('/:id/history', requireComplianceRead, withRoute(async ({ req, res, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendEntityNotFound(res, 'Rule');
 

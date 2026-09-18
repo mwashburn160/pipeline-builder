@@ -57,7 +57,11 @@ const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
 describe('POST /reports/deployments/:executionId/outcome', () => {
   let router: any;
   const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
-  const getHandler = () => router.stack.find((l: any) => l.route?.path === '/:executionId/outcome')?.route?.stack[0]?.handle;
+  // Chain is [audited('reporting.deployment.outcome'), withRoute] — the handler is last.
+  const getHandler = () => {
+    const stack = router.stack.find((l: any) => l.route?.path === '/:executionId/outcome')?.route?.stack;
+    return stack?.[stack.length - 1]?.handle;
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();

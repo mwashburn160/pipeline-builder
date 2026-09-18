@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { previousSecretStates, SECRET_ROTATION_PREVIOUS_GAUGE } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import type { Request, Response, NextFunction } from 'express';
 import { Registry, collectDefaultMetrics, Counter, Histogram, Gauge } from 'prom-client';
@@ -15,6 +16,29 @@ register.setDefaultLabels({ service: SERVICE_NAME });
 
 // Collect default Node.js process metrics (CPU, memory, heap, event loop lag, GC)
 collectDefaultMetrics({ register });
+
+/**
+ * Register the `secret_rotation_previous_set{secret}` gauge on `registry`: 1
+ * while a secret's `*_PREVIOUS` rotation value is still set, 0 otherwise. The
+ * value is read from api-core's probe registry at scrape time, so it always
+ * reflects the live process. Exported so platform (own registry) exposes the
+ * identical series; the `SecretRotationPreviousLingering` alert keys on it.
+ */
+export function registerSecretRotationGauge(registry: Registry): Gauge<'secret'> {
+  return new Gauge({
+    name: SECRET_ROTATION_PREVIOUS_GAUGE,
+    help: '1 while a secret rotation previous value (e.g. SECRET_ENCRYPTION_KEY_PREVIOUS) or a retiring signing key is still accepted; see docs/runbooks/secret-rotation.md',
+    labelNames: ['secret'] as const,
+    registers: [registry],
+    collect() {
+      for (const { secret, previousSet } of previousSecretStates()) {
+        this.set({ secret }, previousSet ? 1 : 0);
+      }
+    },
+  });
+}
+
+registerSecretRotationGauge(register);
 
 /** HTTP request duration histogram (seconds) */
 const httpRequestDuration = new Histogram({

@@ -8,7 +8,7 @@ import { formatError } from '@/lib/constants';
 /**
  * Load-once-and-reload state for an async resource. Manages `data` / `loading` /
  * `error` + a failure toast + a `reload()`, so components stop re-hand-rolling
- * the same scaffold (previously duplicated across PatSection, RecentlyDeletedPanel).
+ * the same scaffold (previously duplicated across AccessKeysSection, RecentlyDeletedPanel).
  *
  * - `loader` MUST be memoized (wrap in `useCallback`) — it's a `reload`
  *   dependency; a fresh function each render would refetch every render.

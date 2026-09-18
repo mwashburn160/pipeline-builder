@@ -83,7 +83,7 @@ image ships these tools (see
 ## Quick start
 
 ```bash
-# Authenticate against your Pipeline Builder platform
+# Sign in — prints a code, opens your browser to approve it, stores the session
 pipeline-manager auth login --url https://platform.example.com
 
 # Bootstrap a new pipeline project in the current directory
@@ -133,7 +133,7 @@ pipeline-manager infra provision --target docker --repo --with-all --with-smoke-
 - **AI-optional.** Set `ANTHROPIC_API_KEY` (or `AI_PROVIDER` + its key) to parse a natural-language `--prompt` and add free-form failure diagnosis; without a key it falls back to the deterministic issue matcher.
 - **Bootstrap a fresh machine (`--repo`).** Without a checkout, `--repo` git-clones the platform repo first, then runs from it. The clone is **sparse + partial** (`--filter=blob:none` + cone `sparse-checkout`, git ≥ 2.27 — else a full-clone fallback): it materializes only the deploy folders the selected target + options need. Re-syncs are **additive** — a single `--workdir` can accumulate multiple targets. Override with `--repo <url>`, `--ref <branch|tag>`, `--workdir <dir>`.
 - **Run in Docker, zero host installs.** [`deploy/bin/provision-docker.sh`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/bin/provision-docker.sh) runs `infra provision` inside a throwaway `node:24-slim` container, installing only the tools the chosen target needs. Args pass straight through. (On macOS the container can't drive Docker Desktop's CLI, so run **local** on the host instead — the wrapper shines for the AWS targets.)
-- **Post-install steps.** After deploy + health, `infra provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`) and runs opt-in loads — passed as flags or **offered interactively after the clone** when none are given: `--with-plugins` (adds `deploy/plugins` + `deploy/codebuild`), `--with-compliance`, `--with-samples`, `--with-all`, `--with-smoke-test`, **`--with-events`** (AWS event ingestion: `infra store-token` writes a platform JWT to Secrets Manager, then `infra setup-events` deploys the EventBridge → SQS → Lambda), and repeatable `--post-step "<cmd>"`. Default is register-only; `--init skip` skips even that. All steps are idempotent.
+- **Post-install steps.** After deploy + health, `infra provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`) and runs opt-in loads — passed as flags or **offered interactively after the clone** when none are given: `--with-plugins` (adds `deploy/plugins` + `deploy/codebuild`), `--with-compliance`, `--with-samples`, `--with-all`, `--with-smoke-test`, **`--with-events`** (AWS event ingestion: three `infra store-token` runs write the platform, `registry:push` and `reporting:ingest` service-account keys to Secrets Manager, then `infra setup-events --scoped-ingest` deploys the EventBridge → SQS → Lambda), and repeatable `--post-step "<cmd>"`. Default is register-only; `--init skip` skips even that. All steps are idempotent.
 
 The underlying `bin/setup.sh` / `bin/shutdown.sh` scripts (and `aws cloudformation delete-stack` for ec2) remain the source of truth and can always be run directly. Full guide: [AWS deployment → AI-assisted install](aws-deployment.md#ai-assisted-install-infra-provision).
 
@@ -177,8 +177,9 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 
 | Command | Purpose |
 | --- | --- |
-| `auth login` | Authenticate against the platform and persist the access token (supports `--refresh <token>` and `--org <orgId>` to switch organizations) |
-| `infra store-token` | Generate a long-lived JWT and store it in AWS Secrets Manager (used by the events Lambda and CodePipeline synth steps). Add `--schedule` to also deploy a daily auto-renewal stack so the token never lapses |
+| `auth login` | Sign in through your **browser** using the OAuth 2.0 device authorization grant (RFC 8628): the CLI prints a short code, you approve it in the browser (where SSO and step-up already apply), and the session is stored in `~/.pipeline-manager/credentials.json`. `--org <orgId>` switches organization afterwards; `--no-browser` prints the URL instead of opening it. There is **no password flag and no way to pass a refresh token** |
+| `auth pat` | Create a named access key (`pb_pat_…`) for CI. Uses the same browser sign-in, and the approval doubles as the step-up the platform requires to create a key — so no password is typed here either. The key is printed **once** |
+| `infra store-token` | Provision the org's machine identity — a **service account** plus one `pb_sa_…` key — and store the key in AWS Secrets Manager (read by CodeBuild's registry credentials, the plugin-lookup Lambda, the events Lambda and `--store-tokens`). Add `--schedule` to also deploy a daily **key-rotation** stack (rotate → store → revoke) so the key never lapses. Re-run per scope (`--scope reporting:ingest`, `--scope registry:push`) — each is its own least-privilege account. Needs `PLATFORM_PASSWORD`: both writes are step-up gated |
 | `infra setup-events` | Deploy the EventBridge → SQS → Lambda stack that streams CodePipeline events into the platform's reporting service. Add **`--with-dora`** to also resolve source commit timestamps in-account for **measured** commit→deploy lead time — off by default (**why:** it adds an SCM call + a `github-token`-secret read per deploy event, so only worthwhile for orgs on the `advanced_reporting` add-on; the other DORA metrics work without it and lead time simply reports `unknown`). Re-run to toggle. |
 | `infra redrive-events` | Manual fallback for the events Lambda's self-healing redrive: move dead-lettered CodePipeline events from `pipeline-builder-events-dlq` back onto the ingestion queue via SQS `StartMessageMoveTask`. Skips the move when the DLQ is empty or a move task is already running; idempotent ingest prevents double-counting |
 
@@ -236,13 +237,21 @@ The CLI resolves its settings from three layers, lowest to highest precedence:
 2. **User config file** — `~/.pipeline-manager/config.yml`
 3. **Project config file** — `CLI_CONFIG_PATH`, else `./config.yml`
 
-Environment variables override the resolved config. `auth login` persists your access token to the user config so subsequent commands authenticate automatically.
+Environment variables override the resolved config.
+
+**How commands authenticate**, in priority order:
+
+1. `PLATFORM_TOKEN` — always wins. This is what CI sets, to an access key from `auth pat`.
+2. The session `auth login` stored for **this platform's base URL**, in `~/.pipeline-manager/credentials.json` (owner-only, `0600`). It carries the access token and its refresh token, so the CLI renews the session itself and you sign in roughly as often as the refresh token's 30-day life requires.
+3. `--store-tokens` with `PLATFORM_SECRET_NAME` — the service-account key in AWS Secrets Manager (`infra store-token`). A command given `--store-tokens` never falls back to your personal session.
+
+Sign a stored session out from the dashboard (**Settings → Sessions and devices**) — it appears there as a signed-in device like any other.
 
 ### Environment variables
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `PLATFORM_TOKEN` | Yes (for API ops) | Auth token for the Pipeline Builder platform |
+| `PLATFORM_TOKEN` | No | Access key or token for the platform. Overrides the stored `auth login` session — set it in CI, leave it unset on a workstation |
 | `PLATFORM_BASE_URL` | Yes (for API ops) | Base URL of your platform deployment |
 | `AWS_REGION` | Yes (for deploy) | Target AWS region for `pipeline synth` / `pipeline deploy` / `infra provision` teardown |
 | `CLI_CONFIG_PATH` | No | Override the project config file path (default `./config.yml`) |

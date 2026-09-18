@@ -36,10 +36,20 @@ jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter:
 jest.unstable_mockModule('../src/services/billing-provision.js', () => ({ provisionBillingSubscription: jest.fn() }));
 jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { markEmailVerifiedById: (...a: unknown[]) => mockMarkVerified(...a) },
+  // controllers/auth.ts attributes the PUBLIC email-verify to the user the token
+  // resolved to via createEvent (no req.user on that route); unused here.
+  auditService: { createEvent: jest.fn(async () => undefined) },
 }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({ issueTokens: jest.fn(), renewSessionTokens: jest.fn() }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({
+  // Session-auth helpers the controllers now import (see utils/token.ts).
+  signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  findRefreshSession: jest.fn(async () => undefined),
+  issueTokens: jest.fn(),
+  renewSessionTokens: jest.fn(),
+}));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
-  validateBody: jest.fn(), registerSchema: {}, loginSchema: {}, refreshSchema: {}, completeOnboardingSchema: {}, joinOrgSchema: {},
+  validateBody: jest.fn(), registerSchema: {}, loginSchema: {}, completeOnboardingSchema: {}, joinOrgSchema: {},
 }));
 
 const { markEmailVerified } = await import('../src/controllers/auth.js');

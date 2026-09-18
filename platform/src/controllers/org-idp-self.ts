@@ -16,9 +16,11 @@
  *              that already governs IdP/KMS/AI/general org settings (see the RBAC
  *              catalog note on `org:settings`), plus `requireStepUp` on the
  *              secret-bearing writes (mirrors the sysadmin routes).
- *   - controller: `requireOrgScope` — the caller may only touch THEIR OWN org or a
- *              team they manage (path `:id` ∈ {active org, descendant}); AND the
- *              org must be `sso`-ENTITLED. An unentitled/out-of-scope org is 403'd.
+ *   - controller: `requireOwnOrgSso` (helpers/sso-enforcement) — the caller may
+ *              only touch THEIR OWN org or a team they manage (path `:id` ∈
+ *              {active org, descendant}); AND the org must be `sso`-ENTITLED. An
+ *              unentitled/out-of-scope org is 403'd. The group-mapping surface
+ *              (controllers/org-idp-mappings.ts) shares that same gate.
  *
  * Everything else — validation, the write-only client-secret handling, the
  * `idpConfigs` quota reservation, the audit actions — lives in
@@ -27,24 +29,10 @@
  * preserve the stored client secret on an update).
  */
 
-import { getParam, sendError } from '@pipeline-builder/api-core';
+import { getParam } from '@pipeline-builder/api-core';
 import { deleteOrgIdp, patchOrgIdp, readOrgIdp, upsertOrgIdp } from './org-idp-ops.js';
-import { requireAuth, requireOrgScope, withController } from '../helpers/controller-helper.js';
-import { isSsoEntitled } from '../helpers/sso-enforcement.js';
-
-/**
- * Shared tenancy + entitlement gate for the self-service surface. Confirms the
- * caller may manage `orgId` (own org / managed descendant) AND the org is
- * `sso`-entitled. Returns false (and has responded) when either fails.
- */
-async function requireOwnOrgSso(req: Parameters<typeof requireOrgScope>[0], res: Parameters<typeof requireOrgScope>[1], orgId: string): Promise<boolean> {
-  if (!(await requireOrgScope(req, res, orgId))) return false;
-  if (!(await isSsoEntitled(orgId))) {
-    sendError(res, 403, 'This organization is not entitled to SSO', 'SSO_NOT_ENTITLED');
-    return false;
-  }
-  return true;
-}
+import { requireAuth, withController } from '../helpers/controller-helper.js';
+import { requireOwnOrgSso } from '../helpers/sso-enforcement.js';
 
 /** GET /organization/:id/idp — read own-org IdP config (200 with `config: null`
  *  when none is set, mirroring the sysadmin read). */

@@ -38,6 +38,9 @@ pb_configmap() { local _n="$1"; shift; pb_kube_apply create configmap "$_n" "$@"
 # Secret detection is by NAME, so a newly added *_PASSWORD / *_SECRET / *_TOKEN / *_KEY /
 # API key lands in the Secret without touching this function. Knobs that merely contain
 # those words (…_TOKEN_EXPIRES_IN, …_TOKEN_URL, …_KEY_ID, PASSWORD_MIN_LENGTH) stay config.
+# `…_PREVIOUS` is secret too — every rotation-overlap value
+# (ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS, SECRET_ENCRYPTION_KEY_PREVIOUS, …) is the
+# same credential as the key it supersedes, so it must never land in the ConfigMap.
 pb_split_app_env() {
   local _src="$1" _cfg="$2" _sec="$3"
   : > "$_cfg"; : > "$_sec"
@@ -47,7 +50,7 @@ pb_split_app_env() {
       if (key ~ /^(POSTGRES_USER|POSTGRES_PASSWORD|MONGO_INITDB_ROOT_USERNAME|MONGO_INITDB_ROOT_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|GRAFANA_ADMIN_USER|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|GHCR_TOKEN)$/ \
           || key ~ /^(ME_CONFIG_|PGADMIN_|LOKI_S3_|THANOS_S3_|REGISTRY_S3_)/) next
       if (key ~ /(_EXPIRES_IN|_ISSUER|_SERVICE|_REALM|_TTL_MS|_TOKEN_URL|_KEY_ID|_LENGTH|_KMS|ATTRIBUTE_KEYS)$/) { print > cfg; next }
-      if (key ~ /(PASSWORD|_PASS|SECRET|TOKEN|_KEY|_KEYS|_URI)$/ || key ~ /SECRET|PASSWORD|WEBHOOK_URL/ || key == "REDIS_URL") { print > sec; next }
+      if (key ~ /(PASSWORD|_PASS|SECRET|TOKEN|_KEY|_KEYS|_URI|_PREVIOUS)$/ || key ~ /SECRET|PASSWORD|WEBHOOK_URL/ || key == "REDIS_URL") { print > sec; next }
       print > cfg
     }' "$_src"
 }
@@ -66,7 +69,9 @@ pb_app_env_resources() {
 
 # Application secrets — names/keys must match the k8s manifests. Reads the sourced .env.
 pb_create_app_secrets() {
-  pb_secret jwt-secret           --from-literal=JWT_SECRET="$JWT_SECRET" --from-literal=REFRESH_TOKEN_SECRET="$REFRESH_TOKEN_SECRET"
+  # The *_PREVIOUS keys always exist (empty outside a rotation) so the manifests
+  # can secretKeyRef them unconditionally; an empty value reads as "not
+  # rotating". docs/runbooks/secret-rotation.md
   # postgres-secret is read BY KEY only (postgres, its exporter, pgbouncer, backup): the
   # superuser pair for init/backup, the DB_USER app-role pair for postgres-init.sql and
   # pgbouncer's userlist. App pods get DB_USER/DB_PASSWORD from app-env/app-secrets and
@@ -85,7 +90,8 @@ pb_create_app_secrets() {
   pb_secret kiali-signing-key    --from-literal=value.txt="$KIALI_SIGNING_KEY"
   # Per-org alert relay bearer: mounted as a file into alertmanager (credentials_file
   # in alertmanager.yml) and injected into platform's ALERT_WEBHOOK_INSTANCES.
-  pb_secret alertmanager-relay   --from-literal=ALERT_WEBHOOK_INSTANCE_TOKEN="$ALERT_WEBHOOK_INSTANCE_TOKEN"
+  pb_secret alertmanager-relay   --from-literal=ALERT_WEBHOOK_INSTANCE_TOKEN="$ALERT_WEBHOOK_INSTANCE_TOKEN" \
+    --from-literal=ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS="${ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS:-}"
   # MinIO: root creds (server + minio-init bootstrap) plus the per-service,
   # bucket-scoped keys. Created HERE from .env rather than shipped as a literal
   # Secret in k8s/minio.yaml — which is what it used to be, with working
@@ -102,6 +108,46 @@ pb_create_app_secrets() {
     --from-literal=loki-access-key="$LOKI_S3_ACCESS_KEY"         --from-literal=loki-secret-key="$LOKI_S3_SECRET_KEY" \
     --from-literal=thanos-access-key="$THANOS_S3_ACCESS_KEY"     --from-literal=thanos-secret-key="$THANOS_S3_SECRET_KEY" \
     --from-literal=plugin-access-key="$PLUGIN_S3_ACCESS_KEY"     --from-literal=plugin-secret-key="$PLUGIN_S3_SECRET_KEY"
+}
+
+# The ES256 user-token signing key, mounted (read-only) into PLATFORM ONLY — it
+# is the one credential in the fleet that can mint a token for a person, so no
+# other Deployment references this Secret. Args: <key_file> [previous_key_file].
+# Skipped entirely under TOKEN_SIGNING_MODE=kms, where the private key never
+# leaves AWS and there is nothing to mount.
+pb_create_token_signing_secret() {
+  [ "${TOKEN_SIGNING_MODE:-local}" = "local" ] || { echo "  token signing: KMS mode, no key Secret"; return 0; }
+  local _args=(--from-file=token-signing.key="$1")
+  # The retiring key, when a rotation is mid-flight: published in the JWKS so
+  # tokens it signed keep verifying, never used to sign. The manifest mounts the
+  # whole Secret, so an absent second key simply means an absent file.
+  [ -n "${2:-}" ] && [ -f "${2:-}" ] && _args+=(--from-file=token-signing-previous.key="$2")
+  pb_secret token-signing-key "${_args[@]}"
+}
+
+# The PER-SERVICE internal-token signing keys (#14), as one Secret per service
+# plus one shared PUBLIC bundle. Args: <service_keys_dir> (the `service-keys/`
+# directory deploy/bin/service-signing-keys.sh writes).
+#
+# The split is the whole point: each Deployment mounts `service-key-<name>` and
+# NOTHING else, so a compromised pod holds exactly one identity and cannot sign
+# as any other service. `service-key-bundle` is public (verification only) and is
+# mounted everywhere. `deploy-bootstrap` gets a Secret too, but no Deployment
+# mounts it — push-base-images.sh reads it out to sign its registry pushes.
+pb_create_service_key_secrets() {
+  local _dir="${1:?pb_create_service_key_secrets needs the service-keys dir}"
+  local _key _svc _args
+  [ -f "$_dir/bundle.json" ] || { echo "ERROR: no service key bundle at $_dir/bundle.json (run deploy/bin/service-signing-keys.sh)" >&2; return 1; }
+  pb_secret service-key-bundle --from-file=bundle.json="$_dir/bundle.json"
+  for _key in "$_dir"/*.key; do
+    _svc="$(basename "$_key" .key)"
+    # `<svc>-previous.key` is the retiring half of a rotation: its PUBLIC key is
+    # in the bundle so tokens it signed still verify, but it never signs again,
+    # so it is not mounted anywhere.
+    case "$_svc" in *-previous) continue ;; esac
+    _args=(--from-file=service.key="$_key")
+    pb_secret "service-key-$_svc" "${_args[@]}"
+  done
 }
 
 # Optional GHCR pull secret, attached to the namespace's default ServiceAccount. No-op unless

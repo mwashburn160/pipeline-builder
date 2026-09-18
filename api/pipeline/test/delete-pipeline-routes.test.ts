@@ -109,7 +109,9 @@ function getHandler(method: string, path: string) {
     (l: any) => l.route?.path === path && l.route?.methods[method],
   );
   if (!layer) throw new Error(`No handler for ${method.toUpperCase()} ${path}`);
-  return layer.route.stack[0].handle;
+  // The route handler is LAST in the stack: gate middleware (permission, audit,
+  // quota) sits ahead of it now that gates are declared per route.
+  return layer.route.stack[layer.route.stack.length - 1].handle;
 }
 
 const existingPipeline = {

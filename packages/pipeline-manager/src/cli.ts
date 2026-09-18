@@ -39,6 +39,8 @@ import {
   generateExecutionId,
 } from './config/cli.constants.js';
 import { banner, miniBanner } from './utils/banner.js';
+import { getApiConfig } from './utils/config-loader.js';
+import { loadSession } from './utils/credential-store.js';
 import { ERROR_CODES, handleError } from './utils/error-handler.js';
 import { printInfo, printError, printWarning, printDebug, printSection } from './utils/output-utils.js';
 import { preflightCommandTools } from './utils/preflight.js';
@@ -90,10 +92,12 @@ interface CliOptions {
 function checkEnvironment(): void {
   const warnings: string[] = [];
 
-  // Check for required environment variables
-  if (!process.env[ENV_VARS.PLATFORM_TOKEN]) {
-    warnings.push('PLATFORM_TOKEN environment variable is not set');
-    warnings.push('Authentication will fail for API operations');
+  // Not signed in AT ALL: neither an explicit token nor a stored browser
+  // sign-in. Either alone is enough, so the warning only fires when both are
+  // missing — otherwise `auth login` users would be nagged on every command.
+  if (!process.env[ENV_VARS.PLATFORM_TOKEN] && !loadSession(getApiConfig().api.baseUrl)) {
+    warnings.push('Not signed in (no PLATFORM_TOKEN, no stored session)');
+    warnings.push('Run "pipeline-manager auth login" — API operations will fail until you do');
   }
 
   // Check Node version
@@ -170,8 +174,14 @@ Command groups:
   org       Organization data operations (export)
   status / version / completions
 
+Authentication:
+  Run '${APP_NAME} auth login' once per platform — it signs you in through your
+  browser (no password on the command line) and stores the session under
+  ~/.pipeline-manager/credentials.json. For CI, create an access key with
+  '${APP_NAME} auth pat' and export it as ${ENV_VARS.PLATFORM_TOKEN}, which always wins.
+
 Environment Variables:
-  ${ENV_VARS.PLATFORM_TOKEN} Authentication token (required)
+  ${ENV_VARS.PLATFORM_TOKEN} Access key or token (overrides the stored session)
   ${ENV_VARS.PLATFORM_BASE_URL} API base URL (optional)
   ${ENV_VARS.CLI_CONFIG_PATH} Config file path (optional)
   ${ENV_VARS.TLS_REJECT_UNAUTHORIZED} Disable SSL verification if '0'
@@ -179,7 +189,7 @@ Environment Variables:
 
 Examples:
   $ ${APP_NAME} version
-  $ ${APP_NAME} auth login -u me@example.com
+  $ ${APP_NAME} auth login
   $ ${APP_NAME} pipeline list --project my-app
   $ ${APP_NAME} pipeline get --id pipe-123 --format json
   $ ${APP_NAME} pipeline create -f props.json --deploy --profile production
@@ -213,8 +223,8 @@ Run '${APP_NAME} <group> --help' to see a group's subcommands.
 
   // auth — authenticate and manage credentials
   const auth = program.command('auth').description('Authenticate and manage credentials');
-  login(auth); // auth login — obtain PLATFORM_TOKEN (also supports --refresh)
-  createPat(auth); // auth pat — create a named Personal Access Token
+  login(auth); // auth login — browser (device-authorization) sign-in, stored locally
+  createPat(auth); // auth pat — create a named access key (device sign-in + browser step-up)
 
   // pipeline — create, inspect, and deploy pipelines
   const pipeline = program.command('pipeline').description('Create, inspect, and deploy pipelines');

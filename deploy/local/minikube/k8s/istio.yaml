@@ -15,6 +15,13 @@
 #      Observability infra (loki/alertmanager/thanos/jaeger) is left at
 #      STRICT-mTLS-only (no AuthZ) to bound the enumeration surface.
 #
+# WAYPOINT: the five Services that expose INTERNAL routes (platform, message,
+# compliance, quota, reporting) are attached to the `pb-waypoint` proxy so their
+# per-route L7 policies can be enforced (k8s/istio-internal-routes.yaml). Traffic
+# to them therefore arrives at their ztunnel as the WAYPOINT's identity, which is
+# why `sa/pb-waypoint` appears in those policies' principal lists below — the
+# original caller has already been checked, at the waypoint.
+#
 # ALLOW semantics: the moment an ALLOW policy selects a workload, that workload
 # is default-deny for every principal NOT listed — so each policy enumerates all
 # legitimate callers, including cross-cutting ones (prometheus for /metrics on
@@ -397,6 +404,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/message
               - cluster.local/ns/pipeline-builder/sa/quota
               - cluster.local/ns/pipeline-builder/sa/reporting
+              - cluster.local/ns/pipeline-builder/sa/pb-waypoint
               # Per-org alert relay: POST /observability/alert-webhook.
               - cluster.local/ns/pipeline-builder/sa/alertmanager
       to:
@@ -468,6 +476,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/pipeline
               - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/pb-waypoint
       to:
         - operation:
             ports: ["3000"]
@@ -493,6 +502,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/plugin
               - cluster.local/ns/pipeline-builder/sa/message
               - cluster.local/ns/pipeline-builder/sa/billing
+              - cluster.local/ns/pipeline-builder/sa/pb-waypoint
               # every api-core service runs the quota-check middleware (apiCalls
               # increment) on inbound requests, so all API services call quota.
               - cluster.local/ns/pipeline-builder/sa/compliance
@@ -542,6 +552,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/platform
               - cluster.local/ns/pipeline-builder/sa/pipeline
               - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/pb-waypoint
       to:
         - operation:
             ports: ["3000"]
@@ -565,6 +576,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/platform
               - cluster.local/ns/pipeline-builder/sa/pipeline
               - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/pb-waypoint
       to:
         - operation:
             ports: ["3000"]

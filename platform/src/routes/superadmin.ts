@@ -10,7 +10,7 @@
  * (audit-read, data-export, etc.) slot in without new routes.
  */
 
-import { requireStepUp } from '@pipeline-builder/api-core';
+import { audited, requireStepUp } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import { addUserGrant, removeUserGrant } from '../controllers/superadmin.js';
 import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
@@ -19,7 +19,7 @@ const router: Router = Router({ mergeParams: true });
 
 // `requireSystemAdmin` mirrors the controllers' own first-line gate at the route
 // layer (defense-in-depth) — granting/revoking platform-admin is sysadmin-only.
-router.post('/', requireAuth, requireSystemAdmin, requireStepUp, addUserGrant);
-router.delete('/', requireAuth, requireSystemAdmin, requireStepUp, removeUserGrant);
+router.post('/', requireAuth, requireSystemAdmin, requireStepUp, audited('admin.superadmin.grant'), addUserGrant);
+router.delete('/', requireAuth, requireSystemAdmin, requireStepUp, audited('admin.superadmin.revoke'), removeUserGrant);
 
 export default router;

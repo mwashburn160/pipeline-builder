@@ -16,6 +16,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: jest.fn(),
+  isServicePrincipal: jest.fn(),
   requireSystemAdmin: jest.fn(),
   sendError: jest.fn(),
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
@@ -28,10 +29,11 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isValidQuotaType: jest.fn(),
 }));
 
-const { isSystemAdmin, sendError } = await import('@pipeline-builder/api-core');
-const { authorizeOrg } = await import('../src/middleware/authorize-org.js');
+const { isSystemAdmin, isServicePrincipal, sendError } = await import('@pipeline-builder/api-core');
+const { authorizeOrg, requireInternalCaller } = await import('../src/middleware/authorize-org.js');
 
 const mockIsSystemAdmin = isSystemAdmin as jest.MockedFunction<typeof isSystemAdmin>;
+const mockIsServicePrincipal = isServicePrincipal as jest.MockedFunction<typeof isServicePrincipal>;
 const mockSendError = sendError as jest.MockedFunction<typeof sendError>;
 
 // Helpers
@@ -137,4 +139,55 @@ describe('authorizeOrg', () => {
 
   // The requireSystemAdmin option delegates to api-core's real gate — covered
   // (including the authz.denied audit) in authorize-org-audit.test.ts.
+});
+
+// The INTERNAL-route gate on POST /quotas/:orgId/increment and /decrement (#14).
+// authorizeOrg() alone admits any same-org member, so this gate is what keeps a
+// member from self-serving their own usage counters — and since #14 it keeps a
+// SYSTEM ADMIN out too: moving a tenant's counters is not a human's action.
+
+describe('requireInternalCaller', () => {
+  const callerReq = (user: Record<string, unknown>) => createMockReqResNext({ user, params: { orgId: 'org-1' } });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('denies a same-org member (not a service at all)', () => {
+    mockIsServicePrincipal.mockReturnValue(false);
+    mockIsSystemAdmin.mockReturnValue(false);
+    const { req, res, next } = callerReq({ organizationId: 'org-1' });
+
+    requireInternalCaller(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith(res, 403, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
+  });
+
+  it('denies a SYSTEM ADMIN — an internal route admits no user token', () => {
+    mockIsServicePrincipal.mockReturnValue(false);
+    mockIsSystemAdmin.mockReturnValue(true);
+    const { req, res, next } = callerReq({ organizationId: 'org-1', isSuperAdmin: true });
+
+    requireInternalCaller(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith(res, 403, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
+  });
+
+  it('allows a signed service principal from the internal fleet', () => {
+    mockIsServicePrincipal.mockReturnValue(true);
+    const { req, res, next } = callerReq({ organizationId: 'org-1', sub: 'service:pipeline', principalType: 'service' });
+
+    requireInternalCaller(req, res, next);
+    expect(next).toHaveBeenCalled();
+    expect(mockSendError).not.toHaveBeenCalled();
+  });
+
+  it('denies a service principal that is not in the caller list', () => {
+    mockIsServicePrincipal.mockReturnValue(true);
+    const { req, res, next } = callerReq({ organizationId: 'org-1', sub: 'service:deploy-bootstrap', principalType: 'service' });
+
+    requireInternalCaller(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith(res, 403, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
+  });
 });

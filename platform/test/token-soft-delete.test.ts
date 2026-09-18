@@ -41,7 +41,12 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { find: jest.fn(emptyFindChain) },
 }));
 
-const { issueTokens } = await import('../src/utils/token.js');
+const { issueTokens, signInAuth } = await import('../src/utils/token.js');
+const { installTestSigningKeys } = await import('./helpers/signing.js');
+installTestSigningKeys();
+
+/** Every sign-in opens an interactive slot; these tests only care about claims. */
+const login = { kind: 'interactive' as const, auth: signInAuth('pwd') };
 
 function user() {
   return { _id: { toString: () => 'user-1' }, username: 'u', email: 'e@x.com', isEmailVerified: true, tokenVersion: 1 } as any;
@@ -71,7 +76,7 @@ describe('resolveMembership soft-delete chokepoint (via issueTokens)', () => {
     mockUOFindOne.mockReturnValue(findOneChain({ role: 'admin', organizationId: 'org-live' }));
     mockOrgFindById.mockReturnValue(orgChain({ name: 'Live', deletedAt: null }));
 
-    const { accessToken } = await issueTokens(user(), 'org-live');
+    const { accessToken } = await issueTokens(user(), 'org-live', login);
     expect(orgIdOf(accessToken)).toBe('org-live');
   });
 
@@ -82,7 +87,7 @@ describe('resolveMembership soft-delete chokepoint (via issueTokens)', () => {
     // No other memberships to fall back to.
     mockUOFind.mockReturnValue(findChain([]));
 
-    const { accessToken } = await issueTokens(user(), 'org-dead');
+    const { accessToken } = await issueTokens(user(), 'org-dead', login);
     // The token must NOT carry the soft-deleted org.
     expect(orgIdOf(accessToken)).toBeUndefined();
   });
@@ -99,7 +104,7 @@ describe('resolveMembership soft-delete chokepoint (via issueTokens)', () => {
       orgChain(id === 'org-dead' ? { name: 'Dead', deletedAt: new Date() } : { name: 'Live', deletedAt: null }),
     );
 
-    const { accessToken } = await issueTokens(user(), 'org-dead');
+    const { accessToken } = await issueTokens(user(), 'org-dead', login);
     expect(orgIdOf(accessToken)).toBe('org-live');
   });
 });

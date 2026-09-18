@@ -24,6 +24,7 @@ import {
   History,
   SlidersHorizontal,
   Bell,
+  Bot,
   Rocket,
   Landmark,
   Fingerprint,
@@ -122,10 +123,10 @@ export const NAV_SECTIONS: NavSection[] = [
     // Pinned open — the core daily authoring surfaces.
     alwaysExpanded: true,
     items: [
-      { title: 'Pipelines', href: '/dashboard/pipelines', icon: GitBranch },
+      { title: 'Pipelines', href: '/dashboard/pipelines', icon: GitBranch, requiredPermission: 'pipelines:read' },
       // Golden-path template gallery — instantiate a governed pipeline from a starter.
-      { title: 'Templates', href: '/dashboard/templates', icon: LayoutTemplate },
-      { title: 'Plugins', href: '/dashboard/plugins', icon: Puzzle },
+      { title: 'Templates', href: '/dashboard/templates', icon: LayoutTemplate, requiredPermission: 'templates:read' },
+      { title: 'Plugins', href: '/dashboard/plugins', icon: Puzzle, requiredPermission: 'plugins:read' },
     ],
   },
   {
@@ -136,7 +137,7 @@ export const NAV_SECTIONS: NavSection[] = [
       // Deployed-pipelines registry (view/register/deregister + drift vs config).
       { title: 'Deployments', href: '/dashboard/deployments', icon: Rocket, requiredPermission: 'pipelines:read' },
       // Per-pipeline run health.
-      { title: 'Executions', href: '/dashboard/executions', icon: Activity },
+      { title: 'Executions', href: '/dashboard/executions', icon: Activity, requiredPermission: 'reports:read' },
       // Plugin-build queue + failed-build triage (sysadmin). An operate surface,
       // moved out of the Platform admin group to sit with the other run views.
       { title: 'Builds', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true, extraActivePaths: ['/dashboard/triage'] },
@@ -212,6 +213,10 @@ export const NAV_SECTIONS: NavSection[] = [
       // permission (split out of `org:settings`) AND the `sso` tier entitlement;
       // the page + backend re-enforce both.
       { title: 'Single Sign-On', href: '/dashboard/settings/sso', icon: Fingerprint, requiredPermission: 'org:idp', requiredFeature: 'sso' },
+      // Org service accounts (#2): machine identities + their pb_sa_ keys. Gated
+      // by the dedicated `service_accounts:manage` permission — minting durable
+      // machine credentials is a different decision from managing the roster.
+      { title: 'Service Accounts', href: '/dashboard/settings/service-accounts', icon: Bot, requiredPermission: 'service_accounts:manage' },
       // Org-admin incident-reporting setup (DORA post-deploy CFR + MTTR). Admin-only
       // config surface, gated on the `advanced_reporting` entitlement (like DORA).
       { title: 'Incident Reporting', href: '/dashboard/settings/incident-reporting', icon: Siren, adminOnly: true, requiredFeature: 'advanced_reporting' },

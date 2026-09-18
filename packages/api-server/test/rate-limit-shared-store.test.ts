@@ -34,8 +34,6 @@ beforeEach(async () => {
   // The shared rate-limit connection is memoized per process — rebuild per test.
   (await import('../src/api/rate-limit-store.js')).__resetSharedRateLimitStoreForTests();
   createEnvRedisClient.mockReturnValue(null);
-  // `createApp` fails fast without it (prevents silent auth failures at runtime).
-  process.env.JWT_SECRET ||= 'test-secret';
 });
 afterEach(() => { process.env = { ...ORIGINAL }; });
 

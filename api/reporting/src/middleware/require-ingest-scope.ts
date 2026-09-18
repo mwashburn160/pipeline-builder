@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { hasScope, sendError, ErrorCode } from '@pipeline-builder/api-core';
+import { hasScope, sendError, ErrorCode, tagRouteGate } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 
 /**
@@ -24,3 +24,7 @@ export function requireIngestScope(req: Request, res: Response, next: NextFuncti
   }
   next();
 }
+// Declare what this service-local gate enforces so the introspected route table
+// (and the route-coverage test that reads it) records the machine-scope boundary
+// instead of seeing an untagged middleware.
+tagRouteGate(requireIngestScope, { kind: 'scope', scope: INGEST_SCOPE });

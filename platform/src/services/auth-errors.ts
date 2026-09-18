@@ -46,6 +46,27 @@ export const OAUTH_EMAIL_UNVERIFIED = 'OAUTH_EMAIL_UNVERIFIED';
  *  whose email claim is unverifiable (nOAuth). The operator must pin a tenant. → 400 */
 export const OAUTH_MICROSOFT_TENANT_NOT_PINNED = 'OAUTH_MICROSOFT_TENANT_NOT_PINNED';
 
+// -- Step-up provider re-auth (controllers/step-up-reauth.ts STEP_UP_REAUTH_ERROR_MAP)
+
+/** The requested provider / SSO org isn't a re-auth option for this account. → 400 */
+export const STEP_UP_REAUTH_UNAVAILABLE = 'STEP_UP_REAUTH_UNAVAILABLE';
+/** The re-auth `state` is unknown, expired, replayed or belongs to another user. → 403 */
+export const STEP_UP_REAUTH_INVALID_STATE = 'STEP_UP_REAUTH_INVALID_STATE';
+/** The provider signed in an identity other than the one linked to this account. → 403 */
+export const STEP_UP_REAUTH_IDENTITY_MISMATCH = 'STEP_UP_REAUTH_IDENTITY_MISMATCH';
+/** The provider couldn't prove the sign-in happened during this re-auth. → 401 */
+export const STEP_UP_REAUTH_NOT_RECENT = 'STEP_UP_REAUTH_NOT_RECENT';
+/** A token-endpoint `id_token` whose audience/subject doesn't match this flow. → 401 */
+export const OAUTH_INVALID_ID_TOKEN = 'OAUTH_INVALID_ID_TOKEN';
+
 /** A renewal or mint would widen (or swap) a scoped credential's capability —
  *  a narrow machine token trading itself for a broader one. Mapped to 403. */
 export const TOKEN_SCOPE_ESCALATION = 'TOKEN_SCOPE_ESCALATION';
+
+/** A credential was derived from a token carrying no `amr`/`aal`/`auth_time`
+ *  claims, so its assurance can't be inherited. Fail closed → 401. */
+export const SESSION_AUTH_MISSING = 'SESSION_AUTH_MISSING';
+
+/** A machine session (a stored credential from generate-token) was presented on
+ *  POST /auth/refresh, which only renews interactive sessions. → 401 */
+export const MACHINE_SESSION_NOT_REFRESHABLE = 'MACHINE_SESSION_NOT_REFRESHABLE';

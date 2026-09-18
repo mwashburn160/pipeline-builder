@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  audited,
   requireAuth,
   requirePermission,
   requireStepUp,
@@ -164,7 +165,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions  create a new subscription
 
-  router.post('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, audited('billing.subscription.create'), withRoute(async ({ req, res, orgId }) => {
     const pre = await preflightCreate(req, res, orgId);
     if (!pre) return;
     const { planId, interval, plan, customerEmail, referralCode } = pre;
@@ -260,6 +261,18 @@ export function createSubscriptionRoutes(): Router {
       planId, interval, tier: plan.tier,
     }, subscription._id.toString(), req.user?.sub);
 
+    // Mirror the new subscription to the CENTRAL audit trail (alongside the local
+    // billing_events row above) — it's the financially-binding start of a paid
+    // relationship. Fire-and-forget; details are an explicit plan/tier whitelist,
+    // so no card/payment secret or AWS account id can reach the trail.
+    getAuditClient().record({
+      action: 'billing.subscription.create',
+      actorId: req.user?.sub ?? 'system',
+      orgId,
+      targetId: subscription._id.toString(),
+      details: { planId, interval, tier: plan.tier, status: subscription.status },
+    }, 'billing');
+
     // Promotions + referrals: only credit an ENTITLEMENT-WORTHY signup (active/
     // trialing). An `incomplete`/`past_due` sub hasn't paid and may be deleted by
     // Stripe without a clawback path, so banking a credit / reserving campaign
@@ -278,7 +291,9 @@ export function createSubscriptionRoutes(): Router {
 
   // PUT /billing/subscriptions/:id  change plan or interval
 
-  router.put('/subscriptions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  // `billing.addon.prune` rides along: a tier upgrade auto-drops any bundle the
+  // destination tier now includes (applyTierIncludedAddonPrune → finalizePrunedAddons).
+  router.put('/subscriptions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, audited('billing.subscription.update', 'billing.addon.prune'), withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
     const validation = validateBody(req, SubscriptionUpdateSchema);
     if (!validation.ok) {
@@ -414,6 +429,24 @@ export function createSubscriptionRoutes(): Router {
       }
     }
 
+    // Mirror the plan/cadence change to the CENTRAL audit trail (the local
+    // plan_changed / interval_changed rows are written above). Customer-driven
+    // counterpart to the sysadmin `billing.tier.override`. Fire-and-forget;
+    // details are an explicit plan/interval whitelist — no payment secrets.
+    getAuditClient().record({
+      action: 'billing.subscription.update',
+      actorId: req.user?.sub ?? 'system',
+      orgId,
+      targetId: subscriptionId,
+      details: {
+        planId: subscription.planId,
+        interval: subscription.interval,
+        ...(plan ? { tier: plan.tier } : {}),
+        planChanged,
+        intervalChanged,
+      },
+    }, 'billing');
+
     logger.info('Subscription updated', { orgId, subscriptionId, planId, interval });
 
     return sendSuccess(res, 200, {
@@ -423,7 +456,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions/:id/cancel  cancel at period end
 
-  router.post('/subscriptions/:id/cancel', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, requireStepUp as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/cancel', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, requireStepUp as RequestHandler, audited('billing.subscription.cancel'), withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
 
     const subscription = await Subscription.findOne({
@@ -495,7 +528,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions/:id/reactivate  undo cancellation
 
-  router.post('/subscriptions/:id/reactivate', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/reactivate', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, audited('billing.subscription.reactivate'), withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
 
     const subscription = await Subscription.findOne({
@@ -528,6 +561,17 @@ export function createSubscriptionRoutes(): Router {
     await createBillingEvent(orgId, 'subscription_reactivated', {
       planId: subscription.planId,
     }, subscriptionId, req.user?.sub);
+
+    // Mirror the undo-cancel to the CENTRAL audit trail — the inverse of
+    // `billing.subscription.cancel`, so the trail shows both sides of a churn
+    // decision. Fire-and-forget; plan id only, no payment secrets.
+    getAuditClient().record({
+      action: 'billing.subscription.reactivate',
+      actorId: req.user?.sub ?? 'system',
+      orgId,
+      targetId: subscriptionId,
+      details: { planId: subscription.planId, orgId },
+    }, 'billing');
 
     logger.info('Subscription reactivated', { orgId, subscriptionId });
 

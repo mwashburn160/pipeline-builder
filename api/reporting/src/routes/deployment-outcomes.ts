@@ -1,12 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, validateBody } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, validateBody, audited } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
 import { orgRetentionWindowFromSettings } from '../helpers/retention-cap.js';
+import { emitReportingAudit } from '../services/audit.js';
 
 /**
  * Post-deploy outcome markers (Phase 2). A user marks a deployment `failed`
@@ -43,7 +44,7 @@ const CLOCK_SKEW_MS = 60_000;
 export function createDeploymentOutcomeRoutes(): Router {
   const router = Router();
 
-  router.post('/:executionId/outcome', withRoute(async ({ req, res, orgId }) => {
+  router.post('/:executionId/outcome', audited('reporting.deployment.outcome'), withRoute(async ({ req, res, orgId, userId }) => {
     const executionId = typeof req.params.executionId === 'string' ? req.params.executionId : '';
     if (!executionId) return sendBadRequest(res, 'executionId is required', ErrorCode.VALIDATION_ERROR);
 
@@ -81,6 +82,22 @@ export function createDeploymentOutcomeRoutes(): Router {
     }
 
     await reportingService.recordDeploymentOutcome(orgId, executionId, parsed.value);
+    // Best-effort attributed audit — a `failed`/`restored` marker rewrites the
+    // org's reported change-failure rate + MTTR (the DORA numbers a customer may
+    // report externally), so who marked what, when, needs a durable trail.
+    // Emitted only after the idempotent upsert landed.
+    emitReportingAudit({
+      action: 'reporting.deployment.outcome',
+      actorId: req.user?.sub ?? userId ?? 'system',
+      orgId,
+      targetType: 'deployment',
+      targetId: executionId,
+      details: {
+        outcome: parsed.value.outcome,
+        at: parsed.value.at,
+        ...(parsed.value.environment !== undefined ? { environment: parsed.value.environment } : {}),
+      },
+    });
     sendSuccess(res, 200, { executionId, outcome: parsed.value.outcome });
   }));
 

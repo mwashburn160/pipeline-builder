@@ -7,6 +7,7 @@ import {
   sendSuccess,
   ErrorCode,
   isSystemAdmin,
+  audited,
   getParam,
   sendEntityNotFound,
 } from '@pipeline-builder/api-core';
@@ -36,7 +37,7 @@ import { messageService } from '../services/message-service.js';
 export function createPurgeMessageRoutes(): Router {
   const router = Router();
 
-  router.post('/:id/purge', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/:id/purge', audited('message.purge'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 

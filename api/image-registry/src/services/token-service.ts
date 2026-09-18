@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { randomUUID } from 'crypto';
-import { createLogger, createQuotaService, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createPublicKey, randomUUID } from 'crypto';
+import { createLogger, createQuotaService, getServiceAuthHeader, registerPreviousSecretProbe, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import type { Identity } from './auth-resolver.js';
 import type { RegistryScope } from './scope.js';
@@ -162,7 +162,40 @@ function certsToX5c(pem: string): string[] {
 }
 const x5c = certsToX5c(config.tokenSigning.certificatePem);
 
-logger.info('Initialized token service', { issuer: config.tokenSigning.issuer });
+/**
+ * Fail startup unless `REGISTRY_TOKEN_PRIVATE_KEY` is the key of the LEAF
+ * certificate in `REGISTRY_TOKEN_CERTIFICATE` (its first block).
+ *
+ * This is the signing-key rotation guard. A rotation runs with a two-cert
+ * bundle — new first, outgoing second — so the registry trusts both while
+ * tokens minted under either are still alive. If the operator swaps the key
+ * without putting the matching cert first, every issued token carries an `x5c`
+ * leaf whose public key can't verify its own signature, and the registry
+ * rejects 100% of pulls and pushes with an opaque error. Loud at boot beats
+ * that.
+ */
+function assertSigningKeyMatchesLeaf(): void {
+  const leaf = config.tokenSigning.certificatePem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/)?.[0];
+  if (!leaf) return; // certsToX5c already threw for a cert-less PEM.
+  // createPublicKey reads a certificate PEM as well as a private key, so one
+  // SPKI comparison covers both sides.
+  const spki = (pem: string) => createPublicKey(pem).export({ format: 'pem', type: 'spki' }).toString();
+  if (spki(leaf) !== spki(config.tokenSigning.privateKeyPem)) {
+    throw new Error(
+      'REGISTRY_TOKEN_PRIVATE_KEY does not match the FIRST certificate in REGISTRY_TOKEN_CERTIFICATE. '
+        + 'During a signing-key rotation the bundle must list the NEW certificate first (see docs/runbooks/secret-rotation.md); '
+        + 'every token would otherwise carry an x5c leaf that cannot verify its own signature.',
+    );
+  }
+}
+assertSigningKeyMatchesLeaf();
+
+// Rotation visibility: a multi-cert bundle IS the registry signing key's
+// "previous value still accepted" state — the outgoing cert stays trusted by
+// the registry until the operator trims the bundle back to one.
+registerPreviousSecretProbe('REGISTRY_TOKEN_CERTIFICATE', () => x5c.length > 1);
+
+logger.info('Initialized token service', { issuer: config.tokenSigning.issuer, certsInBundle: x5c.length });
 
 /**
  * Mint a registry token for the given identity + granted access claims. Signed with

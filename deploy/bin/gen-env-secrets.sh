@@ -17,6 +17,13 @@
 # Secrets are base64 with +/= stripped, so they contain no sed-delimiter or regex-special
 # chars and embed safely in the s|…| substitutions below. Uses `sed -i.bak` (GNU + BSD/macOS).
 #
+# Also defines the ROTATION helpers pb_rotate_env_secret / pb_finish_env_rotation
+# (see docs/runbooks/secret-rotation.md): they move a live secret's value into its
+# <KEY>_PREVIOUS overlap slot and later clear it, which is how every secret rotates
+# without an auth/alert/decrypt outage. Rotation is an operator step, never a
+# permanent fallback — the SecretRotationPreviousLingering alert fires while a
+# _PREVIOUS value stays set.
+#
 # NOTE: the MongoDB replica-set keyfile (deploy/*/mongodb-keyfile) is ALSO a per-deploy
 # secret; it is managed separately by deploy/bin/mongo-keyfile.sh (pb_ensure_mongo_keyfile),
 # which every target's setup calls (like jwt-keys.sh does for the registry keypair). It is
@@ -56,8 +63,8 @@ pb_sync_env_keys() {
 
   # ALWAYS fill placeholders, not just when a key was appended. A .env created by
   # a plain `cp .env.example .env` (rather than through the seeding path, which
-  # generates immediately) keeps literal CHANGE_ME values for JWT_SECRET,
-  # POSTGRES_PASSWORD, SECRET_ENCRYPTION_KEY and the rest — an install that comes
+  # generates immediately) keeps literal CHANGE_ME values for POSTGRES_PASSWORD,
+  # SECRET_ENCRYPTION_KEY and the rest — an install that comes
   # up with `CHANGE_ME` as a real credential. Substitution only rewrites
   # placeholder lines, so this is a no-op on an already-generated file, and the
   # guard inside pb_gen_env_secrets fails loudly if any required one survives.
@@ -67,11 +74,79 @@ pb_sync_env_keys() {
   fi
 }
 
+# pb_set_env_value <env_file> <KEY> <value>
+#
+# Rewrite (or append) a single KEY= line. awk -v, not sed: a secret value may
+# contain characters sed would treat as part of the s||| expression.
+pb_set_env_value() {
+  local env_file="$1" key="$2" value="$3" tmp
+  tmp=$(mktemp)
+  awk -v k="$key" -v v="$value" '
+    { if (!done && index($0, k "=") == 1) { print k "=" v; done = 1 } else print }
+    END { if (!done) print k "=" v }
+  ' "$env_file" > "$tmp"
+  # `cat >` (not mv) so the .env keeps its existing owner/mode.
+  cat "$tmp" > "$env_file"
+  rm -f "$tmp"
+}
+
+# pb_rotate_env_secret <env_file> <KEY> [hex|base64]
+#
+# Step 1 of a secret rotation (docs/runbooks/secret-rotation.md): move KEY's
+# CURRENT value into KEY_PREVIOUS and generate a fresh KEY. Both values are then
+# live, so the overlap window costs no logouts / no unreadable secrets. The
+# caller re-creates the target's Secrets/containers, then later calls
+# pb_finish_env_rotation to end the window.
+#
+# `hex` for SECRET_ENCRYPTION_KEY (it must decode to exactly 32 bytes);
+# base64-with-+/=-stripped (the default) for the token/bearer secrets.
+pb_rotate_env_secret() {
+  local env_file="$1" key="$2" kind="${3:-base64}" current new
+  if [ ! -f "$env_file" ]; then
+    echo "ERROR: $env_file not found" >&2; return 1
+  fi
+  if ! grep -qE "^${key}=" "$env_file"; then
+    echo "ERROR: ${key} is not set in $env_file — nothing to rotate" >&2; return 1
+  fi
+  if ! grep -qE "^${key}_PREVIOUS=" "$env_file"; then
+    echo "ERROR: ${key}_PREVIOUS is missing from $env_file (run the target's setup once to sync new .env.example keys)" >&2; return 1
+  fi
+  current=$(grep -E "^${key}=" "$env_file" | tail -1 | cut -d= -f2-)
+  if [ -z "$current" ]; then
+    echo "ERROR: ${key} is empty in $env_file — refusing to rotate an unset secret" >&2; return 1
+  fi
+  case "$kind" in
+    hex)    new=$(openssl rand -hex 32) ;;
+    base64) new=$(openssl rand -base64 32 | tr -d '=+/') ;;
+    *)      echo "ERROR: unknown generator '$kind' (want hex|base64)" >&2; return 1 ;;
+  esac
+  pb_set_env_value "$env_file" "${key}_PREVIOUS" "$current"
+  pb_set_env_value "$env_file" "$key" "$new"
+  echo "  rotated ${key} — previous value kept in ${key}_PREVIOUS"
+  echo "  now re-create the target's secrets + restart the services, THEN run: pb_finish_env_rotation $env_file $key"
+}
+
+# pb_finish_env_rotation <env_file> <KEY>
+#
+# Last step of a rotation: clear KEY_PREVIOUS so the old value stops being
+# accepted. Until this runs, `secret_rotation_previous_set{secret="<KEY>"}` is 1
+# and the SecretRotationPreviousLingering alert fires.
+pb_finish_env_rotation() {
+  local env_file="$1" key="$2"
+  if [ ! -f "$env_file" ]; then
+    echo "ERROR: $env_file not found" >&2; return 1
+  fi
+  pb_set_env_value "$env_file" "${key}_PREVIOUS" ""
+  echo "  cleared ${key}_PREVIOUS — re-create the target's secrets + restart to end the overlap window"
+}
+
 pb_gen_env_secrets() {
   local env_file="$1" ghcr_user="${2:-mwashburn160}"
-  local jwt refresh pg pgapp mongo me pgadmin registry seckey minioroot s3msg s3reg s3loki s3thanos s3plugin grafana kiali alerttoken
-  jwt=$(openssl rand -base64 32 | tr -d '=+/')
-  refresh=$(openssl rand -base64 32 | tr -d '=+/')
+  local pg pgapp mongo me pgadmin registry seckey minioroot s3msg s3reg s3loki s3thanos s3plugin grafana kiali alerttoken
+  # No token secret is generated here any more: every token is asymmetrically
+  # signed and its private key is a FILE, never an env value — the user-token key
+  # from deploy/bin/token-signing-keys.sh (or KMS), and the per-service internal
+  # keys from deploy/bin/service-signing-keys.sh.
   # Secret-column master key (AES-256-GCM envelope encryption of aiProviderKeys
   # and IdP client secrets). Required now that every target sets
   # NODE_ENV=production — platform refuses to boot without it. Hex, because the
@@ -101,8 +176,6 @@ pb_gen_env_secrets() {
   # Kiali's session-signing key must be EXACTLY 16/24/32 bytes; hex 16 = 32 chars.
   kiali=$(openssl rand -hex 16)
   sed -i.bak \
-    -e "s|JWT_SECRET=CHANGE_ME_generate_with_openssl_rand_base64_32|JWT_SECRET=${jwt}|" \
-    -e "s|REFRESH_TOKEN_SECRET=CHANGE_ME_generate_with_openssl_rand_base64_32|REFRESH_TOKEN_SECRET=${refresh}|" \
     -e "s|SECRET_ENCRYPTION_KEY=CHANGE_ME_generate_with_openssl_rand_base64_32|SECRET_ENCRYPTION_KEY=${seckey}|" \
     -e "s|POSTGRES_PASSWORD=CHANGE_ME|POSTGRES_PASSWORD=${pg}|" \
     -e "s|^DB_PASSWORD=CHANGE_ME$|DB_PASSWORD=${pgapp}|" \
@@ -130,7 +203,7 @@ pb_gen_env_secrets() {
   # and the sed above silently matched nothing — shipping a literal `CHANGE_ME`
   # credential (a real security hole that would otherwise pass green). Scoped to
   # these keys so optional user-supplied CHANGE_ME placeholders aren't flagged.
-  if grep -qE '^(JWT_SECRET|REFRESH_TOKEN_SECRET|SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_MONGODB_ADMINPASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|MINIO_ROOT_PASSWORD|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_KEY|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|ALERT_WEBHOOK_INSTANCE_TOKEN)=CHANGE_ME' "$env_file" \
+  if grep -qE '^(SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_MONGODB_ADMINPASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|MINIO_ROOT_PASSWORD|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_KEY|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|ALERT_WEBHOOK_INSTANCE_TOKEN)=CHANGE_ME' "$env_file" \
      || grep -q 'mongodb://mongo:CHANGE_ME@' "$env_file"; then
     echo "ERROR: gen-env-secrets left an unsubstituted CHANGE_ME in a required secret in $env_file" >&2
     echo "  — a placeholder in .env.example drifted from this script's sed patterns." >&2

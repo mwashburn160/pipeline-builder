@@ -2,35 +2,44 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Lambda handler that re-mints the platform JWT in Secrets Manager so it never
- * lapses. Deployed + scheduled (once a day) by `pipeline-manager infra store-token
- * --schedule`. Rather than re-implementing the token flow, it is a thin
- * orchestrator that reuses the tested CLI — each run:
+ * Scheduled KEY ROTATOR for the service-account credential in Secrets Manager
+ * (#N2). Deployed + scheduled (once a day) by `pipeline-manager infra store-token
+ * --schedule`.
  *
- *   1. Point the `@pipeline-builder` npm scope at public npm.
- *   2. Download `@pipeline-builder/pipeline-manager` from npm into /tmp.
- *   3. Read the current platform JWT from the secret.
- *   4. Run `pipeline-manager infra store-token`, which mints a fresh long-lived token
- *      via /api/user/generate-token and writes it back to the same secret.
+ * It used to re-mint a person's machine-session JWT by npm-installing the CLI at
+ * runtime and shelling out to `store-token`. There is nothing left to re-mint:
+ * the stored credential is an opaque `pb_sa_…` key, and platform rotates it
+ * through two small pre-auth endpoints where the KEY ITSELF is the authorization
+ * (an unattended machine has no password and cannot step up). So this handler is
+ * three HTTP calls and a secret write, with no npm install, no CLI, no `/tmp`.
  *
- * `/tmp` is the only writable path in Lambda, so npm's HOME/cache/prefix all live
- * there. store-token does NOT deploy the renewal stack by default (no --schedule),
- * so the renewal run never redeploys/recurses into its own stack.
+ * THE ORDER IS THE WHOLE DESIGN. At no point may the secret name a credential
+ * that does not work:
+ *
+ *   1. ROTATE — mint a sibling key on the same account. The current key stays
+ *      LIVE. Fail here and the secret is untouched: the old key still works.
+ *   2. STORE  — write the new key to the secret. Fail here and the secret still
+ *      holds the old key, which is still live; the new key is an orphan that
+ *      expires on its own (and the next run's rotate prunes it at the cap).
+ *   3. REVOKE — retire the old key, authenticated with the NEW one. Fail here
+ *      and BOTH keys work; the credential is healthy and the stale key expires
+ *      on its own. Logged at ERROR so it is visible, but it does not fail the
+ *      invocation: a retry would rotate again and churn keys for no gain.
+ *
+ * Revoke-then-create would invert every one of those: a failure after the revoke
+ * leaves the deployment with no working credential at all.
  *
  * Env: PLATFORM_SECRET_NAME, PLATFORM_BASE_URL, RENEW_DAYS (default 30),
- *      PIPELINE_MANAGER_VERSION (default "latest"), PLATFORM_VERIFY_SSL ("false"
- *      to disable TLS verification).
+ *      PLATFORM_VERIFY_SSL ("false" to disable TLS verification — refused in
+ *      production).
  */
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { SecretsManagerClient, GetSecretValueCommand, PutSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 
-const PM_PACKAGE = '@pipeline-builder/pipeline-manager';
-const TMP = '/tmp';
-const PM_PREFIX = `${TMP}/pm`;
-const NPM_CACHE = `${TMP}/.npm`;
-const NPMRC = `${TMP}/.npmrc`;
-const CLI = `${PM_PREFIX}/node_modules/${PM_PACKAGE}/dist/cli.js`;
+/** Per-request timeout for the platform calls. */
+const HTTP_TIMEOUT_MS = 10_000;
+
+/** Access-key prefixes platform issues. A stored JWT is not one of them. */
+const ACCESS_KEY_PREFIXES = ['pb_sa_', 'pb_pat_'];
 
 function required(name: string): string {
   const v = process.env[name];
@@ -38,97 +47,146 @@ function required(name: string): string {
   return v;
 }
 
-/**
- * Read the `scope` claim from a JWT payload without verifying the signature
- * (the platform re-verifies on use; this only decides whether to re-mint WITH
- * a scope). A scoped credential (e.g. `reporting:ingest`) must renew with the
- * same scope or the fresh token would be a full-privilege platform token and
- * the scoped consumer's calls would break. Returns undefined for an unscoped
- * (platform) token or any decode failure.
- */
-function decodeJwtScope(jwt: string): string | undefined {
+function log(level: 'INFO' | 'WARN' | 'ERROR', msg: string, data?: Record<string, unknown>): void {
+  const line = JSON.stringify({ level, msg, ...data });
+  // eslint-disable-next-line no-console
+  if (level === 'ERROR') console.error(line); else console.log(line);
+}
+
+/** The stored secret, as `store-token` writes it. */
+interface StoredCredential {
+  username?: string;
+  /** The canonical credential field — an opaque `pb_sa_…` key after the cutover. */
+  password?: string;
+  platformUrl?: string;
+  organizationId?: string;
+  serviceAccountId?: string;
+  serviceAccountName?: string;
+  /** Record id of the key in `password`; what step 3 retires. */
+  keyId?: string;
+  scope?: string | null;
+  expiresIn?: number;
+  expiresAt?: string;
+  createdAt?: string;
+  [key: string]: unknown;
+}
+
+/** POST JSON to the platform, returning the parsed body plus the status. */
+async function post(
+  baseUrl: string,
+  route: string,
+  body: Record<string, unknown>,
+): Promise<{ status: number; body: { data?: Record<string, unknown>; message?: string } }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
   try {
-    const payload = jwt.split('.')[1];
-    if (!payload) return undefined;
-    const json = Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
-    const claims = JSON.parse(json) as { scope?: unknown };
-    return typeof claims.scope === 'string' && claims.scope ? claims.scope : undefined;
-  } catch {
-    return undefined;
+    const res = await fetch(`${baseUrl}${route}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const parsed = await res.json().catch(() => ({})) as { data?: Record<string, unknown>; message?: string };
+    return { status: res.status, body: parsed };
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+/**
+ * SECURITY: these calls carry a live credential. Refuse to disable TLS
+ * verification in production so a MITM can't harvest it. Production is this
+ * Lambda's normal mode (the rotation stack sets NODE_ENV=production), so
+ * PLATFORM_VERIFY_SSL=false is honored ONLY outside production. This inlines the
+ * same `NODE_ENV==='production'` policy as utils/tls.ts#assertSslDisableAllowed
+ * (the handler ships as a single self-contained index.mjs and can't import it).
+ */
+function applyTlsPolicy(): void {
+  if (process.env.PLATFORM_VERIFY_SSL !== 'false') return;
+  if (process.env.NODE_ENV === 'production') {
+    log('WARN', 'Refusing PLATFORM_VERIFY_SSL=false in production (NODE_ENV=production) — TLS verification stays enabled');
+    return;
+  }
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 }
 
 export const handler = async (): Promise<void> => {
   const secretName = required('PLATFORM_SECRET_NAME');
-  const platformUrl = required('PLATFORM_BASE_URL').replace(/\/$/, '');
-  const days = process.env.RENEW_DAYS || '30';
-  const version = process.env.PIPELINE_MANAGER_VERSION || 'latest';
+  const envUrl = required('PLATFORM_BASE_URL').replace(/\/+$/, '');
+  const days = Number(process.env.RENEW_DAYS || '30');
+  if (!Number.isFinite(days) || days < 1 || days > 365) {
+    throw new Error(`RENEW_DAYS must be between 1 and 365 (got "${process.env.RENEW_DAYS}")`);
+  }
   const region = process.env.AWS_REGION || 'us-east-1';
 
-  // npm in Lambda can only write under /tmp; HOME/cache/userconfig point there.
-  const npmEnv = { ...process.env, HOME: TMP, npm_config_cache: NPM_CACHE };
+  applyTlsPolicy();
 
-  // 1. Scope config: resolve @pipeline-builder from public npm regardless of any
-  //    inherited registry. Written as a userconfig file (env mapping of scoped
-  //    keys is unreliable).
-  writeFileSync(NPMRC, '@pipeline-builder:registry=https://registry.npmjs.org/\n');
-
-  // 2. Download pipeline-manager into /tmp.
-  mkdirSync(PM_PREFIX, { recursive: true });
-  // eslint-disable-next-line no-console
-  console.log(JSON.stringify({ level: 'INFO', msg: 'installing pipeline-manager', package: `${PM_PACKAGE}@${version}` }));
-  execFileSync(
-    'npm',
-    ['install', '--prefix', PM_PREFIX, '--no-audit', '--no-fund', '--userconfig', NPMRC, `${PM_PACKAGE}@${version}`],
-    { env: npmEnv, stdio: 'inherit' },
-  );
-
-  // 3. Read the current platform JWT — it authenticates the renewal request.
   const sm = new SecretsManagerClient({ region });
   const current = await sm.send(new GetSecretValueCommand({ SecretId: secretName }));
   if (!current.SecretString) throw new Error(`Secret "${secretName}" is empty`);
-  const jwt = (JSON.parse(current.SecretString) as { password?: string }).password;
-  if (!jwt) throw new Error(`Secret "${secretName}" missing password (JWT)`);
+  const stored = JSON.parse(current.SecretString) as StoredCredential;
 
-  // 4. Run store-token (without --schedule, the default) so it ONLY re-mints and
-  //    writes the secret — it must not redeploy this stack (would recurse). The
-  //    write uses the Lambda role's creds.
-  // store-token no longer takes --secret-name; it reads PLATFORM_SECRET_NAME from
-  // the environment (else derives it from the token's org).
-  const args = ['infra', 'store-token', '--region', region, '--days', days];
-  // Preserve the token's capability scope on renewal (else a scoped ingest
-  // credential re-mints as a scopeless platform token and ingest starts 403ing).
-  // The re-mint authenticates with THIS token, and a scoped token still carries
-  // a userId, so /user/generate-token accepts it and re-issues the same scope.
-  const tokenScope = decodeJwtScope(jwt);
-  if (tokenScope) {
-    args.push('--scope', tokenScope);
-    // eslint-disable-next-line no-console
-    console.log(JSON.stringify({ level: 'INFO', msg: 'renewing scoped token', scope: tokenScope, secretName }));
+  const oldKey = stored.password;
+  if (!oldKey) throw new Error(`Secret "${secretName}" missing password (service-account key)`);
+  if (!ACCESS_KEY_PREFIXES.some((p) => oldKey.startsWith(p))) {
+    throw new Error(
+      `Secret "${secretName}" does not hold an opaque service-account key. `
+      + 'Re-run "pipeline-manager infra store-token" to reissue it as a key (see docs/runbooks/access-key-cutover.md).',
+    );
   }
-  // SECURITY: the spawned store-token POSTs the JWT to the platform. Refuse to
-  // disable TLS verification in production so a MITM can't harvest it. Production
-  // is this Lambda's normal mode (the renew stack sets NODE_ENV=production), so
-  // PLATFORM_VERIFY_SSL=false is honored ONLY outside production. This inlines the
-  // same `NODE_ENV==='production'` policy as utils/tls.ts#assertSslDisableAllowed
-  // (the handler ships as a single self-contained index.mjs and can't import it).
-  const isProduction = process.env.NODE_ENV === 'production';
-  if (process.env.PLATFORM_VERIFY_SSL === 'false') {
-    if (isProduction) {
-      // eslint-disable-next-line no-console
-      console.log(JSON.stringify({ level: 'WARN', msg: 'Refusing PLATFORM_VERIFY_SSL=false in production (NODE_ENV=production) — TLS verification stays enabled' }));
-    } else {
-      args.push('--no-verify-ssl');
-    }
-  }
+  // The platform this credential belongs to is recorded IN the secret; the env
+  // var is the fallback for a secret written before that field existed.
+  const platformUrl = (stored.platformUrl || envUrl).replace(/\/+$/, '');
 
-  execFileSync('node', [CLI, ...args], {
-    // NODE_ENV is inherited via npmEnv (spread of process.env), so the spawned CLI
-    // enforces the same production TLS-disable refusal as this handler.
-    env: { ...npmEnv, PLATFORM_TOKEN: jwt, PLATFORM_BASE_URL: platformUrl, PLATFORM_SECRET_NAME: secretName },
-    stdio: 'inherit',
+  // ── 1. ROTATE — mint the replacement. The old key stays live. ──────────────
+  const rotate = await post(platformUrl, '/api/auth/key/rotate', {
+    key: oldKey,
+    name: `${stored.serviceAccountName || 'rotated'}-${new Date().toISOString().slice(0, 10)}`,
+    expiresIn: days * 24 * 60 * 60,
   });
+  if (rotate.status < 200 || rotate.status >= 300) {
+    throw new Error(
+      `Key rotation refused (${rotate.status}): ${rotate.body.message || 'unknown reason'}. `
+      + 'The stored key is unchanged and still live.',
+    );
+  }
+  const newKey = rotate.body.data?.key as string | undefined;
+  const newKeyId = rotate.body.data?.keyId as string | undefined;
+  if (!newKey || !newKeyId) throw new Error('Key rotation returned no replacement key — the stored key is unchanged');
+  const pruned = (rotate.body.data?.prunedKeyIds as string[] | undefined) ?? [];
+  if (pruned.length > 0) {
+    log('WARN', 'Platform retired stale sibling keys to stay under the active-key cap', { secretName, prunedKeyIds: pruned });
+  }
+  log('INFO', 'Minted the replacement key', { secretName, keyId: newKeyId });
 
-  // eslint-disable-next-line no-console
-  console.log(JSON.stringify({ level: 'INFO', msg: 'platform token renewed', secretName }));
+  // ── 2. STORE — the secret now names a live credential. ─────────────────────
+  const next: StoredCredential = {
+    ...stored,
+    password: newKey,
+    keyId: newKeyId,
+    platformUrl,
+    expiresIn: days * 24 * 60 * 60,
+    ...(rotate.body.data?.expiresAt ? { expiresAt: rotate.body.data.expiresAt as string } : {}),
+    createdAt: new Date().toISOString(),
+  };
+  await sm.send(new PutSecretValueCommand({ SecretId: secretName, SecretString: JSON.stringify(next) }));
+  log('INFO', 'Stored the rotated key', { secretName, keyId: newKeyId });
+
+  // ── 3. REVOKE — retire the predecessor, using the key that replaced it. ────
+  // Best-effort by design: the credential is already healthy, and failing the
+  // invocation here would only make the next retry rotate again.
+  const oldKeyId = stored.keyId;
+  if (!oldKeyId) {
+    log('WARN', 'Secret recorded no previous keyId — nothing to revoke (it expires on its own)', { secretName });
+    return;
+  }
+  const revoke = await post(platformUrl, '/api/auth/key/revoke', { key: newKey, keyId: oldKeyId })
+    .catch((err) => ({ status: 0, body: { message: err instanceof Error ? err.message : String(err) } }));
+  if (revoke.status < 200 || revoke.status >= 300) {
+    log('ERROR', 'Rotated and stored the new key, but could NOT revoke its predecessor — it stays valid until it expires', {
+      secretName, staleKeyId: oldKeyId, status: revoke.status, reason: revoke.body.message,
+    });
+    return;
+  }
+  log('INFO', 'Rotation complete', { secretName, keyId: newKeyId, revokedKeyId: oldKeyId });
 };

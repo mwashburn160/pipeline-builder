@@ -71,7 +71,7 @@ const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record
  * so a suite can replace any default (and add exports the default omits).
  */
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
+  const mock: Record<string, unknown> = {
     ...actualApiCore,
     createLogger: loggerMock,
     MAX_PAGE_LIMIT: 1000,
@@ -166,4 +166,26 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     }),
     ...overrides,
   };
+
+  // Mirror api-core's `requireInternalService({ callers })` (#14): refuse any
+  // user token, then refuse a service whose name is not in the route's caller
+  // list. Re-implemented here (rather than inherited from `requireActual`) so it
+  // resolves `isServicePrincipal` / `sendError` from the MERGED mock — the real
+  // one closes over the real ones and would write to a suite's stub `res`.
+  if (overrides.requireInternalService === undefined) {
+    mock.requireInternalService = ({ callers }: { callers: readonly string[] }) =>
+      (req: unknown, res: unknown, next: () => void) => {
+        const isSvc = mock.isServicePrincipal as ((r: unknown) => boolean) | undefined;
+        const nameOf = mock.serviceNameOf as ((c: unknown) => string | undefined) | undefined;
+        const caller = nameOf?.((req as { user?: unknown }).user);
+        if (isSvc?.(req) && caller && callers.includes(caller)) {
+          next();
+          return;
+        }
+        const sendError = mock.sendError as (res: unknown, status: number, msg: string, code: string) => unknown;
+        sendError(res, 403, 'Internal service calls only', 'INSUFFICIENT_PERMISSIONS');
+      };
+  }
+
+  return mock;
 }

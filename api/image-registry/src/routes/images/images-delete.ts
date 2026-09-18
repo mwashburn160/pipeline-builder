@@ -10,6 +10,7 @@ import {
   getParam,
   runConcurrent,
   emitAudit,
+  audited,
   requirePermission,
 } from '@pipeline-builder/api-core';
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
@@ -36,7 +37,7 @@ export function registerDeleteRoutes(router: Router): void {
   const write = requirePermission('registry:write') as RequestHandler;
 
   // DELETE /api/images/:name/manifests/:reference — resolve to digest, then delete.
-  router.delete('/:name/manifests/:reference', write, withRoute(async ({ req, res, ctx }) => {
+  router.delete('/:name/manifests/:reference', write, audited('registry.image.delete'), withRoute(async ({ req, res, ctx }) => {
     const name = getParam(req.params, 'name');
     const reference = getParam(req.params, 'reference');
     if (!name || !reference) return sendBadRequest(res, 'name and reference are required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -91,7 +92,7 @@ export function registerDeleteRoutes(router: Router): void {
   // `GET /api/images?nonEmpty=true` so the UI stops showing the emptied repo.
   // (Registered after the `/:name/manifests/:reference` route; `:name` only
   // matches a single URL segment, so the two never collide.)
-  router.delete('/:name', write, withRoute(async ({ req, res, ctx }) => {
+  router.delete('/:name', write, audited('registry.image.delete'), withRoute(async ({ req, res, ctx }) => {
     const name = getParam(req.params, 'name');
     if (!name) return sendBadRequest(res, 'Image name is required', ErrorCode.MISSING_REQUIRED_FIELD);
     if (!canWriteRepo(req.user, name)) {

@@ -115,6 +115,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
   },
 }));
 
+const { getRouteGates } = await import('@pipeline-builder/api-core');
 const { createReadQuotaRoutes } = await import('../src/routes/read-quotas.js');
 const getQuotaRouter = createReadQuotaRoutes();
 
@@ -139,6 +140,23 @@ function getHandler(method: string, path: string) {
   if (!layer) throw new Error(`No handler for ${method.toUpperCase()} ${path}`);
   const stack = layer.route.stack;
   return stack[stack.length - 1].handle;
+}
+
+/**
+ * The api-core `requireSystemAdmin` layer of a route's chain, located by its
+ * route-table tag. The cross-tenant operator reads gate on it as MIDDLEWARE
+ * (not in the handler), so the 403 is asserted against the gate itself.
+ */
+function getSystemAdminGate(method: string, path: string) {
+  const layer = (getQuotaRouter as any).stack.find(
+    (l: any) => l.route?.path === path && l.route?.methods[method],
+  );
+  if (!layer) throw new Error(`No route for ${method.toUpperCase()} ${path}`);
+  const gate = layer.route.stack
+    .map((s: any) => s.handle)
+    .find((h: any) => getRouteGates(h).some((g) => g.kind === 'systemAdmin'));
+  if (!gate) throw new Error(`No requireSystemAdmin gate on ${method.toUpperCase()} ${path}`);
+  return gate;
 }
 
 const futureDate = new Date(Date.now() + 86400000 * 7);
@@ -223,8 +241,7 @@ describe('GET /quotas/all (system admin)', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('returns all organizations for system admin', async () => {
-    mockIsSystemAdmin.mockReturnValue(true);
-    const orgs = [makeOrg({ _id: 'org-1', name: 'Org A' }), makeOrg({ _id: 'org-2', name: 'Org B' })];
+    const orgs =[makeOrg({ _id: 'org-1', name: 'Org A' }), makeOrg({ _id: 'org-2', name: 'Org B' })];
     // findAll now paginates via .skip().limit() on the Mongoose query object,
     // then awaits .lean(). Build a chainable mock where each method returns the
     // same query so the source can call them in any order.
@@ -247,22 +264,30 @@ describe('GET /quotas/all (system admin)', () => {
     );
   });
 
-  it('returns 403 for non-admin user', async () => {
-    mockIsSystemAdmin.mockReturnValue(false);
-
+  it('403s a non-admin at the requireSystemAdmin gate', () => {
+    const gate = getSystemAdminGate('get', '/all');
     const req = mockReq({ user: { organizationId: 'some-org' } });
     const res = mockRes();
-    await handler(req, res);
+    const next = jest.fn();
 
-    expect(mockSendError).toHaveBeenCalledWith(
-      res, 403,
-      expect.stringContaining('system administrators'),
-      'INSUFFICIENT_PERMISSIONS',
-    );
+    gate(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+
+  it('passes a superadmin at the requireSystemAdmin gate', () => {
+    const gate = getSystemAdminGate('get', '/all');
+    const req = mockReq({ user: { isSuperAdmin: true } });
+    const res = mockRes();
+    const next = jest.fn();
+
+    gate(req, res, next);
+
+    expect(next).toHaveBeenCalled();
   });
 
   it('returns 500 on database error', async () => {
-    mockIsSystemAdmin.mockReturnValue(true);
     const query: any = {
       select: jest.fn(() => query),
       sort: jest.fn(() => query),

@@ -142,5 +142,24 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     };
   }
 
+  // Mirror api-core's `requireInternalService({ callers })` (#14): refuse any
+  // user token, then refuse a service whose name is not in the route's caller
+  // list. Resolved from the merged mock so a suite's `isServicePrincipal` /
+  // `serviceNameOf` overrides still decide who the caller is.
+  if (overrides.requireInternalService === undefined) {
+    mock.requireInternalService = ({ callers }: { callers: readonly string[] }) =>
+      (req: unknown, res: unknown, next: () => void) => {
+        const isSvc = mock.isServicePrincipal as ((r: unknown) => boolean) | undefined;
+        const nameOf = mock.serviceNameOf as ((c: unknown) => string | undefined) | undefined;
+        const caller = nameOf?.((req as { user?: unknown }).user);
+        if (isSvc?.(req) && caller && callers.includes(caller)) {
+          next();
+          return;
+        }
+        const sendError = mock.sendError as (res: unknown, status: number, msg: string, code: string) => unknown;
+        sendError(res, 403, 'Internal service calls only', 'INSUFFICIENT_PERMISSIONS');
+      };
+  }
+
   return mock;
 }

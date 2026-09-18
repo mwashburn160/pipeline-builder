@@ -14,7 +14,7 @@
  * This suite imports the REAL src/index.ts wiring (createApp returns a real
  * Express app; every heavy dependency is mocked) and drives real HTTP requests
  * through the assembled app with FAITHFUL feature/permission guards, proving:
- *   1. a user with NO features and NO capabilities can still `GET /pipelines`;
+ *   1. a user with NO features and only `pipelines:read` can still `GET /pipelines`;
  *   2. the generate / bulk / execution write routes STILL enforce their
  *      feature + permission (403 without, passes the gate with).
  */
@@ -73,7 +73,6 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     res.status(400).json({ success: false, statusCode: 400, message: msg }),
   sendError: (res: any, statusCode: number, msg: string) =>
     res.status(statusCode).json({ success: false, statusCode, message: msg }),
-  sendQuotaReserveDenied: (res: any) => res.status(429).json({ success: false, statusCode: 429 }),
   sendQuotaReserveDenied: (res: any) => res.status(429).json({ success: false, statusCode: 429 }),
   sendEntityNotFound: (res: any, entity: string) => res.status(404).json({ message: `${entity} not found` }),
   sendInternalError: (res: any, msg: string) => res.status(500).json({ message: msg }),
@@ -261,14 +260,22 @@ function request(method: string, path: string, headers: Record<string, string> =
   });
 }
 
-// A lower-tier / lesser-permission caller: authenticated, but no features and
-// no write capability.
-const LOW_PRIV = { 'x-org-id': 'acme' };
+// A lower-tier / lesser-permission caller: authenticated with the read
+// permission only — no features and no write capability.
+const LOW_PRIV = { 'x-org-id': 'acme', 'x-test-caps': 'pipelines:read' };
+// Authenticated with nothing at all: reads now carry their own `:read` gate
+// (route-permission coverage), so this caller is refused.
+const NO_CAPS = { 'x-org-id': 'acme' };
 
 describe('mount-guard leak — reads are not gated by sibling write guards', () => {
-  it('GET /pipelines succeeds with NO features and NO capabilities (leak gone)', async () => {
+  it('GET /pipelines succeeds with NO features and only pipelines:read (leak gone)', async () => {
     const res = await request('GET', '/pipelines', LOW_PRIV);
     expect(res.status).toBe(200);
+  });
+
+  it('GET /pipelines is refused without pipelines:read (its own gate, not a sibling write guard)', async () => {
+    const res = await request('GET', '/pipelines', NO_CAPS);
+    expect(res.status).toBe(403);
   });
 
   it('GET /pipelines is NOT 403 even though generate/bulk/execution mounts share the prefix', async () => {
@@ -284,7 +291,9 @@ describe('mount-guard leak — write routes still enforce feature + permission',
   });
 
   it('POST /pipelines/generate → passes the gate WITH ai_generation (400 stub body, not 403)', async () => {
-    const res = await request('POST', '/pipelines/generate', { ...LOW_PRIV, 'x-test-features': 'ai_generation' });
+    const res = await request('POST', '/pipelines/generate', {
+      ...LOW_PRIV, 'x-test-caps': 'pipelines:read,pipelines:write', 'x-test-features': 'ai_generation',
+    });
     expect(res.status).toBe(400);
   });
 

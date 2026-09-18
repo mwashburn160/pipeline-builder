@@ -77,7 +77,10 @@ function getLookupHandler() {
   const layer = (router.stack as any[]).find(
     (l) => l.route?.path === '/lookup' && l.route?.methods?.post,
   );
-  return layer.route.stack[0].handle;
+  // The terminal withRoute handler is the LAST entry in the route stack: each
+  // route now carries its permission gate (and, on writes, the `audited(...)`
+  // declaration) ahead of it.
+  return layer.route.stack[layer.route.stack.length - 1].handle;
 }
 
 function makeRes() {

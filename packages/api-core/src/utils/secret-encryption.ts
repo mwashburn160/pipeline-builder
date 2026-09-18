@@ -222,8 +222,30 @@ export function getDefaultKeyProvider(): KeyProvider {
   return getDefaultProvider();
 }
 
-/** Reset the cached default provider  for tests that mutate `process.env`. */
-export function resetDefaultKeyProvider(): void { defaultProvider = null; }
+/**
+ * Rotation fallback: an `EnvKeyProvider` over `SECRET_ENCRYPTION_KEY_PREVIOUS`,
+ * or null when that env is unset. `undefined` = not yet resolved. While a
+ * master-key rotation is in progress, `decryptSecret` retries a failed decrypt
+ * under this key, so rows written under the old master stay readable until the
+ * re-encryption tool (platform `scripts/reencrypt-secrets.js`) has rewritten
+ * them under the new one. Encryption NEVER uses it.
+ */
+let previousProvider: KeyProvider | null | undefined;
+function getPreviousProvider(): KeyProvider | null {
+  if (previousProvider === undefined) {
+    const raw = process.env.SECRET_ENCRYPTION_KEY_PREVIOUS;
+    previousProvider = raw ? new EnvKeyProvider(raw) : null;
+  }
+  return previousProvider;
+}
+
+/** Read the rotation-fallback provider (null outside a master-key rotation). */
+export function getPreviousKeyProvider(): KeyProvider | null {
+  return getPreviousProvider();
+}
+
+/** Reset the cached default (and previous) provider  for tests that mutate `process.env`. */
+export function resetDefaultKeyProvider(): void { defaultProvider = null; previousProvider = undefined; }
 
 /** Replace the default provider  services that opt into KMS call this
  * once at startup with a warmed-up `KmsKeyProvider`. */
@@ -450,10 +472,14 @@ export async function encryptSecret( plaintext: string,
  *
  * Callers handle the throw  masking the failure as `null` would hide
  * silent corruption / wrong-org reads.
+ *
+ * `previous` (default: `SECRET_ENCRYPTION_KEY_PREVIOUS`, when set) is tried
+ * only after the primary key fails, and only for kid-less blobs.
  */
 export async function decryptSecret( blob: EncryptedBlob,
   orgId: string,
   provider: KeyProvider = getDefaultProvider(),
+  previous: KeyProvider | null = getPreviousProvider(),
 ): Promise<string> {
   if (blob.alg !== 'aes-256-gcm-v1') {
     throw new Error(`Unsupported encryption alg: ${blob.alg}`);
@@ -469,6 +495,25 @@ export async function decryptSecret( blob: EncryptedBlob,
   if (providerKid !== undefined && blob.kid !== undefined && providerKid !== blob.kid) {
     throw new Error(`KMS key id mismatch: blob was encrypted under ${blob.kid}, current provider uses ${providerKid} for org ${orgId}`);
   }
+  try {
+    return decryptWithKey(blob, key);
+  } catch (err) {
+    // Master-key rotation window: retry under SECRET_ENCRYPTION_KEY_PREVIOUS.
+    // Only for a kid-less blob (the env-keyed shape) — a per-org KMS blob is
+    // bound to its CMK and the shared previous master can never open it. The
+    // ORIGINAL error surfaces when the previous key fails too, so a tampered or
+    // wrong-org blob still fails loud exactly as before.
+    if (previous && blob.kid === undefined) {
+      try {
+        return decryptWithKey(blob, await deriveKeyFor(previous, orgId));
+      } catch { /* fall through to the primary error */ }
+    }
+    throw err;
+  }
+}
+
+/** AES-256-GCM open of a blob under one derived key. Throws on any auth-tag failure. */
+function decryptWithKey(blob: EncryptedBlob, key: Buffer): string {
   const iv = Buffer.from(blob.iv, 'base64');
   const all = Buffer.from(blob.ciphertext, 'base64');
   // Split off the 16-byte auth tag appended in encryptSecret. Any tampering

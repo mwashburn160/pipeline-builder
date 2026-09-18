@@ -44,6 +44,7 @@ const mockSnapshotCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUserOrgFind = jest.fn();
 const mockUserUpdateMany = jest.fn();
 const mockPatUpdateMany = jest.fn();
+const mockServiceAccountFind = jest.fn<(...a: unknown[]) => unknown>();
 
 const auditExportQuery = { sort: () => auditExportQuery, limit: () => auditExportQuery, lean: async () => [] };
 jest.unstable_mockModule('../src/models/audit-event.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: jest.fn(() => auditExportQuery), create: jest.fn() } }));
@@ -57,6 +58,13 @@ jest.unstable_mockModule('../src/models/deleted-org-snapshot.js', () => ({ __esM
 jest.unstable_mockModule('../src/models/user.js', () => ({ __esModule: true, default: { updateMany: (...a: unknown[]) => mockUserUpdateMany(...a) } }));
 jest.unstable_mockModule('../src/models/user-organization.js', () => ({ __esModule: true, default: { find: (...a: unknown[]) => mockUserOrgFind(...a) } }));
 jest.unstable_mockModule('../src/models/personal-access-token.js', () => ({ __esModule: true, default: { updateMany: (...a: unknown[]) => mockPatUpdateMany(...a) } }));
+// Service accounts (#2): the tombstone also revokes their keys — they hold no
+// session, so the members' tokenVersion bump cannot reach them.
+jest.unstable_mockModule('../src/models/service-account.js', () => ({
+  __esModule: true,
+  default: { find: (...a: unknown[]) => mockServiceAccountFind(...a) },
+}));
+jest.unstable_mockModule('../src/models/role-assignment.js', () => ({ __esModule: true, default: { deleteMany: jest.fn() } }));
 
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => Promise<unknown>) => fn({ /* fake session */ }),
@@ -79,6 +87,8 @@ beforeEach(() => {
   mockUserOrgFind.mockReturnValue({ select: () => ({ session: () => ({ lean: () => Promise.resolve([{ userId: 'u1' }, { userId: 'u2' }]) }) }) });
   mockUserUpdateMany.mockReturnValue({ session: () => Promise.resolve({}) });
   mockPatUpdateMany.mockReturnValue({ session: () => Promise.resolve({}) });
+  // One service account in the org, holding one live key.
+  mockServiceAccountFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([{ _id: 'sa-1' }]) }) });
 });
 
 describe('softDeleteOrg', () => {
@@ -115,14 +125,34 @@ describe('softDeleteOrg', () => {
     expect(patUpdate.$set.revokedAt).toBeInstanceOf(Date);
   });
 
-  it('does NOT revoke PATs when the org has no active members', async () => {
+  it('does NOT revoke member PATs when the org has no active members', async () => {
     mockUserOrgFind.mockReturnValue({ select: () => ({ session: () => ({ lean: () => Promise.resolve([]) }) }) });
+    mockServiceAccountFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([]) }) });
 
     const result = await softDeleteOrg('org-acme', SYSTEM_ORG_ID, 'admin-1');
 
     expect(result.membersInvalidated).toBe(0);
     expect(mockUserUpdateMany).not.toHaveBeenCalled();
     expect(mockPatUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('revokes the org SERVICE ACCOUNTS\' keys too — they hold no session to invalidate', async () => {
+    await softDeleteOrg('org-acme', SYSTEM_ORG_ID, 'admin-1');
+
+    // A service account has no `tokenVersion`, so the member bump above cannot
+    // reach it; without this its automation would keep writing to a tombstoned
+    // org for the whole retention window.
+    const saCall = mockPatUpdateMany.mock.calls.find((c: any) => 'serviceAccountId' in (c[0] ?? {})) as [any, any];
+    expect(saCall).toBeDefined();
+    expect(saCall[0]).toEqual({ serviceAccountId: { $in: ['sa-1'] }, revoked: false });
+    expect(saCall[1].$set.revoked).toBe(true);
+  });
+
+  it('keeps the accounts themselves — a restore within the window needs them', async () => {
+    await softDeleteOrg('org-acme', SYSTEM_ORG_ID, 'admin-1');
+    // Only an UPDATE (revoke) touched the key records; nothing deleted the
+    // accounts, whose Roles the operator keeps on restore.
+    expect(mockPatUpdateMany).toHaveBeenCalled();
   });
 
   it('ABORTS (throws ORG_SNAPSHOT_FAILED) and does NOT tombstone when the snapshot cannot be persisted', async () => {

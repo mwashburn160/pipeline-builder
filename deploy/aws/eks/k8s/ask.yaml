@@ -79,8 +79,6 @@ spec:
             # Credentials (DB_PASSWORD, MONGODB_URI, API keys, …) split out of app-env.
             - secretRef:
                 name: app-secrets
-            - secretRef:
-                name: jwt-secret
           env:
             - name: SERVICE_NAME
               value: "ask"
@@ -123,6 +121,28 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 30
+          volumeMounts:
+            # This pod's OWN internal-token signing key (#14) and the PUBLIC
+            # bundle it verifies its peers with. One private key per pod — that
+            # is what stops a compromised service signing as another — while the
+            # bundle is public and identical everywhere. Both from
+            # deploy/bin/service-signing-keys.sh; the service refuses to start
+            # without them.
+            - name: service-signing-key
+              mountPath: /etc/pipeline-builder/service-keys
+              readOnly: true
+            - name: service-key-bundle
+              mountPath: /etc/pipeline-builder/service-key-bundle
+              readOnly: true
+      volumes:
+        - name: service-signing-key
+          secret:
+            secretName: service-key-ask
+            defaultMode: 0444
+        - name: service-key-bundle
+          secret:
+            secretName: service-key-bundle
+            defaultMode: 0444
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

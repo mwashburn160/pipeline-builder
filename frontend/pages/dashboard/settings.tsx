@@ -18,6 +18,9 @@ import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { AIProviderConfig } from '@/components/settings/AIProviderConfig';
 import { DomainJoinSettings } from '@/components/settings/DomainJoinSettings';
 import { ImpersonationPolicySettings } from '@/components/settings/ImpersonationPolicySettings';
+import { PasskeySection } from '@/components/settings/PasskeySection';
+import { SessionsSection } from '@/components/settings/SessionsSection';
+import { TotpSection } from '@/components/settings/TotpSection';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import Link from 'next/link';
@@ -258,6 +261,23 @@ export default function SettingsPage() {
             <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={password.loading || isReadOnly} />
           </FormField>
         </FormSection>
+
+        {/* Passkeys — a sign-in credential, so they sit beside the password,
+            not beside the machine-facing access keys. `#passkeys` is the deep
+            link StepUpModal points an account with no factor at. */}
+        <div id="passkeys">
+          <PasskeySection readOnly={isReadOnly} />
+        </div>
+
+        {/* Authenticator app — the other personal sign-in factor, next to the
+            passkeys rather than the machine-facing access keys. `#totp` is a
+            stable deep link for "set up two-factor" prompts. */}
+        <div id="totp">
+          <TotpSection readOnly={isReadOnly} />
+        </div>
+
+        {/* Sessions and devices (+ stored machine credentials) */}
+        <SessionsSection readOnly={isReadOnly} />
 
         {/* Danger Zone */}
         <SectionCard

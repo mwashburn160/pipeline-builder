@@ -47,11 +47,15 @@ export function rateLimitByOrg(opts: OrgRateLimitOptions) {
     skip: (req: Request) => verifyServicePrincipal(req),
     // Redis store failure degrades to "not limited", never a 500 on the route.
     passOnStoreError: true,
-    // Bucket by VERIFIED org (set by requireAuth), NOT the spoofable `x-org-id`
-    // header. Fall back to a normalized client-IP bucket when unauthenticated so
-    // the limiter still bounds pre-auth traffic. Namespaced (`org:`/`ip:`) so an
-    // IP literal can never collide with an org id.
+    // Bucket by VERIFIED identity (set by requireAuth), NOT the spoofable
+    // `x-org-id` header. An ORG SERVICE ACCOUNT gets its OWN bucket rather than
+    // its org's: automation is exactly the traffic shape that would otherwise
+    // drain the window its org's people share, and the plan requires machine
+    // rate limits to be keyed per account. Falls back to a normalized client-IP
+    // bucket when unauthenticated so pre-auth traffic is still bounded.
+    // Namespaced (`sa:`/`org:`/`ip:`) so no two id spaces can collide.
     keyGenerator: (req: Request): string => {
+      if (req.user?.principalType === 'service_account' && req.user.sub) return `sa:${req.user.sub}`;
       const orgId = req.user?.organizationId;
       return orgId ? `org:${orgId.toLowerCase()}` : `ip:${ipKeyGenerator(req.ip || 'anon', 64)}`;
     },

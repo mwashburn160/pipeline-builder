@@ -28,13 +28,16 @@ Backup/restore additionally need `pg_dump`/`psql` (postgres client) and `mongodu
 
 ### Rotation runbook (there is deliberately NO blind `--rotate` flag)
 
-A naive "regenerate `.env`" would rewrite passwords **out of sync with the running databases and break them** — the password in `.env` must match what the DB actually accepts. Rotate per-secret, in order:
+A naive "regenerate `.env`" would rewrite passwords **out of sync with the running databases and break them** — the password in `.env` must match what the DB actually accepts. Rotate per-secret, in order.
 
-- **`JWT_SECRET` / `REFRESH_TOKEN_SECRET`** (stateless). Rotating invalidates all issued tokens (users re-login). Safe path: set the new secret, roll the services. For zero-downtime, run a dual-key overlap window if the platform supports a secondary verification key; otherwise accept a brief re-auth.
+> **Application secrets** — the ES256 user-token signing key, the per-service internal signing keys, `SECRET_ENCRYPTION_KEY`, the alert-relay bearer and the image-registry signing key each have a zero-downtime overlap window and a step-by-step procedure (with verification and rollback) in **[Secret Rotation](runbooks/secret-rotation.md)**. Use `pb_rotate_env_secret` / `pb_finish_env_rotation` from `deploy/bin/gen-env-secrets.sh` rather than hand-editing `.env`; the `SecretRotationPreviousLingering` alert fires while a rotation is left half-finished. The datastore credentials below are the ones that have no overlap mechanism.
+
+- **User-token signing key** (ES256, platform only). Rotate by `kid`: publish the incoming key alongside the retiring one, switch signing, then drop the old `kid` — nobody is logged out, and no other service needs a restart or a config change because they all read `/.well-known/jwks.json`. [Full procedure](runbooks/secret-rotation.md#user-token-signing-key-es256-rotated-by-kid). The stored machine credentials are opaque [service-account keys](authentication.md#stored-machine-credentials-aws), not JWTs, so the events Lambda and CodeBuild are unaffected by the rotation — nothing to re-mint. The overlap must outlive the longest refresh token (`REFRESH_TOKEN_EXPIRES_IN`, 30 days by default) or devices that have not refreshed are signed out.
+- **Per-service internal signing keys** (internal service tokens only, stateless). One ES256 key per service, mounted into that service alone; rotate with `deploy/bin/service-signing-keys.sh --rotate <service>`, whose overlap is the retiring public key staying in the shared bundle. Service tokens live 5 minutes, so the window is short and no session is affected. Roll the public bundle out BEFORE the private key.
 - **`POSTGRES_PASSWORD` / `DB_PASSWORD`.** Change the password **in Postgres first**, then update the secret, then roll: `ALTER USER "$POSTGRES_USER" WITH PASSWORD '<new>';` → update the k8s Secret / `.env` → `kubectl rollout restart deploy/postgres` and the app deployments. Do NOT just rewrite `.env`.
 - **`MONGO_INITDB_ROOT_PASSWORD` + `MONGODB_URI`.** `db.changeUserPassword()` in Mongo first, then update the secret + URI, then roll.
 - **Mongo keyfile.** Requires a rolling restart of the replica set with the new key (members must share it); plan a maintenance window.
-- **Registry signing keypair** (`jwt-keys.sh`) — regenerate, re-run `store-token` so image pulls don't 401 (see the CodeBuild cold-start note).
+- **Registry signing keypair** (`jwt-keys.sh`) — rotate via a two-cert trust bundle (new cert first) so in-flight registry tokens keep verifying: [full procedure](runbooks/secret-rotation.md#image-registry-signing-key). Nothing to re-issue: CodeBuild presents a `registry:push` service-account key, and the signing keypair only affects the tokens image-registry mints.
 
 Always update the **k8s Secret** (not just `.env`) on the k8s targets, then `kubectl rollout restart` the affected Deployments.
 

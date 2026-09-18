@@ -112,13 +112,91 @@ subset a remote service may emit is `REMOTE_AUDIT_ACTIONS` in
 
 | Area | Actions |
 |------|---------|
-| User lifecycle | `user.register`, `user.login`, `user.login.failed`, `user.logout`, `user.delete`, `user.profile.update`, `user.password.change`, `user.email.verified`, `user.token.create`, `user.tokens.revoke-all` |
+| User lifecycle | `user.register`, `user.login`, `user.login.failed`, `user.logout`, `user.delete`, `user.profile.update`, `user.password.change`, `user.email.verified`, `user.token.create`, `user.tokens.revoke-all`, `user.session.revoke`, `user.step-up` — `details.method` is `password`, `webauthn`, `totp` or `reauth`; a passkey sign-in records `details.method: 'webauthn'` on `user.login`, and a password-plus-code sign-in records `details.method: 'pwd+totp'` with `details.via` saying whether a generated or a recovery code was used |
+| Passkeys | `user.passkey.register`, `user.passkey.rename`, `user.passkey.remove` — a passkey is a persistent sign-in credential, so both ends of its life are recorded (`details` carries the label the person gave it and whether it is a synced credential). `user.passkey.clone_suspected` — an authenticator's signature counter went **backwards** on a credential that had counted before, i.e. two authenticators answering for one credential; the assertion is refused and this is the only trace it happened |
+| Authenticator app (TOTP) | `user.totp.enrol` — emitted TWICE, `details.stage: 'started'` when the secret is minted and `'activated'` when a code confirms it, because a secret that was displayed and then abandoned is still a secret that left the building. `user.totp.disable` is the other end of the factor's life. `user.totp.recovery_regenerate` — the recovery sheet was replaced, so every previously issued code stopped working. `user.totp.recovery_used` — a recovery code was **spent** (`details.context` is `login` or `step-up`, `details.remaining` how many are left); its own action rather than a detail on the sign-in, because burning one usually means a lost device, and an attacker who obtained the sheet leaves exactly this trace. Wrong codes are `user.login.failed` with `details.method: 'totp'`, so brute-force shows up on the same trail as password guessing |
+| Access keys | `user.key.create`, `user.key.revoke`, `user.key.exchange`, `user.key.exchange.failed` |
+| Device authorization | `device.authorize.start`, `device.authorize.approve`, `device.authorize.deny`, `device.authorize.expire` |
 | Organization | `org.create`, `org.update`, `org.soft_delete`, `org.restore`, `org.switch`, `org.member.add`, `org.member.remove`, `org.member.deactivate`, `org.member.activate`, `org.ownership.transfer` |
 | Invitations | `invitation.send`, `invitation.accept`, `invitation.revoke`, `invitation.resend` |
 | Permission roles | `org.role.create`, `org.role.update`, `org.role.delete`, `org.role.member.add`, `org.role.member.remove` |
+| Service accounts | `org.service-account.create`, `org.service-account.update`, `org.service-account.delete`, `org.service-account.key.create`, `org.service-account.key.revoke`, `org.service-account.key.rotate`, `org.service-account.key.rotate.failed` |
+| SSO provisioning | `org.idp.mapping.upsert`, `org.idp.mapping.delete` — an [IdP group → Role mapping](authentication.md#just-in-time-membership-and-group--role-mapping) was authored or removed (`details` carries the group + Role ids). `sso.jit.provision` — an SSO sign-in created the org membership; `sso.jit.role.change` — a later sign-in added/removed mapped Roles; `sso.jit.refused` — provisioning was turned away (`details.reason`, today `seat_limit`), which also refuses the sign-in |
+| SCIM provisioning | `org.scim.user.create`, `org.scim.user.update`, `org.scim.user.activate`, `org.scim.user.deactivate`, `org.scim.user.delete`, `org.scim.group.create`, `org.scim.group.update`, `org.scim.group.members`, `org.scim.group.delete` — the identity provider's [SCIM 2.0 client](authentication.md#scim-20-provisioning) changed the roster or a directory group. `org.scim.refused` — a SCIM request was turned away (`outcome: 'failure'`, `details.reason`) |
 | Dashboards & alerts | `dashboard.create/update/delete/clone`, `alert.destination.create/update/delete/test`, `alert.rule.create/update/delete` |
 | Admin / sysadmin | `admin.user.create/update/delete`, `admin.org.delete`, `admin.org.export`, `admin.org-idp.upsert/delete`, `admin.superadmin.grant/revoke`, `admin.org.kms-config.upsert/delete`, `org.kms.orphaned`, `admin.org.tier.update`, `admin.org.seatLimit.update`, `admin.org.quota.override`, `admin.org.ai-config.update`, `admin.user.features.update`, `admin.impersonate.start`, `admin.impersonate.request/approve/deny/revoke/breakglass`, `admin.org.namespace.render` |
-| Denied access | `authz.denied` — emitted by the shared permission gate when a state-changing (non-GET) request is rejected, so probing / privilege-escalation attempts leave a trail (`outcome: 'failure'`) |
+| Denied access | `authz.denied` — emitted by the shared permission gate when a state-changing (non-GET) request is rejected, so probing / privilege-escalation attempts leave a trail (`outcome: 'failure'`). Also emitted by `requireInternalService` for a refused INTERNAL route (`/internal/*`, the quota usage counters, the entity-event / audit ingests, the entitlement sync legs), with `required` naming the services that route admits — paired with the `internal_route_refused_total{service,route,reason,caller}` counter, whose `reason` distinguishes a user token from a wrong caller |
+
+**Access keys** deserve a note: a key is opaque, so no service ever sees it —
+they see the short-lived token it was traded for. `user.key.exchange` is
+therefore the **only** record that a key was used at all, and it is what
+"which automation is still using key X?" is answered from (`targetId` is the key
+id, `details.name` its label, and the row is attributed to the key's owner even
+though the exchange request itself carries no identity). Its failure twin,
+`user.key.exchange.failed`, records the refusal reason (`unknown`, `revoked`,
+`expired`, `authority_revoked`, `user_gone`, `malformed`, and for a
+service-account key `account_gone`, `account_disabled`, `ip_not_allowed`,
+`budget_exhausted`, `orphan_key`) that the HTTP response deliberately does
+**not** differentiate — a run of `unknown` from one IP is a scanner, and the row
+carries that IP and user-agent.
+
+**Service accounts** (#2) are principals in their own right, so every row a
+service account's key produces names the ACCOUNT as the actor: `actorId` is the
+account id and `actorEmail` its `<name>@service-account.invalid` sentinel — never
+the person who happened to create it. `user.key.exchange` carries
+`details.principalType` (`user` | `service_account`) and, for an account,
+`details.serviceAccount`, so "what did this automation do" and "which human did
+that" never blur together. The management events above cover the durable grants:
+creating an account, changing its roles/budget/disabled state, deleting it, and
+issuing or revoking each key (`details.scope` records the one capability a scoped
+key carries instead of the account's Roles, and `details.ipAllowlistEntries`
+whether a key was pinned to addresses — never which).
+
+**SCIM** (3b) is the other machine trail, and the one an admin reads when a
+directory sync has quietly stopped working. The actor is the service account
+behind the `scim`-scoped key, exactly as above. `details.changed` names **which
+attributes moved — never their values**: a directory sync carries personal data,
+and the audit log must not become a second copy of it. A group write additionally
+carries `details.membersAffected`, the number of people whose Role set the write
+reconciled — the blast radius of one push.
+
+`org.scim.refused` is the half that matters operationally, because a refused sync
+is otherwise visible only in the IdP's own console. `details.reason` is a stable
+label: `seat_limit` (the account is full — the response names the limit),
+`not_entitled` (the SSO entitlement lapsed, so only deactivate and delete are
+still accepted; the org's admins are also notified, once a day), `invalid_value`
+(most often an unverified email domain), `uniqueness`, `invalid_filter`,
+`mutability` (an attempted `userName` rename), `owner_protected`,
+`platform_admin`, `not_found`, and `wrong_credential` (something that is not a
+`scim`-scoped service-account key tried the endpoint). The same labels appear on
+`platform_scim_errors_total{resource,operation,reason}`.
+
+**Self-rotation** (#N2) is the machine half of that trail.
+`org.service-account.key.rotate` is emitted when an unattended rotator replaces
+its own credential through `POST /auth/key/rotate`: no person is present, so the
+row is attributed to the **account**, `targetId` is the account id, and `details`
+carries `keyId` (the replacement), `previousKeyId` (what it replaces), `scope`,
+and `prunedKeyIds` — siblings platform retired to stay under the active-key cap.
+A non-empty `prunedKeyIds` means an EARLIER rotation never revoked its
+predecessor, which is worth noticing even though the rotation itself succeeded.
+The subsequent retirement lands as an ordinary `org.service-account.key.revoke`
+with `details.via: 'self-rotation'`. `org.service-account.key.rotate.failed`
+carries the same undifferentiated refusal reasons as the exchange, plus the
+rotation-only ones (`not_service_account`, `self_revoke`, `expiry_invalid`,
+`key_limit`) — again, reasons the HTTP response does not give away.
+
+**Device authorization** (how `pipeline-manager auth login` signs in — see
+[Authentication → CLI sign-in by device authorization](authentication.md#cli-sign-in-by-device-authorization-rfc-8628))
+is the one flow whose trail spans an anonymous and an authenticated actor.
+`device.authorize.start` is emitted **pre-auth**, so its `actorId` is
+`anonymous` and the only identifying detail is `details.client` — the requesting
+device's client summary. The decision events carry the person who approved or
+refused. All four share a `targetId`: a truncated hash of the device code, which
+is what lets "a code was requested from X and approved by Y" be reconstructed
+without ever recording the device code or the short user code (both are live
+credentials for the flow's 10-minute life). `device.authorize.expire` is written
+by whichever side first notices a lapsed code, so a code nobody ever returns to
+leaves only its `.start` row.
 
 Each record carries `actorId`/`actorEmail`, `orgId` (the actor's own org), and
 `affectedOrgId` (the org actually operated on). They diverge when a sysadmin acts
@@ -131,14 +209,15 @@ org's own admins can see them.
 
 | Service | Actions |
 |---------|---------|
-| Plugin | `plugin.build.completed`, `plugin.build.failed`, `plugin.build.timeout`, `plugin.delete`, `plugin.upload`, `plugin.deploy`, `plugin.bulk.update`, `plugin.bulk.delete`, `plugin.dlq.purge` |
+| Plugin | `plugin.build.completed`, `plugin.build.failed`, `plugin.build.timeout`, `plugin.delete`, `plugin.restore`, `plugin.purge`, `plugin.update`, `plugin.upload`, `plugin.deploy`, `plugin.bulk.update`, `plugin.bulk.delete`, `plugin.dlq.purge`, `plugin.build.retry`, `plugin.dlq.replay` (the last two are queue-triage re-runs — re-enqueueing a failed or dead-lettered build; `affectedOrgId` is the job's owning org, which differs from the caller's on a sysadmin retry) |
 | Pipeline | `pipeline.create`, `pipeline.update`, `pipeline.delete`, `pipeline.restore`, `pipeline.purge`, `pipeline.execution.start`, `pipeline.execution.cancel`, `pipeline.registry.register`, `pipeline.registry.deregister` |
 | Pipeline templates | `pipeline_template.create`, `pipeline_template.update`, `pipeline_template.delete`, `pipeline_template.restore`, `pipeline_template.purge` (own action family, gated by `templates:*` rather than `pipelines:*`; `create`/`update` `details` carry the template's `visibility` rung) |
 | Quota | `quota.reset`, `quota.limit.update`, `quota.delete` |
-| Compliance | `compliance.exemption.approve`, `compliance.exemption.revoke`, `compliance.rule.toggle`, `compliance.rule.create/update/delete`, `compliance.policy.create/update/delete`, `compliance.scan-schedule.create/update/delete`, `compliance.template.apply`, `compliance.scan.cancel` |
+| Compliance | `compliance.exemption.approve`, `compliance.exemption.revoke`, `compliance.rule.toggle`, `compliance.rule.create/update/delete/restore/purge`, `compliance.policy.create/update/delete/restore/purge`, `compliance.scan-schedule.create/update/delete`, `compliance.template.apply`, `compliance.scan.create`, `compliance.scan.cancel`, `compliance.notification-preference.update` (changed field names + webhook host only — never the destination secret) |
 | Image registry | `registry.gc`, `registry.image.delete`, `registry.image.copy` (all carry `affectedOrgId` = the org owning the repository — `org-<id>/…`, or the system org for `system/…` — so that org's admins see changes an operator made to their images) |
-| Message | `message.announcement.create`, `message.delete` (admin broadcasts + deletes only — 1:1 messages are not audited, and no message body reaches `details`) |
-| Billing | `billing.subscription.cancel`, `billing.subscription.delete`, `billing.tier.override`, `billing.addon.add`, `billing.addon.remove`, `billing.addon.prune`, `billing.discount.generate`, `billing.discount.issue`, `billing.discount.apply`, `billing.discount.remove`, `billing.discount.revoke`, `billing.credit.consumed`, `billing.credit.exhausted`, `billing.combo.expired` (mirrored to the central trail alongside the service-local `billing_events`; `details` carry plan/tier/addon/discount/combo ids + cents only — never payment secrets, coupon tokens, or signing keys) |
+| Message | `message.announcement.create`, `message.delete`, `message.restore`, `message.purge` (admin broadcasts + the destructive lifecycle only — 1:1 messages, replies, edits and attachment uploads are deliberately NOT audited, and no message body reaches `details`) |
+| Billing | `billing.subscription.create`, `billing.subscription.update`, `billing.subscription.reactivate`, `billing.subscription.cancel`, `billing.subscription.delete`, `billing.ledger.backfill`, `billing.tier.override`, `billing.addon.add`, `billing.addon.remove`, `billing.addon.prune`, `billing.discount.generate`, `billing.discount.issue`, `billing.discount.apply`, `billing.discount.remove`, `billing.discount.revoke`, `billing.credit.consumed`, `billing.credit.exhausted`, `billing.combo.expired` (mirrored to the central trail alongside the service-local `billing_events`; `details` carry plan/tier/addon/discount/combo ids + cents only — never payment secrets, coupon tokens, or signing keys) |
+| Reporting | `reporting.settings.update` (the incident→deploy correlation window, which moves reported CFR/MTTR), `reporting.deployment.outcome` (a deploy-outcome marker, same), `reporting.retention.sync` (an inbound billing→reporting retention entitlement — a cut destroys history at the next sweep; carries `affectedOrgId`) |
 | Ask (assistant) | `ask.query` (read-only how-to turn), `ask.agent.turn` (tool-calling turn) — one per turn on `POST /ask`, `/ask/stream`, `/ask/agent/stream` respectively; both carry an `outcome` (success/failure, incl. client-abort) and `details` with SAFE METADATA ONLY (tools used, proposal kinds, source count, query *length*) — never the raw query text. Confirmed drafts commit through the normal create routes, so the resource itself is audited as `pipeline.create` / `pipeline_template.create` / `plugin.deploy` |
 | (all services) | `authz.denied` |
 
@@ -235,7 +314,11 @@ after a successful delete.
 2. Call `audit(req, 'new.action', { targetType, targetId, affectedOrgId, details })`
    from the controller after the mutation succeeds. Keep secrets / tokens / AWS
    account ids out of `details`.
-3. Document it in the [action catalog](#action-catalog) above.
+3. Declare it on the route with api-core's `audited('new.action')` middleware, so
+   the route table records it and the service's
+   [route-coverage test](permissions.md#route-coverage) counts the write route as
+   audited (an undeclared write route fails that test).
+4. Document it in the [action catalog](#action-catalog) above.
 
 **Service-emitted** (a non-platform service):
 
@@ -244,7 +327,11 @@ after a successful delete.
    AND to the platform `AuditAction` union / `ALL_AUDIT_ACTIONS` (the subset-guard
    test enforces `REMOTE_AUDIT_ACTIONS ⊆ AuditAction`).
 2. Emit it via the service's `getAuditClient().record({ action, actorId, orgId, targetId, details }, '<service>')` after the mutation succeeds.
-3. Document it in the [service-emitted catalog](#service-emitted-remote_audit_actions) above.
+3. Declare it on the route with api-core's `audited('new.action')` middleware (see
+   [route coverage](permissions.md#route-coverage)) — the per-service test fails
+   on a write route that declares no action, and on an action that isn't in
+   `REMOTE_AUDIT_ACTIONS`.
+4. Document it in the [service-emitted catalog](#service-emitted-remote_audit_actions) above.
 
 Use the dot-separated `<area>.<entity>.<verb>` naming convention so events sort
 and filter cleanly.

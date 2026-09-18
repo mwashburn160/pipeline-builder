@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { setApiKeyExchangeServiceName } from './api-key-exchange.js';
 import type { RemoteAuditClient } from './remote-audit-client.js';
 import { wireAuthzDenialAuditor } from './remote-audit-client.js';
 import { createEnvRedisTokenRevocationStore } from './token-revocation.js';
@@ -13,9 +14,11 @@ import { setTokenRevocationStore } from '../middleware/auth.js';
  *      audit sink (`wireAuthzDenialAuditor`);
  *   2. register the env-Redis token-revocation reader (fail-open) so
  *      `requireAuth` can reject a token behind the platform-published
- *      `tokenVersion` (`setTokenRevocationStore(createEnvRedisTokenRevocationStore())`).
+ *      `tokenVersion` (`setTokenRevocationStore(createEnvRedisTokenRevocationStore())`);
+ *   3. name this process in the access-key exchange call's own service token, so
+ *      platform can attribute (and rate-limit) the exchanges it performs.
  *
- * Collapses the two copy-pasted lines in each service's `index.ts` into one call.
+ * Collapses the copy-pasted lines in each service's `index.ts` into one call.
  *
  * NOTE: the PLUGIN service opts out — it shares its health-check Redis
  * connection via `createRedisTokenRevocationStore(getHealthRedisConnection())`
@@ -27,4 +30,5 @@ import { setTokenRevocationStore } from '../middleware/auth.js';
 export function wireServiceSecurity(serviceName: string, getAuditClient: () => RemoteAuditClient): void {
   wireAuthzDenialAuditor(serviceName, getAuditClient);
   setTokenRevocationStore(createEnvRedisTokenRevocationStore());
+  setApiKeyExchangeServiceName(serviceName);
 }

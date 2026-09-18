@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, getParam, isSystemAdmin, parseQueryInt, requirePermission, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { ErrorCode, audited, getParam, isSystemAdmin, parseQueryInt, requirePermission, requireSystemAdmin, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import type { Job } from 'bullmq';
@@ -98,11 +98,11 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   // an org-scoped caller and vice-versa.
   const triageCache = new Map<string, TriageCacheEntry>();
 
-  router.get('/status', withRoute(async ({ req, res }) => {
-    if (!isSystemAdmin(req)) {
-      return sendError(res, 403, 'Only administrators can view queue status', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
-
+  // Access: `requireSystemAdmin` (route middleware) — the counts aggregate
+  // across every tenant's builds, so this is an operator-only view. The gate
+  // replaces the equivalent in-handler `isSystemAdmin` check so the route table
+  // can see the requirement.
+  router.get('/status', requireSystemAdmin, withRoute(async ({ res }) => {
     // counts aggregate across all per-tier queues so existing
     // dashboard widgets keep their meaning. Per-tier breakdown is on the
     // returned `tiers` field for operators that want it.
@@ -192,7 +192,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
    * Returns 404 if no failed job with that id exists. The retry carries fresh
    * retry counters; the original failed entry is removed on success.
    */
-  router.post('/failed/:jobId/retry', requirePermission('plugins:write'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/failed/:jobId/retry', requirePermission('plugins:write'), audited('plugin.build.retry'), withRoute(async ({ req, res, ctx, orgId }) => {
     const jobId = getParam(req.params, 'jobId');
     if (!jobId) return sendError(res, 400, 'Job ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -208,6 +208,25 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     if (!newJobId) return sendError(res, 404, `Failed job ${jobId} not found`, ErrorCode.NOT_FOUND);
 
     ctx.log('COMPLETED', 'Retried failed build', { failedJobId: jobId, newJobId });
+
+    // Best-effort attributed audit — a retry re-runs a BUILD (image push +
+    // plugin persist) on the caller's authority, so it is a real mutation.
+    // Emitted only after the re-enqueue landed. `affectedOrgId` records the
+    // job's owning org, which differs from `orgId` for a sysadmin retry.
+    emitPluginAudit({
+      action: 'plugin.build.retry',
+      actorId: req.user?.sub ?? 'system',
+      orgId,
+      ...(jobOrgId(failedJob.data) ? { affectedOrgId: jobOrgId(failedJob.data) } : {}),
+      targetType: 'plugin',
+      details: {
+        failedJobId: jobId,
+        newJobId,
+        pluginName: failedJob.data?.pluginRecord?.name ?? null,
+        version: failedJob.data?.pluginRecord?.version ?? null,
+      },
+    });
+
     return sendSuccess(res, 200, { retried: true, failedJobId: jobId, newJobId });
   }));
 
@@ -247,11 +266,10 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     return sendSuccess(res, 200, { jobs, total: jobs.length });
   }));
 
-  router.delete('/dlq', withRoute(async ({ req, res }) => {
-    if (!isSystemAdmin(req)) {
-      return sendError(res, 403, 'Only administrators can purge DLQ', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
-
+  // Access: `requireSystemAdmin` (route middleware) — the purge discards every
+  // org's dead-lettered builds, so it is operator-only. The gate replaces the
+  // equivalent in-handler check so the route table can see the requirement.
+  router.delete('/dlq', requireSystemAdmin, audited('plugin.dlq.purge'), withRoute(async ({ req, res }) => {
     const purgedCount = await purgeDlq(quotaService);
 
     // Best-effort attributed audit — the purge discards ALL dead-lettered build
@@ -276,7 +294,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
    * Returns 404 if the DLQ job no longer exists. The replay carries fresh retry
    * counters; the original DLQ entry is removed on success.
    */
-  router.post('/dlq/:jobId/replay', requirePermission('plugins:write'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/dlq/:jobId/replay', requirePermission('plugins:write'), audited('plugin.dlq.replay'), withRoute(async ({ req, res, ctx, orgId }) => {
     const jobId = getParam(req.params, 'jobId');
     if (!jobId) return sendError(res, 400, 'Job ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -293,6 +311,24 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     if (!newJobId) return sendError(res, 404, `DLQ job ${jobId} not found`, ErrorCode.NOT_FOUND);
 
     ctx.log('COMPLETED', 'Replayed DLQ job', { dlqJobId: jobId, newJobId });
+
+    // Best-effort attributed audit — same rationale as the failed-build retry
+    // above: a replay re-runs a build on the caller's authority. Emitted only
+    // after the re-enqueue landed.
+    emitPluginAudit({
+      action: 'plugin.dlq.replay',
+      actorId: req.user?.sub ?? 'system',
+      orgId,
+      ...(jobOrgId(dlqJob.data) ? { affectedOrgId: jobOrgId(dlqJob.data) } : {}),
+      targetType: 'plugin',
+      details: {
+        dlqJobId: jobId,
+        newJobId,
+        pluginName: dlqJob.data?.pluginRecord?.name ?? null,
+        version: dlqJob.data?.pluginRecord?.version ?? null,
+      },
+    });
+
     return sendSuccess(res, 200, { replayed: true, dlqJobId: jobId, newJobId });
   }));
 

@@ -14,17 +14,20 @@
 # lines resolve transparently.
 #
 # Auth: the in-cluster registry uses token auth (REGISTRY_AUTH=token).
-# We sign a short-lived HS256 JWT with the platform's JWT_SECRET and
-# feed it to crane as `_token:<jwt>`. The image-registry service
-# verifies the JWT and mints a registry-scoped bearer token.
+# We sign a short-lived ES256 JWT with the deploy's OWN `deploy-bootstrap`
+# service key (#14) and feed it to crane as `_token:<jwt>`. The image-registry
+# service resolves the key by `kid`, checks that the token's subject names it,
+# and mints a registry-scoped bearer token.
 #
 # Deploy targets:
 #   local            — push via crane in a docker sidecar on backend-network
-#                      (reads JWT_SECRET from deploy/local/docker/.env)
+#                      (signs with deploy/local/docker/certs/service-keys/)
 #   minikube|ec2|eks — push via crane in a one-shot kubectl-run pod inside
-#                      the cluster (reads JWT_SECRET from the jwt-secret
-#                      Secret in the pipeline-builder namespace). All three
-#                      use the in-cluster registry at registry:5000.
+#                      the cluster (reads the deploy-bootstrap key and the
+#                      public bundle from the `service-key-deploy-bootstrap` /
+#                      `service-key-bundle` Secrets in the pipeline-builder
+#                      namespace). All three use the in-cluster registry at
+#                      registry:5000.
 #
 # Selected via DEPLOY_TARGET env var (default: docker). init-platform.sh
 # exports this when invoking build-plugin-images.sh.
@@ -62,7 +65,7 @@ kubectl_ctx() {
 }
 
 # -----------------------------------------------------------------------
-# Per-target setup: locate JWT_SECRET and the registry coordinates
+# Per-target setup: locate the deploy-bootstrap signing key and the registry
 # -----------------------------------------------------------------------
 case "$DEPLOY_TARGET" in
   docker)
@@ -72,6 +75,10 @@ case "$DEPLOY_TARGET" in
       exit 1
     fi
     set -a; . "$DEPLOY_DIR/.env"; set +a
+    # The deploy's own signing key + the public bundle, generated next to the
+    # other key material by deploy/bin/service-signing-keys.sh.
+    BOOTSTRAP_KEY_FILE="$DEPLOY_DIR/certs/service-keys/deploy-bootstrap.key"
+    BOOTSTRAP_BUNDLE_FILE="$DEPLOY_DIR/certs/service-keys/bundle.json"
     # In-cluster service-discovery name used both by the registry and
     # by the token realm sent in WWW-Authenticate. We push from a
     # sidecar on backend-network so DNS resolves correctly.
@@ -88,18 +95,24 @@ case "$DEPLOY_TARGET" in
       echo "ERROR: kubectl not found in PATH (required for DEPLOY_TARGET=$DEPLOY_TARGET)" >&2
       exit 1
     fi
-    # JWT_SECRET lives in a k8s Secret created by startup.sh. Crane runs
-    # inside the cluster, so the registry/realm hostnames it sees are
-    # the standard ClusterIP DNS names — same form the in-cluster
-    # plugin service uses at runtime.
+    # The deploy-bootstrap signing key and the public bundle live in k8s Secrets
+    # created by startup.sh. Crane runs inside the cluster, so the registry/realm
+    # hostnames it sees are the standard ClusterIP DNS names — same form the
+    # in-cluster plugin service uses at runtime. Signing happens HERE, on the
+    # host, so the key is read out and written to a temp file for openssl.
     # `openssl base64 -d` decodes portably — GNU `base64 -d` vs BSD/macOS `base64 -D`
     # differ, and this push path may be driven from a Mac.
-    JWT_SECRET="$(kubectl_ctx -n "$NAMESPACE" get secret jwt-secret -o jsonpath='{.data.JWT_SECRET}' 2>/dev/null | openssl base64 -d -A || true)"
-    if [ -z "$JWT_SECRET" ]; then
-      echo "ERROR: JWT_SECRET not found in Secret 'jwt-secret' (namespace: $NAMESPACE, context: $KUBECTL_CONTEXT)" >&2
+    BOOTSTRAP_KEY_FILE="$(mktemp)"; BOOTSTRAP_BUNDLE_FILE="$(mktemp)"
+    trap 'rm -f "$BOOTSTRAP_KEY_FILE" "$BOOTSTRAP_BUNDLE_FILE"' EXIT
+    kubectl_ctx -n "$NAMESPACE" get secret service-key-deploy-bootstrap -o jsonpath='{.data.service\.key}' 2>/dev/null \
+      | openssl base64 -d -A > "$BOOTSTRAP_KEY_FILE" || true
+    kubectl_ctx -n "$NAMESPACE" get secret service-key-bundle -o jsonpath='{.data.bundle\.json}' 2>/dev/null \
+      | openssl base64 -d -A > "$BOOTSTRAP_BUNDLE_FILE" || true
+    if [ ! -s "$BOOTSTRAP_KEY_FILE" ] || [ ! -s "$BOOTSTRAP_BUNDLE_FILE" ]; then
+      echo "ERROR: the deploy-bootstrap service key was not found (namespace: $NAMESPACE, context: $KUBECTL_CONTEXT)" >&2
       echo "" >&2
       echo "  Verify with:" >&2
-      echo "    kubectl --context=$KUBECTL_CONTEXT -n $NAMESPACE get secret jwt-secret" >&2
+      echo "    kubectl --context=$KUBECTL_CONTEXT -n $NAMESPACE get secret service-key-deploy-bootstrap service-key-bundle" >&2
       echo "" >&2
       echo "  Available contexts on this machine:" >&2
       kubectl config get-contexts -o name 2>/dev/null | sed 's/^/    /' >&2 || echo "    (kubectl not configured)" >&2
@@ -123,9 +136,9 @@ case "$DEPLOY_TARGET" in
 esac
 
 # -----------------------------------------------------------------------
-# JWT signing — shared across targets via common.sh `sign_platform_jwt`.
-# Smoke-test once before the loop so a missing JWT_SECRET fails loudly
-# here rather than per-image.
+# JWT signing — shared across targets via common.sh `sign_service_jwt`.
+# Smoke-test once before the loop so a missing key fails loudly here rather
+# than per-image.
 #
 # TTL default 900s (was the sign helper's 300s): the token is signed on the
 # host, but crane runs in a one-shot kubectl pod that must schedule + pull its
@@ -135,9 +148,9 @@ esac
 # aborted the base push partway (e.g. after rust-base, before ruby-base).
 # Override with PUSH_JWT_TTL.
 # -----------------------------------------------------------------------
-_sign_platform_jwt() { sign_platform_jwt "$JWT_SECRET" "${PUSH_JWT_TTL:-900}"; }
+_sign_platform_jwt() { sign_service_jwt "$BOOTSTRAP_KEY_FILE" "$BOOTSTRAP_BUNDLE_FILE" "${PUSH_JWT_TTL:-900}"; }
 if [ -z "$(_sign_platform_jwt)" ]; then
-  echo "ERROR: failed to sign platform JWT (JWT_SECRET missing?)" >&2
+  echo "ERROR: failed to sign the deploy-bootstrap service token (run deploy/bin/service-signing-keys.sh?)" >&2
   exit 1
 fi
 

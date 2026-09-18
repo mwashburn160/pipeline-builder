@@ -63,11 +63,24 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   PersonalAccessToken: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
   UserPreferences: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
   Organization: { findById: jest.fn() },
+  // Linking stub only — the barrel's `User` is pulled in transitively by the
+  // profile helpers the user-admin controller imports.
+  User: {},
 }));
 
 // user-admin transitively imports utils/token via user-profile; mock so we
 // don't pull in the real JWT signing path (which would demand env vars).
-jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn(), renewSessionTokens: jest.fn() }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({
+  // Session-auth helpers the controllers now import (see utils/token.ts).
+  signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  findRefreshSession: jest.fn(async () => undefined),
+  signApiKeyToken: jest.fn(),
+  signServiceAccountToken: jest.fn(),
+  membershipForOrg: jest.fn(async () => undefined),
+  issueTokens: jest.fn(),
+  renewSessionTokens: jest.fn(),
+}));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: jest.fn(),
   updateProfileSchema: {},
@@ -94,6 +107,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   // Consumed transitively via user-admin.js -> user-profile.js.
   userProfileService: {},
   // Consumed transitively via user-admin.js -> user-profile.js.
+  apiKeyService: {},
 }));
 
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: {} }));

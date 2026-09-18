@@ -23,7 +23,7 @@ This guide is for operators standing up Pipeline Builder on AWS. It covers the t
 2. **Provision** — run [`pipeline-manager infra provision`](#ai-assisted-install-infra-provision) (recommended) or `bin/setup.sh` / raw CloudFormation directly; it requests a DNS-validated ACM cert and fronts the private compute with an ALB.
 3. **Wait for the URL** — the cert validates mid-deploy, then instances/pods pass health checks a few minutes later; the URL is `https://<your-domain>` (public, or in-VPC only for private mode).
 4. **Initialize the platform** — register the admin and load plugins/compliance/samples via [`init-platform.sh`](#1-initialize-the-platform) (runs automatically by default; use `--init manual` to set real admin creds yourself).
-5. **Store service credentials** — [`infra store-token`](#2-store-service-credentials) writes a platform JWT to Secrets Manager for the lookup and event-ingestion Lambdas.
+5. **Store service credentials** — [`infra store-token`](#2-store-service-credentials) provisions the org's service accounts and writes their `pb_sa_…` keys to Secrets Manager for the lookup Lambda, CodeBuild's registry pulls and the event-ingestion Lambda.
 6. **Deploy reporting** — wire up the [EventBridge → SQS → Lambda](#3-deploy-eventbridge-reporting-infrastructure) stack for execution and plugin analytics.
 7. **Operate** — monitor via `/dashboard/observability`, reconcile registry vs live stacks with [`audit stacks`](#drift-detection-audit-stacks), and tear down with `--teardown` when done.
 
@@ -98,7 +98,7 @@ pipeline-manager infra provision --target eks --diagnose ./stack-events.txt
 >
 > **Bootstrap a fresh machine (`--repo`).** Without a checkout, `--repo` git-clones the platform repo first and runs from it. The clone is **sparse + partial** — `git clone --filter=blob:none --no-checkout` + cone `sparse-checkout` (git ≥ 2.27; older git falls back to a full clone) — so it materializes **only the deploy folders the selected target + options need**, not the whole repo (`packages/`, `api/`, `frontend/`, … are never downloaded). The common base is just `deploy/bin`; each target adds its own folder (`deploy/local/docker`, `deploy/local/minikube` — self-contained — `deploy/aws/ec2`, `deploy/aws/eks`), and each post-install load adds its folder. Re-syncs are **additive** (`sparse-checkout add`), so one `--workdir` can accumulate multiple targets. Override with `--repo <url>`, `--ref <branch|tag>`, `--workdir <dir>`. (`--ref` is a branch/tag; arbitrary SHAs may not fetch under the shallow clone.)
 >
-> **Post-install steps.** After deploy + health, `infra provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`, which set `PLATFORM_IDENTIFIER`/`PLATFORM_PASSWORD`) and runs **opt-in** loads — each also pulls its folder into the sparse clone: `--with-plugins` (build + load plugins; adds `deploy/plugins` + `deploy/codebuild`), `--with-compliance` (`deploy/compliance`), `--with-samples` (`deploy/samples`), or `--with-all`. Also `--build-bootstrap` (CodeBuild bootstrap image), `--with-smoke-test` (read-only API check), `--with-events` (EC2/EKS event ingestion — a two-step bundle: **`infra store-token`** writes a platform JWT to Secrets Manager at the `pipeline-builder/{orgId}/platform` pattern, then **`infra setup-events`** deploys the EventBridge → SQS → Lambda that reads it; both pull AWS creds from the standard env / `~/.aws` chain), and repeatable `--post-step "<cmd>"`. The default is **register-only** (minimal clone); the loads are deterministic + idempotent, so re-running with more options just layers them on. On the AWS targets these loads run **deploy-side by default** (so `infra provision` doesn't prompt for them locally) — EC2 on first boot, EKS in `setup.sh`'s final phase over a `kubectl port-forward`. Pass `--init manual` to drive them yourself.
+> **Post-install steps.** After deploy + health, `infra provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`, which set `PLATFORM_IDENTIFIER`/`PLATFORM_PASSWORD`) and runs **opt-in** loads — each also pulls its folder into the sparse clone: `--with-plugins` (build + load plugins; adds `deploy/plugins` + `deploy/codebuild`), `--with-compliance` (`deploy/compliance`), `--with-samples` (`deploy/samples`), or `--with-all`. Also `--build-bootstrap` (CodeBuild bootstrap image), `--with-smoke-test` (read-only API check), `--with-events` (EC2/EKS event ingestion — a four-step bundle: three **`infra store-token`** runs writing the platform, `registry:push` and `reporting:ingest` service-account keys to Secrets Manager at the `pipeline-builder/{orgId}/…` pattern, then **`infra setup-events --scoped-ingest`** deploying the EventBridge → SQS → Lambda that reads the ingest key; all pull AWS creds from the standard env / `~/.aws` chain, and need `PLATFORM_PASSWORD` for the step-up each key write requires), and repeatable `--post-step "<cmd>"`. The default is **register-only** (minimal clone); the loads are deterministic + idempotent, so re-running with more options just layers them on. On the AWS targets these loads run **deploy-side by default** (so `infra provision` doesn't prompt for them locally) — EC2 on first boot, EKS in `setup.sh`'s final phase over a `kubectl port-forward`. Pass `--init manual` to drive them yourself.
 >
 > ```bash
 > # Fresh box → sparse-clone just deploy/bin + deploy/local/docker, deploy, register, load samples:
@@ -840,7 +840,7 @@ DEPLOY_TARGET=ec2 BOOTSTRAP_IMAGE_TAG=pipeline-bootstrap:1.1 ./build-codebuild-b
 
 **Run it on the EC2 instance** — the `ec2` transport runs a `kubectl run` crane pod, so it needs both Docker **and** a kubeconfig that reaches the cluster. Two gotchas:
 
-- **Don't run the whole script under `sudo`.** `sudo` runs as root, whose `$HOME` has no kubeconfig, so the publish fails with *"JWT_SECRET not found … Available contexts: (none)"*. Instead grant your user Docker access and run without `sudo`:
+- **Don't run the whole script under `sudo`.** `sudo` runs as root, whose `$HOME` has no kubeconfig, so the publish fails with *"the deploy-bootstrap service key was not found … Available contexts: (none)"*. Instead grant your user Docker access and run without `sudo`:
   ```bash
   sudo usermod -aG docker "$(whoami)" && newgrp docker
   DEPLOY_TARGET=ec2 ./build-codebuild-bootstrap.sh
@@ -851,36 +851,65 @@ DEPLOY_TARGET=ec2 BOOTSTRAP_IMAGE_TAG=pipeline-bootstrap:1.1 ./build-codebuild-b
     DEPLOY_TARGET=ec2 ./build-codebuild-bootstrap.sh
   ```
   (Find the context name with `kubectl config get-contexts`; default is `pipeline-builder`.)
-- **After a fresh deploy** (which rotates `JWT_SECRET`), re-run `infra store-token` before publishing — otherwise the crane push / CodeBuild image pull can 401.
+- **After a fresh deploy** (which generates a new user-token signing key), re-run `infra store-token` before publishing — otherwise the crane push / CodeBuild image pull can 401.
+- **Re-run it for ALL THREE credentials** — the platform one, `--scope registry:push` (what CodeBuild presents to the registry) and `--scope reporting:ingest` (what the event Lambda reads). Each is a separate service account with only the authority its job needs; see [Authentication → Stored machine credentials (AWS)](authentication.md#stored-machine-credentials-aws). Credentials stored before this release stop working and must be reissued — they were JWTs, and the secret now holds an opaque `pb_sa_…` key in the same `password` field ([cutover runbook](runbooks/access-key-cutover.md)).
 
 ### 2. Store Service Credentials
 
-The plugin-lookup Lambda and event-ingestion Lambda use a JWT token stored in Secrets Manager. Generate and store it using the CLI:
+The Lambdas and CodeBuild read **service-account keys** from Secrets Manager —
+machine identities owned by the org, not a person's token. `infra store-token`
+provisions the account and issues the key:
 
 ```bash
-# First, login to get a PLATFORM_TOKEN
-eval $(pipeline-manager auth login -u admin@your-domain.com -p '***' --quiet --no-verify-ssl)
+# First sign in (browser device flow — prints a code, no password on the CLI).
+# The session is stored per-platform, so store-token picks it up automatically.
+pipeline-manager auth login --no-verify-ssl
 
-# Then generate a long-lived token and store in Secrets Manager
-pipeline-manager infra store-token --days 30 --region us-east-1
-```
+# Issuing a service-account key is step-up gated, so the command needs your
+# password as well as your session. Keep it out of shell history.
+export PLATFORM_PASSWORD='…'
 
-By default `infra store-token` **only writes the secret** — you must re-run it before the
-token expires (`audit tokens` warns you in advance). To avoid that, add `--schedule`
-to also deploy a small **daily auto-renewal stack** (`pipeline-builder-token-renew`):
-
-```bash
-# Write the token AND install a Lambda that re-mints it daily, so it never lapses
+# 1. The org's full-privilege automation credential (synth/deploy, plugin lookup)
 pipeline-manager infra store-token --days 30 --schedule --region us-east-1
 
-# Custom renewal time (5-field cron; minimum every 15 minutes):
+# 2. The CI registry credential CodeBuild presents as Basic auth (REQUIRED:
+#    synth wires this secret into every build image's pull credentials)
+pipeline-manager infra store-token --scope registry:push --schedule --region us-east-1
+
+# 3. The event-ingestion credential
+pipeline-manager infra store-token --scope reporting:ingest --schedule --region us-east-1
+```
+
+Each run writes its own secret and its own rotation stack:
+
+| Secret | Service account | Key scope |
+|---|---|---|
+| `pipeline-builder/{orgId}/platform` | `platform-automation` | none (org admin Roles) |
+| `pipeline-builder/{orgId}/registry-push` | `registry-push` | `registry:push` |
+| `pipeline-builder/{orgId}/reporting-ingest` | `reporting-ingest` | `reporting:ingest` |
+
+> On a headless host with no browser, export `PLATFORM_IDENTIFIER` /
+> `PLATFORM_PASSWORD` instead: `store-token` still has a non-interactive
+> password login of its own for exactly that case (it is provisioning a *machine*
+> credential, with nobody present to approve anything). `PLATFORM_PASSWORD` is
+> required either way — it is the step-up factor for both writes.
+
+By default `infra store-token` **only writes the secret** — you must re-run it before the
+key expires (`audit tokens` warns you in advance). To avoid that, add `--schedule`
+to also deploy a small **daily key-rotation stack** (`pipeline-builder-token-renew`):
+
+```bash
+# Custom rotation time (5-field cron; minimum every 15 minutes):
 pipeline-manager infra store-token --schedule --cron '0 3 * * *' --region us-east-1
 ```
 
-The renewal stack is a scheduled Lambda that reads the current JWT, mints a fresh
-one via the platform, and writes it back to the same secret. (The `--with-events`
-provision bundle opts into `--schedule` automatically, since the event-ingestion
-Lambda depends on this token.)
+The rotation stack is a scheduled Lambda that mints a **sibling** key on the same
+account, writes it to the secret, and only then retires its predecessor — in that
+order, so a failure at any step leaves a working credential behind. It installs
+nothing at runtime. See
+[Authentication → Self-rotation](authentication.md#self-rotation--how-an-unattended-machine-replaces-its-own-key).
+(The `--with-events` provision bundle opts into `--schedule` automatically, since
+the event-ingestion Lambda depends on its key.)
 
 ### 3. Deploy EventBridge Reporting Infrastructure
 

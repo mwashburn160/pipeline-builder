@@ -5,193 +5,144 @@ import axios from 'axios';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { TIMEOUTS } from '../config/cli.constants.js';
-import { assertCredentialTlsAllowed, type AuthResponse, credentialHttpsAgent, postLogin, resolveCredentials, switchOrganization } from '../utils/auth-utils.js';
+import { assertCredentialTlsAllowed, credentialHttpsAgent, switchOrganization } from '../utils/auth-utils.js';
 import { printCommandHeader, withSslOptions } from '../utils/command-utils.js';
+import { credentialStorePath, saveSession } from '../utils/credential-store.js';
+import { DeviceAuthError, openInBrowser, pollForDeviceToken, requestDeviceCode } from '../utils/device-auth.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { printDebug, printError, printInfo, printSuccess, printWarning } from '../utils/output-utils.js';
-import { checkAuthRateLimit, recordAuthFailure, recordAuthSuccess } from '../utils/rate-limiter.js';
+import { printError, printInfo, printSuccess } from '../utils/output-utils.js';
 
-const { green } = pico;
+const { bold, cyan, dim, green } = pico;
 
 /**
  * Registers the `login` command with the CLI program.
  *
- * Authenticates against the platform API and prints an export statement
- * for `PLATFORM_TOKEN` on success.  Does NOT require `PLATFORM_TOKEN`
- * to be set beforehand (unlike other commands).
+ * Signs in with the OAuth 2.0 device authorization grant (RFC 8628): the CLI
+ * shows a short code, the person approves it in a browser, and the CLI receives
+ * an ordinary session. There is no password flag and no way to hand the CLI a
+ * refresh token — both used to end up in shell history, `ps` output and CI logs,
+ * and both skipped the SSO / step-up / MFA the browser already enforces.
+ *
+ * The session is written to the credential store (`~/.pipeline-manager/
+ * credentials.json`, owner-only), so subsequent commands authenticate with no
+ * environment variable at all. `PLATFORM_TOKEN` still wins when it is set, which
+ * is what CI uses — an access key from `auth pat`.
  *
  * @param program - The root Commander program instance to attach the command to.
  *
  * @example
  * ```bash
- * pipeline-manager auth login --identifier admin@example.com --password secret
- * pipeline-manager auth login -u admin@example.com -p secret
- * pipeline-manager auth login -u admin@example.com -p secret --url https://myhost:8443
- * eval $(pipeline-manager auth login -u admin@example.com -p secret --quiet)
- * pipeline-manager auth login --refresh <refresh-token>
+ * pipeline-manager auth login
+ * pipeline-manager auth login --url https://platform.example.com --org <orgId>
+ * pipeline-manager auth login --no-browser      # print the URL instead of opening it
+ * eval $(pipeline-manager auth login --quiet)   # also export PLATFORM_TOKEN
  * ```
  */
 export function login(program: Command): void {
   withSslOptions(program
     .command('login')
-    .description('Authenticate with the platform and obtain a PLATFORM_TOKEN')
-    .option('-u, --identifier <identifier>', 'Username or email')
-    .option('-p, --password <password>', 'Password')
-    .option('--refresh <refreshToken>', 'Use a refresh token instead of login credentials')
-    .option('--org <orgId>', 'Switch to a specific organization after login')
+    .description('Sign in through your browser and store the session (device authorization)')
+    .option('--org <orgId>', 'Switch to a specific organization after signing in')
+    .option('--no-browser', 'Never open a browser — print the verification URL instead')
     .option('--url <url>', 'Platform base URL', process.env.PLATFORM_BASE_URL || 'https://localhost:8443'))
     .option('--quiet', 'Only print the export statement (useful for eval)')
     .action(async (options) => {
-      const isRefresh = !!options.refresh;
       const quiet = options.quiet ?? false;
-      const executionId = printCommandHeader(
-        isRefresh ? 'Token Refresh' : 'Login',
-        isRefresh ? 'Token Refresh' : 'Platform Authentication',
-        { quiet },
-      );
+      const executionId = printCommandHeader('Login', 'Platform Authentication', { quiet });
 
-      // SECURITY: login/refresh POST plaintext passwords and JWTs. Never send them
-      // over an unverified TLS connection in production — a MITM would harvest them.
-      // In non-production, --no-verify-ssl is still honored (self-signed dev platforms).
+      // SECURITY: the poll returns session tokens — bearer credentials. Never
+      // fetch them over an unverified TLS connection in production.
       assertCredentialTlsAllowed(options.verifySsl);
 
-      // Credentials may come from flags OR the PLATFORM_IDENTIFIER/PLATFORM_PASSWORD
-      // env vars (so the password need not appear in shell history / `ps`).
-      const { identifier, password } = resolveCredentials(options);
-
-      let loginSucceeded = false;
       try {
+        const transport = {
+          url: options.url,
+          httpsAgent: credentialHttpsAgent(options.verifySsl),
+          timeout: TIMEOUTS.HTTP_REQUEST,
+        };
 
-        // Validate required options
-        if (!isRefresh && (!identifier || !password)) {
-          printError('Login requires --identifier and --password (or PLATFORM_IDENTIFIER/PLATFORM_PASSWORD env), or --refresh <token>');
-          process.exit(ERROR_CODES.AUTHENTICATION);
-        }
-        if (!isRefresh && options.password) {
-          printWarning('Passing --password on the command line can expose it via shell history; prefer the PLATFORM_PASSWORD env var.');
-        }
+        if (!quiet) printInfo('Starting browser sign-in', { url: options.url, verifySsl: options.verifySsl });
 
-        // Rate limiting — prevent brute force (login only)
-        if (!isRefresh) {
-          const rateLimitMsg = checkAuthRateLimit(identifier, options.url);
-          if (rateLimitMsg) {
-            printError(rateLimitMsg);
-            process.exit(ERROR_CODES.AUTHENTICATION);
-          }
-        }
+        const code = await requestDeviceCode(transport);
+        const approvalUrl = code.verification_uri_complete || code.verification_uri;
+        // `--no-browser` sets options.browser to false (commander's --no- pair).
+        const opened = options.browser !== false && openInBrowser(approvalUrl);
 
-        if (!quiet) {
-          printInfo(isRefresh ? 'Refreshing access token' : 'Authenticating', {
-            ...(identifier ? { identifier } : {}),
-            url: options.url,
-            verifySsl: options.verifySsl,
-          });
-        }
+        // The prompt goes to STDERR under `--quiet`: stdout is captured by
+        // `eval $(…)`, so printing the code there would swallow the one thing
+        // the user has to read before anything can proceed.
+        const say = quiet ? console.error : console.log;
+        say('');
+        say(`  Your code:  ${bold(cyan(code.user_code))}`);
+        say(`  Approve at: ${green(approvalUrl)}`);
+        say('');
+        say(dim(opened
+          ? '  Opening your browser… approve the code there, then come back.'
+          : '  Open that URL in a browser, check the code matches, and approve.'));
+        if (!quiet) printInfo('Waiting for approval…');
 
-        const httpsAgent = credentialHttpsAgent(options.verifySsl);
+        const session = await pollForDeviceToken(transport, code);
 
-        let token: string | undefined;
+        let accessToken = session.access_token;
+        let refreshToken = session.refresh_token;
+        let expiresIn = session.expires_in;
 
-        if (isRefresh) {
-          const refreshUrl = `${options.url}/api/auth/refresh`;
-          printDebug('POST', { url: refreshUrl });
-
-          const response = await axios.post<AuthResponse>(
-            refreshUrl,
-            { refreshToken: options.refresh },
-            {
-              headers: { 'Content-Type': 'application/json' },
-              httpsAgent,
-              timeout: TIMEOUTS.HTTP_REQUEST,
-            },
-          );
-
-          token = response.data?.data?.accessToken;
-        } else {
-          // identifier/password validated non-null above (the `!isRefresh` guard).
-          token = await postLogin({
-            url: options.url,
-            identifier: identifier!,
-            password: password!,
-            httpsAgent,
-            timeout: TIMEOUTS.HTTP_REQUEST,
-          });
-        }
-
-        if (!token) {
-          if (!isRefresh) recordAuthFailure(identifier, options.url);
-          printError(`${isRefresh ? 'Token refresh' : 'Login'} failed: no access token in response`);
-          process.exit(ERROR_CODES.AUTHENTICATION);
-        }
-
-        if (!isRefresh) recordAuthSuccess(identifier, options.url);
-        // Past this point authentication has already succeeded — a later failure
-        // (e.g. the --org switch below) must NOT be recorded as an auth failure,
-        // or a valid-credential user would accrue toward brute-force lockout.
-        loginSucceeded = true;
-
-        // Switch to a specific organization if --org is provided
+        // Switching re-issues (and rotates) the session, so the store has to take
+        // the NEW pair — keeping the old refresh token would strand the session.
         if (options.org) {
-          if (!quiet) {
-            printInfo('Switching to organization', { orgId: options.org });
-          }
-
-          token = await switchOrganization({
+          if (!quiet) printInfo('Switching to organization', { orgId: options.org });
+          const switched = await switchOrganization({
             url: options.url,
             orgId: options.org,
-            accessToken: token,
-            httpsAgent,
+            accessToken,
+            httpsAgent: transport.httpsAgent,
             timeout: TIMEOUTS.HTTP_REQUEST,
             quiet,
           });
+          accessToken = switched.accessToken;
+          refreshToken = switched.refreshToken ?? refreshToken;
+          expiresIn = switched.expiresIn ?? expiresIn;
         }
 
-        if (!quiet) {
-          console.log('');
-          printSuccess(isRefresh ? 'Token refreshed successfully' : 'Login successful');
-          console.log('');
+        saveSession(options.url, {
+          accessToken,
+          ...(refreshToken ? { refreshToken } : {}),
+          expiresAt: Date.now() + expiresIn * 1000,
+          ...(options.org ? { organizationId: options.org } : {}),
+        });
+
+        if (quiet) {
+          console.log(`export PLATFORM_TOKEN=${accessToken}`);
+          return;
         }
 
-        console.log(`export PLATFORM_TOKEN=${token}`);
-
-        if (!quiet) {
-          console.log('');
-          printInfo('Tip: Run the following to set the token in your shell:');
-          const orgFlag = options.org ? ` --org ${options.org}` : '';
-          if (isRefresh) {
-            console.log(green(`  eval $(pipeline-manager auth login --refresh '<refresh-token>'${orgFlag} --quiet)`));
-          } else {
-            console.log(green(`  eval $(pipeline-manager auth login -u ${identifier} -p '***'${orgFlag} --quiet)`));
-          }
-        }
+        console.log('');
+        printSuccess('Signed in');
+        console.log('');
+        printInfo('The session is stored for this platform — other commands pick it up automatically.', {
+          store: credentialStorePath(),
+        });
+        console.log('');
+        printInfo('Tip: to export it into this shell instead:');
+        console.log(green(`  eval $(pipeline-manager auth login${options.org ? ` --org ${options.org}` : ''} --quiet)`));
+        console.log('');
+        printInfo('Sign this device out again from Settings → Sessions and devices.');
       } catch (error) {
-        // Key the failure to (identifier, url) like the check/success/no-token
-        // paths — a bad-password 401 throws to here, so keying it to the shared
-        // default bucket meant brute-force attempts never accrued toward lockout.
-        // Skip when login already succeeded (a failed post-login --org switch is
-        // not an authentication failure).
-        if (!isRefresh && !loginSucceeded) recordAuthFailure(identifier, options.url);
-        // Provide a clear failure message for auth errors
+        if (error instanceof DeviceAuthError) {
+          printError(`Login failed: ${error.message}`, { reason: error.code });
+          process.exit(ERROR_CODES.AUTHENTICATION);
+        }
         if (axios.isAxiosError(error)) {
           const status = error.response?.status;
           const message = (error.response?.data as { message?: string })?.message;
-
-          printError(`${isRefresh ? 'Token refresh' : 'Login'} failed`, {
-            status: status ?? 'no response',
-            ...(message ? { message } : {}),
-          });
+          printError('Login failed', { status: status ?? 'no response', ...(message ? { message } : {}) });
           process.exit(ERROR_CODES.AUTHENTICATION);
         }
 
         handleError(error, ERROR_CODES.AUTHENTICATION, {
           debug: program.opts().debug,
           exit: true,
-          context: {
-            command: 'login',
-            executionId,
-            identifier: options.identifier,
-            url: options.url,
-          },
+          context: { command: 'login', executionId, url: options.url },
         });
       }
     });

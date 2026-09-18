@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendBadRequest, sendError, sendSuccess, ErrorCode, requireFeature, resolveVisibility, isSystemAdmin, checkVisibilityWriteAccess, userHasPermission, VisibilitySchema } from '@pipeline-builder/api-core';
+import { audited, sendBadRequest, sendError, sendSuccess, ErrorCode, requireFeature, resolveVisibility, isSystemAdmin, checkVisibilityWriteAccess, userHasPermission, VisibilitySchema } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
@@ -66,7 +66,7 @@ export function createBulkPluginRoutes(): Router {
   const bulkFeature = requireFeature('bulk_operations');
 
   /** POST /plugins/bulk/delete — Soft-delete multiple plugins by ID */
-  router.post('/bulk/delete', bulkFeature, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/bulk/delete', bulkFeature, audited('plugin.bulk.delete'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const ids = parseBulkIds(res, req.body?.ids);
     if (!ids) return;
 
@@ -103,7 +103,7 @@ export function createBulkPluginRoutes(): Router {
   }));
 
   /** PUT /plugins/bulk/update — Update multiple plugins with the same data */
-  router.put('/bulk/update', bulkFeature, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/bulk/update', bulkFeature, audited('plugin.bulk.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const ids = parseBulkIds(res, req.body?.ids);
     if (!ids) return;
     const data = req.body?.data;

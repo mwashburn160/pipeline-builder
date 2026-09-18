@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isSystemAdmin, requireSystemAdmin as requireSystemAdminGate, sendError, ErrorCode, getParam, createLogger, recordAuthzDenial } from '@pipeline-builder/api-core';
+import { isSystemAdmin, requireInternalService, requireSystemAdmin as requireSystemAdminGate, sendError, ErrorCode, getParam, createLogger, recordAuthzDenial, tagRouteGate } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 
 const logger = createLogger('authorize-org');
@@ -32,7 +32,11 @@ interface AuthorizeOrgOptions {
 export function authorizeOrg(options: AuthorizeOrgOptions = {}) {
   const { requireSystemAdmin = false } = options;
 
-  return (req: Request, res: Response, next: NextFunction): void => {
+  // Tagged for the route table: the `requireSystemAdmin: true` variant IS the
+  // route's authorization gate (it delegates to api-core's `requireSystemAdmin`
+  // below), so the coverage test must see it. The default variant is a tenancy
+  // check, not a capability gate, and carries no tag.
+  return tagRouteGate((req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
       return sendError(res, 401, 'Authentication required', ErrorCode.UNAUTHORIZED);
     }
@@ -74,5 +78,28 @@ export function authorizeOrg(options: AuthorizeOrgOptions = {}) {
     }
 
     next();
-  };
+  }, ...(requireSystemAdmin ? [{ kind: 'systemAdmin' } as const] : []));
 }
+
+/**
+ * Gate the internal usage-counter endpoints (`POST /quotas/:orgId/increment`
+ * and `/decrement`) to internal service callers (#14). `authorizeOrg()` alone
+ * admits any same-org member, which would let a member inflate or roll back
+ * their own counters and defeat the caps — and a system admin is no more
+ * entitled to move a tenant's usage counters than a member is, so that path is
+ * gone too: an internal route refuses every user token.
+ *
+ * The caller list is the whole internal fleet because EVERY service meters its
+ * own inbound traffic through api-core's quota client (`SERVICE_NAME` names the
+ * signer). It is still a closed list of cryptographically-named identities: the
+ * same list `deploy/*​/k8s/istio-internal-routes.yaml` names, enforced here so it
+ * also holds in docker compose, which runs no mesh.
+ *
+ * Use after `requireAuth` + `authorizeOrg()`.
+ */
+export const requireInternalCaller = requireInternalService({
+  callers: [
+    'ask', 'billing', 'compliance', 'image-registry', 'message',
+    'pipeline', 'platform', 'plugin', 'quota', 'reporting',
+  ],
+});

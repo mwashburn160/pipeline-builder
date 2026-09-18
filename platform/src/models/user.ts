@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AssuranceLevel, AuthMethod } from '@pipeline-builder/api-core';
 import bcrypt from 'bcryptjs';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { config } from '../config/index.js';
@@ -38,17 +39,40 @@ interface OAuthProviders {
   'cognito'?: OAuthProviderData;
 }
 
-/** A signed-in device's refresh-token slot. */
+/**
+ * - `interactive` — a person signed in (password, OAuth, SSO). Renewed by
+ *   POST /auth/refresh; capped at `MAX_REFRESH_SESSIONS`, oldest pushed out.
+ * - `machine` — a stored credential opened by POST /user/generate-token (e.g.
+ *   `pipeline-manager infra store-token`). Renewed only by generate-token from
+ *   the slot's own token; never refreshable; capped separately, least recently
+ *   used evicted.
+ */
+export type RefreshSessionKind = 'interactive' | 'machine';
+
+/** A signed-in device's (or stored machine credential's) refresh-token slot. */
 export interface RefreshSession {
   /** Stable slot id, carried as `sid` in that session's access + refresh tokens. */
   id: string;
+  kind: RefreshSessionKind;
   /** SHA-256 of the slot's current refresh token. */
   hash: string;
   createdAt: Date;
+  /** Last refresh / renewal / switch-org. */
   lastUsedAt: Date;
   /** Capability scope of the tokens this slot mints (a narrow machine credential).
    *  Stored server-side so renewal can never widen it. */
   scope?: string;
+  /** Authentication methods of the sign-in that opened the slot (JWT `amr`). */
+  amr: AuthMethod[];
+  /** Assurance level of that sign-in (JWT `aal`). Never raised by renewal. */
+  aal: AssuranceLevel;
+  /** When that sign-in happened (JWT `auth_time`). Never reset by renewal. */
+  authTime: Date;
+  /** Short client summary ("Chrome on macOS") from the User-Agent — no raw header. */
+  userAgent?: string;
+  /** Last IP the slot was used from. Personal data: kept only for the slot's
+   *  life (dropped with the slot and with the user document); no geolocation. */
+  lastIp?: string;
 }
 
 /**
@@ -108,8 +132,8 @@ export interface UserDocument extends Document {
    */
   isSuperAdmin?: boolean;
   tokenVersion: number;
-  /** One refresh-token slot per signed-in device, oldest first (capped — see
-   *  `MAX_REFRESH_SESSIONS`). Only the SHA-256 of the current token is stored.
+  /** One refresh-token slot per signed-in device or stored machine credential,
+   *  oldest first (each kind capped — see `MAX_REFRESH_SESSIONS`). Only the SHA-256 of the current token is stored.
    *  Rotation swaps a slot's hash; reuse of a rotated token revokes that slot. */
   refreshSessions?: RefreshSession[];
   /** Last 20 access tokens issued for this user. Append-only ring; capped at 20.
@@ -123,6 +147,17 @@ export interface UserDocument extends Document {
   }>;
   featureOverrides?: Map<string, boolean>;
   oauth?: OAuthProviders;
+  /**
+   * Opaque WebAuthn user handle (32 random bytes, base64url), minted lazily the
+   * first time the account registers a passkey.
+   *
+   * It is what the authenticator stores alongside a discoverable credential and
+   * hands back on passkey sign-in, so it MUST NOT be the Mongo `_id`: that id
+   * appears in URLs and audit rows, and the handle is meant to be opaque and
+   * non-correlatable across relying parties. Hidden from default queries — only
+   * the WebAuthn service ever reads it.
+   */
+  webauthnUserId?: string;
   comparePassword(password: string): Promise<boolean>;
 }
 
@@ -210,10 +245,16 @@ const userSchema = new Schema<UserDocument>(
       type: [{
         _id: false,
         id: { type: String, required: true },
+        kind: { type: String, enum: ['interactive', 'machine'], required: true },
         hash: { type: String, required: true },
         createdAt: { type: Date, required: true },
         lastUsedAt: { type: Date, required: true },
         scope: { type: String },
+        amr: { type: [String], required: true },
+        aal: { type: Number, enum: [1, 2], required: true },
+        authTime: { type: Date, required: true },
+        userAgent: { type: String },
+        lastIp: { type: String },
       }],
       default: [],
       select: false,
@@ -233,6 +274,13 @@ const userSchema = new Schema<UserDocument>(
       of: Boolean,
       // Factory — without this every doc shares the same Map instance.
       default: () => new Map(),
+    },
+    webauthnUserId: {
+      type: String,
+      // Never selected by accident — the only reader is the WebAuthn service.
+      select: false,
+      // Sparse: almost no account has one until it registers a passkey.
+      index: { unique: true, sparse: true },
     },
     oauth: {
       'google': oauthProviderSchema,

@@ -8,6 +8,7 @@ import {
   createLogger,
   envInt,
   isSystemAdmin,
+  requirePermissionOrService,
   validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
@@ -144,13 +145,22 @@ async function resolveParentForValidate(req: Request, orgId: string): Promise<st
   return resolveParentOrgId(orgId);
 }
 
+/**
+ * Enforcement checks read the org's rule set, so a USER token needs
+ * `compliance:read` (the member bundle has it; the UI's dry-run buttons run on
+ * the caller's token). A SERVICE principal passes without it: api/pipeline and
+ * api/plugin call these legs with a minted service token while creating or
+ * updating an entity, and that token carries no org-user permissions.
+ */
+const requireValidateAccess = requirePermissionOrService('compliance:read');
+
 export function createValidateRoutes(): Router {
   const router = Router();
 
   // Shared handler for both plugin and pipeline validation (live + dry-run)
   function registerValidateRoute(target: RuleTarget, defaultAction: string) {
     // POST /validate/{target} — blocking check with audit + notifications
-    router.post(`/${target}`, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    router.post(`/${target}`, requireValidateAccess, withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const validation = validateBody(req, ValidateSchema);
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
       const { attributes, entityId, entityName, action } = validation.value;
@@ -167,7 +177,7 @@ export function createValidateRoutes(): Router {
     }));
 
     // POST /validate/{target}/dry-run — no audit, no notifications
-    router.post(`/${target}/dry-run`, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    router.post(`/${target}/dry-run`, requireValidateAccess, withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const validation = validateBody(req, DryRunSchema);
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 

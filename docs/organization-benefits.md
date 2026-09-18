@@ -154,6 +154,7 @@ Every resource in Pipeline Builder lives inside an **organization**, organizatio
 - **Inherited plugin visibility.** A team sees its parent's **private** plugins in addition to its own and the public catalog.
 - **Compliance propagation.** A parent rule marked *apply to child teams* is enforced on every team in the subtree, on both live validation and scheduled scans.
 - **Pooled quotas & seats.** Count quotas (plugins, pipelines, …) sum each team's usage against the root's cap; seats are counted as distinct active members plus pending invites across the whole subtree and checked at invite time. Registry storage is measured live across the subtree.
+- **Service accounts take no seat.** An org's [service accounts](authentication.md#service-accounts) are machine principals, not members — they create no membership row, so however many an org runs, the seat count is unchanged. Each carries its own per-period token-exchange budget instead, so automation is bounded on its own allowance rather than the people's.
 - **Rolled-up analytics.** A parent admin can include child-team execution data in reports.
 - **Safe downgrades.** Downgrading a root that has teams to a tier that forbids teams (Developer/Pro) is blocked until the teams are resolved, so a tier change can't silently strand them.
 

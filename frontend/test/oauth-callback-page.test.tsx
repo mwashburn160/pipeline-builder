@@ -37,6 +37,14 @@ jest.mock('@/lib/api', () => {
 });
 const mockApi = jest.requireMock('@/lib/api').api as Record<'completeOAuthCallback' | 'acceptInvitationOAuth' | 'getOAuthUrl', jest.Mock>;
 
+// Step-up re-auth: keep the real state-prefix predicate, spy on the hand-off.
+const publishReauthResult = jest.fn();
+jest.mock('@/lib/step-up-reauth', () => ({
+  __esModule: true,
+  isReauthState: (state?: string) => typeof state === 'string' && state.startsWith('reauth.'),
+  publishReauthResult: (...args: unknown[]) => publishReauthResult(...args),
+}));
+
 const stash = (intent: object) => sessionStorage.setItem(OAUTH_INTENT_KEY, JSON.stringify(intent));
 
 beforeEach(() => {
@@ -78,4 +86,30 @@ it('accepts an invite, then restarts a normal login with a fresh login intent', 
   expect(mockApi.acceptInvitationOAuth).toHaveBeenCalledWith({ token: 'inv-1', oauthProvider: 'google', code: 'c1', state: 's1' });
   expect(JSON.parse(sessionStorage.getItem(OAUTH_INTENT_KEY)!)).toEqual({ state: 's2', kind: 'login', returnUrl: '/dashboard' });
   expect(mockApi.completeOAuthCallback).not.toHaveBeenCalled();
+});
+
+it('hands a step-up re-auth back to the opener instead of signing in', async () => {
+  const close = jest.spyOn(window, 'close').mockImplementation(() => {});
+  mockQuery = { provider: 'google', code: 'c9', state: 'reauth.abc' };
+  render(<OAuthCallbackPage />);
+
+  await waitFor(() => expect(publishReauthResult).toHaveBeenCalledWith(
+    expect.objectContaining({ type: 'pb-step-up-reauth', state: 'reauth.abc', code: 'c9' }),
+  ));
+  expect(mockApi.completeOAuthCallback).not.toHaveBeenCalled();
+  expect(mockReplace).not.toHaveBeenCalled();
+  expect(close).toHaveBeenCalled();
+  close.mockRestore();
+});
+
+it('reports a provider denial to the opener rather than a code', async () => {
+  const close = jest.spyOn(window, 'close').mockImplementation(() => {});
+  mockQuery = { provider: 'google', state: 'reauth.abc', error: 'access_denied' };
+  render(<OAuthCallbackPage />);
+
+  await waitFor(() => expect(publishReauthResult).toHaveBeenCalledWith(
+    expect.objectContaining({ state: 'reauth.abc', error: expect.stringContaining('access_denied') }),
+  ));
+  expect(publishReauthResult.mock.calls[0][0]).not.toHaveProperty('code');
+  close.mockRestore();
 });

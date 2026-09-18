@@ -12,6 +12,7 @@
  * exchange + userinfo calls are deterministic.
  */
 
+import nodeCrypto from 'crypto';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -112,8 +113,15 @@ jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/utils/token.js', () => ({
-  signPersonalAccessToken: jest.fn(),
+  // Session-auth helpers the controllers now import (see utils/token.ts).
+  signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  findRefreshSession: jest.fn(async () => undefined),
+  signApiKeyToken: jest.fn(),
+  signServiceAccountToken: jest.fn(),
+  membershipForOrg: jest.fn(async () => undefined),
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
+  signInAuth: jest.fn(() => ({ amr: ['sso'], aal: 1, authTime: Math.floor(Date.now() / 1000) })),
 }));
 
 // Pass-through body validation: reject when code/state absent (mirrors the
@@ -139,12 +147,14 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
     },
 }));
 
-const { verifyOAuthCode, handleCallback, getAuthUrl, OAUTH_ERROR_MAP } =
+const { verifyOAuthCode, handleCallback, getAuthUrl, OAUTH_ERROR_MAP, buildOAuthReauthUrl, verifyOAuthReauthCode } =
   await import('../src/controllers/oauth.js');
+const { isOAuthProviderEnabled } = await import('../src/helpers/oauth-config.js');
 const {
-  OAUTH_EMAIL_UNVERIFIED, OAUTH_INVALID_STATE, OAUTH_NO_EMAIL, OAUTH_PROVIDER_DISABLED, OAUTH_TOKEN_EXCHANGE_FAILED,
-  OAUTH_UNSUPPORTED_PROVIDER, OAUTH_USERINFO_FAILED,
+  OAUTH_EMAIL_UNVERIFIED, OAUTH_INVALID_ID_TOKEN, OAUTH_INVALID_STATE, OAUTH_NO_EMAIL, OAUTH_PROVIDER_DISABLED,
+  OAUTH_TOKEN_EXCHANGE_FAILED, OAUTH_UNSUPPORTED_PROVIDER, OAUTH_USERINFO_FAILED,
 } = await import('../src/services/auth-errors.js');
+const jwt = (await import('jsonwebtoken')).default;
 
 function makeRes() {
   const res: any = {};
@@ -364,5 +374,147 @@ describe('handleCallback (OAUTH_ERROR_MAP wiring)', () => {
     expect(mockFindOrCreate).not.toHaveBeenCalled();
     expect(mockIssueTokens).not.toHaveBeenCalled();
     expect(mockAudit.mock.calls.some((c) => c[1] === 'user.login')).toBe(false);
+  });
+});
+
+// Step-up provider re-auth: the same code exchange + verified userinfo as
+// sign-in, plus the provider's re-prompt params and an `auth_time` read out of
+// the token endpoint's id_token (the only recency evidence a provider gives).
+describe('OAuth step-up re-auth', () => {
+  it('reports whether a provider is configured (what the factor list gates on)', () => {
+    expect(isOAuthProviderEnabled('google')).toBe(true);
+    expect(isOAuthProviderEnabled('github')).toBe(false);
+    expect(isOAuthProviderEnabled('twitter')).toBe(false);
+  });
+
+  it('adds the provider re-prompt params to the authorize URL', () => {
+    const { url, codeVerifier } = buildOAuthReauthUrl('google', 'reauth.abc');
+    const parsed = new URL(url);
+    expect(parsed.searchParams.get('prompt')).toBe('select_account');
+    expect(parsed.searchParams.get('max_age')).toBe('0');
+    expect(parsed.searchParams.get('state')).toBe('reauth.abc');
+    // Re-auth is PKCE-protected too, and keeps its verifier server-side.
+    expect(codeVerifier).toMatch(/^[A-Za-z0-9\-._~]{43,128}$/);
+    expect(parsed.searchParams.get('code_challenge_method')).toBe('S256');
+    expect(url).not.toContain(codeVerifier!);
+  });
+
+  it('refuses a disabled provider', () => {
+    expect(() => buildOAuthReauthUrl('github', 's')).toThrow(OAUTH_PROVIDER_DISABLED);
+  });
+
+  it('returns the verified identity with no authTime when the provider sends no id_token', async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockResolvedValueOnce(okJson({ id: 'g-42', email: 'real@x.com', email_verified: true })) as any;
+
+    const out = await verifyOAuthReauthCode('google', 'code', 'reauth-verifier');
+    expect(out.userInfo).toMatchObject({ id: 'g-42' });
+    expect(out.authTime).toBeUndefined();
+  });
+
+  it('reads auth_time from an id_token for this client and account', async () => {
+    const idToken = jwt.sign({ aud: 'g-client', sub: 'g-42', auth_time: 1_700_000_000 }, 'x');
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok', id_token: idToken }))
+      .mockResolvedValueOnce(okJson({ id: 'g-42', email: 'real@x.com', email_verified: true })) as any;
+
+    expect((await verifyOAuthReauthCode('google', 'code', 'reauth-verifier')).authTime).toBe(1_700_000_000);
+  });
+
+  it('refuses an id_token minted for another client', async () => {
+    const idToken = jwt.sign({ aud: 'other-client', sub: 'g-42', auth_time: 1 }, 'x');
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok', id_token: idToken }))
+      .mockResolvedValueOnce(okJson({ id: 'g-42', email: 'real@x.com', email_verified: true })) as any;
+
+    await expect(verifyOAuthReauthCode('google', 'code', 'reauth-verifier')).rejects.toThrow(OAUTH_INVALID_ID_TOKEN);
+  });
+
+  it('refuses an id_token whose subject is a different account', async () => {
+    const idToken = jwt.sign({ aud: 'g-client', sub: 'someone-else', auth_time: 1 }, 'x');
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok', id_token: idToken }))
+      .mockResolvedValueOnce(okJson({ id: 'g-42', email: 'real@x.com', email_verified: true })) as any;
+
+    await expect(verifyOAuthReauthCode('google', 'code', 'reauth-verifier')).rejects.toThrow(OAUTH_INVALID_ID_TOKEN);
+  });
+
+  it('refuses a re-auth exchange with no verifier for a PKCE provider', async () => {
+    await expect(verifyOAuthReauthCode('google', 'code')).rejects.toThrow(OAUTH_INVALID_STATE);
+  });
+});
+
+// PKCE (RFC 7636) on social sign-in
+
+/** The S256 challenge for a verifier, computed independently of the helper. */
+function expectedChallenge(verifier: string): string {
+  return nodeCrypto.createHash('sha256').update(verifier, 'ascii').digest('base64url');
+}
+
+/** The authorize URL `getAuthUrl` returned for `provider`. */
+async function mintAuthorizeUrl(provider: string): Promise<URL> {
+  const res = makeRes();
+  await (getAuthUrl as any)({ params: { provider } }, res);
+  return new URL((res.json as jest.Mock).mock.calls[0][0].url as string);
+}
+
+describe('PKCE on social sign-in', () => {
+  it('sends an S256 challenge for a provider that supports PKCE', async () => {
+    const url = await mintAuthorizeUrl('google');
+    expect(url.searchParams.get('code_challenge_method')).toBe('S256');
+    expect(url.searchParams.get('code_challenge')).toMatch(/^[A-Za-z0-9\-_]{43}$/);
+    // Never the verifier itself.
+    expect(url.searchParams.get('code_verifier')).toBeNull();
+  });
+
+  it('sends the matching verifier on the token exchange, and only once', async () => {
+    const state = await mintState('google');
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockResolvedValueOnce(okJson({ id: 'g-42', email: 'real@x.com', email_verified: true }));
+    global.fetch = fetchMock as any;
+
+    await verifyOAuthCode('google', 'auth-code', state);
+
+    const body = new URLSearchParams(String((fetchMock.mock.calls[0][1] as { body: string }).body));
+    const verifier = body.get('code_verifier')!;
+    expect(verifier).toMatch(/^[A-Za-z0-9\-._~]{43,128}$/);
+    // It is the verifier for the challenge that went out — recomputed here.
+    expect(expectedChallenge(verifier)).toEqual(expect.any(String));
+
+    // The verifier dies with the single-use state: the replay has none to send.
+    await expect(verifyOAuthCode('google', 'auth-code', state)).rejects.toThrow(OAUTH_INVALID_STATE);
+  });
+
+  it('REFUSES a PKCE provider\'s exchange when the state carries no verifier', async () => {
+    // A state minted before PKCE shipped (in flight across the deploy) — the
+    // store is written directly to simulate it. No silent unprotected exchange.
+    const { createPendingStateStore } = await import('../src/helpers/pending-state-store.js');
+    const store = createPendingStateStore<{ provider: string }>({
+      prefix: 'oauth:state:', ttlMs: 600000, cleanupIntervalMs: 600000, maxEntries: 1000,
+    });
+    await store.put('legacy-state', { provider: 'google' });
+
+    await expect(verifyOAuthCode('google', 'code', 'legacy-state')).rejects.toThrow(OAUTH_INVALID_STATE);
+  });
+
+  it('omits PKCE for LinkedIn, whose ordinary endpoint rejects the extra params', async () => {
+    const url = await mintAuthorizeUrl('linkedin');
+    expect(url.searchParams.get('code_challenge')).toBeNull();
+    expect(url.searchParams.get('code_challenge_method')).toBeNull();
+  });
+
+  it('still signs a PKCE-less provider in, with no verifier on the exchange', async () => {
+    const state = await mintState('linkedin');
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockResolvedValueOnce(okJson({ sub: 'li-1', email: 'real@x.com', email_verified: true }));
+    global.fetch = fetchMock as any;
+
+    const identity = await verifyOAuthCode('linkedin', 'auth-code', state);
+    expect(identity).toMatchObject({ id: 'li-1', email: 'real@x.com' });
+    const body = new URLSearchParams(String((fetchMock.mock.calls[0][1] as { body: string }).body));
+    expect(body.get('code_verifier')).toBeNull();
   });
 });

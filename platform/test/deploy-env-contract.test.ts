@@ -5,9 +5,8 @@
  * Drift guard for the deploy-time env contract.
  *
  * `config/index.ts` keys its production guards off `NODE_ENV`: without
- * `production`, a missing `JWT_SECRET` is silently replaced with the literal
- * `'dev-only-insecure-secret'`, a missing `SECRET_ENCRYPTION_KEY` wraps AI
- * provider keys and IdP client secrets under an all-zeros key. None of the service images set
+ * `production`, a missing `SECRET_ENCRYPTION_KEY` wraps AI provider keys and IdP
+ * client secrets under an all-zeros key. None of the service images set
  * `NODE_ENV`, so the ONLY thing standing between a deploy and those fallbacks
  * is each target's `.env.example`. That made the guards dead code in every
  * target until 2026-09-12.
@@ -76,9 +75,35 @@ describe.each(TARGETS)('deploy env contract — %s', (target) => {
     }
   });
 
-  it('requires JWT_SECRET and REFRESH_TOKEN_SECRET', () => {
-    expect(env.JWT_SECRET).toBeDefined();
-    expect(env.REFRESH_TOKEN_SECRET).toBeDefined();
+  it('declares NO shared service-token secret — each service signs with its own key (#14)', () => {
+    // A stale value here would read as a credential an operator must rotate, and
+    // nothing would consume it.
+    expect(env.JWT_SECRET).toBeUndefined();
+    expect(env.JWT_SECRET_PREVIOUS).toBeUndefined();
+    expect(env.JWT_ALGORITHM).toBeUndefined();
+    // …and the per-service key config that replaced it. Both are FILES (never
+    // env values), so nothing is generated for them here.
+    expect(env.SERVICE_SIGNING_KEY_FILE).toBeDefined();
+    expect(env.SERVICE_KEY_BUNDLE_FILE).toBeDefined();
+  });
+
+  it('declares NO refresh-token secret — refresh tokens ride the ES256 signing key', () => {
+    // #5 removed REFRESH_TOKEN_SECRET entirely. A stale key left in .env.example
+    // would read as a secret an operator must rotate, and nothing would consume it.
+    expect(env.REFRESH_TOKEN_SECRET).toBeUndefined();
+    expect(env.REFRESH_TOKEN_SECRET_PREVIOUS).toBeUndefined();
+    expect(env.REFRESH_TOKEN_EXPIRES_IN).toBeDefined();
+  });
+
+  it('configures ES256 user-token signing', () => {
+    // Platform is the only minter; every other verifier reads the JWKS. `local`
+    // is the shipped default on every target so a fresh deploy needs no manual
+    // AWS step; the AWS targets document the KMS switch alongside it.
+    expect(env.TOKEN_SIGNING_MODE).toBe('local');
+    expect(env.TOKEN_SIGNING_KEY_FILE).toBe('/etc/pipeline-builder/keys/token-signing.key');
+    // Rotation overlap — declared and EMPTY, so the manifests can reference it
+    // unconditionally (same convention as every *_PREVIOUS value).
+    expect(env.TOKEN_SIGNING_KEY_PREVIOUS_FILE).toBe('');
   });
 
   it('pins DB_SSL=false, because NODE_ENV=production would otherwise enable Postgres TLS', () => {
@@ -91,9 +116,7 @@ describe.each(TARGETS)('deploy env contract — %s', (target) => {
   it('leaves the CHANGE_ME secrets for gen-env-secrets.sh to fill', () => {
     // The generator matches on this exact placeholder; renaming it in the
     // .env.example silently ships a literal CHANGE_ME credential.
-    for (const key of ['JWT_SECRET', 'REFRESH_TOKEN_SECRET', 'SECRET_ENCRYPTION_KEY']) {
-      expect(env[key]).toBe('CHANGE_ME_generate_with_openssl_rand_base64_32');
-    }
+    expect(env.SECRET_ENCRYPTION_KEY).toBe('CHANGE_ME_generate_with_openssl_rand_base64_32');
   });
 });
 
@@ -101,9 +124,7 @@ describe('gen-env-secrets.sh', () => {
   const script = readFileSync(join(REPO_ROOT, 'deploy/bin/gen-env-secrets.sh'), 'utf-8');
 
   it('substitutes every required secret placeholder', () => {
-    for (const key of ['JWT_SECRET', 'REFRESH_TOKEN_SECRET', 'SECRET_ENCRYPTION_KEY']) {
-      expect(script).toContain(`s|${key}=CHANGE_ME_generate_with_openssl_rand_base64_32|${key}=`);
-    }
+    expect(script).toContain('s|SECRET_ENCRYPTION_KEY=CHANGE_ME_generate_with_openssl_rand_base64_32|SECRET_ENCRYPTION_KEY=');
   });
 
   it('fails closed when a required placeholder drifts', () => {
@@ -116,9 +137,11 @@ describe('gen-env-secrets.sh', () => {
     const guard = /grep -qE '\^\(([A-Z0-9_|]+)\)=CHANGE_ME'/.exec(script);
     expect(guard).not.toBeNull();
     const guarded = guard![1].split('|');
-    expect(guarded).toContain('JWT_SECRET');
-    expect(guarded).toContain('REFRESH_TOKEN_SECRET');
     expect(guarded).toContain('SECRET_ENCRYPTION_KEY');
+    // Every SIGNING key is a FILE, not an env value — none may creep back into
+    // the generator as a random string.
+    expect(guarded).not.toContain('REFRESH_TOKEN_SECRET');
+    expect(guarded).not.toContain('JWT_SECRET');
   });
 
   it('generates and guards every MinIO credential the manifests consume', () => {

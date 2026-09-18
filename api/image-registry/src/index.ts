@@ -1,13 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, requireAuth, wireServiceSecurity } from '@pipeline-builder/api-core';
+import { createLogger, wireServiceSecurity } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext } from '@pipeline-builder/api-server';
 
+import { mountRoutes } from './app-routes.js';
 import { config } from './config/index.js';
-import { createAdminRoutes } from './routes/admin.js';
-import { createImageRoutes } from './routes/images.js';
-import { createTokenRoute } from './routes/token.js';
 import { getAuditClient } from './services/audit.js';
 import { startGcScheduler } from './services/gc-scheduler.js';
 
@@ -26,19 +24,7 @@ const { app, sseManager } = createApp({});
 
 app.use(attachRequestContext(sseManager));
 
-// Docker registry token endpoint  Basic auth (validated inside the route);
-// must NOT go through requireAuth since it accepts platform-JWT-as-password
-// AND `docker login` creds proxied to platform's in-cluster /auth/login. The route itself returns 401 + WWW-Authenticate
-// when creds are missing/invalid.
-app.use('/token', createTokenRoute());
-
-// Image management API  JWT-authenticated, system-admin gated per-route.
-app.use('/api/images', requireAuth, createImageRoutes());
-
-// Admin endpoints  per-namespace storage rollup + manual GC. Same auth
-// + permission gating as /api/images. Periodic pruning of each org's `org-X/`
-// namespace runs in-process (see startGcScheduler below), not through this route.
-app.use('/api/admin', requireAuth, createAdminRoutes());
+mountRoutes(app);
 
 runServer(app, {
   name: 'pipeline-image-registry',

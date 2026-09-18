@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
-import { roleDisplayName } from '@/lib/permissions';
+import { roleDisplayName } from '@/lib/role-display';
 import api from '@/lib/api';
 import type { OrganizationMember, OrganizationRole } from '@/types';
 import { formatError } from '@/lib/constants';

@@ -183,6 +183,25 @@ describe('authorizeScope', () => {
     expect(granted).toEqual(['pull']);
   });
 
+  // A `registry:push`-scoped SERVICE-ACCOUNT key (#12) reaches this function as
+  // an ordinary jwt identity with `canWritePlugins: true` and every elevation
+  // flag false — so the namespace rules bound it to its own org exactly as they
+  // bound the human it replaces. These assert the bounding, not the grant.
+  it('bounds a registry:push service-account key to its OWN org namespace', () => {
+    const pusher = { type: 'jwt' as const, orgId: 'acme', userId: 'sa-1', isAdmin: false, isSuperAdmin: false, canWritePlugins: true };
+    expect(authorizeScope(pusher, { type: 'repository', name: 'org-acme/my-plugin', actions: ['pull', 'push'] }))
+      .toEqual(['pull', 'push']);
+    // Another tenant: nothing at all.
+    expect(authorizeScope(pusher, { type: 'repository', name: 'org-other/their-plugin', actions: ['pull', 'push'] }))
+      .toEqual([]);
+    // Platform-managed namespaces stay pull-only — a tenant push credential
+    // must never be able to overwrite a base or sample image.
+    expect(authorizeScope(pusher, { type: 'repository', name: 'system/sample', actions: ['pull', 'push'] }))
+      .toEqual(['pull']);
+    expect(authorizeScope(pusher, { type: 'repository', name: 'library/ubuntu', actions: ['pull', 'push'] }))
+      .toEqual(['pull']);
+  });
+
   it('denies access to a different orgs repo for non-admin', () => {
     const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false, canWritePlugins: false },
       { type: 'repository', name: 'org-other/their-plugin', actions: ['pull'] },

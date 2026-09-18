@@ -42,7 +42,7 @@ import { toOrgId } from '../helpers/org-id.js';
 import { publishImpersonationSessionRevocation } from '../helpers/session-revocation.js';
 import { ImpersonationRequest, User, UserOrganization, type ImpersonationApproverMode } from '../models/index.js';
 import { decideInitialApproval, impersonationService } from '../services/impersonation-service.js';
-import { issueImpersonationToken } from '../utils/token.js';
+import { authFromClaims, issueImpersonationToken } from '../utils/token.js';
 
 const logger = createLogger('impersonate');
 
@@ -249,7 +249,9 @@ async function redeemAndIssue(
     return redeemed;
   }
 
-  const { accessToken, expiresIn } = await issueImpersonationToken(target, requesterId, orgId, jti);
+  // The session inherits the OPERATOR's assurance (amr/aal/auth_time) — an
+  // impersonation token never raises it.
+  const { accessToken, expiresIn } = await issueImpersonationToken(target, requesterId, orgId, jti, authFromClaims(req.user));
 
   // Filed under the org the session is PINNED to — not the requester's org — so
   // that org's admins see it in their own audit view, and the trail and the

@@ -13,6 +13,7 @@ import { Card } from '@/components/ui/Card';
 import { LinkButton } from '@/components/ui/LinkButton';
 import api from '@/lib/api';
 import { startOAuthLogin, takeOAuthIntent } from '@/lib/oauth-intent';
+import { isReauthState, publishReauthResult } from '@/lib/step-up-reauth';
 import { formatError } from '@/lib/constants';
 
 /**
@@ -31,6 +32,9 @@ import { formatError } from '@/lib/constants';
  *   - kind 'login'  → POST /auth/oauth/:provider/callback, which returns the SAME
  *     token pair as password login; `completeOAuthCallback` applies it via the same
  *     `core.applyTokens` path, then we `refreshUser()` and land on the return URL.
+ *   - a `reauth.`-prefixed state → this is a STEP-UP re-auth, not a sign-in: the
+ *     page is a popup, so it hands `code`/`state` back to the window that opened
+ *     it (which holds the session and the gated action) and closes itself.
  *   - kind 'invite' → POST /invitation/accept-oauth (verifies the code server-side
  *     and creates/links the invitee). That endpoint issues NO session tokens, so to
  *     establish a session we then start a fresh normal OAuth login (a new code/state)
@@ -51,6 +55,8 @@ export default function OAuthCallbackPage() {
   const router = useRouter();
   const { refreshUser } = useAuth();
   const [error, setError] = useState<string | null>(null);
+  // A step-up re-auth popup that has handed its result back to the app window.
+  const [reauth, setReauth] = useState(false);
   // Single-use code/state — guard against React 18 strict-mode double-invoke.
   const started = useRef(false);
 
@@ -63,6 +69,23 @@ export default function OAuthCallbackPage() {
     const state = typeof router.query.state === 'string' ? router.query.state : '';
     // Providers report user-denied / config errors via `?error=access_denied` etc.
     const providerError = typeof router.query.error === 'string' ? router.query.error : '';
+
+    // Step-up re-auth (see src/lib/step-up-reauth): the server minted this state
+    // for a signed-in user, so no session is established here — hand the result
+    // to the window that opened this popup and close. Checked BEFORE the sign-in
+    // intent so a re-auth never walks into (or consumes) the login branches.
+    if (isReauthState(state)) {
+      publishReauthResult({
+        type: 'pb-step-up-reauth',
+        state,
+        ...(providerError
+          ? { error: `Sign-in was cancelled or denied by the provider (${providerError}).` }
+          : code ? { code } : { error: 'The provider returned no authorization code.' }),
+      });
+      setReauth(true);
+      window.close();
+      return;
+    }
 
     // Consume the stored intent immediately — it is single-use.
     const intent = takeOAuthIntent();
@@ -142,7 +165,12 @@ export default function OAuthCallbackPage() {
 
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="max-w-sm mx-auto">
           <Card className="p-8 text-center" role="status" aria-live="polite">
-            {!error ? (
+            {reauth ? (
+              <>
+                <p className="font-bold">Confirmed</p>
+                <p className="text-sm text-[var(--pb-text-muted)] mt-1">You can close this window.</p>
+              </>
+            ) : !error ? (
               <>
                 <LoadingSpinner size="md" className="mx-auto mb-3" />
                 <p className="font-bold">Completing sign-in…</p>

@@ -72,6 +72,22 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     expect(rule).toContain('destination_workload_namespace="pipeline-builder"');
   });
 
+  it('alerts on refused internal-route calls and on service tokens that will not verify (#14)', () => {
+    // The two failure modes per-service signing introduces, and neither is
+    // visible in any other signal: a refused internal call is a 403 the CALLER
+    // may swallow, and an unverifiable service token is a 401 on a background
+    // hop. Without these, a half-finished key rotation (private key rolled out
+    // before the bundle) looks like nothing at all.
+    const rules = read(`${target}/config/prometheus/alert-rules.yml`);
+    expect(rules).toContain('alert: InternalRouteRefused');
+    expect(rules).toContain('internal_route_refused_total');
+    expect(rules).toContain('alert: ServiceTokenVerifyFailing');
+    expect(rules).toContain('service_token_verify_total{result!="ok"}');
+    // `subject_mismatch` — a valid signature from the WRONG service — must page,
+    // so the rule may not filter results down to the benign ones.
+    expect(rules.slice(rules.indexOf('alert: ServiceTokenVerifyFailing'))).toContain('severity: critical');
+  });
+
   it('alerts when a scraped service stops responding', () => {
     const rules = read(`${target}/config/prometheus/alert-rules.yml`);
     // Every other rule needs the service alive enough to emit the metric it

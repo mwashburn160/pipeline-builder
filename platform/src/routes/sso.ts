@@ -8,6 +8,7 @@
  * inside the controllers, not by an auth middleware.
  */
 
+import { audited } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import { discoverSso, getSsoAuthUrl, handleSsoCallback } from '../controllers/sso.js';
 
@@ -20,6 +21,6 @@ router.post('/discover', discoverSso);
 router.get('/:orgId/authorize', getSsoAuthUrl);
 
 /** POST /auth/sso/:orgId/callback - Exchange code + validate id_token → tokens */
-router.post('/:orgId/callback', handleSsoCallback);
+router.post('/:orgId/callback', audited('user.login', 'user.login.failed'), handleSsoCallback);
 
 export default router;

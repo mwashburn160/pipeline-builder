@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export { default as authRoutes } from './auth.js';
+export { default as deviceAuthRoutes } from './device-auth.js';
 export { default as oauthRoutes } from './oauth.js';
 export { default as ssoRoutes } from './sso.js';
 export { default as userRoutes } from './user.js';
@@ -15,6 +16,7 @@ export { default as configRoutes } from './config.js';
 export { default as observabilityRoutes } from './observability.js';
 export { default as dashboardRoutes } from './dashboards.js';
 export { default as orgIdpRoutes } from './org-idp.js';
+export { default as scimRoutes } from './scim.js';
 export { default as orgKmsConfigRoutes } from './org-kms-config.js';
 export { default as orgNamespaceRoutes } from './org-namespace.js';
 export { default as userGrantsRoutes } from './superadmin.js';

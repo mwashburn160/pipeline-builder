@@ -20,7 +20,6 @@ import type { AddressInfo } from 'node:net';
 import { jest, describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import express from 'express';
 
-process.env.JWT_SECRET = 'test-secret-json-body-exclude';
 process.env.NODE_ENV = 'test';
 
 // createLogger stub avoids Winston open handles; keep the rest of api-core real.

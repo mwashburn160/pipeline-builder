@@ -46,8 +46,61 @@ export const ALL_AUDIT_ACTIONS = [
   'user.onboarding.complete',
   'user.token.create',
   'user.tokens.revoke-all',
-  'user.pat.create',
-  'user.pat.revoke',
+  // One session slot revoked from the sessions-and-devices page: a signed-in
+  // device, or a stored machine credential that stops renewing. `details`
+  // carries the slot id + kind.
+  'user.session.revoke',
+  // A successful step-up re-verification (controllers/step-up*.ts,
+  // controllers/webauthn.ts). `details.method` is 'password', 'webauthn' or
+  // 'reauth' (+ `provider`/`kind`/`recencyVerified` for re-auth).
+  // Failures are recorded as `user.login.failed` with `targetType: 'step-up'`.
+  'user.step-up',
+  // Passkeys (WebAuthn, controllers/webauthn.ts). A passkey is a persistent
+  // sign-in credential, so both ends of its life are recorded; `details.name` is
+  // the label the person gave it and `details.backedUp` says whether it is a
+  // synced credential. `.rename` is included because the label is what a person
+  // recognises a credential by when deciding which to revoke.
+  'user.passkey.register',
+  'user.passkey.rename',
+  'user.passkey.remove',
+  // The authenticator's signature counter went BACKWARDS on a credential that
+  // had counted before — two authenticators answering for one credential, i.e. a
+  // clone. The assertion is refused; this is the only trace it happened.
+  'user.passkey.clone_suspected',
+  // Authenticator app (TOTP, controllers/totp.ts). `.enrol` is emitted twice —
+  // `details.stage: 'started'` when the secret is minted and `'activated'` when a
+  // code confirms it — because a secret that was displayed and then abandoned is
+  // still a secret that left the building. `.disable` is the other end of the
+  // factor's life. Failed codes are `user.login.failed` with `details.method:
+  // 'totp'`, so brute-force shows up on the same trail as password guessing.
+  'user.totp.enrol',
+  'user.totp.disable',
+  // The recovery-code sheet was replaced — every previously issued code stops
+  // working, so a regeneration nobody remembers doing is worth seeing.
+  'user.totp.recovery_regenerate',
+  // A recovery code was SPENT (sign-in or step-up). Its own action rather than a
+  // detail on the login, because burning one usually means a lost device — and
+  // an attacker who obtained the sheet leaves exactly this trace.
+  'user.totp.recovery_used',
+  // Opaque access keys (`pb_pat_…`) — create / revoke, and the exchange that
+  // turns one into a 5-minute JWT. `user.key.exchange` is the ONLY record that a
+  // key was used at all (services never see the key itself), so it is what
+  // "which automation is still using key X" is answered from; the failure twin
+  // carries the refusal reason the caller is deliberately not told.
+  'user.key.create',
+  'user.key.revoke',
+  'user.key.exchange',
+  'user.key.exchange.failed',
+  // Device authorization grant (controllers/device-auth.ts) — how the CLI signs
+  // in without ever holding a password. `.start` is PRE-AUTH (actor 'anonymous';
+  // `details.client` is the requesting device), the rest carry the approver.
+  // `targetId` is the flow's correlation handle, so start → approve/deny join up;
+  // `.expire` is emitted by whichever side first observes a lapsed code, so a
+  // code nobody ever comes back to leaves only its `.start`.
+  'device.authorize.start',
+  'device.authorize.approve',
+  'device.authorize.deny',
+  'device.authorize.expire',
   // Organization (controllers/organization.ts)
   'org.create',
   // Owner/admin self-serve org identity edit (name/slug). `affectedOrgId` is
@@ -102,6 +155,25 @@ export const ALL_AUDIT_ACTIONS = [
   'org.role.create',
   'org.role.update',
   'org.role.delete',
+  // Org service accounts (controllers/service-accounts.ts) — non-human
+  // principals and their `pb_sa_…` keys. `affectedOrgId` is the owning org and
+  // `targetId` the account; `details` carries the name, the Role set and (for a
+  // key) its lifetime + whether an IP allowlist was set. Minting a machine
+  // credential is a durable privilege grant, so create/update/delete and every
+  // key issue/revoke are audited distinctly from the roster events above. The
+  // account itself is the ACTOR of everything the key then does (see
+  // `user.key.exchange`, whose `details.principalType` says which kind of
+  // principal exchanged).
+  'org.service-account.create',
+  'org.service-account.update',
+  'org.service-account.delete',
+  'org.service-account.key.create',
+  'org.service-account.key.revoke',
+  // Self-rotation (#N2): a live `pb_sa_` key mints its own replacement, and
+  // then retires its predecessor. Attributed to the ACCOUNT, not to a person —
+  // no human is present when an unattended rotator runs.
+  'org.service-account.key.rotate',
+  'org.service-account.key.rotate.failed',
   // Admin actions (controllers/user-admin.ts)
   'admin.user.create',
   // Admin edit of ANOTHER user via PUT /users/:id — role/email/password/org
@@ -136,6 +208,40 @@ export const ALL_AUDIT_ACTIONS = [
   // per-org IdP config (controllers/org-idp.ts). Sysadmin-only setup.
   'admin.org-idp.upsert',
   'admin.org-idp.delete',
+  // IdP group → Role mapping (3a, controllers/org-idp-mappings.ts). Authoring a
+  // rule is a standing privilege grant — everyone the IdP puts in that group
+  // receives the Roles from their next sign-in — so create/update and delete are
+  // audited like a Role assignment. `affectedOrgId` is the org; `details` carries
+  // the group and the Role ids.
+  'org.idp.mapping.upsert',
+  'org.idp.mapping.delete',
+  // SCIM 2.0 provisioning (3b, controllers/scim.ts). EVERY SCIM change is
+  // recorded: the actor is the service account behind the `scim`-scoped key, and
+  // `details.changed` names the attributes that moved (never their values — a
+  // directory sync carries personal data and the audit log must not become a
+  // second copy of it). `.refused` is the failure side: a create turned away for
+  // seats, a write refused after an entitlement downgrade, an unsupported filter —
+  // `details.reason` is the stable label, and it is what makes a directory sync
+  // that has quietly stopped working visible here rather than only in the IdP's
+  // own console. `targetId` is the user (Users) or the group mapping (Groups).
+  'org.scim.user.create',
+  'org.scim.user.update',
+  'org.scim.user.activate',
+  'org.scim.user.deactivate',
+  'org.scim.user.delete',
+  'org.scim.group.create',
+  'org.scim.group.update',
+  'org.scim.group.members',
+  'org.scim.group.delete',
+  'org.scim.refused',
+  // Just-in-time provisioning at SSO sign-in (3a, controllers/sso.ts).
+  // `.provision` is emitted when the sign-in CREATES the org membership,
+  // `.role.change` when a later sign-in adds/removes mapped Roles, and
+  // `.refused` when provisioning was turned away (today: the pooled seat cap —
+  // `details.reason`). `targetId` is the user, `affectedOrgId` the SSO org.
+  'sso.jit.provision',
+  'sso.jit.role.change',
+  'sso.jit.refused',
   // Sysadmin authority grants/revokes. The bootstrap path
   // (BOOTSTRAP_SUPERADMIN_EMAILS) emits `grant`; the admin endpoint emits
   // both. `actorId='bootstrap-env'` for env-driven promotions — operators
@@ -198,6 +304,11 @@ export const ALL_AUDIT_ACTIONS = [
   'plugin.build.completed',
   'plugin.build.failed',
   'plugin.build.timeout',
+  // Operator-driven re-runs of a build (`plugin.build.retry`) or of a
+  // dead-lettered job (`plugin.dlq.replay`) — mutations on the caller's
+  // authority, emitted remotely like the outcomes above.
+  'plugin.build.retry',
+  'plugin.dlq.replay',
   // Pipeline mutations — emitted by api/pipeline's route handlers and posted
   // to the `POST /audit/events` ingest (authenticated via service-to-service
   // JWT). `targetId` is the pipeline id; `orgId` is the caller's org.
@@ -254,6 +365,9 @@ export const ALL_AUDIT_ACTIONS = [
   'compliance.scan-schedule.delete',
   'compliance.template.apply',
   'compliance.scan.cancel',
+  'compliance.scan.create',
+  // Per-user compliance notification preferences (api/compliance).
+  'compliance.notification-preference.update',
   // Image-registry destructive ops (api/image-registry) — GC sweeps + explicit
   // image/tag deletes.
   'registry.gc',
@@ -267,9 +381,18 @@ export const ALL_AUDIT_ACTIONS = [
   'message.purge',
   // Billing (api/billing) — subscription + entitlement mutations, mirrored to
   // the central trail (also in the service-local billing_events collection).
+  // Customer-driven subscription lifecycle (the admin counterpart is
+  // `billing.tier.override`): self-serve create (direct or Marketplace claim),
+  // plan/interval change, cancel-at-period-end, undo-cancel, cascade delete.
+  'billing.subscription.create',
+  'billing.subscription.update',
+  'billing.subscription.reactivate',
   'billing.subscription.cancel',
   'billing.subscription.delete',
   'billing.tier.override',
+  // Operator-only reseed of the invoice ledger from the payment provider's
+  // invoice history (POST /billing/admin/backfill).
+  'billing.ledger.backfill',
   'billing.addon.add',
   'billing.addon.remove',
   'billing.addon.prune',
@@ -292,6 +415,12 @@ export const ALL_AUDIT_ACTIONS = [
   'billing.credit.consumed',
   'billing.credit.exhausted',
   'billing.combo.expired',
+  // Reporting (api/reporting) — per-org reporting config, a post-deploy outcome
+  // marker (moves the org's DORA CFR/MTTR), and the inbound billing→reporting
+  // retention-entitlement sync. Ingested via `POST /audit/events`.
+  'reporting.settings.update',
+  'reporting.deployment.outcome',
+  'reporting.retention.sync',
   // Denied authorization attempt — best-effort emission from the shared
   // requirePermission / requireSystemAdmin gate on a rejected state-changing
   // request (probing/escalation signal). `outcome` is 'failure'.

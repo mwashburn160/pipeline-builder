@@ -3,6 +3,8 @@
 
 // Service singletons and helpers. Error codes are NOT re-exported: import them
 // from their dependency-free `*-errors.ts` module.
+export { apiKeyService } from './api-key-service.js';
+export type { AccessKeyView, ExchangeResult, ExchangeRefusal } from './api-key-service.js';
 export { auditService } from './audit-service.js';
 export type { AuditFilter, AuditCreateInput, PaginatedAuditResult } from './audit-service.js';
 export { organizationService } from './organization-service.js';
@@ -18,8 +20,14 @@ export {
   permissionsForGrantsRole,
   listRolesWithMembers, addUserToRole, removeUserFromRole,
   createRole, updateRole, deleteRole,
+  serviceAccountRoles, serviceAccountRolesFor, setServiceAccountRoles, clearServiceAccountRoles,
+  assertMappableRoleSet, syncMappedRoles,
 } from './roles-service.js';
-export type { RoleWithMembers, ActorPermissionCeiling, RoleAssignmentActor } from './roles-service.js';
+export type { RoleWithMembers, ActorPermissionCeiling, RoleAssignmentActor, MappableRole } from './roles-service.js';
+export { idpGroupMappingService, MAX_MAPPINGS_PER_ORG } from './idp-group-mapping-service.js';
+export type { IdpGroupMappingDto } from './idp-group-mapping-service.js';
+export { assertJitSeatAvailable, provisionJitMembership } from './sso-jit-service.js';
+export type { JitProvisionResult, JitSkipReason } from './sso-jit-service.js';
 export { backfillRbacRoles } from './rbac-backfill.js';
 export type { RbacBackfillSummary } from './rbac-backfill.js';
 export { impersonationService, BREAKGLASS_CAP, BREAKGLASS_WINDOW_DAYS } from './impersonation-service.js';

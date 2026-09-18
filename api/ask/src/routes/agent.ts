@@ -3,6 +3,7 @@
 
 import { stepCountIs, streamText } from '@pipeline-builder/ai-core';
 import {
+  audited,
   createLogger,
   decrementQuota,
   errorMessage,
@@ -19,6 +20,7 @@ import { withRoute, incCounter, observe, withSpan } from '@pipeline-builder/api-
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
+import { requireAskAccess } from '../authz.js';
 import { clientAbortSignal } from '../client-abort.js';
 import { AskBodySchema } from '../request-schema.js';
 import { buildAgentTools } from '../services/agent-tools.js';
@@ -76,7 +78,7 @@ const AGENT_SYSTEM = [
 export function createAgentRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
-  router.post('/agent/stream', requireFeature('ai_generation'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/agent/stream', requireAskAccess, requireFeature('ai_generation'), audited('ask.agent.turn'), withRoute(async ({ req, res, ctx, orgId }) => {
     const parsed = AskBodySchema.safeParse(req.body);
     if (!parsed.success) {
       return sendBadRequest(res, parsed.error.issues[0]?.message ?? 'Invalid request');

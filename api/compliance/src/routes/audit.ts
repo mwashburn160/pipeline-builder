@@ -6,6 +6,7 @@ import {
   sendBadRequest,
   ErrorCode,
   parsePaginationParams,
+  requirePermission,
   validateQuery,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
@@ -29,8 +30,10 @@ const AuditListQuerySchema = z.object({
 export function createAuditRoutes(): Router {
   const router = Router();
 
-  // GET / — list audit log entries (paginated, filterable)
-  router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
+  // GET / — list audit log entries (paginated, filterable). `compliance:read`:
+  // the check log names entities + the rules they failed, so it is not open to a
+  // caller with no compliance capability.
+  router.get('/', requirePermission('compliance:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query);
     const r = validateQuery(req, AuditListQuerySchema);
     if (!r.ok) return sendBadRequest(res, r.error, ErrorCode.VALIDATION_ERROR);

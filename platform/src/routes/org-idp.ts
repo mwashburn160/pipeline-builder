@@ -9,7 +9,7 @@
  * these configs lands in a follow-up gated on the customer's IdP choice.
  */
 
-import { requirePermission, requireStepUp } from '@pipeline-builder/api-core';
+import { audited, requirePermission, requireStepUp } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   deleteOrgIdpConfig,
@@ -31,8 +31,8 @@ router.get('/', requireAuth, requirePermission('org:idp'), listOrgIdpConfigs);
 router.get('/:orgId', requireAuth, requirePermission('org:idp'), getOrgIdpConfig);
 // Mutations persist the org's IdP `clientSecret` — gate on step-up so a
 // stolen session can't write SSO credentials (mirrors org-kms-config).
-router.put('/:orgId', requireAuth, requirePermission('org:idp'), requireStepUp, putOrgIdpConfig);
-router.patch('/:orgId', requireAuth, requirePermission('org:idp'), requireStepUp, patchOrgIdpConfig);
-router.delete('/:orgId', requireAuth, requirePermission('org:idp'), requireStepUp, deleteOrgIdpConfig);
+router.put('/:orgId', requireAuth, requirePermission('org:idp'), requireStepUp, audited('admin.org-idp.upsert'), putOrgIdpConfig);
+router.patch('/:orgId', requireAuth, requirePermission('org:idp'), requireStepUp, audited('admin.org-idp.upsert'), patchOrgIdpConfig);
+router.delete('/:orgId', requireAuth, requirePermission('org:idp'), requireStepUp, audited('admin.org-idp.delete'), deleteOrgIdpConfig);
 
 export default router;

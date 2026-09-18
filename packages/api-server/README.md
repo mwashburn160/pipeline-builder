@@ -15,7 +15,7 @@ Assembles the standardized HTTP runtime shared by every backend service: a confi
 ### App factory & lifecycle (`./api`)
 | Export | Purpose |
 | --- | --- |
-| `createApp` | Configured Express app: CORS, Helmet (strict CSP), gzip/deflate compression, org-keyed rate limiting (shared Redis store when `redisUrl` is set), `/health`, `/ready`, `/warmup`, `/metrics`, and Swagger UI + OpenAPI at `/docs`. Fails fast if `JWT_SECRET` is unset. |
+| `createApp` | Configured Express app: CORS, Helmet (strict CSP), gzip/deflate compression, org-keyed rate limiting (shared Redis store when `redisUrl` is set), `/health`, `/ready`, `/warmup`, `/metrics`, and Swagger UI + OpenAPI at `/docs`. Fails fast if this service's own internal signing key or the public key bundle is unset (`SERVICE_SIGNING_KEY_FILE`/`SERVICE_KEY_BUNDLE_FILE`). |
 | `startServer`, `runServer` | Server lifecycle with graceful shutdown |
 
 ### Middleware (`./api`)

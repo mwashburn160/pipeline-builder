@@ -10,6 +10,8 @@ resources:
   - namespace.yaml
   - networkpolicy.yaml
   - istio.yaml
+  # Per-internal-route mesh policies + the waypoint that enforces them (#14).
+  - istio-internal-routes.yaml
   - resource-limits.yaml
   - mongodb.yaml
   - postgres.yaml

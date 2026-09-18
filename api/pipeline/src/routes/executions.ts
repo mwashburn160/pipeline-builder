@@ -10,6 +10,7 @@ import {
   errorMessage,
   getParam,
   validateBody,
+  audited,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute, checkQuota, incrementQuotaFromCtx, incCounter } from '@pipeline-builder/api-server';
@@ -65,6 +66,7 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
   router.post(
     '/:pipelineId/executions',
     ...writeGuards,
+    audited('pipeline.execution.start'),
     // Meter the trigger like the other quota'd routes: 429 when the org is over
     // its apiCalls budget BEFORE any AWS call. Increment happens on success below.
     checkQuota(quotaService, 'apiCalls'),
@@ -124,7 +126,7 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
       }
     }));
 
-  router.post('/:pipelineId/executions/:executionId/stop', ...writeGuards, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/:pipelineId/executions/:executionId/stop', ...writeGuards, audited('pipeline.execution.cancel'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const pipelineId = getParam(req.params, 'pipelineId');
     const executionId = getParam(req.params, 'executionId');
     if (!pipelineId) return sendBadRequest(res, 'Pipeline id is required.', ErrorCode.MISSING_REQUIRED_FIELD);

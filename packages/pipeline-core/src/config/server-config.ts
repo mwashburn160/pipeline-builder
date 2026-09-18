@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import type { Algorithm } from 'jsonwebtoken';
 import { CoreConstants } from './app-config.js';
 import type { ServerConfig, AuthConfig, RateLimitConfig } from './config-types.js';
 
@@ -66,10 +65,7 @@ export function loadServerConfig(): ServerConfig {
  * Load authentication configuration from environment variables.
  *
  * Environment variables:
- * - `JWT_SECRET` — **Required.** Secret key for signing JWTs
- * - `REFRESH_TOKEN_SECRET` — **Required.** Secret key for signing refresh tokens
  * - `JWT_EXPIRES_IN` — JWT lifetime in seconds (default: `7200` = 2 hours)
- * - `JWT_ALGORITHM` — JWT signing algorithm (default: `'HS256'`)
  * - `BCRYPT_SALT_ROUNDS` — bcrypt salt rounds for password hashing (default: `12`)
  * - `REFRESH_TOKEN_EXPIRES_IN` — Refresh token lifetime in seconds (default: `2592000` = 30 days)
  *
@@ -79,13 +75,10 @@ export function loadServerConfig(): ServerConfig {
 export function loadAuthConfig(): AuthConfig {
   return {
     jwt: {
-      secret: process.env.JWT_SECRET ?? '',
       expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200', 10),
-      algorithm: (process.env.JWT_ALGORITHM || 'HS256') as Algorithm,
       saltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || '12', 10),
     },
     refreshToken: {
-      secret: process.env.REFRESH_TOKEN_SECRET || '',
       expiresIn: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '2592000', 10),
     },
   };
@@ -144,44 +137,27 @@ export function validateServerConfig(config: ServerConfig): void {
   }
 }
 
-const INSECURE_PATTERNS = ['secret', 'password', 'changeme', 'default', '123456', 'admin'];
-
-function isInsecureSecret(secret: string): boolean {
-  const lower = secret.toLowerCase();
-  return INSECURE_PATTERNS.some(s => lower === s || (lower.length < 64 && lower.includes(s)));
-}
-
 /**
- * Validate authentication configuration (JWT secrets, algorithms, expiration).
+ * Validate authentication configuration (token lifetimes).
  * Call this at server startup, not during CDK synthesis.
  *
+ * No SECRET is validated any more: there is none left. User tokens are ES256
+ * signed by platform (whose signing key is validated at platform's boot, where
+ * it is loaded) and internal service tokens are ES256 signed per service (#14),
+ * whose key and bundle `createApp` requires at startup.
+ *
  * @param config - Auth configuration to validate
- * @throws {Error} If secrets are insecure, too short (<32 chars), or use disallowed algorithms
+ * @throws {Error} If token lifetimes are out of range
  */
 export function validateAuthConfig(config: AuthConfig): void {
   const errors: string[] = [];
   const warnings: string[] = [];
-
-  // Validate both secrets with the same checks
-  for (const [label, secret] of [['JWT', config.jwt.secret], ['Refresh token', config.refreshToken.secret]] as const) {
-    if (secret.length < 32) {
-      errors.push(`${label} secret should be at least 32 characters long`);
-    }
-    if (isInsecureSecret(secret)) {
-      errors.push(`${label} secret appears to be insecure or default value`);
-    }
-  }
 
   // Check JWT expiration times
   if (config.jwt.expiresIn > 86400) {
     errors.push('JWT expiration must not exceed 24 hours (86400 seconds)');
   } else if (config.jwt.expiresIn > 7200) {
     warnings.push('JWT expiration time is greater than 2 hours - shorter expiration recommended');
-  }
-
-  // Check algorithm
-  if (!CoreConstants.ALLOWED_JWT_ALGORITHMS.includes(config.jwt.algorithm)) {
-    errors.push(`JWT algorithm ${config.jwt.algorithm} is not in the allowed list`);
   }
 
   // Display warnings

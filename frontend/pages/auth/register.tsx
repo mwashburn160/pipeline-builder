@@ -18,22 +18,12 @@ import { usePlans } from '@/hooks/usePlans';
 import { readMarketplaceRef } from '@/hooks/usePendingMarketplaceClaim';
 import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/lib/site-url';
 import { startOAuthLogin } from '@/lib/oauth-intent';
-import { formatError } from '@/lib/constants';
+import { formatError, providerLabel } from '@/lib/constants';
 
 // sessionStorage key carrying the OAuth "intent" across the provider redirect.
 // Must match the login card (LandingPage) + the callback page
 // (pages/auth/callback/[provider].tsx). Social sign-up reuses the 'login' intent:
 // the OAuth callback auto-provisions the account on first authorization.
-
-const PROVIDER_LABELS: Record<string, string> = {
-  google: 'Google',
-  github: 'GitHub',
-  facebook: 'Facebook',
-  microsoft: 'Microsoft',
-  gitlab: 'GitLab',
-  linkedin: 'LinkedIn',
-};
-const providerLabel = (p: string) => PROVIDER_LABELS[p] ?? (p.charAt(0).toUpperCase() + p.slice(1));
 
 
 /** Value/solution panel shown next to the form when there are no plans to pick —

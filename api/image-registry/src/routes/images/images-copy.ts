@@ -8,6 +8,7 @@ import {
   sendEntityNotFound,
   ErrorCode,
   emitAudit,
+  audited,
   requireAllPermissions,
   validateBody,
 } from '@pipeline-builder/api-core';
@@ -52,7 +53,7 @@ function parseRepoRef(s: string): { repo: string; ref: string } {
  */
 export function registerCopyRoutes(router: Router): void {
   // POST /api/images/copy — cross-repo tag-copy, multi-arch aware.
-  router.post('/copy', requireAllPermissions('registry:read', 'registry:write') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+  router.post('/copy', requireAllPermissions('registry:read', 'registry:write') as RequestHandler, audited('registry.image.copy'), withRoute(async ({ req, res, ctx }) => {
     const validation = validateBody(req, CopyImageSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const { source, target, overwrite, allowCrossTenant } = validation.value;

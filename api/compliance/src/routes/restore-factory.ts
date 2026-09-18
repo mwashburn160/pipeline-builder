@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, requireStepUp } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, audited, getParam, requirePermission, requireStepUp } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { emitComplianceAudit } from '../services/audit.js';
@@ -14,11 +14,12 @@ interface RestorableService {
 
 /**
  * Shared `POST /:id/restore` route for compliance rules + policies — undo a
- * soft-delete within the retention window. `requireStepUp` is on the route (the
- * composite `/compliance/{rules,policies}` router supplies auth + orgId +
- * `compliance:write`, not step-up), matching the pipeline restore's "re-verify
- * before reversing a destructive action". The service's `onAfterRestore` hook
- * re-invalidates caches + rescans so a restored entity re-enters evaluation.
+ * soft-delete within the retention window. The route owns its full chain,
+ * `compliance:write` then `requireStepUp` (the `/compliance/{rules,policies}`
+ * mount supplies only auth + orgId + quota), matching the pipeline restore's
+ * "re-verify before reversing a destructive action". The service's
+ * `onAfterRestore` hook re-invalidates caches + rescans so a restored entity
+ * re-enters evaluation.
  *
  * The rule and policy restore routes were byte-identical apart from the service,
  * label, audit action, and targetType — this collapses them into one factory.
@@ -32,7 +33,7 @@ export function createComplianceRestoreRoutes(opts: {
   const { service, label, action, targetType } = opts;
   const router = Router();
 
-  router.post('/:id/restore', requireStepUp, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/:id/restore', requirePermission('compliance:write'), requireStepUp, audited(action), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, `${label} ID is required`, ErrorCode.MISSING_REQUIRED_FIELD);
 

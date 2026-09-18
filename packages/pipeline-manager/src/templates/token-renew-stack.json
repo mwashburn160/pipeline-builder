@@ -1,6 +1,6 @@
 {
   "AWSTemplateFormatVersion": "2010-09-09",
-  "Description": "Pipeline Builder platform-token renewal — a scheduled Lambda that re-mints the platform JWT in Secrets Manager before it expires, so CodeBuild/Lambda credentials never lapse. Lambda code is deployed separately via pipeline-manager infra store-token.",
+  "Description": "Pipeline Builder service-account KEY ROTATION — a scheduled Lambda that replaces the pb_sa_ key in Secrets Manager before it expires (rotate, store, then revoke the predecessor), so CodeBuild/Lambda credentials never lapse. Lambda code is deployed separately via pipeline-manager infra store-token.",
   "Parameters": {
     "PlatformBaseUrl": {
       "Type": "String",
@@ -8,29 +8,29 @@
     },
     "PlatformSecretName": {
       "Type": "String",
-      "Description": "Secrets Manager secret name holding the platform JWT (e.g. pipeline-builder/{orgId}/platform)"
+      "Description": "Secrets Manager secret name holding the service-account key (e.g. pipeline-builder/{orgId}/platform)"
     },
     "RenewDays": {
       "Type": "Number",
       "Default": 30,
       "MinValue": 1,
       "MaxValue": 365,
-      "Description": "Lifetime in days requested for each renewed token"
+      "Description": "Lifetime in days requested for each rotated key"
     },
     "ScheduleExpression": {
       "Type": "String",
       "Default": "cron(0 0 * * ? *)",
-      "Description": "EventBridge schedule expression for the renewal (default: daily at 00:00 UTC)"
+      "Description": "EventBridge schedule expression for the rotation (default: daily at 00:00 UTC)"
     },
     "PipelineManagerVersion": {
       "Type": "String",
       "Default": "latest",
-      "Description": "Version of @pipeline-builder/pipeline-manager the handler installs from npm at runtime (pin for reproducible renewals)"
+      "Description": "Version of @pipeline-builder/pipeline-manager that deployed this stack. Provenance only — the rotator calls the platform directly and installs nothing at runtime."
     },
     "NameSuffix": {
       "Type": "String",
       "Default": "",
-      "Description": "Suffix appended to the renewal stack's resource names so a scoped-token renewal (e.g. '-reporting-ingest') coexists with the platform-token stack instead of clobbering its role/function/rule. Empty for the platform secret."
+      "Description": "Suffix appended to the rotation stack's resource names so a scoped-token renewal (e.g. '-reporting-ingest') coexists with the platform-token stack instead of clobbering its role/function/rule. Empty for the platform secret."
     }
   },
   "Resources": {
@@ -77,9 +77,8 @@
           "ZipFile": "exports.handler=async()=>{console.log('Placeholder handler — run pipeline-manager infra store-token to deploy real code');return{statusCode:200}}"
         },
         "Role": { "Fn::GetAtt": ["LambdaRole", "Arn"] },
-        "Timeout": 300,
-        "MemorySize": 1024,
-        "EphemeralStorage": { "Size": 1024 },
+        "Timeout": 60,
+        "MemorySize": 256,
         "Environment": {
           "Variables": {
             "PLATFORM_BASE_URL": { "Ref": "PlatformBaseUrl" },
@@ -95,7 +94,7 @@
       "Type": "AWS::Events::Rule",
       "Properties": {
         "Name": { "Fn::Sub": "pipeline-builder-token-renew${NameSuffix}" },
-        "Description": "Scheduled platform-token renewal",
+        "Description": "Scheduled service-account key rotation",
         "State": "ENABLED",
         "ScheduleExpression": { "Ref": "ScheduleExpression" },
         "Targets": [{

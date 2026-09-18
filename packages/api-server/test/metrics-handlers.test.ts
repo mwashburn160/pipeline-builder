@@ -78,3 +78,35 @@ describe('metricsHandler', () => {
     expect(res.end).toHaveBeenCalled();
   });
 });
+
+describe('secret_rotation_previous_set gauge', () => {
+
+  async function scrape(): Promise<string> {
+    const res = mockRes();
+    await metricsHandler()(mockReq(), res);
+    return res.body;
+  }
+
+  it('reports 0 for SERVICE_SIGNING_KEY outside a rotation and 1 while the retiring key is still published', async () => {
+    // #14: the internal-token overlap is not an env value — it is the retiring
+    // PUBLIC key still sitting in the shared bundle, so the drill is a bundle
+    // rewrite rather than a `*_PREVIOUS` assignment.
+    const { installTestServiceKeys } = await import('@pipeline-builder/api-core/lib/testing/service-tokens.js');
+    const keys = installTestServiceKeys(['test-service', 'test-service-next']);
+    try {
+      keys.becomeService('test-service');
+      keys.publish(['test-service']);
+      expect(await scrape()).toMatch(/secret_rotation_previous_set\{secret="SERVICE_SIGNING_KEY",service="test-service"\} 0/);
+      keys.publishKeys({ 'test-service': [keys.keys.get('test-service')!, keys.keys.get('test-service-next')!] });
+      expect(await scrape()).toMatch(/secret_rotation_previous_set\{secret="SERVICE_SIGNING_KEY",service="test-service"\} 1/);
+    } finally {
+      keys.uninstall();
+    }
+  });
+
+  it('exports probes registered by the service', async () => {
+    const { registerPreviousSecretProbe } = await import('@pipeline-builder/api-core');
+    registerPreviousSecretProbe('REGISTRY_TOKEN_CERTIFICATE', () => true);
+    expect(await scrape()).toMatch(/secret_rotation_previous_set\{secret="REGISTRY_TOKEN_CERTIFICATE",service="test-service"\} 1/);
+  });
+});

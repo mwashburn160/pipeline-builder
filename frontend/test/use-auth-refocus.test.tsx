@@ -26,6 +26,9 @@ const profile = () => ({
 let sessionExpired: (() => void) | null = null;
 const mockApi = {
   isAuthenticated: jest.fn(() => true),
+  // A page load has no access token in memory; the provider trades the
+  // HttpOnly refresh cookie for one before deciding "signed out".
+  restoreSession: jest.fn(async () => true),
   isImpersonating: jest.fn(() => false),
   getProfile: jest.fn(async () => profile()),
   getUserOrganizations: jest.fn(async () => ({ data: { organizations: [{ organizationId: 'o1', organizationName: 'Org', role: 'owner' }] } })),

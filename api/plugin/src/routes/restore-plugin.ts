@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { loadAndRestore, sendSuccess } from '@pipeline-builder/api-core';
+import { audited, loadAndRestore, sendSuccess } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
@@ -21,7 +21,7 @@ import { pluginService } from '../services/plugin-service.js';
 export function createRestorePluginRoutes(): Router {
   const router: Router = Router();
 
-  router.post('/:id/restore', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/:id/restore', audited('plugin.restore'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const result = await loadAndRestore(req, res, orgId, userId || 'system', pluginService, 'Plugin', 'plugins:publish');
     if (!result) return;
     const { existing, restored } = result;

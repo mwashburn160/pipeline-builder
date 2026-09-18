@@ -4,8 +4,8 @@ import { useRouter } from 'next/router';
 import { motion } from 'framer-motion';
 import {
   Shield, BarChart3, Cloud,
-  Bot, Globe, Zap, ArrowRight, Check, LogIn, Sparkles,
-  Menu, X, Moon, Sun, Eye, EyeOff,
+  Bot, Globe, Zap, ArrowRight, ArrowLeft, Check, KeyRound, LogIn, Sparkles,
+  Menu, X, Moon, Sun, Eye, EyeOff, Smartphone,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
@@ -16,20 +16,12 @@ import { Input } from '@/components/ui/Input';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import api from '@/lib/api';
 import { startOAuthLogin } from '@/lib/oauth-intent';
-import { formatError } from '@/lib/constants';
+import { formatError, providerLabel } from '@/lib/constants';
+import { browserSupportsWebAuthn, browserSupportsWebAuthnAutofill, cancelPasskeyCeremony } from '@/lib/passkeys';
+import { webauthnErrorMessage } from '@/lib/webauthn';
 
 // sessionStorage key carrying the OAuth "intent" across the provider redirect.
 // Must match the callback page (pages/auth/callback/[provider].tsx).
-
-const PROVIDER_LABELS: Record<string, string> = {
-  google: 'Google',
-  github: 'GitHub',
-  facebook: 'Facebook',
-  microsoft: 'Microsoft',
-  gitlab: 'GitLab',
-  linkedin: 'LinkedIn',
-};
-const providerLabel = (p: string) => PROVIDER_LABELS[p] ?? (p.charAt(0).toUpperCase() + p.slice(1));
 
 // ---------------------------------------------------------------------------
 // Animation
@@ -97,16 +89,27 @@ function NavBar() {
 // ---------------------------------------------------------------------------
 
 function Hero() {
-  const { login, isLoading } = useAuth();
+  const { login, completeMfaLogin, loginWithPasskey, isLoading } = useAuth();
   const router = useRouter();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set when the password was right but the account has an authenticator app.
+  // Its presence is what swaps the card over to the code step; clearing it goes
+  // back to the password form with nothing else disturbed.
+  const [mfaChallengeId, setMfaChallengeId] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaBusy, setMfaBusy] = useState(false);
   // Enabled SSO/OAuth providers. Fail-soft: an empty list (none configured, or
   // the endpoint 404s) renders no extra UI — password login is unchanged.
   const [providers, setProviders] = useState<string[]>([]);
   const [oauthBusy, setOauthBusy] = useState<string | null>(null);
+  // Passkeys. WebAuthn support gates the explicit button; CONDITIONAL-UI support
+  // is a separate, narrower question (Safari and Firefox had WebAuthn for years
+  // without it), asked inside the effect that arms autofill.
+  const [passkeySupported, setPasskeySupported] = useState(false);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
   const sessionExpired = router.query.expired === '1';
 
   useEffect(() => {
@@ -117,12 +120,100 @@ function Hero() {
     return () => { cancelled = true; };
   }, []);
 
+  /**
+   * Arm passkey sign-in.
+   *
+   * Where the browser supports conditional UI we start the ceremony on mount and
+   * leave it waiting: it surfaces inside the identifier field's autofill
+   * dropdown, so a returning user signs in by picking their account — no button,
+   * no typing. Anything that ends the ceremony (the person cancels, or another
+   * sign-in path aborts it) simply stops it; `webauthnErrorMessage` keeps a
+   * cancel silent, and a genuine failure shows once.
+   *
+   * The pending ceremony is aborted on unmount — a WebAuthn request outliving
+   * the component would block the next one the page tries to start.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    setPasskeySupported(browserSupportsWebAuthn());
+    void (async () => {
+      if (!browserSupportsWebAuthn() || !(await browserSupportsWebAuthnAutofill())) return;
+      if (cancelled) return;
+      try {
+        await loginWithPasskey({ autofill: true });
+      } catch (err) {
+        if (cancelled) return;
+        const message = webauthnErrorMessage(err, 'Passkey sign-in failed');
+        if (message) setError(message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      cancelPasskeyCeremony();
+    };
+  }, [loginWithPasskey]);
+
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    // Only one WebAuthn ceremony may be in flight per page, and the autofill one
+    // started on mount is still waiting — drop it before using a password.
+    cancelPasskeyCeremony();
     if (!identifier || !password) { setError('Enter your email and password'); return; }
-    try { await login(identifier, password); }
-    catch (err) { setError(formatError(err, 'Sign in failed')); }
+    try {
+      const result = await login(identifier, password);
+      if (result.status === 'mfa_required') {
+        // The password is proven and discarded; only the challenge handle is
+        // kept, so nothing reusable sits in component state while the person
+        // fishes their phone out.
+        setPassword('');
+        setMfaCode('');
+        setMfaChallengeId(result.challengeId);
+      }
+    } catch (err) { setError(formatError(err, 'Sign in failed')); }
+  };
+
+  /** Second leg: the code from the authenticator app, or a recovery code. */
+  const handleMfaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!mfaChallengeId || !mfaCode.trim()) { setError('Enter the code from your authenticator app'); return; }
+    setMfaBusy(true);
+    try {
+      await completeMfaLogin(mfaChallengeId, mfaCode.trim());
+    } catch (err) {
+      // A dead challenge is the one refusal that isn't opaque, and the one case
+      // where retrying the code is pointless — drop back to the password form
+      // rather than keep asking for codes nothing will accept.
+      if ((err as { code?: string } | null)?.code === 'TOTP_INVALID_CHALLENGE') setMfaChallengeId(null);
+      setError(formatError(err, 'Verification failed'));
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  /** Abandon the code step and start over with the password. */
+  const cancelMfa = () => {
+    setMfaChallengeId(null);
+    setMfaCode('');
+    setError(null);
+  };
+
+  /** The explicit "Sign in with a passkey" path, for browsers without autofill
+   *  (and for anyone who'd rather click than find the dropdown). */
+  const handlePasskeySignIn = async () => {
+    setError(null);
+    // Replaces the waiting autofill request, which would otherwise refuse this one.
+    cancelPasskeyCeremony();
+    setPasskeyBusy(true);
+    try {
+      await loginWithPasskey();
+    } catch (err) {
+      const message = webauthnErrorMessage(err, 'Passkey sign-in failed');
+      if (message) setError(message);
+    } finally {
+      setPasskeyBusy(false);
+    }
   };
 
   // Start the OAuth dance: fetch the provider authorize URL (backend mints the
@@ -207,20 +298,65 @@ function Hero() {
           transition={{ duration: 0.4, delay: 0.1 }}
         >
           <Card className="p-5">
-            <h2 className="font-bold mb-4">Sign in</h2>
+            <h2 className="font-bold mb-4">{mfaChallengeId ? 'Two-factor authentication' : 'Sign in'}</h2>
 
-            {sessionExpired && !error && (
+            {sessionExpired && !error && !mfaChallengeId && (
               <div className="alert-warning mb-3" role="status" aria-live="polite">
                 <p>Session expired. Please sign in again.</p>
               </div>
             )}
             <ErrorAlert message={error} className="mb-3" />
 
+            {/* Second factor. Replaces the whole card body rather than appearing
+                below it: the password is already proven and re-showing the field
+                only invites people to retype it. */}
+            {mfaChallengeId ? (
+              <form onSubmit={handleMfaSubmit} className="space-y-3">
+                <p className="text-sm text-[var(--pb-text-muted)] flex items-start gap-2">
+                  <Smartphone className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+                  <span>Enter the 6-digit code from your authenticator app. You can also use one of your recovery codes.</span>
+                </p>
+                <Input
+                  id="signin-mfa-code"
+                  type="text"
+                  // `one-time-code` is what lets iOS/Android offer the code from
+                  // the SMS/authenticator sheet instead of making people switch apps.
+                  autoComplete="one-time-code"
+                  inputMode="text"
+                  required
+                  autoFocus
+                  placeholder="123456 or a recovery code"
+                  aria-label="Authentication code"
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
+                  disabled={mfaBusy}
+                />
+                <Button type="submit" fullWidth disabled={mfaBusy || !mfaCode.trim()} className="text-sm">
+                  {mfaBusy
+                    ? <><LoadingSpinner size="sm" className="mr-2" /> Verifying...</>
+                    : <><LogIn className="w-4 h-4 mr-1.5" /> Verify</>
+                  }
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  fullWidth
+                  onClick={cancelMfa}
+                  disabled={mfaBusy}
+                  className="text-sm"
+                >
+                  <ArrowLeft className="w-4 h-4 mr-1.5" /> Use a different account
+                </Button>
+              </form>
+            ) : (
             <form onSubmit={handleSignIn} className="space-y-3">
               <Input
                 id="signin-identifier"
                 type="text"
-                autoComplete="username"
+                // `webauthn` is what puts discoverable passkeys into this
+                // field's autofill dropdown; it is inert without a conditional
+                // -UI ceremony waiting, so it is safe to always declare.
+                autoComplete="username webauthn"
                 required
                 placeholder="Email or username"
                 aria-label="Email or username"
@@ -259,8 +395,9 @@ function Hero() {
                 }
               </Button>
             </form>
+            )}
 
-            {providers.length > 0 && (
+            {!mfaChallengeId && (passkeySupported || providers.length > 0) && (
               <div className="mt-4">
                 <div className="flex items-center gap-3 mb-3">
                   <span className="flex-1 h-px bg-[var(--pb-border)]" />
@@ -268,6 +405,23 @@ function Hero() {
                   <span className="flex-1 h-px bg-[var(--pb-border)]" />
                 </div>
                 <div className="space-y-2">
+                  {/* Explicit passkey sign-in. Shown even where autofill works —
+                      the dropdown is easy to miss, and one visible button is
+                      better than an invisible affordance. */}
+                  {passkeySupported && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      fullWidth
+                      onClick={handlePasskeySignIn}
+                      disabled={isLoading || passkeyBusy || oauthBusy !== null}
+                      className="text-sm"
+                    >
+                      {passkeyBusy
+                        ? <><LoadingSpinner size="sm" className="mr-2" /> Waiting for your passkey…</>
+                        : <><KeyRound className="w-4 h-4 mr-1.5" /> Sign in with a passkey</>}
+                    </Button>
+                  )}
                   {providers.map((p) => (
                     <Button
                       key={p}
@@ -287,12 +441,14 @@ function Hero() {
               </div>
             )}
 
-            <p className="text-xs text-[var(--pb-text-muted)] mt-4 text-center">
-              New here?{' '}
-              <Link href="/auth/register" className="text-[var(--pb-brand)] hover:underline">
-                Create account
-              </Link>
-            </p>
+            {!mfaChallengeId && (
+              <p className="text-xs text-[var(--pb-text-muted)] mt-4 text-center">
+                New here?{' '}
+                <Link href="/auth/register" className="text-[var(--pb-brand)] hover:underline">
+                  Create account
+                </Link>
+              </p>
+            )}
           </Card>
         </motion.div>
       </div>

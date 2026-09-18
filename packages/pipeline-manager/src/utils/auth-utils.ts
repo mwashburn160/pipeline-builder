@@ -8,21 +8,26 @@ import { printDebug, printError, printSuccess } from './output-utils.js';
 import { isProductionEnv } from './tls.js';
 
 /**
- * Login / refresh / switch-org response — every platform auth endpoint returns
- * the session tokens under this envelope.
+ * Session payload as a NON-BROWSER client receives it: the refresh token rides
+ * in the body (the browser's goes out as an HttpOnly cookie instead).
  */
+export interface SessionTokens {
+  accessToken: string;
+  refreshToken?: string;
+  expiresIn?: number;
+}
+
+/** Envelope every platform auth endpoint wraps its session tokens in. */
 export interface AuthResponse {
   success: boolean;
-  data: {
-    accessToken: string;
-    refreshToken: string;
-  };
+  data: SessionTokens;
 }
 
 /**
- * Guard the credential-transmitting commands (`login`, `create-pat`) against
- * disabling TLS verification in production. These POST plaintext passwords/JWTs,
- * so a MITM on a `prod + --no-verify-ssl` run would harvest them.
+ * Guard the credential-transmitting commands (`login`, `pat`) against disabling
+ * TLS verification in production. The device flow keeps passwords off the wire
+ * entirely, but the session tokens it returns are bearer credentials — a MITM on
+ * a `prod + --no-verify-ssl` run would harvest them just the same.
  *
  * Unlike {@link assertSslDisableAllowed} (which throws — for paths already inside
  * a try/catch), this prints and hard-exits, matching the pre-flight checks these
@@ -37,21 +42,6 @@ export function assertCredentialTlsAllowed(verifySsl: boolean | undefined): void
 }
 
 /**
- * Resolve credentials from flags, falling back to the
- * PLATFORM_IDENTIFIER / PLATFORM_PASSWORD env vars (so the password need not
- * appear in shell history / `ps`).
- */
-export function resolveCredentials(options: { identifier?: string; password?: string }): {
-  identifier?: string;
-  password?: string;
-} {
-  return {
-    identifier: options.identifier || process.env.PLATFORM_IDENTIFIER,
-    password: options.password || process.env.PLATFORM_PASSWORD,
-  };
-}
-
-/**
  * Build the https agent used by the credential commands. `--verify-ssl`
  * defaults to on; only an explicit `--no-verify-ssl` relaxes it (and only
  * outside production, enforced by {@link assertCredentialTlsAllowed}).
@@ -61,32 +51,13 @@ export function credentialHttpsAgent(verifySsl: boolean | undefined): https.Agen
 }
 
 /**
- * POST /api/auth/login and return the access token (or `undefined` if the
- * response carried none). Rate-limit accounting (record success/failure) and
- * the no-token exit are intentionally left to the caller so each command keeps
- * its exact lockout semantics.
- */
-export async function postLogin(params: {
-  url: string;
-  identifier: string;
-  password: string;
-  httpsAgent: https.Agent;
-  timeout: number;
-}): Promise<string | undefined> {
-  const loginUrl = `${params.url}/api/auth/login`;
-  printDebug('POST', { url: loginUrl });
-  const response = await axios.post<AuthResponse>(
-    loginUrl,
-    { identifier: params.identifier, password: params.password },
-    { headers: { 'Content-Type': 'application/json' }, httpsAgent: params.httpsAgent, timeout: params.timeout },
-  );
-  return response.data?.data?.accessToken;
-}
-
-/**
- * POST /api/auth/switch-org with the current access token and return the new,
- * org-scoped access token. Prints a success line (unless `quiet`) and hard-exits
- * on a missing token — both credential commands treat a failed switch the same.
+ * POST /api/auth/switch-org with the current access token and return the WHOLE
+ * re-issued session.
+ *
+ * The switch re-issues the same session slot, which ROTATES its refresh token —
+ * so a caller that keeps only the access token is left holding a dead refresh
+ * token. Prints a success line (unless `quiet`) and hard-exits on a missing
+ * token, since both credential commands treat a failed switch the same.
  */
 export async function switchOrganization(params: {
   url: string;
@@ -95,20 +66,25 @@ export async function switchOrganization(params: {
   httpsAgent: https.Agent;
   timeout: number;
   quiet: boolean;
-}): Promise<string> {
+}): Promise<SessionTokens> {
   const switchUrl = `${params.url}/api/auth/switch-org`;
   printDebug('POST', { url: switchUrl });
   const response = await axios.post<AuthResponse>(
     switchUrl,
     { organizationId: params.orgId },
     {
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${params.accessToken}` },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${params.accessToken}`,
+        // Declares the body transport for the re-issued refresh token.
+        'X-Pb-Client': 'cli',
+      },
       httpsAgent: params.httpsAgent,
       timeout: params.timeout,
     },
   );
-  const switched = response.data?.data?.accessToken;
-  if (!switched) {
+  const switched = response.data?.data;
+  if (!switched?.accessToken) {
     printError('Organization switch failed: no access token in response');
     process.exit(ERROR_CODES.AUTHENTICATION);
   }

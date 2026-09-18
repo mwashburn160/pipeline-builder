@@ -11,9 +11,10 @@ import {
   getParam,
   parsePaginationParams,
   validateBody,
+  audited,
   requireFeature,
   requirePermission,
-  requireServicePrincipal,
+  requireInternalService,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type NextFunction, type Request, type Response } from 'express';
@@ -56,6 +57,17 @@ function handleSubError(res: Response, err: unknown): boolean {
 
 /** Compliance-write gate, built once. */
 const requireComplianceWrite = requirePermission('compliance:write');
+
+/**
+ * Compliance-READ gate, built once. The subscription surface has two tiers: the
+ * per-org OPT-IN actions (browse, subscribe, activate, preview) sit at member
+ * level and require only `compliance:read`, while the posture-WEAKENING or
+ * authoring ones (deactivate, unsubscribe, clone, pin) require
+ * `compliance:write`. `compliance:read` is the floor for all of them — before
+ * it, a principal holding no compliance capability at all could mint
+ * subscriptions and activate enforced rules.
+ */
+const requireComplianceRead = requirePermission('compliance:read');
 
 /**
  * Run an api-core authorization gate (`requirePermission` / `requireFeature`)
@@ -134,7 +146,7 @@ export function createPublishedRulesCatalogRoutes(): Router {
   const router = Router();
 
   // GET / — browse available published rules with subscription status
-  router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/', requireComplianceRead, withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query);
     const filter = {
       name: req.query.name as string | undefined,
@@ -166,7 +178,7 @@ export function createSubscriptionRoutes(): Router {
   const router = Router();
 
   // GET / — list this org's active subscriptions with rule details
-  router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/', requireComplianceRead, withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query);
     // Pagination is pushed into SQL (LIMIT/OFFSET + a COUNT) instead of loading
     // the whole subscription set and slicing in JS.
@@ -189,16 +201,17 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /auto-subscribe — subscribe org to all published rules (inactive).
   // Internal-only: the platform service calls this during org onboarding with a
-  // service JWT (`getServiceAuthHeader`). `requireServicePrincipal` rejects any
-  // interactive user token so a member can't bulk-mint subscriptions.
-  router.post('/auto-subscribe', requireServicePrincipal, withRoute(async ({ res, ctx, orgId, userId }) => {
+  // service JWT (`getServiceAuthHeader`). `requireInternalService` rejects any
+  // interactive user token — so a member can't bulk-mint subscriptions — and
+  // any service other than `platform`.
+  router.post('/auto-subscribe', requireInternalService({ callers: ['platform'] }), withRoute(async ({ res, ctx, orgId, userId }) => {
     const count = await subscriptionService.autoSubscribeToPublished(orgId, userId);
     ctx.log('COMPLETED', 'Auto-subscribed to published rules', { count });
     return sendSuccess(res, 200, { subscribed: count });
   }));
 
   // PATCH /:ruleId — activate or deactivate a subscribed rule
-  router.patch('/:ruleId', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.patch('/:ruleId', requireComplianceRead, audited('compliance.rule.toggle'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const ruleId = getParam(req.params, 'ruleId');
     if (!ruleId) {
       return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
@@ -248,7 +261,7 @@ export function createSubscriptionRoutes(): Router {
   }));
 
   // POST / — subscribe to a published rule
-  router.post('/', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/', requireComplianceRead, audited('compliance.rule.toggle'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, SubscribeSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -291,7 +304,7 @@ export function createSubscriptionRoutes(): Router {
   }));
 
   // POST /bulk — bulk activate/deactivate subscriptions
-  router.post('/bulk', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/bulk', requireComplianceRead, audited('compliance.rule.toggle'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, BulkSetActiveSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -344,7 +357,7 @@ export function createSubscriptionRoutes(): Router {
   // Cloning authors a new org-scoped rule (same write as POST /compliance/rules),
   // so it requires `compliance:write`. Subscribe/toggle/delete below stay at
   // member level — those are per-org opt-in, not rule authoring.
-  router.post('/clone', requireComplianceWrite, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/clone', requireComplianceWrite, audited('compliance.rule.create'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, SubscribeSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -360,6 +373,20 @@ export function createSubscriptionRoutes(): Router {
     try {
       const rule = await complianceRuleService.cloneRule(validation.value.ruleId, orgId, userId);
       ctx.log('COMPLETED', 'Cloned published rule', { sourceRuleId: validation.value.ruleId, newRuleId: rule.id });
+
+      // Best-effort attributed audit — the clone authored a new ORG rule, the
+      // same mutation as POST /compliance/rules, so it carries that action.
+      // `details` names the source published rule so a reviewer can see the
+      // curated rule the org copied.
+      emitComplianceAudit({
+        action: 'compliance.rule.create',
+        actorId: req.user?.sub ?? userId ?? 'system',
+        orgId,
+        targetType: 'rule',
+        targetId: rule.id,
+        details: { name: rule.name, target: rule.target, scope: rule.scope, clonedFrom: validation.value.ruleId },
+      });
+
       return sendSuccess(res, 201, { rule });
     } catch (err) {
       const message = errorMessage(err);
@@ -371,7 +398,7 @@ export function createSubscriptionRoutes(): Router {
   }));
 
   // GET /enforced — merged view of all enforced rules (org + active subscriptions)
-  router.get('/enforced', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/enforced', requireComplianceRead, withRoute(async ({ req, res, ctx, orgId }) => {
     const target = req.query.target as 'plugin' | 'pipeline' | undefined;
     // Include the parent's `propagateToChildren` rules for a team, matching what
     // actually blocks at upload/validate time (validate.ts reads the same claim).
@@ -391,7 +418,7 @@ export function createSubscriptionRoutes(): Router {
   // Distinct from POST /preview, which evaluates against caller-supplied
   // sample attributes — that's "what if X looked like this," whereas this is
   // "what would happen to my existing X."
-  router.post('/preview/impact', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/preview/impact', requireComplianceRead, withRoute(async ({ req, res, ctx, orgId }) => {
     const validation = validateBody(req, SubscribeSchema); // shape: { ruleId: uuid }
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 
@@ -440,7 +467,7 @@ export function createSubscriptionRoutes(): Router {
   }));
 
   // POST /preview — dry-run preview of how a rule would affect existing entities
-  router.post('/preview', withRoute(async ({ req, res, ctx }) => {
+  router.post('/preview', requireComplianceRead, withRoute(async ({ req, res, ctx }) => {
     const validation = validateBody(req, PreviewSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -461,14 +488,32 @@ export function createSubscriptionRoutes(): Router {
     return sendSuccess(res, 200, { rule });
   }));
 
-  // POST /:ruleId/pin — pin subscription to current rule version
-  router.post('/:ruleId/pin', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  // POST /:ruleId/pin — pin subscription to current rule version. Governance,
+  // not opt-in: pinning freezes the org on today's rule body, so a later upstream
+  // tightening (or fix) of the published rule stops applying — the same class of
+  // posture change as deactivating. Hence `compliance:write`, like unsubscribe.
+  router.post('/:ruleId/pin', requireComplianceWrite, audited('compliance.rule.toggle'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const ruleId = getParam(req.params, 'ruleId');
     if (!ruleId) return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
 
     try {
       const subscription = await subscriptionService.pinVersion(orgId, ruleId, userId);
       ctx.log('COMPLETED', 'Pinned subscription version', { ruleId });
+
+      // Best-effort attributed audit — the pin succeeded. Reuses
+      // `compliance.rule.toggle` (as subscribe and the entitlement sync do): it
+      // is the same subscription object whose enforcement changed. `details`
+      // records only the pin FLAG — `pinnedVersion` is a full snapshot of the
+      // rule row, which can carry sensitive match config.
+      emitComplianceAudit({
+        action: 'compliance.rule.toggle',
+        actorId: req.user?.sub ?? userId ?? 'system',
+        orgId,
+        targetType: 'rule',
+        targetId: ruleId,
+        details: { pinned: true },
+      });
+
       return sendSuccess(res, 200, { subscription });
     } catch (err) {
       if (handleSubError(res, err)) return;
@@ -476,14 +521,25 @@ export function createSubscriptionRoutes(): Router {
     }
   }));
 
-  // DELETE /:ruleId/pin — unpin subscription (use latest rule version)
-  router.delete('/:ruleId/pin', withRoute(async ({ req, res, ctx, orgId }) => {
+  // DELETE /:ruleId/pin — unpin subscription (use latest rule version). Same
+  // governance gate + trail as the pin above.
+  router.delete('/:ruleId/pin', requireComplianceWrite, audited('compliance.rule.toggle'), withRoute(async ({ req, res, ctx, orgId }) => {
     const ruleId = getParam(req.params, 'ruleId');
     if (!ruleId) return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
 
     try {
       const subscription = await subscriptionService.unpinVersion(orgId, ruleId);
       ctx.log('COMPLETED', 'Unpinned subscription version', { ruleId });
+
+      emitComplianceAudit({
+        action: 'compliance.rule.toggle',
+        actorId: req.user?.sub ?? 'system',
+        orgId,
+        targetType: 'rule',
+        targetId: ruleId,
+        details: { pinned: false },
+      });
+
       return sendSuccess(res, 200, { subscription });
     } catch (err) {
       if (handleSubError(res, err)) return;
@@ -496,7 +552,7 @@ export function createSubscriptionRoutes(): Router {
   // exactly like DEACTIVATING it (PATCH isActive:false / bulk deactivate, both
   // governance-gated), so leaving unsubscribe at member level bypassed that
   // gate. Same route-level gate as POST /clone.
-  router.delete('/:ruleId', requireComplianceWrite, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.delete('/:ruleId', requireComplianceWrite, audited('compliance.rule.toggle'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const ruleId = getParam(req.params, 'ruleId');
     if (!ruleId) {
       return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
@@ -505,6 +561,19 @@ export function createSubscriptionRoutes(): Router {
     try {
       await subscriptionService.unsubscribe(orgId, ruleId, userId);
       ctx.log('COMPLETED', 'Unsubscribed from published rule', { ruleId });
+
+      // Best-effort attributed audit — dropping a subscription removes the rule
+      // from enforcement exactly like deactivating it, so it emits the same
+      // posture action (with `subscribed: false` to distinguish the two).
+      emitComplianceAudit({
+        action: 'compliance.rule.toggle',
+        actorId: req.user?.sub ?? userId ?? 'system',
+        orgId,
+        targetType: 'rule',
+        targetId: ruleId,
+        details: { subscribed: false, isActive: false },
+      });
+
       return sendSuccess(res, 200, { message: 'Unsubscribed successfully' });
     } catch (err) {
       if (handleSubError(res, err)) return;

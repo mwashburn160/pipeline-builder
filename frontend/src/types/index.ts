@@ -43,10 +43,72 @@ export interface User {
    */
   permissions?: string[];
   featureOverrides?: Record<string, boolean>;
+  /** Which step-up factors this account has — drives what StepUpModal offers. */
+  authFactors?: AuthFactors;
   /** All organizations this user belongs to, with per-org roles */
   organizations?: UserOrgMembership[];
   createdAt?: string;
   updatedAt?: string;
+}
+
+/** A sign-in provider the user can step up with by signing in again. */
+export type ReauthProvider =
+  | { type: 'oauth'; provider: string }
+  | { type: 'sso'; provider: string; orgId: string; orgName?: string };
+
+/** Step-up factors reported by GET /user/profile. */
+export interface AuthFactors {
+  hasPassword: boolean;
+  /** Registered passkeys. Non-zero ⇒ the step-up modal offers "Use a passkey". */
+  passkeyCount: number;
+  /** A CONFIRMED authenticator-app enrolment ⇒ the modal offers "Enter a code". */
+  hasTotp: boolean;
+  providers: ReauthProvider[];
+}
+
+/** The account's authenticator-app state, from GET /auth/totp/status. */
+export interface TotpStatus {
+  /** Confirmed and in force — sign-in now asks for a code. */
+  enabled: boolean;
+  /** Started but never confirmed; not a factor, and replaced by the next enrol. */
+  pending: boolean;
+  activatedAt: string | null;
+  lastUsedAt: string | null;
+  /** Unspent recovery codes. Zero on an enabled enrolment is worth warning about. */
+  recoveryCodesRemaining: number;
+  recoveryCodesTotal: number;
+  recoveryGeneratedAt: string | null;
+  /** Set while the account is locked out after repeated wrong codes. */
+  lockedUntil: string | null;
+}
+
+/** What POST /auth/totp/enrol returns — shown once, never stored. */
+export interface TotpEnrolment {
+  /** Base32 secret, for typing into an app that can't scan. */
+  secret: string;
+  /** `otpauth://totp/…` — the QR payload. */
+  otpauthUri: string;
+}
+
+/** A password sign-in that still owes a second factor (POST /auth/login). */
+export interface MfaChallenge {
+  mfaRequired: true;
+  challengeId: string;
+  /** Unix seconds. */
+  expiresAt: number;
+  methods: Array<'totp' | 'recovery'>;
+}
+
+/** One registered passkey, as GET /auth/webauthn/credentials reports it. */
+export interface Passkey {
+  id: string;
+  name: string;
+  createdAt: string;
+  /** Never used yet → null. */
+  lastUsedAt: string | null;
+  /** Synced/backed-up (a keychain passkey) rather than bound to one device. */
+  backedUp: boolean;
+  transports: string[];
 }
 
 /** A user's membership in an organization. */
@@ -228,8 +290,25 @@ export interface OrgIdpConfigDto {
   /** Cognito only: the discovery URL is derived server-side from these. */
   region?: string;
   userPoolId?: string;
+  /** id_token claim carrying group memberships, for just-in-time Role mapping.
+   *  Absent = the `groups` default. Never set for Google (no group claims). */
+  groupsClaim?: string;
   allowedEmailDomains: string[];
   enabled: boolean;
+  updatedAt: string;
+}
+
+/**
+ * One IdP group → Role mapping rule. At SSO sign-in the groups on the user's
+ * id_token are matched against these (case-insensitively) and the union of their
+ * Roles is granted in that org. `roles` is the hydrated form of `roleIds` so the
+ * editor can name what a group grants without a second request.
+ */
+export interface IdpGroupMappingDto {
+  id: string;
+  group: string;
+  roleIds: string[];
+  roles: Array<{ id: string; name: string; grantsRole: 'superadmin' | 'admin' | 'member' }>;
   updatedAt: string;
 }
 
@@ -243,6 +322,8 @@ export interface OrgIdpConfigCreate {
   /** Cognito only: server derives the discovery URL from region + userPoolId. */
   region?: string;
   userPoolId?: string;
+  /** Rejected by the server for Google/GitHub — they issue no group claims. */
+  groupsClaim?: string;
   allowedEmailDomains?: string[];
   enabled?: boolean;
 }
@@ -818,11 +899,16 @@ export interface Message {
 }
 
 /**
- * Auth tokens
+ * The session tokens a browser client receives.
+ *
+ * There is no `refreshToken` field: for browser callers the platform returns the
+ * refresh token as an HttpOnly cookie scoped to `/api/auth/refresh`, which no
+ * script can read. The access token lives in memory only.
  */
 export interface AuthTokens {
   accessToken: string;
-  refreshToken: string;
+  /** Access-token lifetime in seconds, when the endpoint reports it. */
+  expiresIn?: number;
 }
 
 /**

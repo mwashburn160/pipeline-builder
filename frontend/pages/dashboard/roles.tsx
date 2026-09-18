@@ -20,7 +20,8 @@ import { FormField } from '@/components/ui/FormField';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ModalFooter } from '@/components/ui/ModalFooter';
-import { ORG_ASSIGNABLE_CATEGORIES, PERMISSION_CATALOG, permissionLabel, roleDisplayName } from '@/lib/permissions';
+import { ORG_ASSIGNABLE_CATEGORIES, PERMISSION_CATALOG, permissionLabel } from '@pipeline-builder/api-core/permissions';
+import { roleDisplayName } from '@/lib/role-display';
 import api from '@/lib/api';
 import type { OrganizationRole, RoleGrant } from '@/types';
 import { formatError } from '@/lib/constants';
@@ -41,7 +42,7 @@ const ROLE_LABEL: Record<RoleGrant, string> = {
 // Permission id → category, and the catalog's category display order, used to
 // render a compact "Pipelines 3 · Compliance 2 · …" summary instead of the full
 // chip wall. Unknown ids fall into a trailing "Other" bucket.
-const PERMISSION_CATEGORY = new Map(PERMISSION_CATALOG.map((p) => [p.id, p.category]));
+const PERMISSION_CATEGORY = new Map<string, string>(PERMISSION_CATALOG.map((p) => [p.id, p.category]));
 const CATEGORY_ORDER = PERMISSION_CATALOG.reduce<string[]>((acc, p) => {
   if (!acc.includes(p.category)) acc.push(p.category);
   return acc;

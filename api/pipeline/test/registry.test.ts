@@ -143,6 +143,10 @@ describe('POST /pipelines/registry', () => {
     let i = 0;
     const next = async () => { if (i < stack.length) await stack[i++].handle(req, res, next); };
     await next();
+    // `withRoute` runs the handler without returning its promise, so awaiting the
+    // chain only gets us as far as the first await inside it. Flush the pending
+    // microtasks so the response call has happened before the assertions.
+    await new Promise((resolve) => setImmediate(resolve));
   }
 
   it('should reject missing required fields', async () => {

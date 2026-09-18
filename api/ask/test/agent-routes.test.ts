@@ -49,6 +49,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
   reserveQuota: mockReserveQuota,
   decrementQuota: mockDecrementQuota,
   errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+  // Route-table gate declarations on the ask routes (the real behaviour is
+  // covered by the route-coverage test + api-core's own gate tests).
+  requirePermission: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+  audited: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   requireFeature: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   initSSEStream: jest.fn(() => ({ aborted: () => false })),
   sendBadRequest: jest.fn((res: { status: (n: number) => { json: (b: unknown) => unknown } }, msg: string) => res.status(400).json({ message: msg })),

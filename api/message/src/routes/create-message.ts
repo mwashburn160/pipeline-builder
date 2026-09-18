@@ -14,6 +14,7 @@ import {
   validateBody,
   MessageCreateSchema,
   MessageReplySchema,
+  audited,
   resolveRecipientAlias,
   sendEntityNotFound,
   errorMessage,
@@ -53,8 +54,10 @@ const sendLimiter = rateLimitByOrg({
 export function createCreateMessageRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
-  // POST /messages — Create new message
-  router.post('/', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), sendLimiter, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  // POST /messages — Create new message. `audited` declares the ONLY action this
+  // route emits: a sysadmin org-wide announcement. 1:1 conversations are
+  // deliberately not audited (see the emission below).
+  router.post('/', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), sendLimiter, audited('message.announcement.create'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     // Validate request body with Zod schema
     const validation = validateBody(req, MessageCreateSchema);
     if (!validation.ok) {

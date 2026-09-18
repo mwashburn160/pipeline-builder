@@ -55,10 +55,21 @@ jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unkno
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => unknown) => fn({ id: 'sess' }),
 }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn() }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({
+  // Session-auth helpers the controllers now import (see utils/token.ts).
+  signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  findRefreshSession: jest.fn(async () => undefined),
+  signApiKeyToken: jest.fn(),
+  signServiceAccountToken: jest.fn(),
+  membershipForOrg: jest.fn(async () => undefined),
+}));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   JoinRequest: {},
+  // The user-delete cascade also removes the account's passkeys.
+  WebAuthnCredential: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
+  UserTotp: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })), exists: jest.fn(async () => null) },
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: { updateMany: jest.fn(async () => ({ modifiedCount: 0 })) },
   UserPreferences: {},

@@ -4,133 +4,99 @@
 import { randomUUID } from 'crypto';
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { tagRouteGate } from './route-table.js';
 import { HttpStatus } from '../constants/http-status.js';
-import type { JwtPayload } from '../types/common.js';
+import { JwksUnavailableError, UnknownKidError, platformJwksCache } from '../services/jwks-cache.js';
+import {
+  SERVICE_SUBJECT_PREFIX,
+  ServiceKeyError,
+  isServiceKid,
+  serviceIdentity,
+  signServiceJwt,
+  verifyServiceJwt,
+} from '../services/service-keys.js';
+import { AUTH_METHODS, PRINCIPAL_TYPES, TOKEN_USES, type JwtPayload } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
 import type { HttpRequest } from '../types/http.js';
 import { type Permission, hasPermission } from '../types/permissions.js';
+import { isOpaqueApiKey } from '../utils/api-key.js';
 import { getHeaderString } from '../utils/headers.js';
 import { getIdentity, type RequestIdentity } from '../utils/identity.js';
+import { USER_TOKEN_ALGORITHM, decodeJwtHeader } from '../utils/jwk.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { sendError } from '../utils/response.js';
 
 const logger = createLogger('auth-middleware');
 
-/** Cached JWT secret with periodic refresh from env var. */
-let _jwtSecret: string | undefined;
-let _jwtSecretRefreshedAt = 0;
-/** Cached PREVIOUS JWT secret (optional) — enables zero-downtime rotation. */
-let _jwtSecretPrevious: string | undefined;
-let _jwtSecretPreviousRefreshedAt = 0;
-const JWT_SECRET_REFRESH_INTERVAL_MS = 300_000; // 5 minutes
-
-function getJwtSecret(): string {
-  const now = Date.now();
-  if (!_jwtSecret || now - _jwtSecretRefreshedAt > JWT_SECRET_REFRESH_INTERVAL_MS) {
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
-      logger.error('JWT_SECRET environment variable is not set');
-      throw new Error('JWT_SECRET environment variable is required');
-    }
-    if (_jwtSecret && _jwtSecret !== secret) {
-      logger.info('JWT secret rotated');
-    }
-    _jwtSecret = secret;
-    _jwtSecretRefreshedAt = now;
-  }
-  return _jwtSecret;
-}
-
-/**
- * The optional PREVIOUS JWT secret (`JWT_SECRET_PREVIOUS`), cached with the same
- * TTL as the primary. Returns `undefined` when unset. During a `JWT_SECRET`
- * rotation, operators set `JWT_SECRET_PREVIOUS` to the old value so tokens signed
- * with EITHER secret keep verifying — closing the auth-outage window where
- * still-valid old-signed (or freshly new-signed) tokens would otherwise be
- * rejected. `undefined` is a valid cached value, so this refreshes purely on the
- * time interval (not on emptiness).
- */
-function getJwtSecretPrevious(): string | undefined {
-  const now = Date.now();
-  if (now - _jwtSecretPreviousRefreshedAt > JWT_SECRET_REFRESH_INTERVAL_MS) {
-    _jwtSecretPrevious = process.env.JWT_SECRET_PREVIOUS || undefined;
-    _jwtSecretPreviousRefreshedAt = now;
-  }
-  return _jwtSecretPrevious;
-}
-
-/**
- * Test-only: drop the cached JWT secrets so the next verify re-reads the env.
- *
- * Both secrets are cached for {@link JWT_SECRET_REFRESH_INTERVAL_MS}, so a test
- * that sets `JWT_SECRET`/`JWT_SECRET_PREVIOUS` mid-run would otherwise keep
- * verifying against the values read on first use. Don't call from production
- * code — rotation is picked up by the refresh interval.
- */
-export function _resetJwtSecretCacheForTests(): void {
-  _jwtSecret = undefined;
-  _jwtSecretRefreshedAt = 0;
-  _jwtSecretPrevious = undefined;
-  _jwtSecretPreviousRefreshedAt = 0;
-}
-
-/**
- * The JWT verify options every token check in the fleet must share: pinned
- * algorithm (blocks alg-confusion / `alg:none`) plus issuer/audience when the
- * deployment configures them.
- *
- * Centralized because it was built inline at each call site and `step-up.ts`
- * re-implemented it WITHOUT the issuer/audience pinning — so in a deployment
- * that sets `JWT_ISSUER`/`JWT_AUDIENCE`, a step-up token minted by any other
- * system sharing `JWT_SECRET` was accepted.
- */
-export function buildJwtVerifyOptions(): jwt.VerifyOptions {
-  const verifyOptions: jwt.VerifyOptions = {
-    algorithms: [(process.env.JWT_ALGORITHM || 'HS256') as jwt.Algorithm],
+/** Issuer/audience pinning, when the deployment configures them. Shared by both chains. */
+function issuerAudienceOptions(): { issuer?: string; audience?: string } {
+  return {
+    ...(process.env.JWT_ISSUER ? { issuer: process.env.JWT_ISSUER } : {}),
+    ...(process.env.JWT_AUDIENCE ? { audience: process.env.JWT_AUDIENCE } : {}),
   };
-  if (process.env.JWT_ISSUER) verifyOptions.issuer = process.env.JWT_ISSUER;
-  if (process.env.JWT_AUDIENCE) verifyOptions.audience = process.env.JWT_AUDIENCE;
-  return verifyOptions;
 }
 
 /**
- * Verify a JWT against the primary secret, falling back to the previous secret
- * (when `JWT_SECRET_PREVIOUS` is configured) ONLY on a signature/verification
- * failure. This makes token verification survive a secret rotation with zero
- * downtime: a token valid under EITHER secret passes.
+ * Verify a token that speaks for a PERSON — access, step-up, and the token an
+ * opaque access key is exchanged for — against platform's published signing
+ * keys.
  *
- * jsonwebtoken's `verify` takes a single secret, so this is try-primary-then-
- * previous — NOT a secret array. No existing check is weakened:
- *   - `verifyOptions` (algorithm pinning + optional issuer/audience) is applied
- *     identically on BOTH attempts, so alg-confusion / `alg:none` stay blocked.
- *   - Expiry / not-before from the PRIMARY attempt are authoritative and are
- *     re-thrown without a previous-secret retry, so a `TokenExpiredError` is
- *     never masked into an "invalid signature".
- *   - When no previous secret is set, behaviour is byte-for-byte the original:
- *     the primary error propagates unchanged.
+ * ES256 and a `kid` are both mandatory: no `kid` means no way to pick the right
+ * key across a rotation, and any other algorithm is refused outright, which is
+ * what makes "no service accepts an HS256 user token" a property of the code
+ * rather than a convention. Key lookup goes through the shared JWKS cache
+ * (10-minute refresh, one refetch on an unknown `kid`, brief negative cache).
+ *
+ * @throws {UnknownKidError} the key set is current and has no such key → 401.
+ * @throws {JwksUnavailableError} the key set could not be obtained → 503; an
+ *         unverifiable token is never treated as valid.
  */
-export function verifyJwtWithRotation(token: string, verifyOptions: jwt.VerifyOptions): JwtPayload {
-  try {
-    return jwt.verify(token, getJwtSecret(), verifyOptions) as JwtPayload;
-  } catch (err) {
-    const previous = getJwtSecretPrevious();
-    // Fall back to the previous secret only for a signature/verification failure
-    // (a plain JsonWebTokenError). Expiry / not-before are enforced regardless of
-    // which secret signed the token, so those errors must surface as-is.
-    if (
-      previous
-      && err instanceof jwt.JsonWebTokenError
-      && !(err instanceof jwt.TokenExpiredError)
-      && !(err instanceof jwt.NotBeforeError)
-    ) {
-      // A token signed by the previous secret verifies here; if it is instead
-      // expired/invalid under the previous secret, that error propagates and is
-      // handled by the caller exactly like a primary failure.
-      return jwt.verify(token, previous, verifyOptions) as JwtPayload;
-    }
-    throw err;
+export async function verifyUserJwt<T = JwtPayload>(token: string): Promise<T> {
+  const header = decodeJwtHeader(token);
+  if (header?.alg !== USER_TOKEN_ALGORITHM || !header.kid) {
+    throw new jwt.JsonWebTokenError(`User tokens must be signed with ${USER_TOKEN_ALGORITHM} and carry a kid`);
   }
+  const key = await platformJwksCache().getKey(header.kid);
+  return jwt.verify(token, key, { algorithms: [USER_TOKEN_ALGORITHM], ...issuerAudienceOptions() }) as T;
+}
+
+/**
+ * Verify ANY bearer token and return its claims.
+ *
+ * Since #14 there is no shared secret left: BOTH chains are ES256 with a `kid`,
+ * so the dispatch is by **who owns the `kid`** rather than by algorithm — and
+ * because a `kid` is an RFC 7638 thumbprint, ownership is a fact about the key,
+ * not a claim the token makes about itself:
+ *
+ * - a `kid` published in the per-service key bundle → an INTERNAL SERVICE token
+ *   ({@link signServiceToken}), verified with that service's key; its `sub` must
+ *   name the same service, so one service can never speak for another.
+ * - anything else → a platform-signed USER token, verified against platform's
+ *   published JWKS. A token claiming `principalType: 'service'` is refused
+ *   here: an internal identity may not ride the user signing key.
+ *
+ * Anything that is not ES256 with a `kid` fails in both chains, which is what
+ * makes "no HS256 token is accepted anywhere" a property of the code.
+ */
+export async function verifyBearerToken(token: string): Promise<JwtPayload> {
+  const header = decodeJwtHeader(token);
+  if (!header?.alg) throw new jwt.JsonWebTokenError('Malformed token header');
+
+  if (header.kid && isServiceKid(header.kid)) {
+    const claims = verifyServiceJwt<JwtPayload>(token, { kid: header.kid, ...issuerAudienceOptions() });
+    if (claims.principalType !== 'service') {
+      emitCounter('service_key_non_service_token_rejected_total', { alg: header.alg });
+      throw new jwt.JsonWebTokenError('A service signing key may only mint a service principal');
+    }
+    return claims;
+  }
+
+  const claims = await verifyUserJwt(token);
+  if (claims.principalType === 'service') {
+    throw new jwt.JsonWebTokenError('Service principals may not be signed with the user signing key');
+  }
+  return claims;
 }
 
 export interface RequireAuthOptions {
@@ -165,10 +131,11 @@ export function requireAuth(
   }
 
   const options = (reqOrOptions as RequireAuthOptions) || {};
-  return (req: Request, resInner: Response, nextInner: NextFunction) => {
+  return tagRouteGate((req: Request, resInner: Response, nextInner: NextFunction) => {
     _requireAuth(options, req, resInner, nextInner);
-  };
+  }, { kind: 'auth' });
 }
+tagRouteGate(requireAuth, { kind: 'auth' });
 
 /**
  * A source of the CURRENT `tokenVersion` for a user, backed by a store the
@@ -303,24 +270,75 @@ function _requireAuth(
     return sendError(res, HttpStatus.UNAUTHORIZED, 'Invalid authorization format. Use: Bearer <token>', ErrorCode.TOKEN_INVALID);
   }
 
+  // An OPAQUE ACCESS KEY (`pb_pat_…` / `pb_sa_…`) carries no claims and no
+  // signature, so it cannot be verified here. Trade it at platform for a
+  // short-lived JWT (cached in-process until it expires) and then verify that
+  // JWT on the normal path — services never read a key hash. See
+  // `services/api-key-exchange.ts`.
+  if (isOpaqueApiKey(parts[1])) {
+    void resolveApiKey(options, parts[1], req, res, next);
+    return;
+  }
+
+  // `.catch(next)` forwards a DOWNSTREAM synchronous throw from `next()` to
+  // Express's error middleware — verification itself never rejects (it maps
+  // every failure to a response).
+  void verifyAndAttach(options, parts[1], req, res, next).catch(next);
+}
+
+/**
+ * Exchange an opaque key for a JWT, then continue on the normal verification
+ * path. A refused key is a 401; an unreachable platform is a 503 (never a pass —
+ * an unverifiable credential is not an identity).
+ */
+async function resolveApiKey(
+  options: RequireAuthOptions,
+  key: string,
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  // Loaded LAZILY, on the first key ever presented. A static import would put
+  // the HTTP client (and platform's address) into the import graph of every
+  // module that merely uses `requireAuth`, which both widens the boot graph and
+  // breaks any test that mocks `http-client.js` with a partial module.
+  const { exchangeApiKey, ApiKeyExchangeUnavailableError } = await import('../services/api-key-exchange.js');
+  let token: string;
   try {
-    // Pass through optional issuer/audience verification when env-configured.
-    // Without these, a JWT signed by any system that happens to share the
-    // same JWT_SECRET would be accepted — defence-in-depth for shared-secret
-    // misconfigurations across services / environments.
-    // Pin the accepted algorithm to the configured HMAC alg (default HS256).
-    // Without an allow-list, `jwt.verify` accepts any algorithm the key can
-    // verify — the classic alg-confusion vector (and a hard guard against
-    // `alg:none`). Env-driven so it stays in lockstep with how tokens are
-    // signed (see signServiceToken + platform's config.auth.jwt.algorithm).
-    const verifyOptions = buildJwtVerifyOptions();
-    const decoded = verifyJwtWithRotation(parts[1], verifyOptions);
+    token = await exchangeApiKey(key);
+  } catch (error) {
+    if (error instanceof ApiKeyExchangeUnavailableError) {
+      return sendError(
+        res, HttpStatus.SERVICE_UNAVAILABLE,
+        'Access-key verification is temporarily unavailable; please retry',
+        ErrorCode.SERVICE_UNAVAILABLE,
+      );
+    }
+    return sendError(res, HttpStatus.UNAUTHORIZED, 'Invalid or revoked access key', ErrorCode.TOKEN_INVALID);
+  }
+  await verifyAndAttach(options, token, req, res, next);
+}
+
+async function verifyAndAttach(
+  options: RequireAuthOptions,
+  rawToken: string,
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    // Two chains, one entry point (see `verifyBearerToken`): a user token must
+    // be ES256 signed by platform and verified against its published JWKS; an
+    // internal service token stays on the shared secret and must declare itself
+    // a service principal. Both pin the algorithm (no alg-confusion, no
+    // `alg:none`) and both apply the optional issuer/audience binding.
+    const decoded = await verifyBearerToken(rawToken);
 
     if (decoded.type !== 'access') {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Only access tokens can be used for API requests', ErrorCode.TOKEN_INVALID);
     }
 
-    if (!decoded.sub || !decoded.role) {
+    if (!decoded.sub || !decoded.role || !hasValidIdentityClaims(decoded)) {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Token missing required fields', ErrorCode.TOKEN_INVALID);
     }
 
@@ -330,8 +348,8 @@ function _requireAuth(
     // nukes EVERY service token fleet-wide. This lets one compromised/rogue
     // service be cut off surgically. O(1) Set lookup, zero cost when the denylist
     // is empty (the default), so it never taxes the S2S hot path unless armed.
-    if (decoded.sub.startsWith('service:') && isServiceTokenDenied(decoded.sub)) {
-      emitCounter('service_token_denied_total', { service: decoded.sub.slice('service:'.length) });
+    if (isServiceTokenDenied(decoded)) {
+      emitCounter('service_token_denied_total', { service: serviceNameOf(decoded) ?? 'unknown' });
       logger.warn('Rejected denylisted service token', { sub: decoded.sub });
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Service token revoked', ErrorCode.TOKEN_REVOKED);
     }
@@ -412,12 +430,52 @@ function _requireAuth(
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Token has expired', ErrorCode.TOKEN_EXPIRED);
     }
 
-    if (error instanceof jwt.JsonWebTokenError) {
+    // The signing keys couldn't be fetched, so the token's validity is UNKNOWN.
+    // Fail CLOSED with a retryable 503 — never a pass, and never a 401 that
+    // would send a legitimate client off to re-authenticate over our outage.
+    // Same reasoning for the SERVICE chain: no readable key bundle means no way
+    // to tell a peer's token from a forgery, so the request is refused with a
+    // retryable 503 rather than admitted or bounced to re-authenticate.
+    if (error instanceof JwksUnavailableError || error instanceof ServiceKeyError) {
+      logger.warn('Rejecting request: token signing keys unavailable', { error: error.message });
+      return sendError(
+        res, HttpStatus.SERVICE_UNAVAILABLE,
+        'Token verification is temporarily unavailable; please retry',
+        ErrorCode.SERVICE_UNAVAILABLE,
+      );
+    }
+
+    if (error instanceof UnknownKidError || error instanceof jwt.JsonWebTokenError) {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Invalid token', ErrorCode.TOKEN_INVALID);
     }
 
     return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication failed', ErrorCode.UNAUTHORIZED);
   }
+}
+
+/**
+ * Whether a verified token carries a well-formed identity: a known
+ * `principalType` and `token_use`, and the claims that kind of principal must
+ * have. Fails closed — a token minted before these claims existed, or one with a
+ * contradictory combination, is not an identity any gate should reason about.
+ *
+ * - `service`: `token_use: 'access'` and a `service:<name>` subject (the name
+ *   feeds the denylist and audit attribution).
+ * - `user` / `service_account`: `amr` (known methods), `aal` and `auth_time`.
+ */
+export function hasValidIdentityClaims(decoded: Partial<JwtPayload>): boolean {
+  if (!decoded.principalType || !PRINCIPAL_TYPES.includes(decoded.principalType)) return false;
+  if (!decoded.token_use || !TOKEN_USES.includes(decoded.token_use)) return false;
+  if (decoded.principalType === 'service') {
+    return decoded.token_use === 'access'
+      && typeof decoded.sub === 'string'
+      && decoded.sub.startsWith(SERVICE_SUBJECT_PREFIX)
+      && decoded.sub.length > SERVICE_SUBJECT_PREFIX.length;
+  }
+  return Array.isArray(decoded.amr)
+    && decoded.amr.every((m) => AUTH_METHODS.includes(m))
+    && (decoded.aal === 1 || decoded.aal === 2)
+    && typeof decoded.auth_time === 'number';
 }
 
 /**
@@ -502,7 +560,7 @@ export function recordAuthzDenial(req: Request, required: string): void {
  * them should grant access.
  */
 export function requirePermission(...permissions: Permission[]) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return tagRouteGate((req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
     }
@@ -516,7 +574,7 @@ export function requirePermission(...permissions: Permission[]) {
       `Missing required permission: ${permissions.join(' or ')}`,
       ErrorCode.INSUFFICIENT_PERMISSIONS,
     );
-  };
+  }, { kind: 'permission', mode: 'any', permissions });
 }
 
 /**
@@ -528,7 +586,7 @@ export function requirePermission(...permissions: Permission[]) {
  * (they implicitly hold every permission).
  */
 export function requireAllPermissions(...permissions: Permission[]) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return tagRouteGate((req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
     }
@@ -540,12 +598,12 @@ export function requireAllPermissions(...permissions: Permission[]) {
       `Missing required permission: ${missing.join(' and ')}`,
       ErrorCode.INSUFFICIENT_PERMISSIONS,
     );
-  };
+  }, { kind: 'permission', mode: 'all', permissions });
 }
 
 /**
  * Like {@link requirePermission} (any-of) but ALSO admits an internal service
- * principal (a `service:*` machine token). For READ endpoints that BOTH
+ * principal (`principalType: 'service'`). For READ endpoints that BOTH
  * interactive users — who must hold one of the `:read` capabilities — AND
  * service-to-service callers legitimately hit; service tokens carry no
  * permission claims (they're least-privilege `role:member`), so a plain
@@ -555,7 +613,7 @@ export function requireAllPermissions(...permissions: Permission[]) {
  * `requirePermission` for purely user-facing reads.
  */
 export function requirePermissionOrService(...permissions: Permission[]) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return tagRouteGate((req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
     }
@@ -566,12 +624,12 @@ export function requirePermissionOrService(...permissions: Permission[]) {
       `Missing required permission: ${permissions.join(' or ')}`,
       ErrorCode.INSUFFICIENT_PERMISSIONS,
     );
-  };
+  }, { kind: 'permission', mode: 'any', permissions, allowService: true });
 }
 
 /**
- * Gate an endpoint to internal service-to-service callers only (a `service:*`
- * machine principal minted via {@link signServiceToken} / `getServiceAuthHeader`).
+ * Gate an endpoint to internal service-to-service callers only (a
+ * `principalType: 'service'` principal minted via {@link signServiceToken} / `getServiceAuthHeader`).
  * Rejects any user token. For NON-user-facing endpoints — entity-event ingest,
  * auto-subscribe, and similar peer-service hooks — that a browser must never
  * reach. Compose after `requireAuth` so `req.user` is populated.
@@ -583,6 +641,58 @@ export function requireServicePrincipal(req: Request, res: Response, next: NextF
     return sendError(res, HttpStatus.FORBIDDEN, 'Internal service calls only', ErrorCode.INSUFFICIENT_PERMISSIONS);
   }
   next();
+}
+tagRouteGate(requireServicePrincipal, { kind: 'servicePrincipal' });
+
+/**
+ * THE gate for an INTERNAL route (#14) — the one every `/internal/*` path, the
+ * quota usage counters, the entity-event ingest and the audit ingest go through.
+ *
+ * Two rules, both fail-closed:
+ *
+ *  1. **No user token, ever.** Not a member's, not a superadmin's, not a
+ *     service-account key's. An internal route is a peer-service API surface, so
+ *     "a sufficiently privileged human" is not an acceptable caller — that
+ *     equivalence is exactly how a browser-reachable path becomes a tenant
+ *     boundary bug. `requireServicePrincipal` already refused users; this also
+ *     closes the `|| isSystemAdmin(req)` escape hatches that had grown around
+ *     the individual internal routes.
+ *  2. **Only the NAMED callers.** `callers` lists the services that legitimately
+ *     call this route, and the name is cryptographically bound to the signing
+ *     key (`services/service-keys.ts`), so this is an identity check rather than
+ *     a claim check. It is the same allow-list the mesh policy names, at the
+ *     layer that also holds in docker compose, where there is no mesh at all —
+ *     the Istio `AuthorizationPolicy` is defence in depth on top, never the
+ *     enforcement.
+ *
+ * Compose after `requireAuth` so `req.user` is populated. Refusals are counted
+ * (`internal_route_refused_total`) and audited through the shared `authz.denied`
+ * sink.
+ */
+export function requireInternalService(options: { callers: readonly string[] }) {
+  const allowed = new Set(options.callers);
+  return tagRouteGate((req: Request, res: Response, next: NextFunction): void => {
+    const refuse = (reason: 'unauthenticated' | 'user_token' | 'wrong_caller'): void => {
+      emitCounter('internal_route_refused_total', {
+        service: serviceIdentity(),
+        route: req.route?.path ? `${req.method} ${req.baseUrl}${req.route.path}` : `${req.method} ${(req.originalUrl || req.url).split('?')[0]}`,
+        reason,
+        caller: serviceNameOf(req.user) ?? 'none',
+      });
+      recordAuthzDenial(req, `internal-service (${options.callers.join(', ')})`);
+      if (reason === 'unauthenticated') {
+        return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
+      }
+      logger.warn('Refused an internal route', { reason, path: (req.originalUrl || req.url).split('?')[0], caller: serviceNameOf(req.user) });
+      return sendError(res, HttpStatus.FORBIDDEN, 'Internal service calls only', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    };
+
+    if (!req.user) return refuse('unauthenticated');
+    if (!isServicePrincipal(req)) return refuse('user_token');
+    const caller = serviceNameOf(req.user);
+    if (!caller || !allowed.has(caller)) return refuse('wrong_caller');
+    next();
+  }, { kind: 'servicePrincipal' }, { kind: 'internalService', callers: [...options.callers] });
 }
 
 /**
@@ -648,6 +758,7 @@ export function requireSystemAdmin(
   }
   next();
 }
+tagRouteGate(requireSystemAdmin, { kind: 'systemAdmin' });
 
 /**
  * Require a specific feature flag. Use after requireAuth.
@@ -655,7 +766,7 @@ export function requireSystemAdmin(
  * Sysadmins (isSuperAdmin) bypass — they always have every feature.
  */
 export function requireFeature(feature: string) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return tagRouteGate((req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
     }
@@ -679,7 +790,7 @@ export function requireFeature(feature: string) {
     }
 
     next();
-  };
+  }, { kind: 'feature', feature });
 }
 
 // ---------------------------------------------------------------------------
@@ -687,8 +798,11 @@ export function requireFeature(feature: string) {
 //
 // Inter-service HTTP calls (billing → message, platform → compliance, etc.)
 // need to satisfy the same `requireAuth` middleware as user requests.
-// `signServiceToken` mints a short-lived JWT signed with the shared
-// JWT_SECRET, identifying the calling service via `sub: 'service:<name>'`.
+// `signServiceToken` mints a short-lived ES256 JWT signed with THIS service's
+// OWN key (see `services/service-keys.ts`), carrying `principalType: 'service'`
+// and naming the calling service via `sub: 'service:<name>'`. Gates branch on
+// the claim; the subject names — and since #14 the name is cryptographically
+// bound to the signing key, so it can also be trusted.
 // `requireAuth` accepts these tokens transparently — they pass `decoded.sub`
 // and `decoded.role` checks, and downstream `requireOrganization` /
 // `requireSystemAdmin` rely on the org/role embedded in the token.
@@ -703,8 +817,8 @@ const DEFAULT_SERVICE_TOKEN_TTL_SECONDS = 300;
  * Denylist of service NAMES (the `<name>` in `sub: service:<name>`) whose tokens
  * `requireAuth` must reject. Read from `SERVICE_TOKEN_DENYLIST` (comma-separated)
  * at process start, so arming it is a config change + rollout — it cuts off a
- * compromised service WITHOUT rotating the shared JWT secret (which invalidates
- * every service token).
+ * compromised service WITHOUT rotating any key, and (unlike the pre-#14 shared
+ * secret) without invalidating every other service's tokens as collateral.
  */
 const serviceTokenDenylist = new Set(
   (process.env.SERVICE_TOKEN_DENYLIST || '')
@@ -713,11 +827,21 @@ const serviceTokenDenylist = new Set(
     .filter(Boolean),
 );
 
-/** True when `sub` is `service:<name>` and `<name>` is on the denylist. */
-export function isServiceTokenDenied(sub: string): boolean {
+/**
+ * The calling service's name for a SERVICE principal (`principalType: 'service'`),
+ * else `undefined`. A user token never yields a name, whatever its `sub` says.
+ */
+export function serviceNameOf(claims: { principalType?: string; sub?: string } | undefined): string | undefined {
+  if (claims?.principalType !== 'service' || typeof claims.sub !== 'string') return undefined;
+  if (!claims.sub.startsWith(SERVICE_SUBJECT_PREFIX)) return undefined;
+  return claims.sub.slice(SERVICE_SUBJECT_PREFIX.length) || undefined;
+}
+
+/** True when the claims are a service principal whose service is on the denylist. */
+export function isServiceTokenDenied(claims: { principalType?: string; sub?: string }): boolean {
   if (serviceTokenDenylist.size === 0) return false;
-  if (!sub.startsWith('service:')) return false;
-  return serviceTokenDenylist.has(sub.slice('service:'.length));
+  const name = serviceNameOf(claims);
+  return name !== undefined && serviceTokenDenylist.has(name);
 }
 
 export interface ServiceTokenOptions {
@@ -751,41 +875,42 @@ export interface ServiceTokenOptions {
  * Mint a JWT identifying the calling service. Used for inter-service HTTP calls.
  * The token satisfies `requireAuth` and (when orgId is present) `requireOrganization`.
  * Scope it with `opts.role` — least privilege keeps a leaked token low-value.
+ *
+ * `opts.serviceName` must be THIS process's own identity (`SERVICE_NAME`): a
+ * service holds only its own signing key, so minting a token that names another
+ * service throws rather than producing one every peer would reject. That is the
+ * one behaviour change #14 forces on callers — see `services/service-keys.ts`.
  */
 export function signServiceToken(opts: ServiceTokenOptions): string {
   const role = opts.role;
-  const payload: JwtPayload = {
-    sub: `service:${opts.serviceName}`,
+  const payload: Omit<JwtPayload, 'sub'> = {
     username: `${opts.serviceName}-service`,
     email: `${opts.serviceName}@internal`,
+    principalType: 'service',
+    token_use: 'access',
     role,
     isAdmin: role === 'owner' || role === 'admin',
     type: 'access',
     organizationId: opts.orgId,
     organizationName: opts.orgName ?? opts.orgId,
+    // Unique token id on every mint. Combined with the short (300s default) TTL
+    // this gives each service token a distinct identity — the correlation handle
+    // for tracing which mint performed a cross-service action, and the building
+    // block for replay detection (a verifier can track seen jtis). It does NOT
+    // by itself prevent replay within the TTL window.
+    jti: randomUUID(),
     // Least-privilege capability claim (optional) — lets a member-role token
     // satisfy a specific permission gate without carrying isAdmin.
     ...(opts.permissions && opts.permissions.length > 0 ? { permissions: opts.permissions } : {}),
   };
-  // Match the optional issuer/audience that requireAuth verifies, when
-  // configured. Without these, a service token signed here would fail
-  // requireAuth in a deployment that has set JWT_ISSUER/JWT_AUDIENCE.
-  const signOptions: jwt.SignOptions = {
-    expiresIn: opts.ttlSeconds ?? DEFAULT_SERVICE_TOKEN_TTL_SECONDS,
-    // Sign with the same configured alg requireAuth pins on verify, so service
-    // tokens stay valid under a non-default JWT_ALGORITHM.
-    algorithm: (process.env.JWT_ALGORITHM || 'HS256') as jwt.Algorithm,
-    // Unique token id on every mint. Combined with the short (300s default) TTL
-    // this gives each service token a distinct identity — the building block for
-    // replay detection (a verifier can track seen jtis) and the correlation
-    // handle for tracing which mint performed a cross-service action. It does
-    // NOT by itself prevent replay within the TTL window; true replay defence
-    // needs the asymmetric-key work tracked separately.
-    jwtid: randomUUID(),
-  };
-  if (process.env.JWT_ISSUER) signOptions.issuer = process.env.JWT_ISSUER;
-  if (process.env.JWT_AUDIENCE) signOptions.audience = process.env.JWT_AUDIENCE;
-  return jwt.sign(payload, getJwtSecret(), signOptions);
+  // `sub`, `iat`/`exp` and the optional issuer/audience that requireAuth
+  // verifies are stamped by the signer, so there is exactly one place that
+  // decides what a service token says.
+  return signServiceJwt(payload as Record<string, unknown>, {
+    serviceName: opts.serviceName,
+    expiresInSeconds: opts.ttlSeconds ?? DEFAULT_SERVICE_TOKEN_TTL_SECONDS,
+    ...issuerAudienceOptions(),
+  });
 }
 
 /** Convenience: returns a `Bearer <token>` header value for fetch/axios calls. */
@@ -793,31 +918,55 @@ export function getServiceAuthHeader(opts: ServiceTokenOptions): string {
   return `Bearer ${signServiceToken(opts)}`;
 }
 
-/** True when `req.user.sub` was issued by `signServiceToken` (i.e. starts with `service:`). */
+/** True when `req.user` is a service principal (`principalType: 'service'`, minted by `signServiceToken`). */
 export function isServicePrincipal(req: Request): boolean {
-  return req.user?.sub?.startsWith('service:') ?? false;
+  return req.user?.principalType === 'service';
+}
+
+/**
+ * True when `req.user` is an ORG SERVICE ACCOUNT (`principalType:
+ * 'service_account'`) — a non-human principal owned by one org, authenticating
+ * with a `pb_sa_…` key exchanged at platform.
+ *
+ * A service account is NOT an internal service principal: it holds org Roles and
+ * is subject to every permission gate a member is. What it can never do is
+ * satisfy a HUMAN-presence requirement — step-up (and any later assurance gate)
+ * refuses it outright, because there is no person behind it to re-verify.
+ */
+export function isServiceAccountPrincipal(req: Request): boolean {
+  return req.user?.principalType === 'service_account';
+}
+
+/** True when `req.user` is the named internal service (e.g. `'billing'`). */
+export function isServicePrincipalNamed(req: Request, serviceName: string): boolean {
+  return serviceNameOf(req.user) === serviceName;
 }
 
 /**
  * PRE-auth check: cryptographically verify the request carries a valid, signed
- * SERVICE token (`sub` starts with `service:`). Unlike {@link isServicePrincipal}
+ * SERVICE token (`principalType: 'service'`). Unlike {@link isServicePrincipal}
  * (which reads the already-populated `req.user`), this verifies the bearer token
  * itself, so it is safe to call BEFORE `requireAuth` runs — e.g. the global rate
  * limiter's `skip`, which must not trust the spoofable `x-internal-service`
- * header. Mirrors `requireAuth`'s verification (algorithm pinning + optional
- * issuer/audience) and returns `false` on any missing/invalid/non-service token.
+ * header. Mirrors `requireAuth`'s SERVICE chain exactly (the signer's own key,
+ * resolved by `kid`, with the `sub`/signer agreement check and the optional
+ * issuer/audience) and returns `false` on any missing/invalid/non-service token
+ * — including any platform-signed USER token, whose `kid` is not in the service
+ * bundle at all. Stays SYNCHRONOUS, which is why the per-service public keys are
+ * distributed as a mounted bundle rather than fetched over HTTP.
  */
 export function verifyServicePrincipal(req: Request): boolean {
   const parts = req.headers.authorization?.split(' ');
   if (!parts || parts.length !== 2 || parts[0] !== 'Bearer') return false;
   try {
-    const verifyOptions = buildJwtVerifyOptions();
-    const decoded = verifyJwtWithRotation(parts[1], verifyOptions);
-    if (decoded.type !== 'access' || typeof decoded.sub !== 'string' || !decoded.sub.startsWith('service:')) return false;
+    const header = decodeJwtHeader(parts[1]);
+    if (!header?.kid || !isServiceKid(header.kid)) return false;
+    const decoded = verifyServiceJwt<JwtPayload>(parts[1], { kid: header.kid, ...issuerAudienceOptions() });
+    if (decoded.type !== 'access' || decoded.principalType !== 'service' || !hasValidIdentityClaims(decoded)) return false;
     // A denylisted (killed) service must NOT be treated as a trusted principal —
     // otherwise it keeps the rate-limiter exemption even though requireAuth rejects
     // it on real routes. Fold the kill-switch into the pre-auth check too.
-    return !isServiceTokenDenied(decoded.sub);
+    return !isServiceTokenDenied(decoded);
   } catch {
     return false;
   }

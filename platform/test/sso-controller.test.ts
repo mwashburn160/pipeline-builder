@@ -19,10 +19,13 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockGetEnforcedLoginConfig = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockFindSsoEnforcementForEmail = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockAssertSsoIdentityTrusted = jest.fn<(...a: unknown[]) => Promise<void>>();
-const mockBuildAuthorizeUrl = jest.fn<(...a: unknown[]) => Promise<string>>();
+const mockBuildAuthorizeUrl = jest.fn<(...a: unknown[]) => Promise<{ url: string; codeVerifier?: string }>>();
 const mockExchangeAndValidate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockFindOrCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockIssueTokens = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockAssertSeat = jest.fn<(...a: unknown[]) => Promise<void>>();
+const mockProvisionJit = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockAudit = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, data: unknown) => { res.status(status).json(data); return res; },
@@ -38,7 +41,7 @@ jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
   getRedisClient: jest.fn(async () => undefined),
 }));
 
-jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
 
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
@@ -55,6 +58,7 @@ jest.unstable_mockModule('../src/services/oidc-service.js', () => ({
     OIDC_NOT_ENTITLED: { status: 403, message: 'not entitled' },
     OIDC_INVALID_STATE: { status: 403, message: 'Invalid or expired SSO state' },
     OIDC_EMAIL_DOMAIN_NOT_VERIFIED: { status: 403, message: 'domain not verified' },
+    JIT_SEAT_LIMIT: { status: 403, message: 'no seats left' },
   },
   buildAuthorizeUrl: (...a: unknown[]) => mockBuildAuthorizeUrl(...a),
   exchangeAndValidate: (...a: unknown[]) => mockExchangeAndValidate(...a),
@@ -64,8 +68,21 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { findOrCreateOAuthUser: (...a: unknown[]) => mockFindOrCreate(...a) },
 }));
 
+// JIT provisioning (3a) — the callback runs the seat pre-flight before turning
+// the identity into an account, then provisions the membership + mapped Roles.
+jest.unstable_mockModule('../src/services/sso-jit-service.js', () => ({
+  assertJitSeatAvailable: (...a: unknown[]) => mockAssertSeat(...a),
+  provisionJitMembership: (...a: unknown[]) => mockProvisionJit(...a),
+}));
+
 jest.unstable_mockModule('../src/utils/token.js', () => ({
-  signPersonalAccessToken: jest.fn(),
+  // Session-auth helpers the controllers now import (see utils/token.ts).
+  signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  findRefreshSession: jest.fn(async () => undefined),
+  signApiKeyToken: jest.fn(),
+  signServiceAccountToken: jest.fn(),
+  membershipForOrg: jest.fn(async () => undefined),
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
 }));
 
@@ -104,7 +121,7 @@ function makeRes() {
 async function mintState(orgId: string): Promise<string> {
   const res = makeRes();
   mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'generic-oidc' });
-  mockBuildAuthorizeUrl.mockResolvedValue('https://idp.test/authorize?state=x');
+  mockBuildAuthorizeUrl.mockResolvedValue({ url: 'https://idp.test/authorize?state=x', codeVerifier: 'verifier-1' });
   await (getSsoAuthUrl as any)({ params: { orgId } }, res);
   return (res.json as jest.Mock).mock.calls[0][0].state as string;
 }
@@ -113,6 +130,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockIssueTokens.mockResolvedValue({ accessToken: 'a', refreshToken: 'r' });
   mockAssertSsoIdentityTrusted.mockResolvedValue(undefined);
+  mockAssertSeat.mockResolvedValue(undefined);
+  mockProvisionJit.mockResolvedValue({ membershipCreated: false, matchedGroups: [], rolesAdded: [], rolesRemoved: [] });
 });
 afterEach(() => { jest.clearAllMocks(); });
 
@@ -120,7 +139,7 @@ describe('getSsoAuthUrl', () => {
   it('mints a state + returns the IdP authorize URL', async () => {
     const res = makeRes();
     mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'generic-oidc' });
-    mockBuildAuthorizeUrl.mockResolvedValue('https://idp.test/authorize');
+    mockBuildAuthorizeUrl.mockResolvedValue({ url: 'https://idp.test/authorize', codeVerifier: 'verifier-1' });
     await (getSsoAuthUrl as any)({ params: { orgId: 'org-1' } }, res);
     const body = (res.json as jest.Mock).mock.calls[0][0];
     expect(body.url).toBe('https://idp.test/authorize');
@@ -154,7 +173,10 @@ describe('handleSsoCallback (state lifecycle + org binding)', () => {
       expect.objectContaining({ email: 'u@x.com' }),
       { markOnboarding: false, sso: { issuer: 'https://idp.test' } },
     );
-    expect(mockIssueTokens).toHaveBeenCalledWith(expect.anything(), 'org-1');
+    // SSO opens an INTERACTIVE session stamped `amr: ['sso']`.
+    expect(mockIssueTokens).toHaveBeenCalledWith(
+      expect.anything(), 'org-1', expect.objectContaining({ kind: 'interactive' }),
+    );
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
@@ -170,6 +192,75 @@ describe('handleSsoCallback (state lifecycle + org binding)', () => {
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockFindOrCreate).not.toHaveBeenCalled();
     expect(mockIssueTokens).not.toHaveBeenCalled();
+  });
+
+  it('hands the exchange the PKCE verifier stored with the state — never one from the request', async () => {
+    const state = await mintState('org-1');
+    mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'generic-oidc' });
+    mockExchangeAndValidate.mockResolvedValue({ subject: 's', issuer: 'https://idp.test', email: 'u@x.com', groups: [] });
+    mockFindOrCreate.mockResolvedValue({ _id: 'u1' });
+
+    const res = makeRes();
+    await (handleSsoCallback as any)(
+      // A caller-supplied verifier in the body must be ignored entirely.
+      { params: { orgId: 'org-1' }, body: { code: 'c', state, code_verifier: 'attacker-supplied' } },
+      res,
+    );
+
+    expect(mockExchangeAndValidate).toHaveBeenCalledWith(
+      expect.anything(), 'c', expect.any(String), { codeVerifier: 'verifier-1' },
+    );
+  });
+
+  it('provisions the membership from the token\'s groups, and audits it', async () => {
+    const state = await mintState('org-1');
+    mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'generic-oidc' });
+    mockExchangeAndValidate.mockResolvedValue({ subject: 's', issuer: 'https://idp.test', email: 'u@x.com', groups: ['eng'] });
+    mockFindOrCreate.mockResolvedValue({ _id: 'u1' });
+    mockProvisionJit.mockResolvedValue({ membershipCreated: true, matchedGroups: ['eng'], rolesAdded: ['r1'], rolesRemoved: [] });
+
+    const res = makeRes();
+    await (handleSsoCallback as any)({ params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
+
+    expect(mockProvisionJit).toHaveBeenCalledWith({ orgId: 'org-1', user: { _id: 'u1' }, groups: ['eng'] });
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'sso.jit.provision', expect.objectContaining({
+      affectedOrgId: 'org-1',
+    }));
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('REFUSES the sign-in when the account is out of seats — before any account is created', async () => {
+    const state = await mintState('org-1');
+    mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'generic-oidc' });
+    mockExchangeAndValidate.mockResolvedValue({ subject: 's', issuer: 'https://idp.test', email: 'u@x.com', groups: [] });
+    mockAssertSeat.mockRejectedValue(new Error('JIT_SEAT_LIMIT'));
+
+    const res = makeRes();
+    await (handleSsoCallback as any)({ params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockFindOrCreate).not.toHaveBeenCalled();
+    expect(mockIssueTokens).not.toHaveBeenCalled();
+    // The refusal is auditable + counted, not just a status code.
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'sso.jit.refused', expect.objectContaining({
+      outcome: 'failure',
+      details: expect.objectContaining({ reason: 'seat_limit' }),
+    }));
+  });
+
+  it('audits a Role change on a returning member without re-announcing the provision', async () => {
+    const state = await mintState('org-1');
+    mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'generic-oidc' });
+    mockExchangeAndValidate.mockResolvedValue({ subject: 's', issuer: 'https://idp.test', email: 'u@x.com', groups: ['sre'] });
+    mockFindOrCreate.mockResolvedValue({ _id: 'u1' });
+    mockProvisionJit.mockResolvedValue({ membershipCreated: false, matchedGroups: ['sre'], rolesAdded: [], rolesRemoved: ['r1'] });
+
+    const res = makeRes();
+    await (handleSsoCallback as any)({ params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
+
+    const actions = mockAudit.mock.calls.map((c) => c[1]);
+    expect(actions).toContain('sso.jit.role.change');
+    expect(actions).not.toContain('sso.jit.provision');
   });
 
   it('rejects a REPLAYED state (consumed on first use) — 403', async () => {

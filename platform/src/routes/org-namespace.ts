@@ -12,13 +12,14 @@
 import { requireStepUp } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import { renderOrgNamespace } from '../controllers/org-namespace.js';
-import { requireAuth } from '../middleware/index.js';
+import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
 
 const router: Router = Router({ mergeParams: true });
 
 // YAML pins service-account tokens / namespace labels — sensitive enough
 // to warrant step-up. Operators run this rarely (one-time per-org
 // provisioning), so the prompt cost is acceptable.
-router.get('/', requireAuth, requireStepUp, renderOrgNamespace);
+// `requireSystemAdmin` mirrors the controller's own gate at the route layer.
+router.get('/', requireAuth, requireSystemAdmin, requireStepUp, renderOrgNamespace);
 
 export default router;

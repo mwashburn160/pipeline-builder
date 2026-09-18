@@ -3,6 +3,7 @@
 
 import { entityEvents, type EntityEvent, type EntityEventSubscriber } from './entity-events.js';
 import { InternalHttpClient } from './http-client.js';
+import { serviceIdentity } from './service-keys.js';
 import { getServiceAuthHeader } from '../middleware/auth.js';
 import { type ServiceConfig } from '../types/common.js';
 import { createLogger } from '../utils/logger.js';
@@ -19,14 +20,15 @@ const logger = createLogger('compliance-events');
  *
  * @param config - Optional service config override (defaults to COMPLIANCE_SERVICE_HOST/PORT env vars)
  * @param serviceName - Service identifier baked into the signed JWT's `sub`
- *   (e.g. 'pipeline', 'plugin'). The compliance route requires a service
- *   principal — a spoofable `x-internal-service: true` header is no longer
- *   accepted. Defaults to a generic 'entity-events' when unspecified, but
- *   callers should pass their service name for accurate audit trails.
+ *   (e.g. 'pipeline', 'plugin'). The compliance route is an INTERNAL route: it
+ *   admits only those two services' own signed tokens, and no user token.
+ *   Defaults to THIS process's identity (`SERVICE_NAME`) — since #14 a service
+ *   holds only its own signing key, so a placeholder name would mint a token no
+ *   peer could verify.
  */
 export function registerComplianceEventSubscriber(
   config?: Partial<ServiceConfig>,
-  serviceName: string = 'entity-events',
+  serviceName: string = serviceIdentity(),
 ): void {
   const serviceConfig: ServiceConfig = {
     host: config?.host ?? process.env.COMPLIANCE_SERVICE_HOST ?? 'compliance',

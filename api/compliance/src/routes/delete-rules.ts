@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, audited, getParam, requirePermission } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { emitComplianceAudit } from '../services/audit.js';
@@ -10,7 +10,7 @@ import { complianceRuleService } from '../services/compliance-rule-service.js';
 export function createDeleteRuleRoutes(): Router {
   const router = Router();
 
-  router.delete('/:id', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.delete('/:id', requirePermission('compliance:write'), audited('compliance.rule.delete'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Rule ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 

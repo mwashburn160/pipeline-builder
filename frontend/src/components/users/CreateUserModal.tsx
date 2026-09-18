@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/Badge';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { ModalFooter } from '@/components/ui/ModalFooter';
-import { roleDisplayName } from '@/lib/permissions';
+import { roleDisplayName } from '@/lib/role-display';
 import type { FormState } from '@/hooks/useFormState';
 import type { NewUserState, OrgRoleOption } from './types';
 

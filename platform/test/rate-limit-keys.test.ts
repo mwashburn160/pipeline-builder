@@ -28,19 +28,28 @@ type Cfg = typeof import('../src/config/index.js')['config'];
 let extractClientIp: Keys['extractClientIp'];
 let rateLimitKey: Keys['rateLimitKey'];
 let peekJwtClaims: Keys['peekJwtClaims'];
+let scimOrgKey: Keys['scimOrgKey'];
 let verifiedIsSuperAdmin: Keys['verifiedIsSuperAdmin'];
 let tierLimitedMax: Keys['tierLimitedMax'];
 let config: Cfg;
+/** Signs the ES256 user tokens these helpers verify. */
+let signUserToken: (payload: Record<string, unknown>) => Promise<string>;
 
 beforeAll(async () => {
   process.env.JWT_SECRET ||= 'test-jwt-secret-for-rate-limit-keys';
-  process.env.REFRESH_TOKEN_SECRET ||= 'test-refresh-secret-for-rate-limit-keys';
   process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
   process.env.MONGODB_URI ||= 'mongodb://stub:27017/test';
 
   ({ config } = await import('../src/config/index.js'));
-  ({ extractClientIp, rateLimitKey, peekJwtClaims, verifiedIsSuperAdmin, tierLimitedMax } =
+  ({ extractClientIp, rateLimitKey, peekJwtClaims, scimOrgKey, verifiedIsSuperAdmin, tierLimitedMax } =
     await import('../src/middleware/rate-limit-keys.js'));
+
+  // Bucket selection verifies the token, so it needs platform's signing key
+  // loaded (in memory here — no PEM, no KMS).
+  const { installTestSigningKeys } = await import('./helpers/signing.js');
+  installTestSigningKeys();
+  const { signUserJwt } = await import('../src/services/token-signing/index.js');
+  signUserToken = (payload) => signUserJwt(payload, { expiresIn: 300 });
 });
 
 /** A request with the fields these helpers touch. `ip` is what Express resolved. */
@@ -54,10 +63,9 @@ function bearer(payload: object): Record<string, string> {
   return { authorization: `Bearer header.${body}.sig` };
 }
 
-/** A validly signed access token carrying `payload`. */
-function signed(payload: object): Record<string, string> {
-  const token = jwt.sign({ type: 'access', ...payload }, config.auth.jwt.secret, { algorithm: config.auth.jwt.algorithm });
-  return { authorization: `Bearer ${token}` };
+/** A validly signed (ES256, platform-signed) access token carrying `payload`. */
+async function signed(payload: Record<string, unknown>): Promise<Record<string, string>> {
+  return { authorization: `Bearer ${await signUserToken({ type: 'access', ...payload })}` };
 }
 
 describe('extractClientIp', () => {
@@ -96,8 +104,8 @@ describe('extractClientIp', () => {
 });
 
 describe('rateLimitKey', () => {
-  it('buckets an authenticated caller by org', () => {
-    expect(rateLimitKey(req({ ip: '203.0.113.7', headers: signed({ organizationId: 'Acme' }) })))
+  it('buckets an authenticated caller by org', async () => {
+    expect(rateLimitKey(req({ ip: '203.0.113.7', headers: await signed({ organizationId: 'Acme' }) })))
       .toBe('org:acme');
   });
 
@@ -107,13 +115,32 @@ describe('rateLimitKey', () => {
     expect(keys).toEqual(new Set(['ip:203.0.113.7']));
   });
 
-  it('does not bucket by a signed non-access token', () => {
-    const token = jwt.sign({ type: 'step-up', organizationId: 'acme' }, config.auth.jwt.secret, { algorithm: config.auth.jwt.algorithm });
-    expect(rateLimitKey(req({ ip: '203.0.113.7', headers: { authorization: `Bearer ${token}` } }))).toBe('ip:203.0.113.7');
+  it('does not bucket by a signed non-access token', async () => {
+    const headers = await signed({ type: 'step-up', organizationId: 'acme' });
+    expect(rateLimitKey(req({ ip: '203.0.113.7', headers }))).toBe('ip:203.0.113.7');
   });
 
   it('falls back to IP keying with no token', () => {
     expect(rateLimitKey(req({ ip: '203.0.113.7' }))).toBe('ip:203.0.113.7');
+  });
+
+  it('buckets a SERVICE ACCOUNT by the account, not by its org', async () => {
+    const headers = await signed({ organizationId: 'acme', principalType: 'service_account', sub: 'sa-1' });
+    // Automation is exactly the traffic that would otherwise drain the window
+    // its org's people share — so it gets its own bucket.
+    expect(rateLimitKey(req({ ip: '203.0.113.7', headers }))).toBe('sa:sa-1');
+  });
+
+  it('buckets an OPAQUE key by the key hash, which is per-credential (pre-auth)', async () => {
+    const key = 'pb_sa_0123456789abcdef0123456789abcdef0123456789a';
+    const other = 'pb_pat_0123456789abcdef0123456789abcdef0123456789b';
+    const bucket = rateLimitKey(req({ ip: '203.0.113.7', headers: { authorization: `Bearer ${key}` } }));
+
+    // Stable per key, distinct per key, and never the secret itself.
+    expect(bucket).toBe(rateLimitKey(req({ ip: '198.51.100.1', headers: { authorization: `Bearer ${key}` } })));
+    expect(bucket).not.toBe(rateLimitKey(req({ ip: '203.0.113.7', headers: { authorization: `Bearer ${other}` } })));
+    expect(bucket.startsWith('key:')).toBe(true);
+    expect(bucket).not.toContain(key.slice(6));
   });
 
   it('falls back to IP keying on a malformed token rather than throwing', () => {
@@ -132,6 +159,38 @@ describe('rateLimitKey', () => {
   });
 });
 
+describe('scimOrgKey', () => {
+  it('buckets by ORG, not by the service account — the plan asks for a per-org limit', async () => {
+    // Deliberately the opposite of `rateLimitKey`: an org that mints five SCIM
+    // keys must still get ONE directory-sync budget, or the ceiling is raised
+    // just by issuing more keys.
+    const a = await signed({ organizationId: 'Acme', principalType: 'service_account', sub: 'sa-1' });
+    const b = await signed({ organizationId: 'acme', principalType: 'service_account', sub: 'sa-2' });
+    expect(scimOrgKey(req({ ip: '203.0.113.7', headers: a }))).toBe('scim-org:acme');
+    expect(scimOrgKey(req({ ip: '198.51.100.1', headers: b }))).toBe('scim-org:acme');
+  });
+
+  it('IGNORES an unverified org claim', () => {
+    const keys = new Set(['org-a', 'org-b'].map((organizationId) =>
+      scimOrgKey(req({ ip: '203.0.113.7', headers: bearer({ type: 'access', organizationId }) }))));
+    expect(keys).toEqual(new Set(['scim-ip:203.0.113.7']));
+  });
+
+  it('falls back to the credential hash, then the IP', () => {
+    const key = 'pb_sa_0123456789abcdef0123456789abcdef0123456789a';
+    const bucket = scimOrgKey(req({ ip: '203.0.113.7', headers: { authorization: `Bearer ${key}` } }));
+    expect(bucket.startsWith('scim-key:')).toBe(true);
+    expect(bucket).not.toContain(key.slice(6));
+    expect(scimOrgKey(req({ ip: '203.0.113.7' }))).toBe('scim-ip:203.0.113.7');
+  });
+
+  it('never collides with the general bucket for the same org', async () => {
+    const headers = await signed({ organizationId: 'acme' });
+    expect(scimOrgKey(req({ ip: '203.0.113.7', headers })))
+      .not.toBe(rateLimitKey(req({ ip: '203.0.113.7', headers })));
+  });
+});
+
 describe('peekJwtClaims', () => {
   it('reads claims without verifying (it runs pre-auth)', () => {
     expect(peekJwtClaims(req({ headers: bearer({ tier: 'team', isSuperAdmin: true }) })))
@@ -146,31 +205,33 @@ describe('peekJwtClaims', () => {
 });
 
 describe('verifiedIsSuperAdmin', () => {
-  it('honours a properly signed sysadmin token', () => {
-    expect(verifiedIsSuperAdmin(req({ headers: signed({ isSuperAdmin: true }) }))).toBe(true);
+  it('honours a properly signed sysadmin token', async () => {
+    expect(verifiedIsSuperAdmin(req({ headers: await signed({ isSuperAdmin: true }) }))).toBe(true);
   });
 
   it('REFUSES an unsigned isSuperAdmin claim — the bypass removes throttling entirely', () => {
     expect(verifiedIsSuperAdmin(req({ headers: bearer({ isSuperAdmin: true }) }))).toBe(false);
   });
 
-  it('refuses a token signed with the wrong secret', () => {
-    const forged = jwt.sign({ isSuperAdmin: true }, 'not-the-secret', { algorithm: 'HS256' });
+  it('refuses an HS256 token, whatever secret signed it', () => {
+    // There is no shared secret left (#5 + #14) — and an HMAC token cannot buy a
+    // rate-limit bypass on either chain.
+    const forged = jwt.sign({ type: 'access', isSuperAdmin: true }, 'any-shared-secret', { algorithm: 'HS256' });
     expect(verifiedIsSuperAdmin(req({ headers: { authorization: `Bearer ${forged}` } }))).toBe(false);
   });
 
-  it('refuses a signed token without the flag, and unauthenticated requests', () => {
-    expect(verifiedIsSuperAdmin(req({ headers: signed({ sub: 'u1' }) }))).toBe(false);
+  it('refuses a signed token without the flag, and unauthenticated requests', async () => {
+    expect(verifiedIsSuperAdmin(req({ headers: await signed({ sub: 'u1' }) }))).toBe(false);
     expect(verifiedIsSuperAdmin(req({}))).toBe(false);
   });
 });
 
 describe('tierLimitedMax', () => {
-  it('scales the baseline by the tier multiplier', () => {
+  it('scales the baseline by the tier multiplier', async () => {
     const base = config.rateLimit.max;
-    expect(tierLimitedMax(req({ headers: signed({ tier: 'developer' }) })))
+    expect(tierLimitedMax(req({ headers: await signed({ tier: 'developer' }) })))
       .toBe(Math.max(1, Math.floor(base * config.rateLimit.tierMultipliers.developer)));
-    expect(tierLimitedMax(req({ headers: signed({ tier: 'enterprise' }) })))
+    expect(tierLimitedMax(req({ headers: await signed({ tier: 'enterprise' }) })))
       .toBe(Math.max(1, Math.floor(base * config.rateLimit.tierMultipliers.enterprise)));
   });
 
@@ -179,13 +240,13 @@ describe('tierLimitedMax', () => {
       .toBe(Math.max(1, Math.floor(config.rateLimit.max)));
   });
 
-  it('falls back to the developer baseline for an unknown or absent tier', () => {
+  it('falls back to the developer baseline for an unknown or absent tier', async () => {
     const fallback = Math.max(1, Math.floor(config.rateLimit.max * 1));
-    expect(tierLimitedMax(req({ headers: signed({ tier: 'platinum' }) }))).toBe(fallback);
+    expect(tierLimitedMax(req({ headers: await signed({ tier: 'platinum' }) }))).toBe(fallback);
     expect(tierLimitedMax(req({}))).toBe(fallback);
   });
 
-  it('never returns less than 1', () => {
-    expect(tierLimitedMax(req({ headers: signed({ tier: 'developer' }) }))).toBeGreaterThanOrEqual(1);
+  it('never returns less than 1', async () => {
+    expect(tierLimitedMax(req({ headers: await signed({ tier: 'developer' }) }))).toBeGreaterThanOrEqual(1);
   });
 });

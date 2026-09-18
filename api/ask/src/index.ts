@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, createQuotaService, wireServiceSecurity } from '@pipeline-builder/api-core';
-import { createApp, runServer, attachRequestContext, createAuthenticatedWithOrgRoute, rateLimitByOrg } from '@pipeline-builder/api-server';
+import { createApp, runServer, attachRequestContext } from '@pipeline-builder/api-server';
 
-import { createAgentRoutes } from './routes/agent.js';
-import { createAskRoutes } from './routes/ask.js';
+import { mountRoutes } from './app-routes.js';
 import { getAuditClient } from './services/audit.js';
 import { getDocsIndex } from './services/docs-index.js';
 
@@ -23,18 +22,7 @@ wireServiceSecurity('ask', getAuditClient);
 // Attach request context (identity + logging) to all requests.
 app.use(attachRequestContext(sseManager));
 
-// -- /ask routes --------------------------------------------------------------
-// Auth + orgId at the mount; each handler adds requireFeature('ai_generation').
-// rateLimitByOrg caps LLM spend per tenant (keyed on the verified org, service
-// principals exempt) and must run after auth. Reuses the existing ai_generation
-// entitlement for v1.
-app.use(
-  '/ask',
-  ...createAuthenticatedWithOrgRoute(),
-  rateLimitByOrg({ name: 'ask', max: 30, windowMs: 60_000, message: 'Too many Ask requests' }),
-  createAskRoutes(quotaService),
-  createAgentRoutes(quotaService),
-);
+mountRoutes(app, { quotaService });
 
 logger.info('All /ask routes registered');
 

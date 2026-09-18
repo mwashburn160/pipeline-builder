@@ -21,11 +21,15 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       return { ok: false, error: err instanceof Error ? err.message : 'Validation failed' };
     }
   }),
-  // Route uses `requireAuth` and `isServicePrincipal` as middleware. Pass
+  // Route uses `requireAuth` + `requireInternalService` as middleware. Pass
   // through to next() in the auth gate; isServicePrincipal returns true unless
-  // the test sets `req.__notServicePrincipal`.
+  // the test sets `req.__notServicePrincipal`, and `serviceNameOf` reads the
+  // `service:<name>` subject the internal-route gate checks against its caller
+  // list.
   requireAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
   isServicePrincipal: (req: { __notServicePrincipal?: boolean }) => !req?.__notServicePrincipal,
+  serviceNameOf: (claims: { sub?: string } | undefined) =>
+    (typeof claims?.sub === 'string' ? claims.sub.replace(/^service:/, '') || undefined : undefined),
 }));
 
 const mockFindActiveByOrgAndTarget = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue([]);
@@ -72,7 +76,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
 const { sendSuccess, sendBadRequest, sendError } = await import('@pipeline-builder/api-core');
 const { createEntityEventRoutes } = await import('../src/routes/entity-events.js');
 
-// The route now has three middlewares: requireAuth, requireServicePrincipal,
+// The route now has three middlewares: requireAuth, requireInternalService,
 // final handler. Run them sequentially so the service-principal gate fires
 // for the relevant test, but otherwise pass through to the handler.
 // A middleware that does NOT call next() (because it sent a response) must
@@ -109,14 +113,23 @@ describe('Entity Events Route', () => {
     jest.clearAllMocks();
   });
 
+  /** A request as `pipeline` — one of the two services this internal route admits. */
   function makeReq(body: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
-    return { headers: {}, body, ...extra };
+    return { headers: {}, body, user: { sub: 'service:pipeline', principalType: 'service' }, ...extra };
   }
 
   const res = {};
 
   it('rejects non-service-principal callers (e.g. user JWTs)', async () => {
     await runRoute(makeReq({}, { __notServicePrincipal: true }), res);
+    expect(sendError).toHaveBeenCalledWith(res, 403, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
+    expect(sendBadRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects a service that is not one of its callers (#14)', async () => {
+    // `reporting` holds a valid key of its own; it is just not a producer of
+    // entity events, and the caller list is what says so.
+    await runRoute(makeReq({}, { user: { sub: 'service:reporting', principalType: 'service' } }), res);
     expect(sendError).toHaveBeenCalledWith(res, 403, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
     expect(sendBadRequest).not.toHaveBeenCalled();
   });

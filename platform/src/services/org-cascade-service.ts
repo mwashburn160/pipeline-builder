@@ -8,7 +8,7 @@
  * data in for a given org * - Postgres (via pipeline-core): every org-scoped (`org_id`) table. Soft-deleted
  * where `deleted_at` exists; hard-deleted otherwise.
  * - Mongo (platform's own): Invitation, AuditEvent (the org's own hash chain,
- * archived first), OrgIdpConfig, OrgDomain and JoinRequest. NOTE:
+ * archived first), OrgIdpConfig, IdpGroupMapping, OrgDomain and JoinRequest. NOTE:
  * `UserOrganization` membership rows are removed later by
  * `organizationService.delete` (the purge sweep), not by this cascade.
  * - Quota service: HTTP DELETE /quotas/:orgId.
@@ -30,12 +30,14 @@ import {
   ORG_ALREADY_DELETED,
   ORG_SNAPSHOT_FAILED,
 } from './org-errors.js';
+import { deleteServiceAccountsForOrg, revokeServiceAccountKeysForOrg } from './service-account-cascade.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishUsersRevocation } from '../helpers/session-revocation.js';
 import ArchivedAuditEvent from '../models/archived-audit-events.js';
 import AuditEvent from '../models/audit-event.js';
 import DeletedOrgSnapshot from '../models/deleted-org-snapshot.js';
+import IdpGroupMapping from '../models/idp-group-mapping.js';
 import Invitation from '../models/invitation.js';
 import JoinRequest from '../models/join-request.js';
 import OrgDomain from '../models/org-domain.js';
@@ -169,7 +171,17 @@ function messageClient() {
  *  "delete failed" — the prior `-1` sentinel conflated the two. */
 export interface CascadeReport {
   postgres: Record<string, { ok: boolean; rowCount?: number; error?: string }>;
-  mongo: { invitations: number; auditEvents: number; idpConfigs: number; orgDomains: number; joinRequests: number };
+  mongo: {
+    invitations: number;
+    auditEvents: number;
+    idpConfigs: number;
+    idpGroupMappings: number;
+    orgDomains: number;
+    joinRequests: number;
+    /** Service accounts removed, and how many of their keys went with them. */
+    serviceAccounts: number;
+    serviceAccountKeys: number;
+  };
   quota: { ok: boolean; statusCode?: number };
   billing: { ok: boolean; statusCode?: number };
   /** Result of purging the org's MinIO attachment blobs via the message service
@@ -212,7 +224,16 @@ export async function cascadeDeleteOrg( orgId: string,
 
   const report: CascadeReport = {
     postgres: {},
-    mongo: { invitations: 0, auditEvents: 0, idpConfigs: 0, orgDomains: 0, joinRequests: 0 },
+    mongo: {
+      invitations: 0,
+      auditEvents: 0,
+      idpConfigs: 0,
+      idpGroupMappings: 0,
+      orgDomains: 0,
+      joinRequests: 0,
+      serviceAccounts: 0,
+      serviceAccountKeys: 0,
+    },
     quota: { ok: false },
     billing: { ok: false },
     messageBlobs: { ok: false },
@@ -351,6 +372,16 @@ export async function cascadeDeleteOrg( orgId: string,
     logger.error('OrgIdpConfig cleanup failed', { orgId, error: errorMessage(err) });
   }
 
+  // IdP group → Role mappings (3a) — same reasoning as the config above: they
+  // name Roles that are about to be deleted, and a future org reusing this id
+  // would otherwise inherit a rule set granting them.
+  try {
+    const mapRes = await IdpGroupMapping.deleteMany({ orgId } as never);
+    report.mongo.idpGroupMappings = (mapRes as { deletedCount?: number }).deletedCount ?? 0;
+  } catch (err) {
+    logger.error('IdpGroupMapping cleanup failed', { orgId, error: errorMessage(err) });
+  }
+
   // Domain-based join (P2b): registered domains + pending join requests. The
   // domain row MUST be freed on delete — `domain` is globally unique, so a
   // lingering row would permanently block any future org (incl. a re-signup of
@@ -366,6 +397,18 @@ export async function cascadeDeleteOrg( orgId: string,
     report.mongo.joinRequests = (jrRes as { deletedCount?: number }).deletedCount ?? 0;
   } catch (err) {
     logger.error('JoinRequest cleanup failed', { orgId, error: errorMessage(err) });
+  }
+
+  // Service accounts (#2): the org OWNS them, so the purge deletes them and
+  // every `pb_sa_…` key they hold. A key outliving its org would be a credential
+  // with no tenant to authorize against — the exchange already refuses one whose
+  // org is gone, and this makes the record gone too.
+  try {
+    const sa = await deleteServiceAccountsForOrg(orgId);
+    report.mongo.serviceAccounts = sa.accounts;
+    report.mongo.serviceAccountKeys = sa.keys;
+  } catch (err) {
+    logger.error('Service-account cleanup failed', { orgId, error: errorMessage(err) });
   }
 
   // -- Quota service: HTTP DELETE /quotas/:orgId. Service-token auth  the
@@ -581,7 +624,23 @@ export async function softDeleteOrg(
   // services cut them off from the tombstoned org immediately (best-effort).
   await publishUsersRevocation(bumpedMemberIds);
 
-  logger.info('Org soft-deleted', { orgId, purgeAfter, snapshotId, membersInvalidated });
+  // Service-account keys, for the same reason member PATs are revoked above: an
+  // account has no session and no `tokenVersion`, so the bump doesn't reach it,
+  // and its automation would otherwise keep writing to a tombstoned org for the
+  // whole retention window. Revoked (not deleted) — a restore within the window
+  // leaves the accounts and their Roles intact, and the operator reissues keys.
+  // Best-effort: a failure here leaves the exchange's own live-org check as the
+  // backstop (it refuses a soft-deleted org), so it must not abort the delete.
+  let serviceAccountKeysRevoked = 0;
+  try {
+    serviceAccountKeysRevoked = await revokeServiceAccountKeysForOrg(orgId);
+  } catch (err) {
+    logger.warn('Service-account key revoke on soft-delete failed (exchange still refuses the tombstoned org)', {
+      orgId, error: errorMessage(err),
+    });
+  }
+
+  logger.info('Org soft-deleted', { orgId, purgeAfter, snapshotId, membersInvalidated, serviceAccountKeysRevoked });
   return { orgId, deletedAt: now, purgeAfter, snapshotId, membersInvalidated };
 }
 

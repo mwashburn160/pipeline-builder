@@ -336,6 +336,22 @@ export const testAlertDestination = withController('Test alert destination', asy
 });
 
 /**
+ * Constant-time token compare to avoid leaking the token via timing. The XOR /
+ * bitwise-OR accumulation is the standard formulation — eslint's no-bitwise
+ * rule would force a slower / non-constant-time variant, so we suppress it just
+ * here.
+ */
+function tokenMatches(provided: string, expected: string): boolean {
+  if (provided.length !== expected.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < expected.length; i++) {
+    // eslint-disable-next-line no-bitwise
+    mismatch |= expected.charCodeAt(i) ^ provided.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+
+/**
  * POST /api/observability/alert-webhook — Alertmanager webhook relay.
  *
  * Auth: shared-secret `ALERT_WEBHOOK_TOKEN` env (sent as Bearer token from
@@ -367,19 +383,12 @@ export const alertWebhook = withController('Alertmanager webhook relay', async (
     logger.warn('Alert webhook unknown instance', { instance: instanceHeader });
     return sendError(res, 401, 'Unauthorized');
   }
-  const expected = instance.token;
-
-  // Constant-time compare to avoid leaking the token via timing. The XOR /
-  // bitwise-OR accumulation is the standard formulation — eslint's
-  // no-bitwise rule would force a slower / non-constant-time variant, so
-  // we suppress it just here.
-  if (provided.length !== expected.length) return sendError(res, 401, 'Unauthorized');
-  let mismatch = 0;
-  for (let i = 0; i < expected.length; i++) {
-    // eslint-disable-next-line no-bitwise
-    mismatch |= expected.charCodeAt(i) ^ provided.charCodeAt(i);
-  }
-  if (mismatch !== 0) return sendError(res, 401, 'Unauthorized');
+  // Current token, or — during a rotation (ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS)
+  // — the outgoing one. Both are compared (no short-circuit) so timing doesn't
+  // reveal which matched.
+  const matchesCurrent = tokenMatches(provided, instance.token);
+  const matchesPrevious = instance.previousToken ? tokenMatches(provided, instance.previousToken) : false;
+  if (!matchesCurrent && !matchesPrevious) return sendError(res, 401, 'Unauthorized');
 
   // Minimal validation of the Alertmanager payload shape.
   const body = req.body as Partial<AlertmanagerWebhook>;

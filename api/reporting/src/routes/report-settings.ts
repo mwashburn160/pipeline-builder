@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, validateBody, requirePermission } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, validateBody, requirePermission, audited } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
+import { emitReportingAudit } from '../services/audit.js';
 
 /**
  * Per-org reporting configuration (Phase 5b + 7). Mounted under `/reports/settings`
@@ -49,12 +50,23 @@ export function createReportSettingsRoutes(): Router {
   // Org-admin write: `org:settings` is the conventional org-admin config
   // permission (Member lacks it; Admin/Owner carry it), matching the sibling
   // per-org config surfaces (SSO, notification preferences).
-  router.put('/incidents', requirePermission('org:settings'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.put('/incidents', requirePermission('org:settings'), audited('reporting.settings.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, reportingSettingsSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     await reportingService.setReportingSettings(orgId, validation.value);
     const settings = await reportingService.getIncidentSettings(orgId);
     ctx.log('COMPLETED', 'Updated reporting settings', { orgId, ...validation.value });
+    // Best-effort attributed audit — the correlation window governs how incidents
+    // attach to deploys (i.e. the org's reported CFR/MTTR), so a change to it must
+    // outlive the request log. Emitted only after the upsert landed.
+    emitReportingAudit({
+      action: 'reporting.settings.update',
+      actorId: req.user?.sub ?? userId ?? 'system',
+      orgId,
+      targetType: 'reporting-settings',
+      targetId: orgId,
+      details: { ...validation.value },
+    });
     return sendSuccess(res, 200, { settings });
   }));
 

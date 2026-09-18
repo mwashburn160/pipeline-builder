@@ -100,9 +100,19 @@ jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({
   __esModule: true,
   default: { deleteMany: mockIdpDeleteMany },
 }));
+// IdP group → Role mappings (3a) — cleaned up with the IdP config they belong to.
+const mockIdpGroupMappingDeleteMany = jest.fn();
+jest.unstable_mockModule('../src/models/idp-group-mapping.js', () => ({
+  __esModule: true,
+  default: { deleteMany: mockIdpGroupMappingDeleteMany },
+}));
 
 const mockOrgDomainDeleteMany = jest.fn();
 const mockJoinRequestDeleteMany = jest.fn();
+const mockServiceAccountFind = jest.fn();
+const mockServiceAccountDeleteMany = jest.fn();
+const mockSaKeyDeleteMany = jest.fn();
+const mockRoleAssignmentDeleteMany = jest.fn();
 jest.unstable_mockModule('../src/models/org-domain.js', () => ({
   __esModule: true,
   default: { deleteMany: mockOrgDomainDeleteMany },
@@ -110,6 +120,20 @@ jest.unstable_mockModule('../src/models/org-domain.js', () => ({
 jest.unstable_mockModule('../src/models/join-request.js', () => ({
   __esModule: true,
   default: { deleteMany: mockJoinRequestDeleteMany },
+}));
+// Service accounts (#2): org property, so the purge deletes them along with
+// every key and Role assignment they hold.
+jest.unstable_mockModule('../src/models/service-account.js', () => ({
+  __esModule: true,
+  default: { find: mockServiceAccountFind, deleteMany: mockServiceAccountDeleteMany },
+}));
+jest.unstable_mockModule('../src/models/personal-access-token.js', () => ({
+  __esModule: true,
+  default: { deleteMany: mockSaKeyDeleteMany, updateMany: jest.fn() },
+}));
+jest.unstable_mockModule('../src/models/role-assignment.js', () => ({
+  __esModule: true,
+  default: { deleteMany: mockRoleAssignmentDeleteMany },
 }));
 
 jest.unstable_mockModule('../src/config/index.js', () => ({
@@ -147,8 +171,14 @@ beforeEach(() => {
   mockAuditCreate.mockResolvedValue({});
   mockArchivedBulkWrite.mockResolvedValue({});
   mockIdpDeleteMany.mockResolvedValue({ deletedCount: 0 });
+  mockIdpGroupMappingDeleteMany.mockResolvedValue({ deletedCount: 0 });
   mockOrgDomainDeleteMany.mockResolvedValue({ deletedCount: 0 });
   mockJoinRequestDeleteMany.mockResolvedValue({ deletedCount: 0 });
+  // One service account with two keys, so the purge's teardown leg is exercised.
+  mockServiceAccountFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([{ _id: 'sa-1' }]) }) });
+  mockServiceAccountDeleteMany.mockResolvedValue({ deletedCount: 1 });
+  mockSaKeyDeleteMany.mockResolvedValue({ deletedCount: 2 });
+  mockRoleAssignmentDeleteMany.mockResolvedValue({ deletedCount: 1 });
   // Default: org has no per-org KMS config.
   mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => null }) });
 });
@@ -244,7 +274,17 @@ describe('cascadeDeleteOrg', () => {
 
     const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
 
-    expect(report.mongo).toEqual({ invitations: 3, auditEvents: 12, idpConfigs: 1, orgDomains: 0, joinRequests: 0 });
+    expect(report.mongo).toEqual({
+      invitations: 3,
+      auditEvents: 12,
+      idpConfigs: 1,
+      idpGroupMappings: 0,
+      orgDomains: 0,
+      joinRequests: 0,
+      // Service accounts are org property — the purge takes them and their keys.
+      serviceAccounts: 1,
+      serviceAccountKeys: 2,
+    });
     // The live delete is exactly this org's own hash chain (chain key =
     // affectedOrgId). An event this org's members performed on ANOTHER org
     // (orgId = org-acme, affectedOrgId = other) is a link in THAT org's chain;
@@ -300,6 +340,18 @@ describe('cascadeDeleteOrg', () => {
     const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
     expect(mockArchivedBulkWrite).not.toHaveBeenCalled();
     expect(report.auditArchive).toEqual({ ok: true, archived: 0 });
+  });
+
+  it('deletes the org SERVICE ACCOUNTS with their keys and role assignments', async () => {
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+
+    expect(report.mongo.serviceAccounts).toBe(1);
+    expect(report.mongo.serviceAccountKeys).toBe(2);
+    // Keys first, then assignments, then the accounts: an interrupted purge can
+    // only ever leave FEWER credentials, never a live key with no account.
+    expect(mockSaKeyDeleteMany).toHaveBeenCalledWith({ serviceAccountId: { $in: ['sa-1'] } });
+    expect(mockRoleAssignmentDeleteMany).toHaveBeenCalledWith({ serviceAccountId: { $in: ['sa-1'] } });
+    expect(mockServiceAccountDeleteMany).toHaveBeenCalledWith({ _id: { $in: ['sa-1'] } });
   });
 
   it('reports zero idpConfigs cleanly when none exist', async () => {

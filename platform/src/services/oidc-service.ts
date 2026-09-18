@@ -31,6 +31,8 @@ import crypto from 'crypto';
 import { assertSafeUrl, createLogger, isRefusedRedirect, SSRF_FETCH_INIT } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import { config } from '../config/index.js';
+import { extractGroupClaim } from '../helpers/idp-claims.js';
+import { PKCE_METHOD_S256, createCodeVerifier, pkceAuthorizeParams } from '../helpers/pkce.js';
 
 const logger = createLogger('oidc-service');
 
@@ -61,6 +63,11 @@ export const OIDC_ERROR_MAP = {
   OIDC_NO_EMAIL: { status: 400, message: 'The identity provider did not return a verified email address' },
   OIDC_EMAIL_DOMAIN_NOT_ALLOWED: { status: 403, message: 'Your email domain is not permitted to sign in to this organization' },
   OIDC_EMAIL_DOMAIN_NOT_VERIFIED: { status: 403, message: 'This organization has not verified ownership of your email domain, so it cannot sign you in with single sign-on' },
+  // Just-in-time provisioning (3a). Key must match `JIT_SEAT_LIMIT` in
+  // services/sso-jit-errors.ts — the sign-in is REFUSED (rather than silently
+  // signing the user in without a membership) so the seat cap means the same
+  // thing here as it does on the invitation path.
+  JIT_SEAT_LIMIT: { status: 403, message: 'Your organization has no seats left, so single sign-on could not add you to it. Ask an administrator to free a seat or raise the seat limit.' },
   // Key must match `SSO_SUPERADMIN_REFUSED` in auth-service.ts (literal for the same reason as below).
   SSO_SUPERADMIN_REFUSED: { status: 403, message: 'Platform administrators cannot sign in through an organization\'s single sign-on' },
   // Key must match `ACCOUNT_EMAIL_UNVERIFIED` in auth-service.ts (kept a literal
@@ -75,6 +82,9 @@ interface DiscoveryDoc {
   authorization_endpoint: string;
   token_endpoint: string;
   jwks_uri: string;
+  /** RFC 8414: the PKCE challenge methods this issuer accepts. Optional — many
+   *  conformant issuers support PKCE without advertising it. */
+  code_challenge_methods_supported?: string[];
 }
 
 interface Jwk {
@@ -195,6 +205,14 @@ export interface OidcIdentity {
   issuer: string;
   email: string;
   name?: string;
+  /** `auth_time` (epoch seconds) when the IdP reported it — when the user last
+   *  actually authenticated. Step-up re-auth uses it to prove a fresh sign-in. */
+  authTime?: number;
+  /** Group memberships asserted by the IdP, read from the org's configured
+   *  `groupsClaim` (3a). Empty when the claim is absent, malformed, or the
+   *  provider carries no groups (Google). Drives JIT Role mapping ONLY — it is
+   *  never trusted as a permission by itself. */
+  groups: string[];
 }
 
 interface IdTokenClaims {
@@ -205,6 +223,7 @@ interface IdTokenClaims {
   email_verified?: boolean | string;
   name?: string;
   nonce?: string;
+  auth_time?: number;
 }
 
 // Public surface
@@ -220,6 +239,8 @@ export interface OidcLoginConfig {
   region?: string;
   /** AWS Cognito user-pool id — used to DERIVE discovery for `provider: 'cognito'`. */
   userPoolId?: string;
+  /** id_token claim carrying group memberships (3a). Unset = `groups`. */
+  groupsClaim?: string;
   allowedEmailDomains: string[];
 }
 
@@ -251,16 +272,72 @@ function discoveryUrlFor(cfg: OidcLoginConfig): string {
 }
 
 /**
+ * Whether a step-up re-auth through this IdP MUST come back with `auth_time`.
+ * `max_age` obliges a conformant OIDC provider to return it (OIDC Core §3.1.2.1),
+ * so generic OIDC and Cognito fail closed without it. Google ignores
+ * `max_age`/`prompt=login` and omits `auth_time`; its recency is enforced only
+ * when the claim is present (documented limitation, docs/authentication.md).
+ */
+export function ssoReauthRequiresAuthTime(provider: string): boolean {
+  return provider !== 'google';
+}
+
+/** Authorize params that force a fresh sign-in for step-up re-auth. Google
+ *  rejects `prompt=login` (it only knows none/consent/select_account). */
+function ssoReauthParams(provider: string): Record<string, string> {
+  return provider === 'google'
+    ? { prompt: 'select_account', max_age: '0' }
+    : { prompt: 'login', max_age: '0' };
+}
+
+/**
+ * Whether to protect this flow with PKCE (RFC 7636).
+ *
+ * The rule, in the order a reader will ask about it:
+ *   - the issuer advertises `code_challenge_methods_supported` including `S256`
+ *     → yes;
+ *   - it advertises the field WITHOUT `S256` (i.e. `plain` only) → **no**. We
+ *     never negotiate down to `plain`, which offers no protection at all;
+ *   - it omits the field → **yes anyway**. Advertising is optional (RFC 8414),
+ *     plenty of PKCE-capable issuers stay silent, and an unknown authorization
+ *     parameter is ignored per OAuth 2.0 §3.1, so sending it is harmless where
+ *     it isn't understood.
+ *
+ * Evaluated from the SAME cached discovery document on both legs, so initiate
+ * and exchange agree; an issuer that changes its advertisement mid-flow fails
+ * the exchange closed and the user simply signs in again.
+ */
+function usePkce(discovery: DiscoveryDoc): boolean {
+  const methods = discovery.code_challenge_methods_supported;
+  if (!Array.isArray(methods) || methods.length === 0) return true;
+  return methods.includes(PKCE_METHOD_S256);
+}
+
+/** An authorization request: where to send the browser, and the PKCE verifier
+ *  the caller must store with the pending state and hand back at exchange. */
+export interface OidcAuthorizeRequest {
+  url: string;
+  /** Absent only for an issuer that advertises PKCE without `S256`. */
+  codeVerifier?: string;
+}
+
+/**
  * Build the IdP authorization-code redirect URL for an org's IdP, along with the
- * `state` + `nonce` the caller must remember to bind the callback. Discovery is
- * resolved (and cached) here so an unreachable IdP fails at initiate time.
+ * `state` + `nonce` the caller must remember to bind the callback, and the PKCE
+ * `code_verifier` it must store alongside them. Discovery is resolved (and
+ * cached) here so an unreachable IdP fails at initiate time.
+ *
+ * The verifier NEVER leaves the server: only its S256 challenge goes into the
+ * redirect. Store it with the single-use pending state so it dies with it.
  */
 export async function buildAuthorizeUrl(
   cfg: OidcLoginConfig,
   state: string,
   nonce: string,
-): Promise<string> {
+  opts: { reauth?: boolean } = {},
+): Promise<OidcAuthorizeRequest> {
   const discovery = await fetchDiscovery(discoveryUrlFor(cfg));
+  const codeVerifier = usePkce(discovery) ? createCodeVerifier() : undefined;
   const params = new URLSearchParams({
     client_id: cfg.clientId,
     redirect_uri: ssoCallbackUrl(cfg.orgId),
@@ -268,8 +345,10 @@ export async function buildAuthorizeUrl(
     scope: 'openid email profile',
     state,
     nonce,
+    ...(codeVerifier ? pkceAuthorizeParams(codeVerifier) : {}),
+    ...(opts.reauth ? ssoReauthParams(cfg.provider) : {}),
   });
-  return `${discovery.authorization_endpoint}?${params}`;
+  return { url: `${discovery.authorization_endpoint}?${params}`, ...(codeVerifier && { codeVerifier }) };
 }
 
 /**
@@ -279,13 +358,23 @@ export async function buildAuthorizeUrl(
  * profile. Throws typed errors from {@link OIDC_ERROR_MAP}.
  *
  * @param expectedNonce the nonce minted at initiate, bound to the state.
+ * @param opts.codeVerifier the PKCE verifier stored with that state. REQUIRED
+ *   whenever this issuer takes PKCE — a flow that started with a challenge can
+ *   never be redeemed without its verifier, and a state minted before PKCE
+ *   shipped (or one carrying somebody else's verifier) fails here rather than
+ *   quietly exchanging unprotected.
  */
 export async function exchangeAndValidate(
   cfg: OidcLoginConfig,
   code: string,
   expectedNonce: string,
+  opts: { codeVerifier?: string } = {},
 ): Promise<OidcIdentity> {
   const discovery = await fetchDiscovery(discoveryUrlFor(cfg));
+
+  // No silent downgrade: if the challenge went out, the verifier must come back.
+  const pkce = usePkce(discovery);
+  if (pkce && !opts.codeVerifier) throw new Error('OIDC_INVALID_STATE');
 
   // 1. Authorization-code → token exchange (confidential client, secret in body).
   //    token_endpoint comes from the admin-supplied discovery doc, so SSRF-guard
@@ -303,6 +392,10 @@ export async function exchangeAndValidate(
         redirect_uri: ssoCallbackUrl(cfg.orgId),
         client_id: cfg.clientId,
         client_secret: cfg.clientSecret,
+        // The IdP re-derives the challenge from this and compares: a code
+        // redeemed with the wrong (or a replayed) verifier is refused there,
+        // surfacing here as OIDC_TOKEN_EXCHANGE_FAILED.
+        ...(pkce && opts.codeVerifier ? { code_verifier: opts.codeVerifier } : {}),
       }).toString(),
       ...SSRF_FETCH_INIT,
     });
@@ -359,10 +452,18 @@ export async function exchangeAndValidate(
     if (!domain || !allowed.includes(domain)) throw new Error('OIDC_EMAIL_DOMAIN_NOT_ALLOWED');
   }
 
+  // 6. Groups for JIT Role mapping (3a). Read from the org's configured claim
+  //    name off the SAME verified claim set — never from the userinfo endpoint or
+  //    anything else the client could influence. A missing/odd-shaped claim
+  //    yields no groups, which maps to no Roles (never to a default grant).
+  const groups = extractGroupClaim(claims as unknown as Record<string, unknown>, cfg.groupsClaim);
+
   return {
     subject: claims.sub,
     issuer: discovery.issuer,
     email,
     name: claims.name,
+    groups,
+    ...(typeof claims.auth_time === 'number' && { authTime: claims.auth_time }),
   };
 }

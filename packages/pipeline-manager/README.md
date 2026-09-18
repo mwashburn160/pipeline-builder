@@ -15,7 +15,8 @@ Requires Node.js 24.14.0+.
 ## Quick start
 
 ```bash
-# Authenticate against your Pipeline Builder platform
+# Sign in — prints a short code, opens your browser to approve it, and stores
+# the session in ~/.pipeline-manager/credentials.json (no password on the CLI)
 pipeline-manager auth login --url https://platform.example.com
 
 # Bootstrap a new project in the current directory

@@ -57,7 +57,9 @@ function pluginHandler() {
   const router = createValidateRoutes();
   const layer = (router.stack as any[]).find((l) => l.route?.path === '/plugin' && l.route?.methods?.post);
   if (!layer) throw new Error('no POST /plugin');
-  return layer.route.stack[0].handle;
+  // The withRoute handler is the LAST layer in the chain — a route's own
+  // middleware (permission gate, `audited(...)` declaration) comes first.
+  return layer.route.stack[layer.route.stack.length - 1].handle;
 }
 
 function makeRes() {

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isValidTier } from '@pipeline-builder/api-core';
+import { hashApiKey, isOpaqueApiKey, isValidTier } from '@pipeline-builder/api-core';
 import type express from 'express';
 import { ipKeyGenerator } from 'express-rate-limit';
 
@@ -52,6 +52,10 @@ export function extractClientIp(req: express.Request): string {
 /** Claims read from a token for peeking (unverified) or bucketing (verified). */
 export interface TokenClaims {
   type?: string;
+  /** Subject — a user id, or a service account's id on a `service_account` token. */
+  sub?: string;
+  /** Which kind of principal the token speaks for (see api-core `PrincipalType`). */
+  principalType?: string;
   tier?: string;
   role?: string;
   organizationId?: string;
@@ -109,17 +113,55 @@ export function verifiedAccessClaims(req: express.Request): TokenClaims | null {
 }
 
 /**
- * Rate-limit bucket: the verified token's org, else the client IP.
+ * Rate-limit bucket, most specific first:
  *
- * Net effect: a single noisy authenticated org consumes its own quota window
- * instead of degrading every other tenant sharing an IP (NAT / corp gateway),
- * while an unverified or forged token is bucketed by IP like any anonymous
- * caller.
+ *  1. `key:<sha256>` — an OPAQUE access key presented directly to platform. It
+ *     can't be decoded pre-auth, but a key belongs to exactly one principal, so
+ *     hashing it gives a per-credential (and therefore per-service-account)
+ *     bucket without a DB read. Hashed, never the secret itself: the bucket id
+ *     reaches the shared Redis store.
+ *  2. `sa:<id>` — a verified SERVICE-ACCOUNT token. Its traffic is bucketed per
+ *     ACCOUNT, not per org, so one runaway automation cannot consume the window
+ *     its org's people share (and each account is bounded on its own).
+ *  3. `org:<id>` — any other verified token: a noisy tenant consumes its own
+ *     window instead of degrading everyone behind a shared IP (NAT / gateway).
+ *  4. `ip:<addr>` — anonymous, unverified or forged.
  */
 export function rateLimitKey(req: express.Request): string {
-  const orgId = verifiedAccessClaims(req)?.organizationId;
+  const auth = req.headers.authorization;
+  if (auth?.startsWith('Bearer ')) {
+    const credential = auth.slice(7);
+    if (isOpaqueApiKey(credential)) return `key:${hashApiKey(credential)}`;
+  }
+  const claims = verifiedAccessClaims(req);
+  if (claims?.principalType === 'service_account' && typeof claims.sub === 'string' && claims.sub.length > 0) {
+    return `sa:${claims.sub}`;
+  }
+  const orgId = claims?.organizationId;
   if (typeof orgId === 'string' && orgId.length > 0) return `org:${orgId.toLowerCase()}`;
   return `ip:${extractClientIp(req)}`;
+}
+
+/**
+ * SCIM bucket (3b): the VERIFIED token's ORG, not the service account.
+ *
+ * `rateLimitKey` deliberately buckets a service account on its own, so one
+ * runaway automation can't spend its org's window. SCIM is the opposite
+ * requirement — the plan asks for a limit "per org on the SCIM endpoints", and an
+ * org that mints five SCIM keys must still get ONE directory-sync budget, or the
+ * ceiling is trivially raised by issuing more keys. Falls back to the credential
+ * hash (an opaque key presented directly) and then the client IP, for requests
+ * `requireScimScope` is about to refuse anyway.
+ */
+export function scimOrgKey(req: express.Request): string {
+  const orgId = verifiedAccessClaims(req)?.organizationId;
+  if (typeof orgId === 'string' && orgId.length > 0) return `scim-org:${orgId.toLowerCase()}`;
+  const auth = req.headers.authorization;
+  if (auth?.startsWith('Bearer ')) {
+    const credential = auth.slice(7);
+    if (isOpaqueApiKey(credential)) return `scim-key:${hashApiKey(credential)}`;
+  }
+  return `scim-ip:${extractClientIp(req)}`;
 }
 
 /**

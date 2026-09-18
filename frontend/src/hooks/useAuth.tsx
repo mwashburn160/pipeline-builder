@@ -6,6 +6,17 @@ import { clearAttachmentImageCache } from '@/lib/attachment-image-cache';
 import { clearPluginCache } from './usePlugins';
 
 /**
+ * What a password sign-in produced: a session, or a pending second factor.
+ *
+ * Modelled as a RESULT rather than a thrown error because "we need your code" is
+ * a normal step of a successful sign-in, not a failure — and because the
+ * challenge handle has to reach the caller somehow.
+ */
+export type LoginResult =
+  | { status: 'complete' }
+  | { status: 'mfa_required'; challengeId: string; expiresAt: number };
+
+/**
  * Auth context shape.
  *
  * Supports multi-org membership: `organizations` lists all orgs the user
@@ -29,7 +40,20 @@ interface AuthContextType {
    *  rather than a genuine 401. The prior user is kept; callers can retry
    *  via `refreshUser`. Cleared on the next successful refresh. */
   authError: Error | null;
-  login: (email: string, password: string, opts?: { redirect?: boolean }) => Promise<void>;
+  /** Sign in with a password. Resolves to `{ status: 'complete' }` when the
+   *  session is open, or `{ status: 'mfa_required', … }` when the account has an
+   *  authenticator app — the caller then collects a code and calls
+   *  `completeMfaLogin`. Callers that ignore the result simply don't sign in an
+   *  MFA account, never sign one in halfway. */
+  login: (email: string, password: string, opts?: { redirect?: boolean }) => Promise<LoginResult>;
+  /** Second leg of a password sign-in: exchange the challenge plus a code (from
+   *  the app, or a recovery code) for the session. */
+  completeMfaLogin: (challengeId: string, code: string, opts?: { redirect?: boolean }) => Promise<void>;
+  /** Sign in with a passkey. `autofill` runs the ceremony as browser
+   *  "conditional UI" — it waits silently in the sign-in field's dropdown
+   *  instead of opening a prompt. Post-sign-in handling (profile refresh,
+   *  redirect) is identical to `login`. */
+  loginWithPasskey: (opts?: { autofill?: boolean; redirect?: boolean }) => Promise<void>;
   register: (username: string, email: string, password: string, organizationName?: string, planId?: string, opts?: { redirect?: boolean }) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: (opts?: { force?: boolean }) => Promise<void>;
@@ -198,6 +222,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const init = async () => {
       setIsLoading(true);
+      // The access token lives in memory only, so every page load starts with
+      // none. The session itself survives in the HttpOnly refresh cookie —
+      // trade it for an access token before concluding "signed out".
+      await api.restoreSession();
       await refreshUser();
       setIsLoading(false);
       setIsInitialized(true);
@@ -235,24 +263,73 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /**
    * Login with email/username and password
    */
-  const login = useCallback(async (email: string, password: string, opts?: { redirect?: boolean }) => {
+  const login = useCallback(async (email: string, password: string, opts?: { redirect?: boolean }): Promise<LoginResult> => {
     setIsLoading(true);
 
     try {
       const response = await api.login(email, password);
+      if (!response.success) throw new Error(response.message || 'Login failed');
 
-      if (response.success) {
-        await refreshUser();
-        // Use Next.js router for client-side navigation. Callers that need to
-        // run follow-up work on the same page first (e.g. the invite-accept
-        // flow, which must POST /invitation/accept before navigating away) pass
-        // `redirect: false` and drive navigation themselves.
-        if (opts?.redirect !== false) router.push('/dashboard');
-      } else {
-        throw new Error(response.message || 'Login failed');
+      // The account has an authenticator app: the password alone opened nothing,
+      // and the caller owes a code. Nothing local changes — there is no session
+      // to refresh and no page to navigate to yet.
+      if (response.data?.mfaRequired && response.data.challengeId) {
+        return {
+          status: 'mfa_required',
+          challengeId: response.data.challengeId,
+          expiresAt: response.data.expiresAt ?? 0,
+        };
       }
+
+      await refreshUser();
+      // Use Next.js router for client-side navigation. Callers that need to
+      // run follow-up work on the same page first (e.g. the invite-accept
+      // flow, which must POST /invitation/accept before navigating away) pass
+      // `redirect: false` and drive navigation themselves.
+      if (opts?.redirect !== false) router.push('/dashboard');
+      return { status: 'complete' };
     } finally {
       setIsLoading(false);
+    }
+  }, [refreshUser, router]);
+
+  /**
+   * Finish an MFA sign-in. Shares the post-sign-in half of `login` exactly — the
+   * backend establishes the SAME session, so the only difference is that it took
+   * two requests to prove who was asking.
+   */
+  const completeMfaLogin = useCallback(async (challengeId: string, code: string, opts?: { redirect?: boolean }) => {
+    setIsLoading(true);
+    try {
+      const response = await api.verifyMfaLogin({ challengeId, code });
+      if (!response.success) throw new Error(response.message || 'Verification failed');
+      await refreshUser();
+      if (opts?.redirect !== false) router.push('/dashboard');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [refreshUser, router]);
+
+  /**
+   * Sign in with a passkey.
+   *
+   * Shares the post-sign-in half of `login` exactly — the backend establishes
+   * the SAME session (`issueTokens`, refresh cookie, session slot), so the only
+   * difference is how the credential was presented.
+   *
+   * `isLoading` is deliberately NOT set for the autofill ceremony: it sits
+   * waiting in the browser's dropdown for as long as the person takes to notice
+   * it, and a sign-in form disabled that whole time would be unusable.
+   */
+  const loginWithPasskey = useCallback(async (opts?: { autofill?: boolean; redirect?: boolean }) => {
+    const { signInWithPasskey } = await import('@/lib/passkeys');
+    if (!opts?.autofill) setIsLoading(true);
+    try {
+      await signInWithPasskey({ autofill: opts?.autofill });
+      await refreshUser();
+      if (opts?.redirect !== false) router.push('/dashboard');
+    } finally {
+      if (!opts?.autofill) setIsLoading(false);
     }
   }, [refreshUser, router]);
 
@@ -340,12 +417,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isReadOnly,
     authError,
     login,
+    completeMfaLogin,
+    loginWithPasskey,
     register,
     logout,
     refreshUser,
     switchOrganization,
     markOnboardingComplete,
-  }), [user, organizations, isLoading, isInitialized, isReadOnly, authError, login, register, logout, refreshUser, switchOrganization, markOnboardingComplete]);
+  }), [user, organizations, isLoading, isInitialized, isReadOnly, authError, login, completeMfaLogin, loginWithPasskey, register, logout, refreshUser, switchOrganization, markOnboardingComplete]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

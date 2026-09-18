@@ -99,6 +99,50 @@ NetworkPolicy files — e.g. Redis is used by ~every service (not just `plugin`)
 and `reporting` connects to postgres. The NetworkPolicy files were then refreshed
 to agree with the mesh policies, so the two layers now describe the same graph.
 
+### Per-route policies for INTERNAL routes (L7, via a waypoint)
+
+A handful of routes exist ONLY for service-to-service calls — `/internal/*`, the
+quota usage counters, the entity-event and audit ingests, and the
+billing→compliance / billing→reporting entitlement legs. They are enforced **in
+the application** by api-core's `requireInternalService`, which refuses every user
+token and admits only the named calling services (whose names are bound to their
+signing keys — see [Authentication](authentication.md#internal-service-tokens-one-key-per-service)).
+That check is the enforcement, and it has to be: docker compose runs no mesh at
+all, and the gate must hold identically there.
+
+`k8s/istio-internal-routes.yaml` adds a second, independent refusal at the network
+layer, so reaching an internal route needs both a valid service token AND the
+right workload identity.
+
+- **A waypoint, because these are L7 rules.** Per-route means path + method, and
+  ztunnel is L4-only — an L7 `AuthorizationPolicy` is enforced by a waypoint proxy
+  or not at all. The `pb-waypoint` Gateway is attached (via the
+  `istio.io/use-waypoint` label on the **Service**) to exactly the five Services
+  that expose an internal route: `platform`, `message`, `compliance`, `quota`,
+  `reporting`. Not namespace-wide, which would put an Envoy hop in front of the
+  datastores too. It needs the Kubernetes Gateway API CRDs, which
+  `istioctl install` does not ship — each target's setup installs the standard
+  channel (`GATEWAY_API_VERSION`, pinned) when they are absent.
+- **`action: DENY`, not ALLOW.** ALLOW policies union, so an ALLOW for the
+  internal paths would narrow nothing: the broad per-service ALLOW above must keep
+  admitting `nginx` on the same port. DENY takes precedence, so
+  `notPrincipals` + a path match expresses "only these callers, on this route"
+  without restating every service's full caller list.
+- **Traffic through a waypoint arrives as the WAYPOINT's identity**, so
+  `sa/pb-waypoint` is listed in those five workloads' ALLOW policies. The original
+  caller has already been checked, at the waypoint.
+- **Path matching** is exact / prefix (`/x/*`) / suffix (`*/x`) only — no wildcard
+  in the middle — so a route with an `:orgId` segment is matched by suffix or
+  prefix (e.g. `*/increment`). The app-side gate matches the exact route
+  regardless.
+- **Rollback**: remove the `istio.io/use-waypoint` label from a Service and its
+  traffic stops going through the waypoint; the policies then match nothing and
+  the app-side gate carries the routes on its own, exactly as under compose.
+
+The caller lists here are reviewed against the one authoritative list in each
+service's route-coverage test (`findInternalRouteViolations`), which checks the
+declaration against the code in both directions.
+
 ### aws specifics
 
 - **Redis Sentinel (HA)**: ec2 and eks use `redis-sentinel.yaml`. Clients reach

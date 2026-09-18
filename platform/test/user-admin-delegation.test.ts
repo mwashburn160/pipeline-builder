@@ -49,6 +49,8 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
     deleteUserById: (...a: unknown[]) => mockDeleteUserById(...a),
     lookupPrimaryOrgId: async () => 'org-1',
   },
+  // Linking stub: user-admin.js loads user-profile.js, which imports it.
+  apiKeyService: {},
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   adminCreateUserSchema: {}, adminUpdateUserSchema: {}, validateBody: (_s: unknown, body: unknown) => body,

@@ -3,9 +3,10 @@
 
 /**
  * Tests for the inbound billing → reporting retention-sync route (Phase 8):
- * `PUT /reports/retention-sync/:orgId`. Mirrors the platform seat-limit sync
- * auth (service principal or system-admin); clamps/validates the two retention
- * windows and upserts them into `dora_settings`.
+ * `PUT /reports/retention-sync/:orgId`. It is an INTERNAL route (#14) — only
+ * `billing`'s own signed token passes, and no user token does, however
+ * privileged — and it clamps/validates the two retention windows before
+ * upserting them into `dora_settings`.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
@@ -18,9 +19,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn(),
   sendBadRequest: jest.fn(),
   getParam: jest.fn((params: any, key: string) => params?.[key]),
-  // Same principal checks the platform seat-limit route uses.
-  isServicePrincipal: jest.fn((req: any) =>
-    typeof req?.user?.sub === 'string' && req.user.sub.startsWith('service:')),
+  isServicePrincipal: jest.fn((req: any) => req?.user?.principalType === 'service'),
   isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
 }));
 
@@ -42,7 +41,7 @@ const { createRetentionSyncRoutes } = await import('../src/routes/retention-sync
 
 // The billing service token identity (getServiceAuthHeader({ serviceName:'billing' })
 // → sub: 'service:billing'); carries NO scope / permission.
-const billingPrincipal = { sub: 'service:billing', role: 'owner' };
+const billingPrincipal = { sub: 'service:billing', principalType: 'service', role: 'owner' };
 
 describe('PUT /reports/retention-sync/:orgId', () => {
   let router: any;
@@ -52,13 +51,20 @@ describe('PUT /reports/retention-sync/:orgId', () => {
     router = createRetentionSyncRoutes();
   });
 
-  function getHandler() {
-    const stack = router.stack.find((l: any) => l.route?.path === '/:orgId')?.route?.stack;
-    return stack?.[stack.length - 1]?.handle;
-  }
-
-  function run(body: unknown, user: unknown, orgId = 'root-1') {
-    return getHandler()({ params: { orgId }, body, user }, {});
+  /**
+   * Drive the route's FULL middleware chain, not just its handler — the
+   * authorization now lives in `requireInternalService` ahead of the handler,
+   * so a test that reached past it would assert nothing about who may call this.
+   */
+  async function run(body: unknown, user: unknown, orgId = 'root-1') {
+    const stack = router.stack.find((l: any) => l.route?.path === '/:orgId')?.route?.stack ?? [];
+    const req = { params: { orgId }, body, user, method: 'PUT', originalUrl: `/reports/retention-sync/${orgId}` };
+    const res = {};
+    for (const layer of stack) {
+      let advanced = false;
+      await layer.handle(req, res, () => { advanced = true; });
+      if (!advanced) return; // a gate short-circuited
+    }
   }
 
   it('accepts the billing service token and upserts both windows (happy path)', async () => {
@@ -107,10 +113,21 @@ describe('PUT /reports/retention-sync/:orgId', () => {
     expect(mockSetReportingSettings).not.toHaveBeenCalled();
   });
 
-  it('also accepts a system-admin caller', async () => {
-    mockSetReportingSettings.mockResolvedValue();
+  it('rejects a SYSTEM-ADMIN caller too — an internal route admits no user token', async () => {
+    // This leg used to accept `isSystemAdmin`. #14 closed that: a retention
+    // reduction destroys data on the next sweep, and "a sufficiently privileged
+    // human" is not one of billing's identities.
     await run({ eventRetentionDays: 90, doraRetentionDays: 365 }, { sub: 'user-1', isSuperAdmin: true });
 
-    expect(mockSetReportingSettings).toHaveBeenCalledWith('root-1', { eventRetentionDays: 90, doraRetentionDays: 365 });
+    expect(sendError).toHaveBeenCalledWith(expect.anything(), 403, expect.any(String), expect.anything());
+    expect(mockSetReportingSettings).not.toHaveBeenCalled();
+  });
+
+  it('rejects ANOTHER service, however valid its own token is', async () => {
+    await run({ eventRetentionDays: 90, doraRetentionDays: 365 },
+      { sub: 'service:compliance', principalType: 'service', role: 'owner' });
+
+    expect(sendError).toHaveBeenCalledWith(expect.anything(), 403, expect.any(String), expect.anything());
+    expect(mockSetReportingSettings).not.toHaveBeenCalled();
   });
 });

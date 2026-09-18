@@ -131,12 +131,6 @@ spec:
               name: https
             - containerPort: 8080
               name: http
-          env:
-            - name: JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: jwt-secret
-                  key: JWT_SECRET
           resources:
             limits:
               cpu: "300m"

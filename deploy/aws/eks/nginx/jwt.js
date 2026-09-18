@@ -1,8 +1,34 @@
-var crypto = require('crypto');
+/*
+ * Gateway identity HINTS for the access log and the x-org-id / x-user-id /
+ * x-user-role headers.
+ *
+ * NO SIGNATURE VERIFICATION — deliberately, and no longer possible here.
+ *
+ * Every token that speaks for a person is now ES256, signed only by platform
+ * and verified against the key set it publishes at /.well-known/jwks.json. njs
+ * cannot do that in a `js_set` handler: picking the right key means an HTTP
+ * fetch of the JWKS, and ECDSA verification in njs is only available through the
+ * async WebCrypto API, while `js_set` variables must resolve synchronously. The
+ * old check HMAC'd the token with the shared JWT_SECRET; that secret no longer
+ * signs user tokens, so keeping it would have blanked these headers on every
+ * request.
+ *
+ * Nothing is lost that was load-bearing. This was never an access gate — it only
+ * populated variables; enforcement has always been each service's `requireAuth`,
+ * which verifies the signature and then RE-DERIVES the request's tenant identity
+ * from the verified claims (see api-core's auth middleware). The anti-spoof
+ * property also survives: nginx OVERWRITES these headers on every proxied
+ * request, so a client still cannot inject an x-org-id of its choosing — it can
+ * only see the values from the token it actually presented, which the upstream
+ * then verifies.
+ *
+ * Expiry/not-before are still checked, so an obviously dead token doesn't
+ * pollute the log with a stale identity.
+ */
 
 /**
- * Internal Helper: Verifies and decodes the token once.
- * Reads the bearer token from the Authorization header.
+ * Internal helper: decode the bearer token's payload once.
+ * Reads the token from the Authorization header.
  */
 function get_payload(r) {
     var rid = r.variables.request_id || 'unknown';
@@ -16,15 +42,14 @@ function get_payload(r) {
 
     if (!token || token.length === 0) return null;
 
-    // 2. Verify Signature
-    if (!verify_token(r, token)) return null;
+    var parts = token.split('.');
+    if (parts.length !== 3) return null;
 
     try {
-        // 3. Decode Payload
-        var payloadB64 = token.split('.')[1];
-        var payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
+        // 2. Decode payload (UNVERIFIED — see the note at the top of this file)
+        var payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
 
-        // 4. Validate Expiry/Timing
+        // 3. Validate expiry / not-before
         if (!validate_timing(r, payload)) return null;
 
         return payload;
@@ -32,23 +57,6 @@ function get_payload(r) {
         r.error('[' + rid + '] [JWT] Parse error: ' + e.message);
         return null;
     }
-}
-
-function verify_token(r, token) {
-    var parts = token.split('.');
-    if (parts.length !== 3) return false;
-
-    var secret = process.env.JWT_SECRET;
-    if (!secret) {
-        r.error('[JWT] JWT_SECRET not set in environment');
-        return false;
-    }
-
-    var dataToVerify = parts[0] + '.' + parts[1];
-    var hmac = crypto.createHmac('sha256', secret);
-    hmac.update(dataToVerify);
-
-    return hmac.digest('base64url') === parts[2];
 }
 
 function validate_timing(r, payload) {

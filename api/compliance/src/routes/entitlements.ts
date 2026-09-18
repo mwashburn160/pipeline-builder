@@ -4,14 +4,14 @@
 import {
   sendSuccess,
   sendBadRequest,
-  sendError,
   ErrorCode,
+  audited,
   getParam,
-  isSystemAdmin,
+  requireInternalService,
   validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { Router, type Request } from 'express';
+import { Router } from 'express';
 import { z } from 'zod';
 import { emitComplianceAudit } from '../services/audit.js';
 import { entitlementWatermarkStore } from '../services/entitlement-watermark-store.js';
@@ -31,15 +31,18 @@ const EntitlementsSchema = z.object({
 });
 
 /**
- * Machine-only auth for the entitlement-sync legs. Tightened beyond "any service
- * principal" to the SPECIFIC billing service identity (`sub: service:billing`)
- * that owns entitlement — plus a system-admin for manual reconcile/ops. Billing
- * is the sole legitimate driver of this push, so no other service token (a
- * compromised or mis-scoped one) can rewrite an org's enforced compliance sets.
+ * Machine-only auth for the entitlement-sync legs: the SPECIFIC billing service
+ * identity that owns entitlement, and nothing else.
+ *
+ * Since #14 the name is cryptographically bound to the signing key, so this is
+ * an identity check rather than a claim check: no other service — compromised or
+ * mis-scoped — can rewrite an org's enforced compliance sets, and no user token
+ * can qualify by shaping its own subject. The system-admin escape hatch that
+ * used to sit alongside it is GONE: an internal route refuses every user token,
+ * however privileged. Manual reconcile is billing's drift reconciler, which
+ * re-drives the push on its own schedule.
  */
-function isBillingOrSysadmin(req: Request): boolean {
-  return isSystemAdmin(req) || req.user?.sub === 'service:billing';
-}
+const requireBillingService = requireInternalService({ callers: ['billing'] });
 
 /**
  * Inbound billing → compliance entitlement sync.
@@ -51,24 +54,17 @@ function isBillingOrSysadmin(req: Request): boolean {
  * reconcile — safe on every purchase/cancel/renew AND via billing's drift
  * reconciler.
  *
- * AUTH: identical to the reporting `PUT /reports/retention-sync/:orgId` leg and
- * platform's `PUT /organization/:id/seat-limit` — a SERVICE PRINCIPAL or a
- * system-admin. The billing service token (`sub: service:billing`) satisfies
- * `isServicePrincipal`; it carries NO org-user permission and NO feature scope,
- * so the guard must require neither. The `:orgId` path param is the target ROOT
- * org (billing resolves to root before calling), NOT the token's org — so the
- * route runs with `requireOrgId: false` and reads the id from the path.
+ * AUTH: an INTERNAL route (#14), identical to the reporting
+ * `PUT /reports/retention-sync/:orgId` leg — only `billing`'s own signed token
+ * passes. It carries NO org-user permission and NO feature scope, so the guard
+ * must require neither. The `:orgId` path param is the target ROOT org (billing
+ * resolves to root before calling), NOT the token's org — so the route runs with
+ * `requireOrgId: false` and reads the id from the path.
  */
 export function createEntitlementSyncRoutes(): Router {
   const router = Router();
 
-  router.put('/:orgId', withRoute(async ({ req, res, ctx }) => {
-    // Service-to-service entitlement sync: accept ONLY the billing service token
-    // (or a sysadmin), never a plain org-user JWT nor any other service token.
-    if (!isBillingOrSysadmin(req)) {
-      return sendError(res, 403, 'Forbidden: billing service or system-admin only', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
-
+  router.put('/:orgId', requireBillingService, audited('compliance.rule.toggle'), withRoute(async ({ req, res, ctx }) => {
     const orgId = getParam(req.params, 'orgId');
     if (!orgId) return sendBadRequest(res, 'orgId path parameter is required', ErrorCode.VALIDATION_ERROR);
 
@@ -135,13 +131,9 @@ export function createEntitlementSyncRoutes(): Router {
   // GET /:orgId — drift-read: the org's currently-ENFORCED compliance content
   // sets (distinct `set:<x>` among its ACTIVE published-rule subscriptions).
   // Billing's drift reconciler GETs this and diffs against the sets it expects
-  // the org to hold, re-driving the PUT push on mismatch. Same machine-only
+  // the org to hold, re-driving the PUT push on mismatch. Same internal-route
   // guard as the PUT — the `:orgId` is the target root org, not the token's org.
-  router.get('/:orgId', withRoute(async ({ req, res, ctx }) => {
-    if (!isBillingOrSysadmin(req)) {
-      return sendError(res, 403, 'Forbidden: billing service or system-admin only', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
-
+  router.get('/:orgId', requireBillingService, withRoute(async ({ req, res, ctx }) => {
     const orgId = getParam(req.params, 'orgId');
     if (!orgId) return sendBadRequest(res, 'orgId path parameter is required', ErrorCode.VALIDATION_ERROR);
 

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, requireAuth, requireServicePrincipal, getParam } from '@pipeline-builder/api-core';
+import { sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, requireAuth, requireInternalService, getParam } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { attachmentService } from '../services/attachment-service.js';
@@ -15,15 +15,15 @@ const logger = createLogger('internal-org-purge');
  * metadata rows directly in postgres but holds no object-storage client, so the
  * MinIO blobs (keyed `<orgId>/…`) would orphan. This endpoint — called by the
  * cascade with a service JWT — reclaims them by org key-prefix. It is NOT
- * user-facing: `requireAuth` + `requireServicePrincipal` require a signed
- * service token (minted via `getServiceAuthHeader`), never a user session.
+ * user-facing: `requireAuth` + `requireInternalService` require a signed
+ * service token from `platform` (the only caller), never a user session.
  *
  * Registers: DELETE /internal/org/:orgId/attachments  →  { deleted: <count> }
  */
 export function createInternalOrgPurgeRoutes(): Router {
   const router = Router();
 
-  router.delete('/internal/org/:orgId/attachments', requireAuth, requireServicePrincipal, async (req: Request, res: Response) => {
+  router.delete('/internal/org/:orgId/attachments', requireAuth, requireInternalService({ callers: ['platform'] }), async (req: Request, res: Response) => {
     const orgId = getParam(req.params, 'orgId');
     if (!orgId) {
       return sendBadRequest(res, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);

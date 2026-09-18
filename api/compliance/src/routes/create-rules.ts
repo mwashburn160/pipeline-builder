@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendError, ErrorCode, isSystemAdmin, validateBody } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendError, ErrorCode, audited, isSystemAdmin, requirePermission, validateBody } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ComplianceRuleCreateSchema } from './rule-schemas.js';
@@ -11,7 +11,7 @@ import { complianceRuleService, InvalidRuleRegexError, InvalidSetTagError } from
 export function createCreateRuleRoutes(): Router {
   const router = Router();
 
-  router.post('/', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/', requirePermission('compliance:write'), audited('compliance.rule.create'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, ComplianceRuleCreateSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);

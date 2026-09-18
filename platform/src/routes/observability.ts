@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requirePermission, requireStepUp } from '@pipeline-builder/api-core';
+import { audited, requirePermission, requireStepUp } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   listAlertDestinations,
@@ -21,7 +21,7 @@ import {
   restoreAlertRule,
   materializeAlertRules,
 } from '../controllers/alert-rules.js';
-import { requireAuth } from '../middleware/index.js';
+import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
 import {
   observabilityQuery,
   observabilityLogs,
@@ -34,20 +34,29 @@ import {
 
 const router: Router = Router();
 
+// READS carry the `observability:read` capability (in the built-in Member
+// bundle, so no role loses access) rather than bare `requireAuth`: they are the
+// Prometheus/Loki/Alertmanager data plane, and a custom Role that withholds
+// observability must not still see the org's metrics, logs and firing alerts.
+// Per-route, never a router-level `use`, so nothing leaks onto the siblings.
+// The in-controller `$ORG` substitution / org-scoped filtering stays orthogonal
+// to this capability gate. The two cross-tenant reads take `requireSystemAdmin`
+// instead, mirroring their handlers' own gate.
+
 /** GET /observability/query  Prometheus instant/range by catalog key */
-router.get('/query', requireAuth, observabilityQuery);
+router.get('/query', requireAuth, requirePermission('observability:read'), observabilityQuery);
 
 /** GET /observability/logs  Loki range by catalog key */
-router.get('/logs', requireAuth, observabilityLogs);
+router.get('/logs', requireAuth, requirePermission('observability:read'), observabilityLogs);
 
 /** GET /observability/catalog  list catalog keys (drives the editor's panel-add picker) */
-router.get('/catalog', requireAuth, observabilityCatalog);
+router.get('/catalog', requireAuth, requirePermission('observability:read'), observabilityCatalog);
 
 /** GET /observability/alerts  currently-firing + suppressed alerts (org-scoped) */
-router.get('/alerts', requireAuth, observabilityAlerts);
+router.get('/alerts', requireAuth, requirePermission('observability:read'), observabilityAlerts);
 
 /** GET /observability/silences  active + recent silences */
-router.get('/silences', requireAuth, observabilitySilencesList);
+router.get('/silences', requireAuth, requirePermission('observability:read'), observabilitySilencesList);
 
 // Static `observability:write` capability gated at the route so it matches the
 // sibling alerting mutations (`/alert-destinations`, `/alert-rules`). Creating
@@ -55,25 +64,25 @@ router.get('/silences', requireAuth, observabilitySilencesList);
 // plain member with only `observability:read` must NOT be able to do it. The
 // in-controller per-org scoping stays orthogonal to this capability gate.
 /** POST /observability/silences  create a silence (auto-scoped to caller's org) */
-router.post('/silences', requireAuth, requirePermission('observability:write'), observabilitySilenceCreate);
+router.post('/silences', requireAuth, requirePermission('observability:write'), audited('observability.silence.create'), observabilitySilenceCreate);
 
 /** DELETE /observability/silences/:id  expire a silence (must own it) */
-router.delete('/silences/:id', requireAuth, requirePermission('observability:write'), observabilitySilenceDelete);
+router.delete('/silences/:id', requireAuth, requirePermission('observability:write'), audited('observability.silence.delete'), observabilitySilenceDelete);
 
 /** Per-org alert notification destinations (multi-tenant alerting) */
-router.get('/alert-destinations', requireAuth, listAlertDestinations);
+router.get('/alert-destinations', requireAuth, requirePermission('observability:read'), listAlertDestinations);
 // Sysadmin cross-tenant viewer — `/all` literal must come before `/:id`
 // so it isn't captured as an id parameter.
-router.get('/alert-destinations/all', requireAuth, listAllAlertDestinations);
+router.get('/alert-destinations/all', requireAuth, requireSystemAdmin, listAllAlertDestinations);
 // Static `observability:write` capability gated at the route so it's auditable
 // from the route table (handlers no longer re-check). The per-org data scoping
 // (findById(id, orgId)) inside the handlers is orthogonal to this gate.
-router.post('/alert-destinations', requireAuth, requirePermission('observability:write'), createAlertDestination);
-router.put('/alert-destinations/:id', requireAuth, requirePermission('observability:write'), updateAlertDestination);
-router.delete('/alert-destinations/:id', requireAuth, requirePermission('observability:write'), deleteAlertDestination);
-router.post('/alert-destinations/:id/restore', requireAuth, requirePermission('observability:write'), requireStepUp, restoreAlertDestination);
+router.post('/alert-destinations', requireAuth, requirePermission('observability:write'), audited('alert.destination.create'), createAlertDestination);
+router.put('/alert-destinations/:id', requireAuth, requirePermission('observability:write'), audited('alert.destination.update'), updateAlertDestination);
+router.delete('/alert-destinations/:id', requireAuth, requirePermission('observability:write'), audited('alert.destination.delete'), deleteAlertDestination);
+router.post('/alert-destinations/:id/restore', requireAuth, requirePermission('observability:write'), requireStepUp, audited('alert.destination.restore'), restoreAlertDestination);
 // Send a labeled test notification to a destination (org-scoped, observability:write).
-router.post('/alert-destinations/:id/test', requireAuth, requirePermission('observability:write'), testAlertDestination);
+router.post('/alert-destinations/:id/test', requireAuth, requirePermission('observability:write'), audited('alert.destination.test'), testAlertDestination);
 
 /**
  * Alertmanager webhook relay  shared-secret auth, not JWT. Mounted on the
@@ -86,14 +95,14 @@ router.post('/alert-webhook', alertWebhook);
 /**  per-org operator-authored alert rules.
  * Materialized endpoint MUST come BEFORE the `/:id` routes so the
  * literal `materialized.yml` path doesn't get captured as an:id. */
-router.get('/alert-rules/materialized.yml', requireAuth, materializeAlertRules);
-router.get('/alert-rules', requireAuth, listAlertRules);
+router.get('/alert-rules/materialized.yml', requireAuth, requireSystemAdmin, materializeAlertRules);
+router.get('/alert-rules', requireAuth, requirePermission('observability:read'), listAlertRules);
 // Static `observability:write` capability gated at the route (auditable); the
 // handlers no longer re-check. Org-scoping (prepareRuleExpr / org-scoped
 // service ops) is separate from this capability gate.
-router.post('/alert-rules', requireAuth, requirePermission('observability:write'), createAlertRule);
-router.put('/alert-rules/:id', requireAuth, requirePermission('observability:write'), updateAlertRule);
-router.delete('/alert-rules/:id', requireAuth, requirePermission('observability:write'), deleteAlertRule);
-router.post('/alert-rules/:id/restore', requireAuth, requirePermission('observability:write'), requireStepUp, restoreAlertRule);
+router.post('/alert-rules', requireAuth, requirePermission('observability:write'), audited('alert.rule.create'), createAlertRule);
+router.put('/alert-rules/:id', requireAuth, requirePermission('observability:write'), audited('alert.rule.update'), updateAlertRule);
+router.delete('/alert-rules/:id', requireAuth, requirePermission('observability:write'), audited('alert.rule.delete'), deleteAlertRule);
+router.post('/alert-rules/:id/restore', requireAuth, requirePermission('observability:write'), requireStepUp, audited('alert.rule.restore'), restoreAlertRule);
 
 export default router;

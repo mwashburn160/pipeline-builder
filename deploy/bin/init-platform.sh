@@ -244,6 +244,19 @@ echo ""
 echo "=== Logging in ==="
 login
 
+# ---- Setup service account -------------------------------------------------
+# The remaining init steps (plugin, template and compliance loads) run as a
+# SYSTEM-ORG SERVICE ACCOUNT rather than re-running `login` with the admin's
+# password between steps. The account is the org's own machine identity: it
+# holds the system org's Super Admin role, takes no seat, and its key expires by
+# itself (24h) — so nothing long-lived is left behind, and every load is audited
+# as the `setup` account instead of as a person. Creating the account and
+# issuing its key are step-up gated, which is why this runs right after login
+# (while the admin password is still in hand).
+echo ""
+echo "=== Creating the setup service account ==="
+setup_service_account_key
+
 # Build + publish the CodeBuild bootstrap image (pipeline-bootstrap:1.0).
 # Backs CODEBUILD_DEFAULT_IMAGE so cold-start synth runs against an image
 # with pipeline-manager pre-installed, instead of paying ~30s for the
@@ -431,11 +444,10 @@ if _truthy "$LOAD_PLUGINS"; then
     fi
   fi
 
-  # Re-authenticate before upload (token may have expired during prebuilt image builds)
-  echo ""
-  echo "=== Refreshing auth token ==="
-  login
-
+  # No re-authentication needed here any more: the setup service-account key is
+  # opaque and valid for 24h, so a long base-image build can no longer outlive
+  # the credential the upload uses (the old flow re-ran `login` because a
+  # 15-minute access token routinely expired mid-build).
   CLEANUP_ARG=""
   [ "$CLEANUP_AFTER_UPLOAD" = true ] && CLEANUP_ARG="--cleanup"
 
@@ -446,7 +458,7 @@ if _truthy "$LOAD_PLUGINS"; then
 
   # shellcheck disable=SC2086
   PLATFORM_BASE_URL="$PLATFORM_BASE_URL" \
-    PLATFORM_TOKEN="$JWT_TOKEN" \
+    PLATFORM_TOKEN="$SETUP_SA_KEY" \
     SKIP_MISSING_IMAGE_TAR="$CONTINUE_ON_BUILD_FAILURE" \
     "$SCRIPT_DIR/load-plugins.sh" --rebuild $CATEGORY_ARG $CLEANUP_ARG
 else
@@ -462,9 +474,7 @@ if _truthy "$LOAD_TEMPLATES"; then
   # wait for both services so the load doesn't race a still-starting compliance
   # service (the failure that motivated this gate).
   gate_services_ready compliance pipeline || exit 1
-  # Access tokens live 15 min — a long plugin upload above can outlast the last login.
-  login
-  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-templates.sh"
+  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$SETUP_SA_KEY" "$SCRIPT_DIR/load-templates.sh"
 else
   echo "  Skipping pipeline template loading."
 fi
@@ -476,8 +486,7 @@ prompt_toggle LOAD_COMPLIANCE "Load sample compliance rules and policy templates
 if _truthy "$LOAD_COMPLIANCE"; then
   # load-compliance talks straight to the compliance service — wait for it.
   gate_services_ready compliance || exit 1
-  login
-  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-compliance.sh"
+  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$SETUP_SA_KEY" "$SCRIPT_DIR/load-compliance.sh"
 else
   echo "  Skipping compliance loading."
 fi

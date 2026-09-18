@@ -12,7 +12,7 @@
 # CI/CD variables (Settings → CI/CD → Variables), all masked/protected:
 #   PLATFORM_BASE_URL     Base URL of your Pipeline Builder platform
 #                         (e.g. https://pipeline.example.com)
-#   PLATFORM_TOKEN        A Personal Access Token — create with
+#   PLATFORM_TOKEN        An access key (pb_pat_…) — create with
 #                         `pipeline-manager auth pat` or the dashboard.
 #   PB_ORG_ID             Your organization's ID (UUID). Supplied as the
 #                         template's `orgId` input; selects the GitHub token

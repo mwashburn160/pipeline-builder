@@ -45,7 +45,12 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { find: jest.fn(emptyFindChain) },
 }));
 
-const { issueImpersonationToken } = await import('../src/utils/token.js');
+const { issueImpersonationToken, signInAuth } = await import('../src/utils/token.js');
+const { installTestSigningKeys } = await import('./helpers/signing.js');
+installTestSigningKeys();
+
+/** The operator's own sign-in: an impersonation session inherits its assurance. */
+const operatorAuth = signInAuth('pwd');
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function target() {
@@ -76,7 +81,7 @@ describe('issueImpersonationToken — organization pin', () => {
     mockUOFindOne.mockReturnValue(findOneChain({ role: 'member', organizationId: 'org-a' }));
     mockOrgFindById.mockReturnValue(orgChain({ name: 'Org A', deletedAt: null }));
 
-    const { accessToken } = await issueImpersonationToken(target(), 'sysadmin-1', 'org-a', 'jti-1');
+    const { accessToken } = await issueImpersonationToken(target(), 'sysadmin-1', 'org-a', 'jti-1', operatorAuth);
     expect(claims(accessToken).organizationId).toBe('org-a');
   });
 
@@ -88,7 +93,7 @@ describe('issueImpersonationToken — organization pin', () => {
     mockUOFind.mockReturnValue(findChain([{ role: 'admin', organizationId: 'org-other' }]));
     mockOrgFindById.mockReturnValue(orgChain({ name: 'Other', deletedAt: null }));
 
-    const { accessToken } = await issueImpersonationToken(target(), 'sysadmin-1', 'org-a', 'jti-1');
+    const { accessToken } = await issueImpersonationToken(target(), 'sysadmin-1', 'org-a', 'jti-1', operatorAuth);
 
     expect(claims(accessToken).organizationId).toBeUndefined();
     // The fallback query must not even be attempted.
@@ -100,14 +105,14 @@ describe('issueImpersonationToken — organization pin', () => {
     mockOrgFindById.mockReturnValue(orgChain({ name: 'Org A', deletedAt: new Date() }));
     mockUOFind.mockReturnValue(findChain([{ role: 'admin', organizationId: 'org-other' }]));
 
-    const { accessToken } = await issueImpersonationToken(target(), 'sysadmin-1', 'org-a', 'jti-1');
+    const { accessToken } = await issueImpersonationToken(target(), 'sysadmin-1', 'org-a', 'jti-1', operatorAuth);
 
     expect(claims(accessToken).organizationId).toBeUndefined();
     expect(mockUOFind).not.toHaveBeenCalled();
   });
 
   it('issues a token with no org context when no org is given', async () => {
-    const { accessToken } = await issueImpersonationToken(target(), 'sysadmin-1', undefined, 'jti-1');
+    const { accessToken } = await issueImpersonationToken(target(), 'sysadmin-1', undefined, 'jti-1', operatorAuth);
 
     expect(claims(accessToken).organizationId).toBeUndefined();
     // An absent pin resolves to nothing rather than searching for an org.
@@ -119,7 +124,7 @@ describe('issueImpersonationToken — organization pin', () => {
     mockUOFindOne.mockReturnValue(findOneChain({ role: 'member', organizationId: 'org-a' }));
     mockOrgFindById.mockReturnValue(orgChain({ name: 'Org A', deletedAt: null }));
 
-    const { accessToken, expiresIn } = await issueImpersonationToken(target(), 'sysadmin-1', 'org-a', 'jti-1');
+    const { accessToken, expiresIn } = await issueImpersonationToken(target(), 'sysadmin-1', 'org-a', 'jti-1', operatorAuth);
 
     expect(claims(accessToken).impersonatorId).toBe('sysadmin-1');
     expect(claims(accessToken).impersonationReadOnly).toBe(true);

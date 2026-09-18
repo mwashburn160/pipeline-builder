@@ -78,7 +78,10 @@ function getHandler(path: string) {
     (l: any) => l.route?.path === path && l.route?.methods.get,
   );
   if (!layer) throw new Error(`no GET ${path}`);
-  return layer.route.stack[0].handle;
+  // The terminal withRoute handler is the LAST entry in the route stack: each
+  // route now carries its permission gate (and, on writes, the `audited(...)`
+  // declaration) ahead of it.
+  return layer.route.stack[layer.route.stack.length - 1].handle;
 }
 
 function mockRes() {

@@ -13,6 +13,7 @@ import {
   parsePaginationParams,
   requirePermission,
   validateBody,
+  audited,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -44,7 +45,7 @@ const PipelineRegistrySchema = z.object({
 export function createRegistryRoutes(): Router {
   const router = Router();
 
-  router.get('/registry', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/registry', requirePermission('pipelines:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query as Record<string, unknown>);
     const { rows, total } = await pipelineRegistryService.list(orgId, limit, offset);
     ctx.log('COMPLETED', 'Listed pipeline registry', { count: rows.length });
@@ -53,7 +54,7 @@ export function createRegistryRoutes(): Router {
     });
   }));
 
-  router.post('/registry', requirePermission('pipelines:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/registry', requirePermission('pipelines:write'), audited('pipeline.registry.register'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, PipelineRegistrySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -130,7 +131,7 @@ export function createRegistryRoutes(): Router {
    * pure mapping cache — losing a row never loses information that isn't
    * already in CloudFormation, so there's nothing to recover.
    */
-  router.delete('/registry/:id', requirePermission('pipelines:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.delete('/registry/:id', requirePermission('pipelines:write'), audited('pipeline.registry.deregister'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Registry id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 

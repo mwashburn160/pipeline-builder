@@ -7,6 +7,7 @@ import {
   sendBadRequest,
   sendEntityNotFound,
   ErrorCode,
+  audited,
   getParam,
   parsePaginationParams,
   requirePermission,
@@ -42,7 +43,7 @@ export function createScanRoutes(): Router {
   const router = Router();
 
   // GET / — list scans (paginated, filterable)
-  router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/', requirePermission('compliance:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query);
     const r = validateQuery(req, ScanListQuerySchema);
     if (!r.ok) return sendBadRequest(res, r.error, ErrorCode.VALIDATION_ERROR);
@@ -56,7 +57,7 @@ export function createScanRoutes(): Router {
   }));
 
   // GET /:id — get scan by ID
-  router.get('/:id', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/:id', requirePermission('compliance:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendEntityNotFound(res, 'Scan');
 
@@ -69,7 +70,7 @@ export function createScanRoutes(): Router {
 
   // POST / — trigger a new scan. Launches a full org-wide re-evaluation, so it
   // is a heavy write and gated on compliance:write like every other mutation.
-  router.post('/', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/', requirePermission('compliance:write'), audited('compliance.scan.create'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, ScanCreateSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -83,11 +84,25 @@ export function createScanRoutes(): Router {
       Boolean(validation.value.dryRun),
     );
     ctx.log('COMPLETED', 'Triggered compliance scan', { scanId: scan.id, target: validation.value.target });
+
+    // Best-effort attributed audit — the scan was persisted. A scan re-evaluates
+    // every entity of its target against the current rules and can block ones
+    // that passed before, so it carries the same trail as its cancel. Safe
+    // scalar metadata only (target + dry-run flag), never the filter body.
+    emitComplianceAudit({
+      action: 'compliance.scan.create',
+      actorId: req.user?.sub ?? userId ?? 'system',
+      orgId,
+      targetType: 'scan',
+      targetId: scan.id,
+      details: { target: validation.value.target, dryRun: Boolean(validation.value.dryRun) },
+    });
+
     return sendSuccess(res, 201, { scan });
   }));
 
   // POST /:id/cancel — cancel a running scan (mutation → compliance:write)
-  router.post('/:id/cancel', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/:id/cancel', requirePermission('compliance:write'), audited('compliance.scan.cancel'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Scan ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 

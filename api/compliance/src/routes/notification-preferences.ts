@@ -1,10 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, validateBody, requirePermission, ErrorCode } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, audited, validateBody, requirePermission, ErrorCode } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
+import { emitComplianceAudit } from '../services/audit.js';
 import {
   getNotificationPreference,
   upsertNotificationPreference,
@@ -21,6 +22,18 @@ const DEFAULT_PREFERENCE = {
   targetUsers: null as string[] | null,
   webhookUrl: null as string | null,
 };
+
+/** A stored webhook URL's host for the audit trail, or null when absent/unparsable
+ *  (the audit must never fail the request that succeeded). Host only — a URL can
+ *  carry credentials or a token in its path/query. */
+function webhookHostOf(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
+}
 
 /** Shape returned to clients. `webhookSecret` is never echoed back — only a
  *  `hasWebhookSecret` flag — since it's bearer-equivalent. */
@@ -58,14 +71,14 @@ export function createNotificationPreferenceRoutes(): Router {
   const router = Router();
 
   // GET / — the calling org's preference (defaults when unset).
-  router.get('/', withRoute(async ({ res, ctx, orgId }) => {
+  router.get('/', requirePermission('compliance:read'), withRoute(async ({ res, ctx, orgId }) => {
     const pref = await getNotificationPreference(orgId);
     ctx.log('COMPLETED', 'Read notification preference', { hasRow: !!pref });
     return sendSuccess(res, 200, { preference: toApiPreference(pref) });
   }));
 
   // PUT / — upsert the calling org's preference. Org admin / owner only.
-  router.put('/', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.put('/', requirePermission('compliance:write'), audited('compliance.notification-preference.update'), withRoute(async ({ req, res, ctx, orgId }) => {
     const validation = validateBody(req, PreferenceUpdateSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 
@@ -78,6 +91,24 @@ export function createNotificationPreferenceRoutes(): Router {
 
     const saved = await upsertNotificationPreference(orgId, patch);
     ctx.log('COMPLETED', 'Updated notification preference', { orgId });
+
+    // Best-effort attributed audit — the upsert succeeded. Where violation
+    // notices go (recipients + the outbound webhook) is security-relevant
+    // config, so a change is recorded. WHICH fields changed only — never the
+    // webhook secret, and never the URL's credentials: just its host.
+    emitComplianceAudit({
+      action: 'compliance.notification-preference.update',
+      actorId: req.user?.sub ?? 'system',
+      orgId,
+      targetType: 'notification-preference',
+      targetId: orgId,
+      details: {
+        fields: Object.keys(validation.value).sort(),
+        webhookHost: webhookHostOf(saved.webhookUrl),
+        webhookSecretSet: !!saved.webhookSecret,
+      },
+    });
+
     return sendSuccess(res, 200, { preference: toApiPreference(saved) });
   }));
 

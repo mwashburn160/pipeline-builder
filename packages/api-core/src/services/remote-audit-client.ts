@@ -56,6 +56,12 @@ export const REMOTE_AUDIT_ACTIONS = [
   'plugin.bulk.update',
   'plugin.bulk.delete',
   'plugin.dlq.purge',
+  // Build re-runs from the queue-triage surface: re-enqueue a FAILED build
+  // (`plugin.build.retry`) or a dead-lettered one (`plugin.dlq.replay`). Both
+  // re-run an image build + plugin persist on the caller's authority, so they
+  // are audited mutations; `affectedOrgId` carries the job's owning org.
+  'plugin.build.retry',
+  'plugin.dlq.replay',
   // Pipeline mutations — emitted by api/pipeline's route handlers
   // (create/update/delete + CodePipeline execution trigger/cancel) and
   // posted to platform's `POST /audit/events` ingest.
@@ -109,7 +115,14 @@ export const REMOTE_AUDIT_ACTIONS = [
   'compliance.scan-schedule.update',
   'compliance.scan-schedule.delete',
   'compliance.template.apply',
+  // Launching an org-wide re-evaluation (the counterpart to `.cancel`) — it
+  // persists a scan and can block entities that passed before.
+  'compliance.scan.create',
   'compliance.scan.cancel',
+  // Per-org compliance notification settings: recipients + the outbound webhook
+  // URL/secret. Bearer-equivalent config that redirects violation notices, so a
+  // change carries the durable trail (never the secret itself).
+  'compliance.notification-preference.update',
   // Image-registry destructive ops (api/image-registry) — garbage-collection
   // sweeps and explicit image/tag deletes (previously only a log line).
   'registry.gc',
@@ -133,9 +146,18 @@ export const REMOTE_AUDIT_ACTIONS = [
   // central audit trail (these also write to the service-local billing_events
   // collection). `details` carry plan/tier/addon ids only — never card/payment
   // secrets or an AWS account id.
+  // Subscription lifecycle a CUSTOMER drives (the admin counterpart is
+  // `billing.tier.override`): self-serve create (direct or Marketplace claim),
+  // plan/interval change, cancel-at-period-end, undo-cancel, cascade delete.
+  'billing.subscription.create',
+  'billing.subscription.update',
+  'billing.subscription.reactivate',
   'billing.subscription.cancel',
   'billing.subscription.delete',
   'billing.tier.override',
+  // Operator-only reseed of the invoice ledger from the payment provider's
+  // history (POST /billing/admin/backfill) — mutates finance data fleet-wide.
+  'billing.ledger.backfill',
   'billing.addon.add',
   'billing.addon.remove',
   // System-initiated removal of a tier-included add-on on a plan upgrade (the
@@ -163,6 +185,15 @@ export const REMOTE_AUDIT_ACTIONS = [
   'billing.credit.consumed',
   'billing.credit.exhausted',
   'billing.combo.expired',
+  // Reporting (api/reporting) — the three reporting mutations whose effect
+  // outlives a request log: the per-org correlation-window config write, a
+  // post-deploy outcome marker (it moves the org's DORA CFR/MTTR), and the
+  // inbound billing→reporting retention-entitlement sync (a retention cut is a
+  // data-destroying change applied by the next sweep). `details` carry the
+  // settings/outcome values only.
+  'reporting.settings.update',
+  'reporting.deployment.outcome',
+  'reporting.retention.sync',
   // Denied authorization attempt — emitted best-effort by the shared
   // `requirePermission` / `requireSystemAdmin` gate when a state-changing
   // (non-GET) request is rejected, so probing/escalation attempts are visible

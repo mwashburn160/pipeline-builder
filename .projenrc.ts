@@ -201,7 +201,7 @@ const IMAGE_DESCRIPTIONS: Record<string, string> = {
   frontend: 'Pipeline Builder web UI.',
   quota: 'Pipeline Builder quota service — per-org usage quotas and metering.',
   billing: 'Pipeline Builder billing service — subscriptions, usage metering, and Stripe/marketplace billing.',
-  plugin: 'Pipeline Builder plugin service — plugin upload, BuildKit image builds, and registry publishing.',
+  plugin: 'Pipeline Builder plugin service — plugin upl   d, BuildKit image builds, and registry publishing.',
   pipeline: 'Pipeline Builder pipeline service — pipeline CRUD and CDK pipeline synthesis.',
   message: 'Pipeline Builder message service — in-app notifications and messaging.',
   reporting: 'Pipeline Builder reporting service — dashboards, metrics, and reporting.',
@@ -355,6 +355,20 @@ const apiCore = new PackageProject({
 });
 apiCore.eslint?.addRules({...rules, '@typescript-eslint/no-shadow': 'off' });
 apiCore.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
+// Two entry points. The root pulls in the server graph (express, jwt, ioredis);
+// `./permissions` is the dependency-free permission catalog (types + labels +
+// picker grouping) the BROWSER imports — the frontend consumes it directly
+// instead of keeping a hand-maintained mirror. `./lib/*` stays open because
+// tests deep-import concrete modules (e.g. `lib/testing/tier-mock.js`).
+apiCore.package.addField('exports', {
+  '.': { types: './lib/index.d.ts', default: './lib/index.js' },
+  './permissions': { types: './lib/types/permissions.d.ts', default: './lib/types/permissions.js' },
+  './lib/*': './lib/*',
+  './package.json': './package.json',
+});
+// The frontend's jest tsconfig resolves modules with node10, which ignores
+// `exports` — typesVersions is what points it at the subpath's declarations.
+apiCore.package.addField('typesVersions', { '*': { permissions: ['lib/types/permissions.d.ts'] } });
 addPackageMetadata(apiCore, 'Core server-side utilities (auth middleware, response helpers, error codes, quota service, HTTP client, logging, AI provider catalog) shared by every Pipeline Builder backend service.');
 
 // -- Pipeline Data --
@@ -574,7 +588,15 @@ const platform = new FunctionProject({
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     `express@${expressVersion}`, 'express-rate-limit@8.6.1',
     'nodemailer@9.0.3', 'zod@4.4.3', '@aws-sdk/client-sesv2@3.1101.0',
+    // ES256 user-token signing with the private key held in KMS
+    // (asymmetric ECC_NIST_P256, sign-only) on the AWS targets. Lazily
+    // imported — a local-file-signer install never constructs a KMS client.
+    '@aws-sdk/client-kms@3.1101.0',
     'jsonwebtoken@9.0.3', 'slugify@1.6.9', 'winston@3.19.0', 'bcryptjs@3.0.3',
+    // WebAuthn/passkey ceremonies (registration, assertion, step-up). Dual
+    // CJS/ESM, Node >= 20; the browser half is `@simplewebauthn/browser` in the
+    // frontend and the two MUST stay on the same major (v14 response shapes).
+    '@simplewebauthn/server@14.0.2',
     'mongoose@9.9.1', 'helmet@8.3.0', 'cors@2.8.6',
     'pg@8.22.0', 'drizzle-orm@0.45.2', 'uuid@14.0.1', 'yaml@2.9.0',
     'adm-zip@0.6.0', 'multer@2.2.0', 'prom-client@15.1.3',
@@ -630,6 +652,18 @@ const frontend = new FrontEndProject({
     // importing them, so the dep was dead weight in the Next build.
     'next@16.2.12', 'react@19.2.8', 'react-dom@19.2.8',
     'lucide-react@1.28.0', 'tailwindcss@4.3.3', 'framer-motion@12.43.0',
+    // Browser half of the WebAuthn/passkey ceremonies (registration, assertion,
+    // conditional-UI autofill). Must stay on the same major as platform's
+    // `@simplewebauthn/server` — v14 changed the JSON response shapes.
+    '@simplewebauthn/browser@14.0.0',
+    // QR encoding for the TOTP enrolment code (Reed-Solomon + masking is the one
+    // part of that screen nobody should hand-roll). Chosen for having NO
+    // transitive dependencies and shipping both CJS and ESM builds — `qrcode`,
+    // the obvious alternative, drags yargs/pngjs/dijkstrajs into the browser
+    // bundle for a CLI nobody here runs. Used through `encode()`, which returns
+    // the raw module matrix so `TotpSection` renders real SVG elements instead
+    // of injecting markup. Loaded only on the security tab (next/dynamic).
+    'uqr@0.1.3',
     // drag-resize on the dashboard editor. Loaded only on the editor
     // page (next/dynamic) so non-editor traffic doesn't pay the ~120 KB cost.
     // `react-resizable` is a transitive dep of react-grid-layout but must be
@@ -660,6 +694,11 @@ if (frontend.jest) {
   frontend.jest.config.moduleNameMapper = {
 '^uuid$': '<rootDir>/../jest-uuid-stub.js',
     '^@/(.*)$': '<rootDir>/src/$1',
+    // The shared permission catalog (api-core's dependency-free `./permissions`
+    // subpath). The published file is ESM while these suites run as CommonJS, so
+    // point jest at the TypeScript source and let ts-jest transpile it — the
+    // frontend build itself resolves the subpath normally.
+    '^@pipeline-builder/api-core/permissions$': '<rootDir>/../packages/api-core/src/types/permissions.ts',
   };
   // Next.js's standalone build copies frontend/package.json into
   // .next/standalone/, which collides with the root in jest's haste map.

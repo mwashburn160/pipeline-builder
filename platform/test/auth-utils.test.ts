@@ -41,7 +41,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 }));
 
 const { hashRefreshToken } = await import('../src/utils/token.js');
-const { validateBody, registerSchema, loginSchema, refreshSchema } = await import('../src/utils/validation.js');
+const { validateBody, registerSchema, loginSchema } = await import('../src/utils/validation.js');
 const { sendError: mockSendErrorFn } = await import('@pipeline-builder/api-core');
 const mockSendError = mockSendErrorFn as jest.MockedFunction<typeof mockSendErrorFn>;
 
@@ -82,16 +82,6 @@ describe('auth-utils schemas', () => {
 
     it('should reject empty identifier', () => {
       expect(loginSchema.safeParse({ identifier: '', password: 'pass' }).success).toBe(false);
-    });
-  });
-
-  describe('refreshSchema', () => {
-    it('should accept valid token', () => {
-      expect(refreshSchema.safeParse({ refreshToken: 'some-token' }).success).toBe(true);
-    });
-
-    it('should reject empty token', () => {
-      expect(refreshSchema.safeParse({ refreshToken: '' }).success).toBe(false);
     });
   });
 });

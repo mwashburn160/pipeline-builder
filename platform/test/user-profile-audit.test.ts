@@ -17,6 +17,9 @@ const mockChangePassword = jest.fn();
 const mockFindForTokenIssue = jest.fn();
 const mockIssueTokens = jest.fn();
 const mockRenewSessionTokens = jest.fn();
+// The caller's own slot: `undefined` (no slot — a PAT), an interactive slot (a
+// person, whose call opens a NEW machine slot), or a machine slot (renewed in place).
+const mockFindRefreshSession = jest.fn();
 const mockValidateBody = jest.fn((_schema: unknown, body: unknown) => body);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -37,7 +40,10 @@ jest.unstable_mockModule('mongoose', () => {
     set() { /* no-op */ }
     static Types = { Mixed: class {}, ObjectId: class {} };
   }
-  return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
+  const model = jest.fn();
+  // `default` + `Document` matter: models/user.ts (reached through
+  // utils/validation) imports mongoose's default export and the Document type.
+  return { Types: { ObjectId: class {} }, Schema, Document: class {}, models: {}, model, default: { Schema, model, models: {} } };
 });
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
@@ -54,6 +60,8 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
     changePassword: (...a: unknown[]) => mockChangePassword(...a),
     findForTokenIssue: (...a: unknown[]) => mockFindForTokenIssue(...a),
   },
+  // Linking stub: the access-key handlers live in the same controller.
+  apiKeyService: {},
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
@@ -66,6 +74,10 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  // Session-auth helpers the controllers now import (see utils/token.ts).
+  signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  findRefreshSession: (...a: unknown[]) => mockFindRefreshSession(...a),
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
   renewSessionTokens: (...a: unknown[]) => mockRenewSessionTokens(...a),
 }));
@@ -92,6 +104,8 @@ beforeEach(() => {
   mockFindForTokenIssue.mockReset();
   mockIssueTokens.mockReset();
   mockRenewSessionTokens.mockReset();
+  mockFindRefreshSession.mockReset();
+  mockFindRefreshSession.mockResolvedValue(undefined);
   mockValidateBody.mockImplementation((_s: unknown, body: unknown) => body);
 });
 
@@ -146,38 +160,68 @@ describe('generateToken audit', () => {
     mockFindForTokenIssue.mockResolvedValue({ _id: 'u1', lastActiveOrgId: 'org-1' });
     mockIssueTokens.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresIn: 86400 });
 
-    const req: any = { user: { sub: 'u1' }, body: { expiresIn: '86400' } };
+    const req: any = { user: { sub: 'u1' }, headers: {}, body: { expiresIn: '86400' } };
     await (generateToken as unknown as (req: any, res: any) => Promise<void>)(req, mockRes());
 
     expect(mockAudit).toHaveBeenCalledWith(req, 'user.token.create', expect.objectContaining({
       targetType: 'user',
       targetId: 'u1',
-      details: { expiresIn: 86400 },
+      // A person's call OPENS a machine session (it never touches their login).
+      details: { expiresIn: 86400, session: 'opened' },
     }));
   });
 });
 
-describe('generateToken — refresh-session slot', () => {
+describe('generateToken — machine sessions', () => {
   const user = { _id: 'u1', lastActiveOrgId: 'org-1' };
-  const run = (req: any) => (generateToken as unknown as (req: any, res: any) => Promise<void>)(req, mockRes());
+  const run = (req: any, res = mockRes()) => {
+    const promise = (generateToken as unknown as (req: any, res: any) => Promise<void>)({ headers: {}, ...req }, res);
+    return promise.then(() => res);
+  };
 
-  it('re-mints within the caller\'s slot, carrying the lifetime and scope overrides', async () => {
+  it('renews a MACHINE caller in place, carrying the lifetime override', async () => {
     mockFindForTokenIssue.mockResolvedValue(user);
-    mockRenewSessionTokens.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresIn: 3600 });
+    mockFindRefreshSession.mockResolvedValue({ id: 's1', kind: 'machine' });
+    mockRenewSessionTokens.mockResolvedValue({ accessToken: 'a', expiresIn: 3600 });
 
     await run({ user: { sub: 'u1', sid: 's1' }, body: { expiresIn: '3600', scope: 'reporting:ingest' } });
 
-    expect(mockRenewSessionTokens).toHaveBeenCalledWith(user, 'org-1', { sessionId: 's1' }, { expiresIn: 3600, scope: 'reporting:ingest' });
+    expect(mockRenewSessionTokens).toHaveBeenCalledWith(
+      user, 'org-1', { sessionId: 's1', kind: 'machine' },
+      expect.objectContaining({ expiresIn: 3600, scope: 'reporting:ingest' }),
+    );
     expect(mockIssueTokens).not.toHaveBeenCalled();
   });
 
-  it('opens a new slot for a caller without one (a PAT)', async () => {
+  it('opens a NEW machine slot for an INTERACTIVE caller, leaving their login alone', async () => {
     mockFindForTokenIssue.mockResolvedValue(user);
-    mockIssueTokens.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresIn: 900 });
+    mockFindRefreshSession.mockResolvedValue({ id: 's1', kind: 'interactive' });
+    mockIssueTokens.mockResolvedValue({ accessToken: 'a', expiresIn: 900 });
 
-    await run({ user: { sub: 'u1', jti: 'pat-1' }, body: {} });
+    await run({ user: { sub: 'u1', sid: 's1' }, body: {} });
 
-    expect(mockIssueTokens).toHaveBeenCalledWith(user, 'org-1', undefined, undefined);
+    expect(mockIssueTokens).toHaveBeenCalledWith(user, 'org-1', expect.objectContaining({ kind: 'machine' }));
+    expect(mockRenewSessionTokens).not.toHaveBeenCalled();
+  });
+
+  it('opens a new machine slot for a caller without any slot (a PAT)', async () => {
+    mockFindForTokenIssue.mockResolvedValue(user);
+    mockIssueTokens.mockResolvedValue({ accessToken: 'a', expiresIn: 900 });
+
+    await run({ user: { sub: 'u1', jti: 'pat-1', token_use: 'api_key' }, body: {} });
+
+    expect(mockIssueTokens).toHaveBeenCalledWith(user, 'org-1', expect.objectContaining({ kind: 'machine' }));
+    expect(mockRenewSessionTokens).not.toHaveBeenCalled();
+  });
+
+  it('refuses a caller whose named slot is gone (revoked or evicted)', async () => {
+    mockFindForTokenIssue.mockResolvedValue(user);
+    mockFindRefreshSession.mockResolvedValue(undefined);
+
+    const res = await run({ user: { sub: 'u1', sid: 'gone' }, body: {} });
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockIssueTokens).not.toHaveBeenCalled();
     expect(mockRenewSessionTokens).not.toHaveBeenCalled();
   });
 });

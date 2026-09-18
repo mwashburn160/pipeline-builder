@@ -12,6 +12,7 @@ import {
   validateBody,
   AIGenerateBodySchema,
   AIGenerateFromUrlBodySchema,
+  requirePermission,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute, rateLimitByOrg } from '@pipeline-builder/api-server';
@@ -90,6 +91,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
    */
   router.get( '/providers',
     ...createAuthenticatedWithOrgRoute(),
+    requirePermission('pipelines:read'),
     requireFeature('ai_generation'),
     withRoute(async ({ res }) => {
       const providers = getAvailableProviders();
@@ -106,6 +108,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
    */
   router.post( '/generate',
     ...createAuthenticatedWithOrgRoute(),
+    requirePermission('pipelines:write'),
     requireFeature('ai_generation'),
     // Per-org burst cap on the expensive LLM path (spend protection), on top of
     // the aiCalls quota. All /generate* variants share one 'pipeline-generate'
@@ -174,6 +177,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
    */
   router.post( '/generate/stream',
     ...createAuthenticatedWithOrgRoute(),
+    requirePermission('pipelines:write'),
     requireFeature('ai_generation'),
     // Per-org burst cap on the expensive LLM path (spend protection), on top of
     // the aiCalls quota. All /generate* variants share one 'pipeline-generate'
@@ -254,6 +258,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
    */
   router.post( '/generate/from-url',
     ...createAuthenticatedWithOrgRoute(),
+    requirePermission('pipelines:write'),
     requireFeature('ai_generation'),
     // Shares the 'pipeline-generate' burst bucket with every /generate* variant.
     rateLimitByOrg({ name: 'pipeline-generate', max: 20, windowMs: 60_000, message: 'Too many pipeline generation requests, please slow down.' }),
@@ -350,6 +355,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
    */
   router.post( '/generate/from-url/stream',
     ...createAuthenticatedWithOrgRoute(),
+    requirePermission('pipelines:write'),
     requireFeature('ai_generation'),
     // Per-org burst cap on the expensive LLM path (spend protection), on top of
     // the aiCalls quota. All /generate* variants share one 'pipeline-generate'

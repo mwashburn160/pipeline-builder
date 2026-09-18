@@ -79,6 +79,21 @@ describe('parseAlertWebhookInstances', () => {
     expect(out[1].allowedOrgIds).toBeUndefined();
   });
 
+  it('keeps a non-empty previousToken (rotation overlap) and drops an empty one', async () => {
+    // The deploy manifests always render the key — `"previousToken":""` outside a
+    // rotation — so an empty string must read as "not rotating", not as a token.
+    process.env.ALERT_WEBHOOK_INSTANCES = JSON.stringify([
+      { id: 'rotating', token: 'new-tok', previousToken: 'old-tok' },
+      { id: 'settled', token: 'new-tok', previousToken: '' },
+      { id: 'wrong-type', token: 'new-tok', previousToken: 42 },
+    ]);
+    expect((await loadConfig()).instances).toEqual([
+      { id: 'rotating', token: 'new-tok', previousToken: 'old-tok' },
+      { id: 'settled', token: 'new-tok' },
+      { id: 'wrong-type', token: 'new-tok' },
+    ]);
+  });
+
   it('returns [] when env contains malformed JSON (falls back to legacy)', async () => {
     process.env.ALERT_WEBHOOK_INSTANCES = 'this-is-not-json';
     expect((await loadConfig()).instances).toEqual([]);

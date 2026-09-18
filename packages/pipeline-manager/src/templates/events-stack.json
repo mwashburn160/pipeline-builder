@@ -8,7 +8,7 @@
     },
     "PlatformSecretName": {
       "Type": "String",
-      "Description": "Secrets Manager secret name containing the platform JWT token (e.g. pipeline-builder/{orgId}/platform)"
+      "Description": "Secrets Manager secret name containing the reporting:ingest service-account key (e.g. pipeline-builder/{orgId}/reporting-ingest)"
     },
     "DoraEnabled": {
       "Type": "String",

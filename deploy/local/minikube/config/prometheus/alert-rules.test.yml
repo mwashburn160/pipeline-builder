@@ -165,3 +165,57 @@ tests:
             exp_annotations:
               summary: "Redis instance redis-0 is not answering its exporter"
               description: "redis-exporter cannot reach Redis for 3m. This is per-pod: on the AWS targets a single member failing is survivable via Sentinel, but losing quorum is not. BullMQ plugin builds and the audit spool both depend on it."
+
+  # SecretRotationPreviousLingering — the risk here is the opposite of a noisy
+  # rule: a rotation overlap that is NORMAL for a few hours must stay quiet,
+  # while one that is forgotten must page. Also pins the (service, secret)
+  # aggregation: a pod restart mid-rotation must not reset the 24h timer.
+  - interval: 5m
+    input_series:
+      - series: 'secret_rotation_previous_set{secret="SERVICE_SIGNING_KEY",service="platform",pod="platform-aaa"}'
+        values: '1+0x300'
+    alert_rule_test:
+      # Inside a normal overlap window — quiet.
+      - eval_time: 4h
+        alertname: SecretRotationPreviousLingering
+        exp_alerts: []
+      # Still set a day later — the rotation was never finished.
+      - eval_time: 25h
+        alertname: SecretRotationPreviousLingering
+        exp_alerts:
+          - exp_labels: { severity: warning, component: auth, tenancy: platform, service: platform, secret: SERVICE_SIGNING_KEY }
+            exp_annotations:
+              summary: "SERVICE_SIGNING_KEY rotation overlap still open on platform"
+              description: "The previous SERVICE_SIGNING_KEY has been accepted by platform for over 24h — the rotation was never finished, so the old credential is still valid. Finish it per docs/runbooks/secret-rotation.md (clear the *_PREVIOUS value or drop the retiring key, re-create the secret, restart)."
+
+  # JwksFetchFailing — a verifier that cannot reach platform's key set ends up
+  # answering 503 for every token once its cache goes stale, so a sustained
+  # error rate must page; a single blip inside the 10m window must not.
+  - interval: 1m
+    input_series:
+      - series: 'jwks_fetch_total{result="error",service="pipeline",pod="pipeline-aaa"}'
+        values: '0+1x60'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: JwksFetchFailing
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: JwksFetchFailing
+        exp_alerts:
+          - exp_labels: { severity: critical, component: auth, tenancy: platform, service: pipeline }
+            exp_annotations:
+              summary: "pipeline cannot fetch the token signing keys"
+              description: "JWKS fetches from platform have been failing for 10m on pipeline. Once its cached key set goes stale every token verification there answers 503. Check platform's /.well-known/jwks.json and the gateway route to it."
+
+  - interval: 5m
+    input_series:
+      # No rotation in progress (the steady state on every deploy).
+      - series: 'secret_rotation_previous_set{secret="SERVICE_SIGNING_KEY",service="platform",pod="platform-aaa"}'
+        values: '0+0x300'
+      # A finished rotation on another service: set for 2h, then cleared.
+      - series: 'secret_rotation_previous_set{secret="SECRET_ENCRYPTION_KEY",service="platform",pod="platform-aaa"}'
+        values: '1+0x24 0+0x275'
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: SecretRotationPreviousLingering
+        exp_alerts: []

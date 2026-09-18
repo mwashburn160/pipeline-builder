@@ -5,16 +5,18 @@ import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthH
 import type { TokenScope } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
+import { clientInfoOf } from '../helpers/client-info.js';
 import { withController } from '../helpers/controller-helper.js';
+import { clearRefreshCookie, deliverSessionTokens } from '../helpers/session-cookie.js';
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
-import { DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG } from '../services/auth-errors.js';
+import { DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, SESSION_AUTH_MISSING } from '../services/auth-errors.js';
 import { provisionBillingSubscription } from '../services/billing-provision.js';
-import { authService } from '../services/index.js';
+import { auditService, authService } from '../services/index.js';
 import { JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT } from '../services/org-domain-errors.js';
 import type { AccessTokenPayload } from '../types/index.js';
-import { issueTokens, renewSessionTokens } from '../utils/token.js';
-import { validateBody, registerSchema, loginSchema, refreshSchema, completeOnboardingSchema, joinOrgSchema } from '../utils/validation.js';
+import { authFromClaims, issueTokens, renewSessionTokens, signInAuth } from '../utils/token.js';
+import { validateBody, registerSchema, loginSchema, completeOnboardingSchema, joinOrgSchema } from '../utils/validation.js';
 
 const logger = createLogger('auth-controller');
 
@@ -172,7 +174,13 @@ export const joinDomainOrg = withController('Join domain org', async (req, res) 
   [JOIN_SEAT_LIMIT]: { status: 409, message: 'That organization has no seats available' },
 });
 
-/** Login user. POST /auth/login */
+/**
+ * Login user. POST /auth/login
+ *
+ * TWO OUTCOMES. For most accounts the password opens the session outright. For
+ * an account with an authenticator app it returns `{ mfaRequired: true,
+ * challengeId }` and nothing else — see the second-factor branch below.
+ */
 export const login = withController('Login', async (req, res) => {
   const body = validateBody(loginSchema, req.body, res);
   if (!body) return;
@@ -196,12 +204,46 @@ export const login = withController('Login', async (req, res) => {
   // early gate above — a covered account can't password-login by username either.
   if (await rejectIfSsoEnforced(res, user.email)) return;
 
-  const tokens = await issueTokens(user, user.lastActiveOrgId?.toString());
+  // SECOND FACTOR. For an account with an authenticator app the password is only
+  // half the credential, so this returns a short-lived, single-use challenge
+  // instead of a session: no access token, no refresh cookie, no session slot.
+  // POST /auth/mfa/verify trades the challenge plus a code (generated or
+  // recovery) for the session this would otherwise have opened. The sign-in is
+  // NOT audited as `user.login` here — it hasn't happened yet.
+  //
+  // Lazily imported, like the other heavy branches in this file: the TOTP
+  // service reaches the secret-encryption and SSO-enforcement graphs, and the
+  // challenge store reads its own config at module load. Neither belongs in the
+  // static import graph of a controller most of whose routes never touch them.
+  const userId = user._id.toString();
+  const { hasActiveTotp } = await import('../services/totp-service.js');
+  if (await hasActiveTotp(userId)) {
+    const { createMfaChallenge } = await import('../services/mfa-challenge.js');
+    const challenge = await createMfaChallenge(userId, user.lastActiveOrgId?.toString());
+    incCounter('platform_mfa_challenges_total');
+    return sendSuccess(res, 200, {
+      mfaRequired: true,
+      challengeId: challenge.challengeId,
+      expiresAt: challenge.expiresAt,
+      // What the code may be. Both go to the same endpoint; this is only so the
+      // UI can word the field ("code from your app, or a recovery code").
+      methods: ['totp', 'recovery'],
+    });
+  }
+
+  // Password sign-in opens an INTERACTIVE session (`amr: ['pwd']`).
+  const tokens = await issueTokens(user, user.lastActiveOrgId?.toString(), {
+    kind: 'interactive',
+    auth: signInAuth('pwd'),
+    client: clientInfoOf(req),
+  });
 
   audit(req, 'user.login', { targetType: 'user', targetId: user._id.toString() });
   // Counter consumed by the Platform Overview dashboard's "logins/min" panel.
   incCounter('platform_logins_total');
-  sendSuccess(res, 200, tokens);
+  // Browser: the refresh token leaves as an HttpOnly cookie and never appears
+  // in this body. CLI/CI: unchanged, both tokens in the body.
+  sendSuccess(res, 200, deliverSessionTokens(req, res, tokens));
 });
 
 /**
@@ -211,12 +253,19 @@ export const login = withController('Login', async (req, res) => {
  * the token was already rotated away (reuse — presumed stolen) or the session
  * was invalidated meanwhile: that ONE slot is revoked, the user's other devices
  * stay signed in.
+ *
+ * INTERACTIVE slots only — `isValidRefreshToken` turns a machine session away
+ * before this runs, so an operator's CLI refreshing a login can never trip the
+ * reuse detection on a stored machine credential. Machine credentials renew
+ * through POST /user/generate-token instead.
+ *
+ * The presented token comes from `isValidRefreshToken` — the browser's cookie
+ * or a CLI caller's body — and the rotated one goes back the same way.
  */
 export const refresh = withController('Refresh', async (req, res) => {
   if (!req.user) return sendError(res, 401, 'Unauthorized');
 
-  const body = validateBody(refreshSchema, req.body, res);
-  if (!body) return;
+  const presentedToken = res.locals.presentedRefreshToken as string;
   const sessionId = res.locals.refreshSessionId as string;
 
   const user = await authService.findForTokenIssue(req.user.sub);
@@ -224,15 +273,19 @@ export const refresh = withController('Refresh', async (req, res) => {
   const tokens = user && await renewSessionTokens(
     user,
     req.user.organizationId || user.lastActiveOrgId?.toString(),
-    { sessionId, presentedToken: body.refreshToken },
+    { sessionId, presentedToken, kind: 'interactive' },
+    { client: clientInfoOf(req) },
   );
   if (!tokens) {
     await authService.revokeRefreshSession(req.user.sub, sessionId);
+    // The slot is gone, so the cookie that named it is now a dead credential —
+    // drop it rather than leave the browser retrying a token nothing accepts.
+    clearRefreshCookie(res);
     logger.warn('Refresh token reuse detected, revoked its session', { userId: req.user.sub, sessionId });
     return sendError(res, 401, 'Session invalidated — please log in again');
   }
 
-  sendSuccess(res, 200, tokens);
+  sendSuccess(res, 200, deliverSessionTokens(req, res, tokens));
 });
 
 /**
@@ -242,6 +295,10 @@ export const refresh = withController('Refresh', async (req, res) => {
  * other devices stay signed in ("sign out everywhere" is
  * POST /user/tokens/revoke-all). The access token itself stays valid until it
  * expires (short TTL) — the client discards it.
+ *
+ * The browser's refresh cookie is cleared unconditionally: a script can't do it
+ * (HttpOnly), so this response is the only thing that can. Unconditional
+ * because a caller with no cookie is simply unaffected.
  */
 export const logout = withController('Logout', async (req, res) => {
   const userId = req.user?.sub;
@@ -250,6 +307,7 @@ export const logout = withController('Logout', async (req, res) => {
   const sessionId = (req.user as AccessTokenPayload).sid;
   if (sessionId) await authService.revokeRefreshSession(userId, sessionId);
 
+  clearRefreshCookie(res);
   audit(req, 'user.logout');
   sendSuccess(res, 200, undefined, 'Logged out');
 });
@@ -258,8 +316,9 @@ export const logout = withController('Logout', async (req, res) => {
  * Switch active organization. POST /auth/switch-org
  *
  * Re-issues the CURRENT session's tokens (same refresh-session slot) scoped to
- * the new org, so switching never consumes another device's slot. A token with
- * no session slot (a PAT) gets a new session.
+ * the new org, so switching never consumes another device's slot — and never
+ * changes its kind, scope or assurance. A token with no session slot (a PAT)
+ * gets a new interactive session carrying the PAT's own scope and assurance.
  */
 export const switchOrg = withController('Switch org', async (req, res) => {
   const userId = req.user?.sub;
@@ -276,8 +335,13 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   // A scoped caller keeps its scope across the switch (never widened).
   const callerScope = (req.user as { scope?: TokenScope }).scope;
   const tokens = sessionId
-    ? await renewSessionTokens(user, organizationId, { sessionId })
-    : await issueTokens(user, organizationId, undefined, callerScope);
+    ? await renewSessionTokens(user, organizationId, { sessionId }, { client: clientInfoOf(req) })
+    : await issueTokens(user, organizationId, {
+      kind: 'interactive',
+      auth: authFromClaims(req.user),
+      client: clientInfoOf(req),
+      scope: callerScope,
+    });
   if (!tokens) return sendError(res, 401, 'Session invalid');
 
   // Record which org the actor pivoted their session INTO. `affectedOrgId` is
@@ -287,7 +351,12 @@ export const switchOrg = withController('Switch org', async (req, res) => {
     details: { fromOrgId, toOrgId: organizationId },
   });
 
-  sendSuccess(res, 200, tokens);
+  // Same slot, new token pair — the browser's cookie is rotated in place.
+  sendSuccess(res, 200, deliverSessionTokens(req, res, tokens));
+}, {
+  // A caller whose token predates the identity claims can't have its assurance
+  // inherited — fail closed and make it re-authenticate.
+  [SESSION_AUTH_MISSING]: { status: 401, message: 'Session cannot be re-issued — please sign in again' },
 });
 
 /**
@@ -333,6 +402,26 @@ export const verifyEmail = withController('Verify email', async (req, res) => {
 
   const user = await authService.verifyEmailWithToken(token);
   if (!user) return sendError(res, 400, 'Invalid or expired verification token');
+
+  // `isEmailVerified` is the only proof-of-domain-control the domain-based-join
+  // flow trusts, so the link path leaves the same trail as the superadmin
+  // self-verify (`markEmailVerified`) above. Public route: there is no
+  // `req.user`, so `audit(req, ...)` would file it under an anonymous actor —
+  // attribute it to the user the TOKEN resolved to, via createEvent. NEVER the
+  // token itself. Fire-and-forget: an audit error must not fail the verify.
+  const verifiedOrgId = user.lastActiveOrgId != null ? String(user.lastActiveOrgId) : undefined;
+  auditService.createEvent({
+    action: 'user.email.verified',
+    actorId: user._id.toString(),
+    actorEmail: user.email,
+    orgId: verifiedOrgId,
+    affectedOrgId: verifiedOrgId,
+    targetType: 'user',
+    targetId: user._id.toString(),
+    outcome: 'success',
+    ip: req.ip,
+    details: { via: 'token' },
+  }).catch((err) => logger.warn('Failed to write user.email.verified audit event', { error: err instanceof Error ? err.message : String(err) }));
 
   sendSuccess(res, 200, undefined, 'Email verified successfully');
 });

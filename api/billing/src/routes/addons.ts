@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  audited,
   requireAuth,
   requirePermission,
   sendSuccess,
@@ -258,7 +259,7 @@ export function createAddonRoutes(): Router {
   }));
 
   // POST /billing/subscriptions/:id/addons — add or set a bundle quantity
-  router.post('/subscriptions/:id/addons', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/addons', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, audited('billing.addon.add', 'billing.combo.expired'), withRoute(async ({ req, res, orgId }) => {
     if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled', ErrorCode.NOT_FOUND);
     if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace', ErrorCode.INSUFFICIENT_PERMISSIONS);
     const validation = validateBody(req, AddonMutateSchema);
@@ -346,7 +347,7 @@ export function createAddonRoutes(): Router {
   // DELETE /billing/subscriptions/:id/addons/:bundleId — remove a bundle.
   // The over-cap gate below blocks a removal that would drop a pooled cap under
   // current usage (docs/billing-bundles.md §8); otherwise it removes + re-syncs.
-  router.delete('/subscriptions/:id/addons/:bundleId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.delete('/subscriptions/:id/addons/:bundleId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, audited('billing.addon.remove', 'billing.combo.expired'), withRoute(async ({ req, res, orgId }) => {
     if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled', ErrorCode.NOT_FOUND);
     if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace', ErrorCode.INSUFFICIENT_PERMISSIONS);
     const bundleId = getParam(req.params, 'bundleId');

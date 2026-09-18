@@ -18,7 +18,6 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/glo
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0000000000000000000000000000000000000000000000000000000000000000';
 process.env.JWT_SECRET ||= 'test-only-jwt-secret';
-process.env.REFRESH_TOKEN_SECRET ||= 'test-only-refresh-secret';
 
 const MONGOD_VERSION = process.env.MONGOMS_VERSION || '6.0.14';
 const RUN = process.env.RUN_MONGO_INTEGRATION === '1' || process.env.RUN_MONGO_INTEGRATION === 'true';
@@ -37,7 +36,7 @@ suite('user delete cascade (real Mongo replica set)', () => {
     await mongoose.connect(process.env.MONGODB_URI);
     m = await import('../src/models/index.js');
     // Collections must exist before a transaction writes to them.
-    for (const model of [m.User, m.UserOrganization, m.Role, m.RoleAssignment, m.JoinRequest, m.PersonalAccessToken, m.UserPreferences, m.Organization]) {
+    for (const model of [m.User, m.UserOrganization, m.Role, m.RoleAssignment, m.JoinRequest, m.PersonalAccessToken, m.UserPreferences, m.Organization, m.WebAuthnCredential]) {
       await model.createCollection().catch(() => undefined);
     }
     ({ userProfileService } = await import('../src/services/user-profile-service.js'));
@@ -53,7 +52,7 @@ suite('user delete cascade (real Mongo replica set)', () => {
 
   let orgId: string;
   beforeEach(async () => {
-    for (const model of [m.User, m.UserOrganization, m.Role, m.RoleAssignment, m.JoinRequest, m.Organization]) await model.deleteMany({});
+    for (const model of [m.User, m.UserOrganization, m.Role, m.RoleAssignment, m.JoinRequest, m.Organization, m.WebAuthnCredential]) await model.deleteMany({});
     const org = await m.Organization.create({ name: 'Acme', owner: new mongoose.Types.ObjectId() });
     orgId = String(org._id);
   });
@@ -64,16 +63,22 @@ suite('user delete cascade (real Mongo replica set)', () => {
   it.each([
     ['self-serve deleteAccount', (id: string) => userProfileService.deleteAccount(id)],
     ['admin deleteUserById', (id: string) => userAdminService.deleteUserById(id)],
-  ])('%s removes the user\'s join requests with the account', async (_name, del) => {
+  ])('%s removes the user\'s join requests and passkeys with the account', async (_name, del) => {
     const u = await newUser('leaver');
     await m.JoinRequest.create({ orgId, userId: u._id, email: u.email });
     await m.UserOrganization.create({ userId: u._id, organizationId: orgId, role: 'member' });
+    await m.WebAuthnCredential.create({
+      userId: u._id, credentialId: 'cred-leaver', publicKey: Buffer.from([1, 2, 3]), counter: 0, name: 'Laptop',
+    });
 
     await del(String(u._id));
 
     expect(await m.User.exists({ _id: u._id })).toBeNull();
     expect(await m.JoinRequest.countDocuments({ userId: u._id })).toBe(0);
     expect(await m.UserOrganization.countDocuments({ userId: u._id })).toBe(0);
+    // A leftover credential would keep its unique `credentialId` reserved, so
+    // re-enrolling the same authenticator later would fail on the unique index.
+    expect(await m.WebAuthnCredential.countDocuments({ userId: u._id })).toBe(0);
   });
 
   it('refuses to approve a join request whose requester no longer exists — no orphan membership', async () => {

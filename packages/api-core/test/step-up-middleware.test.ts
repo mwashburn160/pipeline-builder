@@ -4,29 +4,40 @@
 /**
  * Tests for the shared api-core step-up gate (src/middleware/step-up.ts):
  * verifyStepUpToken, consumeStepUpJti (single-use), and the requireStepUp
- * middleware. Uses real `jsonwebtoken` + the in-memory jti store (no Redis env
- * is set, so createEnvRedisClient returns null and the mem fallback is used).
+ * middleware. A step-up token is a USER token: ES256, signed by platform,
+ * verified against the published JWKS (installed here in-memory). Uses the
+ * in-memory jti store (no Redis env is set, so createEnvRedisClient returns null
+ * and the mem fallback is used).
  */
 
-import { jest, describe, it, expect, beforeAll } from '@jest/globals';
+import { jest, describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { _resetJwtSecretCacheForTests } from '../src/middleware/auth.js';
 import { requireStepUp, verifyStepUpToken, consumeStepUpJti } from '../src/middleware/step-up.js';
+import {
+  generateTestSigningKey, installTestJwks, signTestUserToken, uninstallTestJwks,
+  type TestSigningKey,
+} from '../src/testing/user-tokens.js';
 
 const SECRET = 'test-step-up-secret';
+
+let signingKey: TestSigningKey;
 
 beforeAll(() => {
   process.env.JWT_SECRET = SECRET;
   // Force the in-memory jti path (no cross-instance Redis in unit tests).
   delete process.env.REDIS_URL;
   delete process.env.REDIS_SENTINELS;
+  signingKey = generateTestSigningKey();
+  installTestJwks([signingKey]);
 });
+
+afterAll(() => uninstallTestJwks());
 
 let jtiSeq = 0;
 /** Sign a step-up token with a unique jti (so single-use tests don't collide). */
-function signStepUp(overrides: Record<string, unknown> = {}, secret = SECRET): string {
-  return jwt.sign({ type: 'step-up', sub: 'user-1', jti: `jti-${jtiSeq++}`, ...overrides }, secret, { expiresIn: 60 });
+function signStepUp(overrides: Record<string, unknown> = {}, key: TestSigningKey = signingKey): Promise<string> {
+  return signTestUserToken({ type: 'step-up', sub: 'user-1', jti: `jti-${jtiSeq++}`, ...overrides }, { key, expiresIn: 60 });
 }
 
 function mockReq(overrides: Partial<Request> = {}): Request {
@@ -43,39 +54,39 @@ function mockRes(): Response & { _status: number; _json: { code?: string } } {
 }
 
 describe('verifyStepUpToken', () => {
-  it('accepts a well-formed step-up token', () => {
-    const payload = verifyStepUpToken(signStepUp({ sub: 'abc' }));
+  it('accepts a well-formed step-up token', async () => {
+    const payload = await verifyStepUpToken(await signStepUp({ sub: 'abc' }));
     expect(payload.type).toBe('step-up');
     expect(payload.sub).toBe('abc');
     expect(payload.jti).toBeTruthy();
   });
 
-  it('rejects a plain access token (wrong type) that shares the secret', () => {
-    const access = jwt.sign({ type: 'access', sub: 'abc', jti: 'j' }, SECRET, { expiresIn: 60 });
-    expect(() => verifyStepUpToken(access)).toThrow();
+  it('rejects a plain access token (wrong type) that shares the signing key', async () => {
+    const access = await signTestUserToken({ type: 'access', sub: 'abc', jti: 'j' }, { key: signingKey, expiresIn: 60 });
+    await expect(verifyStepUpToken(access)).rejects.toThrow();
   });
 
-  it('rejects a step-up token missing a jti', () => {
-    const noJti = jwt.sign({ type: 'step-up', sub: 'abc' }, SECRET, { expiresIn: 60 });
-    expect(() => verifyStepUpToken(noJti)).toThrow();
+  it('rejects a step-up token missing a jti', async () => {
+    const noJti = await signTestUserToken({ type: 'step-up', sub: 'abc' }, { key: signingKey, expiresIn: 60 });
+    await expect(verifyStepUpToken(noJti)).rejects.toThrow();
   });
 
-  it('rejects a bad signature', () => {
-    expect(() => verifyStepUpToken(signStepUp({}, 'the-wrong-secret'))).toThrow();
+  it('rejects a bad signature', async () => {
+    await expect(verifyStepUpToken(await signStepUp({}, generateTestSigningKey()))).rejects.toThrow();
   });
 
-  it('accepts a token signed with JWT_SECRET_PREVIOUS during rotation', () => {
-    const previous = 'old-secret';
-    const token = signStepUp({ sub: 'rot' }, previous);
-    process.env.JWT_SECRET_PREVIOUS = previous;
-    // verifyStepUpToken now shares requireAuth's secret accessors, which cache
-    // for 5 minutes — drop the cache so this mid-test env change is seen.
-    _resetJwtSecretCacheForTests();
+  it('rejects an HS256 step-up token signed with the shared JWT_SECRET', async () => {
+    const forged = jwt.sign({ type: 'step-up', sub: 'abc', jti: 'j-hs' }, SECRET, { expiresIn: 60 });
+    await expect(verifyStepUpToken(forged)).rejects.toThrow();
+  });
+
+  it('accepts a token signed with a RETIRING key that is still published', async () => {
+    const retiring = generateTestSigningKey();
+    installTestJwks([signingKey, retiring]);
     try {
-      expect(verifyStepUpToken(token).sub).toBe('rot');
+      expect((await verifyStepUpToken(await signStepUp({ sub: 'rot' }, retiring))).sub).toBe('rot');
     } finally {
-      delete process.env.JWT_SECRET_PREVIOUS;
-      _resetJwtSecretCacheForTests();
+      installTestJwks([signingKey]);
     }
   });
 });
@@ -112,9 +123,9 @@ describe('requireStepUp middleware', () => {
   it('SKIPS a verified service principal (no header needed) so internal S2S calls pass', async () => {
     const res = mockRes();
     const next = jest.fn();
-    // A service token's `sub` starts with `service:` (isServicePrincipal). It
+    // A service token carries `principalType: 'service'` (isServicePrincipal). It
     // structurally cannot produce a human step-up token, so the gate exempts it.
-    await requireStepUp(mockReq({ user: { sub: 'service:platform' } as never }), res, next);
+    await requireStepUp(mockReq({ user: { sub: 'service:platform', principalType: 'service' } as never }), res, next);
     expect(next).toHaveBeenCalledTimes(1);
     // The skip path proceeds without emitting a 401.
     expect(res._status).not.toBe(401);
@@ -132,7 +143,7 @@ describe('requireStepUp middleware', () => {
   it('401 STEP_UP_MISMATCH when the token subject != caller', async () => {
     const res = mockRes();
     const next = jest.fn();
-    const token = signStepUp({ sub: 'someone-else' });
+    const token = await signStepUp({ sub: 'someone-else' });
     await requireStepUp(mockReq({ user: okUser as never, headers: { 'x-step-up-token': token } }), res, next);
     expect(res._status).toBe(401);
     expect(res._json.code).toBe('STEP_UP_MISMATCH');
@@ -142,14 +153,14 @@ describe('requireStepUp middleware', () => {
   it('calls next() for a valid, caller-bound, fresh token', async () => {
     const res = mockRes();
     const next = jest.fn();
-    const token = signStepUp({ sub: 'user-1' });
+    const token = await signStepUp({ sub: 'user-1' });
     await requireStepUp(mockReq({ user: okUser as never, headers: { 'x-step-up-token': token } }), res, next);
     expect(next).toHaveBeenCalledTimes(1);
     expect(res._status).toBe(0);
   });
 
   it('401 STEP_UP_REPLAY when the same token is used twice', async () => {
-    const token = signStepUp({ sub: 'user-1' });
+    const token = await signStepUp({ sub: 'user-1' });
     const first = mockRes();
     const firstNext = jest.fn();
     await requireStepUp(mockReq({ user: okUser as never, headers: { 'x-step-up-token': token } }), first, firstNext);

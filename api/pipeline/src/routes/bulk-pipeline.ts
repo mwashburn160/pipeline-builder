@@ -21,6 +21,7 @@ import {
   checkVisibilityWriteAccess,
   userHasPermission,
   createComplianceClient,
+  audited,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
@@ -64,7 +65,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
   ];
 
   /** POST /pipelines/bulk/create — Create multiple pipelines in one request */
-  router.post('/bulk/create', ...bulkGuards, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/bulk/create', ...bulkGuards, audited('pipeline.create', 'pipeline.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const bulk = validateBulkArray<unknown>(req.body?.pipelines, 'pipelines', CoreConstants.MAX_BULK_ITEMS);
     if ('error' in bulk) return sendBadRequest(res, bulk.error, ErrorCode.VALIDATION_ERROR);
     const pipelines = bulk.value;
@@ -218,7 +219,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
   }));
 
   /** POST /pipelines/bulk/delete — Soft-delete multiple pipelines by ID */
-  router.post('/bulk/delete', ...bulkGuards, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/bulk/delete', ...bulkGuards, audited('pipeline.delete'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const bulk = validateBulkArray<string>(req.body?.ids, 'ids', CoreConstants.MAX_BULK_ITEMS);
     if ('error' in bulk) return sendBadRequest(res, bulk.error, ErrorCode.VALIDATION_ERROR);
     if (nonUuidIds(bulk.value)) return sendBadRequest(res, '"ids" must be full pipeline UUIDs', ErrorCode.VALIDATION_ERROR);
@@ -269,7 +270,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
   }));
 
   /** PUT /pipelines/bulk/update — Update multiple pipelines with the same data */
-  router.put('/bulk/update', ...bulkGuards, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/bulk/update', ...bulkGuards, audited('pipeline.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const bulk = validateBulkArray<string>(req.body?.ids, 'ids', CoreConstants.MAX_BULK_ITEMS);
     if ('error' in bulk) return sendBadRequest(res, bulk.error, ErrorCode.VALIDATION_ERROR);
     if (nonUuidIds(bulk.value)) return sendBadRequest(res, '"ids" must be full pipeline UUIDs', ErrorCode.VALIDATION_ERROR);

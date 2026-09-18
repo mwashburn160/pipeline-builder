@@ -34,7 +34,7 @@ function secret(): string {
  * the inline `mongodb://…:CHANGE_ME@…` URIs, and ME_CONFIG_*. So every bare
  * `CHANGE_ME` gets the SAME value (a per-`.env` shared password) — otherwise the
  * services can't authenticate and the stack fails to start. The suffixed form
- * (`CHANGE_ME_generate_with_openssl_rand_base64_32` → JWT_SECRET, REFRESH_TOKEN_SECRET)
+ * (`CHANGE_ME_generate_with_openssl_rand_base64_32` → SECRET_ENCRYPTION_KEY)
  * marks an independent crypto secret, so each of those gets a unique value.
  */
 export function createEnvFile(cwd: string, dir: string): number {

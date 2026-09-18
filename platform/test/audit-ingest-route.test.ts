@@ -15,6 +15,15 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
+/** A peer service's verified identity, as `requireServiceAuth` leaves it. */
+const SERVICE_PRINCIPAL = {
+  sub: 'service:pipeline',
+  principalType: 'service' as const,
+  token_use: 'access' as const,
+  organizationId: 'org-1',
+  isSuperAdmin: false,
+};
+
 const mockCreateEvent = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockFindEvents = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockRequireAdminContext = jest.fn<(...a: unknown[]) => unknown>();
@@ -24,13 +33,19 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
 }));
 
-// requireServiceAuth stub — authenticate as a non-sysadmin service token for org-1.
+// requireServiceAuth stub — authenticate as a non-sysadmin service token for
+// org-1. `principalType: 'service'` is what makes it a service principal, and the
+// `service:<name>` subject is what `requireInternalService` reads to decide
+// whether pipeline is one of the callers this ingest admits (#14).
 jest.unstable_mockModule('../src/middleware/index.js', () => ({
   requireServiceAuth: (req: any, _res: unknown, next: () => void) => {
-    req.user = req.user ?? { sub: 'service:pipeline', organizationId: 'org-1', isSuperAdmin: false };
+    req.user = req.user ?? SERVICE_PRINCIPAL;
     next();
   },
   requireAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
+  // GET /audit/verify mirrors its handler's sysadmin gate at the route layer;
+  // this suite only exercises the ingest, so a pass-through is enough.
+  requireSystemAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 jest.unstable_mockModule('../src/helpers/audit-chain.js', () => ({
@@ -71,7 +86,7 @@ function post(body: unknown, headers: Record<string, string> = {}): Promise<any>
     body,
     headers: lower,
     header: (name: string) => lower[name.toLowerCase()],
-    user: { sub: 'service:pipeline', organizationId: 'org-1', isSuperAdmin: false },
+    user: SERVICE_PRINCIPAL,
   };
   return new Promise((resolve) => {
     // The handler is async; give the microtask queue a beat to settle after the

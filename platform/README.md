@@ -27,7 +27,9 @@ The API gateway strips the `/api` prefix before proxying; paths below are as mou
 | POST | `/auth/switch-org` | Switch active organization and re-issue tokens |
 | POST | `/auth/send-verification` | Send an email-verification link |
 | POST | `/auth/verify-email` | Verify email with a token (public) |
-| POST | `/auth/step-up` | Re-verify password before destructive admin actions |
+| POST | `/auth/step-up` | Re-verify the account password before destructive admin actions |
+| POST | `/auth/step-up/reauth` | Start a step-up by signing in again with a linked provider / org SSO |
+| POST | `/auth/step-up/reauth/callback` | Verify that re-auth and issue the step-up token |
 | `*` | `/auth/oauth/*` | OAuth (Google, GitHub) authorize/callback flow |
 
 ### Users (`/user/*`, `/users/*`)
@@ -39,8 +41,10 @@ The API gateway strips the `/api` prefix before proxying; paths below are as mou
 | DELETE | `/user/account` | Delete the current user's account (step-up) |
 | POST | `/user/change-password` | Change password (step-up) |
 | GET | `/user/organizations` | List organizations the user belongs to |
-| POST | `/user/generate-token` | Generate an API token |
+| POST | `/user/generate-token` | Mint a stored machine credential in its own machine session |
 | GET | `/user/tokens` | List recent token-issuance history |
+| GET | `/user/sessions` | List signed-in devices + stored machine credentials |
+| DELETE | `/user/sessions/:id` | Revoke one session — not the current one (step-up) |
 | POST | `/user/tokens/revoke-all` | Revoke all sessions (step-up) |
 | GET | `/users` | List all users (system admin) |
 | GET | `/users/:id` | Get a user by ID (system admin) |
@@ -98,16 +102,19 @@ The API gateway strips the `/api` prefix before proxying; paths below are as mou
 
 ## Configuration
 
-All config is read from environment variables (see `src/config/index.ts`). `JWT_SECRET` and `REFRESH_TOKEN_SECRET` are required in production (a dev-only insecure fallback is used otherwise); `SECRET_ENCRYPTION_KEY` is required in production for at-rest encryption of provider keys.
+All config is read from environment variables (see `src/config/index.ts`). The ES256 user-token signing key must be loadable or platform refuses to start, as must platform's own internal service-signing key and the public key bundle; `SECRET_ENCRYPTION_KEY` is required in production for at-rest encryption of provider keys.
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `PORT` | HTTP listen port | `3000` |
 | `MONGODB_URI` | MongoDB connection string (required) | — |
-| `JWT_SECRET` | Access-token signing secret (required in prod) | dev fallback |
-| `REFRESH_TOKEN_SECRET` | Refresh-token signing secret (required in prod) | dev fallback |
+| `TOKEN_SIGNING_MODE` | `local` (PEM on disk) or `kms` — signs every USER token (access, refresh, step-up, exchanged keys) with ES256 | `local` |
+| `TOKEN_SIGNING_KEY_FILE` | EC P-256 private key (PKCS#8 PEM) in `local` mode; platform refuses to start without it | — |
+| `TOKEN_SIGNING_KMS_KEY_ID` | KMS key **alias** in `kms` mode (`ECC_NIST_P256`, `SIGN_VERIFY`) | — |
+| `SERVICE_SIGNING_KEY_FILE` | Platform's OWN ES256 key for the internal service tokens it mints. Cannot mint a user token | required |
+| `SERVICE_KEY_BUNDLE_FILE` | The public per-service key bundle it verifies peers' tokens with | required |
 | `JWT_EXPIRES_IN` | Access-token TTL (seconds) | `7200` |
-| `JWT_ALGORITHM` | JWT signing algorithm | `HS256` |
+| `JWT_ALGORITHM` | Algorithm of the internal service tokens (user tokens are always ES256) | `HS256` |
 | `REFRESH_TOKEN_EXPIRES_IN` | Refresh-token TTL (seconds) | `2592000` |
 | `BCRYPT_SALT_ROUNDS` | bcrypt cost factor for password hashing | `12` |
 | `PASSWORD_MIN_LENGTH` | Minimum password length | `8` |

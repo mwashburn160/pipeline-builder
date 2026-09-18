@@ -111,7 +111,7 @@ export const complianceTopic: HelpTopic = {
             [
               "POST",
               "/compliance/rules",
-              "Create rule"
+              "Create rule — 409 CONFLICT if a rule with that name exists (live, or deleted: restore it instead)"
             ],
             [
               "PUT",
@@ -200,7 +200,7 @@ export const complianceTopic: HelpTopic = {
             [
               "DELETE",
               "/compliance/subscriptions/:ruleId",
-              "Unsubscribe"
+              "Unsubscribe (requires compliance:write, like deactivating)"
             ]
           ]
         },
@@ -1104,6 +1104,11 @@ export const complianceTopic: HelpTopic = {
               "Scan scheduler cross-pod leader-lock TTL (ms)"
             ],
             [
+              "COMPLIANCE_SCAN_STALE_TIMEOUT_MS",
+              "7200000",
+              "A scan still running after this long is marked failed by the next scheduler sweep (minimum 60000), so a crashed scan can't block rule-change re-scans"
+            ],
+            [
               "DIGEST_SCHEDULER_INTERVAL_MS",
               "3600000",
               "Notification digest scheduler interval (ms)"
@@ -1114,14 +1119,9 @@ export const complianceTopic: HelpTopic = {
               "Digest scheduler cross-pod leader-lock TTL (ms)"
             ],
             [
-              "REDIS_HOST",
-              "redis",
-              "Redis host (BullMQ queue + scheduler leader locks)"
-            ],
-            [
-              "REDIS_PORT",
-              "6379",
-              "Redis port"
+              "REDIS_URL / REDIS_SENTINELS",
+              "—",
+              "Redis for scheduler leader locks (see environment variables)"
             ],
             [
               "MESSAGE_SERVICE_HOST",

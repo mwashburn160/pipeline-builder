@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/Badge';
 import { IconButton } from '@/components/ui/IconButton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { type Column } from '@/components/ui/DataTable';
-import { roleDisplayName } from '@/lib/permissions';
+import { roleDisplayName } from '@/lib/role-display';
 import type { OrganizationMember } from '@/types';
 
 interface BuildMemberColumnsOptions {

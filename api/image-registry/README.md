@@ -4,7 +4,7 @@ Authentication and management layer in front of a Docker Distribution registry �
 
 ## Responsibilities
 
-- **Token issuance** — implements the Docker Distribution `/token` endpoint. Clients authenticate via Basic auth (a platform-issued JWT as the password, or `docker login` creds forwarded to the platform's `/auth/login`) and receive an RS256-signed JWT scoped to exactly the repositories and actions they may use.
+- **Token issuance** — implements the Docker Distribution `/token` endpoint. Clients authenticate via Basic auth (a platform-issued token as the password — a USER token verified against platform's published ES256 key set, an internal SERVICE token verified with the shared secret, or an opaque `pb_pat_…` key exchanged at platform — or `docker login` creds forwarded to the platform's `/auth/login`) and receive an RS256-signed JWT scoped to exactly the repositories and actions they may use.
 - **Namespace policy** — any authenticated identity may pull `system/*` and `library/*`; an org may pull/push its own `org-{orgId}/*` namespace; system admins may push anywhere. Enforced when scopes are authorized, so an unauthorized push never gets a usable token.
 - **Storage-quota push gate** — strips `push` scope on an org namespace when the org is over its `storageBytes` quota (fail-open on quota errors); `pull` is preserved.
 - **Management API** — sysadmin-only routes to list repositories, list tags, fetch/delete manifests, preview small config blobs, and copy/promote tags.
@@ -46,7 +46,9 @@ This service loads its own config (`src/config`) rather than the shared server c
 | `REGISTRY_TOKEN_ISSUER` | `iss` claim on issued tokens | `platform` |
 | `REGISTRY_TOKEN_SERVICE` | `aud`/`service` value | `pipeline-image-registry` |
 | `REGISTRY_TOKEN_EXPIRES_IN` | Token lifetime (s) | `300` |
-| `JWT_SECRET` | Platform JWT verification secret (Basic-auth password path) (**required**) | — |
+| `SERVICE_SIGNING_KEY_FILE` | This service's OWN ES256 key for the INTERNAL service tokens it mints (its `/auth/login` relay call) (**required**) | — |
+| `SERVICE_KEY_BUNDLE_FILE` | The public per-service key bundle it verifies peers' tokens with (api/plugin's own image pushes, the deploy's base-image pushes) (**required**) | — |
+| `PLATFORM_JWKS_URL` | Override for platform's published ES256 key set, which the Basic-auth-password path verifies USER tokens against. Defaults to the in-cluster `PLATFORM_SERVICE_HOST`/`PORT` — no secret is involved, and this service can no longer mint a platform token | derived |
 | `JWT_ISSUER` | Expected `iss` on platform JWTs | unset |
 | `JWT_AUDIENCE` | Permitted `aud` on platform JWTs | unset |
 | `PLATFORM_SERVICE_HOST` | In-cluster platform host for the `docker login` flow (password forwarded to `/auth/login`) | `platform` |

@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  sendSuccess, sendBadRequest, sendError, ErrorCode,
-  getParam, isServicePrincipal, isSystemAdmin,
+  sendSuccess, sendBadRequest, ErrorCode,
+  getParam, requireInternalService, audited,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
+import { emitReportingAudit } from '../services/audit.js';
 
 /** Absolute retention ceiling (days). Mirrors reporting-service RETENTION_MAX_DAYS. */
 const RETENTION_MAX_DAYS = 730;
@@ -35,25 +36,18 @@ function normalizeRetentionDays(v: unknown): number | null {
  * per-org query cap read the current entitlement without reporting recomputing
  * billing math.
  *
- * AUTH: identical to the platform `PUT /organization/:id/seat-limit` leg this
- * mirrors — a SERVICE PRINCIPAL or a system-admin. The billing service token
- * (`getServiceAuthHeader({ serviceName: 'billing', ... })` → `sub: service:billing`)
- * satisfies `isServicePrincipal`; it carries NO `reporting:ingest` scope and NO
- * org-user permission, so the guard must not require either. The `:orgId` path
- * param carries the target ROOT org (billing resolves the org to its root before
- * calling), mirroring platform's seat-limit route shape — NOT the token's org.
+ * AUTH: an INTERNAL route (#14) — only `billing`'s own signed token passes, and
+ * the name is bound to the signing key, so no other service can drive an org's
+ * retention. The token carries NO `reporting:ingest` scope and NO org-user
+ * permission, so the guard must not require either. The system-admin escape
+ * hatch this leg used to allow is gone: an internal route refuses every user
+ * token, however privileged. The `:orgId` path param carries the target ROOT org
+ * (billing resolves the org to its root before calling) — NOT the token's org.
  */
 export function createRetentionSyncRoutes(): Router {
   const router = Router();
 
-  router.put('/:orgId', withRoute(async ({ req, res, ctx }) => {
-    // Service-to-service entitlement sync: accept the billing service token (or a
-    // sysadmin), never a plain org-user JWT. Copied verbatim from platform's
-    // seat-limit route so the two internal sync legs authorize identically.
-    if (!isServicePrincipal(req) && !isSystemAdmin(req)) {
-      return sendError(res, 403, 'Forbidden: service or system-admin only', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
-
+  router.put('/:orgId', requireInternalService({ callers: ['billing'] }), audited('reporting.retention.sync'), withRoute(async ({ req, res, ctx }) => {
     const orgId = getParam(req.params, 'orgId');
     if (!orgId) return sendBadRequest(res, 'orgId path parameter is required', ErrorCode.VALIDATION_ERROR);
 
@@ -69,6 +63,20 @@ export function createRetentionSyncRoutes(): Router {
 
     await reportingService.setReportingSettings(orgId, { eventRetentionDays, doraRetentionDays });
     ctx.log('COMPLETED', 'Synced reporting retention from billing', { orgId, eventRetentionDays, doraRetentionDays });
+    // Best-effort attributed audit — the same durable trail platform's sibling
+    // seat-limit sync leg writes (`admin.org.seatLimit.update`): this entitlement
+    // push decides how long an org's raw reporting data is kept, so a retention
+    // reduction (a data-destroying change, applied by the next sweep) must be
+    // traceable to the service call that made it. `affectedOrgId` is the target
+    // ROOT org; the actor is the billing service principal (or a sysadmin).
+    emitReportingAudit({
+      action: 'reporting.retention.sync',
+      actorId: req.user?.sub ?? 'system',
+      affectedOrgId: orgId,
+      targetType: 'reporting-settings',
+      targetId: orgId,
+      details: { eventRetentionDays, doraRetentionDays },
+    });
     return sendSuccess(res, 200, { orgId, eventRetentionDays, doraRetentionDays, ok: true });
   }, { requireOrgId: false }));
 

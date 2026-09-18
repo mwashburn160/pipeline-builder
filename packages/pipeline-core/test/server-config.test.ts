@@ -74,52 +74,44 @@ describe('loadAuthConfig', () => {
     process.env = { ...savedEnv };
   });
 
-  it('returns empty secret when JWT_SECRET is missing', () => {
-    delete process.env.JWT_SECRET;
-    process.env.REFRESH_TOKEN_SECRET = 'refresh-secret';
+  it('reads NO token secret at all — every token is asymmetrically signed', () => {
+    // #5 moved user tokens onto platform's ES256 key; #14 moved internal service
+    // tokens onto a per-service ES256 key. A leftover env value must not reappear
+    // as config, or it would read as a secret an operator still has to rotate.
+    process.env.JWT_SECRET = 'a-stale-value-nothing-reads';
+    process.env.JWT_ALGORITHM = 'HS384';
 
-    const config = loadAuthConfig();
-    expect(config.jwt.secret).toBe('');
+    expect(loadAuthConfig().jwt).toEqual({ expiresIn: 7200, saltRounds: 12 });
   });
 
-  it('returns empty secret when REFRESH_TOKEN_SECRET is missing', () => {
-    process.env.JWT_SECRET = 'jwt-secret';
-    delete process.env.REFRESH_TOKEN_SECRET;
+  it('reads NO refresh-token secret — refresh tokens are signed with platform\'s ES256 key', () => {
+    process.env.REFRESH_TOKEN_SECRET = 'a-stale-value-nothing-reads';
 
-    const config = loadAuthConfig();
-    expect(config.refreshToken.secret).toBe('');
+    // Only the lifetime remains; a leftover env value must not reappear as
+    // config, or it would read as a secret an operator still has to rotate.
+    expect(loadAuthConfig().refreshToken).toEqual({ expiresIn: 2592000 });
   });
 
   it('returns correct values from env', () => {
-    process.env.JWT_SECRET = 'my-jwt-secret';
-    process.env.REFRESH_TOKEN_SECRET = 'my-refresh-secret';
     process.env.JWT_EXPIRES_IN = '3600';
-    process.env.JWT_ALGORITHM = 'HS384';
     process.env.BCRYPT_SALT_ROUNDS = '14';
     process.env.REFRESH_TOKEN_EXPIRES_IN = '86400';
 
     const config = loadAuthConfig();
 
-    expect(config.jwt.secret).toBe('my-jwt-secret');
     expect(config.jwt.expiresIn).toBe(3600);
-    expect(config.jwt.algorithm).toBe('HS384');
     expect(config.jwt.saltRounds).toBe(14);
-    expect(config.refreshToken.secret).toBe('my-refresh-secret');
     expect(config.refreshToken.expiresIn).toBe(86400);
   });
 
   it('uses defaults when optional env vars are not set', () => {
-    process.env.JWT_SECRET = 'my-jwt-secret';
-    process.env.REFRESH_TOKEN_SECRET = 'my-refresh-secret';
     delete process.env.JWT_EXPIRES_IN;
-    delete process.env.JWT_ALGORITHM;
     delete process.env.BCRYPT_SALT_ROUNDS;
     delete process.env.REFRESH_TOKEN_EXPIRES_IN;
 
     const config = loadAuthConfig();
 
     expect(config.jwt.expiresIn).toBe(7200);
-    expect(config.jwt.algorithm).toBe('HS256');
     expect(config.jwt.saltRounds).toBe(12);
     expect(config.refreshToken.expiresIn).toBe(2592000);
   });
@@ -246,55 +238,16 @@ describe('validateServerConfig', () => {
 describe('validateAuthConfig', () => {
   const validConfig = {
     jwt: {
-      secret: 'xK9mQ7vLpR2nW8jF4hT6bY0cA3eG5iUo',
       expiresIn: 3600,
-      algorithm: 'HS256' as const,
       saltRounds: 12,
     },
     refreshToken: {
-      secret: 'zN1dS8wM4qJ7rX0fV3kL6yP9tB2uH5gE',
       expiresIn: 2592000,
     },
   };
 
   it('does not throw for valid config', () => {
     expect(() => validateAuthConfig(validConfig)).not.toThrow();
-  });
-
-  it('throws for insecure JWT secret', () => {
-    expect(() =>
-      validateAuthConfig({
-        ...validConfig,
-        jwt: { ...validConfig.jwt, secret: 'default-insecure-secret-that-is-long' },
-      }),
-    ).toThrow('Auth configuration validation failed');
-  });
-
-  it('throws for short JWT secret (< 32 chars)', () => {
-    expect(() =>
-      validateAuthConfig({
-        ...validConfig,
-        jwt: { ...validConfig.jwt, secret: 'tooshort' },
-      }),
-    ).toThrow('at least 32 characters');
-  });
-
-  it('throws for short refresh token secret (< 32 chars)', () => {
-    expect(() =>
-      validateAuthConfig({
-        ...validConfig,
-        refreshToken: { ...validConfig.refreshToken, secret: 'tooshort' },
-      }),
-    ).toThrow('at least 32 characters');
-  });
-
-  it('throws for disallowed algorithm', () => {
-    expect(() =>
-      validateAuthConfig({
-        ...validConfig,
-        jwt: { ...validConfig.jwt, algorithm: 'none' as any },
-      }),
-    ).toThrow('not in the allowed list');
   });
 
   it('does not throw when JWT expiration > 2h (only warns)', () => {
@@ -354,61 +307,12 @@ describe('validateAuthConfig', () => {
     ).not.toThrow();
   });
 
-  // --- Fix 25: Secret validation with length threshold ---
-
-  it('does not flag long secrets (>= 64 chars) that contain insecure substrings', () => {
-    // A 64+ character secret that happens to contain "password" should NOT be flagged
-    // because long secrets are likely generated and secure despite containing common substrings
-    const longSecretWithPassword =
-      'aB3dEfGhIjKlMnOpQrStUvWxYz0123456789passwordABCDEFGHIJKLMNOPQRSTUV';
-
-    expect(longSecretWithPassword.length).toBeGreaterThanOrEqual(64);
-    expect(longSecretWithPassword.toLowerCase()).toContain('password');
-
-    expect(() =>
-      validateAuthConfig({
-        ...validConfig,
-        jwt: { ...validConfig.jwt, secret: longSecretWithPassword },
-      }),
-    ).not.toThrow();
-  });
-
-  it('does not flag long refresh token secrets (>= 64 chars) containing insecure substrings', () => {
-    const longRefreshSecret =
-      'xR9kW2mN5pQ8sT1vY4bE7gJ0lO3fU6hA9cdefaultI2dK5nP8rS1uX4aD7eH0jM3';
-
-    expect(longRefreshSecret.length).toBeGreaterThanOrEqual(64);
-    expect(longRefreshSecret.toLowerCase()).toContain('default');
-
-    expect(() =>
-      validateAuthConfig({
-        ...validConfig,
-        refreshToken: { ...validConfig.refreshToken, secret: longRefreshSecret },
-      }),
-    ).not.toThrow();
-  });
-
-  it('still flags short secrets (< 32 chars) containing insecure substrings', () => {
-    expect(() =>
-      validateAuthConfig({
-        ...validConfig,
-        jwt: { ...validConfig.jwt, secret: 'password' },
-      }),
-    ).toThrow('at least 32 characters');
-  });
-
-  it('still flags medium-length secrets (< 64 chars) containing insecure substrings', () => {
-    // 40 chars: long enough to pass the 32-char minimum, but short enough (< 64) to be checked
-    const mediumSecret = 'password-is-here-plus-extra-padding12345';
-
-    expect(mediumSecret.length).toBeGreaterThanOrEqual(32);
-    expect(mediumSecret.length).toBeLessThan(64);
-
-    expect(() =>
-      validateAuthConfig({
-        ...validConfig,
-        jwt: { ...validConfig.jwt, secret: mediumSecret },
-      }),
-    ).toThrow('insecure');
+  // Fix 25 (secret-strength validation) is GONE with the secret it validated:
+  // #5 + #14 left no shared secret to be weak. `validateAuthConfig` now only
+  // bounds token lifetimes; key material is validated where it is loaded —
+  // platform's signer for user tokens, `createApp` for the per-service keys.
+  it('accepts a config with no secret of any kind', () => {
+    expect(() => validateAuthConfig(validConfig)).not.toThrow();
+    expect(validConfig.jwt).toEqual({ expiresIn: 3600, saltRounds: 12 });
   });
 });

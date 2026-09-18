@@ -8,6 +8,7 @@ import {
   ErrorCode,
   isSystemAdmin,
   requirePermission,
+  audited,
   getParam,
   sendEntityNotFound,
   errorMessage,
@@ -31,7 +32,7 @@ export function createDeleteMessageRoutes(sseManager: SSEManager): Router {
   // DELETE /messages/:id — Soft delete a message. Requires the messaging write
   // capability (parity with create/reply); the inline ownership check below
   // further restricts non-admins to their own root messages — both must hold.
-  router.delete('/:id', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.delete('/:id', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), audited('message.delete'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);

@@ -560,24 +560,41 @@ login() {
 }
 
 # ---------------------------------------------------------------------------
-# sign_platform_jwt — mint a short-lived HS256 platform JWT for system
-# admin access (no Node deps). Used by push-base-images.sh to authenticate
-# against the in-cluster image registry. Same trick the plugin service
-# uses for runtime builds.
+# sign_service_jwt — mint a short-lived INTERNAL SERVICE token (no Node deps)
+# for the deploy's own registry pushes. Used by push-base-images.sh and
+# build-plugin-images.sh to authenticate against the in-cluster image registry.
+# Same shape api-core's `signServiceToken` mints, and the same one the plugin
+# service uses for its runtime builds.
 #
-#   $1   JWT_SECRET (HMAC key)
-#   $2?  expiry seconds (default 300)
-#   echoes the compact JWT, exits 1 if openssl is missing.
+#   $1   path to the `deploy-bootstrap` EC P-256 private key (PKCS#8 PEM)
+#   $2   path to the service key bundle (bundle.json) — supplies the `kid`
+#   $3?  expiry seconds (default 300)
+#   echoes the compact JWT; exits 1 if openssl/jq is missing or the key is not
+#   in the bundle.
 #
-# Lives in common.sh so any deploy script needing a platform-scoped JWT
-# (registry pushes, smoke tests, signed API checks) reuses the same
-# signing path. Image-registry's `auth-resolver.ts verifyPlatformJwt`
-# requires `organizationId` (not `orgId`); `isAdmin`/`isSuperAdmin` gate
-# access to `library/*` and `system/*` via the admin-priority rule in
-# `token-service.ts authorizeScope`.
+# ES256, not HMAC: since #14 every service signs with its OWN key and a verifier
+# resolves the key by `kid` and then requires the token's `sub` to name that
+# key's owner. So this signs as `service:deploy-bootstrap` with the deploy's own
+# key (deploy/bin/service-signing-keys.sh), which is published in the bundle like
+# any other service's. There is no shared secret left to sign with.
+#
+# It is a SERVICE principal, not a user: every token that speaks for a PERSON is
+# ES256 signed only by PLATFORM, with a key this host does not have.
+#
+# Image-registry's auth resolver requires `organizationId` (not `orgId`) and a
+# well-formed service identity (`principalType`, `token_use`, a `service:<name>`
+# subject); `isAdmin`/`isSuperAdmin` gate access to `library/*` and `system/*`
+# via the admin-priority rule in `token-service.ts authorizeScope`.
 # ---------------------------------------------------------------------------
 _b64url_jwt() {
   openssl base64 -A | tr '+/' '-_' | tr -d '='
+}
+
+# Hex string on $1 → raw bytes on stdout. Used to rebuild the ECDSA signature
+# from the two integers `openssl asn1parse` prints, with no extra tooling.
+_hex_to_bin() {
+  local _h="$1" _i
+  for (( _i=0; _i<${#_h}; _i+=2 )); do printf '\x'"${_h:_i:2}"; done
 }
 # ---------------------------------------------------------------------------
 # require_env — assert that one or more env vars are non-empty.
@@ -596,30 +613,166 @@ require_env() {
   done
 }
 
-sign_platform_jwt() {
-  local _secret="$1"
-  local _ttl="${2:-300}"
-  command -v openssl >/dev/null 2>&1 || { echo "ERROR: openssl required for sign_platform_jwt" >&2; return 1; }
-  local _now _exp _header _payload _signing _sig
+sign_service_jwt() {
+  local _key="${1:?sign_service_jwt needs the deploy-bootstrap key file}"
+  local _bundle="${2:?sign_service_jwt needs the service key bundle}"
+  local _ttl="${3:-300}"
+  command -v openssl >/dev/null 2>&1 || { echo "ERROR: openssl required for sign_service_jwt" >&2; return 1; }
+  command -v jq >/dev/null 2>&1 || { echo "ERROR: jq required for sign_service_jwt" >&2; return 1; }
+  [ -f "$_key" ] || { echo "ERROR: deploy-bootstrap signing key not found: $_key" >&2; return 1; }
+  [ -f "$_bundle" ] || { echo "ERROR: service key bundle not found: $_bundle" >&2; return 1; }
+
+  local _kid _now _exp _header _payload _signing _der _rs _sig
+  # The FIRST key published for deploy-bootstrap is the current one (the
+  # generator writes current, then any retiring key).
+  _kid="$(jq -r '.services["deploy-bootstrap"].keys[0].kid // empty' "$_bundle")"
+  [ -n "$_kid" ] || { echo "ERROR: no deploy-bootstrap key in $_bundle (run deploy/bin/service-signing-keys.sh)" >&2; return 1; }
+
   _now=$(date +%s)
   _exp=$((_now + _ttl))
-  _header='{"alg":"HS256","typ":"JWT"}'
-  _payload=$(printf '{"sub":"bootstrap-push","organizationId":"system","isAdmin":true,"isSuperAdmin":true,"iat":%s,"exp":%s}' "$_now" "$_exp")
+  _header="$(printf '{"alg":"ES256","typ":"JWT","kid":"%s"}' "$_kid")"
+  _payload=$(printf '{"sub":"service:deploy-bootstrap","username":"deploy-bootstrap-service","email":"deploy-bootstrap@internal","principalType":"service","token_use":"access","type":"access","role":"admin","organizationId":"system","organizationName":"system","isAdmin":true,"isSuperAdmin":true,"iat":%s,"exp":%s}' "$_now" "$_exp")
   _signing="$(printf %s "$_header" | _b64url_jwt).$(printf %s "$_payload" | _b64url_jwt)"
-  # Prefer python3 (key via env, off the argv) so the HMAC secret isn't visible
-  # in `ps`/`/proc` to other users on the host. `openssl dgst -hmac` has no
-  # off-argv key option, so it's the fallback when python3 is unavailable.
-  # Both compute HMAC-SHA256 → base64url(no pad), so the signature is identical.
-  if command -v python3 >/dev/null 2>&1; then
-    _sig=$(_PB_HMAC_KEY="$_secret" python3 -c '
-import hmac, hashlib, os, sys, base64
-sig = hmac.new(os.environ["_PB_HMAC_KEY"].encode(), sys.argv[1].encode(), hashlib.sha256).digest()
-sys.stdout.write(base64.urlsafe_b64encode(sig).decode().rstrip("="))
-' "$_signing")
-  else
-    _sig=$(printf %s "$_signing" | openssl dgst -binary -sha256 -hmac "$_secret" | _b64url_jwt)
-  fi
+
+  # openssl signs ECDSA into ASN.1 DER (SEQUENCE of two INTEGERs); JOSE wants the
+  # raw r||s, each left-padded to the 32-byte curve width. `asn1parse` prints both
+  # integers as hex, which is all that is needed to rebuild it.
+  _der="$(mktemp)"
+  printf %s "$_signing" | openssl dgst -sha256 -sign "$_key" -out "$_der" || { rm -f "$_der"; return 1; }
+  _rs=""
+  while read -r _int; do
+    # Strip DER's sign-padding byte, then left-pad back to 64 hex chars (32 bytes).
+    _int="${_int#00}"
+    while [ ${#_int} -lt 64 ]; do _int="0$_int"; done
+    _rs="$_rs$_int"
+  done < <(openssl asn1parse -inform DER -in "$_der" | sed -n 's/.*INTEGER *://p')
+  rm -f "$_der"
+  [ ${#_rs} -eq 128 ] || { echo "ERROR: unexpected ECDSA signature shape (${#_rs} hex chars)" >&2; return 1; }
+  _sig="$(_hex_to_bin "$_rs" | _b64url_jwt)"
+
   printf '%s.%s\n' "$_signing" "$_sig"
+}
+
+# ---------------------------------------------------------------------------
+# step_up_token — mint a short-lived step-up token for the signed-in admin.
+#
+# Every service-account write (create account, issue key) is step-up gated, the
+# same as creating a personal access key. A step-up token is SINGLE-USE and
+# lives ~60s, so mint one immediately before each gated call.
+#
+#   uses: PLATFORM_BASE_URL, JWT_TOKEN, PLATFORM_PASSWORD
+#   echoes the token; returns 1 (with a message on stderr) if it can't be minted.
+# ---------------------------------------------------------------------------
+step_up_token() {
+  local _resp _token
+  _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/step-up" \
+    -k -s \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer ${JWT_TOKEN}" \
+    -d "$(jq -n --arg pw "$PLATFORM_PASSWORD" '{password: $pw}')" 2>&1) || true
+  _token=$(printf '%s' "$_resp" | jq -r '.data.stepUpToken // empty' 2>/dev/null) || true
+  if [ -z "$_token" ]; then
+    echo "ERROR: could not obtain a step-up token (is PLATFORM_PASSWORD correct?)" >&2
+    return 1
+  fi
+  printf '%s\n' "$_token"
+}
+
+# ---------------------------------------------------------------------------
+# setup_service_account_key — create (or reuse) the system-org `setup` service
+# account and issue ONE short-lived key for the remaining init steps.
+#
+# Why: the plugin, template and compliance loads used to re-run `login` with the
+# admin's PASSWORD between steps, which both kept a human credential in the
+# script's environment and burned a refresh-session slot per run. A service
+# account is the org's own machine identity: it holds the system org's roles, it
+# takes no seat, its key expires on its own (24h by default), and every action it
+# performs is audited as the ACCOUNT rather than as the operator.
+#
+#   uses: PLATFORM_BASE_URL, JWT_TOKEN (admin), PLATFORM_PASSWORD
+#   sets: SETUP_SA_KEY (the raw pb_sa_ key), SETUP_SA_ID
+#   IDEMPOTENT: an existing `setup` account is reused, and its previous keys are
+#   revoked first so re-running init can never hit the 5-active-key cap.
+# ---------------------------------------------------------------------------
+setup_service_account_key() {
+  local _ttl="${SETUP_KEY_TTL_SECONDS:-86400}"
+  local _org_id _roles _role_id _resp _status _step_up _key_name _old
+
+  _org_id=$(curl -k -s "${PLATFORM_BASE_URL}/api/organization" \
+    -H "Authorization: Bearer ${JWT_TOKEN}" | jq -r '.data.organization.id // empty') || true
+  if [ -z "$_org_id" ]; then
+    echo "ERROR: could not resolve the admin's organization for the setup service account" >&2
+    return 1
+  fi
+
+  # The setup account needs the SAME authority the admin login had, because the
+  # loads publish shared content (published compliance rules, policy templates).
+  # In the system org that is the Super Admin role; only a platform superadmin
+  # may grant it, which the bootstrap admin is.
+  _roles=$(curl -k -s "${PLATFORM_BASE_URL}/api/organization/${_org_id}/roles" \
+    -H "Authorization: Bearer ${JWT_TOKEN}") || true
+  _role_id=$(printf '%s' "$_roles" | jq -r '[.data.roles[]? | select(.grantsRole == "superadmin")][0].id // empty')
+  if [ -z "$_role_id" ]; then
+    _role_id=$(printf '%s' "$_roles" | jq -r '[.data.roles[]? | select(.grantsRole == "admin")][0].id // empty')
+  fi
+  if [ -z "$_role_id" ]; then
+    echo "ERROR: the system organization has no admin role to give the setup service account" >&2
+    return 1
+  fi
+
+  _step_up=$(step_up_token) || return 1
+  _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/organization/${_org_id}/service-accounts" \
+    -k -s -w '\n%{http_code}' \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer ${JWT_TOKEN}" \
+    -H "X-Step-Up-Token: ${_step_up}" \
+    -d "$(jq -n --arg role "$_role_id" \
+      '{name: "setup", description: "Platform bootstrap automation (init-platform.sh)", roleIds: [$role]}')") || true
+  _status=$(printf '%s' "$_resp" | tail -n1)
+  SETUP_SA_ID=$(printf '%s' "$_resp" | sed '$d' | jq -r '.data.serviceAccount.id // empty')
+
+  case "$_status" in
+    20*) echo "  Created the 'setup' service account." ;;
+    409)
+      # Already there from a previous run — reuse it (idempotent).
+      SETUP_SA_ID=$(curl -k -s "${PLATFORM_BASE_URL}/api/organization/${_org_id}/service-accounts" \
+        -H "Authorization: Bearer ${JWT_TOKEN}" \
+        | jq -r '[.data.serviceAccounts[]? | select(.name == "setup")][0].id // empty')
+      echo "  Reusing the existing 'setup' service account."
+      ;;
+    *)
+      echo "ERROR: could not create the setup service account (HTTP $_status)" >&2
+      return 1 ;;
+  esac
+  if [ -z "$SETUP_SA_ID" ]; then
+    echo "ERROR: could not resolve the setup service account id" >&2
+    return 1
+  fi
+
+  # Revoke any key left by an earlier run: init issues exactly ONE key per run,
+  # and the per-account cap (5 active keys) must never be what fails a re-run.
+  for _old in $(curl -k -s "${PLATFORM_BASE_URL}/api/organization/${_org_id}/service-accounts/${SETUP_SA_ID}" \
+    -H "Authorization: Bearer ${JWT_TOKEN}" \
+    | jq -r '[.data.serviceAccount.keys[]? | select(.status == "active") | .id][]'); do
+    curl -X DELETE -k -s -o /dev/null \
+      "${PLATFORM_BASE_URL}/api/organization/${_org_id}/service-accounts/${SETUP_SA_ID}/keys/${_old}" \
+      -H "Authorization: Bearer ${JWT_TOKEN}" || true
+  done
+
+  _key_name="init-$(date +%Y%m%d%H%M%S)"
+  _step_up=$(step_up_token) || return 1
+  _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/organization/${_org_id}/service-accounts/${SETUP_SA_ID}/keys" \
+    -k -s \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer ${JWT_TOKEN}" \
+    -H "X-Step-Up-Token: ${_step_up}" \
+    -d "$(jq -n --arg name "$_key_name" --argjson ttl "$_ttl" '{name: $name, expiresIn: $ttl}')") || true
+  SETUP_SA_KEY=$(printf '%s' "$_resp" | jq -r '.data.key // empty')
+  if [ -z "$SETUP_SA_KEY" ]; then
+    echo "ERROR: could not issue a key for the setup service account" >&2
+    return 1
+  fi
+  echo "  Issued a ${_ttl}s setup key (shown once; it expires on its own)."
 }
 
 # ---------------------------------------------------------------------------

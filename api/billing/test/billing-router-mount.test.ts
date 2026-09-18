@@ -3,15 +3,15 @@
 
 /**
  * Router-MOUNT regression test: every billing router is mounted at `/billing`
- * in src/index.ts, one after another. A feature gate registered as a PATH-LESS
- * `router.use(...)` inside an early router (discounts, promotions) runs for EVERY
- * request that reaches that router — so with the flag off it 404'd every LATER
- * billing router too (summary, usage, admin, marketplace, the Stripe webhook).
+ * in src/app-routes.ts, one after another. A feature gate registered as a
+ * PATH-LESS `router.use(...)` inside an early router (discounts, promotions) runs
+ * for EVERY request that reaches that router — so with the flag off it 404'd every
+ * LATER billing router too (summary, usage, admin, marketplace, the Stripe webhook).
  *
  * This suite loads the REAL routers, mounts them on a real express app in the
- * exact order src/index.ts does (parsed from the source so it can't drift), and
- * drives HTTP requests with each flag off: the flagged surface still 404s, and a
- * later router (the Stripe webhook, which needs no DB) is still reachable.
+ * exact order src/app-routes.ts does (parsed from the source so it can't drift),
+ * and drives HTTP requests with each flag off: the flagged surface still 404s, and
+ * a later router (the Stripe webhook, which needs no DB) is still reachable.
  */
 
 import { readFileSync } from 'node:fs';
@@ -41,9 +41,9 @@ jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
   getPaymentProvider: () => ({}),
 }));
 
-const index = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8');
-/** Router factory names in the order src/index.ts mounts them at `/billing`. */
-const mountOrder = [...index.matchAll(/app\.use\('\/billing',\s*(create\w+Routes)\(\)\)/g)].map((m) => m[1]);
+const appRoutes = readFileSync(new URL('../src/app-routes.ts', import.meta.url), 'utf8');
+/** Router factory names in the order src/app-routes.ts mounts them at `/billing`. */
+const mountOrder = [...appRoutes.matchAll(/app\.use\('\/billing',\s*(create\w+Routes)\(\)\)/g)].map((m) => m[1]);
 
 const routeModules = {
   createReadPlanRoutes: '../src/routes/read-plans.js',
@@ -68,7 +68,7 @@ beforeAll(async () => {
   app.use(express.json());
   for (const name of mountOrder) {
     const path = routeModules[name];
-    if (!path) throw new Error(`index.ts mounts ${name} — add it to routeModules`);
+    if (!path) throw new Error(`app-routes.ts mounts ${name} — add it to routeModules`);
     const mod = await import(path) as Record<string, () => import('express').Router>;
     app.use('/billing', mod[name]());
   }
@@ -86,7 +86,7 @@ async function post(path: string, headers: Record<string, string> = {}): Promise
 }
 
 describe('billing router mount order', () => {
-  it('parses every /billing router mount from src/index.ts, discounts/promotions before the webhook', () => {
+  it('parses every /billing router mount from src/app-routes.ts, discounts/promotions before the webhook', () => {
     expect(mountOrder.length).toBeGreaterThanOrEqual(10);
     expect(mountOrder.indexOf('createDiscountRoutes')).toBeLessThan(mountOrder.indexOf('createStripeWebhookRoutes'));
     expect(mountOrder.indexOf('createPromotionRoutes')).toBeLessThan(mountOrder.indexOf('createStripeWebhookRoutes'));

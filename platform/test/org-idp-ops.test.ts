@@ -41,7 +41,6 @@ jest.unstable_mockModule('../src/middleware/quota.js', () => ({ reserveFeatureQu
 // load without its secrets outside development — jest sets NODE_ENV=test, so the
 // production guards are live here. Set them before the dynamic import below.
 process.env.JWT_SECRET ||= 'test-jwt-secret';
-process.env.REFRESH_TOKEN_SECRET ||= 'test-refresh-secret';
 process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
 process.env.MONGODB_URI ||= 'mongodb://stub:27017/test';
 

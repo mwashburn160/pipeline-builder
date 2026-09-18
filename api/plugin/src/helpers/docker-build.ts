@@ -269,7 +269,12 @@ function writeAuthConfig(registry: RegistryInfo, orgId: string, ttlSeconds: numb
   // push the built plugin image WITHOUT the org-wide `isAdmin` blast radius an
   // owner token would leak if the auth config were ever exposed (as it once was
   // via a Dockerfile `COPY . .`). Pull is open to all members either way.
-  const password = signServiceToken({ serviceName: 'platform', orgId, role: 'member', permissions: ['plugins:write'], ttlSeconds });
+  // Signed as `plugin` — this IS the plugin service, and since #14 a service
+  // holds only its own key, so the old `serviceName: 'platform'` here could no
+  // longer be minted (nor verified: the `kid` would name plugin while the `sub`
+  // said platform). image-registry's authorizer never looked at the name, only
+  // at `plugins:write`, so the credential is unchanged in what it can do.
+  const password = signServiceToken({ serviceName: 'plugin', orgId, role: 'member', permissions: ['plugins:write'], ttlSeconds });
   const auth = Buffer.from(`_token:${password}`).toString('base64');
 
   const auths: Record<string, { auth: string }> = {

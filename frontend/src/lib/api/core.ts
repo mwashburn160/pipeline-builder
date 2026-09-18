@@ -13,8 +13,66 @@ const END_IMPERSONATION_REVOKE_TIMEOUT_MS = 3000;
 /** Web Locks name that serializes token refreshes across this browser's tabs. */
 const REFRESH_LOCK_NAME = 'pipeline-builder:auth-refresh';
 
+/**
+ * BroadcastChannel the tabs of this browser use to share a freshly minted
+ * ACCESS token (and to announce a sign-out).
+ *
+ * The refresh token is an HttpOnly cookie now, so no tab can read it and the
+ * old `storage`-event handoff has nothing to hand over. What tabs still need
+ * from each other is the short-lived access token the winning refresh produced,
+ * so a tab that was waiting doesn't immediately rotate the cookie again.
+ */
+const AUTH_CHANNEL_NAME = 'pipeline-builder:auth';
+
+/**
+ * Header that identifies the browser app to the platform. It selects the cookie
+ * transport for the refresh token AND is the CSRF proof `/auth/refresh` and
+ * `/auth/logout` require — a cross-site form or image cannot set a header.
+ */
+const CLIENT_TYPE_HEADER = 'X-Pb-Client';
+const CLIENT_TYPE = 'web';
+
+/**
+ * Non-secret marker recording that this browser holds a refresh cookie.
+ *
+ * The cookie is HttpOnly, so a script cannot ask whether a session exists.
+ * Without this the landing page would have to probe `/auth/refresh` for every
+ * anonymous visitor. It is a hint, never an authority: the server decides.
+ */
+const SESSION_MARKER_KEY = 'pb.session';
+
+/** Tab-scoped handoff for an impersonation session (see `startImpersonation`). */
+const IMPERSONATION_TOKEN_KEY = 'impersonation.accessToken';
+const IMPERSONATION_REQUEST_KEY = 'impersonation.requestId';
+
+/** What tabs tell each other on {@link AUTH_CHANNEL_NAME}. */
+type AuthBroadcast =
+  | { type: 'access-token'; accessToken: string; organizationId: string | null }
+  | { type: 'signed-out' };
+
 /** `ApiError.code` when a request needed a token refresh that failed transiently. */
 export const SESSION_REFRESH_UNAVAILABLE = 'SESSION_REFRESH_UNAVAILABLE';
+
+/** Storage accessors that never throw (Safari private mode, blocked cookies/storage). */
+function readStore(store: 'local' | 'session', key: string): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return (store === 'local' ? localStorage : sessionStorage).getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStore(store: 'local' | 'session', key: string, value: string | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const target = store === 'local' ? localStorage : sessionStorage;
+    if (value === null) target.removeItem(key);
+    else target.setItem(key, value);
+  } catch {
+    // Storage unavailable — the session still works for this tab.
+  }
+}
 
 /** SSE event received from AI streaming endpoints. */
 export interface StreamEvent {
@@ -31,8 +89,9 @@ export interface StreamEvent {
  * API Client for communicating with the backend
  */
 export class ApiCore {
+  /** In memory only — never localStorage. A reload starts with none and calls
+   *  `restoreSession()`, which trades the HttpOnly cookie for a new one. */
   private accessToken: string | null = null;
-  private refreshToken: string | null = null;
   private organizationId: string | null = null;
   private isRefreshing = false;
   private refreshPromise: Promise<boolean> | null = null;
@@ -40,7 +99,13 @@ export class ApiCore {
   /** While set (ms timestamp), refreshes short-circuit to `false` without a
    *  network call: the last refresh gave up on transient failures. */
   private refreshCooldownUntil = 0;
+  /** Bumped whenever the identity changes (sign-in, sign-out, adoption). An
+   *  in-flight refresh that sees it move no longer speaks for the session and
+   *  abandons its result — the successor to the old "is this still my refresh
+   *  token?" check, which the cookie made impossible to ask. */
+  private sessionGeneration = 0;
   private sessionExpiredCallbacks: Set<() => void> = new Set();
+  private authChannel: BroadcastChannel | null = null;
 
   private static REFRESH_BUFFER_MS = REFRESH_BUFFER_MS;
 
@@ -62,17 +127,61 @@ export class ApiCore {
   }
 
   constructor() {
-    if (typeof window !== 'undefined') {
-      this.accessToken = localStorage.getItem('accessToken');
-      this.refreshToken = localStorage.getItem('refreshToken');
-      this.organizationId = localStorage.getItem('organizationId');
-      this.scheduleProactiveRefresh();
-      // Keep this tab's copy current when another tab rotates the pair, so its
-      // next refresh doesn't present a token the server already rotated away.
-      window.addEventListener('storage', (e) => {
-        if (e.key === 'refreshToken' && e.newValue) this.adoptTokensRotatedElsewhere();
-      });
+    if (typeof window === 'undefined') return;
+    this.organizationId = readStore('local', 'organizationId');
+    // A fresh page has no access token: it is memory-only. `restoreSession()`
+    // (called once by AuthProvider) trades the refresh cookie for one.
+    // EXCEPT an impersonation session, whose token is deliberately not
+    // refreshable — it rides the operator's intentional reload in tab-scoped
+    // sessionStorage, because a refresh would hand back the OPERATOR's session.
+    const impersonation = readStore('session', IMPERSONATION_TOKEN_KEY);
+    if (impersonation) this.accessToken = impersonation;
+    this.openAuthChannel();
+  }
+
+  /**
+   * Listen for the other tabs of this browser.
+   *
+   * `access-token`: a sibling refreshed — adopt its token rather than rotate
+   * the shared cookie a second time. `signed-out`: the session ended
+   * elsewhere, so this tab is signed out too.
+   */
+  private openAuthChannel(): void {
+    if (typeof BroadcastChannel === 'undefined') return;
+    try {
+      this.authChannel = new BroadcastChannel(AUTH_CHANNEL_NAME);
+    } catch {
+      return; // no cross-tab coordination; the Web Lock still serializes refreshes
     }
+    this.authChannel.onmessage = (event: MessageEvent<AuthBroadcast>) => {
+      const message = event.data;
+      if (!message) return;
+      if (message.type === 'signed-out') {
+        this.resetSession();
+        this.notifySessionExpired();
+        return;
+      }
+      // An impersonating tab must not be pulled back onto the operator's token.
+      if (message.type === 'access-token' && message.accessToken && !this.isImpersonating()) {
+        this.sessionGeneration++;
+        this.refreshCooldownUntil = 0;
+        this.applyAccessToken(message.accessToken);
+        if (message.organizationId) this.organizationId = message.organizationId;
+      }
+    };
+  }
+
+  private broadcast(message: AuthBroadcast): void {
+    try {
+      this.authChannel?.postMessage(message);
+    } catch {
+      // A closed channel must never break the session it was only informing about.
+    }
+  }
+
+  /** True when this browser is believed to hold a refresh cookie. */
+  private hasSessionMarker(): boolean {
+    return readStore('local', SESSION_MARKER_KEY) === '1';
   }
 
   /**
@@ -100,7 +209,9 @@ export class ApiCore {
     }
 
     const expiryMs = this.getTokenExpiryMs();
-    if (!expiryMs || !this.refreshToken) return;
+    // An impersonation token is not refreshable — refreshing would silently
+    // restore the operator's own session mid-review.
+    if (!expiryMs || !this.hasSessionMarker() || this.isImpersonating()) return;
 
     const delay = expiryMs - Date.now() - ApiCore.REFRESH_BUFFER_MS;
     if (delay <= 0) return; // already past the refresh window — let the pre-request check handle it
@@ -115,7 +226,7 @@ export class ApiCore {
    * Called before every authenticated request as a safety net.
    */
   async ensureFreshToken(): Promise<void> {
-    if (!this.accessToken || !this.refreshToken) return;
+    if (!this.accessToken || this.isImpersonating()) return;
 
     const expiryMs = this.getTokenExpiryMs();
     if (!expiryMs) return;
@@ -126,36 +237,54 @@ export class ApiCore {
   }
 
   /**
-   * Set authentication tokens
+   * Recover the session after a page load.
+   *
+   * The access token is memory-only, so a reload starts signed out as far as
+   * this client knows — but the browser may still hold the refresh cookie.
+   * Trade it for a new access token. Resolves false when there is no session
+   * (or the cookie is no longer accepted), which is the signal to show the
+   * login screen. Safe to call more than once.
+   */
+  async restoreSession(): Promise<boolean> {
+    if (this.accessToken) return true;
+    if (!this.hasSessionMarker()) return false;
+    return this.refreshAccessToken();
+  }
+
+  /**
+   * Adopt an access token: cache it in memory, pick the active org out of its
+   * claims, and re-arm the proactive refresh. Deliberately does NOT touch the
+   * session marker or broadcast — see `setTokens`.
+   */
+  private applyAccessToken(accessToken: string): void {
+    this.accessToken = accessToken;
+    try {
+      const payload = JSON.parse(base64UrlDecode(accessToken.split('.')[1]));
+      if (payload.organizationId) {
+        this.organizationId = payload.organizationId;
+        writeStore('local', 'organizationId', payload.organizationId);
+      }
+    } catch {
+      // JWT parsing failed - non-critical
+    }
+    this.scheduleProactiveRefresh();
+  }
+
+  /**
+   * Take the access token a sign-in or refresh produced.
+   *
+   * There is no refresh token to store: the server put it in an HttpOnly
+   * cookie. What IS recorded is the non-secret marker saying a session exists,
+   * and the token is shared with this browser's other tabs.
    */
   setTokens(tokens: AuthTokens) {
-    this.accessToken = tokens.accessToken;
-    this.refreshToken = tokens.refreshToken;
-    // A fresh token pair must be refreshable right away, even if the previous
-    // pair's refresh was cooling down after transient failures.
+    this.sessionGeneration++;
+    // A fresh session must be refreshable right away, even if the previous
+    // one's refresh was cooling down after transient failures.
     this.refreshCooldownUntil = 0;
-
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem('accessToken', tokens.accessToken);
-        localStorage.setItem('refreshToken', tokens.refreshToken);
-      } catch {
-        // localStorage may be unavailable (Safari private mode, quota exceeded)
-      }
-
-      // Extract organizationId from JWT token if present
-      try {
-        const payload = JSON.parse(base64UrlDecode(tokens.accessToken.split('.')[1]));
-        if (payload.organizationId) {
-          this.organizationId = payload.organizationId;
-          try { localStorage.setItem('organizationId', payload.organizationId); } catch { /* localStorage unavailable */ }
-        }
-      } catch {
-        // JWT parsing failed - non-critical
-      }
-    }
-
-    this.scheduleProactiveRefresh();
+    writeStore('local', SESSION_MARKER_KEY, '1');
+    this.applyAccessToken(tokens.accessToken);
+    this.broadcast({ type: 'access-token', accessToken: tokens.accessToken, organizationId: this.organizationId });
   }
 
   /**
@@ -176,69 +305,46 @@ export class ApiCore {
   }
 
   /**
-   * Swap in a sysadmin impersonation access token. Preserves the original
-   * tokens in sessionStorage so `stopImpersonation` can restore them.
+   * Swap in a sysadmin impersonation access token.
    *
-   * Refresh token is intentionally cleared during impersonation — the
-   * impersonation token is short-lived (15min) and not refreshable; the
-   * sysadmin re-prompts (or stops) when it expires.
+   * Nothing of the operator's is stashed: their refresh token is an HttpOnly
+   * cookie this swap never touches, so their own session survives untouched
+   * and stopping is just "throw this token away and refresh". The
+   * impersonation token itself is kept in TAB-SCOPED sessionStorage because
+   * starting a session deliberately reloads the page, and the token is not
+   * refreshable (short-lived, 15min, read-only) — a reload that refreshed
+   * instead would drop the operator straight back into their own session.
    */
   startImpersonation(impersonationAccessToken: string, requestId?: string): void {
-    if (typeof window !== 'undefined') {
-      try {
-        const originalAccess = localStorage.getItem('accessToken');
-        const originalRefresh = localStorage.getItem('refreshToken');
-        const originalOrgId = localStorage.getItem('organizationId');
-        if (originalAccess) sessionStorage.setItem('impersonation.originalAccess', originalAccess);
-        if (originalRefresh) sessionStorage.setItem('impersonation.originalRefresh', originalRefresh);
-        if (originalOrgId) sessionStorage.setItem('impersonation.originalOrgId', originalOrgId);
-        // Remembered so stopping can end the session on the SERVER, not just
-        // discard the token in this browser.
-        if (requestId) sessionStorage.setItem('impersonation.requestId', requestId);
-      } catch {
-        // storage may be unavailable; impersonation still works for the current tab
-      }
-    }
-    this.accessToken = impersonationAccessToken;
-    this.refreshToken = null;
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem('accessToken', impersonationAccessToken);
-        localStorage.removeItem('refreshToken');
-      } catch { /* localStorage unavailable */ }
-      // Update the cached organizationId to the impersonated user's.
-      try {
-        const payload = JSON.parse(base64UrlDecode(impersonationAccessToken.split('.')[1]));
-        if (payload.organizationId) {
-          this.organizationId = payload.organizationId;
-          try { localStorage.setItem('organizationId', payload.organizationId); } catch { /* localStorage unavailable */ }
-        }
-      } catch { /* non-critical */ }
-    }
-    // Don't schedule proactive refresh — there's no refresh token.
+    writeStore('session', IMPERSONATION_TOKEN_KEY, impersonationAccessToken);
+    // Remembered so stopping can end the session on the SERVER, not just
+    // discard the token in this browser.
+    if (requestId) writeStore('session', IMPERSONATION_REQUEST_KEY, requestId);
+    // Also re-points the cached org at the impersonated user's, so the reload
+    // below comes up in their tenant.
+    this.applyAccessToken(impersonationAccessToken);
+    // Don't schedule a proactive refresh — `scheduleProactiveRefresh` already
+    // declines for an impersonation token, but a timer armed by the operator's
+    // own session is still pending here.
     if (this.refreshTimer) { clearTimeout(this.refreshTimer); this.refreshTimer = null; }
   }
 
-  /** Restore the sysadmin's original tokens, ending the impersonation session. */
-  stopImpersonation(): void {
+  /**
+   * End the impersonation session in this browser: drop its token and pick the
+   * operator's own session back up from the refresh cookie, which was never
+   * disturbed. A cookie the server no longer accepts means the operator's
+   * session ended meanwhile — sign out rather than strand them on a dead
+   * token. The login screen is the landing route '/' (there is no '/login'
+   * page — that path 404s); this matches useAuth/useAuthGuard.
+   */
+  async stopImpersonation(): Promise<void> {
     if (typeof window === 'undefined') return;
-    const originalAccess = sessionStorage.getItem('impersonation.originalAccess');
-    const originalRefresh = sessionStorage.getItem('impersonation.originalRefresh');
-    const originalOrgId = sessionStorage.getItem('impersonation.originalOrgId');
-    if (!originalAccess || !originalRefresh) {
-      // Lost the original tokens — fall back to a hard sign-out. Better
-      // than leaving the sysadmin stuck in the impersonation token. The login
-      // screen is the landing route '/' (there is no '/login' page — that path
-      // 404s); this matches the sign-out redirect used by useAuth/useAuthGuard.
-      this.clearTokens();
-      window.location.href = '/';
-      return;
-    }
-    this.setTokens({ accessToken: originalAccess, refreshToken: originalRefresh });
-    if (originalOrgId) this.setOrganizationId(originalOrgId);
-    sessionStorage.removeItem('impersonation.originalAccess');
-    sessionStorage.removeItem('impersonation.originalRefresh');
-    sessionStorage.removeItem('impersonation.originalOrgId');
+    writeStore('session', IMPERSONATION_TOKEN_KEY, null);
+    writeStore('session', IMPERSONATION_REQUEST_KEY, null);
+    this.accessToken = null;
+    if (await this.restoreSession()) return;
+    this.clearTokens();
+    window.location.href = '/';
   }
 
   /**
@@ -258,19 +364,12 @@ export class ApiCore {
    */
   async endImpersonation(): Promise<void> {
     if (typeof window === 'undefined') return;
-    let requestId: string | null = null;
-    let canRestore = false;
-    try {
-      requestId = sessionStorage.getItem('impersonation.requestId');
-      canRestore = !!sessionStorage.getItem('impersonation.originalAccess')
-        && !!sessionStorage.getItem('impersonation.originalRefresh');
-      sessionStorage.removeItem('impersonation.requestId');
-    } catch { /* storage unavailable — fall through to a plain stop */ }
+    const requestId = readStore('session', IMPERSONATION_REQUEST_KEY);
 
-    this.stopImpersonation();
-    // Without the operator's own tokens there is nothing authorized to revoke with;
-    // stopImpersonation has already signed out in that case.
-    if (!requestId || !canRestore) return;
+    await this.stopImpersonation();
+    // Without the operator's own token there is nothing authorized to revoke
+    // with; stopImpersonation has already signed out in that case.
+    if (!requestId || !this.accessToken) return;
 
     try {
       await Promise.race([
@@ -301,11 +400,15 @@ export class ApiCore {
   }
 
   /**
-   * Clear all authentication data
+   * Forget this browser's session locally: the in-memory access token, the
+   * cached org, the "a session exists" marker and any impersonation handoff.
+   *
+   * The refresh COOKIE is not script-reachable, so only the server can drop it
+   * — `/auth/logout`, `/auth/refresh`'s rejection and account deletion all do.
    */
-  clearTokens() {
+  private resetSession(): void {
+    this.sessionGeneration++;
     this.accessToken = null;
-    this.refreshToken = null;
     this.organizationId = null;
     this.refreshCooldownUntil = 0;
 
@@ -314,11 +417,20 @@ export class ApiCore {
       this.refreshTimer = null;
     }
 
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('organizationId');
-    }
+    writeStore('local', 'organizationId', null);
+    writeStore('local', SESSION_MARKER_KEY, null);
+    writeStore('session', IMPERSONATION_TOKEN_KEY, null);
+    writeStore('session', IMPERSONATION_REQUEST_KEY, null);
+  }
+
+  /**
+   * Clear all authentication data, and tell this browser's other tabs — they
+   * can no longer discover it for themselves, the way a removed localStorage
+   * token used to announce itself through the `storage` event.
+   */
+  clearTokens() {
+    this.resetSession();
+    this.broadcast({ type: 'signed-out' });
   }
 
   /**
@@ -328,10 +440,6 @@ export class ApiCore {
     return this.accessToken;
   }
 
-  getRefreshToken() {
-    return this.refreshToken;
-  }
-
   /**
    * Check if user is authenticated
    */
@@ -339,10 +447,10 @@ export class ApiCore {
     return !!this.accessToken;
   }
 
-  /** If response contains tokens, store them. */
-  applyTokens(response: ApiResponse<{ accessToken: string; refreshToken: string }>): void {
+  /** If response contains an access token, store it. */
+  applyTokens(response: ApiResponse<{ accessToken: string; expiresIn?: number }>): void {
     const tokens = response.data;
-    if (response.success && tokens?.accessToken && tokens?.refreshToken) {
+    if (response.success && tokens?.accessToken) {
       this.setTokens(tokens);
     }
   }
@@ -395,6 +503,10 @@ export class ApiCore {
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      // Sent on every request: it names the transport the platform should use
+      // for session tokens, and `/auth/refresh` + `/auth/logout` refuse without
+      // it (CSRF). Same-origin, so it never provokes a preflight.
+      [CLIENT_TYPE_HEADER]: CLIENT_TYPE,
       ...this.authHeaders(),
       ...(options.headers as Record<string, string>),
     };
@@ -464,7 +576,7 @@ export class ApiCore {
     // Handle 401 - try to refresh token. Recurse into request() so the retry
     // inherits the full contract (step-up handling, 503-loop guard, Retry-After,
     // _retryCount cap) instead of duplicating a one-shot fetch here.
-    if (statusCode === 401 && this.refreshToken && !endpoint.includes('/auth/refresh') && !_refreshed) {
+    if (statusCode === 401 && this.canRefresh() && !endpoint.includes('/auth/refresh') && !_refreshed) {
       const refreshed = await this.refreshAccessToken();
       if (refreshed) {
         // Reuse `_retryCount`: this is a re-auth, not an overload retry, and
@@ -476,12 +588,12 @@ export class ApiCore {
       this.throwIfRefreshUnavailable();
     }
 
-    // An impersonation session deliberately carries NO refresh token, so the
-    // branch above is skipped once its short-lived token expires: every request
-    // 401s, `notifySessionExpired` never fires, and the dashboard dead-ends with
+    // An impersonation session is deliberately NOT refreshable, so the branch
+    // above is skipped once its short-lived token expires: every request 401s,
+    // `notifySessionExpired` never fires, and the dashboard dead-ends with
     // generic auth errors on every panel. Treat it as what it is — an expired
     // session — so the app routes back to the operator's own session.
-    if (statusCode === 401 && !this.refreshToken && this.isImpersonating()) {
+    if (statusCode === 401 && this.isImpersonating()) {
       this.notifySessionExpired();
     }
 
@@ -529,8 +641,14 @@ export class ApiCore {
     return data as unknown as T;
   }
 
+  /** True when a refresh could plausibly succeed: a session cookie is believed
+   *  to exist and this isn't a (non-refreshable) impersonation session. */
+  private canRefresh(): boolean {
+    return this.hasSessionMarker() && !this.isImpersonating();
+  }
+
   /**
-   * Refresh access token using refresh token
+   * Refresh the access token by presenting the HttpOnly cookie.
    */
   private async refreshAccessToken(): Promise<boolean> {
     // Prevent multiple simultaneous refresh requests
@@ -538,8 +656,11 @@ export class ApiCore {
       return this.refreshPromise;
     }
 
+    // Captured BEFORE the cross-tab lock: if it has changed by the time the
+    // lock is ours, a sibling tab refreshed while we queued.
+    const tokenBeforeLock = this.accessToken;
     this.isRefreshing = true;
-    this.refreshPromise = this.withCrossTabRefreshLock(() => this.doRefresh());
+    this.refreshPromise = this.withCrossTabRefreshLock(() => this.doRefresh(tokenBeforeLock));
 
     try {
       return await this.refreshPromise;
@@ -552,29 +673,28 @@ export class ApiCore {
   /**
    * One refresh, retried with backoff on transient failures.
    *
-   * Only a definitive rejection of the refresh token — HTTP 401 or 400 from
-   * `/auth/refresh` — ends the session (tokens cleared, `onSessionExpired`
+   * Only a definitive rejection of the refresh cookie — HTTP 401 or 400 from
+   * `/auth/refresh` — ends the session (session cleared, `onSessionExpired`
    * fired). A network error, 5xx or 429 is retried per
-   * `REFRESH_RETRY_DELAYS_MS`; if every attempt fails the tokens are KEPT, the
+   * `REFRESH_RETRY_DELAYS_MS`; if every attempt fails the session is KEPT, the
    * refresh reports `false` (so the caller's request surfaces its own error),
    * and further refreshes pause for `REFRESH_FAILURE_COOLDOWN_MS` before the
    * proactive timer tries again. An outage must not log everybody out.
    */
-  private async doRefresh(): Promise<boolean> {
-    if (!this.refreshToken) return false;
+  private async doRefresh(tokenBeforeLock: string | null): Promise<boolean> {
+    if (!this.canRefresh()) return false;
     if (Date.now() < this.refreshCooldownUntil) return false;
-    // Another tab of this browser shares the same refresh-session slot and may
-    // already have rotated the token. Presenting the old one would look like
-    // token REUSE to the server, which revokes the slot and signs every tab out.
-    if (this.adoptTokensRotatedElsewhere()) return true;
+    // A sibling tab won the lock and broadcast its new access token. Take that
+    // instead of rotating the shared cookie a second time for nothing.
+    if (this.accessToken && this.accessToken !== tokenBeforeLock && !this.isExpiringSoon()) return true;
 
-    const refreshToken = this.refreshToken;
+    const generation = this.sessionGeneration;
     for (let attempt = 0; ; attempt++) {
-      const outcome = await this.attemptRefresh(refreshToken);
+      const outcome = await this.attemptRefresh();
       if (outcome === 'ok') return true;
-      // The session changed underneath us (logout, re-login, impersonation):
-      // this refresh no longer speaks for the current tokens.
-      if (this.refreshToken !== refreshToken) return false;
+      // The session changed underneath us (logout, re-login, another tab):
+      // this refresh no longer speaks for the current session.
+      if (this.sessionGeneration !== generation) return false;
       if (outcome === 'rejected') {
         this.clearTokens();
         this.notifySessionExpired();
@@ -582,7 +702,7 @@ export class ApiCore {
       }
       if (outcome === 'failed' || attempt >= REFRESH_RETRY_DELAYS_MS.length) break;
       await new Promise((r) => setTimeout(r, REFRESH_RETRY_DELAYS_MS[attempt]));
-      if (this.refreshToken !== refreshToken) return false;
+      if (this.sessionGeneration !== generation) return false;
     }
 
     this.refreshCooldownUntil = Date.now() + REFRESH_FAILURE_COOLDOWN_MS;
@@ -590,11 +710,21 @@ export class ApiCore {
     return false;
   }
 
+  /** True when the current access token is missing or inside the refresh window. */
+  private isExpiringSoon(): boolean {
+    const expiryMs = this.getTokenExpiryMs();
+    return !expiryMs || expiryMs - Date.now() <= ApiCore.REFRESH_BUFFER_MS;
+  }
+
   /**
-   * Serialize refreshes across tabs (Web Locks), so two tabs whose proactive
-   * timers fire together don't both present the same refresh token. Without
-   * Web Locks the storage re-check in `doRefresh` and the `storage` listener
-   * still cover the common case.
+   * Serialize refreshes across tabs (Web Locks).
+   *
+   * Load-bearing now that the refresh token is a shared cookie: the lock is
+   * what guarantees a sibling's rotation has LANDED (its Set-Cookie applied)
+   * before the next tab presents a cookie — two tabs firing together could
+   * otherwise both send the pre-rotation token, which the server reads as
+   * reuse and answers by revoking the slot. Without Web Locks the adoption
+   * check in `doRefresh` still covers the common case.
    */
   private withCrossTabRefreshLock(fn: () => Promise<boolean>): Promise<boolean> {
     const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
@@ -603,46 +733,24 @@ export class ApiCore {
   }
 
   /**
-   * If localStorage holds a DIFFERENT refresh token than this tab's, another
-   * tab rotated the pair: take it over instead of refreshing. Returns true when
-   * tokens were adopted.
-   */
-  private adoptTokensRotatedElsewhere(): boolean {
-    if (typeof window === 'undefined') return false;
-    let storedAccess: string | null;
-    let storedRefresh: string | null;
-    let storedOrg: string | null;
-    try {
-      storedAccess = localStorage.getItem('accessToken');
-      storedRefresh = localStorage.getItem('refreshToken');
-      storedOrg = localStorage.getItem('organizationId');
-    } catch {
-      return false;
-    }
-    if (!storedAccess || !storedRefresh || storedRefresh === this.refreshToken) return false;
-    this.accessToken = storedAccess;
-    this.refreshToken = storedRefresh;
-    if (storedOrg) this.organizationId = storedOrg;
-    this.refreshCooldownUntil = 0;
-    this.scheduleProactiveRefresh();
-    return true;
-  }
-
-  /**
-   * A single POST to `/auth/refresh`:
-   *  - `ok`        new tokens stored
-   *  - `rejected`  401/400 — the refresh token is no good
+   * A single POST to `/auth/refresh`. The refresh token itself is not sent —
+   * the browser attaches the HttpOnly cookie, and `X-Pb-Client` is the header
+   * the server demands as CSRF proof.
+   *
+   *  - `ok`        a new access token was stored (the cookie rotated with it)
+   *  - `rejected`  401/400 — the refresh cookie is no good
    *  - `transient` network error, 5xx or 429 — worth retrying
-   *  - `failed`    anything else (other 4xx, 2xx without tokens) — not retried,
+   *  - `failed`    anything else (other 4xx, 2xx without a token) — not retried,
    *                but not proof the session is over either
    */
-  private async attemptRefresh(refreshToken: string): Promise<'ok' | 'rejected' | 'transient' | 'failed'> {
+  private async attemptRefresh(): Promise<'ok' | 'rejected' | 'transient' | 'failed'> {
     let response: Response;
     try {
       response = await fetch(`${API_URL}/api/auth/refresh`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
+        headers: { 'Content-Type': 'application/json', [CLIENT_TYPE_HEADER]: CLIENT_TYPE },
+        credentials: 'same-origin',
+        body: '{}',
       });
     } catch {
       return 'transient';
@@ -654,10 +762,9 @@ export class ApiCore {
     if (statusCode >= 500 || statusCode === 429) return 'transient';
 
     const data = await response.json().catch(() => ({}));
-    // Tokens live in data.data (standardized envelope) or on the body itself.
+    // The token lives in data.data (standardized envelope) or on the body itself.
     const tokens = data.data || data;
-    if (statusCode < 400 && tokens.accessToken && tokens.refreshToken) {
-      if (this.refreshToken !== refreshToken) return 'failed';
+    if (statusCode < 400 && tokens.accessToken) {
       this.setTokens(tokens);
       return 'ok';
     }
@@ -665,13 +772,13 @@ export class ApiCore {
   }
 
   /**
-   * A refresh that returned `false` but left the refresh token in place failed
+   * A refresh that returned `false` but left the session marker in place failed
    * transiently — the session is intact, the auth service just couldn't be
    * reached. Surface that as a retryable 503 rather than the request's own 401,
    * which callers (useAuth) rightly read as "signed out".
    */
   private throwIfRefreshUnavailable(): void {
-    if (!this.refreshToken) return;
+    if (!this.hasSessionMarker()) return;
     throw new ApiError(
       'Your session could not be refreshed because the server is unavailable. Try again shortly.',
       503,
@@ -680,13 +787,13 @@ export class ApiCore {
   }
 
   /** After a transient give-up, try again once the cooldown ends — if the
-   *  access token is still worth refreshing by then. */
+   *  session is still worth refreshing by then. */
   private scheduleRefreshAfterCooldown(): void {
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null;
       this.refreshCooldownUntil = 0;
-      if (this.refreshToken) void this.refreshAccessToken();
+      if (this.canRefresh()) void this.refreshAccessToken();
     }, REFRESH_FAILURE_COOLDOWN_MS);
   }
 
@@ -716,7 +823,7 @@ export class ApiCore {
     const controller = new AbortController();
     const response = await fetch(`${API_URL}${endpoint}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      headers: { 'Content-Type': 'application/json', [CLIENT_TYPE_HEADER]: CLIENT_TYPE, ...this.authHeaders() },
       body: JSON.stringify(body),
       credentials: 'same-origin',
       signal: controller.signal,
@@ -734,7 +841,7 @@ export class ApiCore {
         throw new StepUpRequiredError(data.message || 'Step-up confirmation required', String(data.code), data.details);
       }
       // 401: refresh the access token once and retry the stream (mirrors request()).
-      if (response.status === 401 && this.refreshToken && !endpoint.includes('/auth/refresh') && !_refreshed) {
+      if (response.status === 401 && this.canRefresh() && !endpoint.includes('/auth/refresh') && !_refreshed) {
         const refreshed = await this.refreshAccessToken();
         if (refreshed) {
           yield* this.streamRequest(endpoint, body, true);

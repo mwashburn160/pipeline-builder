@@ -7,11 +7,27 @@
 
 import { jest, describe, it, expect, beforeEach, beforeAll } from '@jest/globals';
 
-// Mock Secrets Manager — returns stored JWT token (platform secret) for any id.
+/**
+ * The stored credential is an OPAQUE service-account key (#N2) — no claims, no
+ * signature, nothing to verify locally. The handler trades it at platform's
+ * `/auth/token/exchange` for a short-lived token, so `mockFetch` serves that
+ * exchange, and the cutover behaviours under test are caching, re-reading the
+ * secret after a 401, and refusing a pre-cutover JWT.
+ */
+const STORED_KEY = 'pb_sa_0123456789abcdef0123456789abcdef';
+/** The token the exchange hands back. Never verified — only presented. */
+const EXCHANGED_TOKEN = 'exchanged.access.token';
+
+/** The exchange response, in api-core's `{ success, data }` envelope. */
+function exchangeResponse(token: string = EXCHANGED_TOKEN, expiresIn = 300) {
+  return { ok: true, status: 200, json: () => Promise.resolve({ success: true, data: { accessToken: token, expiresIn } }) };
+}
+
+// Mock Secrets Manager — returns the stored service-account key for any id.
 // The github-token secret path resolves to the same string, which is fine: the
 // commit-resolution tests mock the SCM fetch response regardless of the auth header.
 const mockSend = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({
-  SecretString: JSON.stringify({ password: 'mock-jwt-token' }),
+  SecretString: JSON.stringify({ password: STORED_KEY }),
 });
 jest.unstable_mockModule('@aws-sdk/client-secrets-manager', () => ({
   SecretsManagerClient: jest.fn(() => ({ send: mockSend })),
@@ -113,7 +129,7 @@ describe('pipeline-events handler', () => {
     // Off by default; the Phase-4 block turns it on (its beforeEach runs after this).
     delete process.env.DORA_ENABLED;
     mockSend.mockResolvedValue({
-      SecretString: JSON.stringify({ password: 'mock-jwt-token' }),
+      SecretString: JSON.stringify({ password: STORED_KEY }),
     });
     mockTagsSend.mockImplementation(tagResolver);
 
@@ -126,6 +142,7 @@ describe('pipeline-events handler', () => {
 
     // Default: API calls succeed; anything else 404s (health POST tolerates this).
     mockFetch.mockImplementation((url: string, _opts?: unknown) => {
+      if (url.includes('/auth/token/exchange')) return exchangeResponse();
       if (url.includes('/api/reports/events')) {
         return Promise.resolve({
           ok: true,
@@ -157,7 +174,7 @@ describe('pipeline-events handler', () => {
       'https://api.example.com/api/reports/events',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({ Authorization: 'Bearer mock-jwt-token' }),
+        headers: expect.objectContaining({ Authorization: `Bearer ${EXCHANGED_TOKEN}` }),
       }),
     );
   });
@@ -263,9 +280,12 @@ describe('pipeline-events handler', () => {
   });
 
   it('should throw if reporting API returns error', async () => {
-    mockFetch.mockImplementation(() => Promise.resolve({
-      ok: false, status: 500, text: () => Promise.resolve('Internal Server Error'),
-    }));
+    mockFetch.mockImplementation((url: string) => {
+      // The exchange must keep resolving: the handler trades the stored key for
+      // a token before every batch.
+      if (url.includes('/auth/token/exchange')) return exchangeResponse();
+      return Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve('Internal Server Error') });
+    });
     await expect(handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]))).rejects.toThrow('Reporting API failed: 500');
   });
 
@@ -369,6 +389,9 @@ describe('pipeline-events handler', () => {
 
     it('resolves a GitHub commit timestamp via the commits API', async () => {
       mockFetch.mockImplementation((url: string) => {
+      // The exchange must keep resolving: the handler trades the stored key for
+      // a token before every batch.
+        if (url.includes('/auth/token/exchange')) return exchangeResponse();
         if (url.includes('api.github.com')) {
           return Promise.resolve({ ok: true, json: () => Promise.resolve({ commit: { committer: { date: '2026-03-14T09:00:00Z' } } }) });
         }
@@ -513,6 +536,9 @@ describe('pipeline-events handler', () => {
         return tagResolver(cmd);
       });
       mockFetch.mockImplementation((url: string) => {
+      // The exchange must keep resolving: the handler trades the stored key for
+      // a token before every batch.
+        if (url.includes('/auth/token/exchange')) return exchangeResponse();
         if (url.includes('api.github.com')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ commit: { committer: { date: '2026-03-14T09:00:00Z' } } }) });
         if (url.includes('/api/reports/events')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
         if (url.includes('/api/reports/ingest-health')) return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
@@ -562,6 +588,9 @@ describe('pipeline-events handler', () => {
       jest.setSystemTime(new Date('2026-03-15T12:00:00Z'));
       // ingest-health fails the first time → forwarded MUST NOT be zeroed.
       mockFetch.mockImplementation((url: string) => {
+      // The exchange must keep resolving: the handler trades the stored key for
+      // a token before every batch.
+        if (url.includes('/auth/token/exchange')) return exchangeResponse();
         if (url.includes('/api/reports/events')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
         if (url.includes('/api/reports/ingest-health')) return Promise.resolve({ ok: false, status: 503, text: () => Promise.resolve('down') });
         return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve('nf') });
@@ -574,6 +603,9 @@ describe('pipeline-events handler', () => {
       // un-acked event from the first batch is still counted → forwarded === 2.
       jest.setSystemTime(new Date('2026-03-15T12:02:00Z'));
       mockFetch.mockImplementation((url: string) => {
+      // The exchange must keep resolving: the handler trades the stored key for
+      // a token before every batch.
+        if (url.includes('/auth/token/exchange')) return exchangeResponse();
         if (url.includes('/api/reports/events')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
         if (url.includes('/api/reports/ingest-health')) return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
         return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve('nf') });
@@ -645,6 +677,109 @@ describe('pipeline-events handler', () => {
       expect(body.events[0].commitSha).toBe('head2');
       expect(body.events[0].commitTimestamp).toBeUndefined();
       expect(body.events[0].commitCount).toBeUndefined();
+    });
+  });
+  /**
+   * The Lambda is a KEY HOLDER, not a verifier (#N2). It stores an opaque
+   * `pb_sa_…` key, trades it for a short-lived token per batch, and checks
+   * NOTHING locally — an opaque key has no claims to check, and the exchange
+   * already re-reads the account, its org and the key's own state. What matters
+   * here is that it caches the token, re-reads the SECRET after a 401 (the
+   * rotator replaces the key underneath a warm container), and refuses a
+   * pre-cutover JWT loudly instead of failing as an opaque 401 from reporting.
+   */
+  describe('stored service-account key (exchange)', () => {
+    /** Did the batch reach the reporting API? */
+    const posted = () => mockFetch.mock.calls.some((c: any[]) => c[0].includes('/reports/events'));
+    const exchanges = () => mockFetch.mock.calls.filter((c: any[]) => c[0].includes('/auth/token/exchange'));
+
+    it('exchanges the stored key and presents the token it got back', async () => {
+      await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+      const call = exchanges()[0];
+      expect(call[0]).toBe('https://api.example.com/api/auth/token/exchange');
+      expect(JSON.parse((call[1] as { body: string }).body)).toEqual({ key: STORED_KEY });
+      expect(posted()).toBe(true);
+    });
+
+    it('caches the exchanged token — a second batch does not exchange again', async () => {
+      await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+      expect(exchanges()).toHaveLength(1);
+      await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+      expect(exchanges()).toHaveLength(1);
+    });
+
+    it('re-reads the SECRET (not just the token) after a 401, picking up a rotated key', async () => {
+      // The rotator replaced the key while this container stayed warm: the first
+      // POST 401s on the retired credential, and the retry must come from a fresh
+      // READ of the secret, not from re-exchanging the key already in memory.
+      const ROTATED_KEY = 'pb_sa_ffffffffffffffffffffffffffffffff';
+      let posts = 0;
+      mockSend
+        .mockResolvedValueOnce({ SecretString: JSON.stringify({ password: STORED_KEY }) })
+        .mockResolvedValue({ SecretString: JSON.stringify({ password: ROTATED_KEY }) });
+      mockFetch.mockImplementation((url: string, opts?: any) => {
+        if (url.includes('/auth/token/exchange')) {
+          const { key } = JSON.parse(opts.body);
+          return exchangeResponse(key === ROTATED_KEY ? 'rotated.token' : EXCHANGED_TOKEN);
+        }
+        if (url.includes('/api/reports/events')) {
+          posts += 1;
+          if (posts === 1) return Promise.resolve({ ok: false, status: 401, text: () => Promise.resolve('unauthorized') });
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      });
+
+      await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+
+      // Two secret reads: the initial one, then the re-read after the 401.
+      expect(mockSend.mock.calls.length).toBeGreaterThanOrEqual(2);
+      const retry = mockFetch.mock.calls.filter((c: any[]) => c[0].includes('/reports/events'))[1];
+      expect((retry[1] as any).headers.Authorization).toBe('Bearer rotated.token');
+    });
+
+    it('FAILS CLOSED (retryable) when the exchange refuses the key, naming what to check', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes('/auth/token/exchange')) {
+          return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      });
+      await expect(handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]))).rejects.toThrow(/exchange refused \(401\)/);
+      expect(posted()).toBe(false);
+    });
+
+    it('FAILS CLOSED when the exchange is unreachable', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes('/auth/token/exchange')) return Promise.reject(new Error('platform unreachable'));
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      });
+      await expect(handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]))).rejects.toThrow(/unreachable/);
+      expect(posted()).toBe(false);
+    });
+
+    it('REFUSES a pre-cutover JWT in the secret, naming the fix', async () => {
+      mockSend.mockResolvedValue({ SecretString: JSON.stringify({ password: 'header.payload.signature' }) });
+      await expect(handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT])))
+        .rejects.toThrow(/still holds a JWT from before the service-account cutover/);
+      expect(posted()).toBe(false);
+    });
+
+    it('REFUSES a secret with no credential at all, naming the fix', async () => {
+      mockSend.mockResolvedValue({ SecretString: JSON.stringify({ username: 'acme' }) });
+      await expect(handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]))).rejects.toThrow(/store-token/);
+      expect(posted()).toBe(false);
+    });
+
+    it('prefers PLATFORM_ACCESS_KEY over Secrets Manager, and never re-reads it on a 401', async () => {
+      process.env.PLATFORM_ACCESS_KEY = 'pb_sa_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      try {
+        await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+        expect(mockSend).not.toHaveBeenCalled();
+        expect(JSON.parse((exchanges()[0][1] as { body: string }).body).key).toBe(process.env.PLATFORM_ACCESS_KEY);
+      } finally {
+        delete process.env.PLATFORM_ACCESS_KEY;
+      }
     });
   });
 });

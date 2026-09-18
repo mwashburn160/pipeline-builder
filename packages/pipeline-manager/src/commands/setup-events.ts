@@ -45,7 +45,7 @@ export function setupEvents(program: Command): void {
       .option('-u, --identifier <identifier>', 'Username or email to mint a token when PLATFORM_TOKEN is unset (for deriving the secret name)')
       .option('-p, --password <password>', 'Login password (used with --identifier)')),
   )
-    .option('--scoped-ingest', 'Point the ingestion Lambda at the dedicated least-privilege reporting-ingest secret (provision it first: `store-token --scope reporting:ingest --schedule`). The reporting service always requires the `reporting:ingest` scope on POST /reports/events.')
+    .option('--scoped-ingest', 'Point the ingestion Lambda at the dedicated least-privilege reporting-ingest secret — the service-account key provisioned by `store-token --scope reporting:ingest --schedule`. The reporting service always requires the `reporting:ingest` scope on POST /reports/events, so without that secret the Lambda 403s.')
     .option('--with-dora', 'Enable DORA lead-time enrichment in the ingestion Lambda: it resolves commit timestamps in-account (CodeCommit / the org github-token secret / CodeConnections). Off by default — extra SCM/secret cost. Enable only for orgs with the advanced_reporting add-on; re-run setup-events to toggle after purchase.')
     .action(async (options) => {
       const executionId = printCommandHeader('Setup Event Ingestion');
@@ -68,9 +68,10 @@ export function setupEvents(program: Command): void {
         // minted) when PLATFORM_SECRET_NAME isn't set — matching store-token, which
         // WROTE the secret at the same derived path. Logs in with
         // --email/--password or PLATFORM_IDENTIFIER/PLATFORM_PASSWORD if no token yet.
-        // With --scoped-ingest, point at the dedicated reporting-ingest secret
-        // (a least-privilege machine credential) instead of the shared platform
-        // token — provision it with `store-token --scope reporting:ingest`.
+        // With --scoped-ingest, point at the dedicated reporting-ingest secret —
+        // a service-account key scoped to exactly `reporting:ingest` and nothing
+        // else — instead of the org's full-privilege platform credential. Provision
+        // it with `store-token --scope reporting:ingest`.
         let secretName = await resolvePlatformSecretName(options);
         if (options.scopedIngest) {
           secretName = secretName.replace(/\/platform$/, '/reporting-ingest');

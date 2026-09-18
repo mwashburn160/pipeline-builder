@@ -328,6 +328,17 @@ mk istioctl install --skip-confirmation \
 mk kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=180s 2>/dev/null || echo "  istiod not ready yet"
 mk kubectl rollout status daemonset/ztunnel -n istio-system --timeout=120s 2>/dev/null || echo "  ztunnel not ready yet"
 mk kubectl rollout status daemonset/istio-cni-node -n istio-system --timeout=120s 2>/dev/null || echo "  istio-cni not ready yet"
+
+# The `pb-waypoint` Gateway (k8s/istio-internal-routes.yaml) is a Kubernetes
+# Gateway API resource, and `istioctl install` does NOT ship those CRDs — without
+# them the manifest apply below dies on an unknown kind. Install the standard
+# channel once; idempotent, so a cluster that already has them is untouched.
+# Pinned rather than `latest` so a provision is reproducible.
+GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.3.0}"
+if ! mk kubectl get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1; then
+  echo "  installing Gateway API CRDs ($GATEWAY_API_VERSION) for the ambient waypoint"
+  mk kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
+fi
 echo "  Istio ambient installed (istiod + ztunnel + istio-cni). Recommend t3.xlarge+ with the mesh."
 
 # -- Namespace + ConfigMap + Secrets ------------------------------------------
@@ -385,6 +396,25 @@ if [ "$(id -u)" = "0" ]; then
 fi
 pb_create_registry_secrets "$CERT_DIR/image-registry-jwt.key" "$CERT_DIR/image-registry-jwt.crt"
 echo "  registry token-signing keypair done"
+
+# The ES256 user-token signing key (platform only). Skipped under
+# TOKEN_SIGNING_MODE=kms, where the private key never leaves AWS.
+if [ "${TOKEN_SIGNING_MODE:-local}" = "local" ]; then
+  bash "$BIN_DIR/token-signing-keys.sh" "$CERT_DIR"
+  [ "$(id -u)" = "0" ] && chmod 644 "$CERT_DIR/token-signing/token-signing.key" 2>/dev/null || true
+fi
+pb_create_token_signing_secret "$CERT_DIR/token-signing/token-signing.key" "$CERT_DIR/token-signing/token-signing-previous.key"
+echo "  user-token signing key done"
+
+# PER-SERVICE ES256 keys for INTERNAL service-to-service tokens (#14): one
+# `service-key-<name>` Secret per service — mounted by that service ALONE, which
+# is what stops a compromised pod signing as another — plus the public
+# `service-key-bundle` every service verifies against. Idempotent: re-running
+# startup never rotates a key (see the two-phase procedure in the generator).
+bash "$BIN_DIR/service-signing-keys.sh" "$CERT_DIR"
+[ "$(id -u)" = "0" ] && chmod 644 "$CERT_DIR"/service-keys/*.key 2>/dev/null || true
+pb_create_service_key_secrets "$CERT_DIR/service-keys"
+echo "  per-service signing keys done"
 
 # -- ConfigMaps ---------------------------------------------------------------
 

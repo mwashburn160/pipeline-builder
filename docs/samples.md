@@ -145,7 +145,7 @@ Each sample instantiates the [`react-javascript`](https://github.com/mwashburn16
 ### Shared requirements
 
 - **Toolchain** (every sample installs it): Node 24+, plus `pipeline-manager`, `aws-cdk`, `esbuild`, and `pnpm` on `PATH` — `--deploy` shells out to `cdk deploy`, whose synth uses esbuild + pnpm. The instantiate step needs nothing extra — it runs through the same CLI.
-- **Platform auth** (CI secrets): `PLATFORM_BASE_URL`, `PLATFORM_TOKEN` (a Personal Access Token from `pipeline-manager auth pat` or the dashboard), and `PB_ORG_ID` (your org's UUID, passed as the template's `orgId` input).
+- **Platform auth** (CI secrets): `PLATFORM_BASE_URL`, `PLATFORM_TOKEN` (an access key from `pipeline-manager auth pat` or the dashboard), and `PB_ORG_ID` (your org's UUID, passed as the template's `orgId` input).
 - **AWS auth**: each platform's OIDC federation assumes a deploy role — the role ARN is stored as a CI secret (`AWS_DEPLOY_ROLE_ARN`), never committed. Each sample notes the one-line swap to static access keys.
 - **Region** via `AWS_REGION` (or `--region`); otherwise resolves `AWS_REGION` → `CDK_DEFAULT_REGION` → `us-east-1`.
 

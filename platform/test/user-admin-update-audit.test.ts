@@ -62,6 +62,8 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
     hasMembershipInOrg: (...a: unknown[]) => mockHasMembershipInOrg(...a),
     lookupPrimaryOrgId: (...a: unknown[]) => mockLookupPrimaryOrgId(...a),
   },
+  // Linking stub: user-admin.js loads user-profile.js, which imports it.
+  apiKeyService: {},
 }));
 
 jest.unstable_mockModule('../src/utils/validation.js', () => ({

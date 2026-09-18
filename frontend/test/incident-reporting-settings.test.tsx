@@ -36,7 +36,7 @@ jest.mock('@/components/admin/StepUpModal', () => ({
 
 const getIncidentSettings = jest.fn();
 const listIncidents = jest.fn();
-const createPat = jest.fn();
+const createAccessKey = jest.fn();
 const sendTestIncident = jest.fn();
 const putReportingSettings = jest.fn();
 jest.mock('@/lib/api', () => ({
@@ -44,7 +44,7 @@ jest.mock('@/lib/api', () => ({
   default: {
     getIncidentSettings: (...a: unknown[]) => getIncidentSettings(...a),
     listIncidents: (...a: unknown[]) => listIncidents(...a),
-    createPat: (...a: unknown[]) => createPat(...a),
+    createAccessKey: (...a: unknown[]) => createAccessKey(...a),
     sendTestIncident: (...a: unknown[]) => sendTestIncident(...a),
     putReportingSettings: (...a: unknown[]) => putReportingSettings(...a),
   },

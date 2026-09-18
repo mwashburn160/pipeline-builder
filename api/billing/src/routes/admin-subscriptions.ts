@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  audited,
   requireAuth,
   requirePermission,
   requireSystemAdmin,
@@ -119,6 +120,9 @@ export function createAdminSubscriptionRoutes(): Router {
     // high-impact cross-tenant mutation. Step-up re-verifies the human; a
     // service principal (none call this today) would be exempt.
     requireStepUp as RequestHandler,
+    // `billing.addon.prune` rides along: a tier change auto-drops any bundle the
+    // destination tier now includes (applyTierIncludedAddonPrune).
+    audited('billing.tier.override', 'billing.addon.prune'),
     withRoute(async ({ req, res, ctx }) => {
       const subscriptionId = getParam(req.params, 'id');
       const validation = validateBody(req, AdminSubscriptionUpdateSchema);
@@ -333,6 +337,7 @@ export function createAdminSubscriptionRoutes(): Router {
     '/subscriptions/by-org/:orgId',
     requireAuth(AUTH_OPTS) as RequestHandler,
     requireSystemAdmin as RequestHandler,
+    audited('billing.subscription.delete'),
     withRoute(async ({ req, res }) => {
       const targetOrgId = getParam(req.params, 'orgId');
       if (!targetOrgId) return sendError(res, 400, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);

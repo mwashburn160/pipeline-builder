@@ -1,9 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, getServiceAuthHeader, isAccessTokenRevoked, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import {
+  createLogger, exchangeApiKey, getServiceAuthHeader, hasValidIdentityClaims, isAccessTokenRevoked,
+  isOpaqueApiKey, isServiceTokenDenied, verifyBearerToken, SYSTEM_ORG_ID,
+} from '@pipeline-builder/api-core';
 import axios from 'axios';
-import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { config } from '../config/index.js';
 
@@ -50,17 +52,45 @@ interface PlatformJwtPayload {
   /** Per-user version stamp; a bump on the platform revokes older tokens. */
   tokenVersion?: number;
   type?: string;
+  /** `service` for an internal caller (api/plugin's builds, the deploy bootstrap push). */
+  principalType?: string;
+  /** Narrow capability scope on a machine credential (#12). `registry:push` is
+   *  the one this resolver honours — see `REGISTRY_PUSH_SCOPE`. */
+  scope?: string;
 }
+
+/**
+ * The capability scope a least-privilege machine credential carries to push
+ * images (#12). A scoped token is minted with NO permissions and NO admin flags
+ * by design, so `plugins:write` can never appear on one — this is what a CI
+ * push identity presents instead, and it grants exactly the same raw-image write
+ * inside the owning org's namespace, and nothing else.
+ */
+const REGISTRY_PUSH_SCOPE = 'registry:push';
 
 /**
  * Resolve incoming `Authorization: Basic <creds>` to a caller identity by
  * trying each path in order:
  *
- *   1. **password as platform JWT** — verifies signature with platform's
- *      `JWT_SECRET`. On success, identity carries the JWT's `organizationId`
- *      + `sub` so scope authorization can grant `org-{orgId}` access.
- *      This is the path customer CodeBuild, the plugin-lookup Lambda, and
- *      `api/plugin` (during plugin uploads) all use.
+ *   0. **password as an opaque ACCESS KEY** (`pb_pat_…`) — traded at platform
+ *      for a short-lived JWT (cached in-process by api-core), then verified
+ *      through Path 1. A key carries no claims and no signature, so it cannot be
+ *      verified locally; this is the same exchange every service performs, which
+ *      is what makes revoking the key stop `docker push` within 5 minutes.
+ *
+ *   1. **password as a signed token** — routed by the token's own `alg`, exactly
+ *      as every `requireAuth` in the fleet does it:
+ *      - a USER token is ES256 and is verified against platform's published
+ *        JWKS (api-core's shared cache: 10-minute refresh, one refetch on an
+ *        unknown `kid`). This is the path customer CodeBuild and the
+ *        plugin-lookup Lambda use.
+ *      - an INTERNAL SERVICE token is ES256 signed by the CALLING service with
+ *        its own key (#14) and verified against the per-service public bundle,
+ *        and must declare `principalType: 'service'`. This is the path
+ *        `api/plugin` uses for its own image pushes and the one the deploy
+ *        scripts use for the `deploy-bootstrap` base-image push.
+ *      On success, identity carries the token's `organizationId` + `sub` so
+ *      scope authorization can grant `org-{orgId}` access.
  *
  *   2. **platform user** — for direct `docker login`. Posts to platform's
  *      `/auth/login` in-cluster (`PLATFORM_SERVICE_HOST`/`_PORT`) with the
@@ -70,6 +100,19 @@ interface PlatformJwtPayload {
  * Returns `null` if all paths fail. Caller should respond 401 in that case.
  */
 export async function resolveIdentity(username: string, password: string): Promise<Identity | null> {
+  // Path 0: opaque access key — exchange it, then fall into Path 1 on the
+  // result. A key is recognised by its shape, so this never intercepts a JWT.
+  if (isOpaqueApiKey(password)) {
+    try {
+      return await verifyPlatformJwt(await exchangeApiKey(password));
+    } catch {
+      // Refused or unverifiable: a key has no other path to try (it is not a
+      // password), so stop here rather than posting it to /auth/login.
+      logger.debug('Access-key exchange did not yield an identity', { ok: false });
+      return null;
+    }
+  }
+
   // Path 1: JWT — most common (CodeBuild / Lambda via Secrets Manager,
   // and api/plugin minting service tokens for its own pushes).
   const fromJwt = await verifyPlatformJwt(password);
@@ -83,21 +126,26 @@ export async function resolveIdentity(username: string, password: string): Promi
  * Verify a platform JWT and project it onto the resolver's identity shape.
  * Returns null on any verification failure (caller falls through to other
  * paths). Logged at debug only — Path 2/3 inputs always fail Path 1.
+ *
+ * Verification goes through api-core's `verifyUserJwt`, so this resolver gets
+ * the same guarantees as every `requireAuth` in the fleet: ES256 only, a `kid`
+ * that must resolve to one of platform's published keys, and a `kid` rotation
+ * picked up without restarting. Fails CLOSED — an unreachable JWKS yields
+ * `null` here, which the caller answers as 401, never as a pass.
  */
 async function verifyPlatformJwt(token: string): Promise<Identity | null> {
   try {
-    const decoded = jwt.verify(token, config.platformJwt.secret, {
-      ...(config.platformJwt.issuer && { issuer: config.platformJwt.issuer }),
-      ...(config.platformJwt.audience && { audience: config.platformJwt.audience }),
-    }) as PlatformJwtPayload;
+    // One entry point for both chains. It also enforces the separation that
+    // makes the cutover meaningful: an ES256 token may not claim to be a
+    // service, and a shared-secret token may not claim to be a person — so no
+    // HS256 token can mint registry credentials for a user any more.
+    const decoded = await verifyBearerToken(token) as unknown as PlatformJwtPayload;
 
     // Defense-in-depth: only an ACCESS token may mint registry credentials.
-    // Reject a refresh/step-up/other-typed token that carries a `type` claim
-    // naming something other than 'access'. A token with no `type` is accepted
-    // for backward-compat (older mints omit it); split signing secrets make
-    // this non-exploitable today, but the assertion closes the gap if a future
-    // non-access token is ever signed with the same secret.
-    if (decoded.type && decoded.type !== 'access') {
+    // A refresh/step-up/other-typed token — or one with no `type` at all — is
+    // refused: every credential the platform mints carries `type: 'access'`, so
+    // there is no shape to tolerate here.
+    if (decoded.type !== 'access') {
       logger.warn('Rejecting non-access platform JWT on /token mint path', { sub: decoded.sub, type: decoded.type });
       return null;
     }
@@ -110,13 +158,31 @@ async function verifyPlatformJwt(token: string): Promise<Identity | null> {
       logger.warn('JWT organizationId failed format validation', { sub: decoded.sub });
       return null;
     }
-    // Honor token revocation on the /token MINT path too. `/api/images` and
-    // `/api/admin` go through `requireAuth` (which consults the revocation store),
-    // but this resolver runs outside it — without this check a user whose
-    // tokenVersion was bumped (permissions removed / offboarded) could still mint
-    // `docker push` tokens until their JWT naturally expires. Fail-open on store
-    // outage, matching requireAuth.
-    if (await isAccessTokenRevoked({ sub: decoded.sub, tokenVersion: decoded.tokenVersion })) {
+    // Every token must carry a well-formed identity (`principalType`,
+    // `token_use`, and a user principal's assurance claims) — the same check
+    // `requireAuth` applies. Fails closed: this resolver branches on
+    // `principalType` below, so a token without one is not an identity.
+    if (!hasValidIdentityClaims(decoded as Parameters<typeof hasValidIdentityClaims>[0])) {
+      logger.warn('Rejecting token with malformed identity claims on /token mint path', { sub: decoded.sub });
+      return null;
+    }
+
+    if (decoded.principalType === 'service') {
+      // An internal service principal (api/plugin's own pushes, the deploy
+      // bootstrap). There is no user session behind it to revoke — the
+      // equivalent kill-switch is the service denylist, which `requireAuth`
+      // honours and so must this out-of-band path.
+      if (isServiceTokenDenied(decoded)) {
+        logger.warn('Rejecting denylisted service token on /token mint path', { sub: decoded.sub });
+        return null;
+      }
+    } else if (await isAccessTokenRevoked({ sub: decoded.sub, tokenVersion: decoded.tokenVersion })) {
+      // Honor token revocation on the /token MINT path too. `/api/images` and
+      // `/api/admin` go through `requireAuth` (which consults the revocation store),
+      // but this resolver runs outside it — without this check a user whose
+      // tokenVersion was bumped (permissions removed / offboarded) could still mint
+      // `docker push` tokens until their JWT naturally expires. Fail-open on store
+      // outage, matching requireAuth.
       logger.warn('Rejecting revoked platform JWT (tokenVersion behind current)', { sub: decoded.sub });
       return null;
     }
@@ -129,7 +195,15 @@ async function verifyPlatformJwt(token: string): Promise<Identity | null> {
       // Push to the org's own namespace requires plugins:write (or admin, who holds
       // it implicitly) — otherwise any member could overwrite a plugin image. Pull
       // stays open to all members.
-      canWritePlugins: !!decoded.isAdmin || (decoded.permissions?.includes('plugins:write') ?? false),
+      // A `registry:push` scoped key is the CI push identity (#12): it carries no
+      // permissions at all (that is the point of a scoped mint), so it would
+      // otherwise be pull-only. It grants the same raw-image write `plugins:write`
+      // grants a person — bounded by the namespace rules in `authorizeScope`,
+      // which key off `orgId`/`isSuperAdmin`, both of which a scoped token cannot
+      // raise. Any OTHER scope (e.g. `reporting:ingest`) grants nothing here.
+      canWritePlugins: !!decoded.isAdmin
+        || decoded.scope === REGISTRY_PUSH_SCOPE
+        || (decoded.permissions?.includes('plugins:write') ?? false),
     };
   } catch {
     // Error contents may include the raw decode string (which is the user's
@@ -144,9 +218,11 @@ async function verifyPlatformJwt(token: string): Promise<Identity | null> {
  * returned access token is itself a platform JWT — verify it through the
  * same Path 1 codepath so we get a single identity-projection contract.
  *
- * Returns null on auth failure (4xx) or any error reaching platform; the
- * caller responds 401. Errors are logged at warn level so operators can
- * see when platform is unreachable mid-`docker login`.
+ * Returns null on auth failure (4xx), on a second-factor challenge (a password
+ * alone is not a credential for such an account, and Basic auth has no way to
+ * carry a code — those users push with an access key), or any error reaching
+ * platform; the caller responds 401. Errors are logged at warn level so
+ * operators can see when platform is unreachable mid-`docker login`.
  */
 async function resolvePlatformUser(identifier: string, password: string): Promise<Identity | null> {
   try {
@@ -166,6 +242,18 @@ async function resolvePlatformUser(identifier: string, password: string): Promis
       },
     );
     if (response.status < 200 || response.status >= 300) return null;
+    // An account with a second factor gets a CHALLENGE, not a session: platform
+    // answers `{ mfaRequired: true, challengeId }` with no token. `docker login`
+    // has nowhere to enter a code, so this is a legitimate refusal rather than a
+    // protocol mismatch — named explicitly so the operator log says what to do
+    // (use an access key) instead of "shape mismatch".
+    if ((response.data as { data?: { mfaRequired?: boolean } })?.data?.mfaRequired === true) {
+      logger.warn('Platform login needs a second factor; docker login cannot supply one — use an access key', {
+        event: 'platform_login_mfa_required',
+        identifier,
+      });
+      return null;
+    }
     const parsed = PlatformLoginResponseSchema.safeParse(response.data);
     if (!parsed.success) {
       logger.warn('Platform login response shape mismatch', {

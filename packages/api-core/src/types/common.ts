@@ -10,8 +10,67 @@ import type { QuotaTier } from './quota-tiers.js';
  * scoped identity check it via `hasScope`. Kept a closed union (mirroring
  * {@link Permission}) so a typo on either the mint or the check side is a compile
  * error. Add a value here when introducing a new scoped-token surface.
+ *
+ * - `reporting:ingest` — the AWS event-ingestion Lambda's writes (`/reports/events`,
+ *   `/reports/ingest-health`) and the incident webhook.
+ * - `registry:push`    — `docker push` into the owning org's own namespace via
+ *   image-registry's `/token` endpoint. Grants the raw-image write that
+ *   `plugins:write` grants a person, and nothing else: a scoped token carries no
+ *   permissions, so it can neither read the API nor push outside its org.
+ * - `scim`             — an identity provider's SCIM 2.0 client (3b) driving
+ *   `/scim/v2/Users` and `/scim/v2/Groups` for the key's OWN org. It provisions
+ *   and deactivates memberships and moves people between directory groups; it
+ *   can never read or write anything else, and — because a scoped token carries
+ *   no permissions — it cannot author the group → Role rules its syncs resolve
+ *   through. Only a service-account key may carry it; a person's token never does.
  */
-export type TokenScope = 'reporting:ingest';
+export type TokenScope = 'reporting:ingest' | 'registry:push' | 'scim';
+
+/**
+ * Runtime catalog of {@link TokenScope} (a union is erased at runtime). This is
+ * the ONE allowlist every mint path validates against — platform's key/token
+ * issue routes included — so a new scope is added in exactly one place.
+ */
+export const TOKEN_SCOPES: readonly TokenScope[] = ['reporting:ingest', 'registry:push', 'scim'];
+
+/**
+ * What kind of principal a token speaks for. Auth decisions branch on this claim
+ * — never on the shape of `sub` or on which optional claims happen to be present.
+ *
+ * - `user`            — a person (session, machine session, PAT or impersonation).
+ * - `service_account` — a non-human account owned by ONE org, holding org Roles
+ *                       and authenticating with a `pb_sa_…` key exchanged at
+ *                       platform. Never satisfies an assurance/step-up gate.
+ * - `service`         — an internal Pipeline Builder service ({@link signServiceToken}).
+ */
+export type PrincipalType = 'user' | 'service_account' | 'service';
+
+/**
+ * How a token is used. `access` is a session-style access token (interactive,
+ * machine-session or service); `api_key` is a standalone credential tracked by
+ * its own record — a Personal Access Token or a service-account key, named by
+ * `jti`.
+ */
+export type TokenUse = 'access' | 'api_key';
+
+/**
+ * Authentication methods (`amr`, RFC 8176 style) that established a user's
+ * session. `pwd` password sign-in; `oauth` social sign-in (Google, GitHub …);
+ * `sso` per-org OIDC single sign-on; `webauthn` a passkey (WebAuthn assertion
+ * with user verification); `stepup` a step-up re-verification token; `mfa` a
+ * second factor was presented as well — today an authenticator-app code (TOTP)
+ * or one of its recovery codes, so it appears ALONGSIDE the method that
+ * identified the user (`['pwd', 'mfa']`), never on its own.
+ */
+export type AuthMethod = 'pwd' | 'oauth' | 'sso' | 'webauthn' | 'stepup' | 'mfa';
+
+/** Authenticator assurance level. Every token is `1` until assurance levels ship. */
+export type AssuranceLevel = 1 | 2;
+
+/** Runtime catalogs for the claim unions above (a union is erased at runtime). */
+export const PRINCIPAL_TYPES: readonly PrincipalType[] = ['user', 'service_account', 'service'];
+export const TOKEN_USES: readonly TokenUse[] = ['access', 'api_key'];
+export const AUTH_METHODS: readonly AuthMethod[] = ['pwd', 'oauth', 'sso', 'webauthn', 'stepup', 'mfa'];
 
 /**
  * Quota type identifiers.
@@ -156,6 +215,21 @@ export interface JwtPayload {
   username: string;
   /** User email */
   email: string;
+  /** Which kind of principal this token speaks for (see {@link PrincipalType}). */
+  principalType: PrincipalType;
+  /** How the token is used (see {@link TokenUse}); PATs are `api_key`. */
+  token_use: TokenUse;
+  /**
+   * Methods that authenticated the session (user principals). Kept on the
+   * refresh-session slot, so refresh / renew / switch-org carry it unchanged.
+   * Absent on service tokens.
+   */
+  amr?: AuthMethod[];
+  /** Assurance level (user principals). Never raised by refresh / renew / switch-org. */
+  aal?: AssuranceLevel;
+  /** Epoch seconds of the sign-in that established the session (user principals).
+   *  Never reset by refresh / renew / switch-org. */
+  auth_time?: number;
   /** Per-org role in the active organization ('owner' | 'admin' | 'member'). Not a global role. */
   role: OrgRole;
   /** Derived: true when role is 'admin' or 'owner' in the active organization */
@@ -212,9 +286,9 @@ export interface JwtPayload {
   /**
    * Unique token id. On an impersonation token it identifies the SESSION, so it
    * can be revoked on its own across every service (see
-   * `TokenRevocationStore.getSessionRevocation`). Personal Access Tokens carry
-   * one too, validated against a different record — which is why a `jti` alone
-   * never marks a token as impersonation; `impersonatorId` does.
+   * `TokenRevocationStore.getSessionRevocation`). Personal Access Tokens
+   * (`token_use: 'api_key'`) carry one too, validated against their own record.
+   * A `jti` alone never classifies a token — `token_use` and `impersonatorId` do.
    */
   jti?: string;
   /**

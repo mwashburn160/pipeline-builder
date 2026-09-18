@@ -4,7 +4,7 @@
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Checkbox } from '@/components/ui/Checkbox';
-import { roleDisplayName } from '@/lib/permissions';
+import { roleDisplayName } from '@/lib/role-display';
 import type { OrganizationMember, OrganizationRole } from '@/types';
 
 interface ManageRolesModalProps {

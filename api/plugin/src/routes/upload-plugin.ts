@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 
-import { ErrorCode, createLogger, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, reserveQuota, decrementQuota, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
+import { ErrorCode, audited, createLogger, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, reserveQuota, decrementQuota, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { requireOrgId, withRoute, withTenantContext, rateLimitByOrg, type SSEManager } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
@@ -126,6 +126,8 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
     // against the FORCE-RLS plugins table see the caller's org — the factory routes get
     // this via createProtectedRoute, but this route hand-wires its chain.
     withTenantContext() as RequestHandler,
+    // Declares the audit action the handler emits below (route-coverage contract).
+    audited('plugin.upload') as RequestHandler,
     // `plugins:write` holders may upload (gated above). Visibility is resolved by
     // `resolveVisibility` below: unspecified → `org`; `public` needs
     // plugins:publish and is clamped to `org` otherwise. The `plugins` quota is

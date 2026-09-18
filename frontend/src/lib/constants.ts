@@ -60,6 +60,21 @@ export const MESSAGE_SSE_BASE_RETRY_DELAY_MS = 2000;
 /** Threshold for distinguishing seconds vs milliseconds epoch timestamps. */
 export const EPOCH_MS_THRESHOLD = 1e12;
 
+/** Display names for the sign-in providers, for buttons and error copy. */
+export const PROVIDER_LABELS: Record<string, string> = {
+  google: 'Google',
+  github: 'GitHub',
+  facebook: 'Facebook',
+  microsoft: 'Microsoft',
+  gitlab: 'GitLab',
+  linkedin: 'LinkedIn',
+  'generic-oidc': 'single sign-on',
+  cognito: 'single sign-on',
+};
+
+/** Human label for a provider id, capitalizing an unknown one. */
+export const providerLabel = (p: string) => PROVIDER_LABELS[p] ?? (p.charAt(0).toUpperCase() + p.slice(1));
+
 /** Extract a human-readable message from an unknown caught error. */
 export function formatError(err: unknown, fallback = 'An error occurred'): string {
   if (err instanceof Error) return err.message;

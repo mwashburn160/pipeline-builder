@@ -102,6 +102,16 @@ function toCodeBuildEnvVars(env: Record<string, string>): Record<string, { value
  */
 const VALID_SECRET_NAME = /^[a-zA-Z0-9/_+=.@-]+$/;
 
+/**
+ * Secrets Manager leaf holding the org's REGISTRY credential — the
+ * `registry:push`-scoped service-account key CodeBuild presents as Basic auth to
+ * pipeline-image-registry (#12). Deliberately NOT `platform`: that secret holds
+ * the org's full-privilege automation credential, and a build container has no
+ * business being able to call the API with it.
+ * Provisioned by `pipeline-manager infra store-token --scope registry:push`.
+ */
+const REGISTRY_CREDENTIAL_SECRET = 'registry-push';
+
 function toSecretEnvVars(
   secrets: Array<{ name: string; required: boolean }>,
   orgId: string,
@@ -284,19 +294,24 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
   const namespace = plugin.orgId === SYSTEM_ORG_ID ? 'system' : `org-${plugin.orgId}`;
   const imageUri = `${pullHost}${portPart}/${namespace}/${plugin.name}:${plugin.version}`;
 
-  // CodeBuild reads `pipeline-builder/<orgId>/platform` and sends its
-  // `username`/`password` fields as HTTP Basic to the registry. The
-  // registry challenges with a Bearer realm pointing at
-  // pipeline-image-registry's `/token` endpoint; the Docker client forwards
-  // those creds, the password is verified as a platform JWT, and a registry
+  // CodeBuild reads `pipeline-builder/<orgId>/registry-push` and sends its
+  // `username`/`password` fields as HTTP Basic to the registry. The registry
+  // challenges with a Bearer realm pointing at pipeline-image-registry's
+  // `/token` endpoint; the Docker client forwards those creds, image-registry
+  // exchanges the opaque `pb_sa_…` key for a short-lived token, and a registry
   // token scoped to the org is issued.
   //
-  // Same Secret is read by the plugin-lookup Lambda (via the `password`
-  // field) — one Secret serves both flows.
+  // This is the REGISTRY-ONLY credential (#12), not the org's full-privilege
+  // platform one: its exchanged token carries the single `registry:push` scope
+  // and no API permissions at all, so a CodeBuild job that leaks it can move
+  // images inside this org's namespace and nothing else. The plugin-lookup
+  // Lambda keeps reading `.../platform` — it calls the ordinary API, which no
+  // single scope covers.
+  // Provision it with: pipeline-manager infra store-token --scope registry:push
   const stack = Stack.of(scope);
-  const secretName = CoreConstants.secretPath(orgId, 'platform');
+  const secretName = CoreConstants.secretPath(orgId, REGISTRY_CREDENTIAL_SECRET);
   // CDK construct IDs allow only [A-Za-z0-9_-]; sanitize the secret name.
-  const secretConstructId = `PlatformCreds_${secretName.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+  const secretConstructId = `RegistryCreds_${secretName.replace(/[^A-Za-z0-9_-]/g, '_')}`;
   const credentialsSecret = (stack.node.tryFindChild(secretConstructId) as Secret | undefined)
     ?? Secret.fromSecretNameV2(stack, secretConstructId, secretName);
 
@@ -403,11 +418,11 @@ export function resolveDefaultBuildImage(scope?: Construct, orgId?: string): IBu
   const { host: pullHost, portPart } = resolveExternalPullTarget(registry);
   const imageUri = `${pullHost}${portPart}/library/${configured}`;
 
-  // Same Secret as resolvePluginImage — per-org platform Secret, CodeBuild
-  // sends it as Basic auth, image-registry verifies the JWT in `password`.
+  // Same Secret as resolvePluginImage — the per-org REGISTRY credential, which
+  // CodeBuild sends as Basic auth and image-registry exchanges for a scoped token.
   const stack = Stack.of(scope);
-  const secretName = CoreConstants.secretPath(orgId, 'platform');
-  const secretConstructId = `PlatformCreds_${secretName.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+  const secretName = CoreConstants.secretPath(orgId, REGISTRY_CREDENTIAL_SECRET);
+  const secretConstructId = `RegistryCreds_${secretName.replace(/[^A-Za-z0-9_-]/g, '_')}`;
   const credentialsSecret = (stack.node.tryFindChild(secretConstructId) as Secret | undefined)
     ?? Secret.fromSecretNameV2(stack, secretConstructId, secretName);
 

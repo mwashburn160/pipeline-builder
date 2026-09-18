@@ -1,18 +1,16 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import crypto from 'crypto';
 import { createLogger } from '@pipeline-builder/api-core';
-import type { TokenScope } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
+import { apiKeyService } from './api-key-service.js';
 import { authService } from './auth-service.js';
 import { deleteUserCascade } from './user-cascade.js';
-import { PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_INVALID_CREDENTIALS, PROFILE_PAT_LIMIT } from './user-errors.js';
+import { PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_INVALID_CREDENTIALS } from './user-errors.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
-import { User, Organization, UserOrganization, PersonalAccessToken, type NotificationPreferences, type PersonalAccessTokenDocument, UserPreferences } from '../models/index.js';
+import { User, Organization, UserOrganization, type NotificationPreferences, type RefreshSession, UserPreferences } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
-import { signPersonalAccessToken } from '../utils/token.js';
 
 const logger = createLogger('user-profile-service');
 
@@ -235,83 +233,6 @@ class UserProfileService {
     }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  // ── Personal Access Tokens (named, individually revocable) ───────────────
-
-  /** Shape returned to the API (never includes the token secret). */
-  private serializePat(doc: PersonalAccessTokenDocument | (PersonalAccessTokenDocument & { _id: unknown })) {
-    const now = Date.now();
-    const expiresAt = doc.expiresAt instanceof Date ? doc.expiresAt : new Date(doc.expiresAt);
-    let status: 'active' | 'expired' | 'revoked';
-    if (doc.revoked) status = 'revoked';
-    else if (expiresAt.getTime() <= now) status = 'expired';
-    else status = 'active';
-    return {
-      id: String((doc as { _id: unknown })._id),
-      jti: doc.jti,
-      name: doc.name,
-      scope: doc.scope ?? null,
-      createdAt: (doc.createdAt instanceof Date ? doc.createdAt : new Date(doc.createdAt)).toISOString(),
-      expiresAt: expiresAt.toISOString(),
-      lastUsedAt: doc.lastUsedAt ? new Date(doc.lastUsedAt).toISOString() : null,
-      revoked: doc.revoked,
-      status,
-    };
-  }
-
-  /** Max active (non-revoked, non-expired) PATs a single user may hold. */
-  private readonly MAX_ACTIVE_PATS = 50;
-
-  /**
-   * Mint a named Personal Access Token: sign a jti-stamped JWT and persist its
-   * revocation record. The raw token is returned ONCE (never stored).
-   *
-   * DURABILITY CAVEAT (cross-service): platform's `requireAuth` special-cases the
-   * jti branch to ignore `tokenVersion`, so a PAT survives normal tokenVersion
-   * bumps *on platform*. The stateless services (plugin/compliance) validate via
-   * the shared Redis tokenVersion revocation store with no jti awareness, so a
-   * published bump — password change, admin feature/role change, org soft-delete —
-   * DOES invalidate a user's PATs there (i.e. on exactly the services CI PATs
-   * target) until they re-issue. This is an accepted trade-off (those events are
-   * strong "revalidate credentials" signals); making the stateless path PAT-aware
-   * would require it to consult the PersonalAccessToken record, and is deliberately
-   * out of scope. Individual PAT revocation (revokePat) works everywhere.
-   */
-  async createPat(userId: string, name: string, expiresInSeconds: number, scope?: TokenScope) {
-    const user = await this.findForTokenIssue(userId);
-    // Cap active PATs per user so a compromised session can't mint thousands of
-    // durable credentials (mirrors the 20-slot cap on session token history).
-    const activeCount = await PersonalAccessToken.countDocuments({ userId: user._id, revoked: false, expiresAt: { $gt: new Date() } });
-    if (activeCount >= this.MAX_ACTIVE_PATS) throw new Error(PROFILE_PAT_LIMIT);
-    const jti = crypto.randomBytes(16).toString('hex');
-    const orgId = user.lastActiveOrgId?.toString();
-    const expiresAt = new Date(Date.now() + expiresInSeconds * 1000);
-    const token = await signPersonalAccessToken(user, orgId, jti, expiresInSeconds, scope);
-    const doc = await PersonalAccessToken.create({
-      userId: user._id,
-      jti,
-      name,
-      scope: scope ?? null,
-      organizationId: orgId ?? null,
-      expiresAt,
-    });
-    return { token, pat: this.serializePat(doc) };
-  }
-
-  /** List the user's PAT metadata (never the token secret), newest first. */
-  async listPats(userId: string) {
-    const docs = await PersonalAccessToken.find({ userId }).sort({ createdAt: -1 }).lean();
-    return docs.map((d) => this.serializePat(d as unknown as PersonalAccessTokenDocument));
-  }
-
-  /** Revoke a single PAT by jti. Returns false if not found or already revoked. */
-  async revokePat(userId: string, jti: string): Promise<boolean> {
-    const res = await PersonalAccessToken.updateOne(
-      { userId, jti, revoked: false },
-      { $set: { revoked: true, revokedAt: new Date() } },
-    );
-    return res.modifiedCount > 0;
-  }
-
   // ── Personalization (server-persisted favorites / recents, per user+org) ──
 
   private readonly MAX_FAVORITES = 500;
@@ -351,25 +272,75 @@ class UserProfileService {
     return toPreferencesView(doc);
   }
 
+  // ── Sessions and devices (refresh-session slots) ─────────────────────────
+
+  /** One refresh-session slot as the API returns it. */
+  private serializeSession(slot: RefreshSession) {
+    return {
+      id: slot.id,
+      kind: slot.kind,
+      createdAt: new Date(slot.createdAt).toISOString(),
+      // For a machine slot this is the last RENEWAL; for an interactive one the
+      // last refresh / org switch.
+      lastUsedAt: new Date(slot.lastUsedAt).toISOString(),
+      signedInAt: new Date(slot.authTime).toISOString(),
+      userAgent: slot.userAgent ?? null,
+      lastIp: slot.lastIp ?? null,
+      scope: slot.scope ?? null,
+      amr: slot.amr ?? [],
+    };
+  }
+
+  /**
+   * The user's live sessions, newest first. Interactive sessions are signed-in
+   * devices; machine sessions are the stored credentials `generate-token`
+   * opened (listed separately, labelled by scope). IPs are returned as stored —
+   * they live only as long as the slot.
+   */
+  async listSessions(userId: string) {
+    const user = await User.findById(userId).select('+refreshSessions').lean();
+    if (!user) throw new Error(PROFILE_USER_NOT_FOUND);
+    const slots = ((user.refreshSessions ?? []) as RefreshSession[]).map((s) => this.serializeSession(s));
+    const byNewest = (a: { createdAt: string }, b: { createdAt: string }) => b.createdAt.localeCompare(a.createdAt);
+    return {
+      sessions: slots.filter((s) => s.kind === 'interactive').sort(byNewest),
+      machineSessions: slots.filter((s) => s.kind === 'machine').sort(byNewest),
+    };
+  }
+
+  /**
+   * Revoke ONE session slot: that device is signed out, or that stored machine
+   * credential stops renewing (its current access token still works until it
+   * expires — "sign out everywhere" is the immediate kill switch). Returns the
+   * revoked slot's kind, or null when the user has no such slot.
+   */
+  async revokeSession(userId: string, sessionId: string): Promise<{ kind: RefreshSession['kind'] } | null> {
+    const slot = ((await User.findOne(
+      { '_id': userId, 'refreshSessions.id': sessionId },
+      { 'refreshSessions.$': 1 },
+    ).lean())?.refreshSessions?.[0]) as RefreshSession | undefined;
+    if (!slot) return null;
+    await authService.revokeRefreshSession(userId, sessionId);
+    return { kind: slot.kind };
+  }
+
   /**
    * "Sign out everywhere" — routes through `authService.invalidateAllSessions`,
    * the SAME path auth logout uses, so the profile "revoke all" behaves
    * identically: bump `tokenVersion`, CLEAR every refresh-session slot, AND
    * publish the revocation to the stateless services. Also revokes the user's
-   * PATs (which are decoupled from `tokenVersion`, so a durable credential must
-   * be killed explicitly). Returns the user with `tokenVersion` selected so the
-   * caller can issue a fresh replacement token.
+   * access keys (which are decoupled from `tokenVersion`, so a durable
+   * credential must be killed explicitly). Returns the user with `tokenVersion`
+   * selected so the caller can issue a fresh replacement token.
    */
   async revokeAllSessions(userId: string) {
     const user = await User.findById(userId).select('+tokenVersion issuedTokens');
     if (!user) throw new Error(PROFILE_USER_NOT_FOUND);
-    // Revoke the DURABLE credentials (PATs) FIRST — if the session-invalidate
-    // step below were to throw after PATs were left live, the user would believe
-    // "sign out everywhere" succeeded while long-lived tokens still worked.
-    await PersonalAccessToken.updateMany(
-      { userId: new Types.ObjectId(String(userId)), revoked: false },
-      { $set: { revoked: true, revokedAt: new Date() } },
-    );
+    // Revoke the DURABLE credentials (access keys) FIRST — if the
+    // session-invalidate step below were to throw after keys were left live, the
+    // user would believe "sign out everywhere" succeeded while a key kept
+    // exchanging for fresh tokens.
+    await apiKeyService.revokeAllForUser(userId);
     // Authoritative session revocation: $inc tokenVersion + clear refresh-session slots
     // in the DB and publish the revocation (best-effort) — all inside the service.
     await authService.invalidateAllSessions(String(userId));

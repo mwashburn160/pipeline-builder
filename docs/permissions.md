@@ -83,7 +83,7 @@ Enforcement lives in exactly two places, so no entity can drift:
 | Templates | `templates:read`, `templates:write`, `templates:publish` | Golden-path [pipeline templates](templates.md). Split out of `pipelines:*` so a platform team can curate starters without pipeline write access. `:write` covers the `private` and `org` rungs; `:publish` is required for `public`. **Instantiating** a template creates a pipeline, so that still needs `pipelines:write`. |
 | Plugins | `plugins:read`, `plugins:write`, `plugins:publish` | `:publish` allows the `public` rung |
 | Compliance | `compliance:read`, `compliance:write` | |
-| Members & access | `members:manage`, `roles:manage`, `invitations:manage` | |
+| Members & access | `members:manage`, `roles:manage`, `invitations:manage`, `service_accounts:manage` | `service_accounts:manage` covers org [service accounts](authentication.md#service-accounts) and their `pb_sa_…` keys — split out of `members:manage` because minting a durable machine credential is a different decision from managing the roster. It is also what gates issuing a [SCIM provisioning key](authentication.md#scim-20-provisioning) |
 | Observability | `dashboards:read`, `dashboards:write`, `observability:read`, `observability:write` | |
 | Insights | `reports:read`, `reports:rollup` | `:rollup` allows including descendant teams in reports |
 | Messaging | `messages:read`, `messages:write` | |
@@ -94,13 +94,13 @@ Enforcement lives in exactly two places, so no entity can drift:
 | KMS | `org:kms` | Customer-managed KMS key configuration — **sensitive** (controls encryption); split out of `org:settings` |
 | Impersonation | `org:impersonation` | The organization's impersonation policy — **sensitive** (controls who may view the org's data as one of its members); split out of `org:settings` so a role that manages general settings cannot also open the org to impersonation |
 
-**`:read` permissions are enforced.** Withholding `quotas:read` / `reports:read` /
-`billing:read` / `messages:read` from a custom Role actually blocks that read
-(backend routes and the frontend nav/page guards check it). `pipelines:read` and
-`templates:read` are the exceptions — the catalog reads are auth-only at the API
-(gate-writes-only), so those two are declarative today. Built-in Admin and
-Member both include all reads, so only bespoke custom Roles that drop a read are
-affected.
+**`:read` permissions are enforced — everywhere.** Withholding any `:read` from a
+custom Role blocks that read at the API, not just in the UI: every read route
+carries its `:read` gate, proven per service by the route-coverage test (see
+[Route coverage](#route-coverage)). Built-in Admin and Member both include all
+reads, so only bespoke custom Roles that drop a read are affected. A Role that
+grants `pipelines:write` without `pipelines:read` can still write but no longer
+list — grant both.
 
 **Registry carve-out.** `registry:read` / `registry:write` are in
 `SUPERADMIN_ONLY_PERMISSIONS`: they're in **no** built-in Role bundle and can't be
@@ -130,12 +130,67 @@ request also emits an [`authz.denied` audit event](audit-events.md#action-catalo
 > pass both — the mesh `AuthorizationPolicy` (can `sa/pipeline` reach `platform:3000`?)
 > and then `requirePermission` (does this user hold the capability?). Don't conflate
 > a mesh 403 (identity not allow-listed) with an app 403 (missing permission).
+> For the INTERNAL routes the two layers name the same callers deliberately —
+> the app gate because docker compose runs no mesh, the mesh policy as defence in
+> depth where one exists.
 
 | Middleware | Semantics |
 |------------|-----------|
 | `requirePermission(a, b, …)` | passes if the caller holds **any** of the listed permissions (Super Admin passes via implicit-all) |
 | `requireAllPermissions(a, b, …)` | passes only if the caller holds **all** listed permissions |
 | `requirePermissionOrService(a, …)` | like `requirePermission`, but ALSO admits an internal `service:*` principal — used on READ routes that both users and service-to-service callers hit (a service token carries no permission claims and would otherwise be wrongly denied) |
+| `requireSystemAdmin` | platform-operator routes: the `isSuperAdmin` claim only, never an org permission |
+| `requireServicePrincipal` | a signed `service:*` token, never a user |
+| `requireInternalService({ callers })` | **internal routes** (`/internal/*`, the quota usage counters, the entity-event / audit ingests, the entitlement sync legs): a signed `service:*` token whose name is one of `callers`, never a user token — not even a superadmin's. The name is bound to the signing key, so this is an identity check, not a claim check. Refusals increment `internal_route_refused_total{service,route,reason,caller}` and emit `authz.denied` |
+| `audited('<action>')` | declares the audit action the route's handler emits — metadata for the route table, a no-op at runtime |
+
+### Route coverage
+
+Gates sit partly on router mounts and partly on individual routes, so grepping
+the source can't prove coverage. Instead every gate middleware carries metadata
+and `buildRouteTable(app)` (api-core `middleware/route-table.ts`) walks the
+assembled Express app, resolving per method + path what runs before the handler:
+permissions, system-admin, service principal, the internal-route caller list,
+step-up, feature flag, token scope and the declared audit action. Each service logs a summary of its own table at
+boot (`Route table built`).
+
+Every service (and platform) has a `test/route-coverage.test.ts` that fails when:
+
+- a **write** route (anything but GET/HEAD/OPTIONS) has no permission gate, or
+  declares no audit action;
+- a **read** route has no permission gate;
+- a route has a permission gate but no `requireAuth` (the gate could never see a user);
+- a route whose path contains `/internal/` is not gated by `requireInternalService`
+  — **with no exception list**: a peer-service API a browser can reach is the
+  failure that rule exists to prevent.
+
+An internal route counts as gated on its own (the gate is stricter than any user
+permission), and `findInternalRouteViolations` additionally checks each service's
+declared internal routes and their caller lists against the code **in both
+directions** — so adding or re-scoping one is a visible change, and the Istio
+policies that name the same callers
+(`deploy/*/k8s/istio-internal-routes.yaml`) have one authoritative list to be
+reviewed against.
+
+Routes that legitimately can't satisfy a rule — liveness/readiness/metrics probes,
+signature-verified webhooks, pre-auth sign-in endpoints, internal
+service-principal hooks, ticket-gated SSE streams, and the handful of routes whose
+authorization is genuinely dynamic in the handler (e.g. "the row's creator may
+write it") — are listed in that test's `EXCEPTIONS` array, each with a reason. An
+exception that stops waiving anything also fails the test, so the allowlist can't
+rot.
+
+Each test also writes its table to `frontend/src/generated/route-table/<service>.json`
+(regenerate with `UPDATE_ROUTE_TABLES=1`), and the frontend's
+`test/route-permissions.test.ts` asserts that every write control's `can(...)`
+names a permission the route it calls actually requires — so a UI gate can't
+drift from the API.
+
+**One catalog.** The permission catalog (ids, labels, descriptions, categories,
+the picker grouping) lives only in api-core `src/types/permissions.ts`, a module
+with no runtime imports. The frontend imports it through the
+`@pipeline-builder/api-core/permissions` subpath; there is no hand-kept copy to
+drift.
 
 Public-visibility is permission-based too: `resolveVisibility` grants `public`
 only to a caller holding the resource's `:publish` permission — so a custom Role
@@ -347,6 +402,96 @@ POST|DELETE /api/organization/:id/roles/:roleId/members/:uid  # add / remove a R
 the requested permissions against the org-assignable set (the registry carve-out
 is rejected) **and** against the author's own permissions (the permission ceiling
 above) — a request granting a permission the author lacks is rejected `403`.
+
+### IdP group → Role mappings
+
+```bash
+GET|POST    /api/organization/:id/idp/group-mappings              # list / create a mapping
+PUT|DELETE  /api/organization/:id/idp/group-mappings/:mappingId   # update / delete a mapping
+```
+
+Every route requires **`roles:manage`**, not `org:idp`: a mapping grants Roles at
+SSO sign-in, so it belongs to whoever governs Roles — an org can delegate the
+login *connection* (`org:idp`) and the Role *policy* (`roles:manage`) to
+different people. The controller adds the own-org / managed-team scope and the
+`sso` entitlement; the service applies the **same assignment ceiling** as a
+direct Role assignment, in both directions (what a rule would grant, and what it
+already grants, when it is edited or deleted).
+
+Two refusals are specific to mappings:
+
+- a mapping can never name a Role conferring **platform-admin**, and never grants
+  org **ownership** — for org admins and platform superadmins alike, because a
+  mapping keeps granting for as long as an external directory says so;
+- the provider must issue group claims. Google does not, so configuring a groups
+  claim or a mapping on a `google` config is refused
+  (`IGM_PROVIDER_UNSUPPORTED`). See
+  [just-in-time membership](authentication.md#just-in-time-membership-and-group--role-mapping).
+
+Roles assigned by hand are tracked separately from mapped ones and are never
+removed when a group stops matching.
+
+### Service accounts
+
+```bash
+GET         /api/organization/:id/service-accounts                      # list accounts + their keys
+POST        /api/organization/:id/service-accounts                      # create an account
+GET         /api/organization/:id/service-accounts/:accountId           # one account
+PATCH       /api/organization/:id/service-accounts/:accountId           # description / roles / budget / disabled
+DELETE      /api/organization/:id/service-accounts/:accountId           # delete the account + every key
+POST        /api/organization/:id/service-accounts/:accountId/keys      # issue a pb_sa_ key (shown once)
+DELETE      /api/organization/:id/service-accounts/:accountId/keys/:id  # revoke one key
+```
+
+EVERY route here requires `service_accounts:manage` — the listing is an
+inventory of the org's machine credentials, so it is not a member-level read
+(it carries no secret either way: a key is shown once, at creation). Writes add
+**step-up**, except key REVOCATION, which is deliberately left at the permission
+alone so a compromised key can be killed without a second factor.
+
+A service account's Roles go through the **same assignment ceiling** as a
+person's: the caller must already hold every permission the Role grants, and only
+a platform superadmin may grant a `superadmin`-granting Role. A service account
+therefore can never exceed its creator's permissions. It also can never satisfy
+step-up itself (`requireStepUp` refuses the principal), so one machine key can
+never be used to mint another.
+
+### SCIM (`/api/scim/v2`) — a capability SCOPE, not a permission
+
+```bash
+GET|POST          /api/scim/v2/Users            GET|PUT|PATCH|DELETE  /api/scim/v2/Users/:id
+GET|POST          /api/scim/v2/Groups           GET|PUT|PATCH|DELETE  /api/scim/v2/Groups/:id
+GET               /api/scim/v2/ServiceProviderConfig | /ResourceTypes | /Schemas
+```
+
+These routes carry **no `requirePermission`**, and that is deliberate rather than
+an omission. They are gated by `requireScimScope`, which admits only a
+**service-account** token carrying the `scim` capability scope — and a scoped
+token is minted with `permissions: []`, `features: []`, `role: 'member'` and no
+admin flags, whatever the account holds. There is therefore no permission for the
+caller to hold; the scope IS the authority, and the route-coverage test records
+it as such (`scopes: ["scim"]` on the generated route table, with a named
+exception).
+
+Three consequences worth stating, because they are what keeps a leaked SCIM key
+small:
+
+- **It cannot escalate.** SCIM owns a directory group's NAME and MEMBERS; it
+  never writes a group's `roleIds`. Deciding what a group is worth stays a
+  `roles:manage` action in the dashboard, so a stolen key can move people between
+  groups but cannot invent a group that grants admin. Roles it does grant are
+  sync-owned — a hand-granted Role is never removed by a sync.
+- **It cannot reach another tenant.** No org id appears in any path; the org is
+  the key's own, resolved from the verified token.
+- **It cannot touch the untouchable.** The org **owner** is never deactivated or
+  removed through SCIM, and a **platform administrator** is never provisioned or
+  modified at all.
+
+Issuing the key is the privileged act, and that *is* permission-gated:
+`service_accounts:manage` + step-up, on the ordinary key-mint route above. The UI
+for it sits on **Settings → Single Sign-On**, gated on the same permission. See
+[SCIM 2.0 provisioning](authentication.md#scim-20-provisioning) for the seat,
+verified-domain, session-revocation and post-downgrade rules.
 
 ## Teams
 

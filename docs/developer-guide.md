@@ -58,7 +58,7 @@ Paste a Git repository URL. Pipeline Builder analyzes the repo (language, framew
 ### 3. CLI
 
 ```bash
-# Login
+# Sign in (prints a code, approve it in your browser)
 pipeline-manager auth login --url https://your-instance --no-verify-ssl
 
 # Create from a JSON definition

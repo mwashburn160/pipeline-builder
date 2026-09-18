@@ -19,15 +19,17 @@ This is the documentation index for **Pipeline Builder**, a multi-tenant platfor
 **The path from zero to a working pipeline:**
 
 1. **Deploy the platform** — [Local](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/local/docker) / [Minikube](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/local/minikube) for eval, or [EC2 / EKS](aws-deployment.md) for real use. The recommended installer is [`infra provision`](pipeline-manager.md#installing-the-platform-infra-provision).
-2. **Onboard your organization** — [**Onboarding a New Organization**](onboarding.md) walks the full flow: initial admin login → create org → invite members → create a PAT → store the service token → set up event reporting → first pipeline.
+2. **Onboard your organization** — [**Onboarding a New Organization**](onboarding.md) walks the full flow: initial admin login → create org → invite members → create an access key → store the service token → set up event reporting → first pipeline.
 3. **Build pipelines** — dashboard, AI prompt, CLI, REST API, or CDK (see [Build](#build) below).
 
 | Guide | For |
 |-------|-----|
-| [**Onboarding a New Organization**](onboarding.md) | First admin: login, org, members, PAT, `store-token`, `setup-events`, first pipeline |
+| [**Onboarding a New Organization**](onboarding.md) | First admin: login, org, members, access key, service-account keys (`store-token`), `setup-events`, first pipeline |
 | [AWS Deployment](aws-deployment.md) | Deploy to EC2 / EKS — modes, post-deploy setup, reporting, teardown |
 | [Pipeline Manager (CLI)](pipeline-manager.md) | The `pipeline-manager` CLI — `infra provision`, build/deploy pipelines, audits |
 | [Deploy Operations](deploy-operations.md) | Ops runbook — preflight, secrets rotation, backups, teardown |
+| [Secret Rotation](runbooks/secret-rotation.md) | Rotating every secret with zero downtime — JWT, refresh, at-rest key, alert relay, registry signing key |
+| [Access Key Cutover](runbooks/access-key-cutover.md) | The one-time reissue when personal access tokens become opaque access keys |
 
 ---
 
@@ -69,7 +71,7 @@ Organizations, access, policy, and billing.
 | [Organizations & Teams](#organizations) | Isolation boundary, org creation, the org → team hierarchy |
 | [Roles & Permissions](permissions.md) | Permission catalog, built-in Roles, enforcement, session invalidation |
 | [Compliance](compliance.md) | Per-org rule engine — 18 operators, computed fields, enforcement, audit trail |
-| [Authentication & SSO](authentication.md) | OAuth social login + per-org enterprise SSO (OIDC / Cognito) |
+| [Authentication & SSO](authentication.md) | OAuth social login + per-org enterprise SSO (OIDC / Cognito), just-in-time membership and SCIM 2.0 directory provisioning |
 | [Audit Events](audit-events.md) | Tamper-evident hash-chained trail, `/audit/verify`, action catalog |
 | [Billing Providers](billing-providers.md) | Setup walkthroughs for Stripe + AWS Marketplace (keys, webhooks, entitlements, metering) |
 | [Billing Add-on Bundles](billing-bundles.md) | Stackable add-ons that raise pooled caps (seats, pipelines, plugins, storage) |
@@ -83,7 +85,9 @@ Run, secure, and observe the platform.
 |----------|-------------|
 | [AWS Deployment](aws-deployment.md) | EC2 / EKS deploy, post-deploy setup, reporting infra, drift detection |
 | [Deploy Operations](deploy-operations.md) | Runbook — preflight, secrets rotation, backups & DR, teardown |
-| [Service Mesh](service-mesh.md) | Istio ambient — STRICT mTLS + identity-based L4 authZ (local, EC2, EKS) |
+| [Secret Rotation](runbooks/secret-rotation.md) | Per-secret rotation runbooks — overlap windows, restart order, verification, rollback, the lingering-rotation alert |
+| [Access Key Cutover](runbooks/access-key-cutover.md) | Reissuing every personal access token as an opaque access key — inventory, cutover, what to watch |
+| [Service Mesh](service-mesh.md) | Istio ambient — STRICT mTLS + identity-based L4 authZ, plus per-internal-route L7 policies via a waypoint (local, EC2, EKS) |
 | [Environment Variables](environment-variables.md) | Every configuration variable, by subsystem |
 | [DORA Metrics](dora-metrics.md) | Deploy frequency, change-failure rate, MTTR, measured lead time, build health (Enterprise / Advanced Reporting) |
 | [Incident Webhook](incidents-webhook.md) | Point PagerDuty/Datadog/Alertmanager at the platform (native Alertmanager adapter, self-serve token, per-org window, admin UI) for automated post-deploy CFR + real MTTR |
@@ -122,7 +126,8 @@ The web UI at `https://localhost:8443` provides visual pipeline and plugin manag
 
 ```bash
 npm install -g @pipeline-builder/pipeline-manager
-export PLATFORM_TOKEN=<jwt-from-login>
+pipeline-manager auth login          # browser sign-in; stores the session locally
+# (in CI instead: export PLATFORM_TOKEN=<access key from "auth pat">)
 
 pipeline-manager plugin upload --file ./node-build.zip --organization my-org --name node-build --version 1.0.0
 pipeline-manager pipeline create --file ./pipeline-props.json --project my-app --organization my-org

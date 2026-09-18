@@ -48,12 +48,12 @@ don't run `init-platform.sh`, `store-token`, or `setup-events` by hand:
 > **local/minikube** `provision` runs it for you. See
 > [What `infra provision` handles](pipeline-manager.md#what-infra-provision-handles).
 
-> **Per organization:** the `store-token` secret is scoped per org
+> **Per organization:** the `store-token` secrets are scoped per org
 > (`pipeline-builder/{orgId}/platform`). `--with-events` covers only the org you provisioned
 > with. For **each new organization** you onboard, don't re-provision — run the standalone
-> [`pipeline-manager infra store-token`](#step-5-store-the-service-token-aws-targets) and
+> [`pipeline-manager infra store-token`](#step-5-store-the-service-account-keys-aws-targets) and
 > [`pipeline-manager infra setup-events`](#step-6-set-up-event-reporting-aws-targets)
-> commands (Steps 5–6) to mint and wire that org's token.
+> commands (Steps 5–6) to provision and wire that org's keys.
 
 **After provisioning, skip straight to [Step 2 — Create your organization](#step-2-create-your-organization).**
 Steps 1, 5, and 6 below are the **manual equivalents** — for when you deployed the
@@ -69,8 +69,8 @@ additional organization.
 | 1 | Register the initial `system` admin (+ load plugins/compliance/samples) | ✅ `--admin-email/-password` + `--with-all` | `init-platform.sh` |
 | 2 | Create **your** organization | — you do this | Dashboard / API |
 | 3 | Invite members & assign roles | — you do this | Dashboard / API |
-| 4 | Create a Personal Access Token | — you do this | `auth pat` |
-| 5 | Store the service token *(AWS)* | ✅ `--with-events` | `infra store-token` |
+| 4 | Create an access key | — you do this | `auth pat` |
+| 5 | Store the service-account keys *(AWS)* | ✅ `--with-events` | `infra store-token` (×3: platform, `registry:push`, `reporting:ingest`) |
 | 6 | Set up event reporting *(AWS)* | ✅ `--with-events` | `infra setup-events` |
 | 7 | Create your first pipeline | — you do this | Dashboard / CLI / CDK |
 
@@ -107,9 +107,14 @@ PLATFORM_IDENTIFIER=admin@acme.com PLATFORM_PASSWORD='s3cret!' \
 **Then log in** — from the dashboard (browse to your platform URL), or from the CLI:
 
 ```bash
-# Persists the token to ~/.pipeline-manager/config.yml for subsequent commands.
-eval $(pipeline-manager auth login -u admin@acme.com -p 's3cret!' --quiet)
+# Prints a short code and opens your browser to approve it. The session is
+# stored in ~/.pipeline-manager/credentials.json, so later commands just work.
+pipeline-manager auth login --url https://platform.example.com
 ```
+
+The CLI has no password flag: it signs in through the browser with the
+[device authorization grant](authentication.md#cli-sign-in-by-device-authorization-rfc-8628),
+so the same SSO and step-up rules apply to a terminal sign-in as to the dashboard.
 
 See [Authentication & SSO](authentication.md) to add social login or enterprise SSO.
 
@@ -149,24 +154,33 @@ and [Feature Tiers](README.md#feature-tiers) for what each tier/seat count unloc
 
 ---
 
-## Step 4 — Create a Personal Access Token (PAT)
+## Step 4 — Create an access key
 
-A PAT is a long-lived credential for CLI/CI/automation — use it instead of scripting a
-password login. PAT creation is step-up-gated (re-auth with your password), so it's
-interactive-safe:
+An [access key](authentication.md#access-keys-opaque-verified-by-exchange) is a
+long-lived credential for CLI/CI/automation — it is what CI should hold, since a
+session token expires in minutes. Creation is
+[step-up](authentication.md#step-up-re-authentication-every-account)-gated, and the
+CLI earns that step-up in the **browser** as part of the same device sign-in, so
+nothing sensitive is typed at the prompt:
 
 ```bash
-pipeline-manager auth pat --name ci --expires-days 30 \
-  -u admin@acme.com -p 's3cret!' --org <orgId>
+pipeline-manager auth pat --name ci --expires-days 30 --org <orgId>
 ```
 
-The command prints an `export PLATFORM_TOKEN=…` line — capture it into your CI secret
-store. Bind it to a specific org with `--org`. Rotate before expiry (`audit tokens`
-warns you). Use `--quiet` to print only the export line for `eval`.
+The command prints an `export PLATFORM_TOKEN=pb_pat_…` line — capture it into your CI
+secret store **now**: only the key's hash is kept, so it is never shown again. Bind it
+to a specific org with `--org`, and use `--quiet` to print only the export line for
+`eval`.
+
+The key is opaque — it carries nothing you can read, and each service trades it at
+platform for a 5-minute token. That is what makes revoking it (Dashboard → API
+Tokens → Access keys) take effect everywhere within five minutes, and what keeps the
+page's "last used" accurate. Rotate before expiry; the page flags a key expiring
+within 14 days, and one that has never been used.
 
 ---
 
-## Step 5 — Store the service token *(AWS targets)*
+## Step 5 — Store the service-account keys *(AWS targets)*
 
 **Provisioned with `--with-events`?** This is already done — skip to
 [Step 7](#step-7-create-your-first-pipeline).
@@ -175,21 +189,31 @@ warns you). Use `--quiet` to print only the export line for `eval`.
 > this same `store-token` → `setup-events` sequence, with a with/without-DORA toggle
 > — but only on the AWS targets (`DEPLOY_TARGET=aws-ec2`/`aws-eks`).
 
-The plugin-lookup and event-ingestion Lambdas read a platform JWT from AWS Secrets
-Manager (at `pipeline-builder/{orgId}/platform`). If you didn't pass `--with-events`,
-mint and store it by hand:
+CodeBuild, the plugin-lookup Lambda and the event-ingestion Lambda each read a
+**service-account key** from AWS Secrets Manager (under `pipeline-builder/{orgId}/…`)
+— a machine identity owned by the org, not your own token. If you didn't pass
+`--with-events`, provision them by hand:
 
 ```bash
-# Log in first (or export a PAT as PLATFORM_TOKEN), then:
+# Log in first (or export an access key as PLATFORM_TOKEN). Issuing a key is
+# step-up gated, so the command needs your password too:
+export PLATFORM_PASSWORD='…'
+
 pipeline-manager infra store-token --days 30 --schedule --region us-east-1
+pipeline-manager infra store-token --scope registry:push --schedule --region us-east-1
+pipeline-manager infra store-token --scope reporting:ingest --schedule --region us-east-1
 ```
 
-`--schedule` also installs a small **daily auto-renewal** Lambda so the token never
+`--schedule` also installs a small **daily key-rotation** Lambda so the key never
 lapses — recommended, since the event Lambda depends on it. Without it, re-run
 `store-token` before expiry. Full detail: [Store Service Credentials](aws-deployment.md#2-store-service-credentials).
 
-> After a fresh deploy (which rotates `JWT_SECRET`), re-run `store-token` before
-> publishing plugins/pipelines, or image pulls can `401`.
+> The `registry:push` one is not optional on AWS: synth wires that secret into
+> every build image's pull credentials, so a pipeline deployed without it cannot
+> start its builds.
+
+> After a fresh deploy, re-run `store-token` before publishing plugins/pipelines —
+> a fresh install has no service accounts yet, and image pulls will `401`.
 
 ---
 
@@ -208,7 +232,7 @@ pipeline-manager infra setup-events --region us-east-1
 ```
 
 It creates the `pipeline-builder-events` stack (EventBridge rule + SQS + DLQ + Lambda).
-The Lambda authenticates via the Secrets Manager token from Step 5 — so run Step 5 first.
+The Lambda authenticates with the `reporting:ingest` service-account key from Step 5 — which it exchanges for a short-lived token per batch — so run Step 5 first.
 
 > **Measured lead time (optional — `--with-dora`):** add `--with-dora` to also resolve
 > source commit timestamps in your AWS account, so the Reports page shows **measured**

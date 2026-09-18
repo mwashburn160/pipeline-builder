@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import path from 'path';
 
 import {
+  audited,
   isSystemAdmin,
   requirePermission,
   reserveQuota,
@@ -69,6 +70,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
     // failure path the slot is given back (by the handler pre-enqueue, by the
     // worker after).
     requirePermission('plugins:write') as RequestHandler,
+    audited('plugin.deploy'),
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const registry = Config.get('registry');
       // Service-minted auth for downstream calls (quota, tier, compliance). The

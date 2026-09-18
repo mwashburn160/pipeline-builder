@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { createHealthRouter, createLogger, installCrashHandlers, mongoSanitize, resolveRedisConnection, sendError, verifyServicePrincipal } from '@pipeline-builder/api-core';
-import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck } from '@pipeline-builder/api-server';
+import { JWKS_PATH, createHealthRouter, createLogger, installCrashHandlers, mongoSanitize, resolveRedisConnection, sendError, verifyServicePrincipal } from '@pipeline-builder/api-core';
+import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck, registerSecretRotationGauge } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import helmet from 'helmet';
@@ -11,15 +11,17 @@ import mongoose from 'mongoose';
 import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client';
 
 import { config } from './config/index.js';
+import { SCIM_RATE_LIMIT_MAX, SCIM_RATE_LIMIT_WINDOW_MS } from './constants/scim.js';
 import { notFoundHandler, errorHandler } from './middleware/index.js';
-import { extractClientIp, rateLimitKey, peekJwtClaims, verifiedIsSuperAdmin, tierLimitedMax } from './middleware/rate-limit-keys.js';
+import { extractClientIp, rateLimitKey, peekJwtClaims, scimOrgKey, verifiedIsSuperAdmin, tierLimitedMax } from './middleware/rate-limit-keys.js';
 import { createLimiter } from './middleware/rate-limiter.js';
 import {
   isWriteBlockedByImpersonation,
   IMPERSONATION_READ_ONLY_MESSAGE,
   IMPERSONATION_READ_ONLY_CODE,
 } from './middleware/require-write-access.js';
-import { authRoutes, oauthRoutes, ssoRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, auditRoutes, notifyEmailRoutes, configRoutes, observabilityRoutes, dashboardRoutes, orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminSummaryRoutes, impersonateRoutes } from './routes/index.js';
+import jwksRoutes from './routes/jwks.js';
+import { ALERT_WEBHOOK_PATH, SCIM_PATH, mountApiRoutes } from './routes/mount.js';
 
 const logger = createLogger('platform-api');
 
@@ -49,6 +51,14 @@ collectDefaultMetrics({ register: metricsRegistry });
 // ordering (register the registry before the metrics module's call sites bind).
 const { setMetricsRegistry } = await import('./observability/metrics.js');
 setMetricsRegistry(metricsRegistry);
+// Rotation visibility: `secret_rotation_previous_set{secret}` is 1 while a
+// credential's overlap is still open. Platform registers the ones only it holds
+// (the ES256 user-token signing key's retiring `kid`, the at-rest master key,
+// the relay bearer) on top of api-core's SERVICE_SIGNING_KEY probe. The alert rules page
+// on a value that stays 1 — see docs/runbooks/secret-rotation.md.
+registerSecretRotationGauge(metricsRegistry);
+const { registerPlatformSecretRotationProbes } = await import('./observability/secret-rotation.js');
+registerPlatformSecretRotationProbes();
 const { startPlatformMetricsScraper, stopPlatformMetricsScraper } = await import('./observability/scraper.js');
 startPlatformMetricsScraper();
 // (stopped in the unified shutdown() below, alongside the other sweeps — not via
@@ -75,11 +85,33 @@ const httpRequestsTotal = new Counter({
  * without this exemption it lands in the ANONYMOUS bucket of the user-sized
  * limiters and an alert storm gets 429'd — which Alertmanager treats as a
  * failed notification, silently delaying alerts. It gets `alertWebhookLimiter`
- * instead, sized for burst fan-out.
+ * instead, sized for burst fan-out. (The path itself is declared next to the
+ * mount that uses it — `routes/mount.ts`.)
  */
-const ALERT_WEBHOOK_PATH = '/observability/alert-webhook';
 function isAlertWebhook(req: Request): boolean {
   return req.method === 'POST' && req.path === ALERT_WEBHOOK_PATH;
+}
+
+/**
+ * The device-authorization poll. RFC 8628 has the waiting client poll every few
+ * seconds until the person approves in a browser — ~120 requests over one
+ * sign-in, against a general bucket of 100 per 15 minutes for an anonymous
+ * caller. It has its own per-device-code and per-IP limiters on the router
+ * (`routes/device-auth.ts`), which is where the abuse ceiling belongs; counting
+ * it here would 429 every legitimate CLI login halfway through.
+ */
+function isDevicePoll(req: Request): boolean {
+  return req.method === 'POST' && req.path === '/auth/device/token';
+}
+
+/**
+ * The SCIM surface (3b). An identity provider's initial import is a burst of
+ * hundreds of requests, all from one org — against a general bucket sized for a
+ * person's interactive use. It has its own per-org bucket (`scimLimiter`), so a
+ * directory sync can neither be throttled by, nor starve, the org's people.
+ */
+function isScim(req: Request): boolean {
+  return req.path.startsWith(SCIM_PATH);
 }
 
 /** Generous, dedicated bucket for the alert relay — see `isAlertWebhook`. */
@@ -103,7 +135,7 @@ const limiter = createLimiter({
   // not share the anonymous user budget. The sysadmin check VERIFIES the token:
   // the bypass removes throttling entirely, so a forged `isSuperAdmin:true`
   // must not grant it. `requireAuth` still authorizes the request later.
-  skip: (req: Request) => isAlertWebhook(req) || verifiedIsSuperAdmin(req),
+  skip: (req: Request) => isAlertWebhook(req) || isDevicePoll(req) || isScim(req) || verifiedIsSuperAdmin(req),
   message: 'Too many requests. Please try again later.',
 });
 
@@ -136,6 +168,21 @@ const observabilityLimiter = createLimiter({
   // dashboard query — it has its own bucket (see `isAlertWebhook`).
   skip: isAlertWebhook,
   message: 'Observability rate limit exceeded for your organization. Please slow down or batch your queries.',
+});
+
+/**
+ * Per-ORG limiter for SCIM (3b). Keyed by the VERIFIED token's org — never the
+ * service account — because the plan's requirement is a per-ORG ceiling: a tenant
+ * that issues five SCIM keys still gets one directory-sync budget. Falls back to
+ * the credential hash / client IP for a request whose token doesn't verify (which
+ * `requireScimScope` then refuses anyway).
+ */
+const scimLimiter = createLimiter({
+  name: 'scim',
+  windowMs: SCIM_RATE_LIMIT_WINDOW_MS,
+  max: SCIM_RATE_LIMIT_MAX,
+  keyGenerator: scimOrgKey,
+  message: 'SCIM rate limit exceeded for your organization. Slow the provisioning job down and retry.',
 });
 
 /**
@@ -177,6 +224,12 @@ app.use(createHealthRouter({
   checkDependencies: mongoHealthCheck(mongoose.connection),
 }));
 
+// The public key set every verifier in the fleet (and the CLI, image-registry's
+// auth resolver and the events Lambda) checks user tokens against. Mounted here,
+// beside the probes and AHEAD of the readiness guard, for the reasons documented
+// in routes/jwks.ts.
+app.use(jwksRoutes);
+
 // Readiness guard — 503s business routes until Mongo connects (and the
 // post-connect bootstraps finish). Critically preserves the "per-org KMS
 // installed before any secret is served" invariant: `ready` is only set true
@@ -184,7 +237,7 @@ app.use(createHealthRouter({
 //
 // Narrow allowlist (NOT the shared default): the default bypass list includes
 // `/logs` for api-server's SSE log relay, which platform does not have.
-app.use(readinessGuard(['/health', '/ready', '/metrics']));
+app.use(readinessGuard(['/health', '/ready', '/metrics', JWKS_PATH]));
 
 /**
  * Tenant-context middleware (RLS enforcement).
@@ -214,7 +267,7 @@ app.use(withTenantContext((req: Request) => {
 
 /** Prometheus metrics middleware  records request duration and count */
 app.use((req: Request, res: Response, next: NextFunction) => {
-  if (req.path === '/metrics' || req.path === '/health' || req.path === '/ready') {
+  if (req.path === '/metrics' || req.path === '/health' || req.path === '/ready' || req.path === JWKS_PATH) {
     next();
     return;
   }
@@ -268,31 +321,10 @@ app.get('/metrics', async (_req: Request, res: Response) => {
 });
 
 /*
- * API Routes
- * Note: nginx strips /api prefix before proxying to this service
+ * API Routes (see `routes/mount.ts` — shared with the route-coverage test so the
+ * table it checks is exactly what this process serves).
  */
-app.use('/auth', authLimiter, authRoutes);
-app.use('/auth/oauth', authLimiter, oauthRoutes);
-app.use('/auth/sso', authLimiter, ssoRoutes);
-app.use('/user', userRoutes);
-app.use('/users', usersRoutes);
-app.use('/organization', organizationRoutes);
-app.use('/organizations', organizationsRoutes);
-app.use('/invitation', invitationRoutes);
-app.use('/audit', auditRoutes);
-app.use('/internal/notify-email', notifyEmailRoutes);
-app.use('/config', configRoutes);
-// The relay's own bucket, mounted ahead of the tenant-facing limiter so the
-// two never share a budget.
-app.use(ALERT_WEBHOOK_PATH, alertWebhookLimiter);
-app.use('/observability', observabilityLimiter, observabilityRoutes);
-app.use('/dashboards', dashboardRoutes);
-app.use('/admin/org-idp', orgIdpRoutes);
-app.use('/admin/orgs/:orgId/kms-config', orgKmsConfigRoutes);
-app.use('/admin/orgs/:orgId/k8s-namespace.yaml', orgNamespaceRoutes);
-app.use('/admin/users/:id/grants', userGrantsRoutes);
-app.use('/admin/summary', adminSummaryRoutes);
-app.use('/admin/impersonate', impersonateRoutes);
+mountApiRoutes(app, { auth: authLimiter, alertWebhook: alertWebhookLimiter, observability: observabilityLimiter, scim: scimLimiter });
 
 /** Error handling middleware (must be registered last) */
 app.use(notFoundHandler);
@@ -521,6 +553,25 @@ async function startServer(): Promise<void> {
   // Mark NotReady before the port opens so the guard rejects business traffic
   // until dependencies connect.
   setReady(false);
+
+  // Load the ES256 user-token signing keys BEFORE the port opens. Platform is
+  // the only minter in the fleet, so a key it cannot load is not a degraded
+  // mode — nobody could sign in, and /.well-known/jwks.json would serve nothing
+  // for anyone else to verify against. Fail the startup instead (the catch on
+  // `startServer()` exits non-zero).
+  const { initTokenSigning } = await import('./services/token-signing/index.js');
+  await initTokenSigning();
+
+  // Same rule for the INTERNAL chain (#14): platform signs its own peer calls
+  // with its own key and verifies its peers against the public bundle. Without
+  // them it would mint tokens on an EPHEMERAL in-process key that no peer
+  // accepts, and reject every peer's token — silently losing all
+  // service-to-service traffic rather than failing loudly.
+  for (const envVar of ['SERVICE_SIGNING_KEY_FILE', 'SERVICE_KEY_BUNDLE_FILE'] as const) {
+    if (!process.env[envVar]) {
+      throw new Error(`${envVar} environment variable is required (generate with deploy/bin/service-signing-keys.sh). Set it before starting platform.`);
+    }
+  }
 
   // Start HTTP server (before connecting Mongo).
   const server = app.listen(config.app.port, () => {

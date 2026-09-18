@@ -456,6 +456,92 @@ groups:
           summary: "Token revocation is failing open"
           description: "{{ $value | humanize }} revocation read failures/sec over 5m sustained for 10m — forced logouts / privilege revocations are NOT taking effect until token expiry. Restore the revocation Redis."
 
+      # ---- Secret rotation left half-finished ----
+      # `secret_rotation_previous_set{secret}` is 1 while a rotation's outgoing
+      # credential is still accepted by that service — an env `*_PREVIOUS` value
+      # (SECRET_ENCRYPTION_KEY_PREVIOUS, ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS), a
+      # retiring `kid` still published in the JWKS (TOKEN_SIGNING_KEY) or in the
+      # per-service key bundle (SERVICE_SIGNING_KEY), or a two-cert registry
+      # token bundle.
+      # That is the overlap window: the OLD credential is still accepted, so a
+      # rotation that is never finished has simply added a second valid
+      # credential — including one that may be the compromised one the rotation
+      # was meant to retire.
+      # Aggregated by (service, secret) on purpose: dropping pod/instance means a
+      # rolling restart mid-rotation does not reset the `for` timer.
+      - alert: SecretRotationPreviousLingering
+        expr: max by (service, secret) (secret_rotation_previous_set) == 1
+        for: 24h
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "{{ $labels.secret }} rotation overlap still open on {{ $labels.service }}"
+          description: "The previous {{ $labels.secret }} has been accepted by {{ $labels.service }} for over 24h — the rotation was never finished, so the old credential is still valid. Finish it per docs/runbooks/secret-rotation.md (clear the *_PREVIOUS value or drop the retiring key, re-create the secret, restart)."
+
+      # ---- Internal routes refused ----
+      # `internal_route_refused_total{service,route,reason,caller}` increments in
+      # api-core's `requireInternalService` when a call to an INTERNAL route
+      # (/internal/*, the quota usage counters, the entity-event and audit
+      # ingests, the entitlement sync legs) is turned away (#14).
+      #
+      # Two very different meanings, split by `reason`:
+      #   user_token  — something holding a PERSON's credential tried a
+      #                 peer-service API. A handful is a misrouted client; a
+      #                 sustained rate is someone probing the internal surface.
+      #   wrong_caller — a real service token, but not one this route admits.
+      #                 Almost always a mis-wired caller after a deploy, and the
+      #                 feature behind it is silently failing.
+      # Either way it is a security-relevant refusal, so it pages nobody at a
+      # trickle but must not go unseen.
+      - alert: InternalRouteRefused
+        expr: sum by (service, reason) (rate(internal_route_refused_total[5m])) > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "{{ $labels.service }} is refusing internal-route calls ({{ $labels.reason }})"
+          description: "{{ $value | humanize }} refusals/s on {{ $labels.service }}'s internal routes over 5m sustained for 15m, reason={{ $labels.reason }}. `wrong_caller` usually means a caller was re-pointed or renamed and its feature is now failing; `user_token` means a user credential is reaching a peer-service API. See docs/authentication.md#internal-routes."
+
+      # ---- Service tokens failing to verify ----
+      # `service_token_verify_total{result,service}` counts every internal token
+      # verification (#14). `unknown_kid` means a signer's public key is not in
+      # this pod's bundle — the classic half-finished key rotation, where the
+      # private key was rolled out before the bundle. `subject_mismatch` is the
+      # one that matters most: a VALID signature from a service claiming to be a
+      # different one, i.e. an actual cross-service forgery attempt.
+      - alert: ServiceTokenVerifyFailing
+        expr: sum by (service, result) (rate(service_token_verify_total{result!="ok"}[5m])) > 0
+        for: 10m
+        labels:
+          severity: critical
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "Internal service tokens are failing to verify ({{ $labels.result }})"
+          description: "{{ $value | humanize }}/s of internal token verifications on {{ $labels.service }} are failing with result={{ $labels.result }} over 5m sustained for 10m. `unknown_kid` → the key bundle is behind a rotation: roll it out everywhere before the private key (docs/runbooks/secret-rotation.md). `subject_mismatch` → a service signed a token naming a DIFFERENT service; treat as a compromise until proven otherwise."
+
+      # ---- Token signing keys unreachable ----
+      # `jwks_fetch_total{source,result}` counts every fetch of platform's
+      # published ES256 key set. Since #5, user tokens are verified against
+      # those keys, and a verifier that cannot obtain them FAILS CLOSED (503) —
+      # so sustained fetch errors are a fleet-wide auth outage in the making,
+      # not a background nuisance. Keys are cached for 10 minutes, which is the
+      # grace period this `for` mirrors.
+      - alert: JwksFetchFailing
+        expr: sum by (service) (rate(jwks_fetch_total{result!="success"}[5m])) > 0
+        for: 10m
+        labels:
+          severity: critical
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "{{ $labels.service }} cannot fetch the token signing keys"
+          description: "JWKS fetches from platform have been failing for 10m on {{ $labels.service }}. Once its cached key set goes stale every token verification there answers 503. Check platform's /.well-known/jwks.json and the gateway route to it."
+
       # ---- AI provider errors ----
       # ai_requests_total{outcome="error"} increments on a failed AI turn (provider
       # brownout, bad key, timeout). A burst usually means a provider-side outage.

@@ -39,7 +39,7 @@ extra — it runs through the same CLI.
 | Name | Value |
 |------|-------|
 | `PLATFORM_BASE_URL` | Base URL of your platform, e.g. `https://pipeline.example.com` |
-| `PLATFORM_TOKEN` | A Personal Access Token — create with `pipeline-manager auth pat` or the dashboard |
+| `PLATFORM_TOKEN` | An access key (`pb_pat_…`) — create with `pipeline-manager auth pat` or the dashboard. Shown once at creation |
 | `PB_ORG_ID` | Your organization's ID (UUID) — passed as the template's `orgId` input, which selects the GitHub token secret at `pipeline-builder/<orgId>/github-token` |
 
 **AWS auth**: every sample uses the provider's OIDC federation to assume a

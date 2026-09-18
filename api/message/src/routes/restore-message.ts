@@ -7,6 +7,7 @@ import {
   sendSuccess,
   ErrorCode,
   isSystemAdmin,
+  audited,
   getParam,
   sendEntityNotFound,
 } from '@pipeline-builder/api-core';
@@ -31,7 +32,7 @@ import { messageService } from '../services/message-service.js';
 export function createRestoreMessageRoutes(): Router {
   const router = Router();
 
-  router.post('/:id/restore', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/:id/restore', audited('message.restore'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 

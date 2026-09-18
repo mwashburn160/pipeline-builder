@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AppError, extractDbError, ErrorCode, isSystemAdmin, userHasPermission, createLogger, resolveVisibility, errorMessage, reserveQuota, decrementQuota, getServiceAuthHeader, requirePermission, sendBadRequest, sendError, sendInternalError, sendQuotaReserveDenied, sendSuccess, validateBody, PipelineCreateSchema, createComplianceClient } from '@pipeline-builder/api-core';
+import { AppError, extractDbError, ErrorCode, isSystemAdmin, userHasPermission, createLogger, resolveVisibility, errorMessage, reserveQuota, decrementQuota, getServiceAuthHeader, requirePermission, sendBadRequest, sendError, sendInternalError, sendQuotaReserveDenied, sendSuccess, validateBody, PipelineCreateSchema, createComplianceClient, audited } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
@@ -32,6 +32,8 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
   router.post( '/',
     ...createAuthenticatedWithOrgRoute(),
     requirePermission('pipelines:write'),
+    // `inserted === false` promotes an existing default instead of inserting.
+    audited('pipeline.create', 'pipeline.update'),
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       // Validate request body with Zod
       const validation = validateBody(req, PipelineCreateSchema);

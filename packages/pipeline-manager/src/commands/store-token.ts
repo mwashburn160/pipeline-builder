@@ -10,14 +10,14 @@ import { LambdaClient, UpdateFunctionCodeCommand } from '@aws-sdk/client-lambda'
 import { Command } from 'commander';
 import { APP_VERSION, validateNumber } from '../config/cli.constants.js';
 import { auditLog } from '../utils/audit-log.js';
-import { decodeTokenPayload } from '../utils/auth-guard.js';
 import { resolveAwsRegion } from '../utils/aws-env.js';
-import { upsertSecret, getSecretArn } from '../utils/aws-secrets.js';
+import { upsertSecret, getSecretArn, getSecretValue } from '../utils/aws-secrets.js';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning, withProfileOption, withRegionOption, withSslOptions } from '../utils/command-utils.js';
 import { toEventBridgeCron } from '../utils/cron.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
-import { ensurePlatformToken, resolveSecretName } from '../utils/platform-secret.js';
+import { printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { ensurePlatformToken, scopeSecretLeaf, secretNameForOrg } from '../utils/platform-secret.js';
+import { provisionServiceAccountKey, revokeServiceAccountKey } from '../utils/service-account.js';
 
 // ESM has no __dirname; derive it from this module's URL.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -29,12 +29,37 @@ const RENEW_LAMBDA_NAME = 'pipeline-builder-token-renew';
 const DEFAULT_RENEW_CRON = '0 0 * * *';
 
 /**
- * Deploy (or update) the once-a-day token-renewal stack: a scheduled Lambda that
- * re-mints the platform JWT in this same secret before it expires. Mirrors
+ * Capability scopes a stored credential may carry, and what each one is FOR.
+ *
+ * A scoped key exchanges to a token with no permissions and no admin flags at
+ * all — only the one capability — so it is the shape every automation that does
+ * exactly one thing should hold (#12). The unscoped `platform` credential is the
+ * remaining full-privilege one: synth/deploy callbacks and the plugin-lookup
+ * Lambda call the ordinary API surface, which no single scope covers.
+ */
+const SCOPE_CATALOG: Record<string, { account: string; description: string }> = {
+  'reporting:ingest': {
+    account: 'reporting-ingest',
+    description: 'AWS pipeline-event ingestion (the events Lambda POSTs /reports/events)',
+  },
+  'registry:push': {
+    account: 'registry-push',
+    description: 'CI image pushes into this org’s registry namespace (CodeBuild → /token)',
+  },
+};
+
+/** The account that holds the unscoped, full-privilege stored credential. */
+const PLATFORM_ACCOUNT = {
+  account: 'platform-automation',
+  description: 'Stored platform credential for CDK synth/deploy, plugin lookup and image pushes',
+};
+
+/**
+ * Deploy (or update) the once-a-day KEY ROTATION stack: a scheduled Lambda that
+ * replaces the service-account key in this secret before it expires. Mirrors
  * setup-events — `aws cloudformation deploy` for the infra, then a direct
- * UpdateFunctionCode with the thin orchestrator handler compiled alongside this
- * CLI (the handler npm-installs pipeline-manager at runtime and re-runs
- * store-token; see src/lambda/token-renew-handler.ts).
+ * UpdateFunctionCode with the rotator handler compiled alongside this CLI (see
+ * src/lambda/token-renew-handler.ts).
  */
 async function deployRenewSchedule(opts: {
   platformUrl: string;
@@ -46,9 +71,9 @@ async function deployRenewSchedule(opts: {
 }): Promise<string> {
   const scheduleExpression = toEventBridgeCron(opts.fiveFieldCron); // validates + 15-min guard
 
-  // Name renewal resources per-secret so a scoped-token stack (e.g. the
-  // reporting-ingest credential the event Lambda reads) coexists with the
-  // platform-token stack instead of colliding on the (account-global) IAM
+  // Name renewal resources per-secret so a scoped-credential stack (e.g. the
+  // reporting-ingest key the event Lambda reads) coexists with the
+  // platform-credential stack instead of colliding on the (account-global) IAM
   // role / Lambda / rule names. The platform secret keeps the bare name
   // (suffix '') so existing deployments' stack is updated in place, not
   // duplicated; any other secret appends its trailing path segment.
@@ -57,7 +82,7 @@ async function deployRenewSchedule(opts: {
   const stackName = `${RENEW_STACK_NAME}${nameSuffix}`;
   const lambdaName = `${RENEW_LAMBDA_NAME}${nameSuffix}`;
 
-  printSection('Schedule Renewal');
+  printSection('Schedule Rotation');
   printInfo('Parameters', {
     stack: stackName,
     schedule: opts.fiveFieldCron,
@@ -77,8 +102,9 @@ async function deployRenewSchedule(opts: {
     `RenewDays=${opts.days}`,
     `ScheduleExpression=${scheduleExpression}`,
     `NameSuffix=${nameSuffix}`,
-    // Pin the handler's runtime npm install to THIS CLI's version (reproducible
-    // renewals instead of a floating "latest").
+    // Recorded for provenance only — the rotator no longer installs the CLI at
+    // runtime (it speaks to the platform directly), but knowing which CLI
+    // deployed a stack is worth keeping.
     `PipelineManagerVersion=${APP_VERSION}`,
     '--capabilities', 'CAPABILITY_NAMED_IAM',
     '--no-fail-on-empty-changeset',
@@ -108,31 +134,52 @@ async function deployRenewSchedule(opts: {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 
-  printSuccess(`Renewal scheduled (${scheduleExpression})`);
+  printSuccess(`Rotation scheduled (${scheduleExpression})`);
   return scheduleExpression;
+}
+
+/** Read the key id a previous run stored, so this run can retire it. */
+async function previousKeyId(
+  secretName: string,
+  aws: { region: string; profile?: string },
+): Promise<{ keyId?: string; serviceAccountId?: string }> {
+  try {
+    const raw = await getSecretValue(secretName, aws);
+    const parsed = JSON.parse(raw) as { keyId?: string; serviceAccountId?: string };
+    return { keyId: parsed.keyId, serviceAccountId: parsed.serviceAccountId };
+  } catch {
+    // No secret yet (first run), or one written before the service-account
+    // cutover (no keyId). Either way there is nothing this run can retire.
+    return {};
+  }
 }
 
 /**
  * Registers the `store-token` command with the CLI program.
  *
- * Generates a long-lived JWT token via the platform API and stores it
- * in AWS Secrets Manager for use by the synth/deploy --store-tokens flag.
+ * Provisions the org's machine identity — a SERVICE ACCOUNT and one `pb_sa_…`
+ * key — and stores the key in AWS Secrets Manager for CDK deployments,
+ * CodeBuild's registry credentials, the plugin-lookup Lambda and the event
+ * ingestion Lambda (#12 / #N2). Nothing stored is tied to a person's session any
+ * more: the account outlives its creator, takes no seat, and every audit row it
+ * produces names the account.
  *
- * Requires PLATFORM_TOKEN to be set, or use --email/--password to login inline.
+ * Because creating an account and issuing its key are step-up gated, this needs
+ * the operator's password — `--password`, or the `PLATFORM_PASSWORD` env var
+ * (preferred: it keeps the password out of shell history and plan output).
  *
  * By default it ONLY writes the secret. Pass --schedule to also deploy the daily
- * token-renewal stack (a Lambda that auto-renews this token before it expires).
+ * KEY ROTATION stack (a Lambda that replaces the key before it expires).
  *
  * @example
  * ```bash
- * pipeline-manager infra store-token --region us-east-1
- * pipeline-manager infra store-token --days 90 --region us-east-1
- * pipeline-manager infra store-token --schedule --region us-east-1          # + daily auto-renewal
- * pipeline-manager infra store-token --schedule --cron '0 3 * * *'          # custom renewal time
- * pipeline-manager infra store-token --days 7 --no-verify-ssl
- * PLATFORM_SECRET_NAME=my-custom-secret pipeline-manager infra store-token   # override the derived name
+ * PLATFORM_PASSWORD=*** pipeline-manager infra store-token --region us-east-1
+ * PLATFORM_PASSWORD=*** pipeline-manager infra store-token --days 90 --region us-east-1
+ * PLATFORM_PASSWORD=*** pipeline-manager infra store-token --schedule --region us-east-1     # + daily rotation
+ * PLATFORM_PASSWORD=*** pipeline-manager infra store-token --scope reporting:ingest --schedule
+ * PLATFORM_PASSWORD=*** pipeline-manager infra store-token --scope registry:push --schedule
  * pipeline-manager infra store-token --dry-run
- * pipeline-manager infra store-token -e admin -p '***' --region us-east-1
+ * pipeline-manager infra store-token -u admin -p '***' --region us-east-1
  * ```
  */
 export function storeToken(program: Command): void {
@@ -140,15 +187,16 @@ export function storeToken(program: Command): void {
     withProfileOption(
       withRegionOption(program
         .command('store-token')
-        .description('Generate JWT token and store in AWS Secrets Manager for CDK deployments')
+        .description('Provision an org service-account key (its own machine identity) and store it in AWS Secrets Manager for CDK deployments')
         .option('-u, --identifier <identifier>', 'Username or email (skips PLATFORM_TOKEN requirement)')
-        .option('-p, --password <password>', 'Login password (used with --identifier)')
-        .option('--days <days>', 'Token lifetime in days', '30')
-        .option('--scope <scope>', 'Mint a narrow-scope machine token (e.g. "reporting:ingest") and store it at a scope-specific secret path instead of the shared platform secret')
-        .option('--dry-run', 'Show what would be stored without writing to Secrets Manager', false)),
+        .option('-p, --password <password>', 'Login password — also used for the step-up every key write requires (prefer PLATFORM_PASSWORD)')
+        .option('--days <days>', 'Key lifetime in days (max 365)', '30')
+        .option('--scope <scope>', `Provision a least-privilege scoped key instead of the full-privilege platform one. One of: ${Object.keys(SCOPE_CATALOG).join(', ')}`)
+        .option('--account <name>', 'Override the service-account name this key is issued on (default: derived from --scope)')
+        .option('--dry-run', 'Show what would be provisioned without calling the platform or writing to Secrets Manager', false)),
     )
-      .option('--schedule', 'Also deploy the daily token-renewal stack that auto-renews this token (off by default)', false)
-      .option('--cron <expr>', 'Renewal schedule as a 5-field cron, used with --schedule (default: TOKEN_RENEW_SCHEDULE env or "0 0 * * *"; min every 15 minutes)')
+      .option('--schedule', 'Also deploy the daily key-rotation stack that replaces this key before it expires (off by default)', false)
+      .option('--cron <expr>', 'Rotation schedule as a 5-field cron, used with --schedule (default: TOKEN_RENEW_SCHEDULE env or "0 0 * * *"; min every 15 minutes)')
       .option('--json', 'Output result as JSON', false),
   )
     .action(async (options) => {
@@ -158,132 +206,165 @@ export function storeToken(program: Command): void {
         printSslWarning(options.verifySsl);
 
         const region = resolveAwsRegion(options.region);
+        const aws = { region, profile: options.profile as string | undefined };
 
         const days = validateNumber(options.days, 'days', 1, 365);
         const expiresInSeconds = days * 24 * 60 * 60;
 
-        // Step 0: log in first when creds are available and no PLATFORM_TOKEN is set
-        // (shared with setup-events). Creds come from --email/--password OR the env
-        // vars PLATFORM_IDENTIFIER/PLATFORM_PASSWORD — the env path lets callers like
-        // `provision --with-events` pass them without putting the password on the
-        // command line (where it would show in plans/logs).
+        const scope = options.scope as string | undefined;
+        const catalogued = scope ? SCOPE_CATALOG[scope] : undefined;
+        if (scope && !catalogued) {
+          throw new Error(`Unknown --scope "${scope}". Supported: ${Object.keys(SCOPE_CATALOG).join(', ')}`);
+        }
+        // Which machine identity this credential belongs to: the scope's own
+        // account, or the org's single full-privilege automation account.
+        const identity = catalogued ?? PLATFORM_ACCOUNT;
+        const accountName = (options.account as string | undefined) ?? identity.account;
+
+        // Step 0: log in first when creds are available and no PLATFORM_TOKEN is
+        // set (shared with setup-events). Creds come from --identifier/--password
+        // OR the env vars PLATFORM_IDENTIFIER/PLATFORM_PASSWORD — the env path
+        // lets callers like `provision --with-events` pass them without putting
+        // the password on the command line (where it would show in plans/logs).
         await ensurePlatformToken(options);
 
-        // Step 1: Authenticate and generate long-lived token
-        printSection('Generate Token');
+        // The password is ALSO the step-up factor for both writes below, so it is
+        // required even when PLATFORM_TOKEN is already set. Say that plainly
+        // rather than failing three calls later with a 403.
+        const password = (options.password as string | undefined) || process.env.PLATFORM_PASSWORD;
+        if (!password && !options.dryRun) {
+          throw new Error(
+            'A password is required: creating a service account and issuing its key are both step-up gated. '
+            + 'Set PLATFORM_PASSWORD (preferred) or pass --password.',
+          );
+        }
+
+        printSection('Provision Service-Account Key');
 
         const client = await createAuthenticatedClientAsync(options);
 
-        // Resolve secret name from the token's organizationId. An explicit
-        // PLATFORM_SECRET_NAME env wins (escape hatch for system/no-org tokens and
-        // the renewal Lambda); otherwise derive `{prefix}/{orgId}/platform`.
-        // A `--scope` token is a distinct machine credential — store it at a
-        // scope-specific path (`.../reporting-ingest`) so it never clobbers the
-        // full-privilege platform token used by synth/deploy callbacks.
-        const scope = options.scope as string | undefined;
-        const baseSecretName = process.env.PLATFORM_SECRET_NAME || resolveSecretName(process.env.PLATFORM_TOKEN!);
-        const secretName = scope && !process.env.PLATFORM_SECRET_NAME
-          ? baseSecretName.replace(/\/platform$/, `/${scope.replace(/[^a-z0-9]+/gi, '-')}`)
-          : baseSecretName;
-
-        auditLog('store-token', { executionId, secretName, days, dryRun: options.dryRun });
-
-        printInfo('Parameters', {
-          secretName,
-          region,
-          days,
-          expiresIn: `${expiresInSeconds}s`,
-          dryRun: options.dryRun,
-        });
-
-        printInfo('Requesting token', { expiresIn: `${expiresInSeconds}s (${days} days)` });
-
-        const tokenResponse = await client.post<Record<string, unknown>>(
-          '/api/user/generate-token',
-          { expiresIn: expiresInSeconds, ...(scope ? { scope } : {}) },
-        );
-
-        const tokenData = (tokenResponse as Record<string, unknown>)?.data ?? tokenResponse;
-        const accessToken = (tokenData as Record<string, unknown>)?.accessToken as string | undefined;
-        const refreshToken = (tokenData as Record<string, unknown>)?.refreshToken as string | undefined;
-        const actualExpiresIn = ((tokenData as Record<string, unknown>)?.expiresIn as number) ?? expiresInSeconds;
-
-        if (!accessToken) {
-          throw new Error('Token generation failed — no access token in response');
-        }
-
-        printSuccess(`Token generated (expires in ${actualExpiresIn}s)`);
-
-        const expiresAt = new Date(Date.now() + actualExpiresIn * 1000).toISOString();
-
-        // Schema: { username: orgId, password: JWT, ...metadata }
-        // - username/password fields satisfy CodeBuild's `secretsManagerCredentials`
-        //   (HTTP Basic, sent to pipeline-image-registry's /token endpoint)
-        // - The same JWT is consumed by the plugin-lookup Lambda by reading
-        //   the `password` field
-        // - One Secret per customer account replaces the previous two-secret model
-        // Decode JWT for orgId — it's a stable identifier for the username field;
-        // the actual auth uses the password (JWT) which the token service verifies.
-        // `||` (not `??`): an EMPTY-string organizationId must also fall back. A
-        // sysadmin/system token often carries organizationId="", and CodeBuild
-        // rejects a registry credential whose `username` field is empty with
-        // "AuthorizationData is malformed, empty field" — so username must always
-        // be a non-empty value.
-        const payload = decodeTokenPayload(accessToken);
-        const orgId = payload?.organizationId?.trim() || 'unknown-org';
-
-        const secretValue = JSON.stringify({
-          username: orgId,
-          // `password` is the canonical JWT field — read by CodeBuild creds,
-          // plugin-lookup, token-renew, and the event-ingestion Lambda.
-          password: accessToken,
-          ...(refreshToken && { refreshToken }),
-          platformUrl: client.getBaseUrl(),
-          expiresIn: actualExpiresIn,
-          expiresAt,
-          createdAt: new Date().toISOString(),
-        });
-
-        // Dry-run: show what would be stored
         if (options.dryRun) {
+          // Dry run stays entirely OFFLINE — it must not create an account or
+          // burn a key just to show what it would do.
+          const plan = {
+            serviceAccount: accountName,
+            roles: scope ? 'none (scoped, least privilege)' : 'org admin',
+            scope: scope ?? '(none — full platform credential)',
+            secretName: process.env.PLATFORM_SECRET_NAME || `${secretNameForOrg('<orgId>', scope ? scopeSecretLeaf(scope) : 'platform')}`,
+            region,
+            expiresInDays: days,
+          };
           if (options.json) {
-            console.log(JSON.stringify({
-              success: true,
-              dryRun: true,
-              secretName,
-              region,
-              expiresInDays: days,
-              expiresAt,
-              tokenLength: accessToken.length,
-              hasRefreshToken: !!refreshToken,
-            }, null, 2));
+            console.log(JSON.stringify({ success: true, dryRun: true, ...plan }, null, 2));
           } else {
             console.log('');
             printSection('Dry Run — No Changes Made');
             printKeyValue({
-              'Secret Name': secretName,
-              'Region': region,
+              'Service Account': plan.serviceAccount,
+              'Roles': plan.roles,
+              'Key Scope': plan.scope,
+              'Secret Name': plan.secretName,
+              'Region': plan.region,
               'Expires In': `${days} days`,
-              'Renew By': expiresAt,
-              'Token Length': `${accessToken.length} chars`,
-              'Has Refresh Token': refreshToken ? 'Yes' : 'No',
             });
-            printSuccess('Dry run complete — no secret was created or updated');
+            printSuccess('Dry run complete — no account, key or secret was created');
           }
           return;
         }
 
-        // Step 2: Store token in Secrets Manager
-        printSection('Store Token');
+        const keyName = `${accountName}-${new Date().toISOString().slice(0, 10)}`;
+        const provisioned = await provisionServiceAccountKey({
+          client,
+          password: password!,
+          accountName,
+          description: identity.description,
+          roles: scope ? 'none' : 'admin',
+          ...(scope ? { scope } : {}),
+          expiresInSeconds,
+          keyName,
+        });
 
-        const description = `Platform JWT token (renew by ${expiresAt})`;
-        await upsertSecret(secretName, secretValue, description, { region, profile: options.profile });
+        printSuccess(`Key issued on service account '${accountName}' (expires ${provisioned.expiresAt})`);
 
-        const arn = await getSecretArn(secretName, { region, profile: options.profile });
+        // An explicit PLATFORM_SECRET_NAME still wins (the escape hatch for
+        // hand-managed paths); otherwise derive it from the org the platform
+        // reported, which works with an opaque access key as PLATFORM_TOKEN —
+        // a key carries no org claim to decode.
+        const secretName = process.env.PLATFORM_SECRET_NAME
+          || secretNameForOrg(provisioned.organizationId, scope ? scopeSecretLeaf(scope) : 'platform');
 
-        // Optionally install the once-a-day renewal stack so this token never lapses.
-        // Off by default — opt in with --schedule (e.g. for the AWS event-ingestion
-        // bundle whose Lambda needs a non-expiring token).
+        auditLog('store-token', {
+          executionId,
+          secretName,
+          days,
+          serviceAccount: accountName,
+          scope: scope ?? null,
+          keyId: provisioned.keyId,
+        });
+
+        printInfo('Parameters', {
+          secretName,
+          region,
+          serviceAccount: accountName,
+          scope: scope ?? '(none)',
+          days,
+          expiresIn: `${expiresInSeconds}s`,
+        });
+
+        // What this run is REPLACING, read before the write so the old key can be
+        // retired after the new one is safely stored.
+        const previous = await previousKeyId(secretName, aws);
+
+        // Schema: { username: orgId, password: <pb_sa_ key>, ...metadata }
+        // - username/password satisfy CodeBuild's `secretsManagerCredentials`
+        //   (HTTP Basic, sent to pipeline-image-registry's /token endpoint, which
+        //   exchanges the opaque key like every other service does)
+        // - `password` stays the canonical field: the plugin-lookup Lambda, the
+        //   events Lambda and `--store-tokens` all read it. Only its VALUE changed,
+        //   from a machine-session JWT to an opaque service-account key.
+        // - keyId / serviceAccountId are what the rotation Lambda needs to retire
+        //   the key it replaces.
+        const secretValue = JSON.stringify({
+          username: provisioned.organizationId,
+          password: provisioned.key,
+          platformUrl: client.getBaseUrl(),
+          organizationId: provisioned.organizationId,
+          serviceAccountId: provisioned.serviceAccountId,
+          serviceAccountName: provisioned.serviceAccountName,
+          keyId: provisioned.keyId,
+          scope: provisioned.scope,
+          expiresIn: expiresInSeconds,
+          expiresAt: provisioned.expiresAt,
+          createdAt: new Date().toISOString(),
+        });
+
+        printSection('Store Key');
+
+        const description = `Pipeline Builder service-account key (${accountName}; renew by ${provisioned.expiresAt})`;
+        await upsertSecret(secretName, secretValue, description, aws);
+
+        const arn = await getSecretArn(secretName, aws);
+
+        // Retire the credential this run replaced — AFTER the new one is stored,
+        // never before. A failure here leaves a superfluous key that expires on
+        // its own; doing it in the other order would leave the secret naming a
+        // revoked key if the write failed.
+        if (previous.keyId && previous.serviceAccountId === provisioned.serviceAccountId) {
+          try {
+            await revokeServiceAccountKey(
+              client, password!, provisioned.organizationId, provisioned.serviceAccountId, previous.keyId,
+            );
+            printSuccess(`Retired the previous key (${previous.keyId})`);
+          } catch (err) {
+            printWarning(
+              `Stored the new key, but could not revoke the previous one (${previous.keyId}): `
+              + `${err instanceof Error ? err.message : String(err)}. It expires on its own; revoke it from `
+              + 'Settings → Service accounts if you want it gone now.',
+            );
+          }
+        }
+
+        // Optionally install the once-a-day rotation stack so this key never lapses.
         let scheduleExpression: string | undefined;
         if (options.schedule) {
           const fiveFieldCron = options.cron || process.env.TOKEN_RENEW_SCHEDULE || DEFAULT_RENEW_CRON;
@@ -303,34 +384,41 @@ export function storeToken(program: Command): void {
             secretName,
             secretArn: arn,
             region,
+            serviceAccount: accountName,
+            serviceAccountId: provisioned.serviceAccountId,
+            keyId: provisioned.keyId,
+            scope: provisioned.scope,
             expiresInDays: days,
-            expiresAt,
+            expiresAt: provisioned.expiresAt,
             schedule: scheduleExpression ?? null,
           }, null, 2));
         } else {
           console.log('');
-          printSection('Token Stored');
+          printSection('Key Stored');
 
           printKeyValue({
             'Secret Name': secretName,
             'Secret ARN': arn,
             'Region': region,
+            'Service Account': accountName,
+            'Key Scope': provisioned.scope ?? '(none — full platform credential)',
+            'Key Id': provisioned.keyId,
             'Expires In': `${days} days`,
-            'Renew By': expiresAt,
-            'Auto-Renew': scheduleExpression ? `✓ ${scheduleExpression}` : 'off (pass --schedule to enable)',
+            'Renew By': provisioned.expiresAt,
+            'Auto-Rotate': scheduleExpression ? `✓ ${scheduleExpression}` : 'off (pass --schedule to enable)',
             'Status': '✓ Stored',
           });
 
           console.log('');
-          printSuccess('Token stored. To use with synth/deploy:');
+          printSuccess('Key stored. To use with synth/deploy:');
           printInfo(`  export PLATFORM_SECRET_NAME=${secretName}`);
           printInfo('  pipeline-manager pipeline synth --id <pipeline-id> --store-tokens');
           console.log('');
           if (scheduleExpression) {
-            printInfo(`Auto-renewal is active (${scheduleExpression}); the secret refreshes before ${expiresAt}.`);
+            printInfo(`Auto-rotation is active (${scheduleExpression}); the secret is replaced before ${provisioned.expiresAt}.`);
           } else {
-            printInfo(`Renew before ${expiresAt} with: pipeline-manager infra store-token --days ${days}`);
-            printInfo('  (or pass --schedule to install a daily auto-renewal stack)');
+            printInfo(`Rotate before ${provisioned.expiresAt} with: pipeline-manager infra store-token --days ${days}`);
+            printInfo('  (or pass --schedule to install a daily auto-rotation stack)');
           }
         }
 
@@ -341,7 +429,7 @@ export function storeToken(program: Command): void {
           context: {
             command: 'store-token',
             executionId,
-            secretName: process.env.PLATFORM_SECRET_NAME || '(derived from token)',
+            secretName: process.env.PLATFORM_SECRET_NAME || '(derived from the org)',
           },
         });
       }

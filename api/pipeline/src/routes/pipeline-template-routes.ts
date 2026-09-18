@@ -25,6 +25,7 @@ import {
   PipelineTemplateUpdateSchema,
   InstantiateTemplateSchema,
   type TemplateInput,
+  audited,
 } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { tokenize } from '@pipeline-builder/pipeline-core';
@@ -103,7 +104,7 @@ export function createPipelineTemplateRoutes(): Router {
   const router: Router = Router();
 
   // GET /pipeline-templates — paginated catalog list
-  router.get('/', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const filter = validateQuery(req, PipelineTemplateFilterSchema);
     if (!filter.ok) return sendBadRequest(res, filter.error);
 
@@ -124,7 +125,7 @@ export function createPipelineTemplateRoutes(): Router {
   // GET /pipeline-templates/deleted — org's soft-deleted template tombstones
   // (most-recently-deleted first), powering the "recently deleted" restore UI.
   // Registered BEFORE `/:id` so the literal path isn't swallowed by the id matcher.
-  router.get('/deleted', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.get('/deleted', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:read'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const { limit, offset } = parsePaginationParams(req.query as Record<string, unknown>);
     const deleted = await pipelineTemplateService.findDeleted(orgId, { limit, offset });
 
@@ -138,7 +139,7 @@ export function createPipelineTemplateRoutes(): Router {
   }));
 
   // GET /pipeline-templates/:id
-  router.get('/:id', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/:id', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Template ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -152,7 +153,7 @@ export function createPipelineTemplateRoutes(): Router {
   // POST /pipeline-templates/:id/instantiate — render a template into pipeline props.
   // Returns a BuilderProps (with vars baked in) the caller submits via the normal
   // create endpoint, so compliance + quota still apply at actual creation.
-  router.post('/:id/instantiate', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/:id/instantiate', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Template ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -174,7 +175,7 @@ export function createPipelineTemplateRoutes(): Router {
   }));
 
   // POST /pipeline-templates — author a template
-  router.post('/', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), audited('pipeline_template.create'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, PipelineTemplateCreateSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
@@ -240,7 +241,7 @@ export function createPipelineTemplateRoutes(): Router {
   }));
 
   // PUT /pipeline-templates/:id
-  router.put('/:id', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/:id', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), audited('pipeline_template.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Template ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -307,7 +308,7 @@ export function createPipelineTemplateRoutes(): Router {
   }));
 
   // DELETE /pipeline-templates/:id
-  router.delete('/:id', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.delete('/:id', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), audited('pipeline_template.delete'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Template ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -336,7 +337,7 @@ export function createPipelineTemplateRoutes(): Router {
   // retention window. Step-up-gated (reverses a destructive action); mirrors the
   // DELETE authority (auth + orgId + templates:write, +templates:publish for
   // public templates, authorship for private ones).
-  router.post('/:id/restore', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), requireStepUp, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/:id/restore', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), requireStepUp, audited('pipeline_template.restore'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const result = await loadAndRestore(req, res, orgId, userId ?? 'system', pipelineTemplateService, 'Template', 'templates:publish');
     if (!result) return;
     const { existing, restored } = result;
@@ -361,7 +362,7 @@ export function createPipelineTemplateRoutes(): Router {
   // for public templates, authorship for private ones) plus a step-up re-verify. As a distinct route path
   // (/:id/purge vs the restore route's /:id/restore) its `requireStepUp` runs
   // only for this path, so the single-use step-up jti is consumed exactly once.
-  router.post('/:id/purge', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), requireStepUp, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/:id/purge', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), requireStepUp, audited('pipeline_template.purge'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const result = await loadAndPurge(req, res, orgId, pipelineTemplateService, 'Template', 'templates:publish', userId);
     if (!result) return;
     const { existing, purgedId } = result;

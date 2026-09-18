@@ -13,7 +13,9 @@
  */
 
 import { createLogger } from '@pipeline-builder/api-core';
+import { IGM_PROVIDER_UNSUPPORTED } from './idp-mapping-errors.js';
 import type { OidcLoginConfig } from './oidc-service.js';
+import { providerSupportsGroups } from '../helpers/idp-claims.js';
 import OrgIdpConfig, { type IdpProvider, type OrgIdpConfigDocument } from '../models/org-idp-config.js';
 import { unwrapEncrypted, wrapEncrypted } from '../utils/secret-blob.js';
 
@@ -31,6 +33,9 @@ export interface OrgIdpConfigDto {
   region?: string;
   /** AWS Cognito user-pool id — present only for `provider: 'cognito'`. */
   userPoolId?: string;
+  /** id_token claim carrying group memberships for JIT Role mapping (3a).
+   *  Absent = the `groups` default; never set for Google (no group claims). */
+  groupsClaim?: string;
   allowedEmailDomains: string[];
   enabled: boolean;
   updatedAt: string;
@@ -44,6 +49,7 @@ export interface OrgIdpConfigCreate {
   discoveryUrl?: string;
   region?: string;
   userPoolId?: string;
+  groupsClaim?: string;
   allowedEmailDomains?: string[];
   enabled?: boolean;
 }
@@ -56,6 +62,7 @@ export interface OrgIdpConfigUpdate {
   discoveryUrl?: string;
   region?: string;
   userPoolId?: string;
+  groupsClaim?: string;
   allowedEmailDomains?: string[];
   enabled?: boolean;
 }
@@ -67,6 +74,21 @@ function normalizeDomains(domains?: string[]): string[] {
   return (domains ?? []).map((d) => d.trim().toLowerCase()).filter((d) => d.length > 0);
 }
 
+/**
+ * Normalize + AUTHORIZE a `groupsClaim` for `provider`.
+ *
+ * A blank value means "use the default", stored as unset. A value on a provider
+ * that issues no group claims (Google) is REFUSED with `IGM_PROVIDER_UNSUPPORTED`
+ * rather than quietly accepted — the admin would otherwise author a mapping set
+ * that can never match, and only find out when nobody gets their Roles.
+ */
+function normalizeGroupsClaim(provider: IdpProvider, claim: string | undefined): string | undefined {
+  const trimmed = claim?.trim();
+  if (!trimmed) return undefined;
+  if (!providerSupportsGroups(provider)) throw new Error(IGM_PROVIDER_UNSUPPORTED);
+  return trimmed;
+}
+
 function toDto(doc: OrgIdpConfigDocument): OrgIdpConfigDto {
   return {
     orgId: doc.orgId,
@@ -76,6 +98,7 @@ function toDto(doc: OrgIdpConfigDocument): OrgIdpConfigDto {
     discoveryUrl: doc.discoveryUrl,
     region: doc.region,
     userPoolId: doc.userPoolId,
+    groupsClaim: doc.groupsClaim,
     allowedEmailDomains: doc.allowedEmailDomains,
     enabled: doc.enabled,
     updatedAt: doc.updatedAt.toISOString(),
@@ -105,6 +128,7 @@ export class OrgIdpService {
       existing.discoveryUrl = input.discoveryUrl;
       existing.region = input.region;
       existing.userPoolId = input.userPoolId;
+      existing.groupsClaim = normalizeGroupsClaim(input.provider, input.groupsClaim);
       existing.allowedEmailDomains = normalizeDomains(input.allowedEmailDomains);
       existing.enabled = input.enabled ?? true;
       existing.updatedBy = actor;
@@ -120,6 +144,7 @@ export class OrgIdpService {
       discoveryUrl: input.discoveryUrl,
       region: input.region,
       userPoolId: input.userPoolId,
+      groupsClaim: normalizeGroupsClaim(input.provider, input.groupsClaim),
       allowedEmailDomains: normalizeDomains(input.allowedEmailDomains),
       enabled: input.enabled ?? true,
       createdBy: actor,
@@ -143,6 +168,15 @@ export class OrgIdpService {
     if (input.discoveryUrl !== undefined) existing.discoveryUrl = input.discoveryUrl;
     if (input.region !== undefined) existing.region = input.region;
     if (input.userPoolId !== undefined) existing.userPoolId = input.userPoolId;
+    // Validated against the RESULTING provider (a patch may change both at once),
+    // and re-validated when only the provider moves — switching an org with a
+    // groups claim onto Google must fail loudly, not silently disable mapping.
+    if (input.groupsClaim !== undefined || input.provider !== undefined) {
+      existing.groupsClaim = normalizeGroupsClaim(
+        existing.provider,
+        input.groupsClaim !== undefined ? input.groupsClaim : existing.groupsClaim,
+      );
+    }
     if (input.allowedEmailDomains !== undefined) existing.allowedEmailDomains = normalizeDomains(input.allowedEmailDomains);
     if (input.enabled !== undefined) existing.enabled = input.enabled;
     existing.updatedBy = actor;
@@ -178,6 +212,7 @@ export class OrgIdpService {
       discoveryUrl: doc.discoveryUrl ?? '',
       region: doc.region,
       userPoolId: doc.userPoolId,
+      groupsClaim: doc.groupsClaim,
       allowedEmailDomains: doc.allowedEmailDomains ?? [],
       enabled: doc.enabled,
     };

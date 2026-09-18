@@ -87,9 +87,21 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 const mockDeleteAccount = jest.fn<(userId: string) => Promise<void>>();
 jest.unstable_mockModule('../src/services/index.js', () => ({
   userProfileService: { deleteAccount: (userId: string) => mockDeleteAccount(userId) },
+  // Linking stub: the access-key handlers live in the same controller.
+  apiKeyService: {},
 }));
 
-jest.unstable_mockModule('../src/utils/token.js', () => ({ signPersonalAccessToken: jest.fn(), issueTokens: jest.fn(), renewSessionTokens: jest.fn() }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({
+  // Session-auth helpers the controllers now import (see utils/token.ts).
+  signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  findRefreshSession: jest.fn(async () => undefined),
+  signApiKeyToken: jest.fn(),
+  signServiceAccountToken: jest.fn(),
+  membershipForOrg: jest.fn(async () => undefined),
+  issueTokens: jest.fn(),
+  renewSessionTokens: jest.fn(),
+}));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: jest.fn(),
   updateProfileSchema: {},
@@ -106,7 +118,9 @@ function makeReq() {
 function makeRes() {
   const json = jest.fn();
   const status = jest.fn().mockReturnValue({ json });
-  return { res: { status, json }, status, json };
+  // Deleting an account drops the browser's HttpOnly refresh cookie.
+  const clearCookie = jest.fn();
+  return { res: { status, json, clearCookie }, status, json, clearCookie };
 }
 
 const { USER_OWNER_HAS_ORGS, PROFILE_USER_NOT_FOUND } = await import('../src/services/user-errors.js');

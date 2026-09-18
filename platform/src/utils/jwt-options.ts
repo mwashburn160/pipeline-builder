@@ -2,61 +2,65 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Sign/verify options for platform-issued JWTs (access, PAT, impersonation,
- * step-up).
+ * Verification for the tokens platform CONSUMES.
  *
- * Platform MINTS the tokens every other service verifies with api-core's
- * `requireAuth`, so the two must agree exactly: the pinned algorithm, the
- * optional `JWT_ISSUER` / `JWT_AUDIENCE`, and rotation via `JWT_SECRET_PREVIOUS`.
- * These mirror api-core's `buildJwtVerifyOptions` / `verifyJwtWithRotation`
- * (reading platform's validated config instead of raw env);
- * test/jwt-options-parity.test.ts verifies platform tokens with the real
- * api-core functions so the two can't drift.
+ * Two chains, exactly as in api-core's `requireAuth` — platform is just the one
+ * service that also holds the private half of the user chain:
+ *
+ * - **User tokens** (access, refresh, step-up, exchanged access keys) — ES256,
+ *   signed by `services/token-signing`, verified here against the in-memory
+ *   public keys (no JWKS round-trip to itself). Rotation is by `kid`.
+ * - **Internal service tokens** (`principalType: 'service'`) — ES256 signed by
+ *   the CALLING service with its own key (#14), verified against the per-service
+ *   public bundle every service mounts.
+ *
+ * Both chains are ES256 now, so a token is routed by **who owns its `kid`**, not
+ * by its algorithm — exactly as api-core's `verifyBearerToken` does it. A token
+ * that rides the wrong chain is REFUSED either way, which is what makes "no
+ * shared-secret token is accepted anywhere" true on platform too.
+ * `test/jwt-options-parity.test.ts` verifies platform-minted tokens with the
+ * real api-core functions so the two can't drift.
  */
 
+import { decodeJwtHeader, isServiceKid, verifyServiceJwt } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import { config } from '../config/index.js';
+import { verifyUserJwtSync } from '../services/token-signing/index.js';
 
-/** Options for `jwt.sign` with the platform access-token secret. */
-export function jwtSignOptions(expiresIn: number): jwt.SignOptions {
-  const { algorithm, issuer, audience } = config.auth.jwt;
-  return {
-    algorithm,
-    expiresIn,
-    ...(issuer ? { issuer } : {}),
-    ...(audience ? { audience } : {}),
-  };
-}
+/**
+ * Verify any bearer token platform receives.
+ *
+ * A `kid` published in the per-service bundle → the SERVICE chain, verified with
+ * that service's key and required to name it in `sub`. Anything else → the user
+ * chain (and a token claiming `principalType: 'service'` is refused there: an
+ * internal identity may not ride the user signing key).
+ */
+export function verifyPlatformJwt<T>(token: string): T {
+  const header = decodeJwtHeader(token);
+  if (!header?.alg) throw new jwt.JsonWebTokenError('Malformed token header');
 
-/** Options for `jwt.verify`: pinned algorithm plus issuer/audience when configured. */
-export function jwtVerifyOptions(): jwt.VerifyOptions {
-  const { algorithm, issuer, audience } = config.auth.jwt;
-  return {
-    algorithms: [algorithm],
-    ...(issuer ? { issuer } : {}),
-    ...(audience ? { audience } : {}),
-  };
+  if (header.kid && isServiceKid(header.kid)) {
+    const { issuer, audience } = config.auth.jwt;
+    const claims = verifyServiceJwt<T>(token, { kid: header.kid, issuer, audience });
+    if ((claims as { principalType?: string }).principalType !== 'service') {
+      throw new jwt.JsonWebTokenError('A service signing key may only mint a service principal');
+    }
+    return claims;
+  }
+
+  const claims = verifyUserJwtSync<T>(token);
+  if ((claims as { principalType?: string }).principalType === 'service') {
+    throw new jwt.JsonWebTokenError('Service principals may not be signed with the user signing key');
+  }
+  return claims;
 }
 
 /**
- * Verify against the current secret, falling back to `JWT_SECRET_PREVIOUS` only
- * for a signature failure — never for an expired or not-yet-valid token, whose
- * error is authoritative whichever secret signed it.
+ * Verify a refresh-token JWT. Same ES256 key and `kid` rotation as every other
+ * user token — platform both mints and consumes these, but giving them their own
+ * secret is exactly the special case that made `REFRESH_TOKEN_SECRET` an extra
+ * thing to rotate. The caller still asserts `type: 'refresh'`.
  */
-export function verifyPlatformJwt<T>(token: string): T {
-  const options = jwtVerifyOptions();
-  try {
-    return jwt.verify(token, config.auth.jwt.secret, options) as T;
-  } catch (err) {
-    const previous = config.auth.jwt.secretPrevious;
-    if (
-      previous
-      && err instanceof jwt.JsonWebTokenError
-      && !(err instanceof jwt.TokenExpiredError)
-      && !(err instanceof jwt.NotBeforeError)
-    ) {
-      return jwt.verify(token, previous, options) as T;
-    }
-    throw err;
-  }
+export function verifyRefreshJwt<T>(token: string): T {
+  return verifyUserJwtSync<T>(token);
 }

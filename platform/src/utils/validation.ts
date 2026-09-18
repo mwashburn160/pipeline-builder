@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_TIER, STANDARD_TIERS, sendError, type QuotaTier } from '@pipeline-builder/api-core';
+import { DEFAULT_TIER, STANDARD_TIERS, TOKEN_SCOPES, sendError, type QuotaTier } from '@pipeline-builder/api-core';
 import type { Response } from 'express';
 import { z } from 'zod';
 import { EMAIL_PATTERN } from './email-address.js';
@@ -100,11 +100,6 @@ export const joinOrgSchema = z.object({
 export const loginSchema = z.object({
   identifier: z.string().min(1),
   password: z.string().min(1),
-});
-
-/** Token refresh request body schema. */
-export const refreshSchema = z.object({
-  refreshToken: z.string().min(1),
 });
 
 // OAuth Schemas
@@ -286,6 +281,47 @@ export const updateRoleSchema = z.object({
   permissions: z.array(z.string()).max(100).optional(),
 });
 
+// Service accounts (#2)
+
+/** A service-account name is a machine identifier: lowercase, URL-safe, stable. */
+const serviceAccountNameSchema = z.string().trim().toLowerCase().regex(
+  /^[a-z0-9][a-z0-9_-]{1,63}$/,
+  'name must be 2-64 characters of lowercase letters, digits, hyphen or underscore',
+);
+
+/** Create an org service account. `roleIds` are subject to the creator's ceiling. */
+export const createServiceAccountSchema = z.object({
+  name: serviceAccountNameSchema,
+  description: z.string().trim().max(256).optional(),
+  roleIds: z.array(z.string()).max(20).optional(),
+  /** Token-exchange budget per quota period; -1 = unlimited. */
+  tokenBudget: z.union([z.number().int().min(1), z.literal(-1)]).optional(),
+});
+
+/** Update a service account. `roleIds` REPLACES the Role set when present. */
+export const updateServiceAccountSchema = z.object({
+  description: z.string().trim().max(256).nullable().optional(),
+  roleIds: z.array(z.string()).max(20).optional(),
+  tokenBudget: z.union([z.number().int().min(1), z.literal(-1)]).optional(),
+  disabled: z.boolean().optional(),
+});
+
+/** Issue a key for a service account (max 365 days; optional IP allowlist). */
+export const createServiceAccountKeySchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  /** Lifetime in seconds. Capped at 365 days by the service. */
+  expiresIn: z.number().int().min(60).max(365 * 24 * 60 * 60).optional(),
+  ipAllowlist: z.array(z.string().trim().min(1).max(64)).max(32).optional(),
+  /**
+   * Narrow capability scope (#12). A scoped key exchanges to a least-privilege
+   * token — the account's Roles are dropped in favour of this one capability —
+   * so a key that only has to ingest events or push images cannot do anything
+   * else with the account's authority. Validated against api-core's closed
+   * {@link TOKEN_SCOPES} catalog.
+   */
+  scope: z.enum(TOKEN_SCOPES as unknown as [string, ...string[]]).optional(),
+});
+
 /** Organization ownership transfer schema. */
 export const transferOwnershipSchema = z.object({
   newOwnerId: z.string().min(1, 'New owner ID is required'),
@@ -314,6 +350,19 @@ const awsRegionSchema = z.string().regex(/^[a-z]{2}-[a-z]+-\d$/, 'Invalid AWS re
 /** Create/upsert an org IdP config. Core credentials are required non-empty
  *  strings; `generic-oidc` additionally requires a discoveryUrl, and `cognito`
  *  requires region + userPoolId (from which the discovery URL is derived). */
+/** Name of the id_token claim carrying group memberships (3a). Claim names are
+ *  JSON keys and are frequently namespaced (`cognito:groups`,
+ *  `https://acme.example/groups`), so the shape is deliberately permissive —
+ *  what it may NOT be is a provider that issues no groups at all (below). */
+const groupsClaimSchema = z.string().trim().min(1).max(128)
+  .regex(/^[A-Za-z0-9_.:/-]+$/, 'groupsClaim must be a claim name (letters, digits, and _ . : / -)');
+
+/** Google issues no group claims, so a mapping configured against it could only
+ *  ever match nothing. Refused with an explanation instead of silently accepted.
+ *  (The service repeats this check — see `normalizeGroupsClaim`.) */
+const GOOGLE_GROUPS_MESSAGE =
+  'Group-to-Role mapping is not available for Google: Google\'s OIDC tokens carry no group claim. Use a generic OIDC or Cognito identity provider for just-in-time Role mapping.';
+
 export const orgIdpCreateSchema = z.object({
   orgId: z.string().min(1),
   provider: idpProviderSchema,
@@ -322,6 +371,9 @@ export const orgIdpCreateSchema = z.object({
   discoveryUrl: z.string().optional(),
   region: awsRegionSchema.optional(),
   userPoolId: userPoolIdSchema.optional(),
+  /** Empty string means "no groups claim" — the editor sends it to clear the
+   *  field (and always sends it for a provider that has no groups). */
+  groupsClaim: z.union([groupsClaimSchema, z.literal('')]).optional(),
   allowedEmailDomains: z.array(z.string()).optional(),
   enabled: z.boolean().optional(),
 }).refine(
@@ -330,6 +382,9 @@ export const orgIdpCreateSchema = z.object({
 ).refine(
   data => data.provider !== 'cognito' || (!!data.region && !!data.userPoolId),
   { message: 'region and userPoolId are required for cognito provider', path: ['userPoolId'] },
+).refine(
+  data => !data.groupsClaim || (data.provider !== 'google' && data.provider !== 'github'),
+  { message: GOOGLE_GROUPS_MESSAGE, path: ['groupsClaim'] },
 );
 
 /** Partial update of an org IdP config. Every field optional; unset fields
@@ -341,9 +396,36 @@ export const orgIdpPatchSchema = z.object({
   discoveryUrl: z.string().optional(),
   region: awsRegionSchema.optional(),
   userPoolId: userPoolIdSchema.optional(),
+  /** Empty string CLEARS the claim back to the `groups` default. */
+  groupsClaim: z.union([groupsClaimSchema, z.literal('')]).optional(),
   allowedEmailDomains: z.array(z.string()).optional(),
   enabled: z.boolean().optional(),
+}).refine(
+  data => !data.groupsClaim || (data.provider !== 'google' && data.provider !== 'github'),
+  { message: GOOGLE_GROUPS_MESSAGE, path: ['groupsClaim'] },
+);
+
+// IdP group → Role mapping (3a)
+
+/** A group value as the IdP asserts it. Free text — directories use spaces,
+ *  slashes and distinguished names — so only length is constrained. */
+const idpGroupSchema = z.string().trim().min(1).max(256);
+
+/** Create a group → Role mapping. At least one Role: a rule granting nothing
+ *  would be indistinguishable from no rule at all. */
+export const idpGroupMappingCreateSchema = z.object({
+  group: idpGroupSchema,
+  roleIds: z.array(z.string()).min(1).max(20),
 });
+
+/** Update a mapping. Either half may be edited on its own. */
+export const idpGroupMappingUpdateSchema = z.object({
+  group: idpGroupSchema.optional(),
+  roleIds: z.array(z.string()).min(1).max(20).optional(),
+}).refine(
+  data => data.group !== undefined || data.roleIds !== undefined,
+  { message: 'Provide a group and/or roleIds to update' },
+);
 
 // Org KMS Config Schema
 

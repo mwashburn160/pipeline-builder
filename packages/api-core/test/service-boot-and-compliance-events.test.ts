@@ -30,7 +30,11 @@ jest.unstable_mockModule('../src/services/http-client.js', () => ({
 jest.unstable_mockModule('../src/utils/metric-emitter.js', () => ({ emitCounter }));
 jest.unstable_mockModule('../src/services/remote-audit-client.js', () => ({ wireAuthzDenialAuditor }));
 jest.unstable_mockModule('../src/services/token-revocation.js', () => ({ createEnvRedisTokenRevocationStore }));
-jest.unstable_mockModule('../src/middleware/auth.js', () => ({ setTokenRevocationStore, getServiceAuthHeader }));
+// `SYSTEM_ORG_ID` is read by the access-key exchange client, which service-boot
+// imports to name this process in its exchange calls.
+jest.unstable_mockModule('../src/middleware/auth.js', () => ({
+  setTokenRevocationStore, getServiceAuthHeader, SYSTEM_ORG_ID: '000000000000000000000001',
+}));
 
 const { wireServiceSecurity } = await import('../src/services/service-boot.js');
 const { registerComplianceEventSubscriber } = await import('../src/services/compliance-event-subscriber.js');

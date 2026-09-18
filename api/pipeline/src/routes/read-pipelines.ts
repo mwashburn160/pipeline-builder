@@ -12,6 +12,7 @@ import {
   normalizeArrayFields,
   validateQuery,
   PipelineFilterSchema,
+  requirePermission,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
@@ -26,7 +27,7 @@ export function createReadPipelineRoutes(
   const router: Router = Router();
 
   // GET /pipelines — paginated list
-  router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/', requirePermission('pipelines:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const filter = validateQuery(req, PipelineFilterSchema);
     if (!filter.ok) return sendBadRequest(res, filter.error);
 
@@ -61,7 +62,7 @@ export function createReadPipelineRoutes(
   }));
 
   // GET /pipelines/find — single pipeline by filter
-  router.get('/find', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/find', requirePermission('pipelines:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const filter = validateQuery(req, PipelineFilterSchema);
     if (!filter.ok) return sendBadRequest(res, filter.error);
 
@@ -83,7 +84,7 @@ export function createReadPipelineRoutes(
   // GET /pipelines/deleted — org's soft-deleted tombstones (most recent first),
   // powering the "recently deleted" restore UI. Registered BEFORE `/:id` so the
   // literal path isn't swallowed by the id matcher.
-  router.get('/deleted', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/deleted', requirePermission('pipelines:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query as Record<string, unknown>);
     const deleted = await pipelineService.findDeleted(orgId, { limit, offset });
 
@@ -95,7 +96,7 @@ export function createReadPipelineRoutes(
 
   // GET /pipelines/:id — single pipeline by UUID
   // ?resolve=true resolves pipeline-level {{ ... }} templates before returning.
-  router.get('/:id', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/:id', requirePermission('pipelines:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);

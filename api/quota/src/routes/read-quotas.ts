@@ -5,7 +5,7 @@ import {
   requireAuth,
   requirePermission,
   requirePermissionOrService,
-  isSystemAdmin,
+  requireSystemAdmin,
   sendSuccess,
   sendError,
   ErrorCode,
@@ -75,15 +75,11 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
   router.get(
     '/all',
     requireAuth as RequestHandler,
+    // Cross-tenant operator read (every org's quotas) — system admin only.
+    // No `quotas:read` capability grants it: an org's own admin must never see
+    // another tenant's numbers.
+    requireSystemAdmin as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
-      if (!isSystemAdmin(req)) {
-        return sendError(
-          res, 403,
-          'Access denied. Only system administrators can view all organizations.',
-          ErrorCode.INSUFFICIENT_PERMISSIONS,
-        );
-      }
-
       const limit = parseQueryIntClamped(req.query.limit, 100, 1000);
       const offset = parseQueryIntClamped(req.query.offset, 1, Number.MAX_SAFE_INTEGER) - 1;
 
@@ -112,15 +108,11 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
   router.get(
     '/at-risk',
     requireAuth as RequestHandler,
+    // Cross-tenant operator read (scans every org) — system admin only, same
+    // reasoning as /quotas/all. The per-org variant below is the tenant-facing
+    // one and gates on `quotas:read` instead.
+    requireSystemAdmin as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
-      if (!isSystemAdmin(req)) {
-        return sendError(
-          res, 403,
-          'Access denied. Only system administrators can view at-risk orgs.',
-          ErrorCode.INSUFFICIENT_PERMISSIONS,
-        );
-      }
-
       const rawThreshold = parseInt(String(req.query.threshold ?? '80'), 10);
       const threshold = Number.isFinite(rawThreshold) ? Math.min(100, Math.max(1, rawThreshold)) : 80;
 

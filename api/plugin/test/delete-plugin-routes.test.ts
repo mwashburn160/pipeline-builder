@@ -80,7 +80,10 @@ function getHandler(method: string, path: string) {
     (l: any) => l.route?.path === path && l.route?.methods[method],
   );
   if (!layer) throw new Error(`No handler for ${method.toUpperCase()} ${path}`);
-  return layer.route.stack[0].handle;
+  // The terminal withRoute handler is the LAST entry in the route stack: each
+  // route now carries its permission gate (and, on writes, the `audited(...)`
+  // declaration) ahead of it.
+  return layer.route.stack[layer.route.stack.length - 1].handle;
 }
 
 function mockReq(overrides: Record<string, unknown> = {}): any {

@@ -8,6 +8,7 @@
  *   - every write runs in the caller's session;
  *   - the user's domain-join requests go with the account (a leftover request
  *     could be approved into an orphan membership holding a seat);
+ *   - their passkeys go too (a leftover credential keeps its unique id reserved);
  *   - the owner and last-privileged-member guards run BEFORE anything is deleted.
  */
 
@@ -31,6 +32,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   PersonalAccessToken: { deleteMany: deleteMany('PersonalAccessToken') },
   UserPreferences: { deleteMany: deleteMany('UserPreferences') },
   JoinRequest: { deleteMany: deleteMany('JoinRequest') },
+  WebAuthnCredential: { deleteMany: deleteMany('WebAuthnCredential') },
+  UserTotp: { deleteMany: deleteMany('UserTotp') },
 }));
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   assertNotLastPrivilegedMember: (...a: unknown[]) => mockAssertNotLast(...a),
@@ -53,7 +56,8 @@ describe('deleteUserCascade', () => {
   it('deletes the account and everything keyed to it — join requests included — in the session', async () => {
     await expect(deleteUserCascade(session as never, userId)).resolves.toEqual({ tokenVersion: 4 });
     expect(calls).toEqual(expect.arrayContaining([
-      'UserOrganization:tx', 'RoleAssignment:tx', 'PersonalAccessToken:tx', 'UserPreferences:tx', 'JoinRequest:tx',
+      'UserOrganization:tx', 'RoleAssignment:tx', 'PersonalAccessToken:tx', 'WebAuthnCredential:tx',
+      'UserPreferences:tx', 'JoinRequest:tx',
     ]));
     expect(mockAssertNotLast).toHaveBeenCalledWith(session, expect.any(Types.ObjectId));
   });

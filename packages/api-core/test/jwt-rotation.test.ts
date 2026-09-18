@@ -2,27 +2,40 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Zero-downtime JWT secret rotation.
+ * Zero-downtime rotation, for both signing chains.
  *
- * During a `JWT_SECRET` rotation the deployment runs a window where both
- * old-signed and new-signed tokens are in flight. Setting `JWT_SECRET_PREVIOUS`
- * to the outgoing secret makes tokens valid under EITHER secret verify, closing
- * the auth-outage window — without weakening any existing check (expiry,
- * malformed, algorithm pinning).
+ * USER tokens (access, refresh, step-up, exchanged keys) are ES256 signed by
+ * platform and rotated BY `kid`: the JWKS publishes the incoming key alongside
+ * the retiring one, so tokens minted before and after the cutover both verify.
+ * A verifier also refetches once on an unknown `kid`, which is what lets a
+ * freshly rotated-in key work without restarting the fleet, and it FAILS CLOSED
+ * when the key set cannot be obtained at all.
  *
- * The auth module caches secrets at module scope, so each test loads a FRESH
- * copy (via jest.resetModules + dynamic import) after setting env, guaranteeing
- * the cache reads exactly this test's configuration.
+ * INTERNAL SERVICE tokens rotate the same way since #14, just against a
+ * different key set: each service signs with its OWN key and the shared bundle
+ * publishes the retiring public key alongside the incoming one. The key loader
+ * caches the bundle at module scope, so those tests load a FRESH copy
+ * (jest.resetModules + dynamic import) after rewriting it.
+ *
+ * The other half of the contract — that a token claiming to be a USER is only
+ * ever accepted from platform's signing key — lives in auth-middleware.test.ts.
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterEach, afterAll } from '@jest/globals';
 
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
+import { requireAuth } from '../src/middleware/auth.js';
+import { installTestServiceKeys, type TestServiceKeysHandle } from '../src/testing/service-tokens.js';
+import {
+  generateTestSigningKey, installTestJwks, signTestUserToken, testUserIdentityClaims, uninstallTestJwks,
+  type TestJwksHandle, type TestSigningKey,
+} from '../src/testing/user-tokens.js';
 import { ErrorCode } from '../src/types/error-codes.js';
 
-const NEW_SECRET = 'new-rotation-secret';
-const OLD_SECRET = 'old-rotation-secret';
+/** requireAuth fails closed without the identity claims (principalType / token_use
+ *  / assurance), so every payload here carries them like a real mint does. */
+const SERVICE = { type: 'access', role: 'member', principalType: 'service', token_use: 'access' };
 
 function createMockReq(overrides: Partial<Request> = {}): Request {
   return { headers: {}, user: undefined, ...overrides } as unknown as Request;
@@ -39,7 +52,7 @@ function createMockRes(): Response & { _status: number; _json: any } {
   return res as unknown as Response & { _status: number; _json: any };
 }
 
-/** Load a fresh auth module so its module-scoped secret cache reflects env. */
+/** Load a fresh auth module so its module-scoped SERVICE-secret cache reflects env. */
 async function loadAuth() {
   jest.resetModules();
   return import('../src/middleware/auth.js');
@@ -49,157 +62,173 @@ function bearer(token: string): Request {
   return createMockReq({ headers: { authorization: `Bearer ${token}` } });
 }
 
-beforeEach(() => {
-  process.env.JWT_SECRET = NEW_SECRET;
-  delete process.env.JWT_SECRET_PREVIOUS;
-});
-
-describe('JWT rotation — verify path', () => {
-  it('accepts a token signed with the PREVIOUS secret when JWT_SECRET_PREVIOUS is set', async () => {
-    process.env.JWT_SECRET_PREVIOUS = OLD_SECRET;
-    const { requireAuth } = await loadAuth();
-
-    const token = jwt.sign({ type: 'access', sub: 'user1', role: 'member' }, OLD_SECRET);
-    const req = bearer(token);
+/** Run requireAuth to a terminal state: next(), or a response. */
+function runAuth(req: Request): Promise<{ status: number; code?: string; passed: boolean }> {
+  return new Promise((resolve) => {
     const res = createMockRes();
-    const next = jest.fn();
+    const origJson = res.json.bind(res);
+    (res as any).json = (body: any) => {
+      const out = origJson(body);
+      resolve({ status: res._status, code: body?.code, passed: false });
+      return out;
+    };
+    requireAuth(req, res, () => resolve({ status: 0, passed: true }));
+  });
+}
 
-    requireAuth(req, res, next);
+const userClaims = (sub: string) => ({ ...testUserIdentityClaims(), sub, role: 'member' });
 
-    expect(next).toHaveBeenCalled();
-    expect(req.user!.sub).toBe('user1');
+afterAll(() => uninstallTestJwks());
+
+describe('user-token rotation by kid', () => {
+  let incoming: TestSigningKey;
+  let retiring: TestSigningKey;
+  let jwks: TestJwksHandle;
+
+  beforeEach(() => {
+    incoming = generateTestSigningKey();
+    retiring = generateTestSigningKey();
+    // The overlap window: platform signs with `incoming` and keeps publishing
+    // `retiring`, so nothing minted before the cutover stops working.
+    jwks = installTestJwks([incoming, retiring]);
   });
 
-  it('still accepts a token signed with the PRIMARY secret while a previous secret is set', async () => {
-    process.env.JWT_SECRET_PREVIOUS = OLD_SECRET;
-    const { requireAuth } = await loadAuth();
-
-    const token = jwt.sign({ type: 'access', sub: 'user2', role: 'member' }, NEW_SECRET);
-    const req = bearer(token);
-    const res = createMockRes();
-    const next = jest.fn();
-
-    requireAuth(req, res, next);
-
-    expect(next).toHaveBeenCalled();
-    expect(req.user!.sub).toBe('user2');
+  it('accepts a token signed with the RETIRING key while it is still published', async () => {
+    const token = await signTestUserToken(userClaims('user1'), { key: retiring });
+    const out = await runAuth(bearer(token));
+    expect(out.passed).toBe(true);
   });
 
-  it('REJECTS a previous-secret token when JWT_SECRET_PREVIOUS is NOT set', async () => {
-    // No previous secret configured → old-signed token is just an invalid signature.
-    const { requireAuth } = await loadAuth();
-
-    const token = jwt.sign({ type: 'access', sub: 'user1', role: 'member' }, OLD_SECRET);
-    const req = bearer(token);
-    const res = createMockRes();
-    const next = jest.fn();
-
-    requireAuth(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res._status).toBe(401);
-    expect(res._json.code).toBe(ErrorCode.TOKEN_INVALID);
+  it('accepts a token signed with the INCOMING key in the same window', async () => {
+    const token = await signTestUserToken(userClaims('user2'), { key: incoming });
+    expect((await runAuth(bearer(token))).passed).toBe(true);
   });
 
-  it('rejects a garbage token even when a previous secret is configured', async () => {
-    process.env.JWT_SECRET_PREVIOUS = OLD_SECRET;
-    const { requireAuth } = await loadAuth();
-
-    const req = bearer('not.a.jwt');
-    const res = createMockRes();
-    const next = jest.fn();
-
-    requireAuth(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res._status).toBe(401);
-    expect(res._json.code).toBe(ErrorCode.TOKEN_INVALID);
+  it('REJECTS the retiring key once the rotation is finished (it is no longer published)', async () => {
+    const token = await signTestUserToken(userClaims('user1'), { key: retiring });
+    jwks.publish([incoming]);
+    // Force the cache past its refresh interval so it picks up the new set.
+    const fresh = installTestJwks([incoming]);
+    expect(fresh.primary.kid).toBe(incoming.kid);
+    const out = await runAuth(bearer(token));
+    expect(out).toMatchObject({ passed: false, status: 401, code: ErrorCode.TOKEN_INVALID });
   });
 
-  it('rejects a token signed with a secret that matches NEITHER primary nor previous', async () => {
-    process.env.JWT_SECRET_PREVIOUS = OLD_SECRET;
-    const { requireAuth } = await loadAuth();
+  it('refetches ONCE on an unknown kid, so a just-rotated-in key works without a restart', async () => {
+    const onlyOld = installTestJwks([retiring]);
+    // Warm the cache so the unknown-kid path is what triggers the refetch.
+    await runAuth(bearer(await signTestUserToken(userClaims('warm'), { key: retiring })));
+    const fetchesBefore = onlyOld.fetchCount();
 
-    const token = jwt.sign({ type: 'access', sub: 'user1', role: 'member' }, 'some-third-secret');
-    const req = bearer(token);
-    const res = createMockRes();
-    const next = jest.fn();
+    // Platform rotates: it now signs with a key the verifier has never seen.
+    onlyOld.publish([incoming, retiring]);
+    const token = await signTestUserToken(userClaims('user3'), { key: incoming });
 
-    requireAuth(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res._status).toBe(401);
-    expect(res._json.code).toBe(ErrorCode.TOKEN_INVALID);
+    expect((await runAuth(bearer(token))).passed).toBe(true);
+    expect(onlyOld.fetchCount()).toBe(fetchesBefore + 1);
   });
 
-  it('still enforces expiry — an EXPIRED primary-signed token is rejected as expired, not masked', async () => {
-    process.env.JWT_SECRET_PREVIOUS = OLD_SECRET;
-    const { requireAuth } = await loadAuth();
+  it('does not refetch again for the SAME unknown kid inside the cooldown', async () => {
+    const handle = installTestJwks([retiring], { unknownKidCooldownMs: 60_000 });
+    await runAuth(bearer(await signTestUserToken(userClaims('warm'), { key: retiring })));
+    const before = handle.fetchCount();
 
-    const token = jwt.sign({ type: 'access', sub: 'user1', role: 'member' }, NEW_SECRET, { expiresIn: '-1s' });
-    const req = bearer(token);
-    const res = createMockRes();
-    const next = jest.fn();
-
-    requireAuth(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res._status).toBe(401);
-    // The previous-secret retry must NOT swallow the expiry into a generic
-    // "invalid token" — expiry stays authoritative.
-    expect(res._json.code).toBe(ErrorCode.TOKEN_EXPIRED);
+    // A forged kid must not turn every request into a fetch against platform.
+    const forged = await signTestUserToken(userClaims('user4'), { key: incoming });
+    expect((await runAuth(bearer(forged))).passed).toBe(false);
+    expect((await runAuth(bearer(forged))).passed).toBe(false);
+    expect(handle.fetchCount()).toBe(before + 1);
   });
 
-  it('still enforces expiry for a PREVIOUS-signed token (surfaces expiry, not invalid)', async () => {
-    process.env.JWT_SECRET_PREVIOUS = OLD_SECRET;
-    const { requireAuth } = await loadAuth();
-
-    const token = jwt.sign({ type: 'access', sub: 'user1', role: 'member' }, OLD_SECRET, { expiresIn: '-1s' });
-    const req = bearer(token);
-    const res = createMockRes();
-    const next = jest.fn();
-
-    requireAuth(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res._status).toBe(401);
-    expect(res._json.code).toBe(ErrorCode.TOKEN_EXPIRED);
+  it('rejects a token whose header names no kid', async () => {
+    const parts = (await signTestUserToken(userClaims('user5'), { key: incoming })).split('.');
+    const header = Buffer.from(JSON.stringify({ alg: 'ES256', typ: 'JWT' }), 'utf-8').toString('base64url');
+    const out = await runAuth(bearer(`${header}.${parts[1]}.${parts[2]}`));
+    expect(out).toMatchObject({ passed: false, status: 401 });
   });
 
-  it('keeps algorithm pinning — an alg the pin excludes is rejected under both secrets', async () => {
-    process.env.JWT_SECRET_PREVIOUS = OLD_SECRET;
-    process.env.JWT_ALGORITHM = 'HS512'; // pin verify to HS512
-    try {
-      const { requireAuth } = await loadAuth();
-      // Sign with HS256 (previous secret) — excluded by the HS512 pin.
-      const token = jwt.sign({ type: 'access', sub: 'user1', role: 'member' }, OLD_SECRET, { algorithm: 'HS256' });
-      const req = bearer(token);
-      const res = createMockRes();
-      const next = jest.fn();
+  it('rejects a token signed by a key that was never published', async () => {
+    const foreign = generateTestSigningKey();
+    const token = await signTestUserToken(userClaims('user6'), { key: foreign });
+    expect((await runAuth(bearer(token))).passed).toBe(false);
+  });
 
-      requireAuth(req, res, next);
+  it('rejects a token whose kid matches a published key but whose signature does not', async () => {
+    // Signed by the retiring key, labelled with the incoming key's kid — the
+    // check that makes `kid` a lookup hint rather than a trust statement.
+    const token = await signTestUserToken(userClaims('user7'), { key: retiring, kid: incoming.kid });
+    expect((await runAuth(bearer(token))).passed).toBe(false);
+  });
 
-      expect(next).not.toHaveBeenCalled();
-      expect(res._status).toBe(401);
-    } finally {
-      delete process.env.JWT_ALGORITHM;
-    }
+  it('still enforces expiry — an expired token surfaces as EXPIRED, not invalid', async () => {
+    const token = await signTestUserToken(userClaims('user8'), { key: incoming, expiresIn: -1 });
+    const out = await runAuth(bearer(token));
+    expect(out).toMatchObject({ passed: false, status: 401, code: ErrorCode.TOKEN_EXPIRED });
+  });
+
+  it('serves a CACHED key set while a refresh is failing (public keys do not expire)', async () => {
+    const handle = installTestJwks([incoming], { refreshIntervalMs: 0 });
+    const token = await signTestUserToken(userClaims('user9'), { key: incoming });
+    expect((await runAuth(bearer(token))).passed).toBe(true);
+    handle.failNextFetches(10);
+    // Refusing every request because platform blipped would be a self-inflicted
+    // outage; the keys already in hand stay usable.
+    expect((await runAuth(bearer(token))).passed).toBe(true);
+  });
+
+  it('FAILS CLOSED with 503 when no key set has ever been obtained', async () => {
+    const handle = installTestJwks([incoming]);
+    handle.failNextFetches(10);
+    const token = await signTestUserToken(userClaims('user10'), { key: incoming });
+    const out = await runAuth(bearer(token));
+    expect(out).toMatchObject({ passed: false, status: 503 });
+  });
+
+  it('rejects a garbage token', async () => {
+    const out = await runAuth(bearer('not.a.jwt'));
+    expect(out).toMatchObject({ passed: false, status: 401, code: ErrorCode.TOKEN_INVALID });
   });
 });
 
-describe('JWT rotation — verifyServicePrincipal path', () => {
-  it('accepts a previous-secret service token during rotation', async () => {
-    process.env.JWT_SECRET_PREVIOUS = OLD_SECRET;
-    const { verifyServicePrincipal } = await loadAuth();
+describe('service-token rotation — per-service keys (#14)', () => {
+  let keys: TestServiceKeysHandle;
 
-    const token = jwt.sign({ type: 'access', sub: 'service:billing', role: 'member' }, OLD_SECRET);
-    expect(verifyServicePrincipal(bearer(token))).toBe(true);
+  beforeEach(() => { keys = installTestServiceKeys(['billing', 'billing-next', 'compliance']); });
+  afterEach(() => keys.uninstall());
+
+  it('accepts a token signed with the RETIRING key while the bundle still publishes it', async () => {
+    // `billing-next` stands in for billing's INCOMING key; publishing both under
+    // the name `billing` is the overlap window.
+    keys.publishKeys({ billing: [keys.keys.get('billing')!, keys.keys.get('billing-next')!] });
+    const { verifyServicePrincipal } = await loadAuth();
+    expect(verifyServicePrincipal(bearer(keys.sign('billing')))).toBe(true);
   });
 
-  it('rejects a previous-secret service token when no previous secret is set', async () => {
+  it('rejects a token whose key is no longer published', async () => {
+    const retired = keys.sign('billing');
+    keys.publish(['compliance']);
     const { verifyServicePrincipal } = await loadAuth();
+    expect(verifyServicePrincipal(bearer(retired))).toBe(false);
+  });
 
-    const token = jwt.sign({ type: 'access', sub: 'service:billing', role: 'member' }, OLD_SECRET);
+  it('refuses a token signed by ANOTHER service, however valid its own key is', async () => {
+    const { verifyServicePrincipal } = await loadAuth();
+    // `sub: service:billing`, signed with compliance's key. This is the forgery
+    // the shared secret could never detect.
+    expect(verifyServicePrincipal(bearer(keys.signAs('compliance', 'billing')))).toBe(false);
+  });
+
+  it('never accepts an ES256 user token as a service principal', async () => {
+    const key = generateTestSigningKey();
+    installTestJwks([key]);
+    const { verifyServicePrincipal } = await loadAuth();
+    const token = await signTestUserToken(userClaims('user1'), { key });
+    expect(verifyServicePrincipal(bearer(token))).toBe(false);
+  });
+
+  it('never accepts an HS256 token, whatever secret signed it', async () => {
+    const { verifyServicePrincipal } = await loadAuth();
+    const token = jwt.sign({ ...SERVICE, sub: 'service:billing' }, 'any-shared-secret');
     expect(verifyServicePrincipal(bearer(token))).toBe(false);
   });
 });

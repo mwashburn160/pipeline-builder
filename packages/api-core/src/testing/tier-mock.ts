@@ -10,8 +10,8 @@
  * *package* specifier only — this file is imported through the DEEP built path
  * `@pipeline-builder/api-core/lib/testing/tier-mock.js`, a different specifier the
  * mock does NOT intercept, so a mock can pull real, complete tier data without
- * self-referencing its own mock. api-core has no `exports` map, so the subpath
- * resolves; both sides are ESM so there's no interop wrinkle.
+ * self-referencing its own mock. api-core's `exports` map keeps `./lib/*` open
+ * for exactly this; both sides are ESM so there's no interop wrinkle.
  *
  * WHAT IT BUYS: the tier NAME LIST is sourced from the real `VALID_TIERS`, so
  * adding a tier in `quota-tiers.ts` flows into every mock automatically — no more

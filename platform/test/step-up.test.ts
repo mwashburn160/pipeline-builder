@@ -15,6 +15,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockUserFindById = jest.fn();
 const mockAudit = jest.fn();
 const mockIssueStepUpToken = jest.fn();
+const mockIncCounter = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => {
@@ -37,13 +38,21 @@ jest.unstable_mockModule('mongoose', () => {
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
+
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   withController: (_label: string, fn: Function) =>
     async (req: any, res: any) => fn(req, res),
 }));
 
 jest.unstable_mockModule('../src/utils/token.js', () => ({
-  signPersonalAccessToken: jest.fn(),
+  // Session-auth helpers the controllers now import (see utils/token.ts).
+  signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+  findRefreshSession: jest.fn(async () => undefined),
+  signApiKeyToken: jest.fn(),
+  signServiceAccountToken: jest.fn(),
+  membershipForOrg: jest.fn(async () => undefined),
   issueStepUpToken: (...a: unknown[]) => mockIssueStepUpToken(...a),
 }));
 
@@ -70,6 +79,7 @@ beforeEach(() => {
   mockUserFindById.mockReset();
   mockAudit.mockReset();
   mockIssueStepUpToken.mockReset();
+  mockIncCounter.mockReset();
 });
 
 describe('stepUpVerify', () => {
@@ -111,8 +121,13 @@ describe('stepUpVerify', () => {
     expect(mockAudit).toHaveBeenCalledWith(
       req,
       'user.login.failed',
-      expect.objectContaining({ targetType: 'step-up', targetId: 'u1' }),
+      expect.objectContaining({
+        targetType: 'step-up',
+        targetId: 'u1',
+        details: expect.objectContaining({ method: 'password' }),
+      }),
     );
+    expect(mockIncCounter).toHaveBeenCalledWith('platform_step_up_total', { method: 'password', outcome: 'failure' });
     expect(res.status).toHaveBeenCalledWith(401);
   });
 
@@ -125,11 +140,17 @@ describe('stepUpVerify', () => {
     const res = mockRes();
     await (stepUpVerify as unknown as (req: any, res: any) => Promise<void>)(req, res);
 
-    expect(mockIssueStepUpToken).toHaveBeenCalledWith('u1');
+    expect(mockIssueStepUpToken).toHaveBeenCalledWith('u1', 'password');
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ ok: true, stepUpToken: 'jwt.token.here', expiresAt: 1700000000 }),
+      data: expect.objectContaining({ ok: true, stepUpToken: 'jwt.token.here', expiresAt: 1700000000, method: 'password' }),
     }));
-    expect(mockAudit).not.toHaveBeenCalled();
+    // Success is audited too, carrying HOW the step-up was earned.
+    expect(mockAudit).toHaveBeenCalledWith(
+      req,
+      'user.step-up',
+      expect.objectContaining({ targetId: 'u1', details: { method: 'password' } }),
+    );
+    expect(mockIncCounter).toHaveBeenCalledWith('platform_step_up_total', { method: 'password', outcome: 'success' });
   });
 });

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, sendBadRequest, sendSuccess, sendPaginatedNested, parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, requirePermission, sendBadRequest, sendSuccess, sendPaginatedNested, parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import type { RequestContext } from '@pipeline-builder/api-server';
@@ -20,6 +20,14 @@ function parentOrgIdOf(req: Request): string | undefined {
   return (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
 }
 
+/**
+ * Register the read routes.
+ *
+ * Expects auth + orgId + tenant scope (the shared `/plugins` chain) from the
+ * parent mount. `plugins:read` is attached PER ROUTE here rather than at the
+ * mount: the mount's gates are prefix layers that also run for every request
+ * falling through to the later write mounts, which must not require `:read`.
+ */
 export function createReadPluginRoutes(
   quotaService: QuotaService,
 ): Router {
@@ -33,7 +41,7 @@ export function createReadPluginRoutes(
   // Lives on the plugin service (not pipeline) because the consumer is the
   // plugins dashboard. The query reads the shared `pipeline` table via the
   // pipeline-data drizzle connection — both services share the same Postgres.
-  router.get('/plugin-usage', withRoute(async ({ res, ctx, orgId }) => {
+  router.get('/plugin-usage', requirePermission('plugins:read'), withRoute(async ({ res, ctx, orgId }) => {
     // Explicit per-org scoping (defense-in-depth). `withTenantTx` SET LOCALs
     // `app.org_id`, so once FORCE ROW LEVEL SECURITY lands the RLS policy on
     // `pipelines` will also scope this. But RLS is documented as currently
@@ -64,7 +72,7 @@ export function createReadPluginRoutes(
   }));
 
   // GET /plugins — paginated list
-  router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const filter = validateQuery(req, PluginFilterSchema);
     if (!filter.ok) return sendBadRequest(res, filter.error);
 
@@ -119,7 +127,7 @@ export function createReadPluginRoutes(
     return sendSuccess(res, 200, { plugin: shapePlugin(result) });
   };
 
-  router.post('/lookup', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/lookup', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { filter } = req.body ?? {};
     if (!filter || typeof filter !== 'object') return sendBadRequest(res, 'Filter is required in request body', ErrorCode.MISSING_REQUIRED_FIELD);
     const parsed = PluginFilterSchema.safeParse(filter);
@@ -128,7 +136,7 @@ export function createReadPluginRoutes(
   }));
 
   // GET /plugins/find — single plugin by filter
-  router.get('/find', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/find', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const validated = validateQuery(req, PluginFilterSchema);
     if (!validated.ok) return sendBadRequest(res, validated.error);
     return respondWithSinglePlugin(validated.value as PluginFilter, req, res, orgId, ctx, true);
@@ -137,7 +145,7 @@ export function createReadPluginRoutes(
   // GET /plugins/deleted — org's soft-deleted tombstones (most recent first),
   // powering the "recently deleted" restore UI. Registered BEFORE `/:id` so the
   // literal path isn't swallowed by the id matcher.
-  router.get('/deleted', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/deleted', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query as Record<string, unknown>);
     const deleted = await pluginService.findDeleted(orgId, { limit, offset });
 
@@ -148,7 +156,7 @@ export function createReadPluginRoutes(
   }));
 
   // GET /plugins/:id — single plugin by UUID
-  router.get('/:id', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/:id', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Plugin ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);

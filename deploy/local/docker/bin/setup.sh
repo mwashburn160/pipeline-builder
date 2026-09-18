@@ -92,6 +92,18 @@ bash "$BIN_DIR/nginx-tls.sh" "$CERT_DIR"
 # creates the mount paths as empty DIRECTORIES and both containers crash-loop
 # ("is a directory" / EISDIR reading the PEM). Idempotent (skips if present).
 bash "$BIN_DIR/jwt-keys.sh" "$CERT_DIR"
+# ES256 user-token signing key → certs/token-signing.key, bind-mounted into the
+# platform container at /etc/pipeline-builder/keys/. Same must-exist-before-`up`
+# rule as the registry keypair above (Docker would otherwise create the mount
+# path as a directory and platform would refuse to boot). Idempotent.
+bash "$BIN_DIR/token-signing-keys.sh" "$CERT_DIR"
+# PER-SERVICE ES256 keys for INTERNAL service-to-service tokens (#14) →
+# certs/service-keys/<service>.key plus the public certs/service-keys/bundle.json.
+# Each container bind-mounts ONLY its own key (plus the shared public bundle), so
+# no service can sign as another. Same must-exist-before-`up` rule as the keys
+# above — Docker would otherwise create the mount paths as directories and every
+# service would refuse to boot. Idempotent (never rotates an existing key).
+bash "$BIN_DIR/service-signing-keys.sh" "$CERT_DIR"
 # (No registry htpasswd: the registry uses token auth — REGISTRY_AUTH: token in
 # docker-compose.yml; nothing mounts registry.passwd.)
 

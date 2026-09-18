@@ -58,14 +58,20 @@ async function loadSdk<T>(pkg: string): Promise<T> {
  * parses them into a normalized format, and POSTs them to the reporting service
  * via PLATFORM_BASE_URL.
  *
- * Authentication:
- * - PLATFORM_TOKEN env var (preferred — no Secrets Manager call)
- * - PLATFORM_SECRET_NAME env var → reads the JWT (password) from Secrets Manager
+ * Authentication (#N2 — service-account keys):
+ * The Lambda holds an opaque SERVICE-ACCOUNT KEY (`pb_sa_…`), never a JWT, and
+ * trades it at platform's `/auth/token/exchange` for a 5-minute token per batch.
+ * It verifies NOTHING locally: an opaque key carries no claims to check, and the
+ * exchange is the authority (a revoked key stops working within one token
+ * lifetime, which is the entire point of the shape). The key is minted by
+ * `pipeline-manager infra store-token` and rotated in place by the token-renew
+ * Lambda, so the secret's value changes underneath a warm container — which is
+ * why an auth failure re-reads the SECRET, not just the token.
  *
  * Environment variables:
  * - PLATFORM_BASE_URL — Base URL of the platform
- * - PLATFORM_TOKEN — JWT token (set directly, or)
- * - PLATFORM_SECRET_NAME — Secrets Manager secret containing { password: <JWT> }
+ * - PLATFORM_ACCESS_KEY — the `pb_sa_…` key set directly (no Secrets Manager call), or
+ * - PLATFORM_SECRET_NAME — Secrets Manager secret containing { password: <pb_sa_ key> }
  * - EVENT_DLQ_ARN — (optional) override for the dead-letter queue ARN used by the
  *   self-healing redrive; defaults to `<main-queue-arn>-dlq` derived from the SQS
  *   trigger's eventSourceARN.
@@ -197,42 +203,156 @@ async function resolvePipeline(arn: string, region: string): Promise<ResolvedPip
 }
 
 // ─── Auth ───────────────────────────────────────────────
+//
+// The stored credential is an OPAQUE service-account key (`pb_sa_…`), traded at
+// platform for a short-lived JWT. Nothing is verified here: an opaque key has no
+// claims and no signature, so there is nothing a local check could tell you that
+// the exchange does not tell you better — and the exchange re-reads the account,
+// its org and the key's own state every time, which is what makes a revocation
+// take effect within one token lifetime.
+//
+// This code is deliberately self-contained (see the file header: the Lambda ships
+// as ONE file), so it does not use api-core's exchange client. It keeps the same
+// contract: cache the token in the warm container, refresh EARLY (before expiry)
+// so a batch never presents a token that dies mid-flight, and fail the batch on
+// an exchange failure rather than shipping events unauthenticated.
 
+/** Refresh at this fraction of the token's life — never at the last moment. */
+const TOKEN_REFRESH_FRACTION = 0.8;
+/** Floor on the cached lifetime, so a surprisingly short TTL can't cause a
+ *  refresh storm (one exchange per batch at worst). */
+const MIN_TOKEN_CACHE_MS = 30_000;
+/** Per-request timeout for the exchange call. */
+const EXCHANGE_TIMEOUT_MS = 5000;
+
+/** Access-key prefixes platform issues. A stored JWT is NOT one of these. */
+const ACCESS_KEY_PREFIXES = ['pb_sa_', 'pb_pat_'];
+
+let cachedKey: string | null = null;
 let cachedToken: string | null = null;
+let cachedTokenExpiresAt = 0;
 
-async function getAuthToken(): Promise<string> {
-  if (cachedToken) return cachedToken;
+/**
+ * Read (and cache) the service-account key: `PLATFORM_ACCESS_KEY` if set,
+ * otherwise the `password` field of the Secrets Manager secret named by
+ * `PLATFORM_SECRET_NAME`.
+ *
+ * Fails CLOSED and LOUDLY on a stored JWT. After the #N2 cutover the secret holds
+ * a key, and a deployment still carrying the old machine-session JWT would
+ * otherwise fail later as an opaque 401 from the reporting API — three layers
+ * away from the thing an operator has to fix.
+ */
+async function getAccessKey(): Promise<string> {
+  if (cachedKey) return cachedKey;
 
-  // Path 1: PLATFORM_TOKEN env var (no Secrets Manager call)
-  if (process.env.PLATFORM_TOKEN) {
-    cachedToken = process.env.PLATFORM_TOKEN;
-    log.info('Using PLATFORM_TOKEN from environment');
-    return cachedToken;
+  const direct = process.env.PLATFORM_ACCESS_KEY;
+  if (direct) {
+    assertAccessKey(direct, 'PLATFORM_ACCESS_KEY');
+    cachedKey = direct;
+    log.info('Using PLATFORM_ACCESS_KEY from environment');
+    return cachedKey;
   }
 
-  // Path 2: PLATFORM_SECRET_NAME → read from Secrets Manager
   const secretName = process.env.PLATFORM_SECRET_NAME;
   if (!secretName) {
-    throw new Error('PLATFORM_TOKEN or PLATFORM_SECRET_NAME environment variable is required');
+    throw new Error('PLATFORM_ACCESS_KEY or PLATFORM_SECRET_NAME environment variable is required');
   }
 
-  log.info(`Fetching token from Secrets Manager: ${secretName}`);
+  log.info(`Fetching access key from Secrets Manager: ${secretName}`);
   const client = new SecretsManagerClient({});
   const response = await client.send(new GetSecretValueCommand({ SecretId: secretName }));
-
   if (!response.SecretString) throw new Error(`Secret "${secretName}" is empty`);
 
   const secret = JSON.parse(response.SecretString) as Record<string, string>;
-  // infra store-token writes the JWT in `password` (the canonical field — also used by
-  // CodeBuild secretsManagerCredentials, the plugin-lookup Lambda, and token-renew).
-  const token = secret.password;
-  if (!token) {
-    throw new Error('Secret missing JWT (password) — run "pipeline-manager infra store-token" to generate');
+  // `password` stays the canonical field (CodeBuild's secretsManagerCredentials
+  // and the plugin-lookup Lambda read the same one) — only its VALUE changed,
+  // from a JWT to an opaque key.
+  const key = secret.password;
+  if (!key) {
+    throw new Error(`Secret "${secretName}" missing password — run "pipeline-manager infra store-token" to provision a service-account key`);
+  }
+  assertAccessKey(key, `secret "${secretName}"`);
+
+  cachedKey = key;
+  log.info('Using stored service-account key from Secrets Manager');
+  return cachedKey;
+}
+
+/** Refuse anything that is not an opaque access key, naming where it came from. */
+function assertAccessKey(value: string, source: string): void {
+  if (ACCESS_KEY_PREFIXES.some((p) => value.startsWith(p))) return;
+  const looksLikeJwt = value.split('.').length === 3;
+  throw new Error(
+    `${source} does not hold an opaque access key (expected a "pb_sa_…" value)`
+    + (looksLikeJwt
+      ? ' — it still holds a JWT from before the service-account cutover. Re-run "pipeline-manager infra store-token" to reissue it as a key.'
+      : '.'),
+  );
+}
+
+/**
+ * Trade the stored key for a short-lived platform token, cached per warm
+ * container until it is 80% through its life. Throws on any failure, which fails
+ * the batch so SQS retries it — an unauthenticated ship is never an option.
+ */
+async function getAuthToken(): Promise<string> {
+  if (cachedToken && Date.now() < cachedTokenExpiresAt) return cachedToken;
+
+  const baseUrl = (process.env.PLATFORM_BASE_URL || '').replace(/\/+$/, '');
+  if (!baseUrl) throw new Error('PLATFORM_BASE_URL environment variable is required');
+  const key = await getAccessKey();
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), EXCHANGE_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}/api/auth/token/exchange`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ key }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
   }
 
-  cachedToken = token;
-  log.info('Using stored JWT token from Secrets Manager');
-  return cachedToken;
+  if (!res.ok) {
+    // A rejected key is the one failure an operator has to act on, and platform
+    // deliberately answers every refusal the same way — so say what to check
+    // rather than echoing an undifferentiated 401.
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(
+        `Access-key exchange refused (${res.status}) — the stored key is unknown, revoked, expired, `
+        + 'its service account is disabled, or this address is outside the key’s IP allowlist',
+      );
+    }
+    throw new Error(`Access-key exchange failed: ${res.status}`);
+  }
+
+  const body = await res.json().catch(() => ({})) as { data?: { accessToken?: string; expiresIn?: number } };
+  const accessToken = body.data?.accessToken;
+  if (!accessToken) throw new Error('Access-key exchange returned no access token');
+
+  const ttlMs = (typeof body.data?.expiresIn === 'number' && body.data.expiresIn > 0 ? body.data.expiresIn : 300) * 1000;
+  cachedToken = accessToken;
+  cachedTokenExpiresAt = Date.now() + Math.max(MIN_TOKEN_CACHE_MS, ttlMs * TOKEN_REFRESH_FRACTION);
+  log.info('Exchanged the stored service-account key for a platform token');
+  return accessToken;
+}
+
+/**
+ * Drop everything the container is holding about its credential after a 401/403
+ * from the API. The token is dropped for the obvious reason; the KEY is dropped
+ * because the token-renew Lambda rotates the secret underneath us — a warm
+ * container that only re-exchanged would keep presenting the retired key
+ * forever. The next call re-reads the secret and picks up the replacement.
+ */
+function invalidateCredential(): void {
+  cachedToken = null;
+  cachedTokenExpiresAt = 0;
+  // Only the SECRET path can be refreshed; an env-provided key cannot change
+  // without a new container, so keep it rather than re-reading an env var.
+  if (!process.env.PLATFORM_ACCESS_KEY) cachedKey = null;
 }
 
 // ─── Phase 4: in-account commit-range resolution ─────────
@@ -928,11 +1048,12 @@ export const handler = async (event: SQSEvent): Promise<void> => {
     return;
   }
 
-  // POST batch to reporting service. On a 401/403 the cached JWT has likely
-  // expired — drop it, re-fetch, and retry ONCE so an expired token doesn't
-  // permanently brick a warm container. `orgId` is INTERNAL (token/health keying) —
-  // strip it here so it never rides the wire; the ingest resolves org from the
-  // pipeline registry, not the body.
+  // POST batch to reporting service. On a 401/403 the credential this container
+  // holds is stale — most often because the token-renew Lambda rotated the key in
+  // Secrets Manager — so drop BOTH the cached token and the cached key, re-read,
+  // and retry ONCE. `orgId` is INTERNAL (token/health keying) — strip it here so
+  // it never rides the wire; the ingest resolves org from the pipeline registry,
+  // not the body.
   const payloadEvents = events.map(({ orgId: _orgId, ...rest }) => rest);
   const post = (token: string) => fetch(`${baseUrl}/api/reports/events`, {
     method: 'POST',
@@ -941,8 +1062,8 @@ export const handler = async (event: SQSEvent): Promise<void> => {
   });
   let res = await post(await getAuthToken());
   if (res.status === 401 || res.status === 403) {
-    log.warn('Reporting API auth failed; refreshing token and retrying once', { status: res.status });
-    cachedToken = null;
+    log.warn('Reporting API auth failed; re-reading the stored key and retrying once', { status: res.status });
+    invalidateCredential();
     res = await post(await getAuthToken());
   }
 
@@ -988,5 +1109,7 @@ export function _resetForTests(): void {
   lastEventAtByOrg.clear();
   lastHealthAt = 0;
   lastRedriveAt = 0;
+  cachedKey = null;
   cachedToken = null;
+  cachedTokenExpiresAt = 0;
 }

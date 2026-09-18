@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, errorMessage, requireAuth, requireServicePrincipal, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, errorMessage, requireAuth, requireInternalService, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { runWithTenantContext, type MessageInsert } from '@pipeline-builder/pipeline-data';
@@ -23,8 +23,11 @@ const CONTENT_MAX = 10000; // sane bound for a notification body (content is TEX
  * WITHOUT a user session. Used by the domain-based-join flow to notify org
  * admins of a new join request and the requester of the decision.
  *
- * Gated by `requireAuth` + `requireServicePrincipal` — a signed service token,
- * never a user session — mirroring the internal org-purge route.
+ * Gated by `requireAuth` + `requireInternalService` — a signed service token
+ * from `platform` (the only caller: the domain-join flow), never a user session,
+ * mirroring the internal org-purge route. The mesh policy on the targets that
+ * run Istio names the same caller; compose has no mesh, so this gate is the
+ * whole enforcement there.
  *
  * The insert runs inside an EXPLICIT system tenant scope (`isSuperAdmin: true`):
  * the caller's service token is scoped to `recipientOrgId`, so without this the
@@ -39,7 +42,7 @@ const CONTENT_MAX = 10000; // sane bound for a notification body (content is TEX
 export function createInternalNotifyRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
-  router.post('/internal/notify', requireAuth, requireServicePrincipal, async (req: Request, res: Response) => {
+  router.post('/internal/notify', requireAuth, requireInternalService({ callers: ['platform'] }), async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as { recipientOrgId?: string; recipientUserId?: string; subject?: string; content?: string };
     const recipientUserId = body.recipientUserId;
     const subject = body.subject?.trim();

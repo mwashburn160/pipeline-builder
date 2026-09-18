@@ -37,7 +37,6 @@ import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 // encrypted fields, JWTs, or refresh tokens.
 process.env.SECRET_ENCRYPTION_KEY ||= '0000000000000000000000000000000000000000000000000000000000000000';
 process.env.JWT_SECRET ||= 'test-only-jwt-secret';
-process.env.REFRESH_TOKEN_SECRET ||= 'test-only-refresh-secret';
 
 // Pin the mongod build: the default 7.x line SIGABRTs under this runner, while
 // 6.0.14 starts cleanly. Overridable via MONGOMS_VERSION.

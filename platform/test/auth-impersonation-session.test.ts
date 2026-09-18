@@ -4,13 +4,14 @@
 /**
  * `requireAuth` IMPERSONATION-SESSION branch (middleware/auth.ts).
  *
- * An impersonation token carries a `jti` — and so does a Personal Access Token.
- * They are validated against completely different records, so the impersonation
- * branch must be tested for both halves of that split:
+ * An impersonation token carries a `jti` — and so does the token an access key is
+ * exchanged for (there it names the key). They are validated against completely
+ * different records, so the impersonation branch must be tested for both halves
+ * of that split:
  *
- *   1. It must be reached AT ALL. Before this branch existed the PAT lookup
- *      caught every `jti`, found no PersonalAccessToken, and 401'd — which would
- *      have broken every impersonated request the moment a jti was added.
+ *   1. It must be reached AT ALL, and be chosen by the `impersonatorId` claim
+ *      rather than by the presence of a `jti` — a shape-based split would route
+ *      one credential's traffic into the other's validation.
  *   2. It must FAIL CLOSED. Unlike the rest of auth (fail-open on a Redis blip,
  *      so an outage can't lock everyone out), an unreadable impersonation record
  *      denies: the cost is that an operator re-requests, whereas failing open
@@ -20,9 +21,13 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
+// Loading the auth middleware pulls in platform's config module, which refuses
+// to boot without these secrets.
+process.env.JWT_SECRET ||= 'test-only-jwt-secret';
+process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
+
 const mockVerifyAccessToken = jest.fn<(...a: unknown[]) => unknown>();
 const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
-const mockPatFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const mockImpFindOne = jest.fn<(...a: unknown[]) => unknown>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -37,7 +42,6 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findById: (...a: unknown[]) => mockUserFindById(...a) },
   Organization: { findById: jest.fn() },
   UserOrganization: { findOne: jest.fn() },
-  PersonalAccessToken: { findOne: (...a: unknown[]) => mockPatFindOne(...a), updateOne: jest.fn() },
   ImpersonationRequest: { findOne: (...a: unknown[]) => mockImpFindOne(...a) },
 }));
 
@@ -66,6 +70,11 @@ beforeEach(() => {
   mockVerifyAccessToken.mockReturnValue({
     type: 'access',
     sub: 'target-user',
+    principalType: 'user',
+    token_use: 'access',
+    amr: ['pwd'],
+    aal: 1,
+    auth_time: 1_700_000_000,
     jti: 'jti-1',
     impersonatorId: 'sysadmin-1',
     impersonationReadOnly: true,
@@ -86,15 +95,15 @@ describe('requireAuth — impersonation session', () => {
     expect(res.status).not.toHaveBeenCalled();
   });
 
-  it('never consults the PAT table for an impersonation token', async () => {
+  it('resolves an impersonation token through the impersonation record', async () => {
     mockImpFindOne.mockReturnValue(selectLean({ status: 'consumed', targetUserId: 'target-user' }));
     const res = makeRes(); const next = jest.fn();
 
     await (requireAuth as any)(req(), res, next);
 
-    // THE regression guard. Both token kinds carry a jti; if the PAT branch
-    // catches this one it finds nothing and 401s every impersonated request.
-    expect(mockPatFindOne).not.toHaveBeenCalled();
+    // THE regression guard: both token kinds carry a jti, so the branch must be
+    // chosen by `impersonatorId` or every impersonated request 401s.
+    expect(mockImpFindOne).toHaveBeenCalled();
     expect(next).toHaveBeenCalled();
   });
 
@@ -142,15 +151,25 @@ describe('requireAuth — impersonation session', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('still routes a PAT (jti, no impersonatorId) to the PAT branch', async () => {
-    mockVerifyAccessToken.mockReturnValue({ type: 'access', sub: 'u1', jti: 'pat-1', tokenVersion: 1 });
-    mockPatFindOne.mockReturnValue(selectLean({ revoked: false, expiresAt: null, lastUsedAt: new Date() }));
+  it('does not route an exchanged ACCESS-KEY token (api_key, no impersonatorId) to the impersonation branch', async () => {
+    mockVerifyAccessToken.mockReturnValue({
+      type: 'access',
+      sub: 'u1',
+      // A key token carries `jti` (the key id) just like an impersonation session
+      // does — which is exactly why the branch is chosen by `impersonatorId`, not
+      // by the shape of the claims.
+      jti: 'key-1',
+      tokenVersion: 1,
+      principalType: 'user',
+      token_use: 'api_key',
+      amr: ['pwd'],
+      aal: 1,
+      auth_time: 1_700_000_000,
+    });
     const res = makeRes(); const next = jest.fn();
 
     await (requireAuth as any)(req(), res, next);
 
-    // The split must not steal PAT traffic either.
-    expect(mockPatFindOne).toHaveBeenCalled();
     expect(mockImpFindOne).not.toHaveBeenCalled();
     expect(next).toHaveBeenCalled();
   });

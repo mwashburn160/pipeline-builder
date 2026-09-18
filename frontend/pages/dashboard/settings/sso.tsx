@@ -13,6 +13,7 @@
  * independently enforces both the permission (own-org only) and the entitlement.
  */
 
+import { useState } from 'react';
 import { ShieldCheck, Lock } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFeatures } from '@/hooks/useFeatures';
@@ -20,10 +21,16 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Callout } from '@/components/ui/Callout';
 import { OrgSsoSettings } from '@/components/settings/OrgSsoSettings';
+import { SsoGroupMappings } from '@/components/settings/SsoGroupMappings';
+import { ScimProvisioning } from '@/components/settings/ScimProvisioning';
+import type { OrgIdpConfigDto } from '@/types';
 
 export default function OrgSsoSettingsPage() {
-  const { isReady, user, isSuperAdmin, isReadOnly } = useAuthGuard({ requirePermission: 'org:idp' });
+  const { isReady, user, isSuperAdmin, isReadOnly, can } = useAuthGuard({ requirePermission: 'org:idp' });
   const { isEnabled, isLoaded } = useFeatures();
+  // The mapping editor renders what the CONFIGURED provider supports, and only
+  // the connection form below knows which one that is.
+  const [idpConfig, setIdpConfig] = useState<OrgIdpConfigDto | null>(null);
 
   if (!isReady || !user) return <LoadingPage />;
 
@@ -53,7 +60,26 @@ export default function OrgSsoSettingsPage() {
             Could not determine your active organization. Try reloading the page.
           </Callout>
         ) : (
-          <OrgSsoSettings orgId={orgId} readOnly={isReadOnly} />
+          <>
+            <OrgSsoSettings orgId={orgId} readOnly={isReadOnly} onConfigChange={setIdpConfig} />
+            {/* Group → role mapping is governed by `roles:manage`, not `org:idp`:
+                it grants roles, so an org can delegate the login connection and
+                the role policy to different people. The API enforces the same. */}
+            {can('roles:manage') && (
+              <SsoGroupMappings
+                orgId={orgId}
+                provider={idpConfig?.provider ?? null}
+                readOnly={isReadOnly}
+              />
+            )}
+            {/* SCIM rides the same `sso` entitlement as the two above, but its
+                control is a MACHINE CREDENTIAL, so it is gated on the capability
+                that governs those (`service_accounts:manage`) rather than on
+                `org:idp`. The API enforces the same split. */}
+            {can('service_accounts:manage') && (
+              <ScimProvisioning orgId={orgId} readOnly={isReadOnly} />
+            )}
+          </>
         )}
       </div>
     </DashboardLayout>

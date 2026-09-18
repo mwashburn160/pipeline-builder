@@ -10,7 +10,7 @@
  * without shelling into Mongo.
  */
 
-import { requirePermission, requireStepUp } from '@pipeline-builder/api-core';
+import { audited, requirePermission, requireStepUp } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   deleteOrgKmsConfig,
@@ -30,8 +30,8 @@ const router: Router = Router({ mergeParams: true });
 router.get('/', requireAuth, requirePermission('org:kms'), getOrgKmsConfig);
 // Mutations re-encrypt every per-org secret under a new CMK — gate on
 // step-up so a stolen session can't rotate the wrapping key.
-router.put('/', requireAuth, requirePermission('org:kms'), requireStepUp, putOrgKmsConfig);
-router.delete('/', requireAuth, requirePermission('org:kms'), requireStepUp, deleteOrgKmsConfig);
+router.put('/', requireAuth, requirePermission('org:kms'), requireStepUp, audited('admin.org.kms-config.upsert'), putOrgKmsConfig);
+router.delete('/', requireAuth, requirePermission('org:kms'), requireStepUp, audited('admin.org.kms-config.delete'), deleteOrgKmsConfig);
 // POST /test — dry-run the proposed config without touching Mongo.
 // Read-only; no step-up needed (and we want operators to be able to
 // validate a CMK without having to re-prompt every time).
